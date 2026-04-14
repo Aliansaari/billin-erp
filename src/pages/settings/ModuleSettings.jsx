@@ -392,6 +392,31 @@ export default function ModuleSettings() {
           </Button>
         </div>
       </Form>
+
+      {/* Danger Zone */}
+      <div style={{ marginTop: 32, border: '1.5px solid #fecaca', borderRadius: 10, padding: '20px 24px', background: '#fff5f5' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <WarningOutlined style={{ color: '#ef4444', fontSize: 18 }} />
+              <span style={{ fontWeight: 700, fontSize: 15, color: '#b91c1c' }}>Danger Zone</span>
+            </div>
+            <div style={{ fontSize: 13, color: '#6b7280' }}>
+              Permanently delete selected data from the software. This cannot be undone.
+            </div>
+          </div>
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => setCleanupOpen(true)}
+            style={{ fontWeight: 600 }}
+          >
+            Clean / Reset Data
+          </Button>
+        </div>
+      </div>
+
+      <CleanupModal open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
     </div>
   );
 }
