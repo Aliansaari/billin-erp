@@ -66,6 +66,9 @@ export default function SalesBillForm() {
   const [discAmtVal, setDiscAmtVal]       = useState(0);
   const discAmtEditingRef                 = useRef(false);
 
+  // Prevents the auto paid_amount effect from overwriting loaded edit values
+  const billLoadedRef = useRef(false);
+
   const barcodeRef   = useRef(null);
   const prodRef      = useRef(null);
   const prodWrapRef  = useRef(null);
@@ -138,6 +141,8 @@ export default function SalesBillForm() {
         mrp:parseFloat(it.mrp)||0, hsn_code:it.hsn_code||'',
         gst_rate:parseFloat(it.gst_rate)||0, available_stock:0,
       })));
+      // Mark bill as loaded so auto paid_amount effect doesn't overwrite it
+      billLoadedRef.current = true;
     }catch{ message.error('Failed to load bill'); navigate('/sales'); }
     finally{ setPgLoading(false); }
   };
@@ -318,7 +323,16 @@ export default function SalesBillForm() {
   },[customerId, parties]);
 
   /* Auto-fill paid amount based on credit policy */
+  /* In edit mode this runs once after bill loads — skip it so we don't
+     overwrite the saved paid_amount. After that, billLoadedRef stays true
+     and subsequent user-triggered changes (customer switch etc.) are
+     intentional so we reset the guard then. */
   useEffect(()=>{
+    // Skip auto-fill if we just loaded an existing bill
+    if(isEdit && billLoadedRef.current){
+      billLoadedRef.current = false; // allow future changes by the user
+      return;
+    }
     const ret = parseFloat(returnAmt||0);
     const due = Math.max(0, +(roundedTotal - ret).toFixed(2));
     if(!customerId){

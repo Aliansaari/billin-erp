@@ -132,6 +132,7 @@ exports.cleanupData = async (req, res) => {
 
     // ── Sales ──────────────────────────────────────────────
     if (categories.includes('sales')) {
+      await del('DELETE FROM stock_ledger WHERE transaction_type = \'Sales\'');
       await del('DELETE FROM sales_bill_items');
       await del('DELETE FROM sales_bills');
       await del("UPDATE parties SET current_balance = 0 WHERE party_type IN ('Customer','Both')");
@@ -139,6 +140,7 @@ exports.cleanupData = async (req, res) => {
 
     // ── Purchases ─────────────────────────────────────────
     if (categories.includes('purchases')) {
+      await del('DELETE FROM stock_ledger WHERE transaction_type = \'Purchase\'');
       await del('DELETE FROM purchase_bill_items');
       await del('DELETE FROM purchase_bills');
       await del("UPDATE parties SET current_balance = 0 WHERE party_type IN ('Supplier','Both')");
@@ -146,24 +148,30 @@ exports.cleanupData = async (req, res) => {
 
     // ── Payments & Receipts ───────────────────────────────
     if (categories.includes('payments')) {
-      await del('DELETE FROM payments');
+      await del('DELETE FROM payment_splits');
+      await del('DELETE FROM payments_receipts');
     }
 
     // ── Stock Ledger (history only) ───────────────────────
     if (categories.includes('stock_ledger')) {
       await del('DELETE FROM stock_ledger');
-      await del('UPDATE products SET current_stock = 0');
+      await del('UPDATE products SET current_stock = opening_stock');
     }
 
     // ── Products (requires stock_ledger cleared first) ────
     if (categories.includes('products')) {
+      await del('DELETE FROM sales_bill_items');
+      await del('DELETE FROM purchase_bill_items');
       await del('DELETE FROM stock_ledger');
       await del('DELETE FROM products');
     }
 
     // ── Parties ───────────────────────────────────────────
     if (categories.includes('parties')) {
-      await del('DELETE FROM payments');
+      await del('DELETE FROM payment_splits');
+      await del('DELETE FROM payments_receipts');
+      await del('DELETE FROM ledger_entries');
+      await del('DELETE FROM ledger_accounts');
       await del('DELETE FROM sales_bill_items');
       await del('DELETE FROM sales_bills');
       await del('DELETE FROM purchase_bill_items');

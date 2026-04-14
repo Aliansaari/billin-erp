@@ -189,6 +189,7 @@ export default function ModuleSettings() {
       form.setFieldsValue({
         gst_enabled:             !!s.gst_enabled,
         low_stock_alert_enabled: !!s.low_stock_alert_enabled,
+        allow_negative_stock:    !!s.allow_negative_stock,
         multi_warehouse_enabled: !!s.multi_warehouse_enabled,
         audit_trail_enabled:     !!s.audit_trail_enabled,
         backup_frequency:        s.backup_frequency || 'Daily',
@@ -248,6 +249,13 @@ export default function ModuleSettings() {
               </Form.Item>
               <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
                 Get notified when stock falls below minimum level
+              </Text>
+
+              <Form.Item name="allow_negative_stock" label="Allow Negative Stock" valuePropName="checked">
+                <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+              </Form.Item>
+              <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
+                When ON — sales can proceed even if stock goes below zero (stock shown in red). When OFF — sales are blocked if quantity would go negative.
               </Text>
 
               <Form.Item name="multi_warehouse_enabled" label="Enable Multi-Warehouse" valuePropName="checked">

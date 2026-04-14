@@ -2,7 +2,7 @@ const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { PaymentReceipt, PaymentSplit, Party, SalesBill, PurchaseBill } = require('../models');
 const { generateTransactionNumber } = require('../utils/helpers');
-const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { recalculatePartyBalance, getPartyOutstanding } = require('../utils/balanceHelper');
 
 exports.getAll = async (req, res) => {
   try {
@@ -64,6 +64,19 @@ exports.create = async (req, res) => {
     const lastNum = last ? parseInt(last.transaction_number.split('-').pop()) : 0;
     data.transaction_number = generateTransactionNumber(prefix, lastNum);
     data.created_by = req.user.user_id;
+
+    // ── Overpayment guard ─────────────────────────────────────────────────────
+    // Reject if payment/receipt exceeds the party's actual outstanding balance.
+    const outstanding = await getPartyOutstanding(data.party_id, data.transaction_type, t);
+    const paymentAmt  = parseFloat(data.total_amount) || 0;
+    if (paymentAmt > outstanding + 0.01) {          // 0.01 tolerance for rounding
+      await t.rollback();
+      const fmt = (n) => '₹' + parseFloat(n).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+      return res.status(400).json({
+        error: `${data.transaction_type === 'Payment' ? 'Payment' : 'Receipt'} amount ${fmt(paymentAmt)} exceeds outstanding balance of ${fmt(outstanding)}. Please enter a correct amount.`,
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     const payment = await PaymentReceipt.create(data, { transaction: t });
 
@@ -127,24 +140,42 @@ exports.cancel = async (req, res) => {
     if (!payment) { await t.rollback(); return res.status(404).json({ error: 'Transaction not found' }); }
     if (payment.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Already cancelled' }); }
 
-    // If this payment was linked to a bill, reverse the bill's paid_amount / balance_amount
+    // If this payment was linked to a bill, reverse the bill's balance_amount
     if (payment.reference_bill_id && payment.reference_bill_type) {
       if (payment.reference_bill_type === 'Sales') {
         const bill = await SalesBill.findByPk(payment.reference_bill_id, { transaction: t });
         if (bill && !bill.is_cancelled) {
-          // Restore balance_amount only — paid_amount is untouched (billing-time payment only)
-          const newBillBalance = Math.min(+(parseFloat(bill.balance_amount) + parseFloat(payment.total_amount)).toFixed(2), parseFloat(bill.total_amount));
-          const effectivePaid = +(parseFloat(bill.total_amount) - newBillBalance).toFixed(2);
-          let status = newBillBalance <= 0 ? 'Paid' : effectivePaid > 0 ? 'Partial' : 'Unpaid';
+          // Max possible balance = total minus what was already settled at billing time
+          // (paid_amount = cash at billing, return_amount = goods returned)
+          const maxBalance = +(
+            parseFloat(bill.total_amount)    -
+            parseFloat(bill.paid_amount  || 0) -
+            parseFloat(bill.return_amount || 0)
+          ).toFixed(2);
+          const newBillBalance = Math.min(
+            +(parseFloat(bill.balance_amount) + parseFloat(payment.total_amount)).toFixed(2),
+            maxBalance
+          );
+          let status = 'Unpaid';
+          if (newBillBalance <= 0)            status = 'Paid';
+          else if (newBillBalance < maxBalance) status = 'Partial';
           await bill.update({ balance_amount: newBillBalance, payment_status: status }, { transaction: t });
         }
       } else if (payment.reference_bill_type === 'Purchase') {
         const bill = await PurchaseBill.findByPk(payment.reference_bill_id, { transaction: t });
         if (bill && !bill.is_cancelled) {
-          // Restore balance_amount only — paid_amount is untouched (billing-time payment only)
-          const newBillBalance = Math.min(+(parseFloat(bill.balance_amount) + parseFloat(payment.total_amount)).toFixed(2), parseFloat(bill.total_amount));
-          const effectivePaid = +(parseFloat(bill.total_amount) - newBillBalance).toFixed(2);
-          let status = newBillBalance <= 0 ? 'Paid' : effectivePaid > 0 ? 'Partial' : 'Unpaid';
+          // Max possible balance = total minus what was paid at billing time
+          const maxBalance = +(
+            parseFloat(bill.total_amount)   -
+            parseFloat(bill.paid_amount || 0)
+          ).toFixed(2);
+          const newBillBalance = Math.min(
+            +(parseFloat(bill.balance_amount) + parseFloat(payment.total_amount)).toFixed(2),
+            maxBalance
+          );
+          let status = 'Unpaid';
+          if (newBillBalance <= 0)            status = 'Paid';
+          else if (newBillBalance < maxBalance) status = 'Partial';
           await bill.update({ balance_amount: newBillBalance, payment_status: status }, { transaction: t });
         }
       }

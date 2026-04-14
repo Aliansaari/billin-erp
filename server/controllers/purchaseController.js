@@ -300,12 +300,15 @@ exports.update = async (req, res) => {
     if (existingBill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Cannot edit a cancelled bill' }); }
 
     // ── Step 1: Reverse old stock effects (no reversal ledger entries) ───────
+    const settings2 = await SystemSettings.findByPk(1, { transaction: t });
+    const allowNeg2 = settings2?.allow_negative_stock || false;
+
     for (const oldItem of existingBill.items) {
       if (oldItem.product_id) {
         const product = await Product.findByPk(oldItem.product_id, { transaction: t });
         if (product) {
-          const revStock = Math.max(0, parseFloat(product.current_stock) - parseFloat(oldItem.quantity));
-          await product.update({ current_stock: revStock }, { transaction: t });
+          const revStock = +(parseFloat(product.current_stock) - parseFloat(oldItem.quantity)).toFixed(2);
+          await product.update({ current_stock: allowNeg2 ? revStock : Math.max(0, revStock) }, { transaction: t });
         }
       }
     }
@@ -363,10 +366,22 @@ exports.update = async (req, res) => {
       + parseFloat(freight_charges || 0)
     );
     const totalAmount = roundedAmount;
-    const balanceAmount = +(totalAmount - paid_amount).toFixed(2);
+
+    // Preserve payments already applied via the Payment module.
+    // payment controller only touches balance_amount (not paid_amount), so:
+    //   linkedPayments = old_total - old_balance - old_paid_at_billing
+    const oldPaidAtBilling  = parseFloat(existingBill.paid_amount)    || 0;
+    const oldBalance        = parseFloat(existingBill.balance_amount)  || 0;
+    const oldTotal          = parseFloat(existingBill.total_amount)    || 0;
+    const linkedPayments    = Math.max(0, +(oldTotal - oldBalance - oldPaidAtBilling).toFixed(2));
+
+    const newPaidAtBilling  = parseFloat(paid_amount) || 0;
+    const totalEffectivePaid = +(newPaidAtBilling + linkedPayments).toFixed(2);
+    const balanceAmount     = Math.max(0, +(totalAmount - totalEffectivePaid).toFixed(2));
+
     let paymentStatus = 'Unpaid';
-    if (paid_amount >= totalAmount) paymentStatus = 'Paid';
-    else if (paid_amount > 0) paymentStatus = 'Partial';
+    if (totalEffectivePaid >= totalAmount)  paymentStatus = 'Paid';
+    else if (totalEffectivePaid > 0)        paymentStatus = 'Partial';
 
     // ── Step 5: Update bill record ─────────────────────────────────────────
     await existingBill.update({
@@ -386,7 +401,9 @@ exports.update = async (req, res) => {
       cess_amount: totalCess, round_off: roundOffValue,
       other_charges: parseFloat(other_charges) || 0,
       freight_charges: parseFloat(freight_charges) || 0,
-      total_amount: totalAmount, paid_amount, balance_amount: balanceAmount,
+      total_amount: totalAmount,
+      paid_amount: newPaidAtBilling,
+      balance_amount: balanceAmount,
       payment_status: paymentStatus,
     }, { transaction: t });
 
@@ -451,11 +468,34 @@ exports.cancel = async (req, res) => {
     if (!bill) { await t.rollback(); return res.status(404).json({ error: 'Bill not found' }); }
     if (bill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Bill already cancelled' }); }
 
+    // Block cancellation if any product in this bill has been sold
+    for (const item of bill.items) {
+      if (item.product_id) {
+        const salesCount = await StockLedger.count({
+          where: { product_id: item.product_id, transaction_type: 'Sales' },
+          transaction: t,
+        });
+        if (salesCount > 0) {
+          const prod = await Product.findByPk(item.product_id, { transaction: t });
+          await t.rollback();
+          return res.status(400).json({
+            error: `Cannot cancel this purchase bill — "${prod.product_name}" has ${salesCount} sales transaction(s). Cancelling would create invalid negative stock. Create a Purchase Return instead.`,
+          });
+        }
+      }
+    }
+
+    // Get negative stock setting
+    const settings = await SystemSettings.findByPk(1, { transaction: t });
+    const allowNegativeStock = settings?.allow_negative_stock || false;
+
     for (const item of bill.items) {
       if (item.product_id) {
         const product = await Product.findByPk(item.product_id, { transaction: t });
         const newStock = +((parseFloat(product.current_stock) || 0) - parseFloat(item.quantity)).toFixed(2);
-        await product.update({ current_stock: Math.max(0, newStock) }, { transaction: t });
+        await product.update({
+          current_stock: allowNegativeStock ? newStock : Math.max(0, newStock),
+        }, { transaction: t });
       }
     }
 

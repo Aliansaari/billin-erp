@@ -23,6 +23,7 @@ import {
   BankOutlined,
   ThunderboltOutlined,
   TableOutlined,
+  CloudServerOutlined,
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -98,6 +99,7 @@ const menuItems = [
       { key: '/settings/users', icon: <UserOutlined />, label: 'Users' },
       { key: '/settings/barcode', icon: <TagsOutlined />, label: 'Barcode' },
       { key: '/settings/modules', icon: <ThunderboltOutlined />, label: 'Modules' },
+      { key: '/settings/backup', icon: <CloudServerOutlined />, label: 'Backup & Recovery' },
     ],
   },
 ];

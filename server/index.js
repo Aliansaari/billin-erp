@@ -29,6 +29,7 @@ app.use('/api/payments', require('./routes/payments'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/data', require('./routes/importExport'));
+app.use('/api/backup', require('./routes/backup'));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -131,6 +132,8 @@ async function startServer() {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on http://localhost:${PORT}`);
       console.log(`API available at http://localhost:${PORT}/api`);
+      // Start auto-backup scheduler
+      require('./controllers/backupController').initScheduler();
     });
   } catch (error) {
     console.error('Failed to start server:', error.message);

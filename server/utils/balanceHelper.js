@@ -1,21 +1,23 @@
 const { Op } = require('sequelize');
 
 /**
- * Recalculates a party's current_balance from scratch using all transaction data.
+ * Recalculates a party's current_balance from scratch.
  *
  * Formula:
- *   balance = opening_signed
- *           + sum(sales.balance_amount   where is_cancelled=false)   [customer owes from bills]
- *           - sum(standalone_receipts    where is_cancelled=false AND reference_bill_id IS NULL)
- *           - sum(purchases.balance_amount where is_cancelled=false) [we owe supplier from bills]
- *           + sum(standalone_payments    where is_cancelled=false AND reference_bill_id IS NULL)
+ *   balance = openingSigned
+ *           + (totalSales - salesPaidAtBilling - salesReturnAmount - totalReceipts)
+ *           - (totalPurchases - purchasePaidAtBilling - totalPayments)
  *
- * Notes:
- *  - sales.balance_amount already reflects initial paid_amount + all bill-linked receipts
- *  - purchases.balance_amount already reflects initial paid_amount + all bill-linked payments
- *  - Only standalone (non-bill-linked) payment records need separate handling
- *  - Positive balance = receivable (party owes us)
- *  - Negative balance = payable (we owe party)
+ * Key design decisions:
+ *  - Uses total_amount from bills (NOT balance_amount), so the formula is
+ *    independent of how individual bill balances are maintained.
+ *  - Counts ALL PaymentReceipts (bill-linked AND standalone), so any payment
+ *    type correctly offsets the opening balance and all outstanding dues.
+ *  - paid_amount on bills (at-billing cash) is separate from PaymentReceipts
+ *    (post-billing payments) — both are accounted for without double-counting.
+ *
+ * Positive balance = receivable (party owes us)
+ * Negative balance = payable (we owe party)
  */
 async function recalculatePartyBalance(partyId, t = null) {
   const { Party, SalesBill, PurchaseBill, PaymentReceipt } = require('../models');
@@ -24,60 +26,111 @@ async function recalculatePartyBalance(partyId, t = null) {
   const party = await Party.findByPk(partyId, opts);
   if (!party) return 0;
 
-  // Opening balance signed value
-  const rawOpening = parseFloat(party.opening_balance) || 0;
+  // ── Opening balance ───────────────────────────────────────────────────────
+  const rawOpening   = parseFloat(party.opening_balance) || 0;
   const openingSigned = party.opening_balance_type === 'Payable'
     ? -Math.abs(rawOpening)
-    : Math.abs(rawOpening);
+    :  Math.abs(rawOpening);
 
-  // Sum of outstanding sales bill balances
-  const salesBalanceRaw = await SalesBill.sum('balance_amount', {
-    where: { customer_id: partyId, is_cancelled: false },
-    ...opts,
-  });
-  const salesBalance = parseFloat(salesBalanceRaw) || 0;
+  // ── Sales side (customer owes us) ─────────────────────────────────────────
+  const [totalSalesRaw, salesPaidRaw, salesReturnRaw, totalReceiptsRaw] = await Promise.all([
+    SalesBill.sum('total_amount',  { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
+    SalesBill.sum('paid_amount',   { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
+    SalesBill.sum('return_amount', { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
+    PaymentReceipt.sum('total_amount', {
+      where: { party_id: partyId, transaction_type: 'Receipt', is_cancelled: false },
+      ...opts,
+    }),
+  ]);
 
-  // Sum of standalone receipts (not linked to any bill)
-  const standaloneReceiptsRaw = await PaymentReceipt.sum('total_amount', {
-    where: {
-      party_id: partyId,
-      transaction_type: 'Receipt',
-      is_cancelled: false,
-      reference_bill_id: { [Op.is]: null },
-    },
-    ...opts,
-  });
-  const standaloneReceipts = parseFloat(standaloneReceiptsRaw) || 0;
+  const totalSales       = parseFloat(totalSalesRaw)    || 0;
+  const salesPaid        = parseFloat(salesPaidRaw)     || 0;
+  const salesReturn      = parseFloat(salesReturnRaw)   || 0;
+  const totalReceipts    = parseFloat(totalReceiptsRaw) || 0;
 
-  // Sum of outstanding purchase bill balances
-  const purchaseBalanceRaw = await PurchaseBill.sum('balance_amount', {
-    where: { supplier_id: partyId, is_cancelled: false },
-    ...opts,
-  });
-  const purchaseBalance = parseFloat(purchaseBalanceRaw) || 0;
+  // Net still owed by customer from sales
+  const salesNet = totalSales - salesPaid - salesReturn - totalReceipts;
 
-  // Sum of standalone payments (not linked to any bill)
-  const standalonePaymentsRaw = await PaymentReceipt.sum('total_amount', {
-    where: {
-      party_id: partyId,
-      transaction_type: 'Payment',
-      is_cancelled: false,
-      reference_bill_id: { [Op.is]: null },
-    },
-    ...opts,
-  });
-  const standalonePayments = parseFloat(standalonePaymentsRaw) || 0;
+  // ── Purchase side (we owe supplier) ──────────────────────────────────────
+  const [totalPurchasesRaw, purchasePaidRaw, totalPaymentsRaw] = await Promise.all([
+    PurchaseBill.sum('total_amount', { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
+    PurchaseBill.sum('paid_amount',  { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
+    PaymentReceipt.sum('total_amount', {
+      where: { party_id: partyId, transaction_type: 'Payment', is_cancelled: false },
+      ...opts,
+    }),
+  ]);
 
-  const newBalance = +(
-    openingSigned
-    + salesBalance
-    - standaloneReceipts
-    - purchaseBalance
-    + standalonePayments
-  ).toFixed(2);
+  const totalPurchases   = parseFloat(totalPurchasesRaw)  || 0;
+  const purchasePaid     = parseFloat(purchasePaidRaw)     || 0;
+  const totalPayments    = parseFloat(totalPaymentsRaw)    || 0;
+
+  // Net still owed to supplier from purchases
+  const purchaseNet = totalPurchases - purchasePaid - totalPayments;
+
+  // ── Final balance ─────────────────────────────────────────────────────────
+  const newBalance = +(openingSigned + salesNet - purchaseNet).toFixed(2);
 
   await party.update({ current_balance: newBalance }, opts);
   return newBalance;
 }
 
-module.exports = { recalculatePartyBalance };
+/**
+ * Returns the maximum amount that can be paid/received for a party
+ * without exceeding their outstanding balance.
+ *
+ * For Payment  (we pay supplier): returns max(0, what we owe them)
+ * For Receipt  (customer pays us): returns max(0, what they owe us)
+ */
+async function getPartyOutstanding(partyId, transactionType, t = null) {
+  const { Party, SalesBill, PurchaseBill, PaymentReceipt } = require('../models');
+  const opts = t ? { transaction: t } : {};
+
+  const party = await Party.findByPk(partyId, opts);
+  if (!party) return 0;
+
+  const rawOpening   = parseFloat(party.opening_balance) || 0;
+  const openingSigned = party.opening_balance_type === 'Payable'
+    ? -Math.abs(rawOpening)
+    :  Math.abs(rawOpening);
+
+  if (transactionType === 'Payment') {
+    const [totalPurchasesRaw, purchasePaidRaw, totalPaymentsRaw] = await Promise.all([
+      PurchaseBill.sum('total_amount', { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
+      PurchaseBill.sum('paid_amount',  { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
+      PaymentReceipt.sum('total_amount', {
+        where: { party_id: partyId, transaction_type: 'Payment', is_cancelled: false },
+        ...opts,
+      }),
+    ]);
+    const totalPurchases = parseFloat(totalPurchasesRaw) || 0;
+    const purchasePaid   = parseFloat(purchasePaidRaw)   || 0;
+    const totalPayments  = parseFloat(totalPaymentsRaw)  || 0;
+    // What we owe them: payable opening + unpaid purchases
+    const payableOpening = Math.max(0, -openingSigned);
+    return +(Math.max(0, payableOpening + totalPurchases - purchasePaid - totalPayments)).toFixed(2);
+  }
+
+  if (transactionType === 'Receipt') {
+    const [totalSalesRaw, salesPaidRaw, salesReturnRaw, totalReceiptsRaw] = await Promise.all([
+      SalesBill.sum('total_amount',  { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
+      SalesBill.sum('paid_amount',   { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
+      SalesBill.sum('return_amount', { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
+      PaymentReceipt.sum('total_amount', {
+        where: { party_id: partyId, transaction_type: 'Receipt', is_cancelled: false },
+        ...opts,
+      }),
+    ]);
+    const totalSales    = parseFloat(totalSalesRaw)    || 0;
+    const salesPaid     = parseFloat(salesPaidRaw)     || 0;
+    const salesReturn   = parseFloat(salesReturnRaw)   || 0;
+    const totalReceipts = parseFloat(totalReceiptsRaw) || 0;
+    // What they owe us: receivable opening + unpaid sales
+    const receivableOpening = Math.max(0, openingSigned);
+    return +(Math.max(0, receivableOpening + totalSales - salesPaid - salesReturn - totalReceipts)).toFixed(2);
+  }
+
+  return 0;
+}
+
+module.exports = { recalculatePartyBalance, getPartyOutstanding };

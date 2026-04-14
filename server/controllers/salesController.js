@@ -152,6 +152,10 @@ exports.create = async (req, res) => {
       freight_charges: parseFloat(freight_charges) || 0,
     }, { transaction: t });
 
+    // Check negative stock setting once for all items
+    const sysSettings = await SystemSettings.findByPk(1, { transaction: t });
+    const allowNegativeStock = sysSettings?.allow_negative_stock || false;
+
     for (const item of processedItems) {
       await SalesBillItem.create({
         sales_bill_id: bill.sales_bill_id,
@@ -161,7 +165,17 @@ exports.create = async (req, res) => {
       // Deduct stock
       if (item.product_id) {
         const product = await Product.findByPk(item.product_id, { transaction: t });
-        const newStock = +((parseFloat(product.current_stock) || 0) - parseFloat(item.quantity)).toFixed(2);
+        const currentStock = parseFloat(product.current_stock) || 0;
+        const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
+
+        // Block sale if it would cause negative stock and negative stock is disabled
+        if (!allowNegativeStock && newStock < 0) {
+          await t.rollback();
+          return res.status(400).json({
+            error: `Insufficient stock for "${item.product_name || product.product_name}". Available: ${currentStock}, Requested: ${item.quantity}. Enable "Allow Negative Stock" in Module Settings to proceed.`,
+          });
+        }
+
         await product.update({ current_stock: newStock }, { transaction: t });
 
         await StockLedger.create({
@@ -293,11 +307,22 @@ exports.update = async (req, res) => {
       }
     }
 
-    const effectivePaid2 = +(finalPaidAmount2 + parseFloat(return_amount || 0)).toFixed(2);
-    const balanceAmount = +(totalAmount - effectivePaid2).toFixed(2);
+    // Preserve payments already applied via the Receipt module.
+    // balance_amount was set as: total - paid_at_billing - return_amount - linkedReceipts
+    // So: linkedReceipts = total - balance - paid_at_billing - return_amount
+    const oldPaidAtBilling2  = parseFloat(existingBill.paid_amount)    || 0;
+    const oldBalance2        = parseFloat(existingBill.balance_amount)  || 0;
+    const oldTotal2          = parseFloat(existingBill.total_amount)    || 0;
+    const oldReturnAmount2   = parseFloat(existingBill.return_amount)   || 0;
+    const linkedReceipts     = Math.max(0, +(oldTotal2 - oldBalance2 - oldPaidAtBilling2 - oldReturnAmount2).toFixed(2));
+
+    const returnAmt          = parseFloat(return_amount || 0);
+    const totalEffectivePaid2 = +(finalPaidAmount2 + returnAmt + linkedReceipts).toFixed(2);
+    const balanceAmount      = Math.max(0, +(totalAmount - totalEffectivePaid2).toFixed(2));
+
     let paymentStatus = 'Unpaid';
-    if (effectivePaid2 >= totalAmount) paymentStatus = 'Paid';
-    else if (effectivePaid2 > 0) paymentStatus = 'Partial';
+    if (totalEffectivePaid2 >= totalAmount) paymentStatus = 'Paid';
+    else if (totalEffectivePaid2 > 0)       paymentStatus = 'Partial';
 
     await existingBill.update({
       ...billData,
@@ -323,13 +348,26 @@ exports.update = async (req, res) => {
       freight_charges: parseFloat(freight_charges) || 0,
     }, { transaction: t });
 
+    // Check negative stock setting for update
+    const sysSettingsU = await SystemSettings.findByPk(1, { transaction: t });
+    const allowNegStockU = sysSettingsU?.allow_negative_stock || false;
+
     for (const item of processedItems) {
       await SalesBillItem.create({ sales_bill_id: id, ...item }, { transaction: t });
 
       if (item.product_id) {
         const product = await Product.findByPk(item.product_id, { transaction: t });
         if (product) {
-          const newStock = +((parseFloat(product.current_stock) || 0) - parseFloat(item.quantity)).toFixed(2);
+          const currentStock = parseFloat(product.current_stock) || 0;
+          const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
+
+          if (!allowNegStockU && newStock < 0) {
+            await t.rollback();
+            return res.status(400).json({
+              error: `Insufficient stock for "${item.product_name || product.product_name}". Available: ${currentStock}, Requested: ${item.quantity}. Enable "Allow Negative Stock" in Module Settings to proceed.`,
+            });
+          }
+
           await product.update({ current_stock: newStock }, { transaction: t });
           await StockLedger.create({
             product_id: item.product_id, barcode: item.barcode,

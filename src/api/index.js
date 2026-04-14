@@ -120,6 +120,30 @@ export const settingsAPI = {
   cleanupData: (categories) => api.post('/settings/cleanup', { categories }),
 };
 
+// Backup & Restore
+export const backupAPI = {
+  list: () => api.get('/backup/list'),
+  create: () => api.post('/backup/create', {}, { responseType: 'blob', timeout: 300000 }),
+  download: (filename) => api.get(`/backup/download/${filename}`, { responseType: 'blob', timeout: 300000 }),
+  delete: (filename) => api.delete(`/backup/${filename}`),
+  restore: (fileOrFilename, onProgress) => {
+    if (typeof fileOrFilename === 'string') {
+      return api.post('/backup/restore', { filename: fileOrFilename }, { timeout: 300000 });
+    }
+    const formData = new FormData();
+    formData.append('file', fileOrFilename);
+    return api.post('/backup/restore', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000,
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) onProgress(Math.round((e.loaded * 100) / e.total));
+      },
+    });
+  },
+  getSettings: () => api.get('/backup/settings'),
+  updateSettings: (data) => api.put('/backup/settings', data),
+};
+
 // Import/Export
 export const dataAPI = {
   exportExcel: (module) => api.get(`/data/export/${module}`, { responseType: 'blob' }),

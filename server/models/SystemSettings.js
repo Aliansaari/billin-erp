@@ -69,6 +69,10 @@ const SystemSettings = sequelize.define('SystemSettings', {
     type: DataTypes.BOOLEAN,
     defaultValue: true,
   },
+  allow_negative_stock: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
   sales_bill_prefix: {
     type: DataTypes.STRING(20),
     defaultValue: '',
