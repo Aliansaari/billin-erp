@@ -49,6 +49,10 @@ const PaymentReceipt = sequelize.define('PaymentReceipt', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  bill_allocations: {
+    type: DataTypes.JSONB,
+    defaultValue: null,
+  },
 }, {
   tableName: 'payments_receipts',
   timestamps: true,

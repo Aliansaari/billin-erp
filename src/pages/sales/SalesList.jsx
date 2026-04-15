@@ -178,8 +178,42 @@ export default function SalesList() {
   };
 
   const handleCancel = async (id) => {
-    try { await salesAPI.cancel(id); message.success('Bill cancelled'); loadBills(); }
-    catch (e) { message.error('Failed'); }
+    try {
+      await salesAPI.cancel(id);
+      message.success('Bill cancelled');
+      loadBills();
+    } catch (e) {
+      const reason = e.response?.data?.error || 'Failed to cancel bill';
+      const isReceiptBlock = reason.toLowerCase().includes('receipt');
+      const tip = isReceiptBlock
+        ? '💡 Go to Receipts, find the listed receipt(s) and cancel them. Then come back to cancel this bill.'
+        : '💡 To reverse this sale, consider creating a Sales Return to keep your ledger accurate.';
+      Modal.error({
+        title: 'Cannot Cancel Bill',
+        icon: null,
+        width: 500,
+        content: (
+          <div style={{ paddingTop: 8 }}>
+            <div style={{
+              background: '#fef2f2', border: '1px solid #fca5a5',
+              borderRadius: 8, padding: '12px 16px', marginBottom: 12,
+              color: '#7f1d1d', fontSize: 13, lineHeight: 1.6,
+            }}>
+              {reason}
+            </div>
+            <div style={{
+              background: '#eff6ff', border: '1px solid #bfdbfe',
+              borderRadius: 8, padding: '10px 14px',
+              fontSize: 12, color: '#1e40af', lineHeight: 1.6,
+            }}>
+              {tip}
+            </div>
+          </div>
+        ),
+        okText: 'Got it',
+        okButtonProps: { danger: true },
+      });
+    }
   };
 
   const fetchBill = useCallback(async (id) => {

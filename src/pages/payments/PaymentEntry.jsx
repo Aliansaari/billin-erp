@@ -96,14 +96,19 @@ export default function PaymentEntry() {
         checked: true,
         dueDays: b.bill_date ? dayjs().diff(dayjs(b.bill_date), 'day') : 0,
       }));
-      const ob = parseFloat(party?.opening_balance || 0);
-      if (ob > 0) {
+
+      // Remaining opening balance = total outstanding minus sum of unpaid bill balances
+      // For suppliers current_balance is NEGATIVE (we owe them), so use Math.abs
+      const billsTotal      = rows.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
+      const partyOutstanding = Math.max(0, -parseFloat(party?.current_balance || 0)); // positive = what we owe
+      const remainingOB      = parseFloat((Math.max(0, partyOutstanding - billsTotal)).toFixed(2));
+      if (remainingOB > 0) {
         rows.unshift({
           purchase_bill_id: '__ob__',
           bill_number:      'Opening Balance',
           bill_date:        party.created_date,
-          total_amount:     ob,
-          balance_amount:   ob,
+          total_amount:     remainingOB,   // what remains of OB — not the original full amount
+          balance_amount:   remainingOB,
           isOpening:        true,
           checked:          true,
           dueDays:          dayjs().diff(dayjs(party.created_date), 'day'),
@@ -166,6 +171,11 @@ export default function PaymentEntry() {
     setLoading(true);
     try {
       const refBill = checkedBills.find(b => !b.isOpening);
+      // Build per-bill allocations so each bill's balance gets updated correctly
+      const bill_allocations = billsWithAlloc
+        .filter(b => !b.isOpening && b.allocated > 0)
+        .map(b => ({ bill_id: b.purchase_bill_id, bill_type: 'Purchase', amount: b.allocated }));
+
       const { data: result } = await paymentAPI.create({
         transaction_type:    'Payment',
         transaction_date:    date.format('YYYY-MM-DD'),
@@ -174,7 +184,8 @@ export default function PaymentEntry() {
         reference_bill_id:   refBill?.purchase_bill_id || null,
         reference_bill_type: refBill ? 'Purchase' : null,
         remarks:             selectedInvNos ? `Bills: ${selectedInvNos}` : payNo,
-        splits: [{ payment_mode: payMode, amount: netAmount }],
+        splits:              [{ payment_mode: payMode, amount: netAmount }],
+        bill_allocations,
       });
       message.success(`Payment ${result.transaction_number} saved! ✓`);
       handleReset();
@@ -355,7 +366,9 @@ export default function PaymentEntry() {
                 {selectedParty ? 'No outstanding bills for this supplier' : 'Select a supplier to see outstanding bills'}
               </div>
             ) : billsWithAlloc.map((bill, idx) => {
+              const netAmt   = parseFloat(bill.total_amount || 0);
               const balance  = parseFloat(bill.balance_amount || 0);
+              const isPartiallyPaid = netAmt > balance;
               const alloc    = bill.allocated || 0;
               const rem      = parseFloat((balance - alloc).toFixed(2));
               const fullPaid = bill.checked && alloc > 0 && rem === 0;
@@ -389,12 +402,24 @@ export default function PaymentEntry() {
                   <span style={{ fontSize: 12, color: '#64748b' }}>
                     {dayjs(bill.bill_date || bill.created_at).format('DD-MM-YY')}
                   </span>
-                  <span style={{ textAlign: 'right', fontSize: 13, color: '#475569' }}>
-                    ₹ {fmt2(bill.total_amount)}
-                  </span>
+                  {/* Net Amount (original bill total) */}
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 13, color: '#dc2626', fontWeight: 700 }}>₹ {fmt2(balance)}</div>
-                    {partial && <div style={{ fontSize: 11, color: '#92400e' }}>Rem: ₹ {fmt2(rem)}</div>}
+                    <div style={{ fontSize: 13, color: '#475569' }}>₹ {fmt2(netAmt)}</div>
+                    {isPartiallyPaid && (
+                      <div style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}>
+                        Pd: ₹ {fmt2(netAmt - balance)}
+                      </div>
+                    )}
+                  </div>
+                  {/* Balance (remaining to be paid) */}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{
+                      fontSize: 13, fontWeight: 700,
+                      color: isPartiallyPaid ? '#d97706' : '#dc2626',
+                    }}>
+                      ₹ {fmt2(balance)}
+                    </div>
+                    {partial && <div style={{ fontSize: 10, color: '#92400e' }}>After: ₹ {fmt2(rem)}</div>}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'center' }} onClick={e => e.stopPropagation()}>
                     <Checkbox checked={bill.checked} onChange={e => toggleBill(idx, e.target.checked)} />

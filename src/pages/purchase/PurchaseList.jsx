@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EditOutlined, StopOutlined,
-  EyeOutlined, PrinterOutlined, BarcodeOutlined,
+  EyeOutlined, PrinterOutlined, BarcodeOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -181,8 +181,46 @@ export default function PurchaseList() {
   };
 
   const handleCancel = async (id) => {
-    try { await purchaseAPI.cancel(id); message.success('Bill cancelled'); loadBills(); }
-    catch (e) { message.error('Failed to cancel'); }
+    try {
+      await purchaseAPI.cancel(id);
+      message.success('Bill cancelled successfully');
+      loadBills();
+    } catch (e) {
+      const reason = e.response?.data?.error || 'Failed to cancel bill';
+      const isPaymentBlock = reason.toLowerCase().includes('payment');
+      const tip = isPaymentBlock
+        ? '💡 Go to Payments, find the listed payment(s) and cancel them. Then come back to cancel this bill.'
+        : '💡 To reverse this purchase, create a Purchase Return instead. This keeps your stock and ledger accurate.';
+      Modal.error({
+        title: (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <WarningOutlined style={{ color: '#ef4444', fontSize: 20 }} />
+            <span style={{ color: '#ef4444', fontWeight: 700 }}>Cannot Cancel Bill</span>
+          </div>
+        ),
+        icon: null,
+        content: (
+          <div style={{ marginTop: 8 }}>
+            <div style={{
+              background: '#fef2f2', border: '1px solid #fecaca',
+              borderRadius: 8, padding: '12px 16px', marginBottom: 12,
+            }}>
+              <div style={{ fontSize: 13, color: '#7f1d1d', lineHeight: 1.6 }}>{reason}</div>
+            </div>
+            <div style={{
+              background: '#eff6ff', border: '1px solid #bfdbfe',
+              borderRadius: 8, padding: '10px 14px',
+              fontSize: 12, color: '#1e40af', lineHeight: 1.6,
+            }}>
+              {tip}
+            </div>
+          </div>
+        ),
+        okText: 'Got it',
+        okButtonProps: { danger: true },
+        width: 480,
+      });
+    }
   };
 
   const fetchBill = useCallback(async (id) => {

@@ -2,7 +2,7 @@ const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, Party, Product, StockLedger, SystemSettings } = require('../models');
 const { generateBillNumber, roundOff, calculateGST } = require('../utils/helpers');
-const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 
 exports.getAll = async (req, res) => {
   try {
@@ -415,6 +415,35 @@ exports.cancel = async (req, res) => {
     if (!bill) { await t.rollback(); return res.status(404).json({ error: 'Bill not found' }); }
     if (bill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Bill already cancelled' }); }
 
+    // ── Block if any active Receipt from the Payment tab covers this bill ────
+    // Check both new bill_allocations JSONB and legacy reference_bill_id field.
+    const billId = bill.sales_bill_id;
+    const [linkedReceiptRows] = await sequelize.query(
+      `SELECT transaction_number FROM payments_receipts
+       WHERE is_cancelled = false
+         AND transaction_type = 'Receipt'
+         AND (
+           (bill_allocations IS NOT NULL
+            AND bill_allocations @> :jsonCheck::jsonb)
+           OR (reference_bill_id = :billId AND reference_bill_type = 'Sales')
+         )`,
+      {
+        replacements: {
+          jsonCheck: JSON.stringify([{ bill_id: billId, bill_type: 'Sales' }]),
+          billId,
+        },
+        transaction: t,
+      }
+    );
+    if (linkedReceiptRows.length > 0) {
+      await t.rollback();
+      const nums = linkedReceiptRows.map(r => r.transaction_number).join(', ');
+      return res.status(400).json({
+        error: `Cannot cancel this bill — the following receipt(s) have been recorded against it: ${nums}. Please cancel those receipts first, then cancel the bill.`,
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     for (const item of bill.items) {
       if (item.product_id) {
         const product = await Product.findByPk(item.product_id, { transaction: t });
@@ -435,8 +464,9 @@ exports.cancel = async (req, res) => {
       cancelled_date: new Date(),
     }, { transaction: t });
 
-    // Recalculate customer balance after cancel
+    // Redistribute any active receipts across remaining bills (FIFO), then fix party balance
     if (bill.customer_id) {
+      await reconcileBillsForParty(bill.customer_id, t);
       await recalculatePartyBalance(bill.customer_id, t);
     }
 

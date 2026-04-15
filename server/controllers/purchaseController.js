@@ -3,7 +3,7 @@ const sequelize = require('../config/database');
 const { PurchaseBill, PurchaseBillItem, Party, Product, StockLedger, Category, SystemSettings } = require('../models');
 const { generateBillNumber, roundOff, calculateGST } = require('../utils/helpers');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
-const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 
 /**
  * Resolve or create a product for a purchase bill item.
@@ -485,6 +485,35 @@ exports.cancel = async (req, res) => {
       }
     }
 
+    // ── Block if any active Payment from the Payment tab covers this bill ────
+    // Check both new bill_allocations JSONB and legacy reference_bill_id field.
+    const billId = bill.purchase_bill_id;
+    const [linkedPaymentRows] = await sequelize.query(
+      `SELECT transaction_number FROM payments_receipts
+       WHERE is_cancelled = false
+         AND transaction_type = 'Payment'
+         AND (
+           (bill_allocations IS NOT NULL
+            AND bill_allocations @> :jsonCheck::jsonb)
+           OR (reference_bill_id = :billId AND reference_bill_type = 'Purchase')
+         )`,
+      {
+        replacements: {
+          jsonCheck: JSON.stringify([{ bill_id: billId, bill_type: 'Purchase' }]),
+          billId,
+        },
+        transaction: t,
+      }
+    );
+    if (linkedPaymentRows.length > 0) {
+      await t.rollback();
+      const nums = linkedPaymentRows.map(r => r.transaction_number).join(', ');
+      return res.status(400).json({
+        error: `Cannot cancel this bill — the following payment(s) have been recorded against it: ${nums}. Please cancel those payments first, then cancel the bill.`,
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Get negative stock setting
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const allowNegativeStock = settings?.allow_negative_stock || false;
@@ -511,7 +540,8 @@ exports.cancel = async (req, res) => {
       cancelled_date: new Date(),
     }, { transaction: t });
 
-    // Recalculate supplier balance after cancel
+    // Redistribute any active payments across remaining bills (FIFO), then fix party balance
+    await reconcileBillsForParty(bill.supplier_id, t);
     await recalculatePartyBalance(bill.supplier_id, t);
 
     await t.commit();

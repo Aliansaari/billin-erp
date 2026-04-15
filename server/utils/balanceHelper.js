@@ -133,4 +133,83 @@ async function getPartyOutstanding(partyId, transactionType, t = null) {
   return 0;
 }
 
-module.exports = { recalculatePartyBalance, getPartyOutstanding };
+/**
+ * Reconciles ALL bill balances for a party using FIFO.
+ *
+ * After any payment create or cancel, this rebuilds every bill's
+ * balance_amount and payment_status from scratch — no stale stored
+ * allocations, no partial-cancel bugs, no sign errors.
+ *
+ * Purchase bills  → apply total non-cancelled Payments, oldest bill first.
+ * Sales bills     → apply total non-cancelled Receipts, oldest bill first.
+ */
+async function reconcileBillsForParty(partyId, t = null) {
+  const { SalesBill, PurchaseBill, PaymentReceipt } = require('../models');
+  const opts = t ? { transaction: t } : {};
+
+  // ── PURCHASE BILLS: distribute payments FIFO ──────────────────────────────
+  const totalPaymentsRaw = await PaymentReceipt.sum('total_amount', {
+    where: { party_id: partyId, transaction_type: 'Payment', is_cancelled: false },
+    ...opts,
+  });
+  const totalPayments = parseFloat(totalPaymentsRaw) || 0;
+
+  const purchaseBills = await PurchaseBill.findAll({
+    where: { supplier_id: partyId, is_cancelled: false },
+    order: [['bill_date', 'ASC'], ['purchase_bill_id', 'ASC']],
+    ...opts,
+  });
+
+  let remainingPayments = totalPayments;
+  for (const bill of purchaseBills) {
+    const totalAmt      = parseFloat(bill.total_amount) || 0;
+    const paidAtBilling = parseFloat(bill.paid_amount)  || 0;
+    // Maximum this bill can absorb from post-billing payments
+    const maxBalance = +(Math.max(0, totalAmt - paidAtBilling)).toFixed(2);
+    const applyThis  = +(Math.min(remainingPayments, maxBalance)).toFixed(2);
+    const newBalance = +(maxBalance - applyThis).toFixed(2);
+    remainingPayments = +(remainingPayments - applyThis).toFixed(2);
+
+    const status = newBalance <= 0
+      ? 'Paid'
+      : applyThis > 0
+        ? 'Partial'
+        : 'Unpaid';
+
+    await bill.update({ balance_amount: newBalance, payment_status: status }, opts);
+  }
+
+  // ── SALES BILLS: distribute receipts FIFO ────────────────────────────────
+  const totalReceiptsRaw = await PaymentReceipt.sum('total_amount', {
+    where: { party_id: partyId, transaction_type: 'Receipt', is_cancelled: false },
+    ...opts,
+  });
+  const totalReceipts = parseFloat(totalReceiptsRaw) || 0;
+
+  const salesBills = await SalesBill.findAll({
+    where: { customer_id: partyId, is_cancelled: false },
+    order: [['bill_date', 'ASC'], ['sales_bill_id', 'ASC']],
+    ...opts,
+  });
+
+  let remainingReceipts = totalReceipts;
+  for (const bill of salesBills) {
+    const totalAmt      = parseFloat(bill.total_amount)    || 0;
+    const paidAtBilling = parseFloat(bill.paid_amount)     || 0;
+    const returnAmt     = parseFloat(bill.return_amount)   || 0;
+    const maxBalance = +(Math.max(0, totalAmt - paidAtBilling - returnAmt)).toFixed(2);
+    const applyThis  = +(Math.min(remainingReceipts, maxBalance)).toFixed(2);
+    const newBalance = +(maxBalance - applyThis).toFixed(2);
+    remainingReceipts = +(remainingReceipts - applyThis).toFixed(2);
+
+    const status = newBalance <= 0
+      ? 'Paid'
+      : applyThis > 0
+        ? 'Partial'
+        : 'Unpaid';
+
+    await bill.update({ balance_amount: newBalance, payment_status: status }, opts);
+  }
+}
+
+module.exports = { recalculatePartyBalance, getPartyOutstanding, reconcileBillsForParty };

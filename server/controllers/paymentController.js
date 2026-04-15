@@ -2,7 +2,7 @@ const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { PaymentReceipt, PaymentSplit, Party, SalesBill, PurchaseBill } = require('../models');
 const { generateTransactionNumber } = require('../utils/helpers');
-const { recalculatePartyBalance, getPartyOutstanding } = require('../utils/balanceHelper');
+const { recalculatePartyBalance, getPartyOutstanding, reconcileBillsForParty } = require('../utils/balanceHelper');
 
 exports.getAll = async (req, res) => {
   try {
@@ -90,30 +90,30 @@ exports.create = async (req, res) => {
       }
     }
 
-    // Update referenced bill if any
-    if (data.reference_bill_id && data.reference_bill_type) {
-      if (data.reference_bill_type === 'Sales') {
-        const bill = await SalesBill.findByPk(data.reference_bill_id, { transaction: t });
+    // ── Update each bill the user allocated to (respects user's selection) ──
+    const allocations = data.bill_allocations || [];
+    for (const alloc of allocations) {
+      if (!alloc.bill_id || !alloc.amount || parseFloat(alloc.amount) <= 0) continue;
+      if (alloc.bill_type === 'Sales') {
+        const bill = await SalesBill.findByPk(alloc.bill_id, { transaction: t });
         if (bill) {
-          // Only update balance_amount — paid_amount is reserved for payment-at-billing only
-          const newBillBalance = Math.max(0, +(parseFloat(bill.balance_amount) - parseFloat(data.total_amount)).toFixed(2));
-          const effectivePaid = +(parseFloat(bill.total_amount) - newBillBalance).toFixed(2);
-          let status = newBillBalance <= 0 ? 'Paid' : effectivePaid > 0 ? 'Partial' : 'Unpaid';
-          await bill.update({ balance_amount: newBillBalance, payment_status: status }, { transaction: t });
+          const maxBalance = +(Math.max(0, parseFloat(bill.total_amount) - parseFloat(bill.paid_amount || 0) - parseFloat(bill.return_amount || 0))).toFixed(2);
+          const newBalance = +(Math.max(0, parseFloat(bill.balance_amount) - parseFloat(alloc.amount))).toFixed(2);
+          const status     = newBalance <= 0 ? 'Paid' : newBalance < maxBalance ? 'Partial' : 'Unpaid';
+          await bill.update({ balance_amount: newBalance, payment_status: status }, { transaction: t });
         }
-      } else if (data.reference_bill_type === 'Purchase') {
-        const bill = await PurchaseBill.findByPk(data.reference_bill_id, { transaction: t });
+      } else if (alloc.bill_type === 'Purchase') {
+        const bill = await PurchaseBill.findByPk(alloc.bill_id, { transaction: t });
         if (bill) {
-          // Only update balance_amount — paid_amount is reserved for payment-at-billing only
-          const newBillBalance = Math.max(0, +(parseFloat(bill.balance_amount) - parseFloat(data.total_amount)).toFixed(2));
-          const effectivePaid = +(parseFloat(bill.total_amount) - newBillBalance).toFixed(2);
-          let status = newBillBalance <= 0 ? 'Paid' : effectivePaid > 0 ? 'Partial' : 'Unpaid';
-          await bill.update({ balance_amount: newBillBalance, payment_status: status }, { transaction: t });
+          const maxBalance = +(Math.max(0, parseFloat(bill.total_amount) - parseFloat(bill.paid_amount || 0))).toFixed(2);
+          const newBalance = +(Math.max(0, parseFloat(bill.balance_amount) - parseFloat(alloc.amount))).toFixed(2);
+          const status     = newBalance <= 0 ? 'Paid' : newBalance < maxBalance ? 'Partial' : 'Unpaid';
+          await bill.update({ balance_amount: newBalance, payment_status: status }, { transaction: t });
         }
       }
     }
 
-    // Recalculate party balance from scratch
+    // ── Recalculate party balance from scratch (independent of bill.balance_amount) ─
     await recalculatePartyBalance(data.party_id, t);
 
     await t.commit();
@@ -140,50 +140,11 @@ exports.cancel = async (req, res) => {
     if (!payment) { await t.rollback(); return res.status(404).json({ error: 'Transaction not found' }); }
     if (payment.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Already cancelled' }); }
 
-    // If this payment was linked to a bill, reverse the bill's balance_amount
-    if (payment.reference_bill_id && payment.reference_bill_type) {
-      if (payment.reference_bill_type === 'Sales') {
-        const bill = await SalesBill.findByPk(payment.reference_bill_id, { transaction: t });
-        if (bill && !bill.is_cancelled) {
-          // Max possible balance = total minus what was already settled at billing time
-          // (paid_amount = cash at billing, return_amount = goods returned)
-          const maxBalance = +(
-            parseFloat(bill.total_amount)    -
-            parseFloat(bill.paid_amount  || 0) -
-            parseFloat(bill.return_amount || 0)
-          ).toFixed(2);
-          const newBillBalance = Math.min(
-            +(parseFloat(bill.balance_amount) + parseFloat(payment.total_amount)).toFixed(2),
-            maxBalance
-          );
-          let status = 'Unpaid';
-          if (newBillBalance <= 0)            status = 'Paid';
-          else if (newBillBalance < maxBalance) status = 'Partial';
-          await bill.update({ balance_amount: newBillBalance, payment_status: status }, { transaction: t });
-        }
-      } else if (payment.reference_bill_type === 'Purchase') {
-        const bill = await PurchaseBill.findByPk(payment.reference_bill_id, { transaction: t });
-        if (bill && !bill.is_cancelled) {
-          // Max possible balance = total minus what was paid at billing time
-          const maxBalance = +(
-            parseFloat(bill.total_amount)   -
-            parseFloat(bill.paid_amount || 0)
-          ).toFixed(2);
-          const newBillBalance = Math.min(
-            +(parseFloat(bill.balance_amount) + parseFloat(payment.total_amount)).toFixed(2),
-            maxBalance
-          );
-          let status = 'Unpaid';
-          if (newBillBalance <= 0)            status = 'Paid';
-          else if (newBillBalance < maxBalance) status = 'Partial';
-          await bill.update({ balance_amount: newBillBalance, payment_status: status }, { transaction: t });
-        }
-      }
-    }
-
+    // Mark as cancelled first, then FIFO reconcile so totals are already correct
     await payment.update({ is_cancelled: true }, { transaction: t });
 
-    // Recalculate party balance after cancel
+    // ── Rebuild all bill balances via FIFO, then recalculate party balance ───
+    await reconcileBillsForParty(payment.party_id, t);
     await recalculatePartyBalance(payment.party_id, t);
 
     await t.commit();
@@ -197,16 +158,18 @@ exports.cancel = async (req, res) => {
 exports.getUnpaidBills = async (req, res) => {
   try {
     const { party_id, type } = req.query;
+    const baseWhere = { payment_status: { [Op.ne]: 'Paid' }, is_cancelled: false, balance_amount: { [Op.gt]: 0 } };
+
     if (type === 'Sales' || type === 'Receipt') {
       const bills = await SalesBill.findAll({
-        where: { customer_id: party_id, payment_status: { [Op.ne]: 'Paid' }, is_cancelled: false },
+        where: { customer_id: party_id, ...baseWhere },
         attributes: ['sales_bill_id', 'bill_number', 'bill_date', 'total_amount', 'paid_amount', 'balance_amount', 'due_date'],
         order: [['bill_date', 'ASC']],
       });
       res.json(bills);
     } else {
       const bills = await PurchaseBill.findAll({
-        where: { supplier_id: party_id, payment_status: { [Op.ne]: 'Paid' }, is_cancelled: false },
+        where: { supplier_id: party_id, ...baseWhere },
         attributes: ['purchase_bill_id', 'bill_number', 'bill_date', 'total_amount', 'paid_amount', 'balance_amount', 'due_date'],
         order: [['bill_date', 'ASC']],
       });
