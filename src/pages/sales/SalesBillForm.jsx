@@ -68,6 +68,10 @@ export default function SalesBillForm() {
 
   // Prevents the auto paid_amount effect from overwriting loaded edit values
   const billLoadedRef = useRef(false);
+  // Tracks if user manually typed in paid_amount — prevents auto-fill from overwriting credit customers
+  const paidEditedRef = useRef(false);
+  // Cash received state — for walk-in cash billing change calculation (not saved to DB)
+  const [cashReceived, setCashReceived] = useState(0);
 
   const barcodeRef   = useRef(null);
   const prodRef      = useRef(null);
@@ -272,6 +276,7 @@ export default function SalesBillForm() {
   const returnAmt  = Form.useWatch('return_amount',form)||0;
   const customerId = Form.useWatch('customer_id',form);
 
+  const paymentMethod = Form.useWatch('payment_method', form) || 'Cash';
   const subTotal    = items.reduce((s,i)=>s+(i.quantity||0)*(i.rate||0),0);
   const itemDiscTot = items.reduce((s,i)=>s+(i.discount_amount||0),0);
   const billDiscAmt = +(subTotal*discPct/100).toFixed(2);
@@ -298,7 +303,9 @@ export default function SalesBillForm() {
     +parseFloat(freightChr||0);
   const roundedTotal = Math.round(rawTotal);
   const roundOff    = +(roundedTotal-rawTotal).toFixed(2);
-  const balance     = +(roundedTotal-parseFloat(returnAmt||0)-paidAmt).toFixed(2);
+  const maxPaid     = Math.max(0, roundedTotal - parseFloat(returnAmt || 0));
+  const balance     = +(roundedTotal - parseFloat(returnAmt||0) - Math.min(paidAmt, maxPaid)).toFixed(2);
+  const changeDue   = paymentMethod === 'Cash' ? Math.max(0, +((cashReceived || 0) - roundedTotal).toFixed(2)) : 0;
   const totalQty = items.reduce((s,i)=>s+(i.quantity||0),0);
   // Box count: quantity is always stored as pieces, so boxes = qty / qpb
   const boxQty = items.reduce((s,i)=>{
@@ -322,21 +329,25 @@ export default function SalesBillForm() {
     }
   },[customerId, parties]);
 
-  /* Auto-fill paid amount based on credit policy */
-  /* In edit mode this runs once after bill loads — skip it so we don't
-     overwrite the saved paid_amount. After that, billLoadedRef stays true
-     and subsequent user-triggered changes (customer switch etc.) are
-     intentional so we reset the guard then. */
+  /* Reset paidEditedRef and cashReceived when customer changes so auto-fill works fresh */
+  useEffect(()=>{
+    paidEditedRef.current = false;
+    setCashReceived(0);
+  },[customerId]);
+
+  /* Auto-fill paid amount based on credit policy.
+     Fix: for credit customers, skip auto-fill if user already manually set paid_amount
+     so that editing items doesn't overwrite their entry. */
   useEffect(()=>{
     // Skip auto-fill if we just loaded an existing bill
     if(isEdit && billLoadedRef.current){
-      billLoadedRef.current = false; // allow future changes by the user
+      billLoadedRef.current = false;
       return;
     }
     const ret = parseFloat(returnAmt||0);
     const due = Math.max(0, +(roundedTotal - ret).toFixed(2));
     if(!customerId){
-      // Cash sale — fill total minus any return
+      // Walk-in cash sale — always track total (no credit involved)
       form.setFieldValue('paid_amount', due||0);
     } else {
       const party = parties.find(p=>p.party_id===customerId);
@@ -344,8 +355,11 @@ export default function SalesBillForm() {
         // Credit NOT allowed — force full payment minus return
         form.setFieldValue('paid_amount', due||0);
       } else if(party && party.credit_allowed){
-        // Credit allowed — leave paid_amount at 0 (user decides)
-        form.setFieldValue('paid_amount', 0);
+        // Credit allowed — only auto-set once when customer is first selected;
+        // if user has manually edited paid_amount, leave it alone
+        if(!paidEditedRef.current){
+          form.setFieldValue('paid_amount', 0);
+        }
       }
     }
   },[customerId, roundedTotal, returnAmt, parties]);
@@ -1027,19 +1041,51 @@ export default function SalesBillForm() {
               <div style={{display:'flex',alignItems:'center',gap:8,marginTop:4}}>
                 <span style={{color:'rgba(255,255,255,.85)',fontWeight:700,fontSize:12,width:56,flexShrink:0}}>Return ₹</span>
                 <Form.Item name="return_amount" noStyle>
-                  <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
+                  <InputNumber keyboard={false} size="small" min={0} max={roundedTotal} placeholder="0.00"
                     className="sbf-paid-in" style={{flex:1,width:'100%'}}/>
                 </Form.Item>
               </div>
 
-              {/* Amt Paid */}
+              {/* Cash Received — only shown for Cash payment, helps calculate change */}
+              {paymentMethod === 'Cash' && (
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{color:'rgba(255,255,255,.85)',fontWeight:700,fontSize:12,width:56,flexShrink:0}}>Cash Rcvd</span>
+                  <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
+                    value={cashReceived||null}
+                    className="sbf-paid-in" style={{flex:1,width:'100%'}}
+                    onChange={v=>{
+                      const val = v || 0;
+                      setCashReceived(val);
+                      // Auto-set paid to min(cashReceived, maxPaid) — bill always records exact amount
+                      form.setFieldValue('paid_amount', Math.min(val, maxPaid));
+                      paidEditedRef.current = false; // programmatic, not manual
+                    }}/>
+                </div>
+              )}
+
+              {/* Amt Paid — capped at bill total (Fix: paid cannot exceed total) */}
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <span style={{color:'rgba(255,255,255,.85)',fontWeight:700,fontSize:12,width:56,flexShrink:0}}>Amt Paid</span>
                 <Form.Item name="paid_amount" noStyle>
-                  <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
-                    className="sbf-paid-in" style={{flex:1,width:'100%'}}/>
+                  <InputNumber keyboard={false} size="small" min={0} max={maxPaid} placeholder="0.00"
+                    className="sbf-paid-in" style={{flex:1,width:'100%'}}
+                    onChange={()=>{ paidEditedRef.current = true; }}/>
                 </Form.Item>
               </div>
+
+              {/* Change Due — shown when cash received exceeds total */}
+              {changeDue > 0 && (
+                <div style={{
+                  display:'flex', alignItems:'center', justifyContent:'space-between',
+                  background:'rgba(16,185,129,0.25)', borderRadius:8, padding:'6px 12px',
+                  border:'1px solid rgba(52,211,153,.5)',
+                }}>
+                  <span style={{fontSize:10,color:'#6ee7b7',fontWeight:700,letterSpacing:.8,textTransform:'uppercase'}}>Change Due</span>
+                  <span style={{fontSize:17,fontWeight:800,color:'#34d399',letterSpacing:-.5}}>
+                    {fmtN(changeDue)}
+                  </span>
+                </div>
+              )}
 
               {/* Balance */}
               <div style={{
@@ -1050,7 +1096,7 @@ export default function SalesBillForm() {
               }}>
                 <span style={{fontSize:10,color:'rgba(255,255,255,.6)',fontWeight:700,letterSpacing:.8,textTransform:'uppercase'}}>Balance</span>
                 <span style={{fontSize:17,fontWeight:800,color:balance>0?'#f87171':'#34d399',letterSpacing:-.5}}>
-                  {fmtN(Math.abs(balance))}{balance<0?' ▲':''}
+                  {fmtN(Math.abs(balance))}
                 </span>
               </div>
 

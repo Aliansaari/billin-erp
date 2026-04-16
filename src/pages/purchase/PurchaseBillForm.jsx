@@ -1258,11 +1258,11 @@ export default function PurchaseBillForm() {
                 {roundedTotal.toLocaleString('en-IN')}
               </div>
 
-              {/* Amt Paid */}
+              {/* Amt Paid — capped at bill total (Fix: paid cannot exceed total) */}
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <span style={{color:'rgba(255,255,255,.85)',fontWeight:700,fontSize:12,width:56,flexShrink:0}}>Amt Paid</span>
                 <Form.Item name="paid_amount" noStyle>
-                  <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
+                  <InputNumber keyboard={false} size="small" min={0} max={roundedTotal} placeholder="0.00"
                     className="pbf-paid-in" style={{flex:1,width:'100%'}}/>
                 </Form.Item>
               </div>
@@ -1276,7 +1276,7 @@ export default function PurchaseBillForm() {
               }}>
                 <span style={{fontSize:10,color:'rgba(255,255,255,.6)',fontWeight:700,letterSpacing:.8,textTransform:'uppercase'}}>Balance</span>
                 <span style={{fontSize:17,fontWeight:800,color:balance>0?'#f87171':'#34d399',letterSpacing:-.5}}>
-                  {fmtN(Math.abs(balance))}{balance<0?' ▲':''}
+                  {fmtN(Math.abs(balance))}
                 </span>
               </div>
 

@@ -55,11 +55,12 @@ exports.create = async (req, res) => {
   try {
     const { splits, ...data } = req.body;
 
-    // Generate transaction number
+    // Generate transaction number — inside transaction to prevent race condition
     const prefix = data.transaction_type === 'Payment' ? 'PAY' : 'REC';
     const last = await PaymentReceipt.findOne({
       where: { transaction_type: data.transaction_type },
       order: [['transaction_id', 'DESC']],
+      transaction: t,
     });
     const lastNum = last ? parseInt(last.transaction_number.split('-').pop()) : 0;
     data.transaction_number = generateTransactionNumber(prefix, lastNum);
@@ -94,19 +95,32 @@ exports.create = async (req, res) => {
     const allocations = data.bill_allocations || [];
     for (const alloc of allocations) {
       if (!alloc.bill_id || !alloc.amount || parseFloat(alloc.amount) <= 0) continue;
+      const allocAmt = parseFloat(alloc.amount);
       if (alloc.bill_type === 'Sales') {
         const bill = await SalesBill.findByPk(alloc.bill_id, { transaction: t });
         if (bill) {
+          const currentBalance = parseFloat(bill.balance_amount) || 0;
+          // Fix: reject over-allocation — allocation cannot exceed bill's remaining balance
+          if (allocAmt > currentBalance + 0.01) {
+            await t.rollback();
+            return res.status(400).json({ error: `Allocation of ₹${allocAmt.toFixed(2)} for bill ${bill.bill_number} exceeds its remaining balance of ₹${currentBalance.toFixed(2)}` });
+          }
           const maxBalance = +(Math.max(0, parseFloat(bill.total_amount) - parseFloat(bill.paid_amount || 0) - parseFloat(bill.return_amount || 0))).toFixed(2);
-          const newBalance = +(Math.max(0, parseFloat(bill.balance_amount) - parseFloat(alloc.amount))).toFixed(2);
+          const newBalance = +(Math.max(0, currentBalance - allocAmt)).toFixed(2);
           const status     = newBalance <= 0 ? 'Paid' : newBalance < maxBalance ? 'Partial' : 'Unpaid';
           await bill.update({ balance_amount: newBalance, payment_status: status }, { transaction: t });
         }
       } else if (alloc.bill_type === 'Purchase') {
         const bill = await PurchaseBill.findByPk(alloc.bill_id, { transaction: t });
         if (bill) {
+          const currentBalance = parseFloat(bill.balance_amount) || 0;
+          // Fix: reject over-allocation
+          if (allocAmt > currentBalance + 0.01) {
+            await t.rollback();
+            return res.status(400).json({ error: `Allocation of ₹${allocAmt.toFixed(2)} for bill ${bill.bill_number} exceeds its remaining balance of ₹${currentBalance.toFixed(2)}` });
+          }
           const maxBalance = +(Math.max(0, parseFloat(bill.total_amount) - parseFloat(bill.paid_amount || 0))).toFixed(2);
-          const newBalance = +(Math.max(0, parseFloat(bill.balance_amount) - parseFloat(alloc.amount))).toFixed(2);
+          const newBalance = +(Math.max(0, currentBalance - allocAmt)).toFixed(2);
           const status     = newBalance <= 0 ? 'Paid' : newBalance < maxBalance ? 'Partial' : 'Unpaid';
           await bill.update({ balance_amount: newBalance, payment_status: status }, { transaction: t });
         }

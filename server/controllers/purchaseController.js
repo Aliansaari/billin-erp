@@ -136,10 +136,10 @@ exports.create = async (req, res) => {
   try {
     const { items, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, ...billData } = req.body;
 
-    // Generate bill number using prefix from settings
-    const settings = await SystemSettings.findByPk(1);
+    // Generate bill number using prefix from settings — inside transaction to prevent race condition
+    const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.purchase_bill_prefix?.trim() || '';
-    const lastBill = await PurchaseBill.findOne({ order: [['purchase_bill_id', 'DESC']] });
+    const lastBill = await PurchaseBill.findOne({ order: [['purchase_bill_id', 'DESC']], transaction: t });
     const lastNum = lastBill ? parseInt(lastBill.bill_number.split('-').pop()) : 0;
     billData.bill_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
@@ -183,9 +183,13 @@ exports.create = async (req, res) => {
       }
     }
 
-    // Bill totals
-    const billDiscountAmt = billData.discount_amount || +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
-    const taxableTotal = +(subTotal - billDiscountAmt).toFixed(2);
+    // Bill totals — Fix: use != null so explicit 0 isn't ignored in favour of percentage
+    const billDiscountAmt = billData.discount_amount != null
+      ? parseFloat(billData.discount_amount)
+      : +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
+    // Fix: item-level discounts must also be subtracted from the taxable base
+    const itemDiscountTotal = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    const taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt).toFixed(2);
 
     if (billWise) {
       totalCgst = +(taxableTotal * parseFloat(cgst_pct) / 100).toFixed(2);
@@ -200,10 +204,18 @@ exports.create = async (req, res) => {
     );
 
     const totalAmount = roundedAmount;
-    const balanceAmount = +(totalAmount - paid_amount).toFixed(2);
+    const paidAmt = parseFloat(paid_amount) || 0;
+
+    // Fix: reject if paid_amount exceeds bill total
+    if (paidAmt > totalAmount + 0.01) {
+      await t.rollback();
+      return res.status(400).json({ error: `Paid amount (₹${paidAmt.toFixed(2)}) cannot exceed bill total (₹${totalAmount.toFixed(2)})` });
+    }
+
+    const balanceAmount = +(totalAmount - paidAmt).toFixed(2);
     let paymentStatus = 'Unpaid';
-    if (paid_amount >= totalAmount) paymentStatus = 'Paid';
-    else if (paid_amount > 0) paymentStatus = 'Partial';
+    if (paidAmt >= totalAmount) paymentStatus = 'Paid';
+    else if (paidAmt > 0) paymentStatus = 'Partial';
 
     const bill = await PurchaseBill.create({
       ...billData,
@@ -222,7 +234,7 @@ exports.create = async (req, res) => {
       other_charges: parseFloat(other_charges) || 0,
       freight_charges: parseFloat(freight_charges) || 0,
       total_amount: totalAmount,
-      paid_amount,
+      paid_amount: paidAmt,
       balance_amount: balanceAmount,
       payment_status: paymentStatus,
     }, { transaction: t });
@@ -351,8 +363,11 @@ exports.update = async (req, res) => {
       }
     }
 
-    const billDiscountAmt = billData.discount_amount || +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
-    const taxableTotal = +(subTotal - billDiscountAmt).toFixed(2);
+    const billDiscountAmt = billData.discount_amount != null
+      ? parseFloat(billData.discount_amount)
+      : +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
+    const itemDiscountTotal2 = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    const taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt).toFixed(2);
 
     if (billWise) {
       totalCgst = +(taxableTotal * parseFloat(cgst_pct) / 100).toFixed(2);
@@ -534,10 +549,13 @@ exports.cancel = async (req, res) => {
       transaction: t,
     });
 
+    // Fix: zero out monetary fields on the cancelled bill row so stale amounts don't pollute reports
     await bill.update({
       is_cancelled: true,
       cancelled_by: req.user.user_id,
       cancelled_date: new Date(),
+      balance_amount: 0,
+      payment_status: 'Unpaid',
     }, { transaction: t });
 
     // Redistribute any active payments across remaining bills (FIFO), then fix party balance

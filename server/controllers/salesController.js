@@ -52,10 +52,10 @@ exports.create = async (req, res) => {
   try {
     const { items, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, ...billData } = req.body;
 
-    // Generate bill number using prefix from settings
-    const settings = await SystemSettings.findByPk(1);
+    // Generate bill number using prefix from settings — inside transaction to prevent race condition
+    const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.sales_bill_prefix?.trim() || '';
-    const lastBill = await SalesBill.findOne({ order: [['sales_bill_id', 'DESC']] });
+    const lastBill = await SalesBill.findOne({ order: [['sales_bill_id', 'DESC']], transaction: t });
     const lastNum = lastBill ? parseInt(lastBill.bill_number.split('-').pop()) : 0;
     billData.bill_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
@@ -94,8 +94,13 @@ exports.create = async (req, res) => {
       }
     }
 
-    const billDiscountAmt = billData.discount_amount || +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
-    const taxableTotal = +(subTotal - billDiscountAmt).toFixed(2);
+    // Fix: use != null so explicit 0 isn't ignored in favour of percentage
+    const billDiscountAmt = billData.discount_amount != null
+      ? parseFloat(billData.discount_amount)
+      : +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
+    // Fix: item-level discounts must also be subtracted from the taxable base
+    const itemDiscountTotal = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    const taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt).toFixed(2);
 
     // Bill-wise: override GST totals using the provided percentages
     if (billWise) {
@@ -113,6 +118,13 @@ exports.create = async (req, res) => {
 
     const totalAmount = roundedAmount;
 
+    // Fix: validate return_amount doesn't exceed total
+    const rawReturn = parseFloat(return_amount || 0);
+    if (rawReturn > totalAmount + 0.01) {
+      await t.rollback();
+      return res.status(400).json({ error: `Return amount (₹${rawReturn.toFixed(2)}) cannot exceed bill total (₹${totalAmount.toFixed(2)})` });
+    }
+
     // Enforce full payment if customer has credit_not_allowed
     let finalPaidAmount = parseFloat(paid_amount);
     if (billData.customer_id) {
@@ -122,7 +134,13 @@ exports.create = async (req, res) => {
       }
     }
 
-    const effectivePaid = +(finalPaidAmount + parseFloat(return_amount || 0)).toFixed(2);
+    // Fix: reject if paid_amount exceeds bill total
+    if (finalPaidAmount > totalAmount + 0.01) {
+      await t.rollback();
+      return res.status(400).json({ error: `Paid amount (₹${finalPaidAmount.toFixed(2)}) cannot exceed bill total (₹${totalAmount.toFixed(2)})` });
+    }
+
+    const effectivePaid = +(finalPaidAmount + rawReturn).toFixed(2);
     const balanceAmount = +(totalAmount - effectivePaid).toFixed(2);
     let paymentStatus = 'Unpaid';
     if (effectivePaid >= totalAmount) paymentStatus = 'Paid';
@@ -281,8 +299,11 @@ exports.update = async (req, res) => {
       }
     }
 
-    const billDiscountAmt = billData.discount_amount || +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
-    const taxableTotal = +(subTotal - billDiscountAmt).toFixed(2);
+    const billDiscountAmt = billData.discount_amount != null
+      ? parseFloat(billData.discount_amount)
+      : +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
+    const itemDiscountTotal2 = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    const taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt).toFixed(2);
 
     if (billWise) {
       totalCgst = +(taxableTotal * parseFloat(cgst_pct) / 100).toFixed(2);
@@ -458,10 +479,13 @@ exports.cancel = async (req, res) => {
       transaction: t,
     });
 
+    // Fix: zero out monetary fields on the cancelled bill row so stale amounts don't pollute reports
     await bill.update({
       is_cancelled: true,
       cancelled_by: req.user.user_id,
       cancelled_date: new Date(),
+      balance_amount: 0,
+      payment_status: 'Unpaid',
     }, { transaction: t });
 
     // Redistribute any active receipts across remaining bills (FIFO), then fix party balance

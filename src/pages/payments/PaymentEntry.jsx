@@ -128,19 +128,21 @@ export default function PaymentEntry() {
     [bills]
   );
 
+  // Fix: compute netAmount first so allocations use the actual amount being paid (after discount)
+  const netAmount = Math.max(0, (payAmt || 0) - (discAmt || 0));
+
   const billsWithAlloc = useMemo(() => {
-    let remaining = payAmt || 0;
+    let remaining = netAmount || 0;
     return bills.map(b => {
       if (!b.checked || remaining <= 0) return { ...b, allocated: 0 };
       const alloc = Math.min(remaining, parseFloat(b.balance_amount || 0));
       remaining = parseFloat((remaining - alloc).toFixed(2));
       return { ...b, allocated: alloc };
     });
-  }, [bills, payAmt]);
+  }, [bills, netAmount]);
 
   const checkedBills   = billsWithAlloc.filter(b => b.checked);
   const selectedInvNos = checkedBills.map(b => b.bill_number).join(', ');
-  const netAmount      = Math.max(0, (payAmt || 0) - (discAmt || 0));
 
   const handlePayAmtChange = (val) => {
     const v = val || 0;
