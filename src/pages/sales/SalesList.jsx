@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Tag, Typography, message, Card, Space, Input,
-  DatePicker, Select, Popconfirm, Tooltip, Modal, Descriptions,
+  DatePicker, Select, Popconfirm, Tooltip, Modal, Descriptions, Divider,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, StopOutlined,
@@ -92,9 +92,29 @@ function printBill(bill, companyName) {
 }
 
 // ── View Modal ─────────────────────────────────────────────────────────────────
+function SummaryRow({ label, value, color, bold, borderTop }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '5px 0', borderTop: borderTop ? '1px solid #d9d9d9' : undefined,
+      fontWeight: bold ? 700 : 400, fontSize: bold ? 14 : 13, color: color || undefined,
+    }}>
+      <span>{label}</span><span>{value}</span>
+    </div>
+  );
+}
+
 function ViewModal({ bill, onClose }) {
   if (!bill) return null;
   const items = bill.items || [];
+  const cgst  = parseFloat(bill.cgst_amount  || 0);
+  const sgst  = parseFloat(bill.sgst_amount  || 0);
+  const igst  = parseFloat(bill.igst_amount  || 0);
+  const totalGst = cgst + sgst + igst;
+  const discount = parseFloat(bill.discount_amount || 0);
+  const returnAmt = parseFloat(bill.return_amount || 0);
+  const balance = parseFloat(bill.balance_amount || 0);
+  const roundOff = parseFloat(bill.round_off || 0);
 
   const itemColumns = [
     { title: '#', width: 40, render: (_, __, i) => i + 1 },
@@ -110,9 +130,10 @@ function ViewModal({ bill, onClose }) {
   ];
 
   return (
-    <Modal open onCancel={onClose} width={900} footer={null}
+    <Modal open onCancel={onClose} width={960} footer={null}
       title={<span style={{ fontWeight: 700 }}>Sales Bill — {bill.bill_number}</span>}
       styles={{ body: { padding: '16px 24px' } }}>
+
       <Descriptions size="small" bordered column={2} style={{ marginBottom: 16 }}>
         <Descriptions.Item label="Bill No">{bill.bill_number}</Descriptions.Item>
         <Descriptions.Item label="Date">{dayjs(bill.bill_date).format('DD-MMM-YYYY')}</Descriptions.Item>
@@ -122,30 +143,65 @@ function ViewModal({ bill, onClose }) {
             {bill.payment_status}
           </Tag>
         </Descriptions.Item>
+        {bill.payment_method && (
+          <Descriptions.Item label="Payment Method">{bill.payment_method}</Descriptions.Item>
+        )}
+        {bill.remarks && (
+          <Descriptions.Item label="Remarks" span={bill.payment_method ? 1 : 2}>{bill.remarks}</Descriptions.Item>
+        )}
       </Descriptions>
 
       <Table columns={itemColumns} dataSource={items} rowKey="sales_bill_item_id"
         pagination={false} size="small" scroll={{ x: 600 }} />
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-        <table style={{ fontSize: 13, borderCollapse: 'collapse' }}>
-          {[
-            ['Sub Total', fmt(bill.sub_total)],
-            bill.discount_amount > 0 && ['Discount', `- ${fmt(bill.discount_amount)}`],
-            bill.gst_amount > 0 && ['GST', fmt(bill.gst_amount)],
-            bill.round_off && ['Round Off', parseFloat(bill.round_off).toFixed(2)],
-          ].filter(Boolean).map(([label, val]) => (
-            <tr key={label}><td style={{ padding: '2px 12px' }}>{label}</td><td style={{ textAlign: 'right' }}>{val}</td></tr>
-          ))}
-          <tr style={{ fontWeight: 700, fontSize: 14, borderTop: '2px solid #111' }}>
-            <td style={{ padding: '4px 12px' }}>Total</td><td style={{ textAlign: 'right' }}>{fmt(bill.total_amount)}</td>
-          </tr>
-          <tr><td style={{ padding: '2px 12px', color: '#16a34a' }}>Paid</td>
-            <td style={{ textAlign: 'right', color: '#16a34a' }}>{fmt(bill.paid_amount)}</td></tr>
-          <tr><td style={{ padding: '2px 12px', color: bill.balance_amount > 0 ? '#dc2626' : '#16a34a' }}>Balance</td>
-            <td style={{ textAlign: 'right', fontWeight: 700, color: bill.balance_amount > 0 ? '#dc2626' : '#16a34a' }}>
-              {fmt(bill.balance_amount)}</td></tr>
-        </table>
+      <Divider style={{ margin: '12px 0' }} />
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ width: 300 }}>
+          <SummaryRow label="Sub Total" value={fmt(bill.sub_total)} />
+          {discount > 0 && (
+            <SummaryRow
+              label={`Discount${bill.discount_percentage > 0 ? ` (${bill.discount_percentage}%)` : ''}`}
+              value={`- ${fmt(discount)}`}
+              color="#d97706"
+            />
+          )}
+          {igst > 0 && (
+            <SummaryRow
+              label={`IGST${bill.igst_pct > 0 ? ` (${bill.igst_pct}%)` : ''}`}
+              value={fmt(igst)}
+            />
+          )}
+          {cgst > 0 && (
+            <SummaryRow
+              label={`CGST${bill.cgst_pct > 0 ? ` (${bill.cgst_pct}%)` : ''}`}
+              value={fmt(cgst)}
+            />
+          )}
+          {sgst > 0 && (
+            <SummaryRow
+              label={`SGST${bill.sgst_pct > 0 ? ` (${bill.sgst_pct}%)` : ''}`}
+              value={fmt(sgst)}
+            />
+          )}
+          {totalGst === 0 && parseFloat(bill.gst_amount || 0) > 0 && (
+            <SummaryRow label="GST" value={fmt(bill.gst_amount)} />
+          )}
+          {roundOff !== 0 && (
+            <SummaryRow label="Round Off" value={roundOff.toFixed(2)} />
+          )}
+          <SummaryRow label="Total" value={fmt(bill.total_amount)} bold borderTop />
+          {returnAmt > 0 && (
+            <SummaryRow label="Return Amount" value={`- ${fmt(returnAmt)}`} color="#7c3aed" />
+          )}
+          <SummaryRow label="Paid" value={fmt(bill.paid_amount)} color="#16a34a" />
+          <SummaryRow
+            label="Balance Due"
+            value={fmt(bill.balance_amount)}
+            color={balance > 0 ? '#dc2626' : '#16a34a'}
+            bold borderTop
+          />
+        </div>
       </div>
     </Modal>
   );

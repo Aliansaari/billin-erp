@@ -323,6 +323,42 @@ body {
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
+/* ===== DARK-FORM SELECT (category + product on dark bill form bg) ===== */
+/* Makes the select box visible and styled for dark backgrounds */
+.entry-dark-select .ant-select-selector {
+  background: rgba(255,255,255,0.08) !important;
+  border-color: rgba(255,255,255,0.18) !important;
+  color: #e2e8f0 !important;
+  border-radius: 6px !important;
+}
+.entry-dark-select .ant-select-selector:hover {
+  border-color: rgba(255,255,255,0.35) !important;
+}
+.entry-dark-select.ant-select-focused .ant-select-selector,
+.entry-dark-select.ant-select-open .ant-select-selector {
+  border-color: #34d399 !important;
+  box-shadow: 0 0 0 2px rgba(52,211,153,0.25) !important;
+  background: rgba(255,255,255,0.12) !important;
+}
+.entry-dark-select .ant-select-selection-placeholder {
+  color: rgba(255,255,255,0.35) !important;
+}
+.entry-dark-select .ant-select-selection-item {
+  color: #e2e8f0 !important;
+}
+/* search input text inside the select */
+.entry-dark-select .ant-select-selection-search-input {
+  color: #e2e8f0 !important;
+}
+/* clear/arrow icons */
+.entry-dark-select .ant-select-arrow,
+.entry-dark-select .ant-select-clear {
+  color: rgba(255,255,255,0.45) !important;
+}
+.entry-dark-select .ant-select-clear:hover {
+  color: #e2e8f0 !important;
+}
+
 /* ===== BILL FORM ENTRY ROW ===== */
 .erp-entry-row {
   background: linear-gradient(135deg, #f8fafc, #eef2ff);

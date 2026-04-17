@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { Form, Input, DatePicker, Select, InputNumber, Table, Typography, message, AutoComplete } from 'antd';
+import { Form, Input, DatePicker, Select, InputNumber, Table, Typography, message } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -39,67 +39,112 @@ const EMPTY_ENTRY = {
 const lbl = { fontSize:9, color:LBL_C, fontWeight:700, letterSpacing:.8, textTransform:'uppercase', marginBottom:2 };
 
 /* ── Variant Picker Dropdown ─────────────────────────────────────────────── */
-function VariantPickerDropdown({ options, selectedIdx, onPick, onDismiss, top, left }) {
+function VariantPickerDropdown({ options, selectedIdx, onPick, onDismiss, top, left, rateFilter }) {
+  const matchCount = rateFilter!=null&&rateFilter>0
+    ? options.filter(v=>Math.abs(parseFloat(v.purchase_rate||0)-parseFloat(rateFilter))<0.01).length
+    : null;
   return (
     <div
       data-variant-picker="1"
       onMouseDown={e=>e.preventDefault()}
       style={{
         position:'fixed', top, left, zIndex:9999,
-        background:'#fff', border:'1px solid #c7d2fe', borderRadius:8,
-        boxShadow:'0 8px 32px rgba(0,0,0,.22)', minWidth:480,
-        maxHeight:300, overflow:'hidden', display:'flex', flexDirection:'column',
+        background:'#fff',
+        border:'1px solid #e0e7ff',
+        borderRadius:10,
+        boxShadow:'0 12px 40px rgba(0,0,0,.18), 0 2px 8px rgba(99,102,241,.12)',
+        minWidth:520,
+        maxHeight:340,
+        overflow:'hidden',
+        display:'flex',
+        flexDirection:'column',
+        animation:'fadeIn .12s ease-out',
       }}
     >
-      {/* Column header */}
+      {/* Header — matches product dropdown indigo gradient */}
       <div style={{
-        display:'grid', gridTemplateColumns:'150px 82px 56px 82px 66px',
-        padding:'6px 10px', background:'#eef2ff',
-        borderBottom:'1px solid #c7d2fe', flexShrink:0,
-        fontSize:10, fontWeight:700, color:'#6366f1', letterSpacing:.5, textTransform:'uppercase',
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        padding:'7px 12px',
+        background:'linear-gradient(90deg,#3730a3 0%,#4f46e5 100%)',
+        flexShrink:0,
       }}>
-        <span>Barcode</span>
-        <span style={{textAlign:'right'}}>Pur.Rate</span>
-        <span style={{textAlign:'center'}}>P/Box</span>
-        <span style={{textAlign:'right'}}>Sale Rate</span>
-        <span style={{textAlign:'right'}}>Margin%</span>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontSize:11,fontWeight:700,color:'#fff',letterSpacing:.8,textTransform:'uppercase'}}>
+            {options.length} Variant{options.length!==1?'s':''} found
+          </span>
+          {matchCount!=null&&(
+            <span style={{fontSize:10,background:'rgba(52,211,153,.25)',color:'#6ee7b7',border:'1px solid rgba(52,211,153,.4)',borderRadius:10,padding:'1px 8px',fontWeight:700}}>
+              {matchCount} match ₹{parseFloat(rateFilter).toFixed(2)}
+            </span>
+          )}
+        </div>
+        <span style={{fontSize:10,color:'rgba(255,255,255,.5)'}}>↑↓ · Enter · Esc</span>
       </div>
-      {/* Rows */}
+
+      {/* Rows — same style as product Select.Option */}
       <div style={{overflowY:'auto',flex:1}}>
-        {options.map((v,i)=>(
-          <div key={v.product_id} onClick={()=>onPick(v)}
-            style={{
-              display:'grid', gridTemplateColumns:'150px 82px 56px 82px 66px',
-              padding:'7px 10px', cursor:'pointer',
-              background:i===selectedIdx?'#eef2ff':'#fff',
-              borderBottom:'1px solid #f0f0f0',
-              fontSize:12, fontWeight:600,
-              transition:'background .1s',
-            }}
-          >
-            <span style={{fontFamily:'monospace',color:'#4f46e5',fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{v.barcode||'—'}</span>
-            <span style={{textAlign:'right',color:'#059669'}}>₹{parseFloat(v.purchase_rate||0).toFixed(2)}</span>
-            <span style={{textAlign:'center',color:'#374151'}}>{v.quantity_per_box||1}</span>
-            <span style={{textAlign:'right',color:'#dc2626'}}>₹{parseFloat(v.sale_rate||0).toFixed(2)}</span>
-            <span style={{textAlign:'right',color:'#b45309'}}>{parseFloat(v.margin_percentage||0).toFixed(1)}%</span>
-          </div>
-        ))}
+        {options.map((v,i)=>{
+          const stock=parseFloat(v.current_stock||0);
+          const stockColor=stock<=0?'#ef4444':stock<=5?'#f59e0b':'#6b7280';
+          const isSelected=i===selectedIdx;
+          const rateMatches=matchCount!=null&&Math.abs(parseFloat(v.purchase_rate||0)-parseFloat(rateFilter))<0.01;
+          return(
+            <div key={v.product_id} onClick={()=>onPick(v)}
+              style={{
+                display:'flex', justifyContent:'space-between', alignItems:'center',
+                gap:8, padding:'8px 12px', cursor:'pointer',
+                background: isSelected?'#eef2ff': rateMatches?'#f0fdf4':'#fff',
+                borderBottom:'1px solid #f3f4f6',
+                borderLeft: isSelected?'3px solid #6366f1': rateMatches?'3px solid #34d399':'3px solid transparent',
+                transition:'background .08s',
+              }}
+            >
+              {/* Left: name + meta (matches product dropdown layout) */}
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{fontWeight:600,fontSize:13,color:'#111827',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                  {v.product_name}
+                </div>
+                <div style={{fontSize:10,color:'#6b7280',marginTop:2}}>
+                  {[
+                    v.barcode&&<span key="bc" style={{fontFamily:'monospace',background:'#eef2ff',color:'#4f46e5',borderRadius:3,padding:'0 4px',fontSize:10,fontWeight:600}}>{v.barcode}</span>,
+                    v.article_number&&`Art# ${v.article_number}`,
+                    v.size_value&&`Size ${v.size_value}`,
+                    v.quantity_per_box>1&&`P/Box ${v.quantity_per_box}`,
+                  ].filter(Boolean).reduce((acc,el,i)=>i===0?[el]:[...acc,' · ',el],[])}
+                </div>
+              </div>
+              {/* Right: rates + stock (matches product dropdown right column) */}
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <span style={{fontSize:12,fontWeight:700,color:'#059669'}}>Buy ₹{parseFloat(v.purchase_rate||0).toFixed(2)}</span>
+                  <span style={{fontSize:12,fontWeight:700,color:'#7c3aed'}}>Sell ₹{parseFloat(v.sale_rate||0).toFixed(2)}</span>
+                  <span style={{fontSize:11,color:'#b45309',fontWeight:600}}>{parseFloat(v.margin_percentage||0).toFixed(1)}%</span>
+                </div>
+                <span style={{color:stockColor,fontSize:10,fontWeight:600}}>{stock<=0?'Out of stock':`Stock: ${stock}`}</span>
+              </div>
+            </div>
+          );
+        })}
       </div>
+
       {/* Footer */}
       <div style={{
         display:'flex', justifyContent:'space-between', alignItems:'center',
-        padding:'6px 10px', background:'#f8fafc', flexShrink:0,
-        borderTop:'1px solid #e2e8f0', borderRadius:'0 0 8px 8px',
-        fontSize:10, color:'#9ca3af',
+        padding:'6px 12px',
+        background:'#f8fafc',
+        borderTop:'1px solid #e0e7ff',
+        flexShrink:0,
       }}>
-        <span>↑↓ navigate · Enter pick · Esc dismiss</span>
+        <span style={{fontSize:10,color:'#9ca3af'}}>Click or use keyboard · Enter to pick · Esc to use new rates</span>
         <button
           onMouseDown={e=>e.preventDefault()}
           onClick={onDismiss}
           style={{
-            background:'none', border:'1px solid #c7d2fe', borderRadius:4,
-            color:'#6366f1', fontSize:10, fontWeight:700,
-            cursor:'pointer', padding:'2px 8px',
+            background:'linear-gradient(135deg,#4f46e5,#818cf8)',
+            border:'none', borderRadius:5,
+            color:'#fff', fontSize:10, fontWeight:700,
+            cursor:'pointer', padding:'3px 10px',
+            boxShadow:'0 2px 6px rgba(99,102,241,.3)',
           }}
         >Use new rates →</button>
       </div>
@@ -120,23 +165,29 @@ export default function PurchaseBillForm() {
   const [pageLoading, setPageLoading] = useState(false);
   const [entry, setEntry]           = useState(EMPTY_ENTRY);
   const [prodRawList, setProdRawList]           = useState([]);  // flat list from API
-  const [prodHighlightIdx, setProdHighlightIdx] = useState(-1); // keyboard nav
   const [productSearching, setProductSearching] = useState(false);
-  const [prodOpen, setProdOpen]                 = useState(false);
+  const [activeCatId, setActiveCatId]           = useState(null); // drives category product loading
   const [lookupLoading, setLookupLoading]       = useState(false);
   const [variantOptions, setVariantOptions]     = useState([]);
   const [showVariantPicker, setShowVariantPicker] = useState(false);
   const [variantPickerIdx, setVariantPickerIdx]   = useState(-1);
   const [pickerPos, setPickerPos]               = useState({top:0,left:0});
+  const [pickerRateFilter, setPickerRateFilter] = useState(null); // state so picker re-renders on rate change
   const variantOptionsRef                        = useRef([]);   // stable ref for global handler
   const variantPickerIdxRef                      = useRef(-1);   // stable ref for global handler
   const prodWrapRef                             = useRef(null);
   const articleWrapRef                          = useRef(null);
+  const rateWrapRef                             = useRef(null);  // anchor for rate-triggered picker
+  const pickerAnchorRef                         = useRef('article'); // 'article' | 'rate'
+  const pickerRateFilterRef                     = useRef(null);  // rate being typed (for row highlight)
   const articleSearchTimerRef                   = useRef(null);
   const rateSearchTimerRef                      = useRef(null);
   const entryRef                                = useRef(entry);          // live mirror — avoids nested setEntry
   const showVariantPickerRef                    = useRef(false);          // guard for lookupProduct
   const liveSearchIdRef                         = useRef(0);              // stale-response detection
+  const justSelectedRef                         = useRef(false);          // redirect focus to size after product selection
+  const searchTimerRef                          = useRef(null);           // debounce timer for product text search
+  const searchReqRef                            = useRef(0);              // stale-response guard for text search
   const [barcodeError, setBarcodeError]         = useState('');
   const [printModal, setPrintModal] = useState({ visible:false, bill:null });
   const [companyName, setCompanyName] = useState('');
@@ -168,6 +219,20 @@ export default function PurchaseBillForm() {
     ro.observe(el);
     return ()=>ro.disconnect();
   },[]);
+
+  // Load products when category changes — clean cancellation pattern
+  useEffect(()=>{
+    if(!activeCatId){ setProdRawList([]); return; }
+    let cancelled=false;
+    productAPI.search('',{category_id:activeCatId,name_only:'true'})
+      .then(({data})=>{
+        if(cancelled) return;
+        setProdRawList(data.data||[]);
+        setTimeout(()=>{ const inp=prodWrapRef.current?.querySelector('input'); inp?.focus(); },30);
+      })
+      .catch(()=>{ if(!cancelled) setProdRawList([]); });
+    return ()=>{ cancelled=true; };
+  },[activeCatId]);
 
   useEffect(() => {
     loadParties(); loadCategories();
@@ -279,11 +344,8 @@ export default function PurchaseBillForm() {
       else setBarcodeError('');
     }catch(e){ setBarcodeError(''); }
   };
-  // Compute dropdown options from raw list:
-  //  • deduplicate by product_name
-  //  • sum current_stock across all variants
-  //  • highlight the keyboard-nav row
-  const productOptions=useMemo(()=>{
+  // Deduplicate by product_name, aggregate stock across variants
+  const dedupedProducts=useMemo(()=>{
     const map=new Map();
     prodRawList.forEach(p=>{
       const key=(p.product_name||'').toLowerCase().trim();
@@ -293,38 +355,23 @@ export default function PurchaseBillForm() {
         map.get(key)._totalStock+=parseFloat(p.current_stock||0);
       }
     });
-    return [...map.values()].map((p,i)=>({
-      value:p.product_name,
-      label:(
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,
-          background:i===prodHighlightIdx?'rgba(99,102,241,.1)':'transparent',
-          margin:'-5px -12px',padding:'5px 12px',borderRadius:4}}>
-          <span style={{fontWeight:600,color:'#1f2937'}}>{p.product_name}</span>
-          <div style={{display:'flex',gap:10,alignItems:'center',flexShrink:0}}>
-            {!entry.category_id&&<span style={{fontSize:11,color:'#9ca3af'}}>{p.Category?.category_name||p.category_name||''}</span>}
-            {p._totalStock>0&&<span style={{fontSize:11,color:'#059669',fontWeight:700,background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:10,padding:'0 6px'}}>Stock: {p._totalStock}</span>}
-          </div>
-        </div>
-      ),
-      product:p,
-    }));
-  },[prodRawList,prodHighlightIdx,entry.category_id]);
+    return [...map.values()];
+  },[prodRawList]);
 
-  const handleProductSearch=async(value)=>{
-    const catId=entry.category_id;
-    const params=catId?{category_id:catId}:{};
-    if(!value&&!catId){setProdRawList([]);setProdOpen(false);return;}
-    setProductSearching(true);
-    try{
-      const{data}=await productAPI.search(value||'',params);
-      // Always filter client-side by category as a safety net
-      const list=(data.data||[]).filter(p=>!catId||p.category_id===catId);
-      setProdRawList(list);
-      setProdHighlightIdx(-1);
-      setProdOpen(true);
-    }catch(e){setProdRawList([]);}
-    finally{setProductSearching(false);}
-  };
+  const handleProductSearch=useCallback((value)=>{
+    if(searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if(!value){ if(!activeCatId) setProdRawList([]); return; }
+    searchTimerRef.current=setTimeout(async()=>{
+      const reqId=++searchReqRef.current;
+      setProductSearching(true);
+      try{
+        const{data}=await productAPI.search(value,{name_only:'true',...(activeCatId?{category_id:activeCatId}:{})});
+        if(reqId!==searchReqRef.current) return;
+        setProdRawList(data.data||[]);
+      }catch(e){ if(reqId===searchReqRef.current) setProdRawList([]); }
+      finally{ if(reqId===searchReqRef.current) setProductSearching(false); }
+    },150);
+  },[activeCatId]);
   const handleProductSelect=(value,option)=>{
     if(!option?.product) return;
     const p=option.product;
@@ -341,8 +388,9 @@ export default function PurchaseBillForm() {
       hsn_code:'', gst_rate:0, quantity_per_box:1,
     }));
     setBarcodeError('');
-    setProdOpen(false); setProdHighlightIdx(-1);
-    setTimeout(()=>{ sizeRef.current?.focus(); sizeRef.current?.select?.(); },50);
+    // Redirect focus to Size field — blur Select first so AntD can't steal focus back
+    justSelectedRef.current=true;
+    requestAnimationFrame(()=>{ productRef.current?.blur(); sizeRef.current?.focus(); sizeRef.current?.select?.(); });
   };
 
   // Match existing product by category + name + size + article + purchase_rate + quantity_per_box + sale_rate.
@@ -497,25 +545,6 @@ export default function PurchaseBillForm() {
       return;
     }
 
-    // Product dropdown open: manual keyboard nav (controlled open breaks Ant Design's internal nav)
-    if(idx===0&&prodOpen){
-      if(e.key==='ArrowDown'){
-        e.preventDefault();
-        setProdHighlightIdx(i=>Math.min(i+1,productOptions.length-1));
-        return;
-      }
-      if(e.key==='ArrowUp'){
-        e.preventDefault();
-        setProdHighlightIdx(i=>Math.max(i-1,0));
-        return;
-      }
-      if((e.key==='Enter'||e.key==='Tab')&&prodHighlightIdx>=0&&productOptions[prodHighlightIdx]){
-        e.preventDefault();
-        handleProductSelect(productOptions[prodHighlightIdx].value, productOptions[prodHighlightIdx]);
-        return;
-      }
-      if(e.key==='Escape'){ e.preventDefault(); setProdOpen(false); setProdHighlightIdx(-1); return; }
-    }
 
     // Number fields (idx≥3): ArrowDown/Up should change the value natively, not jump fields
     const isNum = idx >= 3;
@@ -605,23 +634,30 @@ export default function PurchaseBillForm() {
   // Art# onChange — update entry + debounced live variant search
   const handleArticleChange=(value)=>{
     updateEntry('article_number',value);
+    pickerAnchorRef.current='article';
+    pickerRateFilterRef.current=null;
+    setPickerRateFilter(null);
     clearTimeout(articleSearchTimerRef.current);
     articleSearchTimerRef.current=setTimeout(()=>runLiveVariantSearch(value,true),300);
   };
 
-  // Rate onChange — update entry + debounced live search when article is blank
+  // Rate onChange — update entry + update picker highlight live (no open/close from typing)
   const handleRateInputChange=(value)=>{
     updateEntry('purchase_rate',value||0);
-    clearTimeout(rateSearchTimerRef.current);
-    rateSearchTimerRef.current=setTimeout(()=>{
-      // Read from entryRef directly — no nested setEntry needed
-      const snap=entryRef.current;
-      if(snap.product_name&&!snap.article_number){
-        // Article blank → show all variants for this name+size
-        runLiveVariantSearch('',false);
-      }
-    },400);
+    pickerRateFilterRef.current=value||null;
+    setPickerRateFilter(value||null); // triggers picker re-render for live highlight
   };
+
+  // Rate onFocus — if article is empty and product+size exist, open picker below rate box
+  const handleRateFocus=useCallback(()=>{
+    const snap=entryRef.current;
+    if(!snap.product_name||snap.article_number) return; // only when article is blank
+    if(showVariantPickerRef.current) return; // already open
+    pickerAnchorRef.current='rate';
+    pickerRateFilterRef.current=snap.purchase_rate||null;
+    setPickerRateFilter(snap.purchase_rate||null);
+    runLiveVariantSearch('',false);
+  },[runLiveVariantSearch]);
 
   // Keep refs in sync so global keydown handler never captures stale values
   useEffect(()=>{ variantOptionsRef.current=variantOptions; },[variantOptions]);
@@ -636,7 +672,7 @@ export default function PurchaseBillForm() {
     setItems(prev=>[...prev,{...entry,key:Date.now(),total_amount:+(entry.quantity*entry.purchase_rate).toFixed(2)}]);
     setEntry(EMPTY_ENTRY); setBarcodeError('');
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
-    setProdRawList([]); setProdHighlightIdx(-1); setProdOpen(false);
+    setActiveCatId(null); // triggers useEffect → clears prodRawList automatically
     setTimeout(()=>barcodeRef.current?.focus(),50);
   },[entry,barcodeError]);
   const removeItem=(key)=>setItems(prev=>prev.filter(i=>i.key!==key));
@@ -667,12 +703,13 @@ export default function PurchaseBillForm() {
   const discAmtEditingRef             = useRef(false);
   useEffect(()=>{ if(!discAmtEditingRef.current) setDiscAmtVal(discountAmt||0); },[discountAmt]);
 
-  // When picker opens: reset nav index + compute fixed position below Art# field
+  // When picker opens: reset nav index + compute fixed position below the triggering field
   useEffect(()=>{
     if(!showVariantPicker) return;
     setVariantPickerIdx(-1);
-    if(articleWrapRef.current){
-      const r=articleWrapRef.current.getBoundingClientRect();
+    const anchorEl = pickerAnchorRef.current==='rate' ? rateWrapRef.current : articleWrapRef.current;
+    if(anchorEl){
+      const r=anchorEl.getBoundingClientRect();
       setPickerPos({top:r.bottom+4, left:r.left});
     }
   },[showVariantPicker]);
@@ -712,9 +749,9 @@ export default function PurchaseBillForm() {
     if(!showVariantPicker) return;
     const handler=e=>{
       const inArt=articleWrapRef.current?.contains(e.target);
-      // pickerOverlayRef checked inside VariantPickerDropdown via data attribute
+      const inRate=rateWrapRef.current?.contains(e.target);
       const inPicker=e.target.closest('[data-variant-picker]');
-      if(!inArt&&!inPicker) setShowVariantPicker(false);
+      if(!inArt&&!inRate&&!inPicker) setShowVariantPicker(false);
     };
     document.addEventListener('mousedown', handler);
     return ()=>document.removeEventListener('mousedown', handler);
@@ -765,7 +802,7 @@ export default function PurchaseBillForm() {
   const handleReset=()=>{
     setItems([]); setEntry(EMPTY_ENTRY); setBarcodeError('');
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
-    setProdRawList([]); setProdHighlightIdx(-1); setProdOpen(false);
+    setActiveCatId(null);
     form.resetFields(['discount_percentage','paid_amount']);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   };
@@ -960,58 +997,74 @@ export default function PurchaseBillForm() {
             </div>
             <div style={{flexShrink:0}}>
               <div style={lbl}>Category</div>
-              <Select style={{width:200}} value={entry.category_id}
-                onChange={async(v,opt)=>{
+              <Select className="entry-dark-select" style={{width:200}} value={activeCatId}
+                onChange={(v,opt)=>{
+                  setActiveCatId(v||null); // useEffect fetches products + focuses field when ready
                   setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
-                  setProdRawList([]); setProdHighlightIdx(-1);
-                  if(v){
-                    try{
-                      const{data}=await productAPI.search('',{category_id:v});
-                      // Filter client-side too — only this category's products
-                      const list=(data.data||[]).filter(p=>p.category_id===v);
-                      setProdRawList(list);
-                      setProdHighlightIdx(-1);
-                      setProdOpen(true);
-                      setTimeout(()=>{ const inp=prodWrapRef.current?.querySelector('input'); inp?.focus(); },60);
-                    }catch{}
-                  } else {
-                    setProdOpen(false);
-                  }
                 }}
-                placeholder="All Categories" showSearch optionFilterProp="children" allowClear>
+                placeholder="All Categories" showSearch
+                filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
+                allowClear notFoundContent={null}>
                 {categories.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
               </Select>
             </div>
             <div ref={prodWrapRef} style={{flexShrink:0}}>
               <div style={lbl}>Product Name</div>
-              <AutoComplete ref={productRef} style={{width:220}} options={productOptions} value={entry.product_name}
-                open={prodOpen}
-                onSearch={v=>{ setProdOpen(true); handleProductSearch(v); }}
-                onSelect={handleProductSelect}
-                onFocus={()=>{ if(productOptions.length>0) setProdOpen(true); }}
-                onBlur={()=>setProdOpen(false)}
-                onChange={v=>setEntry(p=>({...p,product_name:v,product_id:null}))}
-                placeholder={entry.category_id?'Search in category…':'Search all products…'}
+              <Select key={activeCatId??'no-cat'} ref={productRef} className="entry-dark-select" style={{width:220}}
+                showSearch filterOption={false} optionLabelProp="label"
+                value={entry.product_name||undefined}
+                onSearch={handleProductSearch}
+                onSelect={(val,opt)=>handleProductSelect(val,opt)}
+                onFocus={()=>{
+                  if(justSelectedRef.current){
+                    justSelectedRef.current=false;
+                    requestAnimationFrame(()=>{ productRef.current?.blur(); sizeRef.current?.focus(); sizeRef.current?.select?.(); });
+                  }
+                }}
+                onClear={()=>setEntry(p=>({...p,product_name:'',product_id:null}))}
+                allowClear
+                placeholder={activeCatId?'Search in category…':'Search all products…'}
                 notFoundContent={productSearching?'Searching…':null}
-                onKeyDown={e=>handleEntryKey(e,0)} dropdownMatchSelectWidth={360}/>
+                listHeight={320} dropdownMatchSelectWidth={460}
+              >
+                {dedupedProducts.map(p=>{
+                  const stock=parseFloat(p._totalStock||p.current_stock||0);
+                  const stockColor=stock<=0?'#ef4444':stock<=5?'#f59e0b':'#6b7280';
+                  return(
+                    <Select.Option key={p.product_id} value={p.product_name} label={p.product_name} product={p}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
+                        <div style={{minWidth:0,flex:1}}>
+                          <div style={{fontWeight:600,fontSize:13,color:'#111827',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.product_name}</div>
+                          <div style={{fontSize:10,color:'#6b7280',marginTop:1}}>
+                            {[p.Category?.category_name,p.article_number&&`Art# ${p.article_number}`,p.size_value&&`Size ${p.size_value}`].filter(Boolean).join(' · ')}
+                          </div>
+                        </div>
+                        <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
+                          <span style={{color:stockColor,fontSize:10,fontWeight:600}}>{stock<=0?'Out of stock':`Stock: ${stock}`}</span>
+                        </div>
+                      </div>
+                    </Select.Option>
+                  );
+                })}
+              </Select>
             </div>
             {[
               {lbl2:'Size',    ref:sizeRef,    field:'size',             val:entry.size,                       w:70,  idx:1, t:'txt'},
               {lbl2:'Art #',   ref:articleRef, field:'article_number',   val:entry.article_number,             w:80,  idx:2, t:'txt', wrapRef:articleWrapRef,
                onChangeFn:e=>handleArticleChange(e.target.value)},
               {lbl2:'Rate ₹',  ref:rateRef,    field:'purchase_rate',    val:entry.purchase_rate||undefined,   w:100, idx:3, t:'num', min:0, onBlur:handleRateBlur,
-               onChangeFn:v=>handleRateInputChange(v||0)},
+               wrapRef:rateWrapRef, onChangeFn:v=>handleRateInputChange(v||0), onFocusFn:handleRateFocus},
               {lbl2:'Qty',     ref:qtyRef,     field:'quantity',         val:entry.quantity||undefined,        w:80,  idx:4, t:'num', min:0},
               {lbl2:'P/Box',   ref:qpbRef,     field:'quantity_per_box', val:entry.quantity_per_box,           w:70,  idx:5, t:'num', min:1, onBlur:handleRateBlur},
               {lbl2:'Margin%', ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,w:80, idx:6, t:'num'},
               {lbl2:'Sale ₹',  ref:saleRateRef,field:'sale_rate',        val:entry.sale_rate||undefined,       w:100, idx:7, t:'num', min:0, onBlur:handleRateBlur},
               {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,        w:70,  idx:8, t:'num', min:0},
-            ].map(({lbl2,ref,field,val,w,idx,t,min,onBlur,wrapRef,onChangeFn})=>(
+            ].map(({lbl2,ref,field,val,w,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
               <div key={field} ref={wrapRef||undefined} style={{flexShrink:0}}>
                 <div style={lbl}>{lbl2}</div>
                 {t==='txt'
                   ?<Input ref={ref} value={val} style={{width:w}} onChange={onChangeFn||(e=>updateEntry(field,e.target.value))} onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur}/>
-                  :<InputNumber keyboard={false} ref={ref} value={val} style={{width:w}} min={min} onChange={onChangeFn||(v=>updateEntry(field,v||0))} onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur}/>
+                  :<InputNumber keyboard={false} ref={ref} value={val} style={{width:w}} min={min} onChange={onChangeFn||(v=>updateEntry(field,v||0))} onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur} onFocus={onFocusFn}/>
                 }
               </div>
             ))}
@@ -1024,6 +1077,7 @@ export default function PurchaseBillForm() {
                 onDismiss={handleVariantPickerDismiss}
                 top={pickerPos.top}
                 left={pickerPos.left}
+                rateFilter={pickerAnchorRef.current==='rate'?pickerRateFilter:null}
               />
             )}
             <div style={{flexShrink:0}}>
@@ -1052,7 +1106,7 @@ export default function PurchaseBillForm() {
             components={{header:{cell:(p)=>(
               <th {...p} style={{background:TH_BG,color:'#fff',fontWeight:700,fontSize:11,letterSpacing:.5,textTransform:'uppercase',
                 padding:'9px 8px',border:'none',borderBottom:'2px solid #3730a3',
-                whiteSpace:'nowrap',textTransform:'uppercase',letterSpacing:.5}}/>
+                whiteSpace:'nowrap'}}/>
             )}}}
             locale={{emptyText:(
               <div style={{padding:40,textAlign:'center',color:'#c4c4c4'}}>

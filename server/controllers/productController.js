@@ -4,25 +4,41 @@ const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 
 exports.getAll = async (req, res) => {
   try {
-    const { search, category_id, stock_status, page = 1, limit = 50 } = req.query;
+    const { search, category_id, stock_status, page = 1, limit = 50, name_only } = req.query;
     const where = { is_active: true };
 
     if (search) {
-      where[Op.or] = [
-        { product_name: { [Op.iLike]: `%${search}%` } },
-        { barcode: { [Op.iLike]: `%${search}%` } },
-        { article_number: { [Op.iLike]: `%${search}%` } },
-      ];
+      if (name_only === 'true') {
+        // Sales/purchase form: search only by product name — no article/barcode noise
+        where.product_name = { [Op.iLike]: `%${search}%` };
+      } else {
+        // Product management page: full search across name, barcode, article
+        where[Op.or] = [
+          { product_name: { [Op.iLike]: `%${search}%` } },
+          { barcode: { [Op.iLike]: `%${search}%` } },
+          { article_number: { [Op.iLike]: `%${search}%` } },
+        ];
+      }
     }
     if (category_id) where.category_id = category_id;
     if (stock_status === 'low') where.current_stock = { [Op.lte]: { [Op.col]: 'minimum_stock_level' } };
     if (stock_status === 'out') where.current_stock = { [Op.lte]: 0 };
 
     const offset = (page - 1) * limit;
+
+    // When searching by name: prioritise "starts with" results over "contains" results
+    const { literal } = require('sequelize');
+    const orderClause = (search && name_only === 'true')
+      ? [
+          [literal(`CASE WHEN "product_name" ILIKE '${search.replace(/'/g, "''")}%' THEN 0 ELSE 1 END`), 'ASC'],
+          ['product_name', 'ASC'],
+        ]
+      : [['product_name', 'ASC']];
+
     const { count, rows } = await Product.findAndCountAll({
       where,
       include: [{ model: Category, attributes: ['category_name'] }],
-      order: [['product_name', 'ASC']],
+      order: orderClause,
       limit: parseInt(limit),
       offset,
     });

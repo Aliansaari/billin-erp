@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Form, Input, DatePicker, Select, InputNumber, Table, message, AutoComplete } from 'antd';
+import { Form, Input, DatePicker, Select, InputNumber, Table, message } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
@@ -55,7 +55,6 @@ export default function SalesBillForm() {
   const [pgLoading, setPgLoading] = useState(false);
   const [entry, setEntry]       = useState(EMPTY);
   const [prodOpts, setProdOpts] = useState([]);
-  const [prodOpen, setProdOpen] = useState(false);
   const [company, setCompany]   = useState('');
   const [billNo, setBillNo]     = useState('');
   const [gstMode]               = useState(()=>localStorage.getItem('gst_mode')||'product');
@@ -73,6 +72,10 @@ export default function SalesBillForm() {
   // Cash received state — for walk-in cash billing change calculation (not saved to DB)
   const [cashReceived, setCashReceived] = useState(0);
 
+  const [activeCatId, setActiveCatId] = useState(null); // drives product list loading
+  const searchTimerRef  = useRef(null); // debounce timer for product search
+  const searchReqRef    = useRef(0);   // stale-response guard for product search
+  const justSelectedRef = useRef(false); // redirect focus to qty after product selection
   const barcodeRef   = useRef(null);
   const prodRef      = useRef(null);
   const prodWrapRef  = useRef(null);
@@ -95,6 +98,20 @@ export default function SalesBillForm() {
     ro.observe(el);
     return ()=>ro.disconnect();
   },[]);
+
+  // Load products whenever the active category changes
+  useEffect(()=>{
+    if(!activeCatId){ setProdOpts([]); return; }
+    let cancelled=false;
+    productAPI.search('',{category_id:activeCatId,name_only:'true'})
+      .then(({data})=>{
+        if(cancelled) return;
+        setProdOpts(data.data||[]);
+        setTimeout(()=>prodRef.current?.focus(),30);
+      })
+      .catch(()=>{ if(!cancelled) setProdOpts([]); });
+    return ()=>{ cancelled=true; };
+  },[activeCatId]);
 
   useEffect(() => {
     partyAPI.getCustomers({limit:1000}).then(({data}) =>
@@ -203,40 +220,39 @@ export default function SalesBillForm() {
     }
   };
 
-  const buildProdOpts=(list)=>list.map(p=>({
-    value:p.product_name,
-    label:<div style={{display:'flex',justifyContent:'space-between',gap:8}}>
-      <span style={{fontWeight:500}}>{p.product_name}</span>
-      <span style={{fontSize:11,color:'#9ca3af',flexShrink:0}}>{[p.size_value,p.article_number].filter(Boolean).join(' · ')}</span>
-    </div>,
-    product:p,
-  }));
+  // handleProdSearch — fires when user types in the Select search box
+  const handleProdSearch=useCallback((v)=>{
+    if(searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if(!v){ if(!activeCatId) setProdOpts([]); return; }
+    searchTimerRef.current=setTimeout(async()=>{
+      const reqId=++searchReqRef.current;
+      try{
+        const{data}=await productAPI.search(v,{name_only:'true',...(activeCatId?{category_id:activeCatId}:{})});
+        if(reqId!==searchReqRef.current) return;
+        setProdOpts(data.data||[]);
+      }catch{}
+    },150);
+  },[activeCatId]);
 
-  const handleProdSearch=async(v)=>{
-    try{
-      const catId=entry.category_id;
-      const params=catId?{category_id:catId}:{};
-      if(!v&&!catId){setProdOpts([]);return;}
-      const{data}=await productAPI.search(v||'',params);
-      setProdOpts(buildProdOpts(data.data||[]));
-    }catch{setProdOpts([]);}
-  };
-
-  const handleProdSel=(_,opt)=>{
-    if(!opt?.product) return;
-    const p=opt.product;
+  // handleProdSel — fires when user picks a product from the Select dropdown
+  const handleProdSel=useCallback((val,opt)=>{
+    const p=opt?.product;
+    if(!p) return;
     const qty=parseFloat(p.quantity_per_box)||1;
     const unitType=qty>1?'Box':'Pcs';
+    setActiveCatId(p.category_id||null);
     setEntry(prev=>({...prev,product_id:p.product_id,barcode:p.barcode,product_name:p.product_name,
       category_id:p.category_id,category_name:p.Category?.category_name||'',
       size:p.size_value||'',article_number:p.article_number||'',
       rate:parseFloat(p.sale_rate)||0,mrp:parseFloat(p.mrp)||0,
       hsn_code:p.hsn_code||'',gst_rate:parseFloat(p.gst_rate)||0,
       available_stock:parseFloat(p.current_stock)||0,
-      quantity:qty, unit_type:unitType, quantity_per_box:parseFloat(p.quantity_per_box)||1,
+      quantity:qty,unit_type:unitType,quantity_per_box:parseFloat(p.quantity_per_box)||1,
     }));
-    setTimeout(()=>qtyRef.current?.focus(),50);
-  };
+    // Flag so onFocus intercepts any AntD focus-restore and redirects to qty
+    justSelectedRef.current=true;
+    requestAnimationFrame(()=>{ prodRef.current?.blur(); qtyRef.current?.focus(); });
+  },[]);
 
   const ue=(f,v)=>setEntry(p=>({...p,[f]:v}));
 
@@ -261,6 +277,7 @@ export default function SalesBillForm() {
     const lt=+(entry.quantity*entry.rate).toFixed(2);
     const da=+(lt*(entry.discount_percentage||0)/100).toFixed(2);
     setItems(prev=>[...prev,{...entry,key:Date.now(),total_amount:lt-da,discount_amount:da}]);
+    setActiveCatId(null); // triggers useEffect → clears prodOpts automatically
     setEntry(EMPTY);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   },[entry]);
@@ -698,41 +715,55 @@ export default function SalesBillForm() {
             </div>
             <div style={{flexShrink:0}}>
               <div style={lbl8}>Category</div>
-              <Select style={{width:200}} value={entry.category_id}
-                onChange={async(v,opt)=>{
+              <Select className="entry-dark-select" style={{width:200}} value={activeCatId}
+                onChange={(v,opt)=>{
+                  setActiveCatId(v||null);
                   setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
-                  setProdOpts([]);
-                  setProdOpen(false);
-                  if(v){
-                    try{
-                      const{data}=await productAPI.search('',{category_id:v});
-                      const opts=buildProdOpts(data.data||[]);
-                      setProdOpts(opts);
-                      setProdOpen(true);
-                      setTimeout(()=>{
-                        const inp=prodWrapRef.current?.querySelector('input');
-                        inp?.focus();
-                      },60);
-                    }catch{setProdOpts([]);}
-                  }
                 }}
-                placeholder="Type to search…" showSearch
-                filterOption={(input,opt)=>input?opt.children.toLowerCase().includes(input.toLowerCase()):false}
+                placeholder="All categories" showSearch
+                filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
                 allowClear notFoundContent={null}>
                 {cats.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
               </Select>
             </div>
             <div ref={prodWrapRef} style={{flexShrink:0}}>
               <div style={lbl8}>Product Name</div>
-              <AutoComplete ref={prodRef} style={{width:200}} options={prodOpts} value={entry.product_name}
-                open={prodOpen}
-                onSearch={v=>{ setProdOpen(true); handleProdSearch(v); }}
-                onSelect={(v,opt)=>{ setProdOpen(false); handleProdSel(v,opt); }}
-                onFocus={()=>{ if(prodOpts.length>0) setProdOpen(true); }}
-                onBlur={()=>setProdOpen(false)}
-                onChange={v=>setEntry(p=>({...p,product_name:v,product_id:null}))}
+              <Select key={activeCatId??'no-cat'} ref={prodRef} className="entry-dark-select" style={{width:220}}
+                showSearch filterOption={false} optionLabelProp="label"
+                value={entry.product_id||undefined}
+                onSearch={handleProdSearch}
+                onSelect={handleProdSel}
+                onFocus={()=>{
+                  if(justSelectedRef.current){
+                    justSelectedRef.current=false;
+                    requestAnimationFrame(()=>{ prodRef.current?.blur(); qtyRef.current?.focus(); });
+                  }
+                }}
+                onClear={()=>setEntry(p=>({...p,product_id:null,product_name:''}))}
+                allowClear
                 placeholder="Search product…" notFoundContent={null}
-                dropdownMatchSelectWidth={360}/>
+                listHeight={320} dropdownMatchSelectWidth={460}
+              >
+                {prodOpts.map(p=>{
+                  const stock=parseFloat(p.current_stock||0);
+                  const stockColor=stock<=0?'#ef4444':stock<=5?'#f59e0b':'#6b7280';
+                  return(
+                  <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
+                      <div style={{minWidth:0,flex:1}}>
+                        <div style={{fontWeight:600,fontSize:13,color:'#111827',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.product_name}</div>
+                        <div style={{fontSize:10,color:'#6b7280',marginTop:1}}>
+                          {[p.Category?.category_name,p.article_number&&`Art# ${p.article_number}`,p.size_value&&`Size ${p.size_value}`].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
+                        <span style={{color:'#059669',fontWeight:700,fontSize:12}}>₹{parseFloat(p.sale_rate||0).toFixed(2)}</span>
+                        <span style={{color:stockColor,fontSize:10,fontWeight:600}}>{stock<=0?'Out of stock':`Stock: ${stock}`}</span>
+                      </div>
+                    </div>
+                  </Select.Option>
+                )})}
+              </Select>
             </div>
             {[
               {l:'Size',  ref:sizeRef, f:'size',               v:entry.size,                          w:70, i:1,t:'txt'},
