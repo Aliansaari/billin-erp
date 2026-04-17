@@ -7,6 +7,7 @@ router.use(authenticateToken);
 
 router.get('/', productController.getAll);
 router.get('/low-stock', productController.getLowStock);
+router.get('/next-barcode', productController.getNextBarcode);
 router.get('/barcode/:barcode', productController.getByBarcode);
 router.get('/:id', productController.getById);
 router.get('/:id/stock-movement', productController.getStockMovement);

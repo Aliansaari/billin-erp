@@ -1,14 +1,36 @@
-const { Op } = require('sequelize');
+const { Op, col } = require('sequelize');
 const { Product, Category, StockLedger } = require('../models');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
+const { sanitizePagination } = require('../utils/helpers');
+
+// Whitelist of fields clients may send via POST/PUT to Product.create/update.
+// Excludes product_id (PK), created_date, modified_date — server-owned columns.
+// current_stock IS included because /adjust and /update legitimately recompute
+// it from opening-stock changes; the server clamps it to ≥ 0 in those paths.
+const PRODUCT_UPDATABLE_FIELDS = [
+  'barcode', 'category_id', 'product_name', 'product_description',
+  'size_value', 'size_unit', 'article_number', 'hsn_code',
+  'gst_rate', 'cess_rate', 'unit_of_measurement', 'quantity_per_box',
+  'minimum_stock_level', 'maximum_stock_level', 'reorder_level',
+  'opening_stock', 'opening_stock_rate', 'opening_stock_date',
+  'current_stock',
+  'purchase_rate', 'margin_percentage', 'sale_rate', 'mrp',
+  'is_active',
+];
 
 exports.getAll = async (req, res) => {
   try {
-    const { search, category_id, stock_status, page = 1, limit = 50, name_only } = req.query;
+    const { search, category_id, stock_status, name_only, name_exact } = req.query;
+    // Clamp page/limit (see helpers.sanitizePagination).
+    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
     const where = { is_active: true };
 
     if (search) {
-      if (name_only === 'true') {
+      if (name_exact === 'true') {
+        // Variant picker: exact product-name match — needed to escape the 200-row cap
+        // when the substring `%PLAZO%` would pull in hundreds of unrelated rows.
+        where.product_name = { [Op.iLike]: search };
+      } else if (name_only === 'true') {
         // Sales/purchase form: search only by product name — no article/barcode noise
         where.product_name = { [Op.iLike]: `%${search}%` };
       } else {
@@ -21,10 +43,15 @@ exports.getAll = async (req, res) => {
       }
     }
     if (category_id) where.category_id = category_id;
-    if (stock_status === 'low') where.current_stock = { [Op.lte]: { [Op.col]: 'minimum_stock_level' } };
+    // "Low stock" means BELOW a configured reorder level — products with no level set (0)
+    // should never count as "low" just because current_stock also happens to be 0.
+    // Without the > 0 guard, every freshly imported product with 0 opening stock and
+    // no min level flooded the dashboard low-stock alert — pure noise.
+    if (stock_status === 'low') {
+      where.current_stock = { [Op.lte]: col('minimum_stock_level') };
+      where.minimum_stock_level = { [Op.gt]: 0 };
+    }
     if (stock_status === 'out') where.current_stock = { [Op.lte]: 0 };
-
-    const offset = (page - 1) * limit;
 
     // When searching by name: prioritise "starts with" results over "contains" results
     const { literal } = require('sequelize');
@@ -39,14 +66,28 @@ exports.getAll = async (req, res) => {
       where,
       include: [{ model: Category, attributes: ['category_name'] }],
       order: orderClause,
-      limit: parseInt(limit),
+      limit,
       offset,
     });
 
-    res.json({ total: count, page: parseInt(page), limit: parseInt(limit), data: rows });
+    res.json({ total: count, page, limit, data: rows });
   } catch (error) {
     console.error('Get products error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Reserve the next barcode by incrementing the counter and returning the generated value.
+// Used by purchase/sales forms so new items can display their barcode immediately,
+// before the bill is saved. The reserved barcode is sent back with the item payload
+// and used as-is by resolveOrCreateProduct when the product is actually created.
+exports.getNextBarcode = async (req, res) => {
+  try {
+    const barcode = await generateBarcode();
+    res.json({ barcode });
+  } catch (error) {
+    console.error('Next-barcode error:', error);
+    res.status(500).json({ error: 'Failed to reserve barcode' });
   }
 };
 
@@ -77,7 +118,12 @@ exports.getById = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = req.body;
+    // Strip to whitelisted columns before unpacking the opening-stock trio.
+    const safe = {};
+    for (const k of PRODUCT_UPDATABLE_FIELDS) {
+      if (req.body[k] !== undefined) safe[k] = req.body[k];
+    }
+    const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
 
     // Check for existing product with same specs
     const existing = await findExistingProduct(Product, data);
@@ -132,26 +178,40 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  const sequelizeDb = require('../config/database');
+  const t = await sequelizeDb.transaction();
   try {
-    const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = req.body;
-    const product = await Product.findByPk(req.params.id);
-    if (!product) return res.status(404).json({ error: 'Product not found' });
+    const safe = {};
+    for (const k of PRODUCT_UPDATABLE_FIELDS) {
+      if (req.body[k] !== undefined) safe[k] = req.body[k];
+    }
+    const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
+    const product = await Product.findByPk(req.params.id, { transaction: t });
+    if (!product) { await t.rollback(); return res.status(404).json({ error: 'Product not found' }); }
 
     // Handle opening stock change
     const newOpeningQty = parseFloat(opening_stock ?? '');
     if (!isNaN(newOpeningQty) && opening_stock !== undefined && opening_stock !== null && opening_stock !== '') {
-      // Delete existing opening stock ledger entry for this product
+      // CRITICAL: Read the OLD opening-stock row BEFORE destroying it, otherwise
+      // the recalculation uses oldQty=0 and current_stock drifts by the old opening.
+      // Example before fix: opening 100, current 110 → set opening 50 → current = 110 - 0 + 50 = 160 (wrong)
+      // After fix: current = 110 - 100 + 50 = 60 (correct)
+      const oldOpeningRow = await StockLedger.findOne({
+        where: { product_id: req.params.id, transaction_type: 'Opening Stock' },
+        transaction: t,
+      });
+      const oldQty = parseFloat(oldOpeningRow?.quantity_in || 0);
+
+      // Now safe to remove the old row
       await StockLedger.destroy({
         where: { product_id: req.params.id, transaction_type: 'Opening Stock' },
+        transaction: t,
       });
 
       if (newOpeningQty > 0) {
-        // Recalculate current_stock: remove old opening, add new opening
-        const oldOpening = await StockLedger.findOne({
-          where: { product_id: req.params.id, transaction_type: 'Opening Stock' },
-        });
-        const oldQty = parseFloat(oldOpening?.quantity_in || 0);
         const newStock = +((parseFloat(product.current_stock) - oldQty + newOpeningQty)).toFixed(2);
+        // Clamp at 0: going negative would mean we sold/consumed more than on hand,
+        // which is a data-integrity issue that shouldn't be introduced by this edit.
         data.current_stock = Math.max(0, newStock);
 
         await StockLedger.create({
@@ -166,23 +226,29 @@ exports.update = async (req, res) => {
           balance_quantity: newOpeningQty,
           remarks: 'Opening Stock',
           created_by: req.user?.user_id,
-        });
+        }, { transaction: t });
       } else {
-        // Opening stock set to 0 — remove old opening qty from current_stock
-        const oldOpeningEntry = await StockLedger.findOne({
-          where: { product_id: req.params.id, transaction_type: 'Opening Stock' },
-        });
-        const oldQty = parseFloat(oldOpeningEntry?.quantity_in || 0);
-        data.current_stock = Math.max(0, parseFloat(product.current_stock) - oldQty);
+        // Opening stock set to 0 — subtract the previously-stored opening qty from current_stock
+        const newStock = +((parseFloat(product.current_stock) - oldQty)).toFixed(2);
+        data.current_stock = Math.max(0, newStock);
       }
     }
 
-    await product.update(data);
+    await product.update(data, { transaction: t });
+    await t.commit();
+
     const result = await Product.findByPk(product.product_id, {
       include: [{ model: Category, attributes: ['category_name'] }],
     });
     res.json(result);
   } catch (error) {
+    // Guard against double-rollback: early validation branches already rolled
+    // back the transaction. `t.finished` is set to 'commit' | 'rollback' by
+    // Sequelize after either completes, so we can tell whether a rollback is
+    // still needed without calling it twice.
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Update product error:', error);
     res.status(500).json({ error: 'Server error' });
   }
@@ -264,7 +330,9 @@ exports.adjust = async (req, res) => {
     });
     res.json(result);
   } catch (error) {
-    await t.rollback();
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Adjust product error:', error);
     res.status(500).json({ error: 'Server error' });
   }
@@ -272,10 +340,12 @@ exports.adjust = async (req, res) => {
 
 exports.getLowStock = async (req, res) => {
   try {
+    // Use Sequelize.col() to compare two columns (imported at top of file).
+    // Without the import this endpoint previously threw ReferenceError.
     const products = await Product.findAll({
       where: {
         is_active: true,
-        current_stock: { [Op.lte]: sequelize.col('minimum_stock_level') },
+        current_stock: { [Op.lte]: col('minimum_stock_level') },
         minimum_stock_level: { [Op.gt]: 0 },
       },
       include: [{ model: Category, attributes: ['category_name'] }],

@@ -64,6 +64,11 @@ export default function SalesBillForm() {
   const [selectedParty, setSelectedParty] = useState(null);
   const [discAmtVal, setDiscAmtVal]       = useState(0);
   const discAmtEditingRef                 = useRef(false);
+  // Re-entrancy guard for Save — prevents duplicate-bill creation on rapid
+  // Ctrl+Enter or double-click of Save buttons.
+  const submittingRef                      = useRef(false);
+  // Monotonic key for item rows. Date.now() collides with fast scanners.
+  const nextKeyRef                         = useRef(1);
 
   // Prevents the auto paid_amount effect from overwriting loaded edit values
   const billLoadedRef = useRef(false);
@@ -73,6 +78,7 @@ export default function SalesBillForm() {
   const [cashReceived, setCashReceived] = useState(0);
 
   const [activeCatId, setActiveCatId] = useState(null); // drives product list loading
+  const [prodOpen, setProdOpen]       = useState(false); // controls product dropdown visibility
   const searchTimerRef  = useRef(null); // debounce timer for product search
   const searchReqRef    = useRef(0);   // stale-response guard for product search
   const justSelectedRef = useRef(false); // redirect focus to qty after product selection
@@ -107,7 +113,7 @@ export default function SalesBillForm() {
       .then(({data})=>{
         if(cancelled) return;
         setProdOpts(data.data||[]);
-        setTimeout(()=>prodRef.current?.focus(),30);
+        setTimeout(()=>{ prodRef.current?.focus(); setProdOpen(true); },30);
       })
       .catch(()=>{ if(!cancelled) setProdOpts([]); });
     return ()=>{ cancelled=true; };
@@ -148,7 +154,7 @@ export default function SalesBillForm() {
       setSgstPct(parseFloat(data.sgst_pct)||0);
       setIgstPct(parseFloat(data.igst_pct)||0);
       setDiscAmtVal(parseFloat(data.discount_amount)||0);
-      setItems((data.items||[]).map((it,i)=>({
+      const loaded=(data.items||[]).map((it,i)=>({
         key:it.item_id||i, item_id:it.item_id,
         product_id:it.product_id, barcode:it.barcode||'',
         category_id:it.category_id, category_name:it.category_name||'',
@@ -161,7 +167,12 @@ export default function SalesBillForm() {
         total_amount:parseFloat(it.total_amount)||0,
         mrp:parseFloat(it.mrp)||0, hsn_code:it.hsn_code||'',
         gst_rate:parseFloat(it.gst_rate)||0, available_stock:0,
-      })));
+      }));
+      // Advance monotonic key counter above any loaded row so new items
+      // added in edit mode can't collide with existing keys.
+      const maxLoadedKey = loaded.reduce((m,it)=>Math.max(m, it.key||0), 0);
+      nextKeyRef.current = maxLoadedKey + 1;
+      setItems(loaded);
       // Mark bill as loaded so auto paid_amount effect doesn't overwrite it
       billLoadedRef.current = true;
     }catch{ message.error('Failed to load bill'); navigate('/sales'); }
@@ -203,7 +214,7 @@ export default function SalesBillForm() {
       const unitType=qty>1?'Box':'Pcs';
       const lt=+(qty*rate).toFixed(2);
       setItems(prev=>[...prev,{
-        key:Date.now(),
+        key:nextKeyRef.current++,
         product_id:data.product_id, barcode:data.barcode,
         category_id:data.category_id, category_name:data.Category?.category_name||'',
         product_name:data.product_name, size:data.size_value||'',
@@ -276,8 +287,9 @@ export default function SalesBillForm() {
       message.warning(`Low stock! Available: ${entry.available_stock}`);
     const lt=+(entry.quantity*entry.rate).toFixed(2);
     const da=+(lt*(entry.discount_percentage||0)/100).toFixed(2);
-    setItems(prev=>[...prev,{...entry,key:Date.now(),total_amount:lt-da,discount_amount:da}]);
+    setItems(prev=>[...prev,{...entry,key:nextKeyRef.current++,total_amount:lt-da,discount_amount:da}]);
     setActiveCatId(null); // triggers useEffect → clears prodOpts automatically
+    setProdOpen(false);
     setEntry(EMPTY);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   },[entry]);
@@ -303,9 +315,16 @@ export default function SalesBillForm() {
     if(!discAmtEditingRef.current) setDiscAmtVal(billDiscAmt||0);
   },[billDiscAmt]);
   const taxableAmt  = +(subTotal-itemDiscTot-billDiscAmt).toFixed(2);
+  // Pro-rate the bill-level (trade) discount across each already-item-discounted
+  // line so GST applies to the fully discounted base (GST law "transaction
+  // value"). Without this, a bill-level discount left GST unchanged and total
+  // drifted from the backend's bill-wise calculation.
+  const postItemBase = +(subTotal - itemDiscTot).toFixed(2);
+  const billDiscRatio = postItemBase > 0 ? billDiscAmt / postItemBase : 0;
   const productGST  = +items.reduce((s,i)=>{
     const lt=(i.quantity||0)*(i.rate||0)-(i.discount_amount||0);
-    return s+lt*((i.gst_rate||0)/100);
+    const lineTaxable = lt * (1 - billDiscRatio);
+    return s+lineTaxable*((i.gst_rate||0)/100);
   },0).toFixed(2);
   // In product-wise mode: derive effective % from item totals; in bill-wise: use manual inputs
   const effCgstPct  = gstMode==='bill' ? (cgstPct||0) : (taxableAmt>0 ? +(productGST/2/taxableAmt*100).toFixed(2) : 0);
@@ -383,6 +402,10 @@ export default function SalesBillForm() {
 
   /* ── save ── */
   const handleSave=useCallback(async(payFull=false)=>{
+    // Re-entrancy guard — a second Ctrl+Enter / double-click during the API
+    // round-trip would create a duplicate bill (duplicate stock outflow, wrong
+    // customer balance, wrong GST totals).
+    if(submittingRef.current) return;
     try{
       const vals=await form.validateFields();
       if(items.length===0){message.warning('Add at least one item');return;}
@@ -395,6 +418,17 @@ export default function SalesBillForm() {
           return;
         }
       }
+      // Block over-payment (paid + return > total). Customer ledger must
+      // never receive an un-authorised credit from a data-entry typo.
+      {
+        const paid = payFull ? roundedTotal : (parseFloat(vals.paid_amount)||0);
+        const ret  = parseFloat(vals.return_amount||0);
+        if(paid + ret > roundedTotal + 0.01){
+          message.error(`Paid + Return (₹${(paid+ret).toFixed(2)}) exceeds bill total (₹${roundedTotal.toFixed(2)}).`);
+          return;
+        }
+      }
+      submittingRef.current=true;
       setLoading(true);
       const body={
         customer_id:vals.customer_id||null,
@@ -410,6 +444,9 @@ export default function SalesBillForm() {
         return_amount:parseFloat(returnAmt)||0,
         payment_method:vals.payment_method||'Cash',
         paid_amount:payFull?roundedTotal:(vals.paid_amount||0),
+        // Explicit mode flag so backend treats 0% bill-wise GST (exempt items)
+        // as bill-wise, not as accidental product-wise fallback.
+        gst_mode:gstMode,
         cgst_pct:parseFloat(cgstPct)||0,
         sgst_pct:parseFloat(sgstPct)||0,
         igst_pct:parseFloat(igstPct)||0,
@@ -428,8 +465,8 @@ export default function SalesBillForm() {
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
       navigate('/sales');
     }catch(e){message.error(e.response?.data?.error||'Failed to save');}
-    finally{setLoading(false);}
-  },[form,items,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate]);
+    finally{setLoading(false); submittingRef.current=false;}
+  },[form,items,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate,selectedParty]);
 
   const handleReset=()=>{
     setItems([]);setEntry(EMPTY);
@@ -717,6 +754,7 @@ export default function SalesBillForm() {
               <div style={lbl8}>Category</div>
               <Select className="entry-dark-select" style={{width:200}} value={activeCatId}
                 onChange={(v,opt)=>{
+                  justSelectedRef.current = false; // cancel any pending qty-redirect
                   setActiveCatId(v||null);
                   setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
                 }}
@@ -731,15 +769,17 @@ export default function SalesBillForm() {
               <Select key={activeCatId??'no-cat'} ref={prodRef} className="entry-dark-select" style={{width:220}}
                 showSearch filterOption={false} optionLabelProp="label"
                 value={entry.product_id||undefined}
-                onSearch={handleProdSearch}
-                onSelect={handleProdSel}
+                open={prodOpen}
+                onDropdownVisibleChange={v=>setProdOpen(v)}
+                onSearch={v=>{ setProdOpen(true); handleProdSearch(v); }}
+                onSelect={(val,opt)=>{ setProdOpen(false); handleProdSel(val,opt); }}
                 onFocus={()=>{
                   if(justSelectedRef.current){
                     justSelectedRef.current=false;
                     requestAnimationFrame(()=>{ prodRef.current?.blur(); qtyRef.current?.focus(); });
                   }
                 }}
-                onClear={()=>setEntry(p=>({...p,product_id:null,product_name:''}))}
+                onClear={()=>{ setProdOpen(false); setEntry(p=>({...p,product_id:null,product_name:''})); }}
                 allowClear
                 placeholder="Search product…" notFoundContent={null}
                 listHeight={320} dropdownMatchSelectWidth={460}
@@ -1118,18 +1158,37 @@ export default function SalesBillForm() {
                 </div>
               )}
 
-              {/* Balance */}
-              <div style={{
-                display:'flex', alignItems:'center', justifyContent:'space-between',
-                background:balance>0?'rgba(239,68,68,0.15)':'rgba(52,211,153,0.12)',
-                borderRadius:8, padding:'6px 12px', flexShrink:0,
-                border:`1px solid ${balance>0?'rgba(248,113,113,.4)':'rgba(52,211,153,.3)'}`,
-              }}>
-                <span style={{fontSize:10,color:'rgba(255,255,255,.6)',fontWeight:700,letterSpacing:.8,textTransform:'uppercase'}}>Balance</span>
-                <span style={{fontSize:17,fontWeight:800,color:balance>0?'#f87171':'#34d399',letterSpacing:-.5}}>
-                  {fmtN(Math.abs(balance))}
-                </span>
-              </div>
+              {/* Balance — show Due / Paid in full / Overpaid explicitly.
+                   Math.abs alone silently hides an overpayment; the label tells
+                   the user which direction the number points. */}
+              {(() => {
+                const isOverpaid = balance < -0.001;
+                const isDue      = balance > 0.001;
+                const bg    = isDue ? 'rgba(239,68,68,0.15)'
+                           : isOverpaid ? 'rgba(251,146,60,0.18)'
+                           : 'rgba(52,211,153,0.12)';
+                const border = isDue ? 'rgba(248,113,113,.4)'
+                            : isOverpaid ? 'rgba(251,146,60,.45)'
+                            : 'rgba(52,211,153,.3)';
+                const color  = isDue ? '#f87171'
+                            : isOverpaid ? '#fdba74'
+                            : '#34d399';
+                const label  = isDue ? 'Balance'
+                            : isOverpaid ? 'Overpaid'
+                            : 'Paid in full';
+                return (
+                  <div style={{
+                    display:'flex', alignItems:'center', justifyContent:'space-between',
+                    background: bg, borderRadius:8, padding:'6px 12px', flexShrink:0,
+                    border:`1px solid ${border}`,
+                  }}>
+                    <span style={{fontSize:10,color:'rgba(255,255,255,.6)',fontWeight:700,letterSpacing:.8,textTransform:'uppercase'}}>{label}</span>
+                    <span style={{fontSize:17,fontWeight:800,color,letterSpacing:-.5}}>
+                      {fmtN(Math.abs(balance))}
+                    </span>
+                  </div>
+                );
+              })()}
 
             </div>
           </div>

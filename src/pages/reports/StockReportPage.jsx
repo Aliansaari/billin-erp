@@ -1,29 +1,36 @@
-import React, { useEffect, useState } from 'react';
-import { Table, Card, Select, Button, Tag, Typography, Space, Input, message } from 'antd';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { Table, Card, Select, Button, Tag, Typography, Space, Input, message, Spin } from 'antd';
 import { DownloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { reportAPI, categoryAPI, dataAPI } from '../../api';
+import { reportAPI, categoryAPI } from '../../api';
 
 const { Title } = Typography;
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
+const PAGE_SIZE = 200;
+
 export default function StockReportPage() {
   const [data, setData] = useState([]);
+  const [totalCount, setTotalCount] = useState(0); // full filtered count across all pages
   const [summary, setSummary] = useState({});
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [serverPage, setServerPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [filters, setFilters] = useState({
     search: '',
     category_id: null,
     stock_status: null,
   });
+  const loaderRef = useRef(null);
 
   useEffect(() => {
     loadCategories();
   }, []);
 
   useEffect(() => {
-    loadData();
+    loadFirstPage();
   }, [filters]);
 
   const loadCategories = async () => {
@@ -33,26 +40,70 @@ export default function StockReportPage() {
     } catch (e) { /* ignore */ }
   };
 
-  const loadData = async () => {
+  const loadFirstPage = async () => {
     setLoading(true);
+    setData([]);
+    setServerPage(1);
+    setHasMore(true);
     try {
-      const res = await reportAPI.getStockReport(filters);
-      setData(res.data.data);
+      // Paginate instead of fetching 5000 rows in one shot — a firm with 20k
+      // SKUs used to hang the browser for several seconds on this page; now
+      // the first 200 paint instantly and more load as the user scrolls.
+      // Summary stays accurate because the backend aggregates over the full
+      // filtered catalog regardless of page.
+      const res = await reportAPI.getStockReport({ ...filters, page: 1, limit: PAGE_SIZE });
+      setData(res.data.data || []);
+      setTotalCount(res.data.total || 0);
       setSummary(res.data.summary || {});
+      setHasMore((res.data.data || []).length < (res.data.total || 0));
     } catch (e) {
       message.error('Failed to load stock report');
     }
     setLoading(false);
   };
 
+  const loadNextPage = useCallback(async () => {
+    if (loadingMore || !hasMore || loading) return;
+    setLoadingMore(true);
+    const next = serverPage + 1;
+    try {
+      const res = await reportAPI.getStockReport({ ...filters, page: next, limit: PAGE_SIZE });
+      const rows = res.data.data || [];
+      setData(prev => [...prev, ...rows]);
+      setTotalCount(res.data.total || 0);
+      setServerPage(next);
+      setHasMore(next * PAGE_SIZE < (res.data.total || 0));
+    } catch (e) {
+      message.error('Failed to load more products');
+    }
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, loading, serverPage, filters]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadNextPage(); },
+      { threshold: 0.1 }
+    );
+    if (loaderRef.current) observer.observe(loaderRef.current);
+    return () => observer.disconnect();
+  }, [loadNextPage]);
+
   const handleExport = async () => {
     try {
-      const res = await dataAPI.exportExcel('products');
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      // Honor on-screen filters (category, stock_status, search) — server streams
+      // full filtered dataset with stock values per row and a totals row.
+      const res = await reportAPI.exportStockReport(filters);
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `stock_report_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      // Use LOCAL date — toISOString().slice(0,10) is UTC-based. On an IST
+      // server at 01:00 local that would stamp the previous calendar day into
+      // the filename and confuse users diffing daily exports.
+      const d = new Date();
+      const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      a.download = `stock_report_${stamp}.xlsx`;
       a.click();
+      window.URL.revokeObjectURL(url);
     } catch (e) {
       message.error('Export failed');
     }
@@ -89,7 +140,10 @@ export default function StockReportPage() {
       <div className="erp-page-header" style={{ padding: '12px 20px', marginBottom: 0, background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
         <div className="erp-page-header-title">
           <Title level={3} style={{ margin: 0, fontWeight: 700, color: '#1f2937' }}>Stock Report</Title>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>{summary.total_items || 0} products</span>
+          <span style={{ fontSize: 13, color: '#6b7280' }}>
+            {totalCount} product{totalCount === 1 ? '' : 's'}
+            {data.length < totalCount ? ` · showing ${data.length}` : ''}
+          </span>
         </div>
         <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ height: 38 }}>Export Excel</Button>
       </div>
@@ -144,6 +198,11 @@ export default function StockReportPage() {
             scroll={{ x: 1100 }}
             pagination={false}
           />
+          {hasMore && (
+            <div ref={loaderRef} style={{ textAlign: 'center', padding: '12px 0' }}>
+              {loadingMore ? <Spin size="small" /> : <span style={{ color: '#6b7280', fontSize: 12 }}>Scroll for more…</span>}
+            </div>
+          )}
         </div>
       </Card>
     </div>

@@ -53,9 +53,10 @@ const CLEANUP_ITEMS = [
 function CleanupModal({ open, onClose }) {
   const [selected, setSelected] = useState([]);
   const [confirmText, setConfirmText] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const reset = () => { setSelected([]); setConfirmText(''); };
+  const reset = () => { setSelected([]); setConfirmText(''); setPassword(''); };
 
   const handleClose = () => { reset(); onClose(); };
 
@@ -67,9 +68,14 @@ function CleanupModal({ open, onClose }) {
   const handleDelete = async () => {
     if (selected.length === 0) return message.warning('Select at least one category');
     if (confirmText !== 'DELETE') return message.error('Type DELETE to confirm');
+    if (!password) return message.error('Enter your admin password to confirm');
     setLoading(true);
     try {
-      await settingsAPI.cleanupData(selected);
+      await settingsAPI.cleanupData({
+        categories: selected,
+        confirmation: confirmText,
+        password,
+      });
       message.success('Selected data deleted successfully');
       handleClose();
     } catch (e) {
@@ -149,8 +155,17 @@ function CleanupModal({ open, onClose }) {
           value={confirmText}
           onChange={e => setConfirmText(e.target.value.toUpperCase())}
           placeholder="Type DELETE here"
-          style={{ fontFamily:'monospace', fontWeight:700, letterSpacing:2 }}
+          style={{ fontFamily:'monospace', fontWeight:700, letterSpacing:2, marginBottom:12 }}
           status={confirmText && confirmText !== 'DELETE' ? 'error' : ''}
+        />
+        <div style={{ fontSize:13, color:'#7f1d1d', fontWeight:500, marginBottom:8 }}>
+          Re-enter your admin password:
+        </div>
+        <Input.Password
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="Your admin password"
+          autoComplete="current-password"
         />
       </div>
 
@@ -161,7 +176,7 @@ function CleanupModal({ open, onClose }) {
           danger type="primary"
           icon={<DeleteOutlined/>}
           loading={loading}
-          disabled={selected.length === 0 || confirmText !== 'DELETE'}
+          disabled={selected.length === 0 || confirmText !== 'DELETE' || !password}
           onClick={handleDelete}
         >
           Delete Selected Data

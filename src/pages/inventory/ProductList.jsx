@@ -175,9 +175,19 @@ export default function ProductList() {
 
   const handleExport = async () => {
     try {
-      const { data } = await dataAPI.exportExcel('products');
-      const url = window.URL.createObjectURL(new Blob([data]));
-      const a = document.createElement('a'); a.href = url; a.download = 'products_export.xlsx'; a.click();
+      // Honor the search filter visible on-screen so the exported workbook
+      // matches the list the user is actually looking at.
+      const { data } = await dataAPI.exportExcel('products', search ? { search } : {});
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      // Date-stamp the filename (local date, not UTC) so daily exports don't
+      // overwrite each other in Downloads/ and "which file is newer" is obvious.
+      const d = new Date();
+      const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `products_export_${stamp}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
     } catch { message.error('Export failed'); }
   };
 
@@ -186,34 +196,43 @@ export default function ProductList() {
     // 1. Filter out old internal reversal entries (-REV)
     const filtered = transactions.filter(tx => !(tx.reference_number || '').endsWith('-REV'));
 
-    // 2. Group by transaction_type + reference_number (collapses multiple product lines per bill)
+    // 2. Group by transaction_type + reference_number (collapses multiple product lines per bill).
+    //    Weighted-average rate math: keep separate `_qtySum` (denominator) and
+    //    `_rateSum` (numerator = Σ rate × qty). The previous version divided
+    //    by `quantity_in + quantity_out` but seeded `_rateSum` with `rate × 1`
+    //    when both directions were zero — inflating the numerator by one
+    //    un-weighted unit that had no matching unit in the denominator. The
+    //    bug only surfaced on zero-qty ledger rows (rare but possible for
+    //    historical adjustments), where it produced a non-deterministic rate.
     const map = new Map();
     filtered.forEach(tx => {
       // Stock Adjustments are individual events — never group them
       const key = tx.transaction_type === 'Stock Adjustment'
         ? `Stock Adjustment||${tx.ledger_id}`
         : `${tx.transaction_type}||${tx.reference_number || tx.ledger_id}`;
+      const txIn   = parseFloat(tx.quantity_in  || 0);
+      const txOut  = parseFloat(tx.quantity_out || 0);
+      const txQty  = txIn + txOut;            // one direction per line → safe sum
+      const txRate = parseFloat(tx.rate || 0);
       if (map.has(key)) {
         const g = map.get(key);
-        const addIn  = parseFloat(tx.quantity_in  || 0);
-        const addOut = parseFloat(tx.quantity_out || 0);
-        g.quantity_in  = +(parseFloat(g.quantity_in  || 0) + addIn ).toFixed(2);
-        g.quantity_out = +(parseFloat(g.quantity_out || 0) + addOut).toFixed(2);
-        // weighted-average rate
-        const addQty = addIn || addOut;
-        if (addQty > 0) {
-          const newRateSum = (g._rateSum || 0) + parseFloat(tx.rate || 0) * addQty;
-          const newTotalQty = parseFloat(g.quantity_in || 0) + parseFloat(g.quantity_out || 0);
-          g.rate      = newTotalQty > 0 ? +(newRateSum / newTotalQty).toFixed(2) : g.rate;
-          g._rateSum  = newRateSum;
-        }
+        g.quantity_in  = +(parseFloat(g.quantity_in  || 0) + txIn ).toFixed(2);
+        g.quantity_out = +(parseFloat(g.quantity_out || 0) + txOut).toFixed(2);
+        g._rateSum    += txRate * txQty;
+        g._qtySum     += txQty;
+        // Fall back to previous rate when the new line is qty-zero so we
+        // don't divide by zero — preserves the earlier weighted average.
+        g.rate = g._qtySum > 0 ? +(g._rateSum / g._qtySum).toFixed(2) : g.rate;
         g._count += 1;
       } else {
-        const initQty = parseFloat(tx.quantity_in || 0) || parseFloat(tx.quantity_out || 0) || 1;
         map.set(key, {
           ...tx,
+          quantity_in:  txIn,
+          quantity_out: txOut,
           _count: 1,
-          _rateSum: parseFloat(tx.rate || 0) * initQty,
+          _rateSum: txRate * txQty,
+          _qtySum:  txQty,
+          rate: txRate,
         });
       }
     });

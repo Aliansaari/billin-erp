@@ -8,6 +8,7 @@ import {
   SettingOutlined,
   BellOutlined,
   QuestionCircleOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
@@ -44,6 +45,7 @@ export default function AppHeader({ collapsed, setCollapsed }) {
       disabled: true,
     },
     { key: 'profile', icon: <UserOutlined />, label: 'My Profile' },
+    { key: 'change-password', icon: <LockOutlined />, label: 'Change Password', onClick: () => navigate('/change-password') },
     { key: 'settings', icon: <SettingOutlined />, label: 'Settings', onClick: () => navigate('/settings/company') },
     { type: 'divider' },
     { key: 'logout', icon: <LogoutOutlined />, label: 'Sign Out', danger: true, onClick: handleLogout },

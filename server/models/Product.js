@@ -47,8 +47,12 @@ const Product = sequelize.define('Product', {
     type: DataTypes.ENUM('PCS', 'KG', 'METER', 'LITER', 'BOX', 'DOZEN'),
     defaultValue: 'PCS',
   },
+  // DECIMAL so partial boxes are representable (e.g. 0.5 m fabric, 2.5 kg).
+  // Must match PurchaseBillItem.quantity_per_box and SalesBillItem.quantity_per_box
+  // — they are DECIMAL(10,2) and a type mismatch caused silent truncation of
+  // fractional pack sizes whenever a new product was auto-created from a purchase.
   quantity_per_box: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.DECIMAL(10, 2),
     defaultValue: 1,
   },
   minimum_stock_level: {

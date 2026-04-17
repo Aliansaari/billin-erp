@@ -55,8 +55,10 @@ SalesBill.hasMany(SalesBillItem, { foreignKey: 'sales_bill_id', as: 'items' });
 SalesBillItem.belongsTo(SalesBill, { foreignKey: 'sales_bill_id' });
 
 // SalesBillItem <-> Product
-Product.hasMany(SalesBillItem, { foreignKey: 'product_id' });
-SalesBillItem.belongsTo(Product, { foreignKey: 'product_id' });
+// Use the same `as: 'product'` alias as PurchaseBillItem so controllers can
+// include( { model: Product, as: 'product' } ) consistently for both sides.
+Product.hasMany(SalesBillItem, { foreignKey: 'product_id', as: 'salesItems' });
+SalesBillItem.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
 
 // PaymentReceipt <-> Party
 Party.hasMany(PaymentReceipt, { foreignKey: 'party_id' });

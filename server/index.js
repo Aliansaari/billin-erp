@@ -123,6 +123,67 @@ async function startServer() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bill_items' AND column_name='quantity_per_box') THEN
           ALTER TABLE sales_bill_items ADD COLUMN quantity_per_box DECIMAL(10,2) DEFAULT 1;
         END IF;
+        -- Cancellation audit trail for payments/receipts
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payments_receipts' AND column_name='cancelled_by') THEN
+          ALTER TABLE payments_receipts ADD COLUMN cancelled_by INTEGER REFERENCES users(user_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payments_receipts' AND column_name='cancelled_on') THEN
+          ALTER TABLE payments_receipts ADD COLUMN cancelled_on TIMESTAMP;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payments_receipts' AND column_name='cancellation_reason') THEN
+          ALTER TABLE payments_receipts ADD COLUMN cancellation_reason TEXT;
+        END IF;
+        -- Cancellation reason + FK on bill cancellation fields
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bills' AND column_name='cancellation_reason') THEN
+          ALTER TABLE sales_bills ADD COLUMN cancellation_reason TEXT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_bills' AND column_name='cancellation_reason') THEN
+          ALTER TABLE purchase_bills ADD COLUMN cancellation_reason TEXT;
+        END IF;
+        -- Align purchase_bill_items.quantity_per_box to DECIMAL (was INTEGER,
+        -- sales side is DECIMAL — mismatch caused silent rounding on partial boxes).
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name='purchase_bill_items' AND column_name='quantity_per_box'
+            AND data_type='integer'
+        ) THEN
+          ALTER TABLE purchase_bill_items ALTER COLUMN quantity_per_box TYPE DECIMAL(10,2) USING quantity_per_box::DECIMAL(10,2);
+        END IF;
+        -- Align products.quantity_per_box to DECIMAL for the same reason.
+        -- Bill items were already DECIMAL; the product master was silently
+        -- truncating fractional pack sizes on new-product auto-create.
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name='products' AND column_name='quantity_per_box'
+            AND data_type='integer'
+        ) THEN
+          ALTER TABLE products ALTER COLUMN quantity_per_box TYPE DECIMAL(10,2) USING quantity_per_box::DECIMAL(10,2);
+        END IF;
+        -- FK constraints for cancelled_by on bills (Sequelize sync doesn't add
+        -- them retroactively to existing columns). Wrap each in an existence
+        -- check so re-running the migration is a no-op.
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_name='sales_bills' AND constraint_name='sales_bills_cancelled_by_fkey'
+        ) THEN
+          BEGIN
+            ALTER TABLE sales_bills
+              ADD CONSTRAINT sales_bills_cancelled_by_fkey
+              FOREIGN KEY (cancelled_by) REFERENCES users(user_id);
+          EXCEPTION WHEN others THEN NULL;
+          END;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_name='purchase_bills' AND constraint_name='purchase_bills_cancelled_by_fkey'
+        ) THEN
+          BEGIN
+            ALTER TABLE purchase_bills
+              ADD CONSTRAINT purchase_bills_cancelled_by_fkey
+              FOREIGN KEY (cancelled_by) REFERENCES users(user_id);
+          EXCEPTION WHEN others THEN NULL;
+          END;
+        END IF;
       END $$;
     `).catch(() => {});
 

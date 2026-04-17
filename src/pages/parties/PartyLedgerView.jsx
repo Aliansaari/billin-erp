@@ -88,6 +88,22 @@ export default function PartyLedgerView({ partyType }) {
     if (range?.[1]) params.to_date   = dayjs(range[1]).format('YYYY-MM-DD');
     try {
       const { data } = await partyAPI.getLedger(partyId, params);
+      // Prepend a synthetic "Opening Balance" row so the ledger list looks the same
+      // as before (backend now returns opening_balance as a separate signed value,
+      // not as the first entry). Keeps the UI's italic-opening-row styling working.
+      if (data && Array.isArray(data.entries)) {
+        const ob = parseFloat(data.opening_balance || 0);
+        const openingRow = {
+          date: params.from_date || (data.party?.created_date || null),
+          particulars: 'Opening Balance',
+          ref_number: '-',
+          debit:   ob > 0 ?  ob : 0,
+          credit:  ob < 0 ? -ob : 0,
+          balance: +ob.toFixed(2),
+          type: 'opening',
+        };
+        data.entries = [openingRow, ...data.entries];
+      }
       setLedger(data || { entries: [], total_debit: 0, total_credit: 0, closing_balance: 0 });
       if (data?.party) {
         const bal = parseFloat(data.party.current_balance || 0);
@@ -128,9 +144,20 @@ export default function PartyLedgerView({ partyType }) {
 
   const handleExport = async () => {
     try {
-      const { data } = await dataAPI.exportExcel(isCustomer ? 'customers' : 'suppliers');
-      const url = window.URL.createObjectURL(new Blob([data]));
-      const a = document.createElement('a'); a.href = url; a.download = `${partyType.toLowerCase()}s.xlsx`; a.click();
+      // Pass the search filter so the workbook reflects whatever the user has
+      // currently typed in the search box, not the entire customer/supplier master.
+      const { data } = await dataAPI.exportExcel(
+        isCustomer ? 'customers' : 'suppliers',
+        search ? { search } : {}
+      );
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      // Date-stamp with LOCAL date — lets users identify which export is newest.
+      const d = new Date();
+      const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${partyType.toLowerCase()}s_${stamp}.xlsx`;
+      a.click();
       window.URL.revokeObjectURL(url);
     } catch { message.error('Export failed'); }
   };

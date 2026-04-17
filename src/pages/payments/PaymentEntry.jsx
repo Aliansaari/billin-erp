@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Input, DatePicker, Select, Button, InputNumber, Typography, message, Checkbox, Tag, Tooltip, Divider } from 'antd';
+import { Input, DatePicker, Select, Button, InputNumber, Typography, message, Checkbox, Tag, Tooltip, Divider, Modal } from 'antd';
 import {
   ArrowLeftOutlined, ReloadOutlined, MessageOutlined,
   CheckCircleOutlined, UserOutlined, CalendarOutlined,
@@ -45,10 +45,11 @@ export default function PaymentEntry() {
   const [loading, setLoading]             = useState(false);
   const [dueDaysMode, setDueDaysMode]     = useState('bill_date');
 
-  const payAmtRef     = useRef(null);
-  const handleSaveRef = useRef(null);
-  const dateInputRef  = useRef(null);
-  const submittingRef = useRef(false);
+  const payAmtRef        = useRef(null);
+  const handleSaveRef    = useRef(null);
+  const dateInputRef     = useRef(null);
+  const submittingRef    = useRef(false);
+  const openDateEditRef  = useRef(null);  // ref-based so F2 handler sees fresh closure
 
   const [dateEditMode, setDateEditMode] = useState(false);
   const [dateInputVal, setDateInputVal] = useState('');
@@ -58,6 +59,9 @@ export default function PaymentEntry() {
     setDateEditMode(true);
     setTimeout(() => { dateInputRef.current?.select(); }, 30);
   };
+  // Kept in sync each render so the mount-time F2 listener picks up the
+  // current `date` closure (see handleSaveRef pattern below).
+  openDateEditRef.current = openDateEdit;
 
   const commitDateInput = () => {
     const parsed = parseDateInput(dateInputVal);
@@ -70,11 +74,20 @@ export default function PaymentEntry() {
     loadParties();
     setDueDaysMode(localStorage.getItem('purchase_due_days_mode') || 'bill_date');
     const onKey = (e) => {
+      // Skip F-key shortcuts while focus is inside a modal / picker dropdown /
+      // select dropdown / popover — otherwise F1 submits the parent form while
+      // the user is interacting with a popup. Also skip during IME composition.
+      if (e.isComposing || e.keyCode === 229) return;
+      const active = document.activeElement;
+      if (active && active.closest(
+        '.ant-modal, .ant-picker-dropdown, .ant-select-dropdown, .ant-popover'
+      )) return;
       if (e.key === 'F1') { e.preventDefault(); handleSaveRef.current?.(); }
-      if (e.key === 'F2') { e.preventDefault(); openDateEdit(); }
+      if (e.key === 'F2') { e.preventDefault(); openDateEditRef.current?.(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadParties = async () => {
@@ -97,11 +110,24 @@ export default function PaymentEntry() {
         dueDays: b.bill_date ? dayjs().diff(dayjs(b.bill_date), 'day') : 0,
       }));
 
-      // Remaining opening balance = total outstanding minus sum of unpaid bill balances
-      // For suppliers current_balance is NEGATIVE (we owe them), so use Math.abs
-      const billsTotal      = rows.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
+      // Remaining opening balance row — only shown when the party actually has
+      // a Payable opening balance and some of it is still unpaid.
+      //
+      // Two guards to prevent "phantom OB" double-allocation:
+      //   1. opening_balance_type must be 'Payable' — otherwise the OB isn't
+      //      owed on this side of the ledger (e.g. a Receivable OB would never
+      //      appear under supplier payments).
+      //   2. remainingOB is capped at the party's original opening_balance. If
+      //      current_balance has drifted (manual edit, legacy data), we never
+      //      invent more OB than the party actually started with.
+      const billsTotal       = rows.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
       const partyOutstanding = Math.max(0, -parseFloat(party?.current_balance || 0)); // positive = what we owe
-      const remainingOB      = parseFloat((Math.max(0, partyOutstanding - billsTotal)).toFixed(2));
+      const originalOB       = parseFloat(party?.opening_balance || 0);
+      const obIsPayable      = party?.opening_balance_type === 'Payable' && originalOB > 0;
+      const derivedOB        = Math.max(0, partyOutstanding - billsTotal);
+      const remainingOB      = obIsPayable
+        ? parseFloat(Math.min(originalOB, derivedOB).toFixed(2))
+        : 0;
       if (remainingOB > 0) {
         rows.unshift({
           purchase_bill_id: '__ob__',
@@ -169,15 +195,38 @@ export default function PaymentEntry() {
     if (!selectedParty) { message.warning('Select a supplier first'); return; }
     if (!payAmt || payAmt <= 0) { message.warning('Enter a pay amount'); return; }
     if (netAmount <= 0) { message.warning('Net amount must be greater than 0'); return; }
+
+    const refBill = checkedBills.find(b => !b.isOpening);
+    // Build per-bill allocations so each bill's balance gets updated correctly
+    const bill_allocations = billsWithAlloc
+      .filter(b => !b.isOpening && b.allocated > 0)
+      .map(b => ({ bill_id: b.purchase_bill_id, bill_type: 'Purchase', amount: b.allocated }));
+
+    // ── Silent-on-account guard ─────────────────────────────────────────────
+    // No bills ticked and no OB allocation → this would save as on-account
+    // credit without any visible warning. Force an explicit confirmation.
+    const obBill = checkedBills.find(b => b.isOpening);
+    const obAlloc = obBill ? parseFloat(obBill.allocated) || 0 : 0;
+    if (bill_allocations.length === 0 && obAlloc <= 0) {
+      const confirmed = await new Promise((resolve) => {
+        Modal.confirm({
+          title: 'Save as on-account credit?',
+          content:
+            `No bills are selected for allocation. ₹${fmt2(netAmount)} will be recorded ` +
+            `against ${selectedParty.party_name} as an on-account credit (no bill will be marked paid). ` +
+            `Continue?`,
+          okText: 'Save on-account',
+          cancelText: 'Go back',
+          onOk:     () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      if (!confirmed) return;
+    }
+
     submittingRef.current = true;
     setLoading(true);
     try {
-      const refBill = checkedBills.find(b => !b.isOpening);
-      // Build per-bill allocations so each bill's balance gets updated correctly
-      const bill_allocations = billsWithAlloc
-        .filter(b => !b.isOpening && b.allocated > 0)
-        .map(b => ({ bill_id: b.purchase_bill_id, bill_type: 'Purchase', amount: b.allocated }));
-
       const { data: result } = await paymentAPI.create({
         transaction_type:    'Payment',
         transaction_date:    date.format('YYYY-MM-DD'),

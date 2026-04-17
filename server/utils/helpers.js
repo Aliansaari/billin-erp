@@ -11,21 +11,57 @@ function generateTransactionNumber(prefix, lastNumber) {
   return `${prefix}-${num}`;
 }
 
+/**
+ * Round `n` to `decimals` places using "round half away from zero" —
+ * the convention followed by Tally Prime and required by Indian GST:
+ *   1.5   →  2      -1.5   → -2
+ *   2.5   →  3      -2.5   → -3
+ *   1.005 →  1.01   -1.005 → -1.01
+ *
+ * Why a custom helper:
+ *  - JavaScript's Math.round rounds half toward +∞ (ASYMMETRIC for negatives),
+ *    so Math.round(-0.5) = 0, not -1. That breaks refund/return-note rounding.
+ *  - toFixed() uses banker's rounding (round-half-to-even) in V8, so
+ *    (1.005).toFixed(2) is sometimes "1.00" not "1.01" — a silent 1 paisa
+ *    drift that accumulates across thousands of invoices and mismatches Tally.
+ *
+ * Implementation:
+ *  - Split the sign, scale up to integer, Math.round, scale back.
+ *  - Nudge by 1e-10 to absorb floating-point representation errors in
+ *    inputs like 1.005 (actually stored as 1.00499999999…).
+ */
+function roundTo(n, decimals = 2) {
+  if (!isFinite(n) || n === 0) return 0;
+  const factor = Math.pow(10, decimals);
+  const sign = n < 0 ? -1 : 1;
+  return sign * Math.round(Math.abs(n) * factor + 1e-10) / factor;
+}
+
 function roundOff(amount) {
-  const rounded = Math.round(amount);
+  // Round the BILL TOTAL to the nearest rupee — CGST Rules say fractions ≥ 50p
+  // round up, <50p round down. roundTo(x, 0) with round-half-away-from-zero
+  // matches that rule exactly.
+  const rounded = roundTo(amount, 0);
   return {
     roundedAmount: rounded,
-    roundOffValue: +(rounded - amount).toFixed(2),
+    // roundOffValue = what we added/subtracted so the bill ends on a whole rupee.
+    // Kept at 2 decimals for the ledger line; sign matches the direction.
+    roundOffValue: roundTo(rounded - amount, 2),
   };
 }
 
 function calculateGST(taxableAmount, gstRate, isInterState = false) {
-  const totalTax = +(taxableAmount * gstRate / 100).toFixed(2);
+  const totalTax = roundTo(taxableAmount * gstRate / 100, 2);
   if (isInterState) {
     return { cgst: 0, sgst: 0, igst: totalTax };
   }
-  const half = +(totalTax / 2).toFixed(2);
-  return { cgst: half, sgst: totalTax - half, igst: 0 };
+  // Split the tax into CGST + SGST. Rounding each half independently can drift
+  // by 1 paisa (₹0.01) from totalTax — e.g. ₹1.00 / 2 = 0.50 + 0.50 = 1.00 ✓
+  // but ₹1.01 / 2 = 0.505 + 0.505 where each half rounds to 0.51 → 1.02 ✗.
+  // Fix: round the first half; give the remainder to the second so the two
+  // halves always reconcile to totalTax exactly.
+  const half = roundTo(totalTax / 2, 2);
+  return { cgst: half, sgst: roundTo(totalTax - half, 2), igst: 0 };
 }
 
 function paginateQuery(query, page = 1, limit = 50) {
@@ -33,10 +69,32 @@ function paginateQuery(query, page = 1, limit = 50) {
   return { ...query, limit, offset };
 }
 
+/**
+ * Sanitise page/limit query params.
+ *
+ * Why:
+ *  - Raw `req.query.page` and `req.query.limit` are untrusted strings.
+ *    "abc" → NaN → offset becomes NaN → Sequelize generates invalid SQL.
+ *    "-5"  → negative offset → Postgres throws.
+ *    "999999" → a single request can dump the whole table (DoS vector).
+ *  - Per-endpoint maxLimit lets reports (many rows) and pickers (few rows)
+ *    enforce different ceilings without code duplication at each call site.
+ *
+ * Returns parsed integers + computed offset, always in a safe range.
+ */
+function sanitizePagination(rawPage, rawLimit, { defaultLimit = 50, maxLimit = 500 } = {}) {
+  const page  = Math.max(1, parseInt(rawPage,  10) || 1);
+  const limit = Math.min(maxLimit, Math.max(1, parseInt(rawLimit, 10) || defaultLimit));
+  const offset = (page - 1) * limit;
+  return { page, limit, offset };
+}
+
 module.exports = {
   generateBillNumber,
   generateTransactionNumber,
   roundOff,
+  roundTo,
   calculateGST,
   paginateQuery,
+  sanitizePagination,
 };

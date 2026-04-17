@@ -84,9 +84,18 @@ export default function StockReport() {
   /* ── export ── */
   const handleExport = async () => {
     try {
-      const { data } = await dataAPI.exportExcel('products');
-      const url = window.URL.createObjectURL(new Blob([data]));
-      const a = document.createElement('a'); a.href = url; a.download = 'stock_report.xlsx'; a.click();
+      // Use the filter-aware Stock Report export so the workbook matches the
+      // on-screen category/status/search filters (not a dump of all products).
+      const { data } = await reportAPI.exportStockReport(filters);
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      // Date-stamp with LOCAL date so daily exports don't overwrite each other.
+      const d = new Date();
+      const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `stock_report_${stamp}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
     } catch { message.error('Export failed'); }
   };
 
@@ -130,8 +139,13 @@ export default function StockReport() {
   };
 
   const stockColor = (v, min) => {
-    if (parseFloat(v) <= 0) return { bg:'#fef2f2', color:'#dc2626', label:'Out' };
-    if (min > 0 && parseFloat(v) <= parseFloat(min)) return { bg:'#fffbeb', color:'#d97706', label:'Low' };
+    const q = parseFloat(v);
+    // Negative stock is a data-integrity flag — means the ledger has more
+    // sales than purchases for that product, usually from a cancelled/deleted
+    // receipt or a bad stock-adjust. Flag it visually (distinct from "Out").
+    if (q < 0) return { bg:'#fdf2f8', color:'#be185d', label:'Negative' };
+    if (q === 0) return { bg:'#fef2f2', color:'#dc2626', label:'Out' };
+    if (min > 0 && q <= parseFloat(min)) return { bg:'#fffbeb', color:'#d97706', label:'Low' };
     return { bg:'#f0fdf4', color:'#16a34a', label:'OK' };
   };
 

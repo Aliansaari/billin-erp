@@ -12,7 +12,11 @@ const fmtN = (v) =>    parseFloat(v || 0).toLocaleString('en-IN', { minimumFract
 
 const getStockStyle = (v, min) => {
   const n = parseFloat(v);
-  if (n <= 0)                          return { bg: '#fef2f2', color: '#dc2626' };
+  // Negative stock = data integrity flag (ledger has more sales than purchases,
+  // typically caused by a cancelled-receipt edge case or bad adjustment). Show
+  // a distinct warning colour so the user can investigate and reconcile.
+  if (n < 0)                           return { bg: '#fdf2f8', color: '#be185d' };
+  if (n === 0)                         return { bg: '#fef2f2', color: '#dc2626' };
   if (min > 0 && n <= parseFloat(min)) return { bg: '#fffbeb', color: '#d97706' };
   return                                      { bg: '#f0fdf4', color: '#16a34a' };
 };
@@ -146,7 +150,8 @@ export default function StockReportPro() {
   const modalStats = useMemo(() => {
     const rows = filteredModalProducts;
     if (!rows.length) return null;
-    let totalQty = 0, totalPurVal = 0, totalSaleVal = 0, totalPurRate = 0, outOfStock = 0, lowStock = 0;
+    let totalQty = 0, totalPurVal = 0, totalSaleVal = 0, totalPurRate = 0;
+    let outOfStock = 0, lowStock = 0, negative = 0;
     rows.forEach(p => {
       const qty  = parseFloat(p.current_stock  || 0);
       const pur  = parseFloat(p.purchase_rate  || 0);
@@ -156,10 +161,12 @@ export default function StockReportPro() {
       totalPurVal  += qty * pur;
       totalSaleVal += qty * sale;
       totalPurRate += pur;
-      if (qty <= 0)               outOfStock++;
+      // Negative is its own bucket — mixing it with "Out" hides ledger issues.
+      if (qty < 0) negative++;
+      else if (qty === 0) outOfStock++;
       else if (min > 0 && qty <= min) lowStock++;
     });
-    return { count: rows.length, totalQty, totalPurVal, totalSaleVal, profit: totalSaleVal - totalPurVal, avgPurRate: totalPurRate / rows.length, outOfStock, lowStock };
+    return { count: rows.length, totalQty, totalPurVal, totalSaleVal, profit: totalSaleVal - totalPurVal, avgPurRate: totalPurRate / rows.length, outOfStock, lowStock, negative };
   }, [filteredModalProducts]);
 
   // ─── visible modal columns ────────────────────────────────────────────────
@@ -340,9 +347,19 @@ export default function StockReportPro() {
   // ─── import/export ────────────────────────────────────────────────────────
   const handleExport = async () => {
     try {
-      const { data } = await dataAPI.exportExcel('products');
-      const url = window.URL.createObjectURL(new Blob([data]));
-      Object.assign(document.createElement('a'), { href: url, download: 'stock_report.xlsx' }).click();
+      // Use the filter-aware Stock Report endpoint so the workbook reflects the
+      // active category/stock-status/search filter on-screen — WYSIWYG export.
+      const params = {};
+      if (search)      params.search = search;
+      if (categoryId)  params.category_id = categoryId;
+      if (stockStatus) params.stock_status = stockStatus;
+      const { data } = await reportAPI.exportStockReport(params);
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      // Date-stamp with LOCAL date so repeated exports don't collide in Downloads.
+      const d = new Date();
+      const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      Object.assign(document.createElement('a'), { href: url, download: `stock_report_${stamp}.xlsx` }).click();
+      window.URL.revokeObjectURL(url);
     } catch { message.error('Export failed'); }
   };
 
@@ -590,6 +607,7 @@ export default function StockReportPro() {
               { label: 'Sale Value',    value: fmt(modalStats.totalSaleVal),  color: '#7e22ce', bg: '#faf5ff' },
               { label: 'Profit',        value: fmt(modalStats.profit),        color: '#854d0e', bg: '#fefce8' },
               { label: 'Avg Pur Rate',  value: fmt(modalStats.avgPurRate),    color: '#374151', bg: '#f9fafb' },
+              { label: 'Negative',      value: modalStats.negative,           color: '#be185d', bg: '#fdf2f8' },
               { label: 'Out of Stock',  value: modalStats.outOfStock,         color: '#dc2626', bg: '#fef2f2' },
               { label: 'Low Stock',     value: modalStats.lowStock,           color: '#d97706', bg: '#fffbeb' },
             ].map(st => (

@@ -60,6 +60,7 @@ export const productAPI = {
   getAll: (params) => api.get('/products', { params }),
   search: (q, params={}) => api.get('/products', { params: { search: q, limit: 50, ...params } }),
   getByBarcode: (barcode) => api.get(`/products/barcode/${barcode}`),
+  getNextBarcode: () => api.get('/products/next-barcode'),
   getById: (id) => api.get(`/products/${id}`),
   getLowStock: () => api.get('/products/low-stock'),
   getStockMovement: (id, params) => api.get(`/products/${id}/stock-movement`, { params }),
@@ -104,6 +105,14 @@ export const reportAPI = {
   getStockReport: (params) => api.get('/reports/stock', { params }),
   getProfitLoss: (params) => api.get('/reports/profit-loss', { params }),
   getPartyOutstanding: (params) => api.get('/reports/party-outstanding', { params }),
+
+  // Filter-aware XLSX exports — SAME filter shape as the JSON endpoints above.
+  // The server applies the filters, fetches ALL matching rows (no page limit),
+  // and streams an xlsx with a totals row. Honors date range, party, status, etc.
+  exportSalesReport: (params) => api.get('/reports/sales/export', { params, responseType: 'blob', timeout: 300000 }),
+  exportPurchaseReport: (params) => api.get('/reports/purchases/export', { params, responseType: 'blob', timeout: 300000 }),
+  exportStockReport: (params) => api.get('/reports/stock/export', { params, responseType: 'blob', timeout: 300000 }),
+  exportPartyOutstanding: (params) => api.get('/reports/party-outstanding/export', { params, responseType: 'blob', timeout: 300000 }),
 };
 
 // Settings
@@ -117,7 +126,9 @@ export const settingsAPI = {
   updateUser: (id, data) => api.put(`/settings/users/${id}`, data),
   deleteUser: (id) => api.delete(`/settings/users/${id}`),
   getRoles: () => api.get('/settings/roles'),
-  cleanupData: (categories) => api.post('/settings/cleanup', { categories }),
+  // Payload is { categories, password, confirmation } — backend re-verifies admin's
+   // password and requires the user to type "DELETE" before wiping data.
+  cleanupData: (payload) => api.post('/settings/cleanup', payload),
 };
 
 // Backup & Restore
@@ -146,7 +157,9 @@ export const backupAPI = {
 
 // Import/Export
 export const dataAPI = {
-  exportExcel: (module) => api.get(`/data/export/${module}`, { responseType: 'blob' }),
+  // params lets the caller pass { search, category_id, stock_status, status }
+  // so the exported workbook reflects whatever filters are on-screen.
+  exportExcel: (module, params = {}) => api.get(`/data/export/${module}`, { params, responseType: 'blob', timeout: 300000 }),
   downloadTemplate: (module) => api.get(`/data/template/${module}`, { responseType: 'blob' }),
   downloadFailedReport: (errors) => api.post('/data/failed-report', { errors }, { responseType: 'blob' }),
   importExcel: (module, file, onProgress) => {

@@ -4,3 +4,8 @@ dist/
 server.log
 *.log
 .claude/
+
+# Runtime data — firm-specific, must never be committed
+server/backups/
+server/uploads/
+backup_*.json

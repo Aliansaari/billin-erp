@@ -135,9 +135,13 @@ const SalesBill = sequelize.define('SalesBill', {
   },
   cancelled_by: {
     type: DataTypes.INTEGER,
+    references: { model: 'users', key: 'user_id' },
   },
   cancelled_date: {
     type: DataTypes.DATE,
+  },
+  cancellation_reason: {
+    type: DataTypes.TEXT,
   },
 }, {
   tableName: 'sales_bills',

@@ -14,10 +14,19 @@ export default function Login() {
     setLoading(true);
     try {
       const { data } = await authAPI.login(values);
-      login(data.user, data.token);
-      message.success(`Welcome back, ${data.user.full_name}!`);
-      // Full reload ensures fresh auth state across all components
-      window.location.href = '/';
+      login(data.user, data.token, !!data.must_change_password);
+      if (data.must_change_password) {
+        // Default password detected — force the change-password flow before
+        // any other route is accessible. PrivateRoute also enforces this, but
+        // starting the redirect here gives a cleaner UX than landing on "/"
+        // just to be bounced.
+        message.warning('Please set a new password to continue.');
+        window.location.href = '/change-password';
+      } else {
+        message.success(`Welcome back, ${data.user.full_name}!`);
+        // Full reload ensures fresh auth state across all components
+        window.location.href = '/';
+      }
     } catch (error) {
       message.error(error.response?.data?.error || 'Invalid username or password');
       setLoading(false);

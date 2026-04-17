@@ -233,7 +233,7 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
   useEffect(() => {
     if (!visible || !items?.length) return;
     setRows(items.map(item => {
-      const qpb = parseInt(item.quantity_per_box) || 1;
+      const qpb = parseFloat(item.quantity_per_box) || 1;
       const qty = parseFloat(item.quantity) || 0;
       return { ...item, key: item.barcode, quantity_per_box: qpb,
                no_of_prints: Math.ceil(qty / qpb), selected: true };

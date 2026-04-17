@@ -1,12 +1,15 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, Party, Product, StockLedger, SystemSettings } = require('../models');
-const { generateBillNumber, roundOff, calculateGST } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 
 exports.getAll = async (req, res) => {
   try {
-    const { from_date, to_date, customer_id, payment_status, search, page = 1, limit = 50 } = req.query;
+    const { from_date, to_date, customer_id, payment_status, search } = req.query;
+    // Clamp page/limit — untrusted query params. "abc" → NaN; "-5" → negative
+    // offset; "99999999" is a DoS vector. sanitizePagination caps at 500 rows.
+    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
     const where = { is_cancelled: false };
 
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
@@ -16,16 +19,15 @@ exports.getAll = async (req, res) => {
       where[Op.or] = [{ bill_number: { [Op.iLike]: `%${search}%` } }];
     }
 
-    const offset = (page - 1) * limit;
     const { count, rows } = await SalesBill.findAndCountAll({
       where,
       include: [{ model: Party, as: 'customer', attributes: ['party_name', 'mobile_1'] }],
       order: [['bill_date', 'DESC'], ['sales_bill_id', 'DESC']],
-      limit: parseInt(limit),
+      limit,
       offset,
     });
 
-    res.json({ total: count, page: parseInt(page), limit: parseInt(limit), data: rows });
+    res.json({ total: count, page, limit, data: rows });
   } catch (error) {
     console.error('Get sales error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -50,63 +52,145 @@ exports.getById = async (req, res) => {
 exports.create = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { items, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, ...billData } = req.body;
+    const { items, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, gst_mode, ...billData } = req.body;
 
     // Generate bill number using prefix from settings — inside transaction to prevent race condition
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.sales_bill_prefix?.trim() || '';
-    const lastBill = await SalesBill.findOne({ order: [['sales_bill_id', 'DESC']], transaction: t });
+    // Bill number race fix: lock by primary key so concurrent creates serialise.
+    // Without the lock two requests could both read the same lastBill and issue
+    // duplicate bill numbers, which the unique index would then reject.
+    const lastBill = await SalesBill.findOne({
+      order: [['sales_bill_id', 'DESC']],
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
     const lastNum = lastBill ? parseInt(lastBill.bill_number.split('-').pop()) : 0;
     billData.bill_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
     billData.sales_person = billData.sales_person || req.user.user_id;
 
-    const billWise = parseFloat(cgst_pct) > 0 || parseFloat(sgst_pct) > 0 || parseFloat(igst_pct) > 0;
+    // Prefer the explicit mode flag from the client. Fall back to the legacy
+    // "any non-zero %" heuristic only when the flag is missing, so older
+    // cached frontends keep working. A firm selling GST-exempt goods in
+    // bill-wise mode (all three % = 0) now correctly stays in bill-wise mode.
+    const billWise = gst_mode === 'bill'
+      ? true
+      : gst_mode === 'product'
+        ? false
+        : (parseFloat(cgst_pct) > 0 || parseFloat(sgst_pct) > 0 || parseFloat(igst_pct) > 0);
 
     let subTotal = 0;
     let totalQty = 0;
     let totalCgst = 0, totalSgst = 0, totalIgst = 0, totalCess = 0;
 
+    // PASS 1: compute per-line base (line total − item discount). We can't
+    // calculate GST yet because the bill-level trade discount must be
+    // allocated across lines first — GST applies to the post-trade-discount
+    // "transaction value" under GST law.
     const processedItems = [];
     for (const item of items) {
-      const lineTotal = +(item.quantity * item.rate).toFixed(2);
-      const discountAmt = +(lineTotal * (item.discount_percentage || 0) / 100).toFixed(2);
+      // Clamp inputs: quantity ≥ 0, rate ≥ 0, 0 ≤ discount% ≤ 100. A negative
+      // qty or rate would invert the ledger sign; a discount > 100% would
+      // produce a negative taxable base that GST/round-off math silently
+      // propagates, and a negative discount would inflate the bill. Reject
+      // loudly — silently clamping would hide data-entry mistakes from the
+      // operator (e.g. typing "25" for a ₹25 discount in the % column).
+      const qty  = parseFloat(item.quantity);
+      const rate = parseFloat(item.rate);
+      const itemDiscPct = parseFloat(item.discount_percentage || 0);
+      if (!isFinite(qty) || qty < 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Quantity must be a non-negative number (got "${item.quantity}" for "${item.product_name || 'item'}").` });
+      }
+      if (!isFinite(rate) || rate < 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Rate must be a non-negative number (got "${item.rate}" for "${item.product_name || 'item'}").` });
+      }
+      if (!isFinite(itemDiscPct) || itemDiscPct < 0 || itemDiscPct > 100) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
+      }
+      const lineTotal = +(qty * rate).toFixed(2);
+      const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
       const taxableAmt = +(lineTotal - discountAmt).toFixed(2);
-      // In bill-wise mode item GST amounts are 0 (GST applied at bill level)
-      const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(taxableAmt, item.gst_rate || 0);
 
       processedItems.push({
         ...item,
-        taxable_amount: taxableAmt,
+        _lineTotal: lineTotal,
+        _postItemTaxable: taxableAmt,     // line total after item-level discount
+        taxable_amount: taxableAmt,        // will be overwritten with post-bill-disc value below
         discount_amount: discountAmt,
-        cgst_amount: gst.cgst,
-        sgst_amount: gst.sgst,
-        igst_amount: gst.igst,
-        total_amount: +(taxableAmt + gst.cgst + gst.sgst + gst.igst).toFixed(2),
+        cgst_amount: 0,
+        sgst_amount: 0,
+        igst_amount: 0,
+        total_amount: 0,
       });
 
       subTotal += lineTotal;
-      totalQty += parseFloat(item.quantity);
+      totalQty += qty;
+    }
+
+    // Resolve bill-level (trade) discount.
+    // Use != null so an explicit 0 isn't ignored in favour of a percentage.
+    const billDiscPct = parseFloat(billData.discount_percentage || 0);
+    if (!isFinite(billDiscPct) || billDiscPct < 0 || billDiscPct > 100) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount % must be between 0 and 100 (got ${billDiscPct}%).` });
+    }
+    const billDiscountAmt = billData.discount_amount != null
+      ? parseFloat(billData.discount_amount)
+      : +(subTotal * billDiscPct / 100).toFixed(2);
+    const itemDiscountTotal = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    // Guard: bill-level discount cannot be negative, and cannot exceed
+    // the post-item-discount base (otherwise taxableTotal turns negative
+    // and every downstream GST/round-off figure is wrong).
+    const postItemBase = +(subTotal - itemDiscountTotal).toFixed(2);
+    if (!isFinite(billDiscountAmt) || billDiscountAmt < 0) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount amount must be non-negative (got ${billDiscountAmt}).` });
+    }
+    if (billDiscountAmt > postItemBase + 0.01) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount (₹${billDiscountAmt.toFixed(2)}) cannot exceed post-item-discount total (₹${postItemBase.toFixed(2)}).` });
+    }
+    const taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt).toFixed(2);
+
+    // PASS 2: allocate the bill-level discount pro-rata to each line based
+    // on its post-item-discount taxable amount, then compute GST on that
+    // reduced base. Pro-rata allocation preserves item-level reporting
+    // fidelity — every item row carries its own correct taxable & GST.
+    const postItemTotal = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
+    const billDiscRatio = postItemTotal > 0 ? billDiscountAmt / postItemTotal : 0;
+
+    for (const it of processedItems) {
+      const lineBase = +(it._postItemTaxable * (1 - billDiscRatio)).toFixed(2);
+      it.taxable_amount = lineBase;
+      const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(lineBase, it.gst_rate || 0);
+      it.cgst_amount = gst.cgst;
+      it.sgst_amount = gst.sgst;
+      it.igst_amount = gst.igst;
+      it.total_amount = +(lineBase + gst.cgst + gst.sgst + gst.igst).toFixed(2);
       if (!billWise) {
         totalCgst += gst.cgst;
         totalSgst += gst.sgst;
         totalIgst += gst.igst;
       }
+      // strip private bookkeeping fields before persisting
+      delete it._lineTotal;
+      delete it._postItemTaxable;
     }
 
-    // Fix: use != null so explicit 0 isn't ignored in favour of percentage
-    const billDiscountAmt = billData.discount_amount != null
-      ? parseFloat(billData.discount_amount)
-      : +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
-    // Fix: item-level discounts must also be subtracted from the taxable base
-    const itemDiscountTotal = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
-    const taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt).toFixed(2);
-
-    // Bill-wise: override GST totals using the provided percentages
+    // Bill-wise: override GST totals using the provided percentages on the
+    // single consolidated taxable base.
+    // Use roundTo (round-half-away-from-zero) to match Tally's GST convention
+    // and keep the two rounding paths (item-wise via calculateGST, bill-wise
+    // here) consistent — previously toFixed(2) used banker's rounding in V8
+    // and drifted by 1 paisa vs. Tally on exact .xxx5 amounts.
     if (billWise) {
-      totalCgst = +(taxableTotal * parseFloat(cgst_pct) / 100).toFixed(2);
-      totalSgst = +(taxableTotal * parseFloat(sgst_pct) / 100).toFixed(2);
-      totalIgst = +(taxableTotal * parseFloat(igst_pct) / 100).toFixed(2);
+      totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
+      totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
+      totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
     }
 
     const { roundedAmount, roundOffValue } = roundOff(
@@ -228,7 +312,16 @@ exports.create = async (req, res) => {
 
     res.status(201).json(result);
   } catch (error) {
-    await t.rollback();
+    // Guard against double-rollback: early validation branches already rolled
+    // back the transaction and returned. If a subsequent `res.json(...)` call
+    // threw (e.g. client disconnected mid-response), Sequelize would reject
+    // a second rollback with "Transaction cannot be rolled back because it
+    // has been finished with state: rollback". The `t.finished` check —
+    // which Sequelize sets to 'commit' | 'rollback' after either completes —
+    // prevents that secondary error from masking the real one.
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Create sale error:', error);
     res.status(500).json({ error: 'Server error: ' + error.message });
   }
@@ -238,7 +331,7 @@ exports.update = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { items: newItems, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, ...billData } = req.body;
+    const { items: newItems, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, gst_mode, ...billData } = req.body;
 
     const existingBill = await SalesBill.findByPk(id, {
       include: [{ model: SalesBillItem, as: 'items' }],
@@ -272,43 +365,99 @@ exports.update = async (req, res) => {
     let totalCgst = 0, totalSgst = 0, totalIgst = 0, totalCess = 0;
     const processedItems = [];
 
-    const billWise = parseFloat(cgst_pct) > 0 || parseFloat(sgst_pct) > 0 || parseFloat(igst_pct) > 0;
+    // Same mode detection as create() — see there for rationale.
+    const billWise = gst_mode === 'bill'
+      ? true
+      : gst_mode === 'product'
+        ? false
+        : (parseFloat(cgst_pct) > 0 || parseFloat(sgst_pct) > 0 || parseFloat(igst_pct) > 0);
 
+    // PASS 1: compute per-line post-item-discount base. GST must be deferred
+    // until we know the bill-level discount to allocate pro-rata.
     for (const item of newItems) {
-      const lineTotal = +(item.quantity * item.rate).toFixed(2);
-      const discountAmt = +(lineTotal * (item.discount_percentage || 0) / 100).toFixed(2);
-      const taxableAmt = +(lineTotal - discountAmt).toFixed(2);
-      const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(taxableAmt, item.gst_rate || 0);
+      // Same clamp rules as create() — reject invalid inputs loudly rather than
+      // silently masking them with `|| 0`, which could let a 150% discount
+      // flip taxable to negative or a negative qty invert the ledger sign.
+      const qty  = parseFloat(item.quantity);
+      const rate = parseFloat(item.rate);
+      const itemDiscPct = parseFloat(item.discount_percentage || 0);
+      if (!isFinite(qty) || qty < 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Quantity must be a non-negative number (got "${item.quantity}" for "${item.product_name || 'item'}").` });
+      }
+      if (!isFinite(rate) || rate < 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Rate must be a non-negative number (got "${item.rate}" for "${item.product_name || 'item'}").` });
+      }
+      if (!isFinite(itemDiscPct) || itemDiscPct < 0 || itemDiscPct > 100) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
+      }
+      const lineTotal = +(qty * rate).toFixed(2);
+      const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
+      const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
       processedItems.push({
         ...item,
-        taxable_amount: taxableAmt,
+        _postItemTaxable: postItemTaxable,
+        taxable_amount: postItemTaxable,
         discount_amount: discountAmt,
-        cgst_amount: gst.cgst,
-        sgst_amount: gst.sgst,
-        igst_amount: gst.igst,
-        total_amount: +(taxableAmt + gst.cgst + gst.sgst + gst.igst).toFixed(2),
+        cgst_amount: 0,
+        sgst_amount: 0,
+        igst_amount: 0,
+        total_amount: 0,
       });
 
       subTotal += lineTotal;
-      totalQty += parseFloat(item.quantity);
+      totalQty += qty;
+    }
+
+    const billDiscPct2 = parseFloat(billData.discount_percentage || 0);
+    if (!isFinite(billDiscPct2) || billDiscPct2 < 0 || billDiscPct2 > 100) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount % must be between 0 and 100 (got ${billDiscPct2}%).` });
+    }
+    const billDiscountAmt = billData.discount_amount != null
+      ? parseFloat(billData.discount_amount)
+      : +(subTotal * billDiscPct2 / 100).toFixed(2);
+    const itemDiscountTotal2 = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    const postItemBase2 = +(subTotal - itemDiscountTotal2).toFixed(2);
+    if (!isFinite(billDiscountAmt) || billDiscountAmt < 0) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount amount must be non-negative (got ${billDiscountAmt}).` });
+    }
+    if (billDiscountAmt > postItemBase2 + 0.01) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount (₹${billDiscountAmt.toFixed(2)}) cannot exceed post-item-discount total (₹${postItemBase2.toFixed(2)}).` });
+    }
+    const taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt).toFixed(2);
+
+    // PASS 2: allocate bill-level discount pro-rata so GST is on the post-
+    // discount (GST-law-compliant) base for every line.
+    const postItemTotal2 = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
+    const billDiscRatio2 = postItemTotal2 > 0 ? billDiscountAmt / postItemTotal2 : 0;
+
+    for (const it of processedItems) {
+      const lineBase = +(it._postItemTaxable * (1 - billDiscRatio2)).toFixed(2);
+      it.taxable_amount = lineBase;
+      const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(lineBase, it.gst_rate || 0);
+      it.cgst_amount = gst.cgst;
+      it.sgst_amount = gst.sgst;
+      it.igst_amount = gst.igst;
+      it.total_amount = +(lineBase + gst.cgst + gst.sgst + gst.igst).toFixed(2);
       if (!billWise) {
         totalCgst += gst.cgst;
         totalSgst += gst.sgst;
         totalIgst += gst.igst;
       }
+      delete it._postItemTaxable;
     }
 
-    const billDiscountAmt = billData.discount_amount != null
-      ? parseFloat(billData.discount_amount)
-      : +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
-    const itemDiscountTotal2 = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
-    const taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt).toFixed(2);
-
     if (billWise) {
-      totalCgst = +(taxableTotal * parseFloat(cgst_pct) / 100).toFixed(2);
-      totalSgst = +(taxableTotal * parseFloat(sgst_pct) / 100).toFixed(2);
-      totalIgst = +(taxableTotal * parseFloat(igst_pct) / 100).toFixed(2);
+      // Round-half-away-from-zero to stay consistent with Tally's GST rules.
+      totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
+      totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
+      totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
     }
 
     const { roundedAmount, roundOffValue } = roundOff(
@@ -420,7 +569,9 @@ exports.update = async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    await t.rollback();
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Update sale error:', error);
     res.status(500).json({ error: 'Server error: ' + error.message });
   }
@@ -479,11 +630,13 @@ exports.cancel = async (req, res) => {
       transaction: t,
     });
 
-    // Fix: zero out monetary fields on the cancelled bill row so stale amounts don't pollute reports
+    // Zero out monetary fields + record who/when/why for the audit trail.
+    const { reason: cancellationReason } = req.body || {};
     await bill.update({
       is_cancelled: true,
       cancelled_by: req.user.user_id,
       cancelled_date: new Date(),
+      cancellation_reason: cancellationReason || null,
       balance_amount: 0,
       payment_status: 'Unpaid',
     }, { transaction: t });
@@ -497,7 +650,9 @@ exports.cancel = async (req, res) => {
     await t.commit();
     res.json({ message: 'Bill cancelled successfully' });
   } catch (error) {
-    await t.rollback();
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Cancel sale error:', error);
     res.status(500).json({ error: 'Server error' });
   }

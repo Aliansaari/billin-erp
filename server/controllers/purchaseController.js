@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { PurchaseBill, PurchaseBillItem, Party, Product, StockLedger, Category, SystemSettings } = require('../models');
-const { generateBillNumber, roundOff, calculateGST } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 
@@ -49,7 +49,9 @@ async function resolveOrCreateProduct(item, t) {
       s(found.product_name)    === s(item.product_name) &&
       s(found.size_value)      === s(item.size) &&
       s(found.article_number)  === s(item.article_number) &&
-      parseInt(found.quantity_per_box || 1) === parseInt(item.quantity_per_box || 1) &&
+      // Compare with a small tolerance — quantity_per_box is DECIMAL(10,2),
+      // parseInt would treat 2.5 and 2 as the same SKU.
+      Math.abs(parseFloat(found.quantity_per_box || 1) - parseFloat(item.quantity_per_box || 1)) < 0.001 &&
       n(found.purchase_rate)   === n(item.purchase_rate) &&
       n(found.sale_rate)       === n(item.sale_rate) &&
       n(found.margin_percentage)=== n(item.margin_percentage) &&
@@ -65,7 +67,12 @@ async function resolveOrCreateProduct(item, t) {
   // ── Case 5: create brand-new traceable product with new barcode ────────────
   if (!item.product_name) return { product_id: null, barcode: item.barcode || null, isNew: false, product: null };
 
-  const newBarcode = await generateBarcode();
+  // If the frontend pre-reserved a barcode via /products/next-barcode, use it as-is
+  // (counter was already incremented) — avoids a second generateBarcode() call and
+  // lets the displayed barcode match what the product actually gets saved with.
+  // Otherwise, generate one under the current transaction so the counter lock
+  // is released atomically with the purchase bill commit/rollback.
+  const newBarcode = item.barcode || await generateBarcode(t);
   const newProduct = await Product.create({
     barcode:          newBarcode,
     product_name:     item.product_name,
@@ -87,7 +94,9 @@ async function resolveOrCreateProduct(item, t) {
 
 exports.getAll = async (req, res) => {
   try {
-    const { from_date, to_date, supplier_id, payment_status, search, page = 1, limit = 50 } = req.query;
+    const { from_date, to_date, supplier_id, payment_status, search } = req.query;
+    // Clamp page/limit — see salesController.getAll for rationale.
+    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
     const where = { is_cancelled: false };
 
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
@@ -100,16 +109,15 @@ exports.getAll = async (req, res) => {
       ];
     }
 
-    const offset = (page - 1) * limit;
     const { count, rows } = await PurchaseBill.findAndCountAll({
       where,
       include: [{ model: Party, as: 'supplier', attributes: ['party_name', 'mobile_1'] }],
       order: [['bill_date', 'DESC'], ['purchase_bill_id', 'DESC']],
-      limit: parseInt(limit),
+      limit,
       offset,
     });
 
-    res.json({ total: count, page: parseInt(page), limit: parseInt(limit), data: rows });
+    res.json({ total: count, page, limit, data: rows });
   } catch (error) {
     console.error('Get purchases error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -134,17 +142,30 @@ exports.getById = async (req, res) => {
 exports.create = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { items, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, ...billData } = req.body;
+    const { items, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, gst_mode, ...billData } = req.body;
 
     // Generate bill number using prefix from settings — inside transaction to prevent race condition
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.purchase_bill_prefix?.trim() || '';
-    const lastBill = await PurchaseBill.findOne({ order: [['purchase_bill_id', 'DESC']], transaction: t });
+    // Bill number race fix: lock the "latest" row so concurrent creates can't
+    // both read the same lastBill and issue duplicate bill numbers.
+    const lastBill = await PurchaseBill.findOne({
+      order: [['purchase_bill_id', 'DESC']],
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
     const lastNum = lastBill ? parseInt(lastBill.bill_number.split('-').pop()) : 0;
     billData.bill_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
 
-    const billWise = parseFloat(cgst_pct) > 0 || parseFloat(sgst_pct) > 0 || parseFloat(igst_pct) > 0;
+    // Prefer the explicit mode flag from the client so bill-wise mode with all
+    // three % = 0 (exempt goods) stays bill-wise instead of silently flipping
+    // to product-wise and losing the zero-rated declaration.
+    const billWise = gst_mode === 'bill'
+      ? true
+      : gst_mode === 'product'
+        ? false
+        : (parseFloat(cgst_pct) > 0 || parseFloat(sgst_pct) > 0 || parseFloat(igst_pct) > 0);
 
     let subTotal = 0;
     let totalQty = 0;
@@ -152,11 +173,31 @@ exports.create = async (req, res) => {
 
     const processedItems = [];
 
+    // PASS 1: compute per-line base (line total − item discount). GST is
+    // deferred until the bill-level discount can be allocated pro-rata so
+    // the tax base matches GST-law "transaction value" for trade discounts.
     for (const item of items) {
-      const lineTotal = +(item.quantity * item.purchase_rate).toFixed(2);
-      const discountAmt = +(lineTotal * (item.discount_percentage || 0) / 100).toFixed(2);
-      const taxableAmt = +(lineTotal - discountAmt).toFixed(2);
-      const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(taxableAmt, item.gst_rate || 0);
+      // Clamp rules: qty ≥ 0, rate ≥ 0, 0 ≤ disc% ≤ 100. A 150% discount would
+      // flip the tax base negative; a negative qty/rate would invert the
+      // ledger direction. Reject loudly instead of silently applying `|| 0`.
+      const qty  = parseFloat(item.quantity);
+      const rate = parseFloat(item.purchase_rate);
+      const itemDiscPct = parseFloat(item.discount_percentage || 0);
+      if (!isFinite(qty) || qty < 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Quantity must be a non-negative number (got "${item.quantity}" for "${item.product_name || 'item'}").` });
+      }
+      if (!isFinite(rate) || rate < 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Purchase rate must be a non-negative number (got "${item.purchase_rate}" for "${item.product_name || 'item'}").` });
+      }
+      if (!isFinite(itemDiscPct) || itemDiscPct < 0 || itemDiscPct > 100) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
+      }
+      const lineTotal = +(qty * rate).toFixed(2);
+      const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
+      const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
       const resolved = await resolveOrCreateProduct(item, t);
       const product_id = resolved.product_id;
@@ -166,35 +207,68 @@ exports.create = async (req, res) => {
         ...item,
         product_id,
         barcode,
-        taxable_amount: taxableAmt,
+        _postItemTaxable: postItemTaxable,
+        taxable_amount: postItemTaxable,
         discount_amount: discountAmt,
-        cgst_amount: gst.cgst,
-        sgst_amount: gst.sgst,
-        igst_amount: gst.igst,
-        total_amount: +(taxableAmt + gst.cgst + gst.sgst + gst.igst).toFixed(2),
+        cgst_amount: 0,
+        sgst_amount: 0,
+        igst_amount: 0,
+        total_amount: 0,
       });
 
       subTotal += lineTotal;
-      totalQty += parseFloat(item.quantity);
+      totalQty += qty;
+    }
+
+    // Bill totals — Fix: use != null so explicit 0 isn't ignored in favour of percentage
+    const billDiscPct = parseFloat(billData.discount_percentage || 0);
+    if (!isFinite(billDiscPct) || billDiscPct < 0 || billDiscPct > 100) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount % must be between 0 and 100 (got ${billDiscPct}%).` });
+    }
+    const billDiscountAmt = billData.discount_amount != null
+      ? parseFloat(billData.discount_amount)
+      : +(subTotal * billDiscPct / 100).toFixed(2);
+    const itemDiscountTotal = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    // A bill discount that exceeds the post-item base would flip taxableTotal
+    // negative and cascade through GST / round-off math. Reject before persist.
+    const postItemBaseP = +(subTotal - itemDiscountTotal).toFixed(2);
+    if (!isFinite(billDiscountAmt) || billDiscountAmt < 0) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount amount must be non-negative (got ${billDiscountAmt}).` });
+    }
+    if (billDiscountAmt > postItemBaseP + 0.01) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount (₹${billDiscountAmt.toFixed(2)}) cannot exceed post-item-discount total (₹${postItemBaseP.toFixed(2)}).` });
+    }
+    const taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt).toFixed(2);
+
+    // PASS 2: allocate bill-level trade discount across items pro-rata, then
+    // compute GST on the post-discount line base.
+    const postItemTotalP = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
+    const billDiscRatioP = postItemTotalP > 0 ? billDiscountAmt / postItemTotalP : 0;
+
+    for (const it of processedItems) {
+      const lineBase = +(it._postItemTaxable * (1 - billDiscRatioP)).toFixed(2);
+      it.taxable_amount = lineBase;
+      const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(lineBase, it.gst_rate || 0);
+      it.cgst_amount = gst.cgst;
+      it.sgst_amount = gst.sgst;
+      it.igst_amount = gst.igst;
+      it.total_amount = +(lineBase + gst.cgst + gst.sgst + gst.igst).toFixed(2);
       if (!billWise) {
         totalCgst += gst.cgst;
         totalSgst += gst.sgst;
         totalIgst += gst.igst;
       }
+      delete it._postItemTaxable;
     }
 
-    // Bill totals — Fix: use != null so explicit 0 isn't ignored in favour of percentage
-    const billDiscountAmt = billData.discount_amount != null
-      ? parseFloat(billData.discount_amount)
-      : +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
-    // Fix: item-level discounts must also be subtracted from the taxable base
-    const itemDiscountTotal = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
-    const taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt).toFixed(2);
-
     if (billWise) {
-      totalCgst = +(taxableTotal * parseFloat(cgst_pct) / 100).toFixed(2);
-      totalSgst = +(taxableTotal * parseFloat(sgst_pct) / 100).toFixed(2);
-      totalIgst = +(taxableTotal * parseFloat(igst_pct) / 100).toFixed(2);
+      // Round-half-away-from-zero (Tally/GST convention), not toFixed's banker's.
+      totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
+      totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
+      totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
     }
 
     const { roundedAmount, roundOffValue } = roundOff(
@@ -292,7 +366,14 @@ exports.create = async (req, res) => {
 
     res.status(201).json(result);
   } catch (error) {
-    await t.rollback();
+    // Guard against double-rollback: early validation branches already rolled
+    // back the transaction and returned. If a subsequent `res.json(...)` call
+    // threw (e.g. client disconnected mid-response), Sequelize would reject
+    // a second rollback. `t.finished` — set to 'commit' | 'rollback' after
+    // either completes — prevents that secondary error from masking the real one.
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Create purchase error:', error);
     res.status(500).json({ error: 'Server error: ' + error.message });
   }
@@ -302,7 +383,7 @@ exports.update = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { items: newItems, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, ...billData } = req.body;
+    const { items: newItems, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, gst_mode, ...billData } = req.body;
 
     const existingBill = await PurchaseBill.findByPk(id, {
       include: [{ model: PurchaseBillItem, as: 'items' }],
@@ -312,15 +393,60 @@ exports.update = async (req, res) => {
     if (existingBill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Cannot edit a cancelled bill' }); }
 
     // ── Step 1: Reverse old stock effects (no reversal ledger entries) ───────
+    // A purchase-update is: reverse-old + add-new. The NET effect on each
+    // product is (newQty - oldQty). If allow_negative_stock is off and the
+    // net effect would push stock below zero (i.e., some of the old-purchase
+    // stock has already been sold and the new bill no longer covers it), we
+    // must BLOCK the update — silently clamping to 0 here would corrupt the
+    // inventory record and hide a real shortage from the user.
     const settings2 = await SystemSettings.findByPk(1, { transaction: t });
     const allowNeg2 = settings2?.allow_negative_stock || false;
+
+    if (!allowNeg2) {
+      // Aggregate net delta per product across both old and new items.
+      const deltaByProduct = new Map();
+      for (const oldItem of existingBill.items) {
+        if (!oldItem.product_id) continue;
+        const cur = deltaByProduct.get(oldItem.product_id) || 0;
+        deltaByProduct.set(oldItem.product_id, cur - parseFloat(oldItem.quantity || 0));
+      }
+      // For new items, we may not have product_ids yet (resolveOrCreateProduct
+      // happens in PASS 1 below). For stock-pre-check purposes we match by
+      // barcode/article — but realistically, a purchase update only reduces
+      // stock net when newQty < oldQty for the same product. Match items
+      // heuristically by product_name for the pre-check.
+      for (const newItem of newItems) {
+        const matchOld = existingBill.items.find(o =>
+          o.product_name && newItem.product_name &&
+          String(o.product_name).trim().toLowerCase() === String(newItem.product_name).trim().toLowerCase()
+        );
+        if (matchOld?.product_id) {
+          const cur = deltaByProduct.get(matchOld.product_id) || 0;
+          deltaByProduct.set(matchOld.product_id, cur + parseFloat(newItem.quantity || 0));
+        }
+      }
+      for (const [pid, delta] of deltaByProduct) {
+        if (delta >= 0) continue;              // net addition → safe
+        const product = await Product.findByPk(pid, { transaction: t });
+        const finalStock = +((parseFloat(product?.current_stock) || 0) + delta).toFixed(2);
+        if (finalStock < 0) {
+          await t.rollback();
+          return res.status(400).json({
+            error: `Cannot update purchase bill: "${product.product_name}" would go to ${finalStock} units (${Math.abs(finalStock)} already sold). Enable "Allow Negative Stock" in Module Settings, or issue a Purchase Return instead.`,
+          });
+        }
+      }
+    }
 
     for (const oldItem of existingBill.items) {
       if (oldItem.product_id) {
         const product = await Product.findByPk(oldItem.product_id, { transaction: t });
         if (product) {
+          // Reversal may temporarily push stock negative inside this transaction
+          // — that's fine, the corresponding new-item in Step 6 restores it.
+          // allow_negative_stock enforcement happened in the pre-check above.
           const revStock = +(parseFloat(product.current_stock) - parseFloat(oldItem.quantity)).toFixed(2);
-          await product.update({ current_stock: allowNeg2 ? revStock : Math.max(0, revStock) }, { transaction: t });
+          await product.update({ current_stock: revStock }, { transaction: t });
         }
       }
     }
@@ -339,40 +465,94 @@ exports.update = async (req, res) => {
     let totalCgst = 0, totalSgst = 0, totalIgst = 0, totalCess = 0;
     const processedItems = [];
 
-    const billWise = parseFloat(cgst_pct) > 0 || parseFloat(sgst_pct) > 0 || parseFloat(igst_pct) > 0;
+    // Same mode detection as create() — see there for rationale.
+    const billWise = gst_mode === 'bill'
+      ? true
+      : gst_mode === 'product'
+        ? false
+        : (parseFloat(cgst_pct) > 0 || parseFloat(sgst_pct) > 0 || parseFloat(igst_pct) > 0);
 
+    // PASS 1: compute per-line post-item-discount base. Defer GST until bill
+    // discount can be allocated pro-rata (GST law: apply to transaction value).
     for (const item of newItems) {
-      const lineTotal = +(item.quantity * item.purchase_rate).toFixed(2);
-      const discountAmt = +(lineTotal * (item.discount_percentage || 0) / 100).toFixed(2);
-      const taxableAmt = +(lineTotal - discountAmt).toFixed(2);
-      const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(taxableAmt, item.gst_rate || 0);
+      // Same clamps as create() — reject loudly.
+      const qty  = parseFloat(item.quantity);
+      const rate = parseFloat(item.purchase_rate);
+      const itemDiscPct = parseFloat(item.discount_percentage || 0);
+      if (!isFinite(qty) || qty < 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Quantity must be a non-negative number (got "${item.quantity}" for "${item.product_name || 'item'}").` });
+      }
+      if (!isFinite(rate) || rate < 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Purchase rate must be a non-negative number (got "${item.purchase_rate}" for "${item.product_name || 'item'}").` });
+      }
+      if (!isFinite(itemDiscPct) || itemDiscPct < 0 || itemDiscPct > 100) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
+      }
+      const lineTotal = +(qty * rate).toFixed(2);
+      const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
+      const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
       const resolved = await resolveOrCreateProduct(item, t);
       const product_id = resolved.product_id;
       const barcode    = resolved.barcode;
 
       processedItems.push({
-        ...item, product_id, barcode, taxable_amount: taxableAmt, discount_amount: discountAmt,
-        cgst_amount: gst.cgst, sgst_amount: gst.sgst, igst_amount: gst.igst,
-        total_amount: +(taxableAmt + gst.cgst + gst.sgst + gst.igst).toFixed(2),
+        ...item, product_id, barcode,
+        _postItemTaxable: postItemTaxable,
+        taxable_amount: postItemTaxable,
+        discount_amount: discountAmt,
+        cgst_amount: 0, sgst_amount: 0, igst_amount: 0,
+        total_amount: 0,
       });
 
-      subTotal += lineTotal; totalQty += parseFloat(item.quantity);
+      subTotal += lineTotal; totalQty += qty;
+    }
+
+    const billDiscPct2 = parseFloat(billData.discount_percentage || 0);
+    if (!isFinite(billDiscPct2) || billDiscPct2 < 0 || billDiscPct2 > 100) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount % must be between 0 and 100 (got ${billDiscPct2}%).` });
+    }
+    const billDiscountAmt = billData.discount_amount != null
+      ? parseFloat(billData.discount_amount)
+      : +(subTotal * billDiscPct2 / 100).toFixed(2);
+    const itemDiscountTotal2 = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    const postItemBaseP2 = +(subTotal - itemDiscountTotal2).toFixed(2);
+    if (!isFinite(billDiscountAmt) || billDiscountAmt < 0) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount amount must be non-negative (got ${billDiscountAmt}).` });
+    }
+    if (billDiscountAmt > postItemBaseP2 + 0.01) {
+      if (!t.finished) await t.rollback();
+      return res.status(400).json({ error: `Bill discount (₹${billDiscountAmt.toFixed(2)}) cannot exceed post-item-discount total (₹${postItemBaseP2.toFixed(2)}).` });
+    }
+    const taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt).toFixed(2);
+
+    // PASS 2: pro-rate bill discount and recompute per-line GST on the net base.
+    const postItemTotalP2 = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
+    const billDiscRatioP2 = postItemTotalP2 > 0 ? billDiscountAmt / postItemTotalP2 : 0;
+    for (const it of processedItems) {
+      const lineBase = +(it._postItemTaxable * (1 - billDiscRatioP2)).toFixed(2);
+      it.taxable_amount = lineBase;
+      const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(lineBase, it.gst_rate || 0);
+      it.cgst_amount = gst.cgst;
+      it.sgst_amount = gst.sgst;
+      it.igst_amount = gst.igst;
+      it.total_amount = +(lineBase + gst.cgst + gst.sgst + gst.igst).toFixed(2);
       if (!billWise) {
         totalCgst += gst.cgst; totalSgst += gst.sgst; totalIgst += gst.igst;
       }
+      delete it._postItemTaxable;
     }
 
-    const billDiscountAmt = billData.discount_amount != null
-      ? parseFloat(billData.discount_amount)
-      : +(subTotal * (billData.discount_percentage || 0) / 100).toFixed(2);
-    const itemDiscountTotal2 = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
-    const taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt).toFixed(2);
-
     if (billWise) {
-      totalCgst = +(taxableTotal * parseFloat(cgst_pct) / 100).toFixed(2);
-      totalSgst = +(taxableTotal * parseFloat(sgst_pct) / 100).toFixed(2);
-      totalIgst = +(taxableTotal * parseFloat(igst_pct) / 100).toFixed(2);
+      // Round-half-away-from-zero (Tally/GST convention), not toFixed's banker's.
+      totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
+      totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
+      totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
     }
 
     const { roundedAmount, roundOffValue } = roundOff(
@@ -467,7 +647,9 @@ exports.update = async (req, res) => {
     });
     res.json(result);
   } catch (error) {
-    await t.rollback();
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Update purchase error:', error);
     res.status(500).json({ error: 'Server error: ' + error.message });
   }
@@ -483,18 +665,29 @@ exports.cancel = async (req, res) => {
     if (!bill) { await t.rollback(); return res.status(404).json({ error: 'Bill not found' }); }
     if (bill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Bill already cancelled' }); }
 
-    // Block cancellation if any product in this bill has been sold
-    for (const item of bill.items) {
-      if (item.product_id) {
-        const salesCount = await StockLedger.count({
-          where: { product_id: item.product_id, transaction_type: 'Sales' },
-          transaction: t,
-        });
-        if (salesCount > 0) {
-          const prod = await Product.findByPk(item.product_id, { transaction: t });
+    // Block cancellation if the stock reversal would push any product below
+    // zero while allow_negative_stock is disabled. This replaces the older
+    // "any sale exists" heuristic — a sale is fine as long as other purchases
+    // of the same product cover it. We check the actual final stock here.
+    const settingsCanc = await SystemSettings.findByPk(1, { transaction: t });
+    const allowNegCanc = settingsCanc?.allow_negative_stock || false;
+
+    if (!allowNegCanc) {
+      // Aggregate quantity-to-reverse per product (an item of the same product
+      // may appear multiple times if sold in different sizes/barcodes).
+      const revByProduct = new Map();
+      for (const item of bill.items) {
+        if (!item.product_id) continue;
+        const cur = revByProduct.get(item.product_id) || 0;
+        revByProduct.set(item.product_id, cur + parseFloat(item.quantity || 0));
+      }
+      for (const [pid, qty] of revByProduct) {
+        const product = await Product.findByPk(pid, { transaction: t });
+        const finalStock = +((parseFloat(product?.current_stock) || 0) - qty).toFixed(2);
+        if (finalStock < 0) {
           await t.rollback();
           return res.status(400).json({
-            error: `Cannot cancel this purchase bill — "${prod.product_name}" has ${salesCount} sales transaction(s). Cancelling would create invalid negative stock. Create a Purchase Return instead.`,
+            error: `Cannot cancel this purchase bill: "${product.product_name}" would go to ${finalStock} units (${Math.abs(finalStock)} already sold from this stock). Enable "Allow Negative Stock" in Module Settings, or create a Purchase Return instead.`,
           });
         }
       }
@@ -529,17 +722,14 @@ exports.cancel = async (req, res) => {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Get negative stock setting
-    const settings = await SystemSettings.findByPk(1, { transaction: t });
-    const allowNegativeStock = settings?.allow_negative_stock || false;
-
+    // Reverse stock. Pre-check above already guaranteed we won't go negative
+    // when allow_negative_stock is disabled. If allow_negative_stock IS on,
+    // we record the true negative (don't clamp — clamping loses shortage info).
     for (const item of bill.items) {
       if (item.product_id) {
         const product = await Product.findByPk(item.product_id, { transaction: t });
         const newStock = +((parseFloat(product.current_stock) || 0) - parseFloat(item.quantity)).toFixed(2);
-        await product.update({
-          current_stock: allowNegativeStock ? newStock : Math.max(0, newStock),
-        }, { transaction: t });
+        await product.update({ current_stock: newStock }, { transaction: t });
       }
     }
 
@@ -549,11 +739,13 @@ exports.cancel = async (req, res) => {
       transaction: t,
     });
 
-    // Fix: zero out monetary fields on the cancelled bill row so stale amounts don't pollute reports
+    // Zero out monetary fields + record who/when/why for the audit trail.
+    const { reason: cancellationReason } = req.body || {};
     await bill.update({
       is_cancelled: true,
       cancelled_by: req.user.user_id,
       cancelled_date: new Date(),
+      cancellation_reason: cancellationReason || null,
       balance_amount: 0,
       payment_status: 'Unpaid',
     }, { transaction: t });
@@ -565,7 +757,9 @@ exports.cancel = async (req, res) => {
     await t.commit();
     res.json({ message: 'Bill cancelled successfully' });
   } catch (error) {
-    await t.rollback();
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Cancel purchase error:', error);
     res.status(500).json({ error: 'Server error' });
   }

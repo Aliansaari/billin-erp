@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const fsp = require('fs').promises;
 const multer = require('multer');
 const {
   sequelize, Role, User, Party, Category, Product,
@@ -11,8 +12,33 @@ const {
 const BACKUPS_DIR = path.join(__dirname, '../backups');
 const SETTINGS_FILE = path.join(BACKUPS_DIR, 'backup-settings.json');
 
-// Ensure backups directory exists
+// One-time startup sync mkdir is fine — we need the directory to exist before
+// any async handler reads from it, and this runs once at module load.
 if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+
+// ── Safe-filename validator ───────────────────────────────────────────────────
+// Blocks path traversal (../), absolute paths, and stray separators that would
+// let a request escape the backups directory via path.join. ONLY the basename
+// (no directory component) is accepted.
+const SAFE_FILENAME_RE = /^backup_[A-Za-z0-9._-]+\.json$/;
+function isSafeBackupFilename(name) {
+  if (typeof name !== 'string') return false;
+  // Reject anything that introduces a path component or null byte.
+  if (name.includes('/') || name.includes('\\') || name.includes('\0')) return false;
+  if (name.includes('..')) return false;
+  if (path.basename(name) !== name) return false;
+  return SAFE_FILENAME_RE.test(name);
+}
+
+// Async existence check — wraps fs.promises.access to avoid the blocking
+// fs.existsSync in request paths. A non-existent file throws; we swallow only
+// the ENOENT case so the caller sees `false` rather than an error.
+async function pathExists(p) {
+  try {
+    await fsp.access(p);
+    return true;
+  } catch { return false; }
+}
 
 // ── Settings helpers ──────────────────────────────────────────────────────────
 
@@ -29,16 +55,16 @@ const DEFAULT_SETTINGS = {
   lastBackupError: null,
 };
 
-function getSettings() {
+async function getSettings() {
   try {
-    if (fs.existsSync(SETTINGS_FILE))
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) };
+    if (await pathExists(SETTINGS_FILE))
+      return { ...DEFAULT_SETTINGS, ...JSON.parse(await fsp.readFile(SETTINGS_FILE, 'utf8')) };
   } catch {}
   return { ...DEFAULT_SETTINGS };
 }
 
-function saveSettings(settings) {
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+async function saveSettings(settings) {
+  await fsp.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 }
 
 // ── Model ordering ────────────────────────────────────────────────────────────
@@ -75,30 +101,32 @@ function generateFilename(type = 'manual') {
   return `backup_${type}_${ts}.json`;
 }
 
-function getBackupFiles() {
-  if (!fs.existsSync(BACKUPS_DIR)) return [];
-  return fs.readdirSync(BACKUPS_DIR)
-    .filter(f => f.startsWith('backup_') && f.endsWith('.json'))
-    .map(f => {
-      const stats = fs.statSync(path.join(BACKUPS_DIR, f));
-      const type = f.includes('_auto_') ? 'auto' : 'manual';
-      return {
-        filename: f,
-        type,
-        size: stats.size,
-        sizeFormatted: formatBytes(stats.size),
-        createdAt: stats.birthtime,
-      };
-    })
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+async function getBackupFiles() {
+  if (!(await pathExists(BACKUPS_DIR))) return [];
+  const entries = await fsp.readdir(BACKUPS_DIR);
+  const matches = entries.filter(f => f.startsWith('backup_') && f.endsWith('.json'));
+  // Parallel stat calls — on spinning disks serial stat is the bottleneck,
+  // and Promise.all lets the OS issue them concurrently.
+  const files = await Promise.all(matches.map(async f => {
+    const stats = await fsp.stat(path.join(BACKUPS_DIR, f));
+    const type = f.includes('_auto_') ? 'auto' : 'manual';
+    return {
+      filename: f,
+      type,
+      size: stats.size,
+      sizeFormatted: formatBytes(stats.size),
+      createdAt: stats.birthtime,
+    };
+  }));
+  return files.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-function applyRetentionPolicy(maxBackups) {
-  const files = getBackupFiles();
+async function applyRetentionPolicy(maxBackups) {
+  const files = await getBackupFiles();
   if (files.length > maxBackups) {
-    files.slice(maxBackups).forEach(f => {
-      try { fs.unlinkSync(path.join(BACKUPS_DIR, f.filename)); } catch {}
-    });
+    await Promise.all(files.slice(maxBackups).map(f =>
+      fsp.unlink(path.join(BACKUPS_DIR, f.filename)).catch(() => {})
+    ));
   }
 }
 
@@ -135,53 +163,84 @@ function buildBackupPayload(data, totalRecords, type = 'manual') {
 
 // ── Core: restore ─────────────────────────────────────────────────────────────
 
+// Topological sort for categories so a parent row is always inserted before
+// its descendants — handles multi-level trees (A → B → C) that a single-pass
+// null-first sort would corrupt. Falls back to original order on cycle.
+function sortCategoriesByDepth(records) {
+  const byId = new Map(records.map(r => [r.category_id, r]));
+  const seen = new Set();
+  const out  = [];
+  const visit = (row, stack) => {
+    if (!row || seen.has(row.category_id)) return;
+    if (stack.has(row.category_id)) return; // cycle guard
+    stack.add(row.category_id);
+    if (row.parent_category_id && byId.has(row.parent_category_id)) {
+      visit(byId.get(row.parent_category_id), stack);
+    }
+    stack.delete(row.category_id);
+    seen.add(row.category_id);
+    out.push(row);
+  };
+  records.forEach(r => visit(r, new Set()));
+  // Append any rows we missed (should never happen, but safe fallback).
+  records.forEach(r => { if (!seen.has(r.category_id)) out.push(r); });
+  return out;
+}
+
+// Topologically-safe truncate + re-insert. The ENTIRE operation runs inside a
+// single transaction — if any insert fails, the TRUNCATE is rolled back and
+// the caller's data is preserved. Previously a mid-restore failure left the
+// DB fully wiped with only partial data inserted.
 async function performRestore(backupData) {
   const tableList = INSERT_ORDER
     .map(({ model }) => `"${model.getTableName()}"`)
     .join(', ');
 
-  // Truncate all tables at once with CASCADE (no special permissions needed,
-  // user owns all tables). RESTART IDENTITY resets sequences automatically.
-  await sequelize.query(
-    `TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`
-  );
+  await sequelize.transaction(async (t) => {
+    // Truncate all tables at once with CASCADE. RESTART IDENTITY resets
+    // sequences automatically. Runs INSIDE the transaction so rollback on
+    // any later insert failure undoes the truncate.
+    await sequelize.query(
+      `TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`,
+      { transaction: t }
+    );
 
-  // Re-insert in FK-safe order
-  for (const { name, model } of INSERT_ORDER) {
-    const records = backupData[name];
-    if (!records || !records.length) continue;
+    // Re-insert in FK-safe order
+    for (const { name, model } of INSERT_ORDER) {
+      const records = backupData[name];
+      if (!records || !records.length) continue;
 
-    // For Category: sort so parent (null parent_category_id) comes first
-    const rows = name === 'Category'
-      ? [...records].sort((a, b) => {
-          if (!a.parent_category_id && b.parent_category_id) return -1;
-          if (a.parent_category_id && !b.parent_category_id) return 1;
-          return 0;
-        })
-      : records;
+      // Multi-level category trees need depth-first parent-first ordering.
+      const rows = name === 'Category' ? sortCategoriesByDepth(records) : records;
 
-    // Insert in chunks of 500 to avoid query size limits
-    const CHUNK = 500;
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      await model.bulkCreate(rows.slice(i, i + CHUNK), {
-        updateOnDuplicate: Object.keys(model.rawAttributes),
-      });
+      // Insert in chunks of 500 to avoid query size limits. Plain bulkCreate
+      // (no updateOnDuplicate) — TRUNCATE cleared every row, so any "duplicate"
+      // now means the backup itself has a duplicate PK and we WANT to surface
+      // that as an error rather than silently UPSERT-merge.
+      const CHUNK = 500;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        await model.bulkCreate(rows.slice(i, i + CHUNK), {
+          validate: false,
+          transaction: t,
+        });
+      }
     }
-  }
 
-  // Reset all sequences to max(id)+1 so inserts after restore don't conflict
-  for (const { model } of INSERT_ORDER) {
-    const tableName = model.getTableName();
-    const pkAttr = Object.entries(model.rawAttributes).find(([, a]) => a.primaryKey);
-    if (!pkAttr) continue;
-    const pkCol = pkAttr[1].field || pkAttr[0];
-    try {
-      await sequelize.query(
-        `SELECT setval(pg_get_serial_sequence('${tableName}', '${pkCol}'),
-          COALESCE((SELECT MAX("${pkCol}") FROM "${tableName}"), 0) + 1, false)`
-      );
-    } catch { /* non-serial PKs — ignore */ }
-  }
+    // Reset all sequences to max(id)+1 so inserts after restore don't conflict.
+    for (const { model } of INSERT_ORDER) {
+      const tableName = model.getTableName();
+      const pkAttr = Object.entries(model.rawAttributes).find(([, a]) => a.primaryKey);
+      if (!pkAttr) continue;
+      const pkCol = pkAttr[1].field || pkAttr[0];
+      try {
+        await sequelize.query(
+          `SELECT setval(pg_get_serial_sequence('${tableName}', '${pkCol}'),
+            COALESCE((SELECT MAX("${pkCol}") FROM "${tableName}"), 0) + 1, false)`,
+          { transaction: t }
+        );
+      } catch { /* non-serial PKs — ignore */ }
+    }
+  });
 }
 
 // ── Exported controller functions ─────────────────────────────────────────────
@@ -194,8 +253,11 @@ exports.createBackup = async (req, res) => {
     const filename = generateFilename('manual');
     const filepath = path.join(BACKUPS_DIR, filename);
 
-    fs.writeFileSync(filepath, JSON.stringify(payload, null, 2));
-    applyRetentionPolicy(getSettings().maxBackups || 10);
+    // Async write — a multi-MB backup can block the event loop for
+    // hundreds of ms if done synchronously, stalling every other request.
+    await fsp.writeFile(filepath, JSON.stringify(payload, null, 2));
+    const settings = await getSettings();
+    await applyRetentionPolicy(settings.maxBackups || 10);
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -207,10 +269,9 @@ exports.createBackup = async (req, res) => {
 };
 
 /** GET /api/backup/list */
-exports.listBackups = (req, res) => {
+exports.listBackups = async (req, res) => {
   try {
-    const backups = getBackupFiles();
-    const settings = getSettings();
+    const [backups, settings] = await Promise.all([getBackupFiles(), getSettings()]);
     const totalSize = backups.reduce((s, f) => s + f.size, 0);
     res.json({ backups, settings, totalSize, totalSizeFormatted: formatBytes(totalSize) });
   } catch (err) {
@@ -219,13 +280,17 @@ exports.listBackups = (req, res) => {
 };
 
 /** GET /api/backup/download/:filename */
-exports.downloadBackup = (req, res) => {
+exports.downloadBackup = async (req, res) => {
   const { filename } = req.params;
-  if (!filename.startsWith('backup_') || !filename.endsWith('.json'))
+  if (!isSafeBackupFilename(filename))
     return res.status(400).json({ error: 'Invalid filename' });
 
-  const filepath = path.join(BACKUPS_DIR, filename);
-  if (!fs.existsSync(filepath))
+  // Resolve the absolute path and require it to live INSIDE BACKUPS_DIR —
+  // a defence-in-depth check on top of the filename whitelist.
+  const filepath = path.resolve(BACKUPS_DIR, filename);
+  if (!filepath.startsWith(path.resolve(BACKUPS_DIR) + path.sep))
+    return res.status(400).json({ error: 'Invalid filename' });
+  if (!(await pathExists(filepath)))
     return res.status(404).json({ error: 'Backup file not found' });
 
   res.setHeader('Content-Type', 'application/json');
@@ -234,17 +299,23 @@ exports.downloadBackup = (req, res) => {
 };
 
 /** DELETE /api/backup/:filename */
-exports.deleteBackup = (req, res) => {
-  const { filename } = req.params;
-  if (!filename.startsWith('backup_') || !filename.endsWith('.json'))
-    return res.status(400).json({ error: 'Invalid filename' });
+exports.deleteBackup = async (req, res) => {
+  try {
+    const { filename } = req.params;
+    if (!isSafeBackupFilename(filename))
+      return res.status(400).json({ error: 'Invalid filename' });
 
-  const filepath = path.join(BACKUPS_DIR, filename);
-  if (!fs.existsSync(filepath))
-    return res.status(404).json({ error: 'Backup file not found' });
+    const filepath = path.resolve(BACKUPS_DIR, filename);
+    if (!filepath.startsWith(path.resolve(BACKUPS_DIR) + path.sep))
+      return res.status(400).json({ error: 'Invalid filename' });
+    if (!(await pathExists(filepath)))
+      return res.status(404).json({ error: 'Backup file not found' });
 
-  fs.unlinkSync(filepath);
-  res.json({ success: true });
+    await fsp.unlink(filepath);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
 /** POST /api/backup/restore
@@ -258,12 +329,14 @@ exports.restoreBackup = async (req, res) => {
       backupPayload = JSON.parse(req.file.buffer.toString('utf8'));
     } else if (req.body && req.body.filename) {
       const { filename } = req.body;
-      if (!filename.startsWith('backup_') || !filename.endsWith('.json'))
+      if (!isSafeBackupFilename(filename))
         return res.status(400).json({ error: 'Invalid filename' });
-      const filepath = path.join(BACKUPS_DIR, filename);
-      if (!fs.existsSync(filepath))
+      const filepath = path.resolve(BACKUPS_DIR, filename);
+      if (!filepath.startsWith(path.resolve(BACKUPS_DIR) + path.sep))
+        return res.status(400).json({ error: 'Invalid filename' });
+      if (!(await pathExists(filepath)))
         return res.status(404).json({ error: 'Backup file not found' });
-      backupPayload = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+      backupPayload = JSON.parse(await fsp.readFile(filepath, 'utf8'));
     } else {
       return res.status(400).json({ error: 'Provide a backup file or filename' });
     }
@@ -286,15 +359,20 @@ exports.restoreBackup = async (req, res) => {
 };
 
 /** GET /api/backup/settings */
-exports.getAutoBackupSettings = (req, res) => {
-  res.json(getSettings());
+exports.getAutoBackupSettings = async (req, res) => {
+  try {
+    res.json(await getSettings());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
 /** PUT /api/backup/settings */
-exports.updateAutoBackupSettings = (req, res) => {
+exports.updateAutoBackupSettings = async (req, res) => {
   try {
-    const updated = { ...getSettings(), ...req.body };
-    saveSettings(updated);
+    const current = await getSettings();
+    const updated = { ...current, ...req.body };
+    await saveSettings(updated);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -311,30 +389,51 @@ exports.runAutoBackup = async () => {
     const filename = generateFilename('auto');
     const filepath = path.join(BACKUPS_DIR, filename);
 
-    fs.writeFileSync(filepath, JSON.stringify(payload, null, 2));
+    await fsp.writeFile(filepath, JSON.stringify(payload, null, 2));
 
-    const settings = getSettings();
+    const settings = await getSettings();
     settings.lastBackup = new Date().toISOString();
     settings.lastBackupStatus = 'success';
     settings.lastBackupFile = filename;
     settings.lastBackupError = null;
-    applyRetentionPolicy(settings.maxBackups || 10);
-    saveSettings(settings);
+    await applyRetentionPolicy(settings.maxBackups || 10);
+    await saveSettings(settings);
 
     console.log(`[Auto-backup] Created: ${filename}`);
     return { success: true, filename };
   } catch (err) {
     console.error('[Auto-backup] Failed:', err.message);
-    const settings = getSettings();
-    settings.lastBackup = new Date().toISOString();
-    settings.lastBackupStatus = 'failed';
-    settings.lastBackupError = err.message;
-    saveSettings(settings);
+    try {
+      const settings = await getSettings();
+      settings.lastBackup = new Date().toISOString();
+      settings.lastBackupStatus = 'failed';
+      settings.lastBackupError = err.message;
+      await saveSettings(settings);
+    } catch (settingsErr) {
+      // If we can't even persist the failure reason, just log — don't
+      // crash the scheduler tick.
+      console.error('[Auto-backup] Settings save also failed:', settingsErr.message);
+    }
     return { success: false, error: err.message };
   }
 };
 
-/** Determine whether a backup should run right now based on settings */
+/** Determine whether a backup should run right now based on settings.
+ *
+ * DST safety notes:
+ *  - All comparisons use Date objects (UTC epoch ms), so the scheduler is
+ *    timezone-aware automatically — "run at 02:00 local time every day" means
+ *    02:00 wall-clock in the server's TZ.
+ *  - Spring-forward: the non-existent 02:00 hour gets normalised by JS to 03:00
+ *    so the backup fires at 03:00 on that day. Acceptable.
+ *  - Fall-back: 02:00 exists twice. setHours picks the first (standard-time)
+ *    occurrence. We guard against double-run with `last < scheduled` — after a
+ *    run, `last` equals `scheduled` so the next iteration returns false until
+ *    the NEXT day's scheduled time rolls past `last`.
+ *  - Server downtime: the scheduler is catch-up-friendly: if we were off during
+ *    02:00 and come up at 04:00, `now >= scheduled` is true and `last < scheduled`
+ *    is true (last was yesterday), so we still run once.
+ */
 function shouldRunNow(settings) {
   if (!settings.enabled) return false;
 
@@ -361,7 +460,16 @@ function shouldRunNow(settings) {
     }
 
     case 'monthly': {
-      const scheduled = new Date(now.getFullYear(), now.getMonth(), settings.dayOfMonth || 1, h, m, 0);
+      // Clamp dayOfMonth to the last valid day of the current month. Without
+      // this, `new Date(2025, 1, 31, ...)` (February 31) silently overflows to
+      // March 3 and the monthly backup never fires in February — 11 of 12
+      // months in a year a user who sets "31" would be missing backups.
+      // Tally's convention is "run on the last day if the chosen day doesn't
+      // exist this month", which is what this clamp implements.
+      const desiredDay = settings.dayOfMonth || 1;
+      const lastDayThisMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const safeDay = Math.min(desiredDay, lastDayThisMonth);
+      const scheduled = new Date(now.getFullYear(), now.getMonth(), safeDay, h, m, 0);
       return now >= scheduled && (!last || last < scheduled);
     }
 
@@ -375,7 +483,7 @@ exports.initScheduler = () => {
   // Check every 60 seconds
   setInterval(async () => {
     try {
-      const settings = getSettings();
+      const settings = await getSettings();
       if (shouldRunNow(settings)) await exports.runAutoBackup();
     } catch (err) {
       console.error('[Auto-backup scheduler] Error:', err.message);

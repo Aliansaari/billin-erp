@@ -38,8 +38,10 @@ const PurchaseBillItem = sequelize.define('PurchaseBillItem', {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,
   },
+  // DECIMAL so partial boxes are representable (e.g. 0.5 for half-box).
+  // Must match SalesBillItem.quantity_per_box type — Product also uses DECIMAL.
   quantity_per_box: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.DECIMAL(10, 2),
     defaultValue: 1,
   },
   free_quantity: {

@@ -103,11 +103,15 @@ export default function PartyLedger() {
             ))}
           </Select>
           <DatePicker.RangePicker format="DD-MMM-YYYY" style={{ height: 34 }}
+            allowClear={false}
             defaultValue={[dayjs().startOf('year'), dayjs().endOf('month')]}
-            onChange={(v) => setDateRange({
-              from_date: v?.[0]?.format('YYYY-MM-DD') || null,
-              to_date: v?.[1]?.format('YYYY-MM-DD') || null,
-            })} />
+            onChange={(v) => {
+              // Null dates break the ledger's period-opening calculation — fall
+              // back to YTD so the report always has a defined window.
+              const from = v?.[0]?.format('YYYY-MM-DD') || dayjs().startOf('year').format('YYYY-MM-DD');
+              const to   = v?.[1]?.format('YYYY-MM-DD') || dayjs().endOf('month').format('YYYY-MM-DD');
+              setDateRange({ from_date: from, to_date: to });
+            }} />
         </div>
 
         {!partyId && (

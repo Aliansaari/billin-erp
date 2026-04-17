@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import { useGlobalShortcuts, SHORTCUTS_LIST } from './hooks/useKeyboardShortcuts';
 import AppLayout from './components/Layout/AppLayout';
 import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import Dashboard from './pages/Dashboard';
 import CustomerList from './pages/parties/CustomerList';
 import SupplierList from './pages/parties/SupplierList';
@@ -32,7 +33,17 @@ import BackupRestore from './pages/settings/BackupRestore';
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  return isAuthenticated ? children : <Navigate to="/login" />;
+  const mustChangePassword = useAuthStore((s) => s.mustChangePassword);
+  const location = useLocation();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  // Force the password-change flow before any other authenticated route
+  // becomes reachable. Only `/change-password` itself is exempt, otherwise
+  // we'd loop. The server sets this flag on login when the user authenticated
+  // with the seeded default password (admin/admin123).
+  if (mustChangePassword && location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />;
+  }
+  return children;
 }
 
 function ShortcutsOverlay({ visible, onClose }) {
@@ -82,6 +93,7 @@ export default function App() {
       <ShortcutsOverlay visible={showShortcuts} onClose={() => setShowShortcuts(false)} />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="customers" element={<CustomerList />} />

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Input, DatePicker, Select, Button, InputNumber, Typography, message, Checkbox, Tag, Tooltip, Divider } from 'antd';
+import { Input, DatePicker, Select, Button, InputNumber, Typography, message, Checkbox, Tag, Tooltip, Divider, Modal } from 'antd';
 import {
   ArrowLeftOutlined, ReloadOutlined, MessageOutlined,
   CheckCircleOutlined, UserOutlined, CalendarOutlined,
@@ -45,10 +45,11 @@ export default function ReceiptEntry() {
   const [loading, setLoading]             = useState(false);
   const [dueDaysMode, setDueDaysMode]     = useState('bill_date');
 
-  const payAmtRef     = useRef(null);
-  const handleSaveRef = useRef(null);
-  const dateInputRef  = useRef(null);
-  const submittingRef = useRef(false);
+  const payAmtRef        = useRef(null);
+  const handleSaveRef    = useRef(null);
+  const dateInputRef     = useRef(null);
+  const submittingRef    = useRef(false);
+  const openDateEditRef  = useRef(null);  // ref-based so F2 handler sees fresh closure
 
   const [dateEditMode, setDateEditMode] = useState(false);
   const [dateInputVal, setDateInputVal] = useState('');
@@ -58,6 +59,10 @@ export default function ReceiptEntry() {
     setDateEditMode(true);
     setTimeout(() => { dateInputRef.current?.select(); }, 30);
   };
+  // Kept in sync each render so the mount-time F2 listener picks up the
+  // current closure (needed because `date` is captured). Equivalent to the
+  // handleSaveRef pattern used below.
+  openDateEditRef.current = openDateEdit;
 
   const commitDateInput = () => {
     const parsed = parseDateInput(dateInputVal);
@@ -70,11 +75,21 @@ export default function ReceiptEntry() {
     loadParties();
     setDueDaysMode(localStorage.getItem('sale_due_days_mode') || 'bill_date');
     const onKey = (e) => {
+      // Ignore F-keys while focus is inside an AntD modal or a floating
+      // picker dropdown (e.g. party-select list) — otherwise F1 submits the
+      // parent form while the user is mid-interaction inside a popup.
+      // Also ignore during IME composition so CJK input isn't interrupted.
+      if (e.isComposing || e.keyCode === 229) return;
+      const active = document.activeElement;
+      if (active && active.closest(
+        '.ant-modal, .ant-picker-dropdown, .ant-select-dropdown, .ant-popover'
+      )) return;
       if (e.key === 'F1') { e.preventDefault(); handleSaveRef.current?.(); }
-      if (e.key === 'F2') { e.preventDefault(); openDateEdit(); }
+      if (e.key === 'F2') { e.preventDefault(); openDateEditRef.current?.(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadParties = async () => {
@@ -96,10 +111,24 @@ export default function ReceiptEntry() {
         checked: true,
         dueDays: b.bill_date ? dayjs().diff(dayjs(b.bill_date), 'day') : 0,
       }));
-      // Remaining opening balance = party outstanding minus all unpaid bill balances
-      const billsTotal  = rows.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
-      const partyBal    = parseFloat(party?.current_balance || 0);
-      const remainingOB = parseFloat((Math.max(0, partyBal - billsTotal)).toFixed(2));
+      // Remaining opening balance row — only shown when the party actually has
+      // a Receivable opening balance and some of it is still unpaid.
+      //
+      // Two guards to prevent "phantom OB" double-allocation:
+      //   1. opening_balance_type must be 'Receivable' — otherwise the OB isn't
+      //      owed on this side of the ledger (e.g. a Payable OB would never
+      //      appear under customer receipts).
+      //   2. remainingOB is capped at the party's original opening_balance. If
+      //      current_balance has drifted (manual edit, legacy data), we never
+      //      invent more OB than the party actually started with.
+      const billsTotal    = rows.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
+      const partyBal      = parseFloat(party?.current_balance || 0);  // +ve = they owe us
+      const originalOB    = parseFloat(party?.opening_balance || 0);
+      const obIsReceivable = party?.opening_balance_type === 'Receivable' && originalOB > 0;
+      const derivedOB     = Math.max(0, partyBal - billsTotal);
+      const remainingOB   = obIsReceivable
+        ? parseFloat(Math.min(originalOB, derivedOB).toFixed(2))
+        : 0;
       if (remainingOB > 0) {
         rows.unshift({
           sales_bill_id:  '__ob__',
@@ -167,15 +196,41 @@ export default function ReceiptEntry() {
     if (!selectedParty) { message.warning('Select a customer first'); return; }
     if (!payAmt || payAmt <= 0) { message.warning('Enter an amount'); return; }
     if (netAmount <= 0) { message.warning('Net amount must be greater than 0'); return; }
+
+    const refBill = checkedBills.find(b => !b.isOpening);
+    // Build per-bill allocations so each bill's balance gets updated correctly
+    const bill_allocations = billsWithAlloc
+      .filter(b => !b.isOpening && b.allocated > 0)
+      .map(b => ({ bill_id: b.sales_bill_id, bill_type: 'Sales', amount: b.allocated }));
+
+    // ── Silent-on-account guard ─────────────────────────────────────────────
+    // If the cashier entered an amount but no bills are ticked (and no OB is
+    // being cleared), the receipt would save as "on-account credit" with no
+    // warning. The cashier thinks the bill is settled — it's not. Force an
+    // explicit confirmation before going ahead.
+    const obBill = checkedBills.find(b => b.isOpening);
+    const obAlloc = obBill ? parseFloat(obBill.allocated) || 0 : 0;
+    if (bill_allocations.length === 0 && obAlloc <= 0) {
+      const confirmed = await new Promise((resolve) => {
+        Modal.confirm({
+          title: 'Save as on-account credit?',
+          content:
+            `No bills are selected for allocation. ₹${fmt2(netAmount)} will be recorded ` +
+            `against ${selectedParty.party_name} as an on-account credit (no bill will be marked paid). ` +
+            `Continue?`,
+          okText: 'Save on-account',
+          okButtonProps: { style: { background: accent, borderColor: accent } },
+          cancelText: 'Go back',
+          onOk:     () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      if (!confirmed) return;
+    }
+
     submittingRef.current = true;
     setLoading(true);
     try {
-      const refBill = checkedBills.find(b => !b.isOpening);
-      // Build per-bill allocations so each bill's balance gets updated correctly
-      const bill_allocations = billsWithAlloc
-        .filter(b => !b.isOpening && b.allocated > 0)
-        .map(b => ({ bill_id: b.sales_bill_id, bill_type: 'Sales', amount: b.allocated }));
-
       const { data: result } = await paymentAPI.create({
         transaction_type:    'Receipt',
         transaction_date:    date.format('YYYY-MM-DD'),

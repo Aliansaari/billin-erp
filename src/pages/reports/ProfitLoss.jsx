@@ -7,14 +7,22 @@ const { Title, Text } = Typography;
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
-// Financial year: April to March
+// Indian Financial Year: April 1 – March 31.
+// Snapshot `now` once so both the comparison and the derived date use the
+// exact same reference time — without this, calling dayjs() twice across
+// month boundaries (e.g. at 23:59:59 on Mar 31) could put fyStart and fyEnd
+// in different FYs and render an impossible range.
 const fyStart = () => {
   const now = dayjs();
-  return now.month() < 3 ? dayjs().subtract(1, 'year').month(3).startOf('month') : dayjs().month(3).startOf('month');
+  return now.month() < 3
+    ? now.subtract(1, 'year').month(3).startOf('month')  // Jan-Mar → FY began Apr last year
+    : now.month(3).startOf('month');                      // Apr-Dec → FY began Apr this year
 };
 const fyEnd = () => {
   const now = dayjs();
-  return now.month() < 3 ? dayjs().month(2).endOf('month') : dayjs().add(1, 'year').month(2).endOf('month');
+  return now.month() < 3
+    ? now.month(2).endOf('month')                         // Jan-Mar → FY ends Mar this year
+    : now.add(1, 'year').month(2).endOf('month');         // Apr-Dec → FY ends Mar next year
 };
 
 export default function ProfitLoss() {
@@ -40,12 +48,33 @@ export default function ProfitLoss() {
     setLoading(false);
   };
 
-  const income = data?.income || {};
-  const expenses = data?.expenses || {};
-  const netProfit = parseFloat(data?.net_profit || 0);
+  // Map backend response to display shape.
+  // Backend returns { revenue: { sales_gross, sales, sales_return, net_sales },
+  //                   cost_of_goods: { purchases_gross, purchases, purchase_return, net_purchases },
+  //                   taxes: { gst_collected, gst_paid, gst_liability },
+  //                   gross_profit, gross_margin, net_profit }
+  // The revenue/cost_of_goods figures are already TAX-EXCLUDED — which is the
+  // correct accounting basis for P&L. GST is shown as a separate tax panel.
+  const rev  = data?.revenue || {};
+  const cogs = data?.cost_of_goods || {};
+  const tax  = data?.taxes || {};
 
-  const totalIncome = Object.values(income).reduce((s, v) => s + parseFloat(v || 0), 0);
-  const totalExpenses = Object.values(expenses).reduce((s, v) => s + parseFloat(v || 0), 0);
+  const income = {
+    sales:        parseFloat(rev.sales || 0),          // sales excl. GST
+    sales_return: -parseFloat(rev.sales_return || 0),  // shown as negative
+  };
+  const expenses = {
+    purchases:       parseFloat(cogs.purchases || 0),      // purchases excl. GST
+    purchase_return: -parseFloat(cogs.purchase_return || 0),
+  };
+
+  const totalIncome   = parseFloat(rev.net_sales || 0);
+  const totalExpenses = parseFloat(cogs.net_purchases || 0);
+  const netProfit     = parseFloat(data?.net_profit ?? data?.gross_profit ?? 0);
+  const grossMargin   = parseFloat(data?.gross_margin || 0);
+  const gstCollected  = parseFloat(tax.gst_collected || 0);
+  const gstPaid       = parseFloat(tax.gst_paid || 0);
+  const gstLiability  = parseFloat(tax.gst_liability || 0);
 
   const sectionStyle = {
     border: '1px solid #f0f0f0',
@@ -87,11 +116,16 @@ export default function ProfitLoss() {
         </div>
         <DatePicker.RangePicker
           format="DD-MMM-YYYY"
+          allowClear={false}
           defaultValue={[fyStart(), fyEnd()]}
-          onChange={(v) => setDateRange({
-            from_date: v?.[0]?.format('YYYY-MM-DD') || null,
-            to_date: v?.[1]?.format('YYYY-MM-DD') || null,
-          })}
+          onChange={(v) => {
+            // If the picker is cleared, fall back to the Indian financial year
+            // (Apr 1 – Mar 31). Never send null dates — the P&L statement is
+            // meaningless without a period.
+            const from = v?.[0]?.format('YYYY-MM-DD') || fyStart().format('YYYY-MM-DD');
+            const to   = v?.[1]?.format('YYYY-MM-DD') || fyEnd().format('YYYY-MM-DD');
+            setDateRange({ from_date: from, to_date: to });
+          }}
         />
       </div>
 
@@ -153,15 +187,47 @@ export default function ProfitLoss() {
                   alignItems: 'center',
                 }}
               >
-                <Title level={4} style={{ margin: 0 }}>
-                  {netProfit >= 0 ? 'Net Profit' : 'Net Loss'}
-                </Title>
+                <div>
+                  <Title level={4} style={{ margin: 0 }}>
+                    {netProfit >= 0 ? 'Net Profit' : 'Net Loss'}
+                  </Title>
+                  {grossMargin !== 0 && (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Gross margin: {grossMargin.toFixed(1)}%
+                    </Text>
+                  )}
+                </div>
                 <Title
                   level={3}
                   style={{ margin: 0, color: netProfit >= 0 ? '#3f8600' : '#cf1322' }}
                 >
                   {fmt(Math.abs(netProfit))}
                 </Title>
+              </div>
+            </Col>
+
+            {/* GST summary — separate from P&L because tax is a liability, not income */}
+            <Col span={24} style={{ marginTop: 16 }}>
+              <div style={sectionStyle}>
+                <div style={headerStyle('#e6f7ff')}>
+                  <span>GST Summary (separate from P&L — tax is a liability, not profit)</span>
+                </div>
+                <div style={lineStyle}>
+                  <Text>GST Collected on Sales (output)</Text>
+                  <Text>{fmt(gstCollected)}</Text>
+                </div>
+                <div style={lineStyle}>
+                  <Text>GST Paid on Purchases (input credit)</Text>
+                  <Text>{fmt(gstPaid)}</Text>
+                </div>
+                <div style={{ ...lineStyle, background: '#e6f7ff', fontWeight: 600, borderBottom: 'none' }}>
+                  <Text strong>
+                    {gstLiability >= 0 ? 'Net GST Payable' : 'Net GST Credit (refundable)'}
+                  </Text>
+                  <Text strong style={{ color: gstLiability >= 0 ? '#cf1322' : '#3f8600' }}>
+                    {fmt(Math.abs(gstLiability))}
+                  </Text>
+                </div>
               </div>
             </Col>
           </Row>

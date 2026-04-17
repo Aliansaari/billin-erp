@@ -1,9 +1,16 @@
 const ExcelJS = require('exceljs');
+const { Op, col } = require('sequelize');
 const { Party, Product, Category, StockLedger } = require('../models');
 
 exports.exportToExcel = async (req, res) => {
   try {
     const { module: moduleName } = req.params;
+    // Filter params passed from the list pages so the export matches what the
+    // user is looking at. Without this, an Export click from a filtered list
+    // dumps the entire table — confusing and useless when the user explicitly
+    // filtered to "Low Stock" or "Category = Fabrics" on-screen.
+    const { search, category_id, stock_status, party_type, status } = req.query;
+
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet(moduleName);
 
@@ -11,8 +18,17 @@ exports.exportToExcel = async (req, res) => {
     let columns = [];
 
     switch (moduleName) {
-      case 'customers':
-        data = await Party.findAll({ where: { party_type: ['Customer', 'Both'] }, raw: true });
+      case 'customers': {
+        const where = { party_type: { [Op.in]: ['Customer', 'Both'] } };
+        if (status) where.party_status = status;
+        if (search) {
+          where[Op.or] = [
+            { party_name: { [Op.iLike]: `%${search}%` } },
+            { mobile_1:   { [Op.like]:  `%${search}%` } },
+            { gstin:      { [Op.iLike]: `%${search}%` } },
+          ];
+        }
+        data = await Party.findAll({ where, raw: true });
         columns = [
           { header: 'Party Name', key: 'party_name', width: 25 },
           { header: 'Mobile 1', key: 'mobile_1', width: 15 },
@@ -30,9 +46,19 @@ exports.exportToExcel = async (req, res) => {
           { header: 'Status', key: 'party_status', width: 12 },
         ];
         break;
+      }
 
-      case 'suppliers':
-        data = await Party.findAll({ where: { party_type: ['Supplier', 'Both'] }, raw: true });
+      case 'suppliers': {
+        const where = { party_type: { [Op.in]: ['Supplier', 'Both'] } };
+        if (status) where.party_status = status;
+        if (search) {
+          where[Op.or] = [
+            { party_name: { [Op.iLike]: `%${search}%` } },
+            { mobile_1:   { [Op.like]:  `%${search}%` } },
+            { gstin:      { [Op.iLike]: `%${search}%` } },
+          ];
+        }
+        data = await Party.findAll({ where, raw: true });
         columns = [
           { header: 'Party Name', key: 'party_name', width: 25 },
           { header: 'Mobile 1', key: 'mobile_1', width: 15 },
@@ -47,9 +73,25 @@ exports.exportToExcel = async (req, res) => {
           { header: 'Current Balance', key: 'current_balance', width: 15 },
         ];
         break;
+      }
 
-      case 'products':
+      case 'products': {
+        const where = { is_active: true };
+        if (category_id) where.category_id = category_id;
+        if (stock_status === 'low') {
+          where.minimum_stock_level = { [Op.gt]: 0 };
+          where.current_stock = { [Op.lte]: col('minimum_stock_level') };
+        }
+        if (stock_status === 'out') where.current_stock = { [Op.lte]: 0 };
+        if (search) {
+          where[Op.or] = [
+            { product_name:    { [Op.iLike]: `%${search}%` } },
+            { barcode:         { [Op.iLike]: `%${search}%` } },
+            { article_number:  { [Op.iLike]: `%${search}%` } },
+          ];
+        }
         data = await Product.findAll({
+          where,
           include: [{ model: Category, attributes: ['category_name'] }],
           raw: true, nest: true,
         });
@@ -74,6 +116,7 @@ exports.exportToExcel = async (req, res) => {
           { header: 'MRP', key: 'mrp', width: 12 },
         ];
         break;
+      }
 
       default:
         return res.status(400).json({ error: 'Invalid module' });
@@ -243,20 +286,30 @@ exports.importFromExcel = async (req, res) => {
         if (v !== null && typeof v === 'object' && 'richText' in v) return v.richText.map(r => r.text).join('');
         return v;
       };
-      // Clamp to max so Excel sentinel values (e.g. 9.22e16) don't cause DECIMAL overflow
-      const toNum = (v, def = 0, max = 9999999999999.99) => {
+      // Clamp to max AND reject negatives so Excel sentinel values (9.22e16) don't
+      // cause DECIMAL overflow, and a "-5" typo on GST %, rate, or quantity doesn't
+      // silently become a tax refund or negative stock.
+      const toNum = (v, def = 0, max = 9999999999999.99, min = 0) => {
         const n = parseFloat(unwrap(v));
-        if (!isFinite(n) || n > max) return def;
+        if (!isFinite(n) || n > max || n < min) return def;
         return n;
       };
-      const toInt = (v, def = 1, max = 2147483647) => {
+      const toInt = (v, def = 1, max = 2147483647, min = 0) => {
         const n = parseInt(unwrap(v));
-        if (!isFinite(n) || n > max) return def;
+        if (!isFinite(n) || n > max || n < min) return def;
+        return n;
+      };
+      // Signed variant — only for fields where negative is legitimate (e.g. round-off).
+      const toNumSigned = (v, def = 0, max = 9999999999999.99, min = -9999999999999.99) => {
+        const n = parseFloat(unwrap(v));
+        if (!isFinite(n) || n > max || n < min) return def;
         return n;
       };
       const toStr = v => {
         const u = unwrap(v);
-        return (u != null && String(u).trim() !== '' && String(u).trim() !== '0') ? String(u).trim() : null;
+        // Do NOT treat the literal "0" as empty — it's a legitimate size/article code.
+        // Previously "0" (e.g. barcode "0123" → "0") was silently dropped.
+        return (u != null && String(u).trim() !== '') ? String(u).trim() : null;
       };
 
       const toCreate = [];
@@ -295,8 +348,19 @@ exports.importFromExcel = async (req, res) => {
           article_number: toStr(data['Article No']),
           hsn_code: data['HSN Code'] ? String(data['HSN Code']).slice(0, 50) : null,
           gst_rate: toNum(data['GST %'], 0, 999999.99),
-          unit_of_measurement: (data['Unit (PCS/KG/METER/LITER/BOX/DOZEN)'] || data['Unit'] || 'PCS').toString().toUpperCase(),
-          quantity_per_box: toInt(data['Pieces per Box'], 1),
+          // Validate against the ENUM defined on Product model — an invalid
+          // value (e.g. "piece", "mtr") would cause the bulkCreate to fail.
+          // Fall back to PCS so a typo doesn't block an entire import.
+          unit_of_measurement: (() => {
+            const allowed = ['PCS', 'KG', 'METER', 'LITER', 'BOX', 'DOZEN'];
+            const raw = (data['Unit (PCS/KG/METER/LITER/BOX/DOZEN)'] || data['Unit'] || 'PCS').toString().trim().toUpperCase();
+            // Common synonyms/aliases
+            const alias = { PC: 'PCS', PIECE: 'PCS', PIECES: 'PCS', MTR: 'METER', MT: 'METER', LTR: 'LITER', LT: 'LITER', DZ: 'DOZEN', DOZ: 'DOZEN' };
+            const mapped = alias[raw] || raw;
+            return allowed.includes(mapped) ? mapped : 'PCS';
+          })(),
+          // DECIMAL(10,2) in DB — preserve fractional box counts (e.g. 0.5 m fabric rolls). toInt silently truncated 2.5 → 2.
+          quantity_per_box: toNum(data['Pieces per Box'], 1, 99999.99, 0.01),
           minimum_stock_level: toNum(data['Min Stock Level'], 0, 99999999.99),
           opening_stock: openingStock,
           opening_stock_rate: toNum(data['Opening Stock Rate'], 0),
@@ -355,6 +419,32 @@ exports.importFromExcel = async (req, res) => {
 
     } else {
       // ── Row-by-row import for parties ─────────────────────────────────────
+
+      // Case-insensitive parsers — users fill Excel by hand and type "yes",
+      // "YES", "receivable", "PAYABLE" etc. Without these normalisers the
+      // value would silently become false / default, corrupting opening
+      // balances and credit policy.
+      const parseYesNo = (v) => {
+        if (v === true || v === 1) return true;
+        if (v == null) return false;
+        const s = String(v).trim().toLowerCase();
+        return ['yes', 'y', 'true', '1'].includes(s);
+      };
+      const parseBalanceType = (v) => {
+        const s = String(v ?? '').trim().toLowerCase();
+        if (s === 'payable' || s === 'cr' || s === 'credit') return 'Payable';
+        return 'Receivable'; // default + Receivable/Dr/Debit all fall through
+      };
+      // Non-negative number parser — opening balance and credit limit may
+      // only be positive. Accounting convention is that the SIGN is carried
+      // by the separate "Balance Type" column, so a negative in the number
+      // column is always a typo.
+      const toNonNegNum = (v) => {
+        const n = parseFloat(v);
+        if (!isFinite(n) || n < 0) return 0;
+        return n;
+      };
+
       for (const { rowNumber, data } of rows) {
         try {
           const partyName = data['Party Name *'] || data['Party Name'];
@@ -378,10 +468,10 @@ exports.importFromExcel = async (req, res) => {
               pincode: data['Pincode'] ? String(data['Pincode']) : null,
               gstin: data['GSTIN'] || null,
               pan_number: data['PAN'] || null,
-              credit_allowed: data['Credit Allowed (Yes/No)'] === 'Yes',
-              credit_limit: parseFloat(data['Credit Limit']) || 0,
-              opening_balance: parseFloat(data['Opening Balance']) || 0,
-              opening_balance_type: data['Balance Type (Receivable/Payable)'] || 'Receivable',
+              credit_allowed: parseYesNo(data['Credit Allowed (Yes/No)'] ?? data['Credit Allowed']),
+              credit_limit: toNonNegNum(data['Credit Limit']),
+              opening_balance: toNonNegNum(data['Opening Balance']),
+              opening_balance_type: parseBalanceType(data['Balance Type (Receivable/Payable)'] ?? data['Balance Type']),
               created_by: req.user.user_id,
             },
           });

@@ -49,6 +49,18 @@ const PaymentReceipt = sequelize.define('PaymentReceipt', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  // Audit trail for cancellations — legally required for GST-registered entities
+  // that need to justify reversals during a tax audit.
+  cancelled_by: {
+    type: DataTypes.INTEGER,
+    references: { model: 'users', key: 'user_id' },
+  },
+  cancelled_on: {
+    type: DataTypes.DATE,
+  },
+  cancellation_reason: {
+    type: DataTypes.TEXT,
+  },
   bill_allocations: {
     type: DataTypes.JSONB,
     defaultValue: null,
