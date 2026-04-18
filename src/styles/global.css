@@ -1,4 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* Fraunces + JetBrains Mono — used by the Modern theme for display headlines
+ * and numeric tabular columns. Classic continues to use Inter everywhere. */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ===== HIDE INPUTNUMBER SPINNER ARROWS ===== */
 .ant-input-number-handler-wrap {
@@ -17,6 +20,7 @@ body {
 }
 
 /* ===== SCROLLBAR ===== */
+/* Thumb colors come from themes.css so they adapt to Light/Dark automatically. */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -25,11 +29,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: var(--scrollbar-thumb, #c1c1c1);
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+  background: var(--scrollbar-thumb-hover, #a1a1a1);
 }
 
 /* ===== ANIMATIONS ===== */
@@ -61,7 +65,7 @@ body {
 /* ===== CARD ENHANCEMENTS ===== */
 .ant-card {
   transition: box-shadow 0.3s ease, transform 0.2s ease !important;
-  border: 1px solid #f0f0f0 !important;
+  border: 1px solid var(--border-subtle, #f0f0f0) !important;
 }
 
 /* Full-page cards sit flush — no radius or border */
@@ -94,11 +98,15 @@ body {
   border-radius: 12px 12px 0 0;
 }
 
-.erp-stat-card.green::before { background: linear-gradient(90deg, #10B981, #34D399); }
-.erp-stat-card.blue::before { background: linear-gradient(90deg, #4F46E5, #818CF8); }
-.erp-stat-card.orange::before { background: linear-gradient(90deg, #F59E0B, #FBBF24); }
-.erp-stat-card.red::before { background: linear-gradient(90deg, #EF4444, #F87171); }
-.erp-stat-card.purple::before { background: linear-gradient(90deg, #8B5CF6, #A78BFA); }
+/* Rainbow top-border strip — Classic only. Modern uses a flat card surface;
+ * decorative color strips compete with the numeric data and read as
+ * template-y on an ERP used 8h/day. */
+[data-theme^="classic"] .erp-stat-card.green::before  { background: linear-gradient(90deg, #10B981, #34D399); }
+[data-theme^="classic"] .erp-stat-card.blue::before   { background: linear-gradient(90deg, #4F46E5, #818CF8); }
+[data-theme^="classic"] .erp-stat-card.orange::before { background: linear-gradient(90deg, #F59E0B, #FBBF24); }
+[data-theme^="classic"] .erp-stat-card.red::before    { background: linear-gradient(90deg, #EF4444, #F87171); }
+[data-theme^="classic"] .erp-stat-card.purple::before { background: linear-gradient(90deg, #8B5CF6, #A78BFA); }
+[data-theme^="modern"] .erp-stat-card::before { display: none; }
 
 /* ===== TABLE ENHANCEMENTS ===== */
 .ant-table-wrapper {
@@ -118,8 +126,12 @@ body {
   transition: background-color 0.15s ease !important;
 }
 
-.ant-table-tbody > tr:nth-child(even) {
+/* Zebra striping — only on Classic; Modern keeps uniform translucent rows. */
+[data-theme="classic-light"] .ant-table-tbody > tr:nth-child(even) {
   background-color: #fafbfc;
+}
+[data-theme="classic-dark"] .ant-table-tbody > tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.02);
 }
 
 /* ===== FORM ENHANCEMENTS ===== */
@@ -128,19 +140,35 @@ body {
 .ant-input-number-focused,
 .ant-select-focused .ant-select-selector,
 .ant-picker-focused {
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1) !important;
+  box-shadow: 0 0 0 3px var(--accent-bg) !important;
 }
 
 .ant-form-item-label > label {
   font-weight: 500 !important;
-  color: #374151 !important;
+  color: var(--fg-primary, #374151) !important;
   font-size: 13px !important;
 }
 
-/* ===== SIDEBAR ENHANCEMENTS ===== */
+/* ===== SIDEBAR ENHANCEMENTS =====
+ * The sidebar reads every surface/ink color from theme vars. Across the four
+ * modes the visual difference is intentional:
+ *   Classic-Light  → dark navy sidebar (today's look, preserved)
+ *   Classic-Dark   → near-black sidebar (deeper than Classic-Light for contrast)
+ *   Modern-Light   → translucent white-glass sidebar with blur
+ *   Modern-Dark    → translucent dark-slate sidebar with blur
+ * The Menu component is always rendered with theme="dark" on Classic modes
+ * (the sidebar is dark) and theme="light" on Modern-Light (sidebar is white);
+ * Sidebar.jsx picks the prop based on the active mode.
+ */
 .erp-sidebar {
-  background: #0f172a !important;
-  border-right: 1px solid #1e293b !important;
+  background: var(--sidebar-bg) !important;
+  border-right: 1px solid var(--border-subtle) !important;
+}
+
+/* Modern: glass sidebar with frosted blur over the ambient background. */
+[data-theme^="modern"] .erp-sidebar {
+  backdrop-filter: blur(var(--blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(140%);
 }
 
 .erp-sidebar .ant-layout-sider-children {
@@ -149,56 +177,64 @@ body {
   height: 100%;
 }
 
-.erp-sidebar .ant-menu-dark {
+.erp-sidebar .ant-menu-dark,
+.erp-sidebar .ant-menu-light {
   background: transparent !important;
 }
 
-.erp-sidebar .ant-menu-dark .ant-menu-sub {
-  background: rgba(0, 0, 0, 0.2) !important;
+.erp-sidebar .ant-menu .ant-menu-sub {
+  background: rgba(0, 0, 0, 0.12) !important;
+}
+[data-theme="modern-light"] .erp-sidebar .ant-menu .ant-menu-sub {
+  background: rgba(15, 23, 42, 0.04) !important;
 }
 
-.erp-sidebar .ant-menu-dark .ant-menu-item {
+.erp-sidebar .ant-menu .ant-menu-item {
   margin: 2px 8px !important;
   border-radius: 8px !important;
   height: 38px !important;
   line-height: 38px !important;
-  color: #94a3b8 !important;
+  color: var(--sidebar-fg) !important;
   font-weight: 400;
+  opacity: 0.78;
   transition: all 0.2s ease !important;
 }
 
-.erp-sidebar .ant-menu-dark .ant-menu-item:hover {
-  color: #e2e8f0 !important;
-  background: rgba(255, 255, 255, 0.06) !important;
+.erp-sidebar .ant-menu .ant-menu-item:hover {
+  color: var(--sidebar-fg) !important;
+  opacity: 1;
+  background: var(--sidebar-hover) !important;
 }
 
-.erp-sidebar .ant-menu-dark .ant-menu-item-selected {
-  background: linear-gradient(135deg, #4F46E5, #6366f1) !important;
+.erp-sidebar .ant-menu .ant-menu-item-selected {
+  background: var(--sidebar-active) !important;
   color: #ffffff !important;
+  opacity: 1;
   font-weight: 500;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+  box-shadow: 0 2px 8px var(--accent-bg);
 }
 
-.erp-sidebar .ant-menu-dark .ant-menu-submenu-title {
+.erp-sidebar .ant-menu .ant-menu-submenu-title {
   margin: 2px 8px !important;
   border-radius: 8px !important;
   height: 40px !important;
   line-height: 40px !important;
-  color: #cbd5e1 !important;
+  color: var(--sidebar-fg) !important;
   font-weight: 500;
 }
 
-.erp-sidebar .ant-menu-dark .ant-menu-submenu-title:hover {
-  color: #f1f5f9 !important;
-  background: rgba(255, 255, 255, 0.05) !important;
+.erp-sidebar .ant-menu .ant-menu-submenu-title:hover {
+  color: var(--sidebar-fg) !important;
+  background: var(--sidebar-hover) !important;
 }
 
-.erp-sidebar .ant-menu-dark .ant-menu-submenu-arrow {
-  color: #475569 !important;
+.erp-sidebar .ant-menu .ant-menu-submenu-arrow {
+  color: var(--sidebar-fg) !important;
+  opacity: 0.5;
 }
 
-.erp-sidebar .ant-menu-dark .ant-menu-submenu-open > .ant-menu-submenu-title {
-  color: #f1f5f9 !important;
+.erp-sidebar .ant-menu .ant-menu-submenu-open > .ant-menu-submenu-title {
+  color: var(--sidebar-fg) !important;
 }
 
 /* Logo area */
@@ -207,7 +243,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid #1e293b;
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 
@@ -219,13 +255,13 @@ body {
 
 .erp-sidebar-logo-icon {
   font-size: 22px !important;
-  color: #818cf8 !important;
+  color: var(--accent) !important;
 }
 
 .erp-sidebar-logo-text {
   font-size: 20px;
   font-weight: 700;
-  color: #f1f5f9;
+  color: var(--sidebar-fg);
   letter-spacing: -0.5px;
 }
 
@@ -239,18 +275,20 @@ body {
   margin: 0 8px;
   border-radius: 8px;
   cursor: pointer;
-  color: #94a3b8;
+  color: var(--sidebar-fg);
+  opacity: 0.75;
   font-size: 18px;
-  transition: background 0.18s, color 0.18s;
+  transition: background 0.18s, color 0.18s, opacity 0.18s;
 }
 .erp-ci:hover {
-  background: rgba(255,255,255,0.07);
-  color: #e2e8f0;
+  background: var(--sidebar-hover);
+  opacity: 1;
 }
 .erp-ci-active {
-  background: linear-gradient(135deg,#4F46E5,#6366f1) !important;
+  background: var(--sidebar-active) !important;
   color: #fff !important;
-  box-shadow: 0 2px 8px rgba(79,70,229,0.35);
+  opacity: 1 !important;
+  box-shadow: 0 2px 8px var(--accent-bg);
 }
 .erp-ci-icon {
   display: flex;
@@ -259,22 +297,28 @@ body {
   font-size: 18px;
 }
 
-/* Popup that appears on hover */
+/* Popup that appears on hover — inherits sidebar palette so it never looks
+ * orphaned from its parent. */
 .erp-ci-popup {
   position: fixed;
   left: 72px;
-  background: #0f172a;
-  border: 1px solid #1e293b;
+  background: var(--bg-panel);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
   border-radius: 10px;
   min-width: 200px;
   z-index: 99999;
   padding: 6px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+  box-shadow: var(--shadow-lg);
   pointer-events: all;
+}
+[data-theme^="modern"] .erp-ci-popup {
+  backdrop-filter: blur(var(--blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(140%);
 }
 .erp-ci-popup-title {
   font-size: 10px;
-  color: #475569;
+  color: var(--fg-tertiary);
   font-weight: 700;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -286,19 +330,19 @@ body {
   gap: 10px;
   padding: 8px 12px;
   border-radius: 7px;
-  color: #94a3b8;
+  color: var(--fg-secondary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s;
 }
 .erp-ci-popup-item:hover {
-  background: rgba(255,255,255,0.08);
-  color: #e2e8f0;
+  background: var(--bg-hover);
+  color: var(--fg-primary);
 }
 .erp-ci-popup-item.active {
-  background: rgba(99,102,241,0.18);
-  color: #818cf8;
+  background: var(--accent-bg);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -306,21 +350,33 @@ body {
 .erp-sidebar-footer {
   margin-top: auto;
   padding: 12px 16px;
-  border-top: 1px solid #1e293b;
+  border-top: 1px solid var(--border-subtle);
   text-align: center;
   flex-shrink: 0;
 }
 
 .erp-sidebar-footer span {
-  color: #475569;
+  color: var(--fg-tertiary);
   font-size: 11px;
 }
 
-/* ===== HEADER ENHANCEMENTS ===== */
+/* ===== HEADER ENHANCEMENTS =====
+ * Always frosted glass, but the tint switches per theme. Classic uses a
+ * 0.85-opacity panel (matches today); Modern leans on the theme's glass
+ * tint for a more translucent feel.
+ */
 .erp-header {
-  background: rgba(255, 255, 255, 0.85) !important;
+  background: var(--header-bg) !important;
   backdrop-filter: blur(12px) saturate(180%);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border-bottom: 1px solid var(--header-border);
+}
+[data-theme^="modern"] .erp-header {
+  backdrop-filter: blur(var(--blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(160%);
+}
+.erp-header .erp-header-shortcuts {
+  color: var(--fg-tertiary);
 }
 
 /* ===== DARK-FORM SELECT (category + product on dark bill form bg) ===== */
@@ -411,11 +467,11 @@ body {
   padding: 2px 6px;
   font-size: 11px;
   font-family: 'Inter', monospace;
-  color: #6b7280;
-  background: #f3f4f6;
-  border: 1px solid #d1d5db;
+  color: var(--fg-secondary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  box-shadow: 0 1px 0 #d1d5db;
+  box-shadow: 0 1px 0 var(--border);
   line-height: 1.4;
   vertical-align: middle;
   margin-left: 4px;
@@ -462,13 +518,13 @@ body {
   justify-content: space-between;
   margin-bottom: 20px;
   padding-bottom: 12px;
-  border-bottom: 2px solid #f0f0f0;
+  border-bottom: 2px solid var(--border-subtle);
 }
 
 .erp-section-header h4 {
   margin: 0 !important;
   font-weight: 700 !important;
-  color: #1f2937;
+  color: var(--fg-primary);
 }
 
 /* ===== SHORTCUTS OVERLAY ===== */
@@ -477,6 +533,7 @@ body {
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -485,14 +542,20 @@ body {
 }
 
 .erp-shortcuts-panel {
-  background: white;
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
   border-radius: 16px;
   padding: 32px;
   max-width: 600px;
   width: 90%;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
+}
+[data-theme^="modern"] .erp-shortcuts-panel {
+  backdrop-filter: blur(var(--blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(140%);
 }
 
 .erp-shortcut-row {
@@ -500,7 +563,7 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 /* ===== LIST PAGE HEADER ===== */
@@ -535,14 +598,14 @@ body {
 .erp-page-header-title .ant-typography h3 {
   margin: 0 !important;
   font-weight: 700 !important;
-  color: #1f2937 !important;
+  color: var(--fg-primary) !important;
 }
 
 /* ===== FILTER BAR (inside card, above table) ===== */
 .erp-filter-bar {
   padding: 12px 16px;
-  background: #f8fafc;
-  border-bottom: 1px solid #f0f0f0;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -555,8 +618,8 @@ body {
   gap: 12px;
   flex-wrap: wrap;
   padding: 12px 16px;
-  background: #fff;
-  border-bottom: 1px solid #f0f0f0;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .erp-summary-stat {
@@ -570,7 +633,7 @@ body {
 .erp-summary-stat-label {
   font-size: 11px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--fg-secondary);
   text-transform: uppercase;
   letter-spacing: 0.4px;
   margin-bottom: 2px;
@@ -608,7 +671,7 @@ body {
 .erp-empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #9ca3af;
+  color: var(--fg-tertiary);
 }
 
 .erp-empty-state svg {
@@ -618,9 +681,17 @@ body {
   opacity: 0.5;
 }
 
-/* ===== LOADING SKELETON ===== */
+/* ===== LOADING SKELETON =====
+ * Uses semi-transparent overlays on the panel bg so it blends with whichever
+ * theme is active (grey on Light, lighter-grey on Dark).
+ */
 .erp-skeleton {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background: linear-gradient(
+    90deg,
+    var(--bg-muted) 25%,
+    var(--bg-hover) 50%,
+    var(--bg-muted) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: 8px;

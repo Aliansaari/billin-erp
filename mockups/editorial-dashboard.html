@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard — Editorial Modern</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/*
+ * Editorial Dashboard — inspired by the warm-cream tier-review aesthetic
+ * from the user's reference screenshots, applied to real ERP metrics.
+ *
+ * Nine tiles, 3×3, each one telling the story of a single metric:
+ *   Category label · Tier badge · Metric title (serif) · Primary number ·
+ *   Progress ring · 6-month trend sparkline · % change · italic verdict.
+ *
+ * Tier system (matches reference colors):
+ *   S  (terracotta #B1472F)  — top-tier / primary / strong
+ *   A  (gold #B8923C)        — healthy / secondary / important
+ *   B  (green #7A9660)       — normal / watchful
+ *   C  (slate #6D6355)       — attention / low-priority
+ *
+ * Motion:
+ *   • Each tile fades up staggered via IntersectionObserver (.reveal → .in)
+ *   • Sparkline paths animate stroke-dasharray from 0 → full length
+ *   • Rings animate stroke-dashoffset from full-circle → target
+ *   • Big numbers count up on load using easeOutCubic (1.1s)
+ *   • Hero words stagger in like the login page
+ *   • Tile hover: subtle lift + shadow + border highlight
+ *
+ * Light primary (cream) with dark toggle — same palette as other mockups.
+ */
+
+:root {
+  /* Light cream */
+  --bg:          #F5EFE3;
+  --bg-card:     #FDFAF2;
+  --bg-sub:      #EEE6D3;
+  --bg-inset:    #F8F2E4;
+  --ink:         #1D1A15;
+  --ink-2:       #6D5F4E;
+  --ink-3:       #9B8F7E;
+  --ink-4:       #C9BFA8;
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  --tier-s:      #B1472F;
+  --tier-s-soft: #F3D9CE;
+  --tier-a:      #B8923C;
+  --tier-a-soft: #F3E4C2;
+  --tier-b:      #7A9660;
+  --tier-b-soft: #DDEAD0;
+  --tier-c:      #6D6355;
+  --tier-c-soft: #E0D9CB;
+
+  --up:          #7A9660;
+  --down:        #B1472F;
+  --flat:        #9B8F7E;
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-card:     #1A1713;
+  --bg-sub:      #14110D;
+  --bg-inset:    #24201B;
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+
+  --tier-s:      #E26A4C;
+  --tier-s-soft: rgba(226,106,76,0.14);
+  --tier-a:      #D4A574;
+  --tier-a-soft: rgba(212,165,116,0.14);
+  --tier-b:      #94B885;
+  --tier-b-soft: rgba(148,184,133,0.14);
+  --tier-c:      #8A7F6C;
+  --tier-c-soft: rgba(138,127,108,0.14);
+
+  --up:          #94B885;
+  --down:        #E26A4C;
+  --flat:        #8A7F6C;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  transition: background .3s ease, color .3s ease;
+}
+.serif { font-family: 'Fraunces', Georgia, serif; font-optical-sizing: auto; letter-spacing: -0.01em; }
+.num   { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+.ital  { font-style: italic; }
+.micro {
+  font-size: 10.5px; letter-spacing: 1.8px; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 500;
+}
+
+/* ──────── App frame ──────── */
+.app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+/* Sidebar — identical to sales-bill mockup for visual continuity */
+.sidebar {
+  background: var(--bg-sub);
+  border-right: 1px solid var(--rule);
+  padding: 22px 14px 28px;
+  position: sticky; top: 0; height: 100vh;
+  display: flex; flex-direction: column;
+}
+.sb-brand {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 4px 10px 20px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 16px;
+}
+.sb-brand .mark {
+  font-family: 'Fraunces', serif;
+  font-size: 26px; font-weight: 600;
+  color: var(--tier-s); line-height: 1;
+}
+.sb-brand .name {
+  font-family: 'Fraunces', serif;
+  font-size: 18px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+.sb-sec {
+  font-family: 'Fraunces', serif;
+  font-size: 12px; font-weight: 400; font-style: italic;
+  color: var(--ink-3);
+  padding: 16px 12px 6px;
+  letter-spacing: 0.4px;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 6px;
+  color: var(--ink-2); font-size: 14px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.sb-item:hover { background: var(--bg-card); color: var(--ink); }
+.sb-item.active {
+  background: var(--tier-s-soft);
+  color: var(--tier-s);
+  font-weight: 500;
+}
+.sb-item .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--ink-4); flex-shrink: 0;
+}
+.sb-item.active .dot { background: var(--tier-s); }
+
+.toggle {
+  margin-top: auto;
+  display: flex; gap: 4px;
+  padding: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 99px;
+  font-size: 12px;
+}
+.toggle button {
+  flex: 1; padding: 6px 10px;
+  border: none; background: transparent;
+  font-family: inherit; color: var(--ink-2);
+  cursor: pointer; border-radius: 99px;
+  transition: all .15s;
+}
+.toggle button.on { background: var(--tier-s); color: #FDFAF2; }
+
+/* ──────── Main ──────── */
+.main { min-width: 0; padding: 0; display: flex; flex-direction: column; }
+
+.crumb-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 48px 0;
+  font-size: 11px; letter-spacing: 1.6px;
+  text-transform: uppercase; color: var(--ink-3); font-weight: 500;
+}
+.crumb-bar b { color: var(--ink); font-weight: 600; }
+.crumb-bar .kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; padding: 3px 7px;
+  background: var(--bg-card); border: 1px solid var(--rule);
+  border-radius: 4px; letter-spacing: 0;
+  color: var(--ink-2); text-transform: none;
+}
+
+/* Hero */
+.hero {
+  padding: 40px 48px 12px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 40px;
+}
+.hero-head h1 {
+  font-family: 'Fraunces', serif;
+  font-size: clamp(54px, 6.4vw, 92px);
+  font-weight: 400;
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+  max-width: 880px;
+}
+.hero-head h1 .w {
+  display: inline-block;
+  opacity: 0; transform: translateY(30px);
+  animation: up 1s cubic-bezier(.2,.7,.2,1) forwards;
+}
+.hero-head h1 .w.em {
+  font-style: italic;
+  font-weight: 500;
+  color: var(--tier-s);
+}
+.hero-head h1 .w:nth-child(1){animation-delay:.1s}
+.hero-head h1 .w:nth-child(2){animation-delay:.2s}
+.hero-head h1 .w:nth-child(3){animation-delay:.3s}
+.hero-head h1 .w:nth-child(4){animation-delay:.4s}
+.hero-head h1 .w:nth-child(5){animation-delay:.5s}
+.hero-head .sub {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-size: 19px;
+  color: var(--ink-2);
+  margin-top: 14px;
+  max-width: 620px;
+  line-height: 1.55;
+  opacity: 0;
+  animation: up 1s cubic-bezier(.2,.7,.2,1) .7s forwards;
+}
+@keyframes up { to { opacity: 1; transform: translateY(0); } }
+
+/* Period selector */
+.period-bar {
+  opacity: 0;
+  animation: up 1s cubic-bezier(.2,.7,.2,1) .9s forwards;
+}
+.period-switch {
+  display: inline-flex;
+  padding: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 99px;
+  font-size: 13px;
+}
+.period-switch button {
+  padding: 7px 16px;
+  border: none; background: transparent;
+  font-family: inherit; color: var(--ink-2);
+  cursor: pointer; border-radius: 99px;
+  transition: all .18s;
+  font-weight: 500;
+}
+.period-switch button.on {
+  background: var(--ink);
+  color: var(--bg-card);
+}
+
+/* Section headline */
+.section-hd {
+  padding: 54px 48px 20px;
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 20px;
+}
+.section-hd h2 {
+  font-family: 'Fraunces', serif;
+  font-size: clamp(34px, 3.6vw, 46px);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+.section-hd h2 .em { font-style: italic; font-weight: 500; color: var(--tier-s); }
+.section-hd .aside {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-size: 14.5px;
+  color: var(--ink-3);
+}
+
+/* Tile grid */
+.grid {
+  padding: 0 48px 48px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+@media (max-width: 1200px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 800px)  { .grid { grid-template-columns: 1fr; } }
+
+/* Tile */
+.tile {
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 24px 26px 22px;
+  transition: transform .3s cubic-bezier(.2,.7,.2,1),
+              box-shadow .3s cubic-bezier(.2,.7,.2,1),
+              border-color .3s;
+  display: flex; flex-direction: column;
+  gap: 14px;
+  min-height: 300px;
+}
+.tile:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px rgba(29,26,21,0.08);
+  border-color: var(--ink-4);
+}
+[data-mode="dark"] .tile:hover { box-shadow: 0 18px 40px rgba(0,0,0,0.5); }
+
+.tile-top {
+  display: flex; align-items: flex-start; justify-content: space-between;
+}
+.tile-cat { color: var(--ink-3); }
+.tile-tier {
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: #FDFAF2;
+}
+.tier-s { background: var(--tier-s); }
+.tier-a { background: var(--tier-a); }
+.tier-b { background: var(--tier-b); }
+.tier-c { background: var(--tier-c); }
+
+.tile-title {
+  font-family: 'Fraunces', serif;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  line-height: 1.15;
+}
+
+/* Primary value + ring */
+.tile-primary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 4px 0;
+}
+.tile-value-block .k {
+  font-size: 10.5px; letter-spacing: 1.6px; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 500;
+  margin-bottom: 4px;
+}
+.tile-value {
+  font-family: 'Fraunces', serif;
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  line-height: 1.05;
+}
+.tile-value.num-lead {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.ring-wrap {
+  width: 68px; height: 68px;
+  position: relative;
+  flex-shrink: 0;
+}
+.ring-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring-bg { stroke: var(--rule); fill: none; }
+.ring-fg { fill: none; stroke-linecap: round; transition: stroke-dashoffset 1.5s cubic-bezier(.2,.7,.2,1); }
+.ring-lbl {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* Trend block */
+.trend-block {
+  padding-top: 14px;
+  border-top: 1px dashed var(--rule-soft);
+}
+.trend-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.trend-meta .trend-pct {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 500;
+}
+.trend-pct.up { color: var(--up); }
+.trend-pct.down { color: var(--down); }
+.trend-pct.flat { color: var(--flat); }
+
+.sparkline {
+  height: 44px;
+  width: 100%;
+  overflow: visible;
+}
+.sparkline path.fill {
+  opacity: 0;
+  animation: fillFade 1.2s ease-out .5s forwards;
+}
+@keyframes fillFade { to { opacity: 1; } }
+.sparkline path.line {
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: 400;
+  stroke-dashoffset: 400;
+  animation: draw 1.4s cubic-bezier(.2,.7,.2,1) .3s forwards;
+}
+@keyframes draw { to { stroke-dashoffset: 0; } }
+
+/* Verdict quote */
+.tile-verdict {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-top: auto;
+}
+
+/* ──────── Recent activity ribbon ──────── */
+.ribbon {
+  padding: 24px 48px 64px;
+}
+.ribbon-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 32px 0 20px;
+}
+.ribbon-head h3 {
+  font-family: 'Fraunces', serif;
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.ribbon-head h3 .em { font-style: italic; font-weight: 500; color: var(--tier-s); }
+.ribbon-head a {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  color: var(--tier-s);
+  font-size: 14.5px;
+  text-decoration: none;
+}
+.ribbon-head a:hover { text-decoration: underline; }
+
+.ribbon-list {
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.ribbon-row {
+  display: grid;
+  grid-template-columns: 100px 1.4fr 1fr 1.2fr 120px 100px;
+  align-items: center;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--rule-soft);
+  transition: background .15s;
+}
+.ribbon-row:hover { background: var(--bg-inset); }
+.ribbon-row:last-child { border-bottom: none; }
+.ribbon-row .time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; color: var(--ink-3);
+}
+.ribbon-row .type {
+  font-size: 10px; font-weight: 600;
+  letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--ink-2);
+}
+.ribbon-row .type.sale { color: var(--tier-s); }
+.ribbon-row .type.purc { color: var(--tier-a); }
+.ribbon-row .type.rcpt, .ribbon-row .type.pmt { color: var(--tier-b); }
+.ribbon-row .who {
+  font-family: 'Fraunces', serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.ribbon-row .detail {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+.ribbon-row .amt {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  font-size: 15px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.ribbon-row .status {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  justify-self: end;
+}
+.status.paid { background: var(--tier-b-soft); color: var(--tier-b); }
+.status.part { background: var(--tier-a-soft); color: var(--tier-a); }
+.status.due  { background: var(--tier-s-soft); color: var(--tier-s); }
+
+/* Editorial footer */
+.foot {
+  padding: 40px 48px 40px;
+  text-align: center;
+  border-top: 1px solid var(--rule);
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  color: var(--ink-3);
+  font-size: 13.5px;
+}
+
+/* ──────── Motion ──────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity .8s cubic-bezier(.2,.7,.2,1),
+              transform .8s cubic-bezier(.2,.7,.2,1);
+}
+.reveal.in { opacity: 1; transform: translateY(0); }
+.reveal[data-delay="1"]{transition-delay:.06s}
+.reveal[data-delay="2"]{transition-delay:.14s}
+.reveal[data-delay="3"]{transition-delay:.22s}
+.reveal[data-delay="4"]{transition-delay:.30s}
+.reveal[data-delay="5"]{transition-delay:.38s}
+.reveal[data-delay="6"]{transition-delay:.46s}
+.reveal[data-delay="7"]{transition-delay:.54s}
+.reveal[data-delay="8"]{transition-delay:.62s}
+.reveal[data-delay="9"]{transition-delay:.70s}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
+</style>
+</head>
+<body data-mode="light">
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="mark">E.</div>
+      <div class="name">Billing ERP</div>
+    </div>
+
+    <div class="sb-sec">General</div>
+    <div class="sb-item active"><span class="dot"></span> Dashboard</div>
+
+    <div class="sb-sec">Transact</div>
+    <div class="sb-item"><span class="dot"></span> New sales bill</div>
+    <div class="sb-item"><span class="dot"></span> Sales list</div>
+    <div class="sb-item"><span class="dot"></span> New purchase bill</div>
+    <div class="sb-item"><span class="dot"></span> Purchase list</div>
+    <div class="sb-item"><span class="dot"></span> Receipts &amp; payments</div>
+
+    <div class="sb-sec">Masters</div>
+    <div class="sb-item"><span class="dot"></span> Customers</div>
+    <div class="sb-item"><span class="dot"></span> Suppliers</div>
+    <div class="sb-item"><span class="dot"></span> Products</div>
+    <div class="sb-item"><span class="dot"></span> Stock report</div>
+
+    <div class="sb-sec">Insight</div>
+    <div class="sb-item"><span class="dot"></span> Reports</div>
+    <div class="sb-item"><span class="dot"></span> Settings</div>
+
+    <div class="toggle">
+      <button id="btn-light" class="on">Light</button>
+      <button id="btn-dark">Dark</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <div class="crumb-bar">
+      <div>General &nbsp;›&nbsp; <b>Dashboard · 18 April 2026</b></div>
+      <div>Press <span class="kbd">Ctrl K</span> to navigate</div>
+    </div>
+
+    <!-- Hero -->
+    <header class="hero">
+      <div class="hero-head">
+        <h1 class="serif">
+          <span class="w">A</span>
+          <span class="w em">Friday</span>
+          <span class="w">in</span>
+          <span class="w">full</span>
+          <span class="w em">motion.</span>
+        </h1>
+        <div class="sub">
+          Twenty-four bills issued, six purchases booked, and one cashier steadily clocking through it all. Here&rsquo;s the ledger as of <b>3:32&nbsp;pm</b>.
+        </div>
+      </div>
+      <div class="period-bar">
+        <div class="period-switch">
+          <button>Today</button>
+          <button class="on">This month</button>
+          <button>Quarter</button>
+          <button>Year</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Section head -->
+    <div class="section-hd">
+      <h2 class="serif">
+        Every&nbsp;metric,
+        <span class="em">every trend,</span>
+        every verdict.
+      </h2>
+      <div class="aside">April 2026 — a three-week snapshot of the firm.</div>
+    </div>
+
+    <!-- Tile grid -->
+    <section class="grid">
+
+      <!-- 1. SALES -->
+      <article class="tile reveal" data-delay="1">
+        <div class="tile-top">
+          <span class="micro tile-cat">Sales</span>
+          <span class="tile-tier tier-s">Tier S</span>
+        </div>
+        <div class="tile-title serif">Month-to-date sales</div>
+        <div class="tile-primary">
+          <div class="tile-value-block">
+            <div class="k">Gross value</div>
+            <div class="tile-value num-lead" data-count="2483500">₹0</div>
+          </div>
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36">
+              <circle class="ring-bg" cx="18" cy="18" r="15.5" stroke-width="2.4"/>
+              <circle class="ring-fg" cx="18" cy="18" r="15.5" stroke-width="2.4" stroke="var(--tier-s)" data-ring="78"/>
+            </svg>
+            <div class="ring-lbl">78%</div>
+          </div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-meta">
+            <span class="micro">6-month trend</span>
+            <span class="trend-pct up">+12.4%</span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 220 44" preserveAspectRatio="none">
+            <defs><linearGradient id="gS" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="var(--tier-s)" stop-opacity="0.22"/>
+              <stop offset="1" stop-color="var(--tier-s)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path class="fill" d="M0,32 L22,30 L44,26 L66,28 L88,22 L110,24 L132,18 L154,14 L176,16 L198,10 L220,8 L220,44 L0,44 Z" fill="url(#gS)"/>
+            <path class="line" d="M0,32 L22,30 L44,26 L66,28 L88,22 L110,24 L132,18 L154,14 L176,16 L198,10 L220,8" stroke="var(--tier-s)"/>
+          </svg>
+        </div>
+        <div class="tile-verdict">Strongest month so far — pace holds through the second half.</div>
+      </article>
+
+      <!-- 2. PURCHASES -->
+      <article class="tile reveal" data-delay="2">
+        <div class="tile-top">
+          <span class="micro tile-cat">Purchases</span>
+          <span class="tile-tier tier-a">Tier A</span>
+        </div>
+        <div class="tile-title serif">Month-to-date purchases</div>
+        <div class="tile-primary">
+          <div class="tile-value-block">
+            <div class="k">Gross value</div>
+            <div class="tile-value num-lead" data-count="1042000">₹0</div>
+          </div>
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36">
+              <circle class="ring-bg" cx="18" cy="18" r="15.5" stroke-width="2.4"/>
+              <circle class="ring-fg" cx="18" cy="18" r="15.5" stroke-width="2.4" stroke="var(--tier-a)" data-ring="42"/>
+            </svg>
+            <div class="ring-lbl">42%</div>
+          </div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-meta">
+            <span class="micro">6-month trend</span>
+            <span class="trend-pct flat">&nbsp;0.0%</span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 220 44" preserveAspectRatio="none">
+            <defs><linearGradient id="gA" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="var(--tier-a)" stop-opacity="0.22"/>
+              <stop offset="1" stop-color="var(--tier-a)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path class="fill" d="M0,22 L22,20 L44,24 L66,18 L88,22 L110,20 L132,24 L154,18 L176,22 L198,20 L220,22 L220,44 L0,44 Z" fill="url(#gA)"/>
+            <path class="line" d="M0,22 L22,20 L44,24 L66,18 L88,22 L110,20 L132,24 L154,18 L176,22 L198,20 L220,22" stroke="var(--tier-a)"/>
+          </svg>
+        </div>
+        <div class="tile-verdict">Steady restocking — no surges, no shortfalls.</div>
+      </article>
+
+      <!-- 3. CASH IN HAND -->
+      <article class="tile reveal" data-delay="3">
+        <div class="tile-top">
+          <span class="micro tile-cat">Cash</span>
+          <span class="tile-tier tier-s">Tier S</span>
+        </div>
+        <div class="tile-title serif">Cash in hand</div>
+        <div class="tile-primary">
+          <div class="tile-value-block">
+            <div class="k">Across 2 accounts</div>
+            <div class="tile-value num-lead" data-count="345600">₹0</div>
+          </div>
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36">
+              <circle class="ring-bg" cx="18" cy="18" r="15.5" stroke-width="2.4"/>
+              <circle class="ring-fg" cx="18" cy="18" r="15.5" stroke-width="2.4" stroke="var(--tier-s)" data-ring="64"/>
+            </svg>
+            <div class="ring-lbl">64%</div>
+          </div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-meta">
+            <span class="micro">6-month trend</span>
+            <span class="trend-pct up">+8.2%</span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 220 44" preserveAspectRatio="none">
+            <defs><linearGradient id="gS2" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="var(--tier-s)" stop-opacity="0.22"/>
+              <stop offset="1" stop-color="var(--tier-s)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path class="fill" d="M0,30 L22,28 L44,32 L66,24 L88,20 L110,22 L132,18 L154,16 L176,14 L198,12 L220,10 L220,44 L0,44 Z" fill="url(#gS2)"/>
+            <path class="line" d="M0,30 L22,28 L44,32 L66,24 L88,20 L110,22 L132,18 L154,16 L176,14 L198,12 L220,10" stroke="var(--tier-s)"/>
+          </svg>
+        </div>
+        <div class="tile-verdict">Healthy float — three weeks of expenses covered.</div>
+      </article>
+
+      <!-- 4. RECEIVABLE -->
+      <article class="tile reveal" data-delay="4">
+        <div class="tile-top">
+          <span class="micro tile-cat">Receivables</span>
+          <span class="tile-tier tier-b">Tier B</span>
+        </div>
+        <div class="tile-title serif">Outstanding from customers</div>
+        <div class="tile-primary">
+          <div class="tile-value-block">
+            <div class="k">14 open bills</div>
+            <div class="tile-value num-lead" data-count="196800">₹0</div>
+          </div>
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36">
+              <circle class="ring-bg" cx="18" cy="18" r="15.5" stroke-width="2.4"/>
+              <circle class="ring-fg" cx="18" cy="18" r="15.5" stroke-width="2.4" stroke="var(--tier-b)" data-ring="71"/>
+            </svg>
+            <div class="ring-lbl">71%</div>
+          </div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-meta">
+            <span class="micro">0–30 days aging</span>
+            <span class="trend-pct up">+3.1%</span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 220 44" preserveAspectRatio="none">
+            <defs><linearGradient id="gB" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="var(--tier-b)" stop-opacity="0.22"/>
+              <stop offset="1" stop-color="var(--tier-b)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path class="fill" d="M0,14 L22,16 L44,18 L66,22 L88,20 L110,18 L132,16 L154,14 L176,16 L198,18 L220,20 L220,44 L0,44 Z" fill="url(#gB)"/>
+            <path class="line" d="M0,14 L22,16 L44,18 L66,22 L88,20 L110,18 L132,16 L154,14 L176,16 L198,18 L220,20" stroke="var(--tier-b)"/>
+          </svg>
+        </div>
+        <div class="tile-verdict">Watch list — three bills now past thirty days.</div>
+      </article>
+
+      <!-- 5. PAYABLE -->
+      <article class="tile reveal" data-delay="5">
+        <div class="tile-top">
+          <span class="micro tile-cat">Payables</span>
+          <span class="tile-tier tier-b">Tier B</span>
+        </div>
+        <div class="tile-title serif">Outstanding to suppliers</div>
+        <div class="tile-primary">
+          <div class="tile-value-block">
+            <div class="k">6 open bills</div>
+            <div class="tile-value num-lead" data-count="88500">₹0</div>
+          </div>
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36">
+              <circle class="ring-bg" cx="18" cy="18" r="15.5" stroke-width="2.4"/>
+              <circle class="ring-fg" cx="18" cy="18" r="15.5" stroke-width="2.4" stroke="var(--tier-b)" data-ring="53"/>
+            </svg>
+            <div class="ring-lbl">53%</div>
+          </div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-meta">
+            <span class="micro">6-month trend</span>
+            <span class="trend-pct down">−4.5%</span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 220 44" preserveAspectRatio="none">
+            <defs><linearGradient id="gB2" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="var(--tier-b)" stop-opacity="0.22"/>
+              <stop offset="1" stop-color="var(--tier-b)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path class="fill" d="M0,14 L22,18 L44,20 L66,22 L88,24 L110,26 L132,28 L154,30 L176,32 L198,34 L220,36 L220,44 L0,44 Z" fill="url(#gB2)"/>
+            <path class="line" d="M0,14 L22,18 L44,20 L66,22 L88,24 L110,26 L132,28 L154,30 L176,32 L198,34 L220,36" stroke="var(--tier-b)"/>
+          </svg>
+        </div>
+        <div class="tile-verdict">Trending down — good discipline this quarter.</div>
+      </article>
+
+      <!-- 6. TOP CUSTOMER -->
+      <article class="tile reveal" data-delay="6">
+        <div class="tile-top">
+          <span class="micro tile-cat">Top customer</span>
+          <span class="tile-tier tier-s">Tier S</span>
+        </div>
+        <div class="tile-title serif">Aadil &mdash; Hyderabad</div>
+        <div class="tile-primary">
+          <div class="tile-value-block">
+            <div class="k">Purchased this month</div>
+            <div class="tile-value num-lead" data-count="186400">₹0</div>
+          </div>
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36">
+              <circle class="ring-bg" cx="18" cy="18" r="15.5" stroke-width="2.4"/>
+              <circle class="ring-fg" cx="18" cy="18" r="15.5" stroke-width="2.4" stroke="var(--tier-s)" data-ring="88"/>
+            </svg>
+            <div class="ring-lbl">7.5%</div>
+          </div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-meta">
+            <span class="micro">6-month trend</span>
+            <span class="trend-pct up">+22.1%</span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 220 44" preserveAspectRatio="none">
+            <defs><linearGradient id="gS3" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="var(--tier-s)" stop-opacity="0.22"/>
+              <stop offset="1" stop-color="var(--tier-s)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path class="fill" d="M0,34 L22,30 L44,28 L66,24 L88,26 L110,20 L132,16 L154,18 L176,12 L198,10 L220,6 L220,44 L0,44 Z" fill="url(#gS3)"/>
+            <path class="line" d="M0,34 L22,30 L44,28 L66,24 L88,26 L110,20 L132,16 L154,18 L176,12 L198,10 L220,6" stroke="var(--tier-s)"/>
+          </svg>
+        </div>
+        <div class="tile-verdict">Consistent buyer — 7 bills across the month.</div>
+      </article>
+
+      <!-- 7. LOW STOCK -->
+      <article class="tile reveal" data-delay="7">
+        <div class="tile-top">
+          <span class="micro tile-cat">Inventory</span>
+          <span class="tile-tier tier-c">Tier C</span>
+        </div>
+        <div class="tile-title serif">Low-stock items</div>
+        <div class="tile-primary">
+          <div class="tile-value-block">
+            <div class="k">Items below reorder</div>
+            <div class="tile-value num-lead" data-count="8">0</div>
+          </div>
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36">
+              <circle class="ring-bg" cx="18" cy="18" r="15.5" stroke-width="2.4"/>
+              <circle class="ring-fg" cx="18" cy="18" r="15.5" stroke-width="2.4" stroke="var(--tier-c)" data-ring="18"/>
+            </svg>
+            <div class="ring-lbl">18%</div>
+          </div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-meta">
+            <span class="micro">Value to reorder</span>
+            <span class="trend-pct flat num">₹64,200</span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 220 44" preserveAspectRatio="none">
+            <defs><linearGradient id="gC" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="var(--tier-c)" stop-opacity="0.22"/>
+              <stop offset="1" stop-color="var(--tier-c)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path class="fill" d="M0,22 L22,26 L44,20 L66,24 L88,28 L110,22 L132,30 L154,26 L176,24 L198,28 L220,26 L220,44 L0,44 Z" fill="url(#gC)"/>
+            <path class="line" d="M0,22 L22,26 L44,20 L66,24 L88,28 L110,22 L132,30 L154,26 L176,24 L198,28 L220,26" stroke="var(--tier-c)"/>
+          </svg>
+        </div>
+        <div class="tile-verdict">Reorder overdue on three lines — the rest can wait the week.</div>
+      </article>
+
+      <!-- 8. TOP PRODUCT -->
+      <article class="tile reveal" data-delay="8">
+        <div class="tile-top">
+          <span class="micro tile-cat">Top product</span>
+          <span class="tile-tier tier-s">Tier S</span>
+        </div>
+        <div class="tile-title serif">Premium Detergent 1kg</div>
+        <div class="tile-primary">
+          <div class="tile-value-block">
+            <div class="k">Units sold this month</div>
+            <div class="tile-value num-lead" data-count="340">0</div>
+          </div>
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36">
+              <circle class="ring-bg" cx="18" cy="18" r="15.5" stroke-width="2.4"/>
+              <circle class="ring-fg" cx="18" cy="18" r="15.5" stroke-width="2.4" stroke="var(--tier-s)" data-ring="62"/>
+            </svg>
+            <div class="ring-lbl">12%</div>
+          </div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-meta">
+            <span class="micro">6-month trend</span>
+            <span class="trend-pct up">+18.0%</span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 220 44" preserveAspectRatio="none">
+            <defs><linearGradient id="gS4" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="var(--tier-s)" stop-opacity="0.22"/>
+              <stop offset="1" stop-color="var(--tier-s)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path class="fill" d="M0,30 L22,26 L44,24 L66,28 L88,22 L110,20 L132,24 L154,16 L176,12 L198,14 L220,10 L220,44 L0,44 Z" fill="url(#gS4)"/>
+            <path class="line" d="M0,30 L22,26 L44,24 L66,28 L88,22 L110,20 L132,24 L154,16 L176,12 L198,14 L220,10" stroke="var(--tier-s)"/>
+          </svg>
+        </div>
+        <div class="tile-verdict">Reliable mover — twelve percent of the whole month.</div>
+      </article>
+
+      <!-- 9. DEAD STOCK -->
+      <article class="tile reveal" data-delay="9">
+        <div class="tile-top">
+          <span class="micro tile-cat">Dead stock</span>
+          <span class="tile-tier tier-c">Tier C</span>
+        </div>
+        <div class="tile-title serif">Inventory with no movement</div>
+        <div class="tile-primary">
+          <div class="tile-value-block">
+            <div class="k">Locked value</div>
+            <div class="tile-value num-lead" data-count="42300">₹0</div>
+          </div>
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36">
+              <circle class="ring-bg" cx="18" cy="18" r="15.5" stroke-width="2.4"/>
+              <circle class="ring-fg" cx="18" cy="18" r="15.5" stroke-width="2.4" stroke="var(--tier-c)" data-ring="8"/>
+            </svg>
+            <div class="ring-lbl">8%</div>
+          </div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-meta">
+            <span class="micro">Idle items</span>
+            <span class="trend-pct flat num">12 · 90+ days</span>
+          </div>
+          <svg class="sparkline" viewBox="0 0 220 44" preserveAspectRatio="none">
+            <defs><linearGradient id="gC2" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stop-color="var(--tier-c)" stop-opacity="0.22"/>
+              <stop offset="1" stop-color="var(--tier-c)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path class="fill" d="M0,22 L22,22 L44,22 L66,22 L88,22 L110,22 L132,22 L154,22 L176,22 L198,22 L220,22 L220,44 L0,44 Z" fill="url(#gC2)"/>
+            <path class="line" d="M0,22 L22,22 L44,22 L66,22 L88,22 L110,22 L132,22 L154,22 L176,22 L198,22 L220,22" stroke="var(--tier-c)"/>
+          </svg>
+        </div>
+        <div class="tile-verdict">Twelve items untouched for three months — consider a clearance.</div>
+      </article>
+
+    </section>
+
+    <!-- Recent activity ribbon -->
+    <section class="ribbon">
+      <div class="ribbon-head reveal" data-delay="3">
+        <h3 class="serif">The day <span class="em">in motion.</span></h3>
+        <a>view full journal &rarr;</a>
+      </div>
+
+      <div class="ribbon-list">
+        <div class="ribbon-row reveal" data-delay="3">
+          <div class="time">14:22</div>
+          <div>
+            <div class="type sale">Sale · 0017</div>
+            <div class="who serif">Aadil</div>
+          </div>
+          <div class="detail serif">Premium Detergent &times; 24 · 2 more</div>
+          <div class="detail serif">Partial payment · ₹1,928 cash</div>
+          <div class="amt">3,896.00</div>
+          <div class="status part">Partial</div>
+        </div>
+
+        <div class="ribbon-row reveal" data-delay="4">
+          <div class="time">13:51</div>
+          <div>
+            <div class="type rcpt">Receipt · REC-011</div>
+            <div class="who serif">Aadil</div>
+          </div>
+          <div class="detail serif">Clearing three bills · on-account ₹1,256</div>
+          <div class="detail serif">Cash received</div>
+          <div class="amt">6,896.00</div>
+          <div class="status paid">Posted</div>
+        </div>
+
+        <div class="ribbon-row reveal" data-delay="5">
+          <div class="time">13:40</div>
+          <div>
+            <div class="type purc">Purchase · P0042</div>
+            <div class="who serif">Ansari</div>
+          </div>
+          <div class="detail serif">Detergent &amp; hair oil restock · 14 lines</div>
+          <div class="detail serif">Partial · due 25-Apr</div>
+          <div class="amt">23,200.00</div>
+          <div class="status part">Partial</div>
+        </div>
+
+        <div class="ribbon-row reveal" data-delay="6">
+          <div class="time">12:32</div>
+          <div>
+            <div class="type pmt">Payment · PAY-008</div>
+            <div class="who serif">Metro Wholesale</div>
+          </div>
+          <div class="detail serif">Clearing invoice P0041</div>
+          <div class="detail serif">Bank transfer · UTR 890234</div>
+          <div class="amt">56,000.00</div>
+          <div class="status paid">Posted</div>
+        </div>
+
+        <div class="ribbon-row reveal" data-delay="7">
+          <div class="time">11:20</div>
+          <div>
+            <div class="type sale">Sale · 0012</div>
+            <div class="who serif">Sunar Store</div>
+          </div>
+          <div class="detail serif">Mixed order · 9 lines</div>
+          <div class="detail serif">Credit · due 18-May</div>
+          <div class="amt">24,200.00</div>
+          <div class="status due">Unpaid</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="foot">
+      Billing ERP &nbsp;·&nbsp; <span class="num">v1.0.0</span> &nbsp;·&nbsp; every bill, accounted for.
+    </div>
+
+  </main>
+</div>
+
+<script>
+  /* ── Theme toggle ─────────────────────────────────────── */
+  const L = document.getElementById('btn-light');
+  const D = document.getElementById('btn-dark');
+  L.onclick = () => { document.body.dataset.mode = 'light'; L.classList.add('on'); D.classList.remove('on'); };
+  D.onclick = () => { document.body.dataset.mode = 'dark';  D.classList.add('on'); L.classList.remove('on'); };
+
+  /* ── Rings animate to their target value after layout ──── */
+  // For a 15.5-radius circle, full circumference ≈ 97.39
+  const RING_C = 2 * Math.PI * 15.5;
+  document.querySelectorAll('.ring-fg').forEach(el => {
+    const target = parseFloat(el.dataset.ring) || 0;
+    el.setAttribute('stroke-dasharray', RING_C.toFixed(2));
+    el.setAttribute('stroke-dashoffset', RING_C.toFixed(2));
+    // trigger after a tick so the transition runs
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const off = RING_C * (1 - target / 100);
+        el.setAttribute('stroke-dashoffset', off.toFixed(2));
+      });
+    });
+  });
+
+  /* ── Reveal on scroll ─────────────────────────────────── */
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) e.target.classList.add('in');
+  }, { threshold: 0.08 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  /* ── Count-up big numbers when tile enters viewport ────── */
+  const counted = new WeakSet();
+  const countIO = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const el = e.target;
+      if (counted.has(el)) continue;
+      counted.add(el);
+
+      const target = parseFloat(el.dataset.count) || 0;
+      const prefix = el.textContent.replace(/\d+|\.|,|0+/g, '').trim(); // keep ₹ if present
+      const isRupee = prefix === '₹';
+      const start = performance.now();
+      const dur = 1100;
+
+      const fmt = (n) => {
+        const v = isRupee
+          ? '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 })
+          : Math.round(n).toLocaleString('en-IN');
+        return v;
+      };
+
+      function tick(t) {
+        const p = Math.min(1, (t - start) / dur);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = fmt(target * eased);
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+  }, { threshold: 0.3 });
+
+  document.querySelectorAll('[data-count]').forEach(el => countIO.observe(el));
+</script>
+
+</body>
+</html>

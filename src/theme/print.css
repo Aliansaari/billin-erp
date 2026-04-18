@@ -1,0 +1,66 @@
+/* ===========================================================================
+ * Print overrides — paper output is ALWAYS light-on-white regardless of the
+ * active UI theme. Without this, a user printing an invoice while in dark
+ * mode would waste toner on a near-black page, and thermal printers don't
+ * render transparency or backdrop-filter at all.
+ * ========================================================================== */
+
+@media print {
+  :root {
+    /* Force every theme variable to its light-mode equivalent. The browser
+       overrides these cascading up through the DOM so any child element
+       reading `var(--bg-*)` or `var(--fg-*)` renders as light-on-white. */
+    --bg-app:        #ffffff !important;
+    --bg-panel:      #ffffff !important;
+    --bg-elevated:   #ffffff !important;
+    --bg-muted:      #ffffff !important;
+    --bg-hover:      #ffffff !important;
+    --bg-selected:   #ffffff !important;
+
+    --fg-primary:    #000000 !important;
+    --fg-secondary:  #333333 !important;
+    --fg-tertiary:   #555555 !important;
+    --fg-inverse:    #ffffff !important;
+
+    --border:        #d0d0d0 !important;
+    --border-subtle: #ececec !important;
+    --border-strong: #a0a0a0 !important;
+
+    --shadow-sm:     none !important;
+    --shadow-md:     none !important;
+    --shadow-lg:     none !important;
+
+    --blur:          0 !important;
+    --glass-tint:    #ffffff !important;
+
+    color-scheme: light !important;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Disable blur and ambient aurora on print */
+  body::before { display: none !important; }
+
+  .erp-glass,
+  .erp-glass-card,
+  .erp-glass-header,
+  .erp-glass-sidebar {
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    border-color: #d0d0d0 !important;
+  }
+
+  /* Hide non-printable chrome by convention */
+  .erp-no-print,
+  .ant-back-top,
+  .ant-drawer,
+  .ant-message,
+  .ant-notification {
+    display: none !important;
+  }
+}

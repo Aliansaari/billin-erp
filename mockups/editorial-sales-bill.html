@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sales Bill — Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/*
+ * Editorial Sales Bill
+ *
+ * Inspired by the warm cream + serif editorial style the user shared.
+ * Light mode by default (the 12h use case) with a toggle to see dark.
+ *
+ * — Palette —
+ *   Light  : #F5EFE3 canvas · #FDFAF2 cards · #1D1A15 ink · #B1472F accent
+ *   Dark   : #0E0B08 canvas · #1A1713 cards · #F5EEE2 ink · #E26A4C accent
+ *
+ * — Type —
+ *   Fraunces (serif, opsz 9..144)  — display / headings / italic leads
+ *   Inter   (sans)                 — UI chrome, body text, labels
+ *   JetBrains Mono                 — numeric columns ONLY (tabular)
+ *
+ * — Density —
+ *   42px input / 48px table row / 44px primary action. Comfortable for
+ *   daily work, not so tight the eye has to strain.
+ *
+ * — Motion —
+ *   On-scroll fade-up via IntersectionObserver (.reveal → .in).
+ *   Net total does a count-up from 0 on load (attention, not showmanship).
+ */
+
+:root {
+  /* Light (cream) */
+  --bg:          #F5EFE3;
+  --bg-card:     #FDFAF2;
+  --bg-sub:      #EEE6D3;
+  --bg-inset:    #F8F2E4;
+  --ink:         #1D1A15;
+  --ink-2:       #6D5F4E;
+  --ink-3:       #9B8F7E;
+  --ink-4:       #C9BFA8;
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-soft: #F3D9CE;
+  --accent-ink:  #7A2F1E;
+
+  --gold:        #B8923C;
+  --gold-soft:   #F3E4C2;
+  --green:       #7A9660;
+  --green-soft:  #DDEAD0;
+  --red:         #B1472F;
+  --red-soft:    #F3D9CE;
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-card:     #1A1713;
+  --bg-sub:      #14110D;
+  --bg-inset:    #211C16;
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+
+  --accent:      #E26A4C;
+  --accent-soft: rgba(226,106,76,0.14);
+  --accent-ink:  #E26A4C;
+
+  --gold:        #D4A574;
+  --gold-soft:   rgba(212,165,116,0.14);
+  --green:       #94B885;
+  --green-soft:  rgba(148,184,133,0.14);
+  --red:         #E26A4C;
+  --red-soft:    rgba(226,106,76,0.14);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  transition: background .25s ease, color .25s ease;
+}
+.serif { font-family: 'Fraunces', Georgia, serif; font-optical-sizing: auto; letter-spacing: -0.01em; }
+.num   { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+.lbl {
+  font-size: 10.5px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.ital { font-style: italic; }
+
+/* ──────── App frame ──────── */
+.app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+/* Sidebar */
+.sidebar {
+  background: var(--bg-sub);
+  border-right: 1px solid var(--rule);
+  padding: 22px 14px 28px;
+  position: sticky; top: 0; height: 100vh;
+}
+.sb-brand {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 4px 10px 20px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 16px;
+}
+.sb-brand .mark {
+  font-family: 'Fraunces', serif;
+  font-size: 26px; font-weight: 600;
+  color: var(--accent);
+  line-height: 1;
+}
+.sb-brand .name {
+  font-family: 'Fraunces', serif;
+  font-size: 18px; font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.sb-sec {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.8px;
+  color: var(--ink-3);
+  padding: 16px 12px 6px;
+  font-style: italic;
+  font-family: 'Fraunces', serif;
+  font-weight: 400;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 6px;
+  color: var(--ink-2); font-size: 14px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.sb-item:hover { background: var(--bg-card); color: var(--ink); }
+.sb-item.active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+.sb-item .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--ink-4);
+  flex-shrink: 0;
+}
+.sb-item.active .dot { background: var(--accent); }
+
+/* Mode toggle */
+.toggle {
+  margin-top: auto;
+  display: flex; gap: 4px;
+  padding: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 99px;
+  font-size: 12px;
+}
+.toggle button {
+  flex: 1;
+  padding: 6px 10px;
+  border: none; background: transparent;
+  font-family: inherit; color: var(--ink-2);
+  cursor: pointer; border-radius: 99px;
+  transition: all .15s;
+}
+.toggle button.on { background: var(--accent); color: #FDFAF2; }
+
+/* Main area */
+.main {
+  min-width: 0;
+  padding: 0;
+  display: flex; flex-direction: column;
+}
+
+/* Thin top crumb — editorial convention */
+.crumb-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 40px 0;
+  font-size: 11px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.crumb-bar b { color: var(--ink); font-weight: 600; }
+.crumb-bar .kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 3px 7px;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  letter-spacing: 0;
+  color: var(--ink-2);
+  text-transform: none;
+}
+
+/* Hero */
+.hero {
+  padding: 28px 40px 8px;
+}
+.hero h1 {
+  font-family: 'Fraunces', serif;
+  font-size: clamp(44px, 5vw, 64px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  color: var(--ink);
+}
+.hero h1 .num-big { font-weight: 500; }
+.hero .sub {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-size: 17px;
+  color: var(--ink-2);
+  margin-top: 8px;
+}
+
+/* Section grids */
+.content { padding: 8px 40px 40px; display: flex; flex-direction: column; gap: 28px; }
+
+/* Card */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  overflow: hidden;
+}
+
+/* Customer card — editorial "about this party" block */
+.customer-card { padding: 28px 32px; }
+.customer-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 300px;
+  gap: 32px;
+  align-items: stretch;
+}
+.customer-name {
+  font-family: 'Fraunces', serif;
+  font-size: 36px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: var(--ink);
+}
+.customer-city {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  color: var(--ink-2);
+  font-size: 16px;
+  margin-top: 4px;
+}
+.customer-prose {
+  font-family: 'Fraunces', serif;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  margin-top: 16px;
+  max-width: 520px;
+}
+.customer-prose b { color: var(--ink); font-family: 'Fraunces', serif; font-weight: 600; }
+.customer-prose .num { color: var(--ink); }
+.customer-prose .pos { color: var(--green); font-weight: 500; }
+
+.balance-well {
+  padding: 20px 22px;
+  background: var(--bg-inset);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.balance-well .row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 3px 0;
+}
+.balance-well .k {
+  font-size: 11px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.balance-well .v {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.balance-well .v.pos { color: var(--green); }
+.balance-well .sparkline {
+  height: 36px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.pill {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.pill.s { background: var(--accent); color: #FDFAF2; }
+.pill.a { background: var(--gold); color: #FDFAF2; }
+.pill.b { background: var(--green); color: #FDFAF2; }
+.pill-soft { padding: 2px 8px; font-size: 11px; font-weight: 500; border-radius: 4px; }
+.pill-soft.ok    { background: var(--green-soft); color: var(--green); }
+.pill-soft.part  { background: var(--gold-soft);  color: var(--gold); }
+.pill-soft.due   { background: var(--red-soft);   color: var(--red); }
+
+/* Items card */
+.items-card .head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 24px 32px 10px;
+}
+.items-card .head h2 {
+  font-family: 'Fraunces', serif;
+  font-size: 26px; font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+.items-card .head .meta {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+/* Entry */
+.entry {
+  padding: 14px 32px 20px;
+  border-bottom: 1px solid var(--rule-soft);
+  display: grid;
+  grid-template-columns: 1fr 2fr 90px 110px 80px 80px 80px auto;
+  gap: 12px;
+  align-items: end;
+}
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.input, select.input {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+  transition: border-color .15s, background .15s;
+}
+.input.num-in { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; text-align: right; }
+.input:hover  { border-color: var(--ink-4); }
+.input:focus  { border-color: var(--accent); background: var(--bg-card); box-shadow: 0 0 0 3px var(--accent-soft); }
+.input::placeholder { color: var(--ink-3); font-style: italic; }
+
+.btn {
+  height: 42px;
+  padding: 0 18px;
+  background: var(--bg-inset);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+  transition: all .15s;
+}
+.btn:hover { background: var(--bg-card); border-color: var(--ink-4); transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+.btn-primary {
+  height: 46px;
+  padding: 0 22px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FDFAF2;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.btn-primary:hover { filter: brightness(1.05); box-shadow: 0 4px 14px rgba(177,71,47,0.25); }
+.kbd {
+  display: inline-flex; align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px; font-weight: 500;
+  color: var(--ink-2);
+  letter-spacing: 0;
+}
+.btn-primary .kbd { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.24); color: #FDFAF2; }
+
+/* Items table */
+.items-wrap { overflow: auto; }
+table.items { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.items thead th {
+  position: sticky; top: 0;
+  background: var(--bg-card);
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0.3px;
+  color: var(--ink-3);
+  text-align: left;
+  padding: 14px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+table.items thead th.r { text-align: right; }
+table.items tbody td {
+  padding: 16px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--ink);
+  vertical-align: middle;
+}
+table.items tbody tr:hover td { background: var(--bg-inset); }
+table.items td.dim { color: var(--ink-3); }
+table.items td.num-col { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; text-align: right; }
+table.items td.product { font-weight: 500; }
+table.items td .cell-input {
+  width: 100%; border: 1px solid transparent;
+  background: transparent;
+  text-align: right;
+  font: inherit;
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: inherit; outline: none;
+}
+table.items td .cell-input:hover { border-color: var(--rule); }
+table.items td .cell-input:focus { border-color: var(--accent); background: var(--bg-card); box-shadow: 0 0 0 3px var(--accent-soft); }
+table.items td .del {
+  width: 28px; height: 28px; border-radius: 5px;
+  background: transparent; border: none;
+  color: var(--ink-4); cursor: pointer;
+  font-size: 18px; line-height: 1;
+  transition: all .15s;
+}
+table.items td .del:hover { background: var(--red-soft); color: var(--red); }
+.amt-lead { font-weight: 600; color: var(--ink); font-size: 15px; }
+
+/* Bottom grid */
+.bottom-grid { display: grid; grid-template-columns: 1fr 400px; gap: 24px; }
+
+/* Stats + actions */
+.stats-card { padding: 26px 28px; display: flex; flex-direction: column; gap: 20px; }
+.stats-card h3 {
+  font-family: 'Fraunces', serif;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.stats-prose {
+  font-family: 'Fraunces', serif;
+  font-size: 16px;
+  font-style: italic;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.stats-prose .num {
+  color: var(--ink);
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-style: normal;
+  font-weight: 500;
+  margin: 0 2px;
+}
+.stats-tiles { display: flex; gap: 16px; }
+.stat-tile {
+  flex: 1;
+  padding: 14px 16px;
+  background: var(--bg-inset);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+.stat-tile .k { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink-3); font-weight: 500; margin-bottom: 6px; }
+.stat-tile .v {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 22px; color: var(--ink); font-weight: 500;
+}
+.actions { margin-top: auto; display: flex; gap: 10px; align-items: center; }
+.actions .grow { flex: 1; }
+
+/* Totals — editorial scorecard */
+.totals-card { padding: 26px 28px; }
+.totals-card h3 {
+  font-family: 'Fraunces', serif;
+  font-size: 20px; font-weight: 500;
+  letter-spacing: -0.01em;
+  margin-bottom: 14px;
+}
+.t-list { display: flex; flex-direction: column; }
+.t-row {
+  display: grid; grid-template-columns: 1fr auto;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--rule-soft);
+  align-items: baseline;
+}
+.t-row:last-child { border-bottom: none; }
+.t-row .k {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  color: var(--ink-2);
+  font-size: 14.5px;
+}
+.t-row .v {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
+}
+.t-row.mini .k, .t-row.mini .v { font-size: 13px; }
+.t-row.mini .v { color: var(--ink-2); }
+
+.t-input-row {
+  display: grid; grid-template-columns: 1fr 130px;
+  padding: 7px 0;
+  align-items: center;
+  gap: 10px;
+}
+.t-input-row.sm { grid-template-columns: 1fr 60px 90px; }
+.t-input-row .k { font-family: 'Fraunces', serif; font-style: italic; color: var(--ink-2); font-size: 14.5px; }
+.t-input-row .input { height: 34px; padding: 0 10px; text-align: right; font-size: 13.5px; }
+
+.t-net {
+  margin: 16px 0 14px;
+  padding: 20px 24px;
+  background: var(--bg-inset);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  display: grid; grid-template-columns: 1fr auto;
+  align-items: baseline;
+}
+.t-net .k {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-size: 15px;
+  color: var(--ink-3);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  font-style: normal;
+  font-weight: 500;
+}
+.t-net .v {
+  font-family: 'Fraunces', serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  font-size: 40px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.balance-badge {
+  margin-top: 14px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--red-soft);
+  border: 1px solid color-mix(in srgb, var(--red) 24%, transparent);
+}
+.balance-badge .k {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  color: var(--red);
+  font-size: 15px;
+}
+.balance-badge .v {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 22px; font-weight: 600;
+  color: var(--red);
+}
+
+/* ──────── Motion ──────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1);
+}
+.reveal.in { opacity: 1; transform: translateY(0); }
+.reveal[data-delay="1"] { transition-delay: .06s; }
+.reveal[data-delay="2"] { transition-delay: .12s; }
+.reveal[data-delay="3"] { transition-delay: .18s; }
+.reveal[data-delay="4"] { transition-delay: .24s; }
+
+/* Small-caps micro label helper */
+.micro {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.8px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
+</style>
+</head>
+<body data-mode="light">
+
+<div class="app">
+
+  <!-- ── Sidebar ─────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="mark">E.</div>
+      <div class="name">Billing ERP</div>
+    </div>
+
+    <div class="sb-sec">Transact</div>
+    <div class="sb-item active"><span class="dot"></span> New sales bill</div>
+    <div class="sb-item"><span class="dot"></span> Sales list</div>
+    <div class="sb-item"><span class="dot"></span> New purchase bill</div>
+    <div class="sb-item"><span class="dot"></span> Purchase list</div>
+    <div class="sb-item"><span class="dot"></span> Receipts &amp; payments</div>
+
+    <div class="sb-sec">Masters</div>
+    <div class="sb-item"><span class="dot"></span> Customers</div>
+    <div class="sb-item"><span class="dot"></span> Suppliers</div>
+    <div class="sb-item"><span class="dot"></span> Products</div>
+    <div class="sb-item"><span class="dot"></span> Stock report</div>
+
+    <div class="sb-sec">Insight</div>
+    <div class="sb-item"><span class="dot"></span> Reports</div>
+    <div class="sb-item"><span class="dot"></span> Settings</div>
+
+    <div class="toggle">
+      <button id="btn-light" class="on">Light</button>
+      <button id="btn-dark">Dark</button>
+    </div>
+  </aside>
+
+  <!-- ── Main ─────────────────────────────── -->
+  <main class="main">
+
+    <div class="crumb-bar reveal in">
+      <div>Sales &nbsp;›&nbsp; <b>New bill № 0018</b></div>
+      <div>Press <span class="kbd">Ctrl K</span> to navigate</div>
+    </div>
+
+    <header class="hero reveal in">
+      <h1 class="serif">A new bill<span style="color:var(--ink-3); font-style: italic;">,</span> № <span class="num-big">0018</span>.</h1>
+      <div class="sub serif ital">Drafted Friday, 18 April 2026 &nbsp;·&nbsp; provisional until saved</div>
+    </header>
+
+    <div class="content">
+
+      <!-- Customer card — editorial "about this party" -->
+      <section class="card customer-card reveal" data-delay="1">
+        <div class="customer-grid">
+          <div>
+            <div class="micro">Customer</div>
+            <div class="customer-name serif">Aadil</div>
+            <div class="customer-city serif">Hyderabad · retail</div>
+            <div class="customer-prose">
+              On the ledger since <b>March</b>. Phone <b class="num">98765 43210</b>. Current outstanding <b class="num pos">₹1,968.00</b> against <b>14</b> open bills &mdash; credit <b>allowed</b>. No overdue alerts in the last <b>30 days</b>.
+            </div>
+            <div style="display:flex; gap:10px; margin-top:14px;">
+              <span class="pill-soft ok">Credit allowed</span>
+              <span class="pill-soft ok">Regular</span>
+            </div>
+          </div>
+
+          <div class="balance-well">
+            <div class="row">
+              <span class="k">Outstanding</span>
+              <span class="v pos">₹1,968.00</span>
+            </div>
+            <div class="row">
+              <span class="k">14 days avg</span>
+              <span class="v">₹3,840.00</span>
+            </div>
+            <div class="row">
+              <span class="k">Open bills</span>
+              <span class="v">14</span>
+            </div>
+
+            <div class="micro" style="margin-top:6px;">Last 30 days</div>
+            <svg class="sparkline" viewBox="0 0 220 40" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="sg1" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="var(--accent)" stop-opacity="0.22"/>
+                  <stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path d="M0,28 L20,26 L40,24 L60,22 L80,18 L100,20 L120,16 L140,12 L160,14 L180,10 L200,14 L220,8 L220,40 L0,40 Z" fill="url(#sg1)"/>
+              <path d="M0,28 L20,26 L40,24 L60,22 L80,18 L100,20 L120,16 L140,12 L160,14 L180,10 L200,14 L220,8" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- bill meta row -->
+        <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 24px; padding-top:24px; border-top: 1px solid var(--rule-soft);">
+          <div class="field">
+            <div class="micro">Bill number</div>
+            <input class="input num-in" value="0018" readonly style="text-align:left;" />
+          </div>
+          <div class="field">
+            <div class="micro">Date</div>
+            <input class="input num-in" value="18-04-2026" style="text-align:left;" />
+          </div>
+          <div class="field">
+            <div class="micro">Salesperson</div>
+            <input class="input" value="Imran" />
+          </div>
+          <div class="field">
+            <div class="micro">Sale type</div>
+            <select class="input"><option>Retail</option><option>Wholesale</option></select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Items card -->
+      <section class="card items-card reveal" data-delay="2">
+        <div class="head">
+          <h2 class="serif">Items<span style="color:var(--ink-3); font-style: italic;"> &nbsp;— on this bill</span></h2>
+          <div class="meta serif ital">3 items · 42 units · 0 boxes</div>
+        </div>
+
+        <!-- entry -->
+        <div class="entry">
+          <div class="field">
+            <div class="micro">Category</div>
+            <select class="input"><option>All categories</option></select>
+          </div>
+          <div class="field">
+            <div class="micro">Product — scan or search</div>
+            <input class="input" placeholder="Scan barcode or type product name…" autofocus />
+          </div>
+          <div class="field"><div class="micro">Qty</div><input class="input num-in" placeholder="0" /></div>
+          <div class="field"><div class="micro">Rate ₹</div><input class="input num-in" placeholder="0.00" /></div>
+          <div class="field"><div class="micro">Disc %</div><input class="input num-in" value="0" /></div>
+          <div class="field"><div class="micro">GST %</div><input class="input num-in" value="18" /></div>
+          <div class="field"><div class="micro">Unit</div><select class="input"><option>Pcs</option></select></div>
+          <div>
+            <button class="btn btn-primary">+ Add line <span class="kbd">Enter</span></button>
+          </div>
+        </div>
+
+        <div class="items-wrap">
+          <table class="items">
+            <thead>
+              <tr>
+                <th style="width:38px;">№</th>
+                <th style="width:130px;">Barcode</th>
+                <th>Product</th>
+                <th style="width:72px;">Size</th>
+                <th style="width:60px;">Unit</th>
+                <th class="r" style="width:80px;">Qty</th>
+                <th class="r" style="width:100px;">Rate ₹</th>
+                <th class="r" style="width:72px;">Disc %</th>
+                <th class="r" style="width:72px;">GST %</th>
+                <th class="r" style="width:120px;">Amount ₹</th>
+                <th style="width:44px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="dim">1</td>
+                <td class="dim num-col" style="text-align:left;">890123000101</td>
+                <td class="product">Premium Detergent 1kg</td>
+                <td class="dim ital serif">1 kg</td>
+                <td class="dim">Pcs</td>
+                <td class="num-col"><input class="cell-input" value="24" /></td>
+                <td class="num-col"><input class="cell-input" value="180.00" /></td>
+                <td class="num-col"><input class="cell-input" value="5" /></td>
+                <td class="num-col"><input class="cell-input" value="18" /></td>
+                <td class="num-col amt-lead">4,838.40</td>
+                <td><button class="del">×</button></td>
+              </tr>
+              <tr>
+                <td class="dim">2</td>
+                <td class="dim num-col" style="text-align:left;">890123000218</td>
+                <td class="product">Hair Oil 200ml</td>
+                <td class="dim ital serif">200 ml</td>
+                <td class="dim">Pcs</td>
+                <td class="num-col"><input class="cell-input" value="12" /></td>
+                <td class="num-col"><input class="cell-input" value="95.00" /></td>
+                <td class="num-col"><input class="cell-input" value="0" /></td>
+                <td class="num-col"><input class="cell-input" value="18" /></td>
+                <td class="num-col amt-lead">1,345.20</td>
+                <td><button class="del">×</button></td>
+              </tr>
+              <tr>
+                <td class="dim">3</td>
+                <td class="dim num-col" style="text-align:left;">890123000334</td>
+                <td class="product">Toothpaste 150g</td>
+                <td class="dim ital serif">150 g</td>
+                <td class="dim">Pcs</td>
+                <td class="num-col"><input class="cell-input" value="6" /></td>
+                <td class="num-col"><input class="cell-input" value="72.00" /></td>
+                <td class="num-col"><input class="cell-input" value="0" /></td>
+                <td class="num-col"><input class="cell-input" value="18" /></td>
+                <td class="num-col amt-lead">509.76</td>
+                <td><button class="del">×</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Bottom -->
+      <div class="bottom-grid">
+
+        <section class="card stats-card reveal" data-delay="3">
+          <h3 class="serif">Summary</h3>
+          <div class="stats-prose">
+            Three items priced at <span class="num">₹6,350.00</span> taxable. GST adds <span class="num">₹1,143.00</span> — net total <span class="num">₹7,493.16</span>. The customer will owe <span class="num">₹1,993.16</span> after receiving <span class="num">₹5,500.00</span> in cash today.
+          </div>
+
+          <div class="stats-tiles">
+            <div class="stat-tile"><div class="k">Items</div><div class="v">3</div></div>
+            <div class="stat-tile"><div class="k">Total qty</div><div class="v">42</div></div>
+            <div class="stat-tile"><div class="k">Boxes</div><div class="v">0</div></div>
+          </div>
+
+          <div class="actions">
+            <button class="btn">Back <span class="kbd">Esc</span></button>
+            <button class="btn">Reset <span class="kbd">F5</span></button>
+            <button class="btn">Save on credit <span class="kbd">F8</span></button>
+            <span class="grow"></span>
+            <button class="btn btn-primary">Save &amp; receive <span class="kbd">F1</span></button>
+          </div>
+        </section>
+
+        <section class="card totals-card reveal" data-delay="4">
+          <h3 class="serif">Totals</h3>
+          <div class="t-list">
+            <div class="t-row"><span class="k">Taxable value</span><span class="v">6,350.00</span></div>
+            <div class="t-row mini"><span class="k">CGST 9%</span><span class="v">571.50</span></div>
+            <div class="t-row mini"><span class="k">SGST 9%</span><span class="v">571.50</span></div>
+            <div class="t-row mini"><span class="k">IGST 0%</span><span class="v">0.00</span></div>
+            <div class="t-row"><span class="k">Total GST</span><span class="v" style="color:var(--gold);">1,143.00</span></div>
+
+            <div class="t-input-row sm">
+              <span class="k">Bill discount</span>
+              <input class="input num-in" value="0" />
+              <input class="input num-in" value="0.00" />
+            </div>
+            <div class="t-input-row"><span class="k">Other charges</span><input class="input num-in" value="0.00" /></div>
+          </div>
+
+          <div class="t-net">
+            <div class="k">Net total</div>
+            <div class="v" id="netTotal">0.00</div>
+          </div>
+
+          <div class="t-list">
+            <div class="t-input-row"><span class="k">Payment mode</span><select class="input" style="height:34px;"><option>Cash</option></select></div>
+            <div class="t-input-row"><span class="k">Cash received</span><input class="input num-in" value="5,500.00" /></div>
+            <div class="t-input-row"><span class="k">Amount paid</span><input class="input num-in" value="5,500.00" /></div>
+          </div>
+
+          <div class="balance-badge">
+            <span class="k">Balance due</span>
+            <span class="v">₹ 1,993.16</span>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- Quiet footer, editorial signature -->
+      <div class="reveal" data-delay="4" style="padding: 18px 2px; text-align: center; font-family: 'Fraunces', serif; font-style: italic; font-size: 13px; color: var(--ink-3);">
+        Billing ERP &nbsp;· &nbsp;<span class="num">v1.0.0</span>&nbsp; · &nbsp;every bill, accounted for.
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+  // — Theme toggle —
+  const L = document.getElementById('btn-light');
+  const D = document.getElementById('btn-dark');
+  L.onclick = () => { document.body.dataset.mode = 'light'; L.classList.add('on'); D.classList.remove('on'); };
+  D.onclick = () => { document.body.dataset.mode = 'dark';  D.classList.add('on'); L.classList.remove('on'); };
+
+  // — On-scroll reveal —
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) e.target.classList.add('in');
+  }, { threshold: 0.08 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  // — Count up Net Total on load (attention, not showmanship) —
+  (function () {
+    const el = document.getElementById('netTotal');
+    const target = 7493.16;
+    const start = performance.now();
+    const dur = 1100;
+    const fmt = n => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    function tick(t) {
+      const p = Math.min(1, (t - start) / dur);
+      const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      el.textContent = fmt(target * eased);
+      if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  })();
+</script>
+
+</body>
+</html>

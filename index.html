@@ -8,6 +8,27 @@
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
     </style>
+    <!-- Pre-paint theme: reads the persisted Zustand store BEFORE React mounts
+         and stamps data-theme on <html>. Without this, the first frame renders
+         in default Classic-Light and then flickers to whatever the user picked
+         — a flash of unstyled theme. This keeps first paint correct. -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('erp-theme');
+          var state = raw ? JSON.parse(raw).state : null;
+          var style = (state && state.themeStyle === 'modern') ? 'modern' : 'classic';
+          var app   = (state && state.appearance) ? state.appearance : 'system';
+          if (app === 'system') {
+            app = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+              ? 'dark' : 'light';
+          }
+          document.documentElement.dataset.theme = style + '-' + app;
+        } catch (_) {
+          document.documentElement.dataset.theme = 'classic-light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

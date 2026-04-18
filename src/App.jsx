@@ -30,6 +30,7 @@ import UserManagement from './pages/settings/UserManagement';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
 import ModuleSettings from './pages/settings/ModuleSettings';
 import BackupRestore from './pages/settings/BackupRestore';
+import ThemeSettings from './pages/settings/ThemeSettings';
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -122,6 +123,7 @@ export default function App() {
           <Route path="settings/barcode" element={<BarcodeSettingsPage />} />
           <Route path="settings/modules" element={<ModuleSettings />} />
           <Route path="settings/backup" element={<BackupRestore />} />
+          <Route path="settings/theme" element={<ThemeSettings />} />
         </Route>
       </Routes>
     </>

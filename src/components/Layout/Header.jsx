@@ -25,21 +25,24 @@ export default function AppHeader({ collapsed, setCollapsed }) {
     navigate('/login');
   };
 
+  // Avatar background is role-coded — stays vivid across themes so an admin
+  // stays recognisable in both Light and Dark modes. These tones are tuned
+  // to stay legible against both light and dark surface backgrounds.
   const roleColors = {
-    'Admin': '#4F46E5',
-    'Manager': '#7C3AED',
-    'Cashier': '#10B981',
+    'Admin':           '#4F46E5',
+    'Manager':         '#7C3AED',
+    'Cashier':         '#10B981',
     'Inventory Staff': '#F59E0B',
-    'Accountant': '#3B82F6',
+    'Accountant':      '#3B82F6',
   };
 
   const userMenuItems = [
     {
       key: 'user-info',
       label: (
-        <div style={{ padding: '4px 0', borderBottom: '1px solid #f0f0f0', marginBottom: 4, pointerEvents: 'none' }}>
-          <div style={{ fontWeight: 600, color: '#1f2937' }}>{user?.full_name || 'User'}</div>
-          <div style={{ fontSize: 12, color: '#6b7280' }}>{user?.role || 'Admin'}</div>
+        <div style={{ padding: '4px 0', borderBottom: '1px solid var(--border-subtle)', marginBottom: 4, pointerEvents: 'none' }}>
+          <div style={{ fontWeight: 600, color: 'var(--fg-primary)' }}>{user?.full_name || 'User'}</div>
+          <div style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>{user?.role || 'Admin'}</div>
         </div>
       ),
       disabled: true,
@@ -67,10 +70,9 @@ export default function AppHeader({ collapsed, setCollapsed }) {
           type="text"
           icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           onClick={() => setCollapsed(!collapsed)}
-          style={{ fontSize: 18, width: 40, height: 40 }}
+          style={{ fontSize: 18, width: 40, height: 40, color: 'var(--fg-secondary)' }}
         />
         <div className="erp-header-shortcuts" style={{
-          color: '#9ca3af',
           fontSize: 13,
           display: 'flex',
           alignItems: 'center',
@@ -86,12 +88,12 @@ export default function AppHeader({ collapsed, setCollapsed }) {
 
       <Space size={16} align="center">
         <Tooltip title="Keyboard Shortcuts (Ctrl+Shift+?)">
-          <Button type="text" icon={<QuestionCircleOutlined />} style={{ color: '#6b7280' }} />
+          <Button type="text" icon={<QuestionCircleOutlined />} style={{ color: 'var(--fg-secondary)' }} />
         </Tooltip>
 
         <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
-          <Space style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: 10, transition: 'background 0.2s', }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+          <Space style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: 10, transition: 'background 0.2s' }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
             onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
           >
             <Avatar
@@ -103,10 +105,10 @@ export default function AppHeader({ collapsed, setCollapsed }) {
               }}
             />
             <div style={{ lineHeight: 1.2 }}>
-              <Text strong style={{ display: 'block', fontSize: 13, color: '#1f2937' }}>
+              <Text strong style={{ display: 'block', fontSize: 13, color: 'var(--fg-primary)' }}>
                 {user?.full_name || 'User'}
               </Text>
-              <Text style={{ fontSize: 11, color: '#6b7280' }}>
+              <Text style={{ fontSize: 11, color: 'var(--fg-secondary)' }}>
                 {user?.role || 'Admin'}
               </Text>
             </div>

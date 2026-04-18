@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Layout, Menu } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
+import useThemeStore from '../../store/themeStore';
+import { resolveMode } from '../../theme/tokens';
 import {
   DashboardOutlined,
   ShoppingCartOutlined,
@@ -24,6 +26,7 @@ import {
   ThunderboltOutlined,
   TableOutlined,
   CloudServerOutlined,
+  BgColorsOutlined,
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -97,6 +100,7 @@ const menuItems = [
     children: [
       { key: '/settings/company', icon: <BankOutlined />, label: 'Company Profile' },
       { key: '/settings/users', icon: <UserOutlined />, label: 'Users' },
+      { key: '/settings/theme', icon: <BgColorsOutlined />, label: 'Theme' },
       { key: '/settings/barcode', icon: <TagsOutlined />, label: 'Barcode' },
       { key: '/settings/modules', icon: <ThunderboltOutlined />, label: 'Modules' },
       { key: '/settings/backup', icon: <CloudServerOutlined />, label: 'Backup & Recovery' },
@@ -189,6 +193,16 @@ export default function Sidebar({ collapsed }) {
   const location = useLocation();
   const [openKeys, setOpenKeys] = useState(() => getOpenKeys(location.pathname));
 
+  // Sidebar background is dark for Classic (both variants) and Modern-Dark,
+  // and light/glassy for Modern-Light. AntD Menu's `theme` prop must match
+  // the background brightness — "dark" theme text on a white bg is invisible.
+  const themeStyle = useThemeStore((s) => s.themeStyle);
+  const appearance = useThemeStore((s) => s.appearance);
+  const mode = resolveMode(themeStyle, appearance);
+  // In the warm Modern palette, the sidebar is always dark (Classic pattern),
+  // so AntD Menu stays theme="dark" across both Modern variants.
+  const menuTheme = 'dark';
+
   const handleOpenChange = (keys) => {
     const latest = keys.find(k => !openKeys.includes(k));
     setOpenKeys(latest ? [latest] : []);
@@ -234,7 +248,7 @@ export default function Sidebar({ collapsed }) {
       {!collapsed && (
         <>
           <Menu
-            theme="dark"
+            theme={menuTheme}
             mode="inline"
             selectedKeys={[location.pathname]}
             openKeys={openKeys}

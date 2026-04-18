@@ -1,26 +1,22 @@
 import React, { useState } from 'react';
-import { Form, Input, Button, Typography, message, Alert } from 'antd';
+import { Form, Input, Button, message, Alert } from 'antd';
 import { LockOutlined, SafetyOutlined, LogoutOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../api';
 import useAuthStore from '../store/authStore';
 
-const { Title, Text } = Typography;
-
 /**
- * ChangePassword
+ * ChangePassword — matches the editorial Login aesthetic.
  *
- * Two entry points land here:
- *   1. FORCED (first login with the seeded admin/admin123) — the server sets
- *      `must_change_password` on the login response; PrivateRoute redirects
- *      every route except `/change-password` to this page until the user
- *      rotates the password. Only escape is Sign Out.
- *   2. VOLUNTARY (user menu → "Change Password") — regular flow, Cancel
- *      returns to the previous page.
+ * Two entry points:
+ *   (1) forced  — first login with default admin/admin123 credentials.
+ *                 Only escape is Sign Out.
+ *   (2) voluntary — user menu → Change Password.
  *
- * The form enforces client-side checks (min 8 chars, not the same as the
- * default, confirm match) in addition to the server's bcrypt verification
- * of the current password.
+ * Behavior (preserved from the previous implementation):
+ *   - Validates new ≠ current, min length, blocks common defaults
+ *   - Calls authAPI.changePassword
+ *   - On success: clears flag, logs out, redirects to /login
  */
 export default function ChangePassword() {
   const [loading, setLoading] = useState(false);
@@ -40,11 +36,6 @@ export default function ChangePassword() {
       message.error('New password must be different from the current password.');
       return;
     }
-    // Block the most common default passwords when the server flagged the
-    // account as default-password. The server only knows the seeded default;
-    // this catch stops the user from rotating "admin" → "admin123" or vice
-    // versa, which would technically satisfy "different" but defeat the
-    // purpose of the forced change.
     if (mustChangePassword && /^(admin|admin123|password|123456)$/i.test(new_password)) {
       message.error('Please choose a stronger password — avoid common defaults.');
       return;
@@ -53,9 +44,7 @@ export default function ChangePassword() {
     try {
       await authAPI.changePassword({ current_password, new_password });
       clearMustChangePassword();
-      message.success('Password updated successfully. Please sign in again.');
-      // Always log out after a successful password change so the token
-      // lifecycle is clean — the next login path won't carry the forced flag.
+      message.success('Password updated. Please sign in again.');
       setTimeout(() => {
         logout();
         window.location.href = '/login';
@@ -72,44 +61,31 @@ export default function ChangePassword() {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: mustChangePassword
-        ? 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #312e81 100%)'
-        : '#f8fafc',
-      fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
-      padding: 20,
-    }}>
-      <div style={{
-        width: 440,
-        background: 'white',
-        borderRadius: 16,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
-        overflow: 'hidden',
-      }}>
-        <div style={{ height: 4, background: 'linear-gradient(90deg, #6366f1, #8b5cf6, #a78bfa)' }} />
-        <div style={{ padding: '32px 32px 28px' }}>
-          <div style={{ textAlign: 'center', marginBottom: 20 }}>
+    <div className="erp-login-root">
+      <div className="erp-login-mesh" />
+      <div className="erp-login-grain" />
+
+      <div className="erp-login-stage">
+        <div className="erp-login-card" style={{ maxWidth: 480 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
             <div style={{
-              width: 56, height: 56, borderRadius: 14,
-              background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              marginBottom: 12,
-              boxShadow: '0 8px 24px rgba(79,70,229,0.35)',
+              width: 40, height: 40, borderRadius: 10,
+              background: 'linear-gradient(135deg, #E26A4C, #B1472F)',
+              display: 'grid', placeItems: 'center',
+              boxShadow: '0 6px 18px rgba(226,106,76,0.35)',
             }}>
-              <SafetyOutlined style={{ color: 'white', fontSize: 24 }} />
+              <SafetyOutlined style={{ color: '#FDFAF2', fontSize: 18 }} />
             </div>
-            <Title level={4} style={{ margin: 0, color: '#0f172a' }}>
-              {mustChangePassword ? 'Set a New Password' : 'Change Password'}
-            </Title>
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              {mustChangePassword
-                ? 'For security, change the default password before continuing.'
-                : 'Update your account password.'}
-            </Text>
+            <div>
+              <h2 className="erp-login-h" style={{ fontSize: 26, margin: 0 }}>
+                {mustChangePassword ? 'Set a new password' : 'Change password'}
+              </h2>
+              <div className="erp-login-sub" style={{ margin: 0 }}>
+                {mustChangePassword
+                  ? 'For security, change the default before continuing.'
+                  : 'Update your account password.'}
+              </div>
+            </div>
           </div>
 
           {mustChangePassword && (
@@ -117,35 +93,51 @@ export default function ChangePassword() {
               type="warning"
               showIcon
               message="Default password detected"
-              description="You are signed in with the factory-default admin password. Please set a new password to secure your account."
-              style={{ marginBottom: 20 }}
+              description="You are signed in with the factory-default admin password. Please set a new one to secure your account."
+              style={{
+                marginBottom: 20,
+                background: 'rgba(212, 165, 116, 0.12)',
+                border: '1px solid rgba(212, 165, 116, 0.28)',
+                color: '#F5EEE2',
+              }}
             />
           )}
 
-          <Form form={form} layout="vertical" requiredMark={false} onFinish={onFinish} size="large">
+          <Form form={form} layout="vertical" requiredMark={false} onFinish={onFinish}>
             <Form.Item
               name="current_password"
-              label="Current Password"
+              label={<span className="erp-login-label">Current password</span>}
               rules={[{ required: true, message: 'Enter your current password' }]}
+              style={{ marginBottom: 16 }}
             >
-              <Input.Password prefix={<LockOutlined style={{ color: '#9ca3af' }} />} placeholder="Current password" autoFocus />
+              <Input.Password
+                className="erp-login-input"
+                prefix={<LockOutlined style={{ color: '#8F8372' }} />}
+                placeholder="Current password"
+                autoFocus
+              />
             </Form.Item>
 
             <Form.Item
               name="new_password"
-              label="New Password"
+              label={<span className="erp-login-label">New password</span>}
+              hasFeedback
               rules={[
                 { required: true, message: 'Enter a new password' },
                 { min: 8, message: 'Password must be at least 8 characters' },
               ]}
-              hasFeedback
+              style={{ marginBottom: 16 }}
             >
-              <Input.Password prefix={<LockOutlined style={{ color: '#9ca3af' }} />} placeholder="At least 8 characters" />
+              <Input.Password
+                className="erp-login-input"
+                prefix={<LockOutlined style={{ color: '#8F8372' }} />}
+                placeholder="At least 8 characters"
+              />
             </Form.Item>
 
             <Form.Item
               name="confirm_password"
-              label="Confirm New Password"
+              label={<span className="erp-login-label">Confirm new password</span>}
               dependencies={['new_password']}
               hasFeedback
               rules={[
@@ -157,35 +149,47 @@ export default function ChangePassword() {
                   },
                 }),
               ]}
+              style={{ marginBottom: 22 }}
             >
-              <Input.Password prefix={<LockOutlined style={{ color: '#9ca3af' }} />} placeholder="Re-enter new password" />
+              <Input.Password
+                className="erp-login-input"
+                prefix={<LockOutlined style={{ color: '#8F8372' }} />}
+                placeholder="Re-enter new password"
+              />
             </Form.Item>
 
-            <Form.Item style={{ marginBottom: 12 }}>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={loading}
-                block
-                style={{
-                  height: 46,
-                  borderRadius: 10,
-                  fontWeight: 700,
-                  background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
-                  border: 'none',
-                }}
-              >
-                {loading ? 'Updating...' : 'Update Password'}
+            <Form.Item style={{ marginBottom: 10 }}>
+              <Button type="primary" htmlType="submit" loading={loading} block className="erp-login-btn">
+                {loading ? 'Updating…' : 'Update password'}
               </Button>
             </Form.Item>
 
             <Form.Item style={{ marginBottom: 0 }}>
               {mustChangePassword ? (
-                <Button icon={<LogoutOutlined />} block onClick={handleSignOut} style={{ height: 42, borderRadius: 10 }}>
-                  Sign Out
+                <Button
+                  icon={<LogoutOutlined />}
+                  block
+                  onClick={handleSignOut}
+                  style={{
+                    height: 44, borderRadius: 9,
+                    background: 'transparent',
+                    border: '1px solid rgba(245,238,226,0.14)',
+                    color: '#B2A791',
+                  }}
+                >
+                  Sign out
                 </Button>
               ) : (
-                <Button block onClick={() => navigate(-1)} style={{ height: 42, borderRadius: 10 }}>
+                <Button
+                  block
+                  onClick={() => navigate(-1)}
+                  style={{
+                    height: 44, borderRadius: 9,
+                    background: 'transparent',
+                    border: '1px solid rgba(245,238,226,0.14)',
+                    color: '#B2A791',
+                  }}
+                >
                   Cancel
                 </Button>
               )}
@@ -193,6 +197,129 @@ export default function ChangePassword() {
           </Form>
         </div>
       </div>
+
+      {/* Shared login styles already defined by Login.jsx when rendered;
+          inline them here too so this page works on direct navigation. */}
+      <style>{chgCss}</style>
     </div>
   );
 }
+
+const chgCss = `
+.erp-login-root {
+  position: fixed; inset: 0;
+  background: #0B0807;
+  color: #F5EEE2;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow: auto;
+}
+.erp-login-mesh {
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(800px 600px at 18% 20%, rgba(226, 106, 76, 0.22), transparent 60%),
+    radial-gradient(700px 500px at 85% 10%, rgba(212, 165, 116, 0.16), transparent 60%),
+    radial-gradient(900px 700px at 70% 90%, rgba(154, 76, 56, 0.18), transparent 60%),
+    radial-gradient(600px 500px at 10% 90%, rgba(86, 50, 38, 0.22), transparent 60%);
+  animation: erpLoginDrift 24s ease-in-out infinite alternate;
+  filter: saturate(1.1);
+}
+@keyframes erpLoginDrift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(-18px, 10px, 0) scale(1.04); }
+  100% { transform: translate3d(12px, -8px, 0) scale(1); }
+}
+.erp-login-grain {
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  opacity: .06; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.9'/></svg>");
+}
+.erp-login-stage {
+  position: relative; z-index: 5;
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px 20px;
+}
+.erp-login-card {
+  width: 100%; max-width: 440px;
+  padding: 40px 38px 32px;
+  background: rgba(26, 23, 19, 0.72);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgba(245, 238, 226, 0.10);
+  border-radius: 20px;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.50),
+    inset 0 1px 0 rgba(245, 238, 226, 0.05);
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(18px) scale(.985);
+  animation: erpLoginCardIn 1.1s cubic-bezier(.2, .7, .2, 1) .15s forwards;
+}
+.erp-login-card::before {
+  content: '';
+  position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(226, 106, 76, 0.55), transparent);
+}
+@keyframes erpLoginCardIn { to { opacity: 1; transform: translateY(0) scale(1); } }
+.erp-login-h {
+  font-family: 'Fraunces', Georgia, serif;
+  font-optical-sizing: auto;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: #F5EEE2;
+}
+.erp-login-sub {
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 14px;
+  color: #8F8372;
+}
+.erp-login-label {
+  font-size: 11px !important; letter-spacing: 1.5px !important; text-transform: uppercase !important;
+  color: #8F8372 !important; font-weight: 500 !important;
+}
+.erp-login-input.ant-input-affix-wrapper,
+.erp-login-input .ant-input {
+  background: rgba(11, 8, 7, 0.55) !important;
+  border: 1px solid rgba(245, 238, 226, 0.12) !important;
+  border-radius: 9px !important;
+  height: 46px !important;
+  color: #F5EEE2 !important;
+  font-size: 14px !important;
+  box-shadow: none !important;
+}
+.erp-login-input.ant-input-affix-wrapper:hover { border-color: rgba(245, 238, 226, 0.22) !important; }
+.erp-login-input.ant-input-affix-wrapper-focused,
+.erp-login-input.ant-input-affix-wrapper:focus-within {
+  border-color: rgba(226, 106, 76, 0.6) !important;
+  box-shadow: 0 0 0 3px rgba(226, 106, 76, 0.14) !important;
+  background: rgba(11, 8, 7, 0.75) !important;
+}
+.erp-login-input input::placeholder,
+.erp-login-input .ant-input::placeholder { color: #6D6355 !important; }
+.erp-login-btn.ant-btn {
+  height: 48px !important;
+  background: linear-gradient(135deg, #E26A4C, #B1472F) !important;
+  border: none !important;
+  border-radius: 9px !important;
+  color: #FDFAF2 !important;
+  font-weight: 600 !important;
+  font-size: 15px !important;
+  box-shadow:
+    0 14px 30px rgba(226, 106, 76, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+.erp-login-btn.ant-btn:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+}
+.erp-login-root .ant-form-item-label > label {
+  color: #8F8372 !important;
+  font-size: 11px !important; letter-spacing: 1.5px !important;
+  text-transform: uppercase !important; font-weight: 500 !important;
+}
+`;

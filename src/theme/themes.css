@@ -1,0 +1,282 @@
+/* ===========================================================================
+ * Theme tokens — single source of truth for ALL UI surface colors, borders,
+ * shadows, blur, radii, and typographic accents. Every page should read these
+ * via `var(--token-name)` rather than hardcoding hex values.
+ *
+ * Four modes:
+ *   [data-theme="classic-light"]  — today's UI, preserved byte-faithful
+ *   [data-theme="classic-dark"]   — dark skin of classic (same layout, dark bg)
+ *   [data-theme="modern-light"]   — new glassy/frosted UI, soft off-white
+ *   [data-theme="modern-dark"]    — new glassy/frosted UI, deep muted darks
+ *
+ * Design guardrails:
+ *   - Classic-Light is LOCKED to today's hex values so zero visual drift when
+ *     users stay on the default theme.
+ *   - Modern uses muted teal accent (#0d9488/#14b8a6) chosen for long-session
+ *     eye comfort — doesn't compete with status red/green.
+ *   - Dark modes use deep slates, NEVER pure #000 (too harsh for 8h shifts).
+ *   - Light modes use off-white (#f5f7fa / #f8fafc), NEVER pure #fff.
+ * ========================================================================== */
+
+:root,
+[data-theme="classic-light"] {
+  /* Surfaces */
+  --bg-app:        #f5f7fa;
+  --bg-panel:      #ffffff;
+  --bg-elevated:   #ffffff;
+  --bg-muted:      #f9fafb;
+  --bg-hover:      #f3f4f6;
+  --bg-selected:   rgba(79, 70, 229, 0.06);
+
+  /* Foreground */
+  --fg-primary:    #1f2937;
+  --fg-secondary:  #6b7280;
+  --fg-tertiary:   #9ca3af;
+  --fg-inverse:    #ffffff;
+
+  /* Accent */
+  --accent:        #4F46E5;
+  --accent-hover:  #4338ca;
+  --accent-bg:     rgba(79, 70, 229, 0.08);
+  --accent-border: rgba(79, 70, 229, 0.20);
+  --accent-text:   #4F46E5;
+
+  /* Status (kept distinguishable across all modes) */
+  --success:       #10B981;
+  --success-bg:    rgba(16, 185, 129, 0.10);
+  --warning:       #F59E0B;
+  --warning-bg:    rgba(245, 158, 11, 0.10);
+  --danger:        #EF4444;
+  --danger-bg:     rgba(239, 68, 68, 0.10);
+  --info:          #3B82F6;
+  --info-bg:       rgba(59, 130, 246, 0.10);
+
+  /* Borders */
+  --border:        #e5e7eb;
+  --border-subtle: #f0f0f0;
+  --border-strong: #d1d5db;
+
+  /* Shadows */
+  --shadow-sm:     0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md:     0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg:     0 10px 30px rgba(0, 0, 0, 0.08);
+
+  /* Modern-only effects (zero for Classic) */
+  --blur:          0px;
+  --glass-tint:    rgba(255, 255, 255, 1);
+
+  /* Radii */
+  --radius-sm:     6px;
+  --radius-md:     10px;
+  --radius-lg:     14px;
+
+  /* Chrome */
+  --sidebar-bg:    #0f172a;
+  --sidebar-fg:    rgba(255, 255, 255, 0.85);
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-active:#4F46E5;
+  --header-bg:     #ffffff;
+  --header-border: #e5e7eb;
+
+  /* Scrollbar */
+  --scrollbar-thumb: #c1c1c1;
+  --scrollbar-thumb-hover: #a1a1a1;
+
+  color-scheme: light;
+}
+
+[data-theme="classic-dark"] {
+  --bg-app:        #0b1220;
+  --bg-panel:      #151e2e;
+  --bg-elevated:   #1c2638;
+  --bg-muted:      #101828;
+  --bg-hover:      #1f2a3e;
+  --bg-selected:   rgba(129, 140, 248, 0.12);
+
+  --fg-primary:    #f1f5f9;
+  --fg-secondary:  #cbd5e1;
+  --fg-tertiary:   #94a3b8;
+  --fg-inverse:    #0b1220;
+
+  --accent:        #818cf8;
+  --accent-hover:  #a5b4fc;
+  --accent-bg:     rgba(129, 140, 248, 0.14);
+  --accent-border: rgba(129, 140, 248, 0.30);
+  --accent-text:   #a5b4fc;
+
+  --success:       #34d399;
+  --success-bg:    rgba(52, 211, 153, 0.12);
+  --warning:       #fbbf24;
+  --warning-bg:    rgba(251, 191, 36, 0.12);
+  --danger:        #f87171;
+  --danger-bg:     rgba(248, 113, 113, 0.12);
+  --info:          #60a5fa;
+  --info-bg:       rgba(96, 165, 250, 0.12);
+
+  --border:        #273549;
+  --border-subtle: #1c2638;
+  --border-strong: #3a4a63;
+
+  --shadow-sm:     0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-md:     0 2px 8px rgba(0, 0, 0, 0.40);
+  --shadow-lg:     0 10px 30px rgba(0, 0, 0, 0.55);
+
+  --blur:          0px;
+  --glass-tint:    rgba(21, 30, 46, 1);
+
+  --radius-sm:     6px;
+  --radius-md:     10px;
+  --radius-lg:     14px;
+
+  --sidebar-bg:    #030712;
+  --sidebar-fg:    rgba(241, 245, 249, 0.90);
+  --sidebar-hover: rgba(255, 255, 255, 0.06);
+  --sidebar-active:#818cf8;
+  --header-bg:     #151e2e;
+  --header-border: #273549;
+
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+
+  color-scheme: dark;
+}
+
+/* ─── Modern-Light (warm editorial cream — serious × warm) ──────────────── */
+[data-theme="modern-light"] {
+  --bg-app:        #F5EFE3;
+  --bg-panel:      #FDFAF2;
+  --bg-elevated:   #FFFCF4;
+  --bg-muted:      #F8F2E4;
+  --bg-hover:      #EEE6D3;
+  --bg-selected:   rgba(177, 71, 47, 0.08);
+
+  --fg-primary:    #1D1A15;
+  --fg-secondary:  #6D5F4E;
+  --fg-tertiary:   #9B8F7E;
+  --fg-inverse:    #FDFAF2;
+
+  --accent:        #B1472F;
+  --accent-hover:  #8B2E1F;
+  --accent-bg:     rgba(177, 71, 47, 0.10);
+  --accent-border: rgba(177, 71, 47, 0.24);
+  --accent-text:   #B1472F;
+
+  --success:       #7A9660;
+  --success-bg:    rgba(122, 150, 96, 0.12);
+  --warning:       #B8923C;
+  --warning-bg:    rgba(184, 146, 60, 0.12);
+  --danger:        #B1472F;
+  --danger-bg:     rgba(177, 71, 47, 0.10);
+  --info:          #7A9660;
+  --info-bg:       rgba(122, 150, 96, 0.10);
+
+  --border:        #E3D9C5;
+  --border-subtle: #ECE2CD;
+  --border-strong: #C9BFA8;
+
+  --shadow-sm:     0 1px 2px rgba(45, 31, 21, 0.04);
+  --shadow-md:     0 8px 24px rgba(45, 31, 21, 0.06);
+  --shadow-lg:     0 20px 48px rgba(45, 31, 21, 0.10);
+
+  --blur:          18px;
+  --glass-tint:    rgba(253, 250, 242, 0.60);
+
+  --radius-sm:     8px;
+  --radius-md:     10px;
+  --radius-lg:     14px;
+
+  /* Sidebar is always DARK in Modern (Classic pattern with warm palette) */
+  --sidebar-bg:    #1D1814;
+  --sidebar-fg:    #E8DFC9;
+  --sidebar-hover: rgba(245, 238, 226, 0.06);
+  --sidebar-active:#B1472F;
+  --header-bg:     rgba(253, 250, 242, 0.72);
+  --header-border: rgba(29, 26, 21, 0.08);
+
+  --scrollbar-thumb: rgba(45, 31, 21, 0.18);
+  --scrollbar-thumb-hover: rgba(45, 31, 21, 0.32);
+
+  color-scheme: light;
+}
+
+/* ─── Modern-Dark (warm near-black) ──────────────────────────────────────── */
+[data-theme="modern-dark"] {
+  --bg-app:        #0E0B08;
+  --bg-panel:      #1A1713;
+  --bg-elevated:   #211C16;
+  --bg-muted:      #14110D;
+  --bg-hover:      #24201B;
+  --bg-selected:   rgba(226, 106, 76, 0.14);
+
+  --fg-primary:    #F5EEE2;
+  --fg-secondary:  #B2A791;
+  --fg-tertiary:   #8A7F6C;
+  --fg-inverse:    #0E0B08;
+
+  --accent:        #E26A4C;
+  --accent-hover:  #F08975;
+  --accent-bg:     rgba(226, 106, 76, 0.14);
+  --accent-border: rgba(226, 106, 76, 0.32);
+  --accent-text:   #E26A4C;
+
+  --success:       #94B885;
+  --success-bg:    rgba(148, 184, 133, 0.14);
+  --warning:       #D4A574;
+  --warning-bg:    rgba(212, 165, 116, 0.14);
+  --danger:        #E26A4C;
+  --danger-bg:     rgba(226, 106, 76, 0.14);
+  --info:          #94B885;
+  --info-bg:       rgba(148, 184, 133, 0.12);
+
+  --border:        #2E2922;
+  --border-subtle: #24201A;
+  --border-strong: #3A332B;
+
+  --shadow-sm:     0 1px 3px rgba(0, 0, 0, 0.30);
+  --shadow-md:     0 12px 32px rgba(0, 0, 0, 0.40);
+  --shadow-lg:     0 24px 56px rgba(0, 0, 0, 0.55);
+
+  --blur:          20px;
+  --glass-tint:    rgba(26, 23, 19, 0.58);
+
+  --radius-sm:     8px;
+  --radius-md:     10px;
+  --radius-lg:     14px;
+
+  --sidebar-bg:    #0B0807;
+  --sidebar-fg:    #E8DFC9;
+  --sidebar-hover: rgba(245, 238, 226, 0.05);
+  --sidebar-active:#E26A4C;
+  --header-bg:     rgba(26, 23, 19, 0.72);
+  --header-border: rgba(178, 167, 145, 0.08);
+
+  --scrollbar-thumb: rgba(178, 167, 145, 0.14);
+  --scrollbar-thumb-hover: rgba(178, 167, 145, 0.28);
+
+  color-scheme: dark;
+}
+
+/* ─── Body base that reads from the active theme ─────────────────────────── */
+html, body {
+  background: var(--bg-app);
+  color: var(--fg-primary);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+/* ─── Theme-aware scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb) !important;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover) !important;
+}
+
+/* ─── Backdrop for modern panels (used by glass.css) ─────────────────────── */
+@supports not (backdrop-filter: blur(1px)) {
+  /* Fallback: if the browser (very old Chrome) doesn't support backdrop-filter,
+     the glass classes in glass.css degrade to a solid tinted background so
+     Modern still reads as a theme — just without the frosted effect. */
+  [data-theme^="modern"] .erp-glass {
+    background: var(--bg-elevated) !important;
+  }
+}
