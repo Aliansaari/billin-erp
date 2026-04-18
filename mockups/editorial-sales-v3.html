@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sales Bill — Editorial Reskin (preserved layout)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Sales Bill Form — Editorial RESKIN.
+ *
+ * Same exact 3-tier layout as the current Classic screen:
+ *   (1) dark top band — customer + bill meta + product entry row
+ *   (2) white/cream middle — items table (with empty state)
+ *   (3) dark bottom band — stats + sale type + totals panel
+ *   (4) action bar — Back · Reset · Save Credit · Save & Receive
+ *
+ * ONLY the paint has changed, not the plumbing:
+ *   • Dark teal (#0f3a30-ish) → warm dark (#1D1814 / #0B0807)
+ *   • Green accents (+ ADD, Save & Receive, SALES INVOICE pill) → terracotta
+ *   • Green/blue/amber mini-card borders → sage / warm-gold / warm-slate
+ *   • Uppercase labels in dim green → warm cream muted
+ *   • Input focus rings → terracotta
+ *
+ * Toggle Light/Dark via the button top-right.
+ */
+
+:root {
+  /* Middle surface (cream in light, warm dark in dark mode) */
+  --mid-bg:       #FDFAF2;
+  --mid-ink:      #1D1A15;
+  --mid-ink-2:    #6D5F4E;
+  --mid-ink-3:    #9B8F7E;
+  --mid-rule:     #E3D9C5;
+  --mid-rule-soft:#ECE2CD;
+
+  /* Dark band (always warm dark — classic pattern) */
+  --band-bg:      #1D1814;
+  --band-bg-2:    #14110D;
+  --band-ink:     #E8DFC9;
+  --band-ink-2:   #B2A791;
+  --band-ink-3:   #8A7F6C;
+  --band-ink-4:   #55503F;
+  --band-rule:    #2C2821;
+  --band-input:   #0E0B08;
+  --band-input-b: rgba(245,238,226,0.12);
+
+  --accent:       #B1472F;
+  --accent-hover: #D45E42;
+  --accent-soft:  rgba(226,106,76,0.14);
+  --accent-border:rgba(226,106,76,0.30);
+
+  --tier-s:       #E26A4C;   /* Items counter */
+  --tier-a:       #D4A574;   /* Qty counter */
+  --tier-b:       #94B885;   /* Box counter / paid state */
+  --tier-c:       #8A7F6C;
+
+  --success:      #94B885;
+  --success-soft: rgba(148,184,133,0.18);
+  --warn:         #D4A574;
+  --warn-soft:    rgba(212,165,116,0.18);
+  --danger:       #E26A4C;
+  --danger-soft:  rgba(226,106,76,0.16);
+}
+
+[data-mode="dark"] {
+  --mid-bg:       #14110D;
+  --mid-ink:      #F5EEE2;
+  --mid-ink-2:    #B2A791;
+  --mid-ink-3:    #8A7F6C;
+  --mid-rule:     #2E2922;
+  --mid-rule-soft:#24201A;
+
+  --band-bg:      #0B0807;
+  --band-bg-2:    #070504;
+  --band-ink:     #E8DFC9;
+  --band-rule:    #1A1713;
+  --band-input:   rgba(0,0,0,0.35);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--mid-bg);
+  color: var(--mid-ink);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  min-height: 100vh;
+  transition: background .25s ease, color .25s ease;
+}
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+/* ─────────── Page grid ─────────── */
+.page {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  min-height: 100vh;
+}
+
+/* ─────────── Top dark band ─────────── */
+.top-band {
+  background: var(--band-bg);
+  color: var(--band-ink);
+  padding: 14px 22px 16px;
+  border-bottom: 1px solid var(--band-rule);
+}
+.top-head {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 14px;
+}
+.back-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--band-rule);
+  border-radius: 6px;
+  color: var(--band-ink-2);
+  font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+}
+.back-btn:hover { color: var(--band-ink); border-color: var(--band-ink-4); }
+.sd-badge {
+  padding: 3px 9px;
+  background: rgba(245,238,226,0.06);
+  border: 1px solid var(--band-rule);
+  border-radius: 4px;
+  color: var(--band-ink-2);
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: 1.2px;
+}
+.invoice-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 99px;
+  color: var(--tier-s);
+  font-size: 11.5px; font-weight: 700;
+  letter-spacing: 1.2px;
+}
+.invoice-pill .dot {
+  width: 6px; height: 6px; background: var(--tier-s);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--tier-s);
+}
+.theme-toggle {
+  margin-left: auto;
+  display: inline-flex; gap: 4px;
+  padding: 3px;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid var(--band-rule);
+  border-radius: 99px;
+  font-size: 12px;
+}
+.theme-toggle button {
+  padding: 5px 12px;
+  border: none; background: transparent;
+  font-family: inherit; color: var(--band-ink-2);
+  cursor: pointer; border-radius: 99px;
+  transition: all .18s;
+  font-weight: 500;
+}
+.theme-toggle button.on {
+  background: var(--accent);
+  color: #FDFAF2;
+  box-shadow: 0 1px 6px rgba(226,106,76,0.32);
+}
+
+.top-row {
+  display: grid;
+  grid-template-columns: 1.7fr 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.top-row-2 {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1.5fr 70px 70px 90px 72px 72px 72px 80px auto;
+  gap: 10px;
+  align-items: end;
+}
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--band-ink-3);
+}
+.field-lbl .req { color: var(--tier-s); margin-left: 2px; }
+
+/* Input on dark band */
+.d-input {
+  width: 100%;
+  height: 38px;
+  padding: 0 11px;
+  background: var(--band-input);
+  border: 1px solid var(--band-input-b);
+  border-radius: 6px;
+  color: var(--band-ink);
+  font: inherit; font-size: 13px;
+  outline: none;
+  transition: all .15s;
+}
+.d-input.num-in { font-variant-numeric: tabular-nums; text-align: right; }
+.d-input::placeholder { color: var(--band-ink-4); }
+.d-input:hover { border-color: rgba(245,238,226,0.22); }
+.d-input:focus {
+  border-color: var(--tier-s);
+  background: rgba(0,0,0,0.55);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* Select arrow on dark band */
+select.d-input {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 28px; cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--band-ink-3) 50%),
+    linear-gradient(135deg, var(--band-ink-3) 50%, transparent 50%);
+  background-position: calc(100% - 16px) center, calc(100% - 11px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  background-color: var(--band-input);
+}
+/* Input with calendar icon */
+.d-input-ico {
+  position: relative;
+}
+.d-input-ico .d-input { padding-right: 34px; }
+.d-input-ico .ico {
+  position: absolute;
+  right: 10px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--band-ink-3);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+/* + ADD button */
+.add-btn {
+  height: 38px;
+  padding: 0 18px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: #FDFAF2;
+  font: inherit; font-weight: 600; font-size: 13px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  box-shadow: 0 2px 8px rgba(226,106,76,0.28);
+  transition: all .15s;
+}
+.add-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(226,106,76,0.38);
+}
+
+/* ─────────── Middle (items table) ─────────── */
+.mid {
+  background: var(--mid-bg);
+  color: var(--mid-ink);
+  padding: 0;
+  min-height: 360px;
+  display: flex; flex-direction: column;
+}
+.mid-thead {
+  display: grid;
+  grid-template-columns: 40px 130px 1fr 80px 60px 70px 78px 96px 76px 72px 110px;
+  padding: 12px 20px;
+  background: rgba(177,71,47,0.04);
+  border-bottom: 1px solid var(--mid-rule);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--mid-ink-3);
+}
+.mid-thead .r { text-align: right; }
+
+.mid-body {
+  flex: 1;
+  padding: 44px 20px;
+}
+.empty {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 14px; padding: 60px 20px;
+}
+.empty-bolt {
+  width: 52px; height: 52px;
+  display: grid; place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 50%;
+  font-size: 26px;
+  box-shadow: 0 0 0 6px rgba(226,106,76,0.06);
+}
+.empty-main {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--mid-ink);
+}
+.empty-sub {
+  font-size: 12.5px;
+  color: var(--mid-ink-3);
+}
+
+/* ─────────── Bottom dark band ─────────── */
+.bottom-band {
+  background: var(--band-bg);
+  color: var(--band-ink);
+  padding: 16px 22px 14px;
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 28px;
+  border-top: 1px solid var(--band-rule);
+}
+
+/* Bottom left: counters + sale type/salesman */
+.bb-left {
+  display: flex; flex-direction: column; gap: 14px;
+}
+.counters {
+  display: flex; gap: 10px;
+}
+.counter {
+  flex: 0 0 auto;
+  min-width: 98px;
+  padding: 10px 12px;
+  background: rgba(245,238,226,0.04);
+  border: 1px solid var(--band-rule);
+  border-left: 3px solid var(--ctr-accent, var(--tier-s));
+  border-radius: 6px;
+}
+.counter .k {
+  font-size: 9.5px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--ctr-accent, var(--tier-s));
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.counter .v {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--band-ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.counter.items { --ctr-accent: var(--tier-b); }
+.counter.qty   { --ctr-accent: var(--tier-a); }
+.counter.box   { --ctr-accent: var(--tier-s); }
+
+.bb-left-fields {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 14px;
+  margin-top: auto;
+}
+
+/* Bottom right: totals panel (2 cols) */
+.bb-right {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.tot-col, .net-col { display: flex; flex-direction: column; gap: 8px; }
+
+.tot-row {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--band-ink-2);
+}
+.tot-row.with-pct {
+  grid-template-columns: 90px 58px 1fr;
+}
+.tot-row .lbl { color: var(--band-ink-2); font-weight: 500; }
+.tot-row .pct-in {
+  display: flex; align-items: center; gap: 2px;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--band-input);
+  border: 1px solid var(--band-input-b);
+  border-radius: 5px;
+}
+.tot-row .pct-in input {
+  width: 32px; border: none; background: transparent;
+  color: var(--band-ink); font: inherit; font-size: 12.5px;
+  text-align: right; outline: none;
+  font-variant-numeric: tabular-nums;
+}
+.tot-row .pct-in .sym { color: var(--band-ink-3); font-size: 11px; }
+.tot-row .val-in {
+  height: 28px;
+  padding: 0 10px;
+  width: 100%;
+  min-width: 90px;
+  background: var(--band-input);
+  border: 1px solid var(--band-input-b);
+  border-radius: 5px;
+  color: var(--band-ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  font: inherit; font-size: 12.5px;
+  outline: none;
+}
+.tot-row .val-in:focus {
+  border-color: var(--tier-s);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.tot-row .val {
+  min-width: 90px;
+  text-align: right;
+  color: var(--band-ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tot-row.totaled .val { color: var(--tier-a); font-weight: 700; }
+
+.bill-disc-row {
+  display: grid;
+  grid-template-columns: 90px 58px 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--band-ink-2);
+}
+.bill-disc-row .pct-in, .bill-disc-row .val-in { height: 28px; }
+
+/* Net col */
+.net-total {
+  padding: 14px 16px;
+  background: #FDFAF2;
+  color: #1D1A15;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+}
+.net-total .k {
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: #6D5F4E;
+}
+.net-total .v {
+  font-size: 34px;
+  font-weight: 800;
+  color: #1D1A15;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  text-align: right;
+}
+
+.net-col .payment-row,
+.net-col .rcv-row,
+.net-col .paid-row,
+.net-col .amt-row,
+.net-col .return-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--band-ink-2);
+}
+.net-col .val-in {
+  height: 30px;
+}
+.paid-full {
+  margin-top: 4px;
+  padding: 10px 14px;
+  background: var(--success-soft);
+  border: 1px solid rgba(148,184,133,0.32);
+  border-radius: 6px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+.paid-full .k {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--tier-b);
+}
+.paid-full .v {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--band-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────── Action bar ─────────── */
+.action-bar {
+  background: var(--band-bg-2);
+  border-top: 1px solid var(--band-rule);
+  padding: 12px 22px;
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+.act-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 40px;
+  padding: 0 16px;
+  background: rgba(245,238,226,0.05);
+  border: 1px solid var(--band-rule);
+  border-radius: 6px;
+  color: var(--band-ink);
+  font: inherit; font-weight: 500; font-size: 13px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.act-btn:hover {
+  background: rgba(245,238,226,0.08);
+  border-color: var(--band-ink-4);
+  transform: translateY(-1px);
+}
+.act-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FDFAF2;
+  font-weight: 600;
+  box-shadow: 0 2px 12px rgba(226,106,76,0.35);
+}
+.act-btn.primary:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 6px 20px rgba(226,106,76,0.45);
+}
+.act-btn.credit {
+  background: rgba(212,165,116,0.12);
+  border-color: rgba(212,165,116,0.28);
+  color: var(--warn);
+}
+.act-btn.credit:hover {
+  background: rgba(212,165,116,0.22);
+  border-color: rgba(212,165,116,0.44);
+}
+.kbd-pill {
+  display: inline-flex; align-items: center;
+  padding: 2px 6px;
+  background: rgba(0,0,0,0.28);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 3px;
+  font-size: 10.5px; font-weight: 500;
+  color: rgba(245,238,226,0.78);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  margin-right: 2px;
+}
+.act-btn.primary .kbd-pill {
+  background: rgba(0,0,0,0.22);
+  border-color: rgba(255,255,255,0.22);
+  color: #FDFAF2;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--mid-rule); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--mid-ink-3); }
+</style>
+</head>
+<body data-mode="light">
+
+<div class="page">
+
+  <!-- ─────────── (1) TOP DARK BAND ─────────── -->
+  <section class="top-band">
+    <div class="top-head">
+      <button class="back-btn">← Back</button>
+      <span class="sd-badge">SD</span>
+      <span class="invoice-pill"><span class="dot"></span> SALES INVOICE</span>
+
+      <div class="theme-toggle" style="margin-left:auto;">
+        <button id="btn-light" class="on">☀ Light</button>
+        <button id="btn-dark">☾ Dark</button>
+      </div>
+    </div>
+
+    <!-- Row 1: Customer, Bill Date, Due Date -->
+    <div class="top-row">
+      <div class="field">
+        <span class="field-lbl">Customer</span>
+        <select class="d-input">
+          <option>Cash Sale (optional)</option>
+          <option>Aadil · Hyderabad</option>
+          <option>A L P Gupta</option>
+        </select>
+      </div>
+      <div class="field">
+        <span class="field-lbl">Bill date <span class="req">*</span></span>
+        <div class="d-input-ico">
+          <input class="d-input num-in" value="18-04-2026" style="text-align:left;" />
+          <span class="ico">📅</span>
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-lbl">Due date</span>
+        <div class="d-input-ico">
+          <input class="d-input" placeholder="Select date" />
+          <span class="ico">📅</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: product entry -->
+    <div class="top-row-2">
+      <div class="field">
+        <span class="field-lbl">Barcode / scan</span>
+        <input class="d-input" placeholder="Scan or type…" autofocus />
+      </div>
+      <div class="field">
+        <span class="field-lbl">Category</span>
+        <select class="d-input"><option>All categories</option></select>
+      </div>
+      <div class="field">
+        <span class="field-lbl">Product name</span>
+        <select class="d-input"><option>Search product…</option></select>
+      </div>
+      <div class="field"><span class="field-lbl">Size</span><input class="d-input" /></div>
+      <div class="field"><span class="field-lbl">Art #</span><input class="d-input" /></div>
+      <div class="field"><span class="field-lbl">Rate ₹</span><input class="d-input num-in" /></div>
+      <div class="field"><span class="field-lbl">Qty</span><input class="d-input num-in" /></div>
+      <div class="field"><span class="field-lbl">Disc%</span><input class="d-input num-in" /></div>
+      <div class="field"><span class="field-lbl">GST%</span><input class="d-input num-in" /></div>
+      <div class="field">
+        <span class="field-lbl">Unit</span>
+        <select class="d-input"><option>Pcs</option><option>Box</option></select>
+      </div>
+      <button class="add-btn">+ ADD</button>
+    </div>
+  </section>
+
+  <!-- ─────────── (2) WHITE/CREAM MIDDLE ─────────── -->
+  <section class="mid">
+    <div class="mid-thead">
+      <div>#</div>
+      <div>Barcode</div>
+      <div>Product name</div>
+      <div>Size</div>
+      <div>Unit</div>
+      <div>Art#</div>
+      <div class="r">Qty</div>
+      <div class="r">Rate ₹</div>
+      <div class="r">Disc%</div>
+      <div class="r">GST%</div>
+      <div class="r">Amount ₹</div>
+    </div>
+    <div class="mid-body">
+      <div class="empty">
+        <div class="empty-bolt">⚡</div>
+        <div class="empty-main">Scan a barcode or search a product to add items</div>
+        <div class="empty-sub">Use the entry row above to add products to this invoice</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────── (3) BOTTOM DARK BAND ─────────── -->
+  <section class="bottom-band">
+
+    <!-- Left: counters + sale type + salesman -->
+    <div class="bb-left">
+      <div class="counters">
+        <div class="counter items">
+          <div class="k">Items</div>
+          <div class="v">0</div>
+        </div>
+        <div class="counter qty">
+          <div class="k">Qty</div>
+          <div class="v">0.0</div>
+        </div>
+        <div class="counter box">
+          <div class="k">Box</div>
+          <div class="v">0.0</div>
+        </div>
+      </div>
+
+      <div class="bb-left-fields">
+        <div class="field">
+          <span class="field-lbl">Sale type</span>
+          <select class="d-input"><option>Retail</option><option>Wholesale</option></select>
+        </div>
+        <div class="field">
+          <span class="field-lbl">Salesman</span>
+          <input class="d-input" placeholder="Name" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: totals panel (left col lines + right col net + payment) -->
+    <div class="bb-right">
+
+      <!-- Left column of totals -->
+      <div class="tot-col">
+        <div class="tot-row">
+          <span class="lbl">Total</span>
+          <span></span>
+          <span class="val">0.00</span>
+        </div>
+        <div class="tot-row with-pct">
+          <span class="lbl">CGST</span>
+          <div class="pct-in"><input value="" placeholder="0" /><span class="sym">%</span></div>
+          <input class="val-in" value="0.00" />
+        </div>
+        <div class="tot-row with-pct">
+          <span class="lbl">SGST</span>
+          <div class="pct-in"><input value="" placeholder="0" /><span class="sym">%</span></div>
+          <input class="val-in" value="0.00" />
+        </div>
+        <div class="tot-row with-pct">
+          <span class="lbl">IGST</span>
+          <div class="pct-in"><input value="" placeholder="0" /><span class="sym">%</span></div>
+          <input class="val-in" value="0.00" />
+        </div>
+        <div class="tot-row totaled">
+          <span class="lbl">Total GST</span>
+          <span></span>
+          <span class="val">0.00</span>
+        </div>
+        <div class="tot-row">
+          <span class="lbl">Other Chr.</span>
+          <span></span>
+          <input class="val-in" value="0.00" />
+        </div>
+        <div class="tot-row">
+          <span class="lbl">Freight Chr.</span>
+          <span></span>
+          <input class="val-in" value="0.00" />
+        </div>
+        <div class="bill-disc-row">
+          <span class="lbl">Bill Disc</span>
+          <div class="pct-in"><input value="" placeholder="0" /><span class="sym">%</span></div>
+          <input class="val-in" placeholder="₹ amt" />
+        </div>
+      </div>
+
+      <!-- Right column: Net total + payment -->
+      <div class="net-col">
+        <div class="net-total">
+          <span class="k">Net total ₹</span>
+          <span class="v">0</span>
+        </div>
+
+        <div class="payment-row">
+          <span class="lbl">Payment</span>
+          <select class="d-input" style="height:30px; font-size:12.5px;"><option>Cash</option><option>UPI</option><option>Bank</option></select>
+        </div>
+        <div class="return-row">
+          <span class="lbl">Return ₹</span>
+          <input class="val-in" value="0.00" />
+        </div>
+        <div class="rcv-row">
+          <span class="lbl">Cash Rcvd</span>
+          <input class="val-in" value="0.00" />
+        </div>
+        <div class="amt-row">
+          <span class="lbl">Amt Paid</span>
+          <input class="val-in" value="0" />
+        </div>
+
+        <div class="paid-full">
+          <span class="k">Paid in full</span>
+          <span class="v">0.00</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────── (4) ACTION BAR ─────────── -->
+  <section class="action-bar">
+    <button class="act-btn"><span class="kbd-pill">Esc</span> Back</button>
+    <button class="act-btn"><span class="kbd-pill">F5</span> Reset</button>
+    <button class="act-btn credit"><span class="kbd-pill">F8</span> Save Credit</button>
+    <button class="act-btn primary"><span class="kbd-pill">F1</span> Save &amp; Rcv</button>
+  </section>
+
+</div>
+
+<script>
+  const L = document.getElementById('btn-light');
+  const D = document.getElementById('btn-dark');
+  L.onclick = () => { document.body.dataset.mode = 'light'; L.classList.add('on'); D.classList.remove('on'); };
+  D.onclick = () => { document.body.dataset.mode = 'dark';  D.classList.add('on'); L.classList.remove('on'); };
+</script>
+
+</body>
+</html>

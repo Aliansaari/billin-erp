@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sales Bill — Editorial v14 (full-bleed middle, compact action)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Sales Bill — Editorial v14.
+ *
+ * Fixes from v13:
+ *
+ *   1) MIDDLE STRETCHES EDGE TO EDGE — section has zero horizontal
+ *      padding, items card has no border-radius or side borders.
+ *      Table sits flush with screen left/right.
+ *
+ *   2) MIDDLE GETS MORE ROOM — page grid changed to
+ *      `auto 1fr auto auto` so the middle takes all remaining
+ *      vertical space. Top/bottom vertical paddings trimmed so
+ *      there's less wasted gap between sections.
+ *
+ *   3) ACTION BAR all buttons on LEFT — single flex group,
+ *      `justify-content: flex-start`. No more split.
+ *
+ *   4) ACTION BAR compact — padding 8px 24px, buttons 36px tall.
+ *      The action bar used to be ~64px tall, now ~50px.
+ */
+
+/* ─── LIGHT (dashboard palette) ─── */
+:root {
+  --bg:            #F5EFE3;
+  --card-bg:       #FDFAF2;
+  --card-elevated: #FFFCF4;
+  --muted:         #EEE6D3;
+
+  --ink:           #1D1A15;
+  --ink-2:         #5A4E3E;
+  --ink-3:         #8A7E67;
+  --ink-4:         #B8A986;
+  --rule:          #E3D9C5;
+  --rule-soft:     #ECE2CD;
+
+  --in-bg:         #FDFAF2;
+  --in-border:     #D4C7A1;
+  --in-hover:      #9D8D65;
+  --in-focus-bg:   #FFFFFF;
+  --in-shadow:     0 1px 2px rgba(45, 31, 21, 0.04);
+  --in-shadow-hover: 0 2px 6px rgba(45, 31, 21, 0.08);
+  --in-shadow-focus:
+     0 0 0 3px rgba(177, 71, 47, 0.18),
+     0 2px 8px rgba(177, 71, 47, 0.16);
+
+  --accent:        #B1472F;
+  --accent-hover:  #8B2E1F;
+  --accent-ink:    #FDFAF2;
+  --accent-soft:   rgba(177, 71, 47, 0.10);
+  --accent-border: rgba(177, 71, 47, 0.26);
+  --accent-glow:   rgba(177, 71, 47, 0.22);
+
+  --gold:          #8B6A1E;
+  --gold-soft:     rgba(139, 106, 30, 0.14);
+  --sage:          #5F7A4A;
+  --sage-soft:     rgba(95, 122, 74, 0.16);
+  --danger:        #B1472F;
+  --danger-soft:   rgba(177, 71, 47, 0.10);
+
+  --net-bg:        #1D1814;
+  --net-ink:       #F5EEE2;
+  --net-label:     #B2A791;
+  --net-shadow:    0 8px 28px rgba(29, 24, 20, 0.28),
+                   inset 0 1px 0 rgba(245, 238, 226, 0.12);
+
+  --card-shadow:   0 1px 2px rgba(45, 31, 21, 0.04),
+                   0 6px 20px rgba(45, 31, 21, 0.05);
+}
+
+/* ─── DARK ─── */
+[data-mode="dark"] {
+  --bg:            #0E0B08;
+  --card-bg:       #1A1713;
+  --card-elevated: #211C16;
+  --muted:         #14110D;
+
+  --ink:           #F5EEE2;
+  --ink-2:         #B2A791;
+  --ink-3:         #8A7F6C;
+  --ink-4:         #55503F;
+  --rule:          #2E2922;
+  --rule-soft:     #24201A;
+
+  --in-bg:         rgba(245, 238, 226, 0.045);
+  --in-border:     rgba(245, 238, 226, 0.14);
+  --in-hover:      rgba(245, 238, 226, 0.30);
+  --in-focus-bg:   rgba(245, 238, 226, 0.08);
+  --in-shadow:
+     inset 0 1px 0 rgba(255, 255, 255, 0.04),
+     0 1px 3px rgba(0, 0, 0, 0.45),
+     0 0 0 1px rgba(0, 0, 0, 0.25);
+  --in-shadow-hover:
+     inset 0 1px 0 rgba(255, 255, 255, 0.07),
+     0 2px 8px rgba(0, 0, 0, 0.55);
+  --in-shadow-focus:
+     inset 0 1px 0 rgba(255, 255, 255, 0.08),
+     0 0 0 3px rgba(226, 106, 76, 0.22),
+     0 0 18px rgba(226, 106, 76, 0.22),
+     0 4px 14px rgba(0, 0, 0, 0.55);
+
+  --accent:        #E26A4C;
+  --accent-hover:  #F08975;
+  --accent-soft:   rgba(226, 106, 76, 0.14);
+  --accent-border: rgba(226, 106, 76, 0.32);
+  --accent-glow:   rgba(226, 106, 76, 0.32);
+
+  --gold:          #D4A574;
+  --gold-soft:     rgba(212, 165, 116, 0.14);
+  --sage:          #94B885;
+  --sage-soft:     rgba(148, 184, 133, 0.16);
+  --danger:        #E26A4C;
+  --danger-soft:   rgba(226, 106, 76, 0.14);
+
+  --net-bg:        #FDFAF2;
+  --net-ink:       #1D1A15;
+  --net-label:     #6D5F4E;
+  --net-shadow:    0 8px 28px rgba(0, 0, 0, 0.55),
+                   inset 0 1px 0 rgba(255, 255, 255, 0.5);
+
+  --card-shadow:   0 1px 3px rgba(0, 0, 0, 0.40);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  min-height: 100vh;
+  transition: background .25s ease, color .25s ease;
+}
+.num   { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+.serif { font-family: 'Fraunces', Georgia, serif; font-optical-sizing: auto; letter-spacing: -0.02em; }
+
+/* Middle takes all remaining vertical space */
+.page {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  min-height: 100vh;
+}
+
+/* ─── Shared input ─── */
+.in {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit; font-size: 13px;
+  outline: none;
+  box-shadow: var(--in-shadow);
+  transition: all .18s cubic-bezier(.2, .7, .2, 1);
+}
+.in.num-in { font-variant-numeric: tabular-nums; text-align: right; }
+.in::placeholder { color: var(--ink-3); }
+.in:hover { border-color: var(--in-hover); box-shadow: var(--in-shadow-hover); }
+.in:focus {
+  border-color: var(--accent);
+  background: var(--in-focus-bg);
+  box-shadow: var(--in-shadow-focus);
+}
+select.in {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  padding-right: 32px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%),
+    linear-gradient(var(--in-bg), var(--in-bg));
+  background-position:
+    calc(100% - 16px) center,
+    calc(100% - 11px) center,
+    0 0;
+  background-size: 5px 5px, 5px 5px, 100% 100%;
+  background-repeat: no-repeat;
+}
+textarea.in {
+  height: auto;
+  padding: 10px 12px;
+  resize: none;
+  font-family: inherit;
+  line-height: 1.5;
+}
+.in-wrap { position: relative; }
+.in-wrap .in { padding-right: 34px; }
+.in-wrap .ico {
+  position: absolute; right: 11px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-3); font-size: 14px; pointer-events: none;
+}
+.lbl {
+  display: block;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.lbl .req { color: var(--accent); margin-left: 2px; }
+
+/* ─── (1) TOP — left-aligned, trimmed bottom padding ─── */
+.top {
+  padding: 20px 24px 6px;
+}
+.top-inner {
+  max-width: 1500px;
+  margin: 0;
+}
+.top-head {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 14px;
+}
+.invoice-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 99px;
+  color: var(--accent-ink);
+  font-size: 11.5px; font-weight: 700;
+  letter-spacing: 1.2px;
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+.invoice-pill .dot {
+  width: 6px; height: 6px; background: var(--accent-ink);
+  border-radius: 50%;
+  opacity: 0.9;
+}
+.doc-label {
+  display: inline-flex; flex-direction: column;
+  font-size: 11px; color: var(--ink-2);
+  line-height: 1.2;
+}
+.doc-label b { color: var(--ink); font-weight: 600; font-size: 13px; letter-spacing: -0.01em; }
+
+.theme-toggle {
+  margin-left: auto;
+  display: inline-flex; gap: 3px;
+  padding: 3px;
+  background: var(--card-bg);
+  border: 1px solid var(--rule);
+  border-radius: 99px;
+  font-size: 12px;
+  box-shadow: var(--in-shadow);
+}
+.theme-toggle button {
+  padding: 6px 14px;
+  border: none; background: transparent;
+  font-family: inherit; color: var(--ink-2);
+  cursor: pointer; border-radius: 99px;
+  transition: all .18s; font-weight: 500;
+}
+.theme-toggle button:hover:not(.on) { color: var(--ink); }
+.theme-toggle button.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+
+.top-row {
+  display: grid;
+  grid-template-columns:
+    minmax(260px, 480px)
+    minmax(160px, 200px)
+    minmax(160px, 200px);
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.top-row-2 {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px)
+    minmax(130px, 170px)
+    minmax(220px, 380px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(94px,  110px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(94px,  110px)
+    auto;
+  gap: 10px;
+  align-items: end;
+}
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.add-btn {
+  height: 38px;
+  padding: 0 20px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  color: var(--accent-ink);
+  font: inherit; font-weight: 600; font-size: 13px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  box-shadow: 0 2px 10px var(--accent-glow);
+  transition: all .18s cubic-bezier(.2,.7,.2,1);
+  white-space: nowrap;
+}
+.add-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--accent-glow);
+}
+
+/* ─── (2) MIDDLE — EDGE TO EDGE, takes remaining vertical space ─── */
+.mid {
+  /* Zero horizontal padding so the items card touches both edges */
+  padding: 6px 0;
+  display: flex;
+  flex-direction: column;
+}
+.mid-card {
+  flex: 1;
+  background: var(--card-bg);
+  /* Full-bleed: no side radius, no left/right borders */
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+  display: flex; flex-direction: column;
+  min-height: 320px;
+}
+.mid-thead {
+  display: grid;
+  grid-template-columns: 40px 130px 1fr 80px 60px 70px 78px 96px 76px 72px 110px;
+  padding: 14px 24px;
+  background: var(--muted);
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.mid-thead .r { text-align: right; }
+.mid-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 40px 24px;
+}
+.empty {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 14px;
+}
+.empty-bolt {
+  width: 60px; height: 60px;
+  display: grid; place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 50%;
+  font-size: 28px;
+  box-shadow:
+    0 0 0 8px rgba(226, 106, 76, 0.04),
+    0 4px 20px rgba(226, 106, 76, 0.14);
+  animation: float-bolt 3.6s ease-in-out infinite;
+}
+@keyframes float-bolt { 50% { transform: translateY(-4px); } }
+.empty-main { font-size: 15px; font-weight: 600; color: var(--ink); }
+.empty-sub  { font-size: 12.5px; color: var(--ink-3); }
+.empty-hints {
+  display: flex; gap: 20px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.empty-hints kbd {
+  display: inline-flex; align-items: center;
+  padding: 2px 7px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-bottom-color: var(--in-hover);
+  border-radius: 4px;
+  font: inherit; font-weight: 600; font-size: 11px;
+  color: var(--ink-2);
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── (3) BOTTOM — Summary LEFT, Totals+Payment RIGHT, trimmed top padding ─── */
+.bottom {
+  padding: 6px 24px 14px;
+}
+.bottom-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.bb-left { display: flex; gap: 16px; }
+.bb-right { display: flex; gap: 16px; }
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: var(--card-shadow);
+  padding: 14px 16px;
+  display: flex; flex-direction: column;
+}
+.card-title {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+
+/* Summary card (LEFT) */
+.bb-summary { width: 320px; }
+.bb-summary .counters {
+  display: flex; gap: 6px;
+  margin-bottom: 10px;
+}
+.counter {
+  flex: 1;
+  padding: 9px 10px;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--ctr-c, var(--accent)) 10%, transparent),
+      transparent 60%);
+  border-left: 3px solid var(--ctr-c, var(--accent));
+  border-radius: 4px;
+  min-width: 0;
+}
+.counter .k {
+  font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--ctr-c, var(--ink-3));
+  font-weight: 700; margin-bottom: 2px;
+}
+.counter .v {
+  font-size: 20px; font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.counter.items { --ctr-c: var(--sage); }
+.counter.qty   { --ctr-c: var(--gold); }
+.counter.box   { --ctr-c: var(--accent); }
+
+.bb-summary-fields {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-top: 10px; margin-bottom: 8px;
+  border-top: 1px dashed var(--rule-soft);
+}
+.bb-summary-notes {
+  flex: 1;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.bb-summary-notes textarea {
+  flex: 1; min-height: 50px;
+}
+
+/* Totals card (RIGHT side, left of Payment) */
+.bb-totals { width: 320px; }
+.tot-lines { display: flex; flex-direction: column; }
+.tot-line {
+  display: flex; align-items: center;
+  padding: 5px 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  min-height: 28px;
+}
+.tot-line .k { flex: 1; color: var(--ink-2); font-weight: 500; }
+.tot-line .k b { color: var(--ink); font-weight: 600; }
+.tot-line .v {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+}
+.tot-line.gst-line .v { color: var(--gold); }
+
+.gst-rate {
+  height: 22px;
+  padding: 0 22px 0 8px;
+  margin-left: 4px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 4px;
+  color: var(--ink);
+  font: inherit; font-size: 11.5px; font-weight: 600;
+  cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 10px) center, calc(100% - 6px) center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  outline: none;
+  transition: all .15s;
+}
+.gst-rate:hover { border-color: var(--in-hover); }
+.gst-rate:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+.gst-breakdown {
+  font-size: 11px;
+  color: var(--ink-3);
+  padding: 2px 0 3px;
+  margin-left: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.gst-breakdown span { margin-right: 10px; }
+
+.inline-in {
+  width: 110px;
+  height: 26px; padding: 0 10px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 5px;
+  color: var(--ink);
+  font: inherit; font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+  box-shadow: var(--in-shadow);
+  transition: all .15s;
+}
+.inline-in:focus {
+  border-color: var(--accent);
+  background: var(--in-focus-bg);
+  box-shadow: var(--in-shadow-focus);
+}
+.inline-pct {
+  width: 50px;
+  height: 22px; padding: 0 6px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 4px;
+  color: var(--ink);
+  font: inherit; font-size: 11.5px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+  margin-left: 4px;
+}
+.inline-pct:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* Payment card (RIGHT) */
+.bb-payment { width: 320px; }
+.bb-payment .net-hero {
+  padding: 12px 14px;
+  background: var(--net-bg);
+  color: var(--net-ink);
+  border-radius: 9px;
+  display: grid; grid-template-columns: auto 1fr;
+  align-items: center; gap: 12px;
+  box-shadow: var(--net-shadow);
+  margin-bottom: 10px;
+}
+.net-hero .k {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--net-label);
+}
+.net-hero .v {
+  font-family: 'Fraunces', Georgia, serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-size: 30px;
+  color: var(--net-ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  text-align: right;
+}
+
+.pay-line {
+  display: grid; grid-template-columns: 1fr 130px;
+  align-items: center; gap: 10px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+.pay-line .k { color: var(--ink-2); font-weight: 500; }
+.pay-line .in { height: 28px; font-size: 12.5px; padding: 0 10px; }
+
+.status-badge {
+  margin-top: auto;
+  padding: 10px 14px;
+  border-radius: 7px;
+  display: grid; grid-template-columns: 1fr auto;
+  align-items: center;
+}
+.status-badge.paid {
+  background: linear-gradient(90deg, var(--sage-soft), transparent 80%), var(--sage-soft);
+  border: 1px solid color-mix(in srgb, var(--sage) 34%, transparent);
+}
+.status-badge.paid .k {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--sage);
+}
+.status-badge.paid .v {
+  font-size: 16px; font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── (4) ACTION BAR — compact, all buttons LEFT ─── */
+.action-bar {
+  background: var(--muted);
+  border-top: 1px solid var(--rule);
+  padding: 8px 24px;
+  transition: background .25s;
+}
+.action-bar-inner {
+  display: flex;
+  justify-content: flex-start;   /* all buttons LEFT */
+  gap: 10px;
+}
+.act {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit; font-weight: 500; font-size: 13px;
+  cursor: pointer;
+  box-shadow: var(--in-shadow);
+  transition: all .18s cubic-bezier(.2,.7,.2,1);
+}
+.act:hover {
+  border-color: var(--in-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--in-shadow-hover);
+}
+.act.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  box-shadow: 0 2px 12px var(--accent-glow);
+}
+.act.primary:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 6px 22px var(--accent-glow);
+}
+.act.credit {
+  background: var(--gold-soft);
+  border-color: color-mix(in srgb, var(--gold) 30%, transparent);
+  color: var(--gold);
+}
+.act.credit:hover { background: color-mix(in srgb, var(--gold) 22%, transparent); }
+.kbd {
+  display: inline-flex; align-items: center;
+  padding: 2px 6px;
+  background: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font-size: 10.5px; font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.act.primary .kbd {
+  background: rgba(0, 0, 0, 0.22);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--accent-ink);
+}
+.act.credit .kbd {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: color-mix(in srgb, var(--gold) 30%, transparent);
+  color: var(--gold);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .bottom-inner { flex-direction: column; align-items: stretch; }
+  .bb-left, .bb-right { flex-wrap: wrap; }
+}
+@media (max-width: 760px) {
+  .bb-summary, .bb-totals, .bb-payment { width: 100%; }
+  .top-row, .top-row-2 { grid-template-columns: 1fr !important; }
+}
+</style>
+</head>
+<body data-mode="light">
+
+<div class="page">
+
+  <!-- (1) TOP -->
+  <section class="top">
+    <div class="top-inner">
+      <div class="top-head">
+        <span class="invoice-pill"><span class="dot"></span> SALES INVOICE</span>
+        <span class="doc-label">
+          <span>Bill no.</span>
+          <b>New · 18 Apr 2026</b>
+        </span>
+        <div class="theme-toggle">
+          <button id="btn-light" class="on">☀ Light</button>
+          <button id="btn-dark">☾ Dark</button>
+        </div>
+      </div>
+
+      <div class="top-row">
+        <div class="field">
+          <span class="lbl">Customer</span>
+          <select class="in">
+            <option>Cash Sale (optional)</option>
+            <option>Aadil · Hyderabad</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="lbl">Bill date <span class="req">*</span></span>
+          <div class="in-wrap">
+            <input class="in num-in" value="18-04-2026" style="text-align:left;" />
+            <span class="ico">📅</span>
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl">Due date</span>
+          <div class="in-wrap">
+            <input class="in" placeholder="Select date" />
+            <span class="ico">📅</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="top-row-2">
+        <div class="field">
+          <span class="lbl">Barcode / scan</span>
+          <input class="in" placeholder="Scan or type…" autofocus />
+        </div>
+        <div class="field">
+          <span class="lbl">Category</span>
+          <select class="in"><option>All categories</option></select>
+        </div>
+        <div class="field">
+          <span class="lbl">Product name</span>
+          <select class="in"><option>Search product…</option></select>
+        </div>
+        <div class="field"><span class="lbl">Size</span><input class="in" /></div>
+        <div class="field"><span class="lbl">Art #</span><input class="in" /></div>
+        <div class="field"><span class="lbl">Rate ₹</span><input class="in num-in" /></div>
+        <div class="field"><span class="lbl">Qty</span><input class="in num-in" /></div>
+        <div class="field"><span class="lbl">Disc%</span><input class="in num-in" /></div>
+        <div class="field"><span class="lbl">GST%</span><input class="in num-in" /></div>
+        <div class="field">
+          <span class="lbl">Unit</span>
+          <select class="in"><option>Pcs</option></select>
+        </div>
+        <button class="add-btn">+ ADD</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- (2) MIDDLE — edge to edge, takes all remaining vertical -->
+  <section class="mid">
+    <div class="mid-card">
+      <div class="mid-thead">
+        <div>#</div>
+        <div>Barcode</div>
+        <div>Product name</div>
+        <div>Size</div>
+        <div>Unit</div>
+        <div>Art#</div>
+        <div class="r">Qty</div>
+        <div class="r">Rate ₹</div>
+        <div class="r">Disc%</div>
+        <div class="r">GST%</div>
+        <div class="r">Amount ₹</div>
+      </div>
+      <div class="mid-body">
+        <div class="empty">
+          <div class="empty-bolt">⚡</div>
+          <div class="empty-main">Scan a barcode or search a product to add items</div>
+          <div class="empty-sub">Use the entry row above to add products to this invoice</div>
+          <div class="empty-hints">
+            <span><kbd>F1</kbd> save &amp; receive</span>
+            <span><kbd>F8</kbd> save credit</span>
+            <span><kbd>Esc</kbd> go back</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- (3) BOTTOM -->
+  <section class="bottom">
+    <div class="bottom-inner">
+
+      <div class="bb-left">
+        <div class="card bb-summary">
+          <div class="card-title">Summary</div>
+          <div class="counters">
+            <div class="counter items"><div class="k">Items</div><div class="v">0</div></div>
+            <div class="counter qty"><div class="k">Qty</div><div class="v">0.0</div></div>
+            <div class="counter box"><div class="k">Box</div><div class="v">0.0</div></div>
+          </div>
+          <div class="bb-summary-fields">
+            <div class="field">
+              <span class="lbl">Sale type</span>
+              <select class="in"><option>Retail</option><option>Wholesale</option></select>
+            </div>
+            <div class="field">
+              <span class="lbl">Salesman</span>
+              <input class="in" placeholder="Name" />
+            </div>
+          </div>
+          <div class="bb-summary-notes">
+            <span class="lbl">Notes</span>
+            <textarea class="in" placeholder="Optional note for this bill…"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="bb-right">
+        <div class="card bb-totals">
+          <div class="card-title">Totals</div>
+          <div class="tot-lines">
+            <div class="tot-line">
+              <span class="k">Subtotal</span>
+              <span class="v">6,350.00</span>
+            </div>
+            <div class="tot-line gst-line">
+              <span class="k">GST
+                <select class="gst-rate">
+                  <option>0%</option>
+                  <option>5%</option>
+                  <option>12%</option>
+                  <option selected>18%</option>
+                  <option>28%</option>
+                </select>
+              </span>
+              <span class="v">+1,143.00</span>
+            </div>
+            <div class="gst-breakdown">
+              <span>CGST 571.50</span>
+              <span>SGST 571.50</span>
+              <span>IGST 0.00</span>
+            </div>
+            <div class="tot-line">
+              <span class="k">Other charges</span>
+              <input class="inline-in" value="0.00" />
+            </div>
+            <div class="tot-line">
+              <span class="k">Freight</span>
+              <input class="inline-in" value="0.00" />
+            </div>
+            <div class="tot-line">
+              <span class="k">
+                Bill discount
+                <input class="inline-pct" value="0" />%
+              </span>
+              <span class="v">−0.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card bb-payment">
+          <div class="card-title">Payment</div>
+          <div class="net-hero">
+            <span class="k">Net total ₹</span>
+            <span class="v">0</span>
+          </div>
+          <div class="pay-line">
+            <span class="k">Mode</span>
+            <select class="in"><option>Cash</option><option>UPI</option><option>Bank</option></select>
+          </div>
+          <div class="pay-line">
+            <span class="k">Cash received</span>
+            <input class="in num-in" value="0.00" />
+          </div>
+          <div class="pay-line">
+            <span class="k">Amount paid</span>
+            <input class="in num-in" value="0" />
+          </div>
+          <div class="status-badge paid">
+            <span class="k">Paid in full</span>
+            <span class="v">0.00</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- (4) ACTION BAR — compact, all buttons LEFT -->
+  <section class="action-bar">
+    <div class="action-bar-inner">
+      <button class="act"><span class="kbd">Esc</span> Back</button>
+      <button class="act"><span class="kbd">F5</span> Reset</button>
+      <button class="act credit"><span class="kbd">F8</span> Save Credit</button>
+      <button class="act primary"><span class="kbd">F1</span> Save &amp; Rcv</button>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const L = document.getElementById('btn-light');
+  const D = document.getElementById('btn-dark');
+  L.onclick = () => { document.body.dataset.mode = 'light'; L.classList.add('on'); D.classList.remove('on'); };
+  D.onclick = () => { document.body.dataset.mode = 'dark';  D.classList.add('on'); L.classList.remove('on'); };
+</script>
+
+</body>
+</html>

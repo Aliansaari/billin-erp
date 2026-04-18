@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sales Bill — Editorial v9 (Back next to Reset)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Sales Bill — Editorial v9.
+ *
+ * The fix from v8:
+ *   • Back button moves OUT of the top-left header and INTO the action
+ *     bar beside Reset — the Classic layout. The action bar now reads:
+ *     [Esc Back]  [F5 Reset]  [F8 Save Credit]  [F1 Save & Rcv]
+ *   • Top-head is now just: SD badge + SALES INVOICE pill + theme toggle.
+ *     Cleaner, less crowded.
+ *
+ * Everything else from v8 stays: centered 1700px wrap, 3-column bottom,
+ * min-max column widths, dark-mode input glow, Fraunces net-total.
+ */
+
+/* ─── Light ─── */
+:root {
+  --band-bg:       #EEE6D3;
+  --band-bg-2:     #E3D9C5;
+  --mid-bg:        #FDFAF2;
+
+  --ink:           #1D1A15;
+  --ink-2:         #6D5F4E;
+  --ink-3:         #9B8F7E;
+  --ink-4:         #C9BFA8;
+  --rule:          #D4C7A8;
+  --rule-soft:     #E3D9C5;
+
+  --in-bg:         #FDFAF2;
+  --in-border:     #D4C7A8;
+  --in-hover:      #B8A886;
+  --in-focus-bg:   #FFFFFF;
+  --in-shadow:     0 1px 2px rgba(45, 31, 21, 0.04);
+  --in-shadow-hover: 0 2px 6px rgba(45, 31, 21, 0.08);
+  --in-shadow-focus:
+     0 0 0 3px rgba(177, 71, 47, 0.16),
+     0 2px 8px rgba(177, 71, 47, 0.14);
+
+  --accent:        #B1472F;
+  --accent-hover:  #8B2E1F;
+  --accent-ink:    #FDFAF2;
+  --accent-soft:   rgba(177, 71, 47, 0.12);
+  --accent-border: rgba(177, 71, 47, 0.28);
+  --accent-glow:   rgba(177, 71, 47, 0.20);
+
+  --gold:          #B8923C;
+  --gold-soft:     rgba(184, 146, 60, 0.14);
+  --sage:          #7A9660;
+  --sage-soft:     rgba(122, 150, 96, 0.18);
+
+  --net-bg:        #1D1814;
+  --net-ink:       #F5EEE2;
+  --net-label:     #B2A791;
+  --net-shadow:    0 8px 30px rgba(29, 24, 20, 0.35),
+                   inset 0 1px 0 rgba(245, 238, 226, 0.12);
+}
+
+/* ─── Dark ─── */
+[data-mode="dark"] {
+  --band-bg:       #0B0807;
+  --band-bg-2:     #070504;
+  --mid-bg:        #211C16;
+
+  --ink:           #F5EEE2;
+  --ink-2:         #B2A791;
+  --ink-3:         #8A7F6C;
+  --ink-4:         #55503F;
+  --rule:          #2E2922;
+  --rule-soft:     #24201A;
+
+  --in-bg:         rgba(245, 238, 226, 0.045);
+  --in-border:     rgba(245, 238, 226, 0.14);
+  --in-hover:      rgba(245, 238, 226, 0.30);
+  --in-focus-bg:   rgba(245, 238, 226, 0.08);
+  --in-shadow:
+     inset 0 1px 0 rgba(255, 255, 255, 0.04),
+     0 1px 3px rgba(0, 0, 0, 0.45),
+     0 0 0 1px rgba(0, 0, 0, 0.25);
+  --in-shadow-hover:
+     inset 0 1px 0 rgba(255, 255, 255, 0.07),
+     0 2px 8px rgba(0, 0, 0, 0.55),
+     0 0 12px rgba(245, 238, 226, 0.04);
+  --in-shadow-focus:
+     inset 0 1px 0 rgba(255, 255, 255, 0.08),
+     0 0 0 3px rgba(226, 106, 76, 0.22),
+     0 0 18px rgba(226, 106, 76, 0.22),
+     0 4px 14px rgba(0, 0, 0, 0.55);
+
+  --accent:        #E26A4C;
+  --accent-hover:  #F08975;
+  --accent-soft:   rgba(226, 106, 76, 0.14);
+  --accent-border: rgba(226, 106, 76, 0.32);
+  --accent-glow:   rgba(226, 106, 76, 0.32);
+
+  --gold:          #D4A574;
+  --gold-soft:     rgba(212, 165, 116, 0.14);
+  --sage:          #94B885;
+  --sage-soft:     rgba(148, 184, 133, 0.16);
+
+  --net-bg:        #FDFAF2;
+  --net-ink:       #1D1A15;
+  --net-label:     #6D5F4E;
+  --net-shadow:    0 8px 30px rgba(0, 0, 0, 0.55),
+                   inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--mid-bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  min-height: 100vh;
+  transition: background .25s ease, color .25s ease;
+}
+.num   { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+.serif { font-family: 'Fraunces', Georgia, serif; font-optical-sizing: auto; letter-spacing: -0.02em; }
+
+.page {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  min-height: 100vh;
+}
+
+.wrap {
+  max-width: 1700px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ─── Shared input ─── */
+.in {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit; font-size: 13px;
+  outline: none;
+  box-shadow: var(--in-shadow);
+  transition: all .18s cubic-bezier(.2, .7, .2, 1);
+}
+.in.num-in { font-variant-numeric: tabular-nums; text-align: right; }
+.in::placeholder { color: var(--ink-3); }
+.in:hover { border-color: var(--in-hover); box-shadow: var(--in-shadow-hover); }
+.in:focus {
+  border-color: var(--accent);
+  background: var(--in-focus-bg);
+  box-shadow: var(--in-shadow-focus);
+}
+select.in {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  padding-right: 32px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%),
+    linear-gradient(var(--in-bg), var(--in-bg));
+  background-position:
+    calc(100% - 16px) center,
+    calc(100% - 11px) center,
+    0 0;
+  background-size: 5px 5px, 5px 5px, 100% 100%;
+  background-repeat: no-repeat;
+}
+.in-wrap { position: relative; }
+.in-wrap .in { padding-right: 34px; }
+.in-wrap .ico {
+  position: absolute; right: 11px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-3); font-size: 14px; pointer-events: none;
+}
+
+.lbl {
+  display: block;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.lbl .req { color: var(--accent); margin-left: 2px; }
+
+/* ─── (1) TOP BAND ─── */
+.top-band {
+  background: var(--band-bg);
+  color: var(--ink);
+  padding: 14px 22px 18px;
+  border-bottom: 1px solid var(--rule);
+  transition: background .25s ease, border-color .25s ease;
+}
+.top-head {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* No more Back button in top-head. Just SD + pill + theme toggle. */
+.sd-badge {
+  padding: 4px 10px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 4px;
+  color: var(--ink-2);
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: 1.2px;
+  box-shadow: var(--in-shadow);
+}
+.invoice-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 99px;
+  color: var(--accent);
+  font-size: 11.5px; font-weight: 700;
+  letter-spacing: 1.2px;
+}
+.invoice-pill .dot {
+  width: 7px; height: 7px; background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 12px var(--accent-glow);
+  animation: pulse-dot 2.6s ease-in-out infinite;
+}
+@keyframes pulse-dot { 50% { box-shadow: 0 0 20px var(--accent-glow), 0 0 4px var(--accent); } }
+
+.theme-toggle {
+  margin-left: auto;
+  display: inline-flex; gap: 3px;
+  padding: 3px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 99px;
+  font-size: 12px;
+  box-shadow: var(--in-shadow);
+}
+.theme-toggle button {
+  padding: 6px 14px;
+  border: none; background: transparent;
+  font-family: inherit; color: var(--ink-2);
+  cursor: pointer; border-radius: 99px;
+  transition: all .18s; font-weight: 500;
+}
+.theme-toggle button:hover:not(.on) { color: var(--ink); }
+.theme-toggle button.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+
+.top-row {
+  display: grid;
+  grid-template-columns:
+    minmax(260px, 520px)
+    minmax(160px, 200px)
+    minmax(160px, 200px);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.top-row-2 {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 220px)   /* Barcode  */
+    minmax(130px, 180px)   /* Category */
+    minmax(220px, 520px)   /* Product  */
+    minmax(70px,  100px)   /* Size     */
+    minmax(70px,  100px)   /* Art #    */
+    minmax(90px,  120px)   /* Rate ₹   */
+    minmax(70px,  100px)   /* Qty      */
+    minmax(70px,  100px)   /* Disc%    */
+    minmax(70px,  100px)   /* GST%     */
+    minmax(90px,  120px)   /* Unit     */
+    auto;                  /* + ADD    */
+  gap: 10px;
+  align-items: end;
+}
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.add-btn {
+  height: 38px;
+  padding: 0 20px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  color: var(--accent-ink);
+  font: inherit; font-weight: 600; font-size: 13px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  box-shadow: 0 2px 10px var(--accent-glow);
+  transition: all .18s cubic-bezier(.2,.7,.2,1);
+  white-space: nowrap;
+}
+.add-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--accent-glow);
+}
+
+/* ─── (2) MIDDLE ─── */
+.mid {
+  background: var(--mid-bg);
+  color: var(--ink);
+  display: flex; flex-direction: column;
+  min-height: 320px;
+  transition: background .25s ease;
+}
+.mid-head-outer { padding: 0 22px; }
+.mid-thead {
+  display: grid;
+  grid-template-columns: 40px 130px 1fr 80px 60px 70px 78px 96px 76px 72px 110px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.mid-thead .r { text-align: right; }
+.mid-body { flex: 1; }
+.empty {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 14px; padding: 80px 20px 60px;
+}
+.empty-bolt {
+  width: 60px; height: 60px;
+  display: grid; place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 50%;
+  font-size: 28px;
+  box-shadow:
+    0 0 0 8px rgba(226, 106, 76, 0.05),
+    0 4px 20px rgba(226, 106, 76, 0.16);
+  animation: float-bolt 3.6s ease-in-out infinite;
+}
+@keyframes float-bolt { 50% { transform: translateY(-4px); } }
+.empty-main { font-size: 15px; font-weight: 600; color: var(--ink); }
+.empty-sub  { font-size: 12.5px; color: var(--ink-3); }
+
+/* ─── (3) BOTTOM BAND — 3-col centered ─── */
+.bottom-band {
+  background: var(--band-bg);
+  color: var(--ink);
+  padding: 16px 22px 14px;
+  border-top: 1px solid var(--rule);
+  transition: background .25s ease, border-color .25s ease;
+}
+.bottom-band-grid {
+  display: grid;
+  grid-template-columns: 300px 380px 320px;
+  gap: 32px;
+  justify-content: center;
+  align-items: start;
+}
+.bb-left { display: flex; flex-direction: column; gap: 14px; }
+.counters { display: flex; gap: 8px; }
+.counter {
+  flex: 1;
+  padding: 10px 12px;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--ctr-c, var(--accent)) 12%, transparent),
+      transparent 60%),
+    var(--in-bg);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ctr-c, var(--accent));
+  border-radius: 7px;
+  min-width: 0;
+  box-shadow: var(--in-shadow);
+}
+.counter .k {
+  font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--ctr-c, var(--ink-3));
+  font-weight: 700; margin-bottom: 2px;
+}
+.counter .v {
+  font-size: 22px; font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.counter.items { --ctr-c: var(--sage); }
+.counter.qty   { --ctr-c: var(--gold); }
+.counter.box   { --ctr-c: var(--accent); }
+
+.bb-left-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.tot-col { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.tot-row {
+  display: grid; grid-template-columns: 96px 1fr;
+  column-gap: 10px; align-items: center;
+  font-size: 12.5px;
+}
+.tot-row.with-pct { grid-template-columns: 96px 64px 1fr; }
+.tot-row .lbl-txt { color: var(--ink-2); font-weight: 500; font-size: 12.5px; }
+.tot-row.total-row .lbl-txt,
+.tot-row.gst-total .lbl-txt { color: var(--ink); font-weight: 600; }
+
+.tot-row .pct-chip {
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  height: 30px; padding: 0 8px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 5px;
+  box-shadow: var(--in-shadow);
+  transition: all .18s;
+}
+.tot-row .pct-chip input {
+  width: 100%; border: none; background: transparent;
+  color: var(--ink); font: inherit; font-size: 12px;
+  text-align: right; outline: none;
+  font-variant-numeric: tabular-nums;
+  padding: 0; height: auto;
+}
+.tot-row .pct-chip .sym { color: var(--ink-3); font-size: 11px; margin-left: 4px; }
+.tot-row .pct-chip:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--in-shadow-focus);
+}
+.tot-row .val-text,
+.tot-row .val-field {
+  height: 30px; padding: 0 10px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 5px;
+  color: var(--ink);
+  font: inherit; font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  display: flex; align-items: center; justify-content: flex-end;
+  outline: none;
+  box-shadow: var(--in-shadow);
+  transition: all .18s;
+}
+.tot-row .val-field:focus {
+  border-color: var(--accent);
+  background: var(--in-focus-bg);
+  box-shadow: var(--in-shadow-focus);
+}
+.tot-row .val-text { font-weight: 600; color: var(--ink); }
+.tot-row.gst-total .val-text { color: var(--gold); font-weight: 700; }
+.tot-row.total-row .val-text { color: var(--ink); font-weight: 700; }
+
+.net-col { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.net-hero {
+  padding: 14px 16px;
+  background: var(--net-bg);
+  color: var(--net-ink);
+  border-radius: 10px;
+  display: grid; grid-template-columns: auto 1fr;
+  align-items: center; gap: 14px;
+  box-shadow: var(--net-shadow);
+  transition: background .25s, color .25s, box-shadow .25s;
+}
+.net-hero .k {
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--net-label);
+}
+.net-hero .v {
+  font-family: 'Fraunces', Georgia, serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-size: 38px;
+  color: var(--net-ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  text-align: right;
+}
+.pay-row {
+  display: grid; grid-template-columns: 96px 1fr;
+  align-items: center; gap: 10px;
+  font-size: 12.5px;
+}
+.pay-row .k { color: var(--ink-2); font-weight: 500; }
+.pay-row .in { height: 30px; font-size: 12.5px; padding: 0 10px; }
+
+.paid-full {
+  margin-top: 6px;
+  padding: 11px 14px;
+  background:
+    linear-gradient(90deg, var(--sage-soft), transparent 80%),
+    var(--sage-soft);
+  border: 1px solid color-mix(in srgb, var(--sage) 34%, transparent);
+  border-radius: 7px;
+  display: grid; grid-template-columns: 1fr auto;
+  align-items: center;
+}
+.paid-full .k {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--sage);
+}
+.paid-full .v {
+  font-size: 17px; font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── (4) ACTION BAR — Back sits beside Reset, as before ─── */
+.action-bar {
+  background: var(--band-bg-2);
+  border-top: 1px solid var(--rule);
+  padding: 12px 22px;
+  transition: background .25s;
+}
+.action-bar-inner {
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+.act {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 40px; padding: 0 16px;
+  background: var(--in-bg);
+  border: 1px solid var(--in-border);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit; font-weight: 500; font-size: 13px;
+  cursor: pointer;
+  box-shadow: var(--in-shadow);
+  transition: all .18s cubic-bezier(.2,.7,.2,1);
+}
+.act:hover {
+  border-color: var(--in-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--in-shadow-hover);
+}
+.act.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  box-shadow: 0 2px 12px var(--accent-glow);
+}
+.act.primary:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 6px 22px var(--accent-glow);
+}
+.act.credit {
+  background: var(--gold-soft);
+  border-color: color-mix(in srgb, var(--gold) 30%, transparent);
+  color: var(--gold);
+}
+.act.credit:hover {
+  background: color-mix(in srgb, var(--gold) 22%, transparent);
+  border-color: color-mix(in srgb, var(--gold) 44%, transparent);
+}
+.kbd {
+  display: inline-flex; align-items: center;
+  padding: 2px 6px;
+  background: var(--band-bg-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font-size: 10.5px; font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.act.primary .kbd {
+  background: rgba(0, 0, 0, 0.22);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--accent-ink);
+}
+.act.credit .kbd {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: color-mix(in srgb, var(--gold) 30%, transparent);
+  color: var(--gold);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
+
+/* Narrow laptops: stack bottom band vertically */
+@media (max-width: 1280px) {
+  .bottom-band-grid {
+    grid-template-columns: 300px 1fr;
+    gap: 24px;
+  }
+}
+@media (max-width: 900px) {
+  .bottom-band-grid { grid-template-columns: 1fr; }
+  .top-row, .top-row-2 { grid-template-columns: 1fr !important; }
+}
+</style>
+</head>
+<body data-mode="light">
+
+<div class="page">
+
+  <!-- (1) TOP BAND — no Back button here anymore -->
+  <section class="top-band">
+    <div class="wrap">
+      <div class="top-head">
+        <span class="sd-badge">SD</span>
+        <span class="invoice-pill"><span class="dot"></span> SALES INVOICE</span>
+
+        <div class="theme-toggle">
+          <button id="btn-light" class="on">☀ Light</button>
+          <button id="btn-dark">☾ Dark</button>
+        </div>
+      </div>
+
+      <div class="top-row">
+        <div class="field">
+          <span class="lbl">Customer</span>
+          <select class="in">
+            <option>Cash Sale (optional)</option>
+            <option>Aadil · Hyderabad</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="lbl">Bill date <span class="req">*</span></span>
+          <div class="in-wrap">
+            <input class="in num-in" value="18-04-2026" style="text-align:left;" />
+            <span class="ico">📅</span>
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl">Due date</span>
+          <div class="in-wrap">
+            <input class="in" placeholder="Select date" />
+            <span class="ico">📅</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="top-row-2">
+        <div class="field">
+          <span class="lbl">Barcode / scan</span>
+          <input class="in" placeholder="Scan or type…" autofocus />
+        </div>
+        <div class="field">
+          <span class="lbl">Category</span>
+          <select class="in"><option>All categories</option></select>
+        </div>
+        <div class="field">
+          <span class="lbl">Product name</span>
+          <select class="in"><option>Search product…</option></select>
+        </div>
+        <div class="field"><span class="lbl">Size</span><input class="in" /></div>
+        <div class="field"><span class="lbl">Art #</span><input class="in" /></div>
+        <div class="field"><span class="lbl">Rate ₹</span><input class="in num-in" /></div>
+        <div class="field"><span class="lbl">Qty</span><input class="in num-in" /></div>
+        <div class="field"><span class="lbl">Disc%</span><input class="in num-in" /></div>
+        <div class="field"><span class="lbl">GST%</span><input class="in num-in" /></div>
+        <div class="field">
+          <span class="lbl">Unit</span>
+          <select class="in"><option>Pcs</option></select>
+        </div>
+        <button class="add-btn">+ ADD</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- (2) MIDDLE -->
+  <section class="mid">
+    <div class="mid-head-outer">
+      <div class="wrap">
+        <div class="mid-thead">
+          <div>#</div>
+          <div>Barcode</div>
+          <div>Product name</div>
+          <div>Size</div>
+          <div>Unit</div>
+          <div>Art#</div>
+          <div class="r">Qty</div>
+          <div class="r">Rate ₹</div>
+          <div class="r">Disc%</div>
+          <div class="r">GST%</div>
+          <div class="r">Amount ₹</div>
+        </div>
+      </div>
+    </div>
+    <div class="mid-body">
+      <div class="empty">
+        <div class="empty-bolt">⚡</div>
+        <div class="empty-main">Scan a barcode or search a product to add items</div>
+        <div class="empty-sub">Use the entry row above to add products to this invoice</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- (3) BOTTOM BAND -->
+  <section class="bottom-band">
+    <div class="wrap">
+      <div class="bottom-band-grid">
+
+        <div class="bb-left">
+          <div class="counters">
+            <div class="counter items"><div class="k">Items</div><div class="v">0</div></div>
+            <div class="counter qty"><div class="k">Qty</div><div class="v">0.0</div></div>
+            <div class="counter box"><div class="k">Box</div><div class="v">0.0</div></div>
+          </div>
+          <div class="bb-left-fields">
+            <div class="field">
+              <span class="lbl">Sale type</span>
+              <select class="in"><option>Retail</option><option>Wholesale</option></select>
+            </div>
+            <div class="field">
+              <span class="lbl">Salesman</span>
+              <input class="in" placeholder="Name" />
+            </div>
+          </div>
+        </div>
+
+        <div class="tot-col">
+          <div class="tot-row total-row">
+            <span class="lbl-txt">Total</span>
+            <span class="val-text">0.00</span>
+          </div>
+          <div class="tot-row with-pct">
+            <span class="lbl-txt">CGST</span>
+            <div class="pct-chip"><input placeholder="0" /><span class="sym">%</span></div>
+            <input class="val-field" value="0.00" />
+          </div>
+          <div class="tot-row with-pct">
+            <span class="lbl-txt">SGST</span>
+            <div class="pct-chip"><input placeholder="0" /><span class="sym">%</span></div>
+            <input class="val-field" value="0.00" />
+          </div>
+          <div class="tot-row with-pct">
+            <span class="lbl-txt">IGST</span>
+            <div class="pct-chip"><input placeholder="0" /><span class="sym">%</span></div>
+            <input class="val-field" value="0.00" />
+          </div>
+          <div class="tot-row gst-total">
+            <span class="lbl-txt">Total GST</span>
+            <span class="val-text">0.00</span>
+          </div>
+          <div class="tot-row">
+            <span class="lbl-txt">Other Chr.</span>
+            <input class="val-field" value="0.00" />
+          </div>
+          <div class="tot-row">
+            <span class="lbl-txt">Freight Chr.</span>
+            <input class="val-field" value="0.00" />
+          </div>
+          <div class="tot-row with-pct">
+            <span class="lbl-txt">Bill Disc</span>
+            <div class="pct-chip"><input placeholder="0" /><span class="sym">%</span></div>
+            <input class="val-field" placeholder="₹ amt" />
+          </div>
+        </div>
+
+        <div class="net-col">
+          <div class="net-hero">
+            <span class="k">Net total ₹</span>
+            <span class="v">0</span>
+          </div>
+          <div class="pay-row">
+            <span class="k">Payment</span>
+            <select class="in"><option>Cash</option><option>UPI</option><option>Bank</option></select>
+          </div>
+          <div class="pay-row">
+            <span class="k">Return ₹</span>
+            <input class="in num-in" value="0.00" />
+          </div>
+          <div class="pay-row">
+            <span class="k">Cash Rcvd</span>
+            <input class="in num-in" value="0.00" />
+          </div>
+          <div class="pay-row">
+            <span class="k">Amt Paid</span>
+            <input class="in num-in" value="0" />
+          </div>
+          <div class="paid-full">
+            <span class="k">Paid in full</span>
+            <span class="v">0.00</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- (4) ACTION BAR — Back | Reset | Save Credit | Save & Rcv -->
+  <section class="action-bar">
+    <div class="wrap">
+      <div class="action-bar-inner">
+        <button class="act"><span class="kbd">Esc</span> Back</button>
+        <button class="act"><span class="kbd">F5</span> Reset</button>
+        <button class="act credit"><span class="kbd">F8</span> Save Credit</button>
+        <button class="act primary"><span class="kbd">F1</span> Save &amp; Rcv</button>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const L = document.getElementById('btn-light');
+  const D = document.getElementById('btn-dark');
+  L.onclick = () => { document.body.dataset.mode = 'light'; L.classList.add('on'); D.classList.remove('on'); };
+  D.onclick = () => { document.body.dataset.mode = 'dark';  D.classList.add('on'); L.classList.remove('on'); };
+</script>
+
+</body>
+</html>

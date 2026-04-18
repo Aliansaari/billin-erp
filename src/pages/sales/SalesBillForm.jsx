@@ -4,34 +4,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
+import './sales-bill-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
-const fmt  = (v) => `₹ ${fmtN(v)}`;
 
-/* ─── Design tokens ─────────────────────────────────────────────────────── */
-const DARK   = 'linear-gradient(160deg,#021a12 0%,#052e1e 55%,#011208 100%)';
-const ACC    = '#34d399';
-const LBL_C  = '#6ee7b7';
-const PRI    = '#10b981';
-const TH_BG  = 'linear-gradient(90deg,#065f46 0%,#059669 100%)';
-const H      = '100%';
-
-const lbl  = { fontSize:9,  color:LBL_C, fontWeight:700, letterSpacing:.8, textTransform:'uppercase', marginBottom:2 };
-const lbl8 = { fontSize:8,  color:LBL_C, fontWeight:700, letterSpacing:.6, textTransform:'uppercase', marginBottom:1 };
-const darkIn = { background:'rgba(255,255,255,0.07)', borderColor:'rgba(255,255,255,0.13)', color:'#e2e8f0' };
-
-
-/* Financial row helpers (right panel) */
-const FL  = { fontSize:13, color:'rgba(255,255,255,.92)', fontWeight:600, whiteSpace:'nowrap', width:90, flexShrink:0 };
-const VB  = { /* white value display box — flex:1 so all same width */
-  background:'#fff', border:'1px solid #d1fae5', borderRadius:6,
-  padding:'0 12px', height:32, flex:1,
-  display:'flex', alignItems:'center', justifyContent:'flex-end',
-  fontSize:14, fontWeight:700, color:'#064e3b',
-  fontVariantNumeric:'tabular-nums', boxShadow:'0 1px 3px rgba(0,0,0,.12)',
-};
-
-const UNITS    = ['Pcs','Box','Set','Pair','Dozen','Mtr','Roll'];
+const UNITS     = ['Pcs','Box','Set','Pair','Dozen','Mtr','Roll'];
 const PAY_MODES = ['Cash','Card','UPI','Bank Transfer','Cheque','Credit'];
 
 const EMPTY = {
@@ -41,7 +18,27 @@ const EMPTY = {
   quantity_per_box:1,
 };
 
-/* ════════════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════════════
+ * SalesBillForm — Editorial v14 layout.
+ *
+ * Layout (top → bottom):
+ *   1. TOP section (left-aligned, max-width 1500)
+ *      — SALES INVOICE pill · Bill no. · company
+ *      — Customer / Bill date / Due date
+ *      — Party info strip (when a customer is selected)
+ *      — Product entry row (barcode → +ADD)
+ *   2. MIDDLE (full-bleed, edge-to-edge items table card)
+ *   3. BOTTOM (Summary LEFT, Totals + Payment RIGHT)
+ *      — Summary card: counters + Sale type + Salesman
+ *      — Totals card:  Subtotal → CGST % · ₹ → SGST → IGST → Other → Freight → Bill Disc
+ *      — Payment card: NET TOTAL hero (Fraunces) · Mode · Return · Cash Rcvd · Amt Paid · Status
+ *   4. ACTION BAR (compact, all 4 buttons LEFT)
+ *      — Esc Back · F5 Reset · F8 Save Credit · F1 Save & Rcv
+ *
+ * Business logic is unchanged from the prior version — every handler,
+ * state variable, ref, and calculation is preserved verbatim. Only the
+ * render tree + colors changed.
+ * ════════════════════════════════════════════════════════════════════════════ */
 export default function SalesBillForm() {
   const navigate = useNavigate();
   const { id }   = useParams();
@@ -482,7 +479,7 @@ export default function SalesBillForm() {
       <InputNumber keyboard={false} variant="borderless" value={val}
         onChange={v=>updateItem(items[ri]?.key,field,v??0)}
         onKeyDown={e=>navTbl(e,ri,ci)} min={min??0}
-        style={{width:w??'100%',fontSize:13,fontWeight:700,fontFamily:'inherit'}} size="small"/>
+        style={{width:w??'100%',fontSize:13,fontWeight:600,fontFamily:'inherit'}} size="small"/>
     </div>
   );
   const txtCell=(ri,ci,val,field,w)=>(
@@ -490,23 +487,23 @@ export default function SalesBillForm() {
       <Input variant="borderless" value={val}
         onChange={e=>updateItem(items[ri]?.key,field,e.target.value)}
         onKeyDown={e=>navTbl(e,ri,ci)}
-        style={{width:w??'100%',fontSize:13,fontWeight:700,fontFamily:'inherit'}} size="small"/>
+        style={{width:w??'100%',fontSize:13,fontWeight:600,fontFamily:'inherit'}} size="small"/>
     </div>
   );
 
   const readCell=(v,style={})=>(
-    <span style={{fontSize:13,color:'#1f2937',fontWeight:700,paddingLeft:4,...style}}>{v||'—'}</span>
+    <span style={{fontSize:13,fontWeight:500,paddingLeft:4,...style}}>{v||'—'}</span>
   );
 
   const cols=[
-    {title:'#',width:34,align:'center',render:(_,__,i)=><span style={{color:'#94a3b8',fontSize:13,fontWeight:700}}>{i+1}</span>},
-    {title:'Barcode',dataIndex:'barcode',width:120,render:(v)=>readCell(v,{color:'#374151'})},
-    {title:'Product Name',dataIndex:'product_name',width:200,render:(v)=>readCell(v,{})},
-    {title:'Size',dataIndex:'size',width:60,render:(v)=>readCell(v,{color:'#6b7280'})},
+    {title:'#',width:34,align:'center',render:(_,__,i)=><span style={{color:'var(--fg-tertiary)',fontSize:13,fontWeight:600}}>{i+1}</span>},
+    {title:'Barcode',dataIndex:'barcode',width:120,render:(v)=>readCell(v,{color:'var(--fg-secondary)'})},
+    {title:'Product Name',dataIndex:'product_name',width:200,render:(v)=>readCell(v,{color:'var(--fg-primary)',fontWeight:600})},
+    {title:'Size',dataIndex:'size',width:60,render:(v)=>readCell(v,{color:'var(--fg-tertiary)'})},
     {title:'Unit',dataIndex:'unit_type',width:70,align:'center',render:(v)=>(
-      <span style={{fontSize:13,fontWeight:700,background:'#f3f4f6',borderRadius:4,padding:'1px 6px',color:'#374151'}}>{v||'Pcs'}</span>
+      <span style={{fontSize:12,fontWeight:600,background:'var(--bg-muted)',borderRadius:4,padding:'1px 6px',color:'var(--fg-secondary)'}}>{v||'Pcs'}</span>
     )},
-    {title:'Art#',dataIndex:'article_number',width:80,render:(v)=>readCell(v,{color:'#6b7280'})},
+    {title:'Art#',dataIndex:'article_number',width:80,render:(v)=>readCell(v,{color:'var(--fg-tertiary)'})},
     {title:'Qty',dataIndex:'quantity',width:72,align:'center',render:(v,r,ri)=>numCell(ri,5,v,'quantity',0,66)},
     {title:'Rate ₹',dataIndex:'rate',width:96,align:'right',render:(v,r,ri)=>numCell(ri,6,v,'rate',0,90)},
     {title:'Disc%',dataIndex:'discount_percentage',width:62,align:'right',render:(v,r,ri)=>numCell(ri,7,v,'discount_percentage',0,56)},
@@ -514,685 +511,457 @@ export default function SalesBillForm() {
     {title:'Amount ₹',width:116,align:'right',render:(_,r)=>{
       const lt=(r.quantity||0)*(r.rate||0);
       const da=lt*(r.discount_percentage||0)/100;
-      return <span style={{color:'#059669',fontWeight:700,fontSize:13,fontFamily:'inherit',paddingRight:6}}>{fmtN(lt-da)}</span>;
+      return <span style={{color:'var(--fg-primary)',fontWeight:700,fontSize:13,fontFamily:'inherit',paddingRight:6,fontVariantNumeric:'tabular-nums'}}>{fmtN(lt-da)}</span>;
     }},
     {title:'',width:32,align:'center',render:(_,r)=>(
       <button onClick={()=>removeItem(r.key)}
-        style={{background:'none',border:'none',cursor:'pointer',color:'#f87171',
+        style={{background:'none',border:'none',cursor:'pointer',color:'var(--danger)',
           padding:'2px 4px',borderRadius:4,lineHeight:1,fontSize:16}}>×</button>
     )},
   ];
 
-  /* ─── render ─────────────────────────────────────────────────────────────── */
+  /* ─── Status badge (Paid / Balance / Overpaid) ───────────────────────── */
+  const isOverpaid = balance < -0.001;
+  const isDue      = balance > 0.001;
+  const statusClass = isDue ? 'due' : isOverpaid ? 'over' : 'paid';
+  const statusLabel = isDue ? 'Balance due' : isOverpaid ? 'Overpaid' : 'Paid in full';
+
+  /* ─── render ─────────────────────────────────────────────────────────── */
   return (
     <Form form={form} component={false}>
-      <style>{`
-        .sbf-dark .ant-input,
-        .sbf-dark .ant-input-number,
-        .sbf-dark .ant-picker,
-        .sbf-dark .ant-select:not(.ant-select-customize-input) .ant-select-selector,
-        .sbf-dark .ant-autocomplete .ant-select-selector {
-          background:rgba(255,255,255,0.07)!important;
-          border:1px solid rgba(255,255,255,0.13)!important;
-          border-radius:6px!important;
-        }
-        .sbf-dark .ant-input,
-        .sbf-dark .ant-input-number-input,
-        .sbf-dark .ant-picker-input>input,
-        .sbf-dark .ant-select-selection-item,
-        .sbf-dark .ant-select-selection-placeholder,
-        .sbf-dark .ant-autocomplete .ant-select-selection-search-input {
-          color:#e2e8f0!important; font-size:12px!important;
-        }
-        .sbf-dark .ant-select-selection-item{line-height:24px!important;}
-        .sbf-dark .ant-select-arrow,.sbf-dark .ant-picker-suffix{color:rgba(255,255,255,0.35)!important;}
-        .sbf-dark .ant-select-clear{background:rgba(2,18,10,.9)!important;color:rgba(255,255,255,.5)!important;}
-        .sbf-bot .ant-input-number,.sbf-bot .ant-input-number-input,
-        .sbf-bot .ant-input,
-        .sbf-bot .ant-select .ant-select-selector{
-          background:rgba(255,255,255,0.07)!important;
-          border-color:rgba(255,255,255,0.12)!important;
-          color:#e2e8f0!important;
-        }
-        .sbf-bot .ant-select-selection-item,.sbf-bot .ant-select-arrow{color:#e2e8f0!important;}
-        .sbf-tbl .ant-table-cell{
-          border-inline-end:none!important;
-          padding:3px 6px!important;
-          border-bottom:1px solid #ecfdf5!important;
-        }
-        .sbf-tbl .ant-table-thead .ant-table-cell{
-          padding:10px 8px!important;
-          border-inline-end:1px solid rgba(255,255,255,0.1)!important;
-        }
-        .sbf-tbl .ant-table-tbody>tr:hover>td{background:#ecfdf5!important;}
-        .sbf-tbl .ant-table-summary>tr>td{
-          border-inline-end:none!important;
-          padding:7px 8px!important;
-          background:#f0fdf4!important;
-        }
-        .sbf-tbl .ant-table-placeholder .ant-table-cell{border-bottom:none!important;}
-        .sbf-tbl .ant-input-number-input,
-        .sbf-tbl .ant-input{font-size:13px!important;font-weight:700!important;color:#1f2937!important;}
-        .sbf-btn{transition:all 0.15s!important;}
-        .sbf-btn:hover{filter:brightness(1.15);transform:translateY(-1px);}
-        .sbf-btn:active{transform:translateY(0);filter:brightness(.95);}
+      <div className="sbf-page">
 
-        /* Financial panel white inputs — uniform style */
-        .sbf-fin-in.ant-input-number,
-        .sbf-paid-in.ant-input-number {
-          background: #fff !important;
-          border: 1px solid #d1fae5 !important;
-          border-radius: 6px !important;
-          box-shadow: 0 1px 3px rgba(0,0,0,.12) !important;
-          height: 32px !important;
-          width: 100% !important;
-        }
-        .sbf-fin-in .ant-input-number-input,
-        .sbf-paid-in .ant-input-number-input {
-          background: #fff !important;
-          color: #064e3b !important;
-          font-weight: 700 !important;
-          font-size: 13px !important;
-          text-align: right !important;
-          height: 30px !important;
-        }
-        .sbf-fin-in .ant-input-number-input::placeholder,
-        .sbf-paid-in .ant-input-number-input::placeholder { color: #9ca3af !important; font-weight:400 !important; }
-        /* Payment select */
-        .sbf-pay-sel.ant-select .ant-select-selector {
-          background: #fff !important;
-          border: 1px solid #d1fae5 !important;
-          border-radius: 6px !important;
-          height: 32px !important;
-          box-shadow: 0 1px 3px rgba(0,0,0,.12) !important;
-        }
-        .sbf-pay-sel .ant-select-selection-item { color: #064e3b !important; font-weight:700 !important; font-size: 13px !important; line-height: 30px !important; }
-        .sbf-pay-sel .ant-select-arrow { color: #064e3b !important; }
-      `}</style>
+        {/* ═══════════════════════════════ (1) TOP ════════════════════════════ */}
+        <section className="sbf-top">
+          <div className="sbf-top-inner">
 
-      <div style={{
-        height:H,
-        display:'flex', flexDirection:'column', overflow:'hidden',
-        fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",
-      }}>
-
-        {/* ══════════════════════════════════════════════════════════════════
-            TOP — 15%
-            ═══════════════════════════════════════════════════════════════ */}
-        <div className="sbf-dark" style={{
-          flexShrink:0,
-          background:DARK,
-          display:'flex', flexDirection:'column', gap:8,
-          padding:'10px 20px 12px',
-          borderBottom:'2px solid rgba(16,185,129,0.35)',
-          boxShadow:'0 4px 24px rgba(0,0,0,0.4)',
-        }}>
-
-          {/* header row */}
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <button onClick={()=>navigate('/sales')} className="sbf-btn"
-              style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.12)',
-                borderRadius:6,color:ACC,cursor:'pointer',padding:'3px 10px',
-                fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:5}}>
-              ← Back
-            </button>
-            {company&&<span style={{color:'rgba(255,255,255,0.28)',fontSize:11}}>{company}</span>}
-            <div style={{display:'flex',alignItems:'center',gap:7,
-              background:'rgba(16,185,129,0.15)',border:'1px solid rgba(16,185,129,0.3)',
-              borderRadius:20,padding:'3px 14px'}}>
-              <span style={{width:6,height:6,borderRadius:'50%',background:ACC,
-                display:'inline-block',boxShadow:`0 0 6px ${ACC}`}}/>
-              <span style={{color:ACC,fontWeight:800,fontSize:12,letterSpacing:1.8,textTransform:'uppercase'}}>
-                {isEdit?'Edit Sales Bill':'Sales Invoice'}
+            <div className="sbf-top-head">
+              <span className="sbf-pill">
+                <span className="dot"></span>
+                {isEdit ? 'Edit Sales Bill' : 'Sales Invoice'}
               </span>
+              <div className="sbf-doc">
+                <span>Bill no.</span>
+                <b>{billNo || `New · ${dayjs().format('DD MMM YYYY')}`}</b>
+              </div>
+              {company && <span className="sbf-company">· {company}</span>}
             </div>
-            {billNo&&(
-              <span style={{fontSize:11,
-                background:'rgba(16,185,129,0.18)',border:'1px solid rgba(16,185,129,0.35)',
-                color:'#a7f3d0',borderRadius:12,padding:'2px 10px'}}>{billNo}
-              </span>
-            )}
-            <div style={{marginLeft:'auto'}}/>
-          </div>
 
-          {/* customer / date row */}
-          <div style={{display:'flex',gap:10,alignItems:'flex-end',flexWrap:'wrap'}}>
-            <div style={{display:'flex',flexDirection:'column',justifyContent:'flex-end'}}>
-              <div style={lbl8}>Customer</div>
-              <Form.Item name="customer_id" noStyle>
-                <Select showSearch style={{width:260}} placeholder="Cash Sale (optional)"
-                  allowClear optionFilterProp="label"
-                  dropdownStyle={{minWidth:600,padding:0}}
-                  dropdownRender={menu=>(
-                    <div>
-                      <div style={{display:'flex',gap:0,background:'#fde047',padding:'5px 12px',
-                        fontSize:11,fontWeight:700,color:'#1f2937',borderBottom:'2px solid #ca8a04'}}>
-                        <span style={{flex:'0 0 180px'}}>Customer Name</span>
-                        <span style={{flex:'0 0 120px'}}>City</span>
-                        <span style={{flex:'0 0 110px'}}>Contact</span>
-                        <span style={{flex:'0 0 80px',textAlign:'right'}}>Balance</span>
-                        <span style={{flex:'0 0 70px',textAlign:'center'}}>Credit</span>
+            <div className="sbf-top-row">
+              <div className="sbf-field">
+                <span className="sbf-lbl">Customer</span>
+                <Form.Item name="customer_id" noStyle>
+                  <Select showSearch placeholder="Cash Sale (optional)"
+                    allowClear optionFilterProp="label"
+                    dropdownStyle={{minWidth:600,padding:0}}
+                    dropdownRender={menu=>(
+                      <div>
+                        <div style={{display:'flex',gap:0,background:'var(--warning-bg)',padding:'5px 12px',
+                          fontSize:11,fontWeight:700,color:'var(--fg-primary)',borderBottom:'1px solid var(--border)'}}>
+                          <span style={{flex:'0 0 180px'}}>Customer Name</span>
+                          <span style={{flex:'0 0 120px'}}>City</span>
+                          <span style={{flex:'0 0 110px'}}>Contact</span>
+                          <span style={{flex:'0 0 80px',textAlign:'right'}}>Balance</span>
+                          <span style={{flex:'0 0 70px',textAlign:'center'}}>Credit</span>
+                        </div>
+                        {menu}
                       </div>
-                      {menu}
-                    </div>
-                  )}
-                  options={parties.map(p=>({
-                    value:p.party_id,
-                    label:p.party_name,
-                    party:p,
-                  }))}
-                  optionRender={(opt)=>{
-                    const p=opt.data.party;
-                    const bal=parseFloat(p.current_balance||0);
-                    return (
-                      <div style={{display:'flex',gap:0,alignItems:'center',fontSize:12,padding:'2px 0'}}>
-                        <span style={{flex:'0 0 180px',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingRight:6}}>{p.party_name}</span>
-                        <span style={{flex:'0 0 120px',color:'#6b7280',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingRight:6}}>{p.city||'—'}</span>
-                        <span style={{flex:'0 0 110px',color:'#374151'}}>{p.mobile_1||'—'}</span>
-                        <span style={{flex:'0 0 80px',textAlign:'right',fontWeight:700,paddingRight:8,
-                          color:bal>0?'#059669':bal<0?'#dc2626':'#6b7280'}}>
-                          {bal.toFixed(1)}
-                        </span>
-                        <span style={{flex:'0 0 70px',textAlign:'center'}}>
-                          <span style={{background:p.credit_allowed?'#d1fae5':'#fee2e2',
-                            color:p.credit_allowed?'#065f46':'#991b1b',
-                            borderRadius:4,padding:'1px 7px',fontSize:10,fontWeight:700}}>
-                            {p.credit_allowed?'YES':'NO'}
+                    )}
+                    options={parties.map(p=>({
+                      value:p.party_id,
+                      label:p.party_name,
+                      party:p,
+                    }))}
+                    optionRender={(opt)=>{
+                      const p=opt.data.party;
+                      const bal=parseFloat(p.current_balance||0);
+                      return (
+                        <div style={{display:'flex',gap:0,alignItems:'center',fontSize:12,padding:'2px 0'}}>
+                          <span style={{flex:'0 0 180px',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingRight:6}}>{p.party_name}</span>
+                          <span style={{flex:'0 0 120px',color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingRight:6}}>{p.city||'—'}</span>
+                          <span style={{flex:'0 0 110px',color:'var(--fg-secondary)'}}>{p.mobile_1||'—'}</span>
+                          <span style={{flex:'0 0 80px',textAlign:'right',fontWeight:700,paddingRight:8,
+                            color:bal>0?'var(--success)':bal<0?'var(--danger)':'var(--fg-tertiary)'}}>
+                            {bal.toFixed(1)}
                           </span>
-                        </span>
-                      </div>
-                    );
-                  }}
-                />
-              </Form.Item>
+                          <span style={{flex:'0 0 70px',textAlign:'center'}}>
+                            <span style={{background:p.credit_allowed?'var(--success-bg)':'var(--danger-bg)',
+                              color:p.credit_allowed?'var(--success)':'var(--danger)',
+                              borderRadius:4,padding:'1px 7px',fontSize:10,fontWeight:700}}>
+                              {p.credit_allowed?'YES':'NO'}
+                            </span>
+                          </span>
+                        </div>
+                      );
+                    }}
+                  />
+                </Form.Item>
+              </div>
+              <div className="sbf-field">
+                <span className="sbf-lbl">Bill date <span className="req">*</span></span>
+                <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
+                  <DatePicker style={{width:'100%'}} format="DD-MM-YYYY"/>
+                </Form.Item>
+              </div>
+              <div className="sbf-field">
+                <span className="sbf-lbl">Due date</span>
+                <Form.Item name="due_date" noStyle>
+                  <DatePicker style={{width:'100%'}} format="DD-MM-YYYY"/>
+                </Form.Item>
+              </div>
             </div>
-            <div>
-              <div style={lbl8}>Bill Date *</div>
-              <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
-                <DatePicker style={{width:130}} format="DD-MM-YYYY"/>
-              </Form.Item>
-            </div>
-            <div>
-              <div style={lbl8}>Due Date</div>
-              <Form.Item name="due_date" noStyle>
-                <DatePicker style={{width:130}} format="DD-MM-YYYY"/>
-              </Form.Item>
-            </div>
-          </div>
-          {/* Party info badge — outside the flex row so it doesn't affect alignment */}
-          {selectedParty&&(
-            <div style={{display:'flex',gap:12,alignItems:'center',marginTop:3,flexWrap:'wrap'}}>
-              {selectedParty.city&&<span style={{fontSize:13,color:'rgba(255,255,255,0.6)'}}>{selectedParty.city}</span>}
-              {selectedParty.mobile_1&&<span style={{fontSize:14,fontWeight:700,color:'rgba(255,255,255,0.85)',letterSpacing:.5}}>{selectedParty.mobile_1}</span>}
-              <span style={{fontSize:14,fontWeight:800,
-                color:parseFloat(selectedParty.current_balance||0)>0?'#34d399':'#f87171'}}>
-                Bal: ₹{parseFloat(selectedParty.current_balance||0).toFixed(2)}
-              </span>
-              <span style={{fontSize:12,fontWeight:700,padding:'2px 10px',borderRadius:4,
-                background:selectedParty.credit_allowed?'rgba(52,211,153,0.15)':'rgba(248,113,113,0.15)',
-                border:`1px solid ${selectedParty.credit_allowed?'rgba(52,211,153,0.3)':'rgba(248,113,113,0.3)'}`,
-                color:selectedParty.credit_allowed?'#34d399':'#f87171'}}>
-                Credit: {selectedParty.credit_allowed?'Allowed':'Not Allowed'}
-              </span>
-            </div>
-          )}
 
-          {/* entry row */}
-          <div style={{display:'flex',gap:8,alignItems:'flex-end',flexWrap:'wrap'}}>
-            <div style={{flexShrink:0}}>
-              <div style={lbl8}>Barcode / Scan</div>
-              <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type…"
-                onChange={e=>setEntry(p=>({...p,barcode:e.target.value}))}
-                onPressEnter={e=>{
-                  const val=e.target.value.trim();
-                  if(val){ e.target.value=''; handleScan(val); }
-                }}
-                onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();prodRef.current?.focus();}}}
-                style={{width:140,}}/>
-            </div>
-            <div style={{flexShrink:0}}>
-              <div style={lbl8}>Category</div>
-              <Select className="entry-dark-select" style={{width:200}} value={activeCatId}
-                onChange={(v,opt)=>{
-                  justSelectedRef.current = false; // cancel any pending qty-redirect
-                  setActiveCatId(v||null);
-                  setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
-                }}
-                placeholder="All categories" showSearch
-                filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
-                allowClear notFoundContent={null}>
-                {cats.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
-              </Select>
-            </div>
-            <div ref={prodWrapRef} style={{flexShrink:0}}>
-              <div style={lbl8}>Product Name</div>
-              <Select key={activeCatId??'no-cat'} ref={prodRef} className="entry-dark-select" style={{width:220}}
-                showSearch filterOption={false} optionLabelProp="label"
-                value={entry.product_id||undefined}
-                open={prodOpen}
-                onDropdownVisibleChange={v=>setProdOpen(v)}
-                onSearch={v=>{ setProdOpen(true); handleProdSearch(v); }}
-                onSelect={(val,opt)=>{ setProdOpen(false); handleProdSel(val,opt); }}
-                onFocus={()=>{
-                  if(justSelectedRef.current){
-                    justSelectedRef.current=false;
-                    requestAnimationFrame(()=>{ prodRef.current?.blur(); qtyRef.current?.focus(); });
-                  }
-                }}
-                onClear={()=>{ setProdOpen(false); setEntry(p=>({...p,product_id:null,product_name:''})); }}
-                allowClear
-                placeholder="Search product…" notFoundContent={null}
-                listHeight={320} dropdownMatchSelectWidth={460}
-              >
-                {prodOpts.map(p=>{
-                  const stock=parseFloat(p.current_stock||0);
-                  const stockColor=stock<=0?'#ef4444':stock<=5?'#f59e0b':'#6b7280';
-                  return(
-                  <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
-                      <div style={{minWidth:0,flex:1}}>
-                        <div style={{fontWeight:600,fontSize:13,color:'#111827',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.product_name}</div>
-                        <div style={{fontSize:10,color:'#6b7280',marginTop:1}}>
-                          {[p.Category?.category_name,p.article_number&&`Art# ${p.article_number}`,p.size_value&&`Size ${p.size_value}`].filter(Boolean).join(' · ')}
+            {/* Party info strip */}
+            {selectedParty && (
+              <div className="sbf-party-info">
+                {selectedParty.city && <span>{selectedParty.city}</span>}
+                {selectedParty.mobile_1 && <span>📞 <b>{selectedParty.mobile_1}</b></span>}
+                <span>Balance <b className={parseFloat(selectedParty.current_balance||0) >= 0 ? 'pos' : 'neg'}>
+                  ₹{parseFloat(selectedParty.current_balance||0).toFixed(2)}
+                </b></span>
+                <span className={selectedParty.credit_allowed ? 'credit-ok' : 'credit-no'}>
+                  Credit {selectedParty.credit_allowed ? 'allowed' : 'not allowed'}
+                </span>
+              </div>
+            )}
+
+            {/* Entry row */}
+            <div className="sbf-top-row-2">
+              <div className="sbf-field">
+                <span className="sbf-lbl">Barcode / scan</span>
+                <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type…"
+                  onChange={e=>setEntry(p=>({...p,barcode:e.target.value}))}
+                  onPressEnter={e=>{
+                    const val=e.target.value.trim();
+                    if(val){ e.target.value=''; handleScan(val); }
+                  }}
+                  onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();prodRef.current?.focus();}}}
+                />
+              </div>
+              <div className="sbf-field">
+                <span className="sbf-lbl">Category</span>
+                <Select value={activeCatId}
+                  onChange={(v,opt)=>{
+                    justSelectedRef.current = false;
+                    setActiveCatId(v||null);
+                    setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
+                  }}
+                  placeholder="All categories" showSearch
+                  filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
+                  allowClear notFoundContent={null}>
+                  {cats.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
+                </Select>
+              </div>
+              <div className="sbf-field" ref={prodWrapRef}>
+                <span className="sbf-lbl">Product name</span>
+                <Select key={activeCatId??'no-cat'} ref={prodRef}
+                  showSearch filterOption={false} optionLabelProp="label"
+                  value={entry.product_id||undefined}
+                  open={prodOpen}
+                  onDropdownVisibleChange={v=>setProdOpen(v)}
+                  onSearch={v=>{ setProdOpen(true); handleProdSearch(v); }}
+                  onSelect={(val,opt)=>{ setProdOpen(false); handleProdSel(val,opt); }}
+                  onFocus={()=>{
+                    if(justSelectedRef.current){
+                      justSelectedRef.current=false;
+                      requestAnimationFrame(()=>{ prodRef.current?.blur(); qtyRef.current?.focus(); });
+                    }
+                  }}
+                  onClear={()=>{ setProdOpen(false); setEntry(p=>({...p,product_id:null,product_name:''})); }}
+                  allowClear
+                  placeholder="Search product…" notFoundContent={null}
+                  listHeight={320} dropdownMatchSelectWidth={460}
+                >
+                  {prodOpts.map(p=>{
+                    const stock=parseFloat(p.current_stock||0);
+                    const stockColor=stock<=0?'var(--danger)':stock<=5?'var(--warning)':'var(--fg-tertiary)';
+                    return(
+                    <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
+                        <div style={{minWidth:0,flex:1}}>
+                          <div style={{fontWeight:600,fontSize:13,color:'var(--fg-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.product_name}</div>
+                          <div style={{fontSize:10,color:'var(--fg-tertiary)',marginTop:1}}>
+                            {[p.Category?.category_name,p.article_number&&`Art# ${p.article_number}`,p.size_value&&`Size ${p.size_value}`].filter(Boolean).join(' · ')}
+                          </div>
+                        </div>
+                        <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
+                          <span style={{color:'var(--success)',fontWeight:700,fontSize:12}}>₹{parseFloat(p.sale_rate||0).toFixed(2)}</span>
+                          <span style={{color:stockColor,fontSize:10,fontWeight:600}}>{stock<=0?'Out of stock':`Stock: ${stock}`}</span>
                         </div>
                       </div>
-                      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
-                        <span style={{color:'#059669',fontWeight:700,fontSize:12}}>₹{parseFloat(p.sale_rate||0).toFixed(2)}</span>
-                        <span style={{color:stockColor,fontSize:10,fontWeight:600}}>{stock<=0?'Out of stock':`Stock: ${stock}`}</span>
-                      </div>
-                    </div>
-                  </Select.Option>
-                )})}
-              </Select>
-            </div>
-            {[
-              {l:'Size',  ref:sizeRef, f:'size',               v:entry.size,                          w:70, i:1,t:'txt'},
-              {l:'Art #', ref:artRef,  f:'article_number',     v:entry.article_number,                w:80, i:2,t:'txt'},
-              {l:'Rate ₹',ref:rateRef, f:'rate',               v:entry.rate||undefined,               w:100,i:3,t:'num',min:0},
-              {l:'Qty',   ref:qtyRef,  f:'quantity',           v:entry.quantity||undefined,           w:80, i:4,t:'num',min:0},
-              {l:'Disc%', ref:discRef, f:'discount_percentage',v:entry.discount_percentage||undefined,w:70, i:5,t:'num',min:0},
-              {l:'GST%',  ref:gstRef,  f:'gst_rate',           v:entry.gst_rate||undefined,           w:70, i:6,t:'num',min:0},
-            ].map(({l,ref,f,v,w,i,t,min})=>(
-              <div key={f} style={{flexShrink:0}}>
-                <div style={lbl8}>{l}</div>
-                {t==='txt'
-                  ?<Input ref={ref} value={v} style={{width:w}}
-                      onChange={e=>ue(f,e.target.value)} onKeyDown={e=>eKey(e,i)}/>
-                  :<InputNumber keyboard={false} ref={ref} value={v} style={{width:w}} min={min}
-                      onChange={vv=>ue(f,vv||0)} onKeyDown={e=>eKey(e,i)}/>
-                }
+                    </Select.Option>
+                  )})}
+                </Select>
               </div>
-            ))}
-            <div style={{flexShrink:0}}>
-              <div style={lbl8}>Unit</div>
-              <Select value={entry.unit_type||'Pcs'} style={{width:80}}
-                onChange={v=>ue('unit_type',v)}>
-                {UNITS.map(u=><Select.Option key={u} value={u}>{u}</Select.Option>)}
-              </Select>
-            </div>
-            <div style={{flexShrink:0,display:'flex',flexDirection:'column',justifyContent:'flex-end'}}>
-              <button onClick={addItem} className="sbf-btn"
-                style={{background:`linear-gradient(135deg,${PRI},#34d399)`,
-                  border:'none',color:'#fff',borderRadius:7,
-                  padding:'6px 22px',fontSize:13,fontWeight:700,cursor:'pointer',
-                  height:32,display:'flex',alignItems:'center',gap:6,
-                  boxShadow:'0 0 14px rgba(16,185,129,0.55)'}}>
-                + ADD
-              </button>
-            </div>
-            {entry.available_stock>0&&(
-              <span style={{alignSelf:'flex-end',fontSize:11,
-                color:entry.quantity>entry.available_stock?'#f87171':'#34d399',
-                background:entry.quantity>entry.available_stock?'rgba(239,68,68,0.12)':'rgba(16,185,129,0.12)',
-                border:`1px solid ${entry.quantity>entry.available_stock?'rgba(248,113,113,.3)':'rgba(52,211,153,.3)'}`,
-                borderRadius:10,padding:'3px 10px'}}>
-                Stock: {entry.available_stock}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* ══════════════════════════════════════════════════════════════════
-            TABLE — flex:1  (added products)
-            ═══════════════════════════════════════════════════════════════ */}
-        <div ref={tableWrapRef} className="sbf-tbl" style={{flex:1,overflow:'hidden',minHeight:0,background:'#fff'}}>
-          <Table
-            columns={cols} dataSource={items} rowKey="key"
-            size="small" pagination={false} loading={pgLoading}
-            scroll={items.length?{x:1150,y:tblHeight}:{y:tblHeight}}
-            components={{header:{cell:(props)=>(
-              <th {...props} style={{
-                background:TH_BG,color:'#fff',fontWeight:700,fontSize:11,
-                padding:'10px 8px',border:'none',borderBottom:'2px solid #065f46',
-                whiteSpace:'nowrap',textTransform:'uppercase',letterSpacing:.5,
-              }}/>
-            )}}}
-            locale={{emptyText:(
-              <div style={{padding:48,textAlign:'center',color:'#c4c4c4'}}>
-                <div style={{fontSize:36,marginBottom:10}}>⚡</div>
-                <div style={{fontSize:14,fontWeight:500}}>Scan a barcode or search a product to add items</div>
-                <div style={{fontSize:12,marginTop:4,color:'#d1d5db'}}>Use the entry row above to add products to this invoice</div>
-              </div>
-            )}}
-          />
-        </div>
-
-        {/* ══════════════════════════════════════════════════════════════════
-            BOTTOM — 28%   LEFT: stats + controls    RIGHT: financials
-            ═══════════════════════════════════════════════════════════════ */}
-        <div className="sbf-bot" style={{
-          height:'40%', minHeight:310,
-          background:DARK, flexShrink:0,
-          borderTop:'2px solid rgba(16,185,129,0.3)',
-          padding:'10px 20px',
-          display:'flex', flexDirection:'row', gap:0,
-          boxShadow:'0 -4px 28px rgba(0,0,0,0.4)',
-        }}>
-
-          {/* ─────────────────────────────────────────────────
-              LEFT PANEL  — stats, controls, buttons
-              ───────────────────────────────────────────────── */}
-          <div style={{
-            flex:1, display:'flex', flexDirection:'column', justifyContent:'space-between',
-            paddingRight:20,
-            borderRight:'1px solid rgba(255,255,255,0.1)',
-          }}>
-
-            {/* Stat mini-cards */}
-            <div style={{display:'flex',gap:8}}>
               {[
-                {l:'ITEMS',v:items.length,        c:'rgba(52,211,153,0.9)'},
-                {l:'QTY',  v:totalQty.toFixed(1), c:'rgba(96,165,250,0.9)'},
-                {l:'BOX',  v:boxQty.toFixed(1),   c:'rgba(251,191,36,0.9)'},
-              ].map(({l,v,c})=>(
-                <div key={l} style={{textAlign:'center',
-                  background:'rgba(255,255,255,0.06)',
-                  border:`1px solid ${c}40`,
-                  borderRadius:8, padding:'4px 16px', minWidth:64}}>
-                  <div style={{fontSize:8,color:c,fontWeight:700,letterSpacing:.8}}>{l}</div>
-                  <div style={{color:'#fff',fontWeight:800,fontSize:20,lineHeight:1.2}}>{v}</div>
+                {l:'Size',  ref:sizeRef, f:'size',               v:entry.size,                          i:1,t:'txt'},
+                {l:'Art #', ref:artRef,  f:'article_number',     v:entry.article_number,                i:2,t:'txt'},
+                {l:'Rate ₹',ref:rateRef, f:'rate',               v:entry.rate||undefined,               i:3,t:'num',min:0},
+                {l:'Qty',   ref:qtyRef,  f:'quantity',           v:entry.quantity||undefined,           i:4,t:'num',min:0},
+                {l:'Disc%', ref:discRef, f:'discount_percentage',v:entry.discount_percentage||undefined,i:5,t:'num',min:0},
+                {l:'GST%',  ref:gstRef,  f:'gst_rate',           v:entry.gst_rate||undefined,           i:6,t:'num',min:0},
+              ].map(({l,ref,f,v,i,t,min})=>(
+                <div key={f} className="sbf-field">
+                  <span className="sbf-lbl">{l}</span>
+                  {t==='txt'
+                    ?<Input ref={ref} value={v}
+                        onChange={e=>ue(f,e.target.value)} onKeyDown={e=>eKey(e,i)}/>
+                    :<InputNumber keyboard={false} ref={ref} value={v} style={{width:'100%'}} min={min}
+                        onChange={vv=>ue(f,vv||0)} onKeyDown={e=>eKey(e,i)}/>
+                  }
                 </div>
               ))}
-            </div>
-
-            {/* Controls row */}
-            <div style={{display:'flex',gap:14,alignItems:'flex-end',flexWrap:'wrap'}}>
-              <div>
-                <div style={lbl}>Sale Type</div>
-                <Form.Item name="sale_type" noStyle initialValue="Retail">
-                  <Select size="small" style={{width:96}}>
-                    <Select.Option value="Retail">Retail</Select.Option>
-                    <Select.Option value="Wholesale">Wholesale</Select.Option>
-                  </Select>
-                </Form.Item>
+              <div className="sbf-field">
+                <span className="sbf-lbl">Unit</span>
+                <Select value={entry.unit_type||'Pcs'}
+                  onChange={v=>ue('unit_type',v)}>
+                  {UNITS.map(u=><Select.Option key={u} value={u}>{u}</Select.Option>)}
+                </Select>
               </div>
-              <div>
-                <div style={lbl}>Salesman</div>
-                <Form.Item name="salesman_name" noStyle>
-                  <Input size="small" placeholder="Name" style={{width:120,...darkIn}}/>
-                </Form.Item>
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div style={{display:'flex',gap:8}}>
-              {[
-                {label:'Back',        kbd:'ESC',bg:'#0d2b1e',                onClick:()=>navigate('/sales')},
-                {label:'Reset',       kbd:'F5', bg:'#0d2b1e',                onClick:handleReset},
-                {label:'Save Credit', kbd:'F8', bg:'#1e3a8a',                onClick:()=>handleSave(false),disabled:loading},
-                {label:'Save & Rcv',  kbd:'F1', bg:'linear-gradient(135deg,#065f46,#059669)',primary:true,onClick:()=>handleSave(true),disabled:loading},
-              ].map(({label,kbd,bg,onClick,primary,disabled})=>(
-                <button key={kbd} onClick={onClick} disabled={disabled} className="sbf-btn"
-                  style={{
-                    background:bg, color:'#fff',
-                    border:primary?'none':'1px solid rgba(255,255,255,.14)',
-                    borderRadius:8, padding:'8px 18px', fontSize:13, fontWeight:700,
-                    cursor:'pointer', display:'flex', alignItems:'center', gap:7,
-                    opacity:disabled?.55:1,
-                    boxShadow:primary?'0 0 18px rgba(16,185,129,.45)':'none',
-                    whiteSpace:'nowrap',
-                  }}>
-                  <span style={{background:'rgba(0,0,0,.3)',borderRadius:4,
-                    padding:'2px 6px',fontSize:9,fontWeight:700,letterSpacing:.5}}>{kbd}</span>
-                  {label}
-                </button>
-              ))}
+              <button onClick={addItem} className="sbf-add-btn">+ ADD</button>
+              {entry.available_stock>0 && (
+                <span className={`sbf-stock-chip ${entry.quantity>entry.available_stock?'low':'ok'}`}>
+                  Stock: {entry.available_stock}
+                </span>
+              )}
             </div>
           </div>
+        </section>
 
-          {/* ─────────────────────────────────────────────────
-              RIGHT PANEL — two sub-columns (financials | NET TOTAL)
-              ───────────────────────────────────────────────── */}
-          <div style={{
-            width:500,
-            paddingLeft:20,
-            display:'flex', flexDirection:'row', gap:14,
-            borderLeft:'1px solid rgba(255,255,255,.1)',
-          }}>
+        {/* ═══════════════════════════════ (2) MIDDLE ══════════════════════════ */}
+        <section className="sbf-mid">
+          <div className="sbf-mid-card">
+            <div ref={tableWrapRef} className="sbf-tbl-wrap">
+              <Table
+                columns={cols} dataSource={items} rowKey="key"
+                size="small" pagination={false} loading={pgLoading}
+                scroll={items.length?{x:1150,y:tblHeight}:{y:tblHeight}}
+                locale={{emptyText:(
+                  <div className="sbf-empty">
+                    <div className="sbf-empty-bolt">⚡</div>
+                    <div className="sbf-empty-main">Scan a barcode or search a product to add items</div>
+                    <div className="sbf-empty-sub">Use the entry row above to add products to this invoice</div>
+                    <div className="sbf-empty-hints">
+                      <span><kbd>F1</kbd> save &amp; receive</span>
+                      <span><kbd>F8</kbd> save credit</span>
+                      <span><kbd>Esc</kbd> go back</span>
+                    </div>
+                  </div>
+                )}}
+              />
+            </div>
+          </div>
+        </section>
 
-            {/* ── Sub-left: financial rows — all boxes flex:1 so same width ── */}
-            <div style={{flex:1, display:'flex', flexDirection:'column', gap:6}}>
+        {/* ═══════════════════════════════ (3) BOTTOM ══════════════════════════ */}
+        <section className="sbf-bottom">
+          <div className="sbf-bottom-inner">
 
-              {/* Taxable total */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>Total</span>
-                <div style={VB}>{fmtN(taxableAmt)}</div>
+            {/* LEFT: Summary */}
+            <div className="sbf-bb-left">
+              <div className="sbf-card sbf-summary">
+                <div className="sbf-card-title">Summary</div>
+                <div className="sbf-counters">
+                  <div className="sbf-counter items">
+                    <div className="k">Items</div>
+                    <div className="v">{items.length}</div>
+                  </div>
+                  <div className="sbf-counter qty">
+                    <div className="k">Qty</div>
+                    <div className="v">{totalQty.toFixed(1)}</div>
+                  </div>
+                  <div className="sbf-counter box">
+                    <div className="k">Box</div>
+                    <div className="v">{boxQty.toFixed(1)}</div>
+                  </div>
+                </div>
+                <div className="sbf-summary-fields">
+                  <div className="sbf-field">
+                    <span className="sbf-lbl">Sale type</span>
+                    <Form.Item name="sale_type" noStyle initialValue="Retail">
+                      <Select>
+                        <Select.Option value="Retail">Retail</Select.Option>
+                        <Select.Option value="Wholesale">Wholesale</Select.Option>
+                      </Select>
+                    </Form.Item>
+                  </div>
+                  <div className="sbf-field">
+                    <span className="sbf-lbl">Salesman</span>
+                    <Form.Item name="salesman_name" noStyle>
+                      <Input placeholder="Name"/>
+                    </Form.Item>
+                  </div>
+                </div>
               </div>
+            </div>
 
-              {/* CGST: [% input] [₹ amount] */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>CGST</span>
-                <div style={{flex:1,display:'flex',gap:6}}>
-                  <div style={{width:62,flexShrink:0}}>
+            {/* RIGHT: Totals + Payment */}
+            <div className="sbf-bb-right">
+
+              {/* Totals card */}
+              <div className="sbf-card sbf-totals">
+                <div className="sbf-card-title">Totals</div>
+                <div className="sbf-tot-lines">
+                  <div className="sbf-tot-line total-row">
+                    <span className="k">Total</span>
+                    <span className="sbf-val-box">{fmtN(taxableAmt)}</span>
+                  </div>
+                  <div className="sbf-tot-line with-pct">
+                    <span className="k">CGST</span>
                     <InputNumber keyboard={false} size="small" min={0} max={100}
-                      className="sbf-fin-in" style={{width:'100%'}}
+                      className="sbf-pct-in" style={{width:'100%'}}
                       value={effCgstPct||undefined} disabled={gstMode==='product'}
                       onChange={v=>setCgstPct(v||0)}
                       formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
                       placeholder="%"/>
+                    <span className="sbf-val-box">{fmtN(cgst)}</span>
                   </div>
-                  <div style={{...VB,flex:1}}>{fmtN(cgst)}</div>
-                </div>
-              </div>
-
-              {/* SGST: [% input] [₹ amount] */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>SGST</span>
-                <div style={{flex:1,display:'flex',gap:6}}>
-                  <div style={{width:62,flexShrink:0}}>
+                  <div className="sbf-tot-line with-pct">
+                    <span className="k">SGST</span>
                     <InputNumber keyboard={false} size="small" min={0} max={100}
-                      className="sbf-fin-in" style={{width:'100%'}}
+                      className="sbf-pct-in" style={{width:'100%'}}
                       value={effSgstPct||undefined} disabled={gstMode==='product'}
                       onChange={v=>setSgstPct(v||0)}
                       formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
                       placeholder="%"/>
+                    <span className="sbf-val-box">{fmtN(sgst)}</span>
                   </div>
-                  <div style={{...VB,flex:1}}>{fmtN(sgst)}</div>
-                </div>
-              </div>
-
-              {/* IGST: [% input] [₹ amount] */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>IGST</span>
-                <div style={{flex:1,display:'flex',gap:6}}>
-                  <div style={{width:62,flexShrink:0}}>
+                  <div className="sbf-tot-line with-pct">
+                    <span className="k">IGST</span>
                     <InputNumber keyboard={false} size="small" min={0} max={100}
-                      className="sbf-fin-in" style={{width:'100%'}}
+                      className="sbf-pct-in" style={{width:'100%'}}
                       value={igstPct||undefined}
                       onChange={v=>setIgstPct(v||0)}
                       formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
                       placeholder="%"/>
+                    <span className="sbf-val-box">{fmtN(igstAmt)}</span>
                   </div>
-                  <div style={{...VB,flex:1}}>{fmtN(igstAmt)}</div>
-                </div>
-              </div>
-
-              {/* Total GST */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>Total GST</span>
-                <div style={{...VB,color:'#b45309',fontWeight:700}}>{fmtN(totalGST)}</div>
-              </div>
-
-              {/* Other / Freight charges */}
-              {[
-                {label:'Other Chr.',  el:(
-                  <Form.Item name="other_charges" noStyle>
-                    <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
-                      className="sbf-fin-in" style={{flex:1,width:'100%'}}/>
-                  </Form.Item>
-                )},
-                {label:'Freight Chr.',el:(
-                  <Form.Item name="freight_charges" noStyle>
-                    <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
-                      className="sbf-fin-in" style={{flex:1,width:'100%'}}/>
-                  </Form.Item>
-                )},
-              ].map(({label,el})=>(
-                <div key={label} style={{display:'flex',alignItems:'center',gap:10}}>
-                  <span style={FL}>{label}</span>
-                  {el}
-                </div>
-              ))}
-
-              {/* Bill Disc — % and ₹ both sync bidirectionally */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>Bill Disc</span>
-                <div style={{flex:1,display:'flex',gap:6}}>
-                  <Form.Item name="discount_percentage" noStyle>
-                    <InputNumber keyboard={false} size="small" min={0} max={100} placeholder="%"
-                      className="sbf-fin-in" style={{flex:1,width:'100%'}}
-                      formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
-                      onChange={pct=>{
-                        discAmtEditingRef.current=false;
-                        setDiscAmtVal(+(subTotal*(pct||0)/100).toFixed(2));
+                  <div className="sbf-tot-line gst-total">
+                    <span className="k">Total GST</span>
+                    <span className="sbf-val-box gst-val">{fmtN(totalGST)}</span>
+                  </div>
+                  <div className="sbf-tot-line">
+                    <span className="k">Other Chr.</span>
+                    <Form.Item name="other_charges" noStyle>
+                      <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
+                        className="sbf-amt-in" style={{width:'100%'}}/>
+                    </Form.Item>
+                  </div>
+                  <div className="sbf-tot-line">
+                    <span className="k">Freight Chr.</span>
+                    <Form.Item name="freight_charges" noStyle>
+                      <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
+                        className="sbf-amt-in" style={{width:'100%'}}/>
+                    </Form.Item>
+                  </div>
+                  <div className="sbf-tot-line with-pct">
+                    <span className="k">Bill Disc</span>
+                    <Form.Item name="discount_percentage" noStyle>
+                      <InputNumber keyboard={false} size="small" min={0} max={100} placeholder="%"
+                        className="sbf-pct-in" style={{width:'100%'}}
+                        formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
+                        onChange={pct=>{
+                          discAmtEditingRef.current=false;
+                          setDiscAmtVal(+(subTotal*(pct||0)/100).toFixed(2));
+                        }}/>
+                    </Form.Item>
+                    <InputNumber keyboard={false} size="small" min={0} placeholder="₹ amt"
+                      className="sbf-amt-in" style={{width:'100%'}}
+                      value={discAmtVal||undefined}
+                      onFocus={()=>{ discAmtEditingRef.current=true; }}
+                      onBlur={()=>{ discAmtEditingRef.current=false; }}
+                      onChange={amt=>{
+                        discAmtEditingRef.current=true;
+                        setDiscAmtVal(amt||0);
+                        const pct = subTotal>0 ? +((amt||0)/subTotal*100).toFixed(4) : 0;
+                        form.setFieldValue('discount_percentage', +pct.toFixed(2));
                       }}/>
-                  </Form.Item>
-                  <InputNumber keyboard={false} size="small" min={0} placeholder="₹ amt"
-                    className="sbf-fin-in" style={{flex:1,width:'100%'}}
-                    value={discAmtVal||undefined}
-                    onFocus={()=>{ discAmtEditingRef.current=true; }}
-                    onBlur={()=>{ discAmtEditingRef.current=false; }}
-                    onChange={amt=>{
-                      discAmtEditingRef.current=true;
-                      setDiscAmtVal(amt||0);
-                      const pct = subTotal>0 ? +((amt||0)/subTotal*100).toFixed(4) : 0;
-                      form.setFieldValue('discount_percentage', +pct.toFixed(2));
-                    }}/>
-                </div>
-              </div>
-
-            </div>
-
-            {/* ── Sub-right: NET TOTAL + payment ── */}
-            <div style={{width:210, display:'flex', flexDirection:'column', gap:7}}>
-
-              <div style={{fontSize:11,fontWeight:800,color:'rgba(255,255,255,.6)',letterSpacing:1,textTransform:'uppercase'}}>
-                Net Total Rs.
-              </div>
-
-              {/* Big NET TOTAL */}
-              <div style={{
-                height:72, background:'#fff', borderRadius:8, flexShrink:0,
-                display:'flex', alignItems:'center', justifyContent:'flex-end',
-                padding:'0 14px', fontSize:38, fontWeight:900, color:'#064e3b',
-                letterSpacing:-2, border:'1px solid #d1fae5',
-                boxShadow:'0 2px 8px rgba(0,0,0,.15)', fontVariantNumeric:'tabular-nums',
-              }}>
-                {roundedTotal.toLocaleString('en-IN')}
-              </div>
-
-              {/* Payment mode */}
-              <Form.Item name="payment_method" noStyle initialValue="Cash">
-                <Select size="small" style={{width:'100%'}} className="sbf-pay-sel">
-                  {PAY_MODES.map(m=><Select.Option key={m} value={m}>{m}</Select.Option>)}
-                </Select>
-              </Form.Item>
-
-              {/* Return ₹ */}
-              <div style={{display:'flex',alignItems:'center',gap:8,marginTop:4}}>
-                <span style={{color:'rgba(255,255,255,.85)',fontWeight:700,fontSize:12,width:56,flexShrink:0}}>Return ₹</span>
-                <Form.Item name="return_amount" noStyle>
-                  <InputNumber keyboard={false} size="small" min={0} max={roundedTotal} placeholder="0.00"
-                    className="sbf-paid-in" style={{flex:1,width:'100%'}}/>
-                </Form.Item>
-              </div>
-
-              {/* Cash Received — only shown for Cash payment, helps calculate change */}
-              {paymentMethod === 'Cash' && (
-                <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <span style={{color:'rgba(255,255,255,.85)',fontWeight:700,fontSize:12,width:56,flexShrink:0}}>Cash Rcvd</span>
-                  <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
-                    value={cashReceived||null}
-                    className="sbf-paid-in" style={{flex:1,width:'100%'}}
-                    onChange={v=>{
-                      const val = v || 0;
-                      setCashReceived(val);
-                      // Auto-set paid to min(cashReceived, maxPaid) — bill always records exact amount
-                      form.setFieldValue('paid_amount', Math.min(val, maxPaid));
-                      paidEditedRef.current = false; // programmatic, not manual
-                    }}/>
-                </div>
-              )}
-
-              {/* Amt Paid — capped at bill total (Fix: paid cannot exceed total) */}
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <span style={{color:'rgba(255,255,255,.85)',fontWeight:700,fontSize:12,width:56,flexShrink:0}}>Amt Paid</span>
-                <Form.Item name="paid_amount" noStyle>
-                  <InputNumber keyboard={false} size="small" min={0} max={maxPaid} placeholder="0.00"
-                    className="sbf-paid-in" style={{flex:1,width:'100%'}}
-                    onChange={()=>{ paidEditedRef.current = true; }}/>
-                </Form.Item>
-              </div>
-
-              {/* Change Due — shown when cash received exceeds total */}
-              {changeDue > 0 && (
-                <div style={{
-                  display:'flex', alignItems:'center', justifyContent:'space-between',
-                  background:'rgba(16,185,129,0.25)', borderRadius:8, padding:'6px 12px',
-                  border:'1px solid rgba(52,211,153,.5)',
-                }}>
-                  <span style={{fontSize:10,color:'#6ee7b7',fontWeight:700,letterSpacing:.8,textTransform:'uppercase'}}>Change Due</span>
-                  <span style={{fontSize:17,fontWeight:800,color:'#34d399',letterSpacing:-.5}}>
-                    {fmtN(changeDue)}
-                  </span>
-                </div>
-              )}
-
-              {/* Balance — show Due / Paid in full / Overpaid explicitly.
-                   Math.abs alone silently hides an overpayment; the label tells
-                   the user which direction the number points. */}
-              {(() => {
-                const isOverpaid = balance < -0.001;
-                const isDue      = balance > 0.001;
-                const bg    = isDue ? 'rgba(239,68,68,0.15)'
-                           : isOverpaid ? 'rgba(251,146,60,0.18)'
-                           : 'rgba(52,211,153,0.12)';
-                const border = isDue ? 'rgba(248,113,113,.4)'
-                            : isOverpaid ? 'rgba(251,146,60,.45)'
-                            : 'rgba(52,211,153,.3)';
-                const color  = isDue ? '#f87171'
-                            : isOverpaid ? '#fdba74'
-                            : '#34d399';
-                const label  = isDue ? 'Balance'
-                            : isOverpaid ? 'Overpaid'
-                            : 'Paid in full';
-                return (
-                  <div style={{
-                    display:'flex', alignItems:'center', justifyContent:'space-between',
-                    background: bg, borderRadius:8, padding:'6px 12px', flexShrink:0,
-                    border:`1px solid ${border}`,
-                  }}>
-                    <span style={{fontSize:10,color:'rgba(255,255,255,.6)',fontWeight:700,letterSpacing:.8,textTransform:'uppercase'}}>{label}</span>
-                    <span style={{fontSize:17,fontWeight:800,color,letterSpacing:-.5}}>
-                      {fmtN(Math.abs(balance))}
-                    </span>
                   </div>
-                );
-              })()}
+                </div>
+              </div>
+
+              {/* Payment card */}
+              <div className="sbf-card sbf-payment">
+                <div className="sbf-card-title">Payment</div>
+
+                <div className="sbf-net-hero">
+                  <span className="k">Net total ₹</span>
+                  <span className="v">{roundedTotal.toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="sbf-pay-line">
+                  <span className="k">Mode</span>
+                  <Form.Item name="payment_method" noStyle initialValue="Cash">
+                    <Select>
+                      {PAY_MODES.map(m=><Select.Option key={m} value={m}>{m}</Select.Option>)}
+                    </Select>
+                  </Form.Item>
+                </div>
+                <div className="sbf-pay-line">
+                  <span className="k">Return ₹</span>
+                  <Form.Item name="return_amount" noStyle>
+                    <InputNumber keyboard={false} min={0} max={roundedTotal} placeholder="0.00"
+                      style={{width:'100%'}}/>
+                  </Form.Item>
+                </div>
+                {paymentMethod === 'Cash' && (
+                  <div className="sbf-pay-line">
+                    <span className="k">Cash Rcvd</span>
+                    <InputNumber keyboard={false} min={0} placeholder="0.00"
+                      value={cashReceived||null}
+                      style={{width:'100%'}}
+                      onChange={v=>{
+                        const val = v || 0;
+                        setCashReceived(val);
+                        form.setFieldValue('paid_amount', Math.min(val, maxPaid));
+                        paidEditedRef.current = false;
+                      }}/>
+                  </div>
+                )}
+                <div className="sbf-pay-line">
+                  <span className="k">Amt Paid</span>
+                  <Form.Item name="paid_amount" noStyle>
+                    <InputNumber keyboard={false} min={0} max={maxPaid} placeholder="0.00"
+                      style={{width:'100%'}}
+                      onChange={()=>{ paidEditedRef.current = true; }}/>
+                  </Form.Item>
+                </div>
+
+                {changeDue > 0 && (
+                  <div className="sbf-change">
+                    <span className="k">Change due</span>
+                    <span className="v">{fmtN(changeDue)}</span>
+                  </div>
+                )}
+
+                <div className={`sbf-status ${statusClass}`}>
+                  <span className="k">{statusLabel}</span>
+                  <span className="v">{fmtN(Math.abs(balance))}</span>
+                </div>
+              </div>
 
             </div>
           </div>
-        </div>
+        </section>
+
+        {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
+        <section className="sbf-action-bar">
+          <div className="sbf-action-bar-inner">
+            <button className="sbf-act" onClick={()=>navigate('/sales')}>
+              <span className="sbf-kbd">Esc</span> Back
+            </button>
+            <button className="sbf-act" onClick={handleReset}>
+              <span className="sbf-kbd">F5</span> Reset
+            </button>
+            <button className="sbf-act credit" onClick={()=>handleSave(false)} disabled={loading}>
+              <span className="sbf-kbd">F8</span> Save Credit
+            </button>
+            <button className="sbf-act primary" onClick={()=>handleSave(true)} disabled={loading}>
+              <span className="sbf-kbd">F1</span> Save &amp; Rcv
+            </button>
+          </div>
+        </section>
+
       </div>
     </Form>
   );
