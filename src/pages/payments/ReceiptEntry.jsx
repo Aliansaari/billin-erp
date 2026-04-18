@@ -150,10 +150,17 @@ export default function ReceiptEntry() {
     setBills(prev => prev.map((b, i) => i === idx ? { ...b, checked } : b));
   };
 
-  const maxPayAmt = useMemo(
-    () => bills.filter(b => b.checked).reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0),
-    [bills]
-  );
+  // Max Receivable = min(sum of ticked bill balances, party's TRUE outstanding).
+  // Using party.current_balance as the upper bound prevents the "phantom balance"
+  // case where bill.balance_amount has drifted higher than the party actually
+  // owes (e.g. an older receipt was saved as on-account credit). The server
+  // rejects receipts above party outstanding anyway; the UI now matches.
+  const maxPayAmt = useMemo(() => {
+    const sumTicked = bills.filter(b => b.checked).reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
+    const partyBal  = parseFloat(selectedParty?.current_balance || 0);
+    if (partyBal > 0) return Math.min(sumTicked, partyBal);
+    return sumTicked;
+  }, [bills, selectedParty]);
 
   // Fix: compute netAmount first so allocations use the actual amount being received (after discount)
   const netAmount = Math.max(0, (payAmt || 0) - (discAmt || 0));
@@ -203,22 +210,34 @@ export default function ReceiptEntry() {
       .filter(b => !b.isOpening && b.allocated > 0)
       .map(b => ({ bill_id: b.sales_bill_id, bill_type: 'Sales', amount: b.allocated }));
 
-    // ── Silent-on-account guard ─────────────────────────────────────────────
-    // If the cashier entered an amount but no bills are ticked (and no OB is
-    // being cleared), the receipt would save as "on-account credit" with no
-    // warning. The cashier thinks the bill is settled — it's not. Force an
-    // explicit confirmation before going ahead.
+    // ── On-account guard ────────────────────────────────────────────────────
+    // Two scenarios where the cashier needs to explicitly confirm:
+    //   (a) Nothing ticked at all — the entire amount becomes on-account credit.
+    //   (b) Ticked bills don't cover the full receive amount — the SURPLUS
+    //       becomes on-account credit (the bug AADIL ran into: ₹6,896 received,
+    //       only one bill worth ₹896 ticked, ₹6,000 silently on-account).
+    // Note: the server will auto-FIFO-apply any on-account amount to older
+    // unpaid bills, so the user's "on-account" here may immediately reduce
+    // other bills. The confirm just makes sure they know the ticked bills
+    // aren't the final story.
     const obBill = checkedBills.find(b => b.isOpening);
     const obAlloc = obBill ? parseFloat(obBill.allocated) || 0 : 0;
-    if (bill_allocations.length === 0 && obAlloc <= 0) {
+    const sumAllocated = bill_allocations.reduce((s, a) => s + parseFloat(a.amount || 0), 0) + obAlloc;
+    const surplus = +(netAmount - sumAllocated).toFixed(2);
+    const hasSurplus = surplus > 0.01;
+    const nothingTicked = bill_allocations.length === 0 && obAlloc <= 0;
+    if (nothingTicked || hasSurplus) {
       const confirmed = await new Promise((resolve) => {
         Modal.confirm({
           title: 'Save as on-account credit?',
-          content:
-            `No bills are selected for allocation. ₹${fmt2(netAmount)} will be recorded ` +
-            `against ${selectedParty.party_name} as an on-account credit (no bill will be marked paid). ` +
-            `Continue?`,
-          okText: 'Save on-account',
+          content: nothingTicked
+            ? `No bills are selected for allocation. ₹${fmt2(netAmount)} will be recorded ` +
+              `against ${selectedParty.party_name} as an on-account credit (no bill will be marked paid). ` +
+              `It will be auto-applied to the oldest unpaid bill(s). Continue?`
+            : `Ticked bills cover ₹${fmt2(sumAllocated)}, but you are receiving ₹${fmt2(netAmount)}. ` +
+              `The ₹${fmt2(surplus)} surplus will be recorded as on-account credit and ` +
+              `auto-applied to the oldest unpaid bill(s) for ${selectedParty.party_name}. Continue?`,
+          okText: 'Save',
           okButtonProps: { style: { background: accent, borderColor: accent } },
           cancelText: 'Go back',
           onOk:     () => resolve(true),

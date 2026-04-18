@@ -131,41 +131,39 @@ exports.create = async (req, res) => {
       }
     }
 
-    // ── Update each bill the user allocated to (respects user's selection) ──
+    // ── Per-bill sanity check (user's explicit allocations mustn't exceed that bill's current remaining) ──
+    // We still validate each user-supplied allocation against the current bill
+    // balance so the cashier gets an immediate error if they try to allocate
+    // more to a single bill than it owes. The ACTUAL bill-balance updates are
+    // done by reconcileBillsForParty below, which replays every non-cancelled
+    // receipt/payment against the bills — that's what guarantees the "on
+    // account" case (total_amount > sum(allocations)) doesn't silently drift.
     for (const alloc of allocations) {
       if (!alloc.bill_id || !alloc.amount || parseFloat(alloc.amount) <= 0) continue;
       const allocAmt = parseFloat(alloc.amount);
-      if (alloc.bill_type === 'Sales') {
-        // Re-fetch with lock already held from above — returns the locked row.
-        const bill = await SalesBill.findByPk(alloc.bill_id, { transaction: t });
-        if (bill) {
-          const currentBalance = parseFloat(bill.balance_amount) || 0;
-          if (allocAmt > currentBalance + 0.01) {
-            await t.rollback();
-            return res.status(400).json({ error: `Allocation of ₹${allocAmt.toFixed(2)} for bill ${bill.bill_number} exceeds its remaining balance of ₹${currentBalance.toFixed(2)}` });
-          }
-          const maxBalance = +(Math.max(0, parseFloat(bill.total_amount) - parseFloat(bill.paid_amount || 0) - parseFloat(bill.return_amount || 0))).toFixed(2);
-          const newBalance = +(Math.max(0, currentBalance - allocAmt)).toFixed(2);
-          const status     = newBalance <= 0 ? 'Paid' : newBalance < maxBalance ? 'Partial' : 'Unpaid';
-          await bill.update({ balance_amount: newBalance, payment_status: status }, { transaction: t });
-        }
-      } else if (alloc.bill_type === 'Purchase') {
-        const bill = await PurchaseBill.findByPk(alloc.bill_id, { transaction: t });
-        if (bill) {
-          const currentBalance = parseFloat(bill.balance_amount) || 0;
-          if (allocAmt > currentBalance + 0.01) {
-            await t.rollback();
-            return res.status(400).json({ error: `Allocation of ₹${allocAmt.toFixed(2)} for bill ${bill.bill_number} exceeds its remaining balance of ₹${currentBalance.toFixed(2)}` });
-          }
-          const maxBalance = +(Math.max(0, parseFloat(bill.total_amount) - parseFloat(bill.paid_amount || 0))).toFixed(2);
-          const newBalance = +(Math.max(0, currentBalance - allocAmt)).toFixed(2);
-          const status     = newBalance <= 0 ? 'Paid' : newBalance < maxBalance ? 'Partial' : 'Unpaid';
-          await bill.update({ balance_amount: newBalance, payment_status: status }, { transaction: t });
-        }
+      const Model = alloc.bill_type === 'Sales' ? SalesBill
+                  : alloc.bill_type === 'Purchase' ? PurchaseBill
+                  : null;
+      if (!Model) continue;
+      const bill = await Model.findByPk(alloc.bill_id, { transaction: t });
+      if (!bill) continue;
+      const currentBalance = parseFloat(bill.balance_amount) || 0;
+      if (allocAmt > currentBalance + 0.01) {
+        await t.rollback();
+        return res.status(400).json({
+          error: `Allocation of ₹${allocAmt.toFixed(2)} for bill ${bill.bill_number} exceeds its remaining balance of ₹${currentBalance.toFixed(2)}`,
+        });
       }
     }
 
-    // ── Recalculate party balance from scratch (independent of bill.balance_amount) ─
+    // ── Reconcile every bill for this party, then recompute party balance ────
+    // reconcileBillsForParty honors each receipt's explicit bill_allocations
+    // first, then FIFO-applies any unallocated remainder (on-account amounts)
+    // to the oldest unpaid bills. This closes the bug where a cashier could
+    // save a receipt whose total exceeded the sum of its allocations — the
+    // party balance would drop by the full amount but only the explicitly
+    // allocated bills would be reduced, leaving the bill balances stale.
+    await reconcileBillsForParty(data.party_id, t);
     await recalculatePartyBalance(data.party_id, t);
 
     await t.commit();

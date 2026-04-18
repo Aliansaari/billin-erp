@@ -133,6 +133,13 @@ async function startServer() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payments_receipts' AND column_name='cancellation_reason') THEN
           ALTER TABLE payments_receipts ADD COLUMN cancellation_reason TEXT;
         END IF;
+        -- Per-bill allocations JSON on receipts/payments. Without this column
+        -- every SELECT on payments_receipts fails because Sequelize includes
+        -- the column in auto-generated SQL — which made the Payments Transactions
+        -- page appear empty on older databases.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payments_receipts' AND column_name='bill_allocations') THEN
+          ALTER TABLE payments_receipts ADD COLUMN bill_allocations JSONB DEFAULT NULL;
+        END IF;
         -- Cancellation reason + FK on bill cancellation fields
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bills' AND column_name='cancellation_reason') THEN
           ALTER TABLE sales_bills ADD COLUMN cancellation_reason TEXT;
@@ -185,7 +192,14 @@ async function startServer() {
           END;
         END IF;
       END $$;
-    `).catch(() => {});
+    `).catch((err) => {
+      // Log but don't crash on migration errors — the server should still
+      // come up so an admin can investigate. Previously this was silently
+      // swallowed with `() => {}`, which hid real schema problems (e.g. a
+      // missing column would make every SELECT fail, but the user would
+      // only see the symptom "page is empty" with no obvious cause).
+      console.error('[Safe migrations] Error:', err.message);
+    });
 
     // Seed default data
     await seedDefaultData();

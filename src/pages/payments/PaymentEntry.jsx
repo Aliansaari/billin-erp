@@ -149,10 +149,18 @@ export default function PaymentEntry() {
     setBills(prev => prev.map((b, i) => i === idx ? { ...b, checked } : b));
   };
 
-  const maxPayAmt = useMemo(
-    () => bills.filter(b => b.checked).reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0),
-    [bills]
-  );
+  // Max Payable = min(sum of ticked bill balances, what we actually owe supplier).
+  // Party current_balance is negative for payables in this schema, so the true
+  // payable is `-current_balance` when negative. The server rejects payments
+  // above that anyway; this keeps the UI honest even when a bill's balance_amount
+  // has drifted above the real outstanding due to earlier on-account entries.
+  const maxPayAmt = useMemo(() => {
+    const sumTicked = bills.filter(b => b.checked).reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
+    const partyBal  = parseFloat(selectedParty?.current_balance || 0);  // −ve = we owe them
+    const truePayable = partyBal < 0 ? -partyBal : 0;
+    if (truePayable > 0) return Math.min(sumTicked, truePayable);
+    return sumTicked;
+  }, [bills, selectedParty]);
 
   // Fix: compute netAmount first so allocations use the actual amount being paid (after discount)
   const netAmount = Math.max(0, (payAmt || 0) - (discAmt || 0));
@@ -202,20 +210,30 @@ export default function PaymentEntry() {
       .filter(b => !b.isOpening && b.allocated > 0)
       .map(b => ({ bill_id: b.purchase_bill_id, bill_type: 'Purchase', amount: b.allocated }));
 
-    // ── Silent-on-account guard ─────────────────────────────────────────────
-    // No bills ticked and no OB allocation → this would save as on-account
-    // credit without any visible warning. Force an explicit confirmation.
+    // ── On-account guard ────────────────────────────────────────────────────
+    // Fire in two cases:
+    //   (a) Nothing ticked at all — the full amount becomes on-account credit.
+    //   (b) Ticked bills don't cover the pay amount — the SURPLUS is on-account.
+    // Server auto-FIFO-applies on-account amounts to older unpaid bills, but
+    // the user should still know the ticked bills aren't the whole story.
     const obBill = checkedBills.find(b => b.isOpening);
     const obAlloc = obBill ? parseFloat(obBill.allocated) || 0 : 0;
-    if (bill_allocations.length === 0 && obAlloc <= 0) {
+    const sumAllocated = bill_allocations.reduce((s, a) => s + parseFloat(a.amount || 0), 0) + obAlloc;
+    const surplus = +(netAmount - sumAllocated).toFixed(2);
+    const hasSurplus = surplus > 0.01;
+    const nothingTicked = bill_allocations.length === 0 && obAlloc <= 0;
+    if (nothingTicked || hasSurplus) {
       const confirmed = await new Promise((resolve) => {
         Modal.confirm({
           title: 'Save as on-account credit?',
-          content:
-            `No bills are selected for allocation. ₹${fmt2(netAmount)} will be recorded ` +
-            `against ${selectedParty.party_name} as an on-account credit (no bill will be marked paid). ` +
-            `Continue?`,
-          okText: 'Save on-account',
+          content: nothingTicked
+            ? `No bills are selected for allocation. ₹${fmt2(netAmount)} will be recorded ` +
+              `against ${selectedParty.party_name} as an on-account credit (no bill will be marked paid). ` +
+              `It will be auto-applied to the oldest unpaid bill(s). Continue?`
+            : `Ticked bills cover ₹${fmt2(sumAllocated)}, but you are paying ₹${fmt2(netAmount)}. ` +
+              `The ₹${fmt2(surplus)} surplus will be recorded as on-account credit and ` +
+              `auto-applied to the oldest unpaid bill(s) for ${selectedParty.party_name}. Continue?`,
+          okText: 'Save',
           cancelText: 'Go back',
           onOk:     () => resolve(true),
           onCancel: () => resolve(false),
