@@ -146,6 +146,7 @@ export default function SalesBillForm() {
         other_charges:parseFloat(data.other_charges)||0,
         freight_charges:parseFloat(data.freight_charges)||0,
         payment_method:data.payment_method||'Cash',
+        remarks:data.remarks||'',
       });
       setCgstPct(parseFloat(data.cgst_pct)||0);
       setSgstPct(parseFloat(data.sgst_pct)||0);
@@ -346,11 +347,20 @@ export default function SalesBillForm() {
     return s + (i.quantity||0) / qpb;
   },0);
 
-  // Auto-scroll table to bottom when a new item is added
-  useEffect(()=>{
-    if(!items.length) return;
-    const body = tableWrapRef.current?.querySelector('.ant-table-body');
-    if(body) body.scrollTop = body.scrollHeight;
+  // Auto-scroll table body to bottom whenever a new item is added.
+  // useLayoutEffect runs in the commit phase BEFORE paint, so the new
+  // row is already at the bottom in the very first rendered frame —
+  // no visible "stretch then snap back" flicker that a rAF-scheduled
+  // scroll would cause (new row paints at frame 1, scroll catches up
+  // at frame 2, producing a one-frame jitter with many rows).
+  const prevItemsLenRef = useRef(0);
+  useLayoutEffect(()=>{
+    const prev = prevItemsLenRef.current;
+    prevItemsLenRef.current = items.length;
+    if(items.length > prev && items.length > 0){
+      const body = tableWrapRef.current?.querySelector('.ant-table-body');
+      if(body) body.scrollTop = body.scrollHeight;
+    }
   },[items.length]);
 
   /* Sync selectedParty whenever customerId or parties list changes */
@@ -440,6 +450,7 @@ export default function SalesBillForm() {
         freight_charges:parseFloat(freightChr)||0,
         return_amount:parseFloat(returnAmt)||0,
         payment_method:vals.payment_method||'Cash',
+        remarks:(vals.remarks||'').trim(),
         paid_amount:payFull?roundedTotal:(vals.paid_amount||0),
         // Explicit mode flag so backend treats 0% bill-wise GST (exempt items)
         // as bill-wise, not as accidental product-wise fallback.
@@ -467,56 +478,59 @@ export default function SalesBillForm() {
 
   const handleReset=()=>{
     setItems([]);setEntry(EMPTY);
-    form.resetFields(['discount_percentage','paid_amount','return_amount','special_discount','other_charges','freight_charges','salesman_name']);
+    form.resetFields(['discount_percentage','paid_amount','return_amount','special_discount','other_charges','freight_charges','salesman_name','remarks']);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   };
 
   useCtrlEnterSubmit(()=>handleSave(true));
 
   /* ─── Table columns ─────────────────────────────────────────────────────── */
-  const numCell=(ri,ci,val,field,min,w)=>(
+  /* Excel-style cells: inputs fill the whole cell (no floating pill).
+     numCell/txtCell no longer accept a fixed width — CSS handles it.
+     The wrapping div still carries id="sc-ri-ci" for arrow-key nav. */
+  const numCell=(ri,ci,val,field,min)=>(
     <div id={`sc-${ri}-${ci}`}>
       <InputNumber keyboard={false} variant="borderless" value={val}
         onChange={v=>updateItem(items[ri]?.key,field,v??0)}
         onKeyDown={e=>navTbl(e,ri,ci)} min={min??0}
-        style={{width:w??'100%',fontSize:13,fontWeight:600,fontFamily:'inherit'}} size="small"/>
+        size="small"/>
     </div>
   );
-  const txtCell=(ri,ci,val,field,w)=>(
+  const txtCell=(ri,ci,val,field)=>(
     <div id={`sc-${ri}-${ci}`}>
       <Input variant="borderless" value={val}
         onChange={e=>updateItem(items[ri]?.key,field,e.target.value)}
         onKeyDown={e=>navTbl(e,ri,ci)}
-        style={{width:w??'100%',fontSize:13,fontWeight:600,fontFamily:'inherit'}} size="small"/>
+        size="small"/>
     </div>
   );
 
   const readCell=(v,style={})=>(
-    <span style={{fontSize:13,fontWeight:500,paddingLeft:4,...style}}>{v||'—'}</span>
+    <span style={{fontSize:13,fontWeight:500,...style}}>{v||'—'}</span>
   );
 
   const cols=[
-    {title:'#',width:34,align:'center',render:(_,__,i)=><span style={{color:'var(--fg-tertiary)',fontSize:13,fontWeight:600}}>{i+1}</span>},
+    {title:'#',width:40,align:'center',render:(_,__,i)=><span style={{color:'var(--fg-tertiary)',fontSize:13,fontWeight:600,textAlign:'center'}}>{i+1}</span>},
     {title:'Barcode',dataIndex:'barcode',width:120,render:(v)=>readCell(v,{color:'var(--fg-secondary)'})},
-    {title:'Product Name',dataIndex:'product_name',width:200,render:(v)=>readCell(v,{color:'var(--fg-primary)',fontWeight:600})},
-    {title:'Size',dataIndex:'size',width:60,render:(v)=>readCell(v,{color:'var(--fg-tertiary)'})},
+    {title:'Product Name',dataIndex:'product_name',width:220,render:(v)=>readCell(v,{color:'var(--fg-primary)',fontWeight:600})},
+    {title:'Size',dataIndex:'size',width:70,render:(v)=>readCell(v,{color:'var(--fg-tertiary)'})},
     {title:'Unit',dataIndex:'unit_type',width:70,align:'center',render:(v)=>(
-      <span style={{fontSize:12,fontWeight:600,background:'var(--bg-muted)',borderRadius:4,padding:'1px 6px',color:'var(--fg-secondary)'}}>{v||'Pcs'}</span>
+      <span style={{fontSize:12,fontWeight:600,color:'var(--fg-secondary)',textAlign:'center'}}>{v||'Pcs'}</span>
     )},
     {title:'Art#',dataIndex:'article_number',width:80,render:(v)=>readCell(v,{color:'var(--fg-tertiary)'})},
-    {title:'Qty',dataIndex:'quantity',width:72,align:'center',render:(v,r,ri)=>numCell(ri,5,v,'quantity',0,66)},
-    {title:'Rate ₹',dataIndex:'rate',width:96,align:'right',render:(v,r,ri)=>numCell(ri,6,v,'rate',0,90)},
-    {title:'Disc%',dataIndex:'discount_percentage',width:62,align:'right',render:(v,r,ri)=>numCell(ri,7,v,'discount_percentage',0,56)},
-    {title:'GST%',dataIndex:'gst_rate',width:58,align:'right',render:(v,r,ri)=>numCell(ri,8,v,'gst_rate',0,52)},
-    {title:'Amount ₹',width:116,align:'right',render:(_,r)=>{
+    {title:'Qty',dataIndex:'quantity',width:80,align:'center',className:'num-cell',render:(v,r,ri)=>numCell(ri,5,v,'quantity',0)},
+    {title:'Rate ₹',dataIndex:'rate',width:110,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,6,v,'rate',0)},
+    {title:'Disc%',dataIndex:'discount_percentage',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,7,v,'discount_percentage',0)},
+    {title:'GST%',dataIndex:'gst_rate',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,8,v,'gst_rate',0)},
+    {title:'Amount ₹',width:120,align:'right',className:'num-cell',render:(_,r)=>{
       const lt=(r.quantity||0)*(r.rate||0);
       const da=lt*(r.discount_percentage||0)/100;
-      return <span style={{color:'var(--fg-primary)',fontWeight:700,fontSize:13,fontFamily:'inherit',paddingRight:6,fontVariantNumeric:'tabular-nums'}}>{fmtN(lt-da)}</span>;
+      return <span style={{color:'var(--fg-primary)',fontWeight:700,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{fmtN(lt-da)}</span>;
     }},
-    {title:'',width:32,align:'center',render:(_,r)=>(
+    {title:'',width:36,align:'center',render:(_,r)=>(
       <button onClick={()=>removeItem(r.key)}
         style={{background:'none',border:'none',cursor:'pointer',color:'var(--danger)',
-          padding:'2px 4px',borderRadius:4,lineHeight:1,fontSize:16}}>×</button>
+          padding:'6px 8px',borderRadius:0,lineHeight:1,fontSize:16,width:'100%',height:'100%'}}>×</button>
     )},
   ];
 
@@ -735,7 +749,7 @@ export default function SalesBillForm() {
               <Table
                 columns={cols} dataSource={items} rowKey="key"
                 size="small" pagination={false} loading={pgLoading}
-                scroll={items.length?{x:1150,y:tblHeight}:{y:tblHeight}}
+                scroll={items.length?{x:1086,y:tblHeight}:{y:tblHeight}}
                 locale={{emptyText:(
                   <div className="sbf-empty">
                     <div className="sbf-empty-bolt">⚡</div>
@@ -792,13 +806,29 @@ export default function SalesBillForm() {
                     </Form.Item>
                   </div>
                 </div>
+                <div className="sbf-summary-notes">
+                  <span className="sbf-lbl">Notes</span>
+                  <Form.Item name="remarks" noStyle>
+                    <Input.TextArea
+                      rows={5}
+                      maxLength={1000}
+                      placeholder="Add remarks, delivery instructions, reference…"
+                      className="sbf-notes-ta"
+                    />
+                  </Form.Item>
+                </div>
               </div>
             </div>
 
             {/* RIGHT: Totals + Payment */}
             <div className="sbf-bb-right">
 
-              {/* Totals card */}
+              {/* Totals card — 6 rows to match Payment card height.
+                    CGST+SGST share a single % input (they're always equal in
+                    intra-state GST; user always typed the same value in both).
+                    Internally we still save cgst_pct and sgst_pct separately
+                    so nothing downstream changes. Other + Freight share one
+                    row with two compact side-by-side inputs. */}
               <div className="sbf-card sbf-totals">
                 <div className="sbf-card-title">Totals</div>
                 <div className="sbf-tot-lines">
@@ -807,24 +837,14 @@ export default function SalesBillForm() {
                     <span className="sbf-val-box">{fmtN(taxableAmt)}</span>
                   </div>
                   <div className="sbf-tot-line with-pct">
-                    <span className="k">CGST</span>
+                    <span className="k" title="CGST + SGST — shared % applies to both halves">GST (C+S)</span>
                     <InputNumber keyboard={false} size="small" min={0} max={100}
                       className="sbf-pct-in" style={{width:'100%'}}
                       value={effCgstPct||undefined} disabled={gstMode==='product'}
-                      onChange={v=>setCgstPct(v||0)}
+                      onChange={v=>{ const n=v||0; setCgstPct(n); setSgstPct(n); }}
                       formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
                       placeholder="%"/>
-                    <span className="sbf-val-box">{fmtN(cgst)}</span>
-                  </div>
-                  <div className="sbf-tot-line with-pct">
-                    <span className="k">SGST</span>
-                    <InputNumber keyboard={false} size="small" min={0} max={100}
-                      className="sbf-pct-in" style={{width:'100%'}}
-                      value={effSgstPct||undefined} disabled={gstMode==='product'}
-                      onChange={v=>setSgstPct(v||0)}
-                      formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
-                      placeholder="%"/>
-                    <span className="sbf-val-box">{fmtN(sgst)}</span>
+                    <span className="sbf-val-box">{fmtN(cgst + sgst)}</span>
                   </div>
                   <div className="sbf-tot-line with-pct">
                     <span className="k">IGST</span>
@@ -840,17 +860,14 @@ export default function SalesBillForm() {
                     <span className="k">Total GST</span>
                     <span className="sbf-val-box gst-val">{fmtN(totalGST)}</span>
                   </div>
-                  <div className="sbf-tot-line">
-                    <span className="k">Other Chr.</span>
+                  <div className="sbf-tot-line extras">
+                    <span className="k">Extras</span>
                     <Form.Item name="other_charges" noStyle>
-                      <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
+                      <InputNumber keyboard={false} size="small" min={0} placeholder="Other"
                         className="sbf-amt-in" style={{width:'100%'}}/>
                     </Form.Item>
-                  </div>
-                  <div className="sbf-tot-line">
-                    <span className="k">Freight Chr.</span>
                     <Form.Item name="freight_charges" noStyle>
-                      <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
+                      <InputNumber keyboard={false} size="small" min={0} placeholder="Freight"
                         className="sbf-amt-in" style={{width:'100%'}}/>
                     </Form.Item>
                   </div>

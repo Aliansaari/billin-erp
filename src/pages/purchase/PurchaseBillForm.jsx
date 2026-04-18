@@ -1,43 +1,20 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { Form, Input, DatePicker, Select, InputNumber, Table, Typography, message } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { Form, Input, DatePicker, Select, InputNumber, Table, message } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
+import './purchase-bill-form.css';
 
-const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
-
-/* ─── Tokens ── Purchase = deep indigo ───────────────────────────────────── */
-const DARK  = 'linear-gradient(160deg,#0d0b1e 0%,#1a1245 55%,#0f0c29 100%)';
-const ACC   = '#818cf8';
-const LBL_C = '#a5b4fc';
-const PRI   = '#6366f1';
-const TH_BG = 'linear-gradient(90deg,#3730a3 0%,#4f46e5 100%)';
-const H     = '100%';
-
-/* Financial row helpers */
-const FL = { fontSize:13, color:'rgba(255,255,255,.92)', fontWeight:600, whiteSpace:'nowrap', width:90, flexShrink:0 };
-const VB = {
-  background:'#fff', border:'1px solid #c7d2fe', borderRadius:6,
-  padding:'0 12px', height:32, flex:1,
-  display:'flex', alignItems:'center', justifyContent:'flex-end',
-  fontSize:14, fontWeight:700, color:'#1e1b4b',
-  fontVariantNumeric:'tabular-nums', boxShadow:'0 1px 3px rgba(0,0,0,.12)',
-};
-/* Financial panel row helpers */
-const finLbl = { fontSize:11, color:'rgba(255,255,255,.5)', fontWeight:600, whiteSpace:'nowrap', padding:'2px 0' };
-const finVal = { textAlign:'right', fontSize:12, fontWeight:700, color:'#e2e8f0', fontVariantNumeric:'tabular-nums', padding:'2px 0' };
 
 const EMPTY_ENTRY = {
   barcode:'', category_id:null, category_name:'', product_name:'', size:'',
   article_number:'', purchase_rate:0, quantity:0, quantity_per_box:1,
   margin_percentage:0, sale_rate:0, mrp:0, hsn_code:'', gst_rate:0, product_id:null,
 };
-const lbl = { fontSize:9, color:LBL_C, fontWeight:700, letterSpacing:.8, textTransform:'uppercase', marginBottom:2 };
 
 /* ── Variant Picker Dropdown ─────────────────────────────────────────────── */
 /* Rendered via portal (document.body) so position:fixed always works regardless
@@ -266,6 +243,25 @@ export default function PurchaseBillForm() {
     return ()=>ro.disconnect();
   },[]);
 
+  // Auto-scroll table body to bottom whenever a new item is added.
+  // Track previous length so load (0 → N) and remove (N → N-1) don't
+  // fire an unnecessary scroll.
+  //
+  // useLayoutEffect + synchronous scroll (no rAF) is intentional: the
+  // scroll runs in the commit phase BEFORE the browser paints, so the
+  // user sees the new row already at the bottom in the very first frame.
+  // A previous rAF-based approach caused a one-frame "stretch then snap
+  // back" because the new row rendered before the scroll adjusted.
+  const prevItemsLenRef = useRef(0);
+  useLayoutEffect(()=>{
+    const prev = prevItemsLenRef.current;
+    prevItemsLenRef.current = items.length;
+    if(items.length > prev && items.length > 0){
+      const body = tableWrapRef.current?.querySelector('.ant-table-body');
+      if(body) body.scrollTop = body.scrollHeight;
+    }
+  },[items.length]);
+
   // Load products when category changes — clean cancellation pattern
   useEffect(()=>{
     // Clear the post-selection redirect flag so it can't steal focus on this fresh load
@@ -309,6 +305,7 @@ export default function PurchaseBillForm() {
         other_charges:parseFloat(data.other_charges)||0,
         freight_charges:parseFloat(data.freight_charges)||0,
         paid_amount:parseFloat(data.paid_amount)||0,
+        remarks:data.remarks||'',
       });
       setCgstPct(parseFloat(data.cgst_pct)||0);
       setSgstPct(parseFloat(data.sgst_pct)||0);
@@ -918,6 +915,7 @@ export default function PurchaseBillForm() {
         transport_name:values.transport_name,
         vehicle_number:values.vehicle_number,
         lr_number:values.lr_number,
+        remarks:(values.remarks||'').trim(),
         discount_percentage:discountPct,discount_amount:discountAmt,
         other_charges:parseFloat(otherChr)||0,
         freight_charges:parseFloat(freightChr)||0,
@@ -956,34 +954,37 @@ export default function PurchaseBillForm() {
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setPickerRateFilter(null); setPickerArticleFilter(null);
     setActiveCatId(null);
-    form.resetFields(['discount_percentage','paid_amount']);
+    form.resetFields(['discount_percentage','paid_amount','other_charges','freight_charges','remarks']);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   };
   useCtrlEnterSubmit(()=>handleSave(true));
 
-  /* ── Table columns ── */
-  const numCell=(ri,ci,val,field,min,w)=>(
+  /* ── Table columns — Excel-style cells ──
+     Inputs fill the whole cell (no floating pill). numCell/txtCell no
+     longer take a fixed width — CSS handles it. The wrapping div carries
+     id="tc-ri-ci" for arrow-key navigation. */
+  const numCell=(ri,ci,val,field,min)=>(
     <div id={`tc-${ri}-${ci}`}>
       <InputNumber keyboard={false} variant="borderless" value={val}
         onChange={v=>updateItem(items[ri]?.key,field,v??0)}
         onKeyDown={e=>navTable(e,ri,ci)} min={min??0}
-        style={{width:w??'100%',fontSize:13,fontWeight:700,fontFamily:'inherit'}} size="small"/>
+        size="small"/>
     </div>
   );
-  const txtCell=(ri,ci,val,field,w)=>(
+  const txtCell=(ri,ci,val,field)=>(
     <div id={`tc-${ri}-${ci}`}>
       <Input variant="borderless" value={val}
         onChange={e=>updateItem(items[ri]?.key,field,e.target.value)}
         onKeyDown={e=>navTable(e,ri,ci)}
-        style={{width:w??'100%',fontSize:13,fontWeight:700,fontFamily:'inherit'}} size="small"/>
+        size="small"/>
     </div>
   );
   const readCell=(v,style={})=>(
-    <span style={{fontSize:13,color:'#1f2937',fontWeight:700,paddingLeft:4,...style}}>{v||'—'}</span>
+    <span style={{fontSize:13,fontWeight:600,...style}}>{v||'—'}</span>
   );
 
   const itemColumns=[
-    { title:'#', width:34, align:'center', render:(_,__,i)=><span style={{color:'#94a3b8',fontSize:13,fontWeight:700}}>{i+1}</span> },
+    { title:'#', width:40, align:'center', render:(_,__,i)=><span style={{color:'var(--fg-tertiary)',fontSize:13,fontWeight:600,textAlign:'center'}}>{i+1}</span> },
     { title:'Barcode', dataIndex:'barcode', width:120,
       render:(v,r,ri)=>(
         <div id={`tc-${ri}-0`}>
@@ -991,611 +992,405 @@ export default function PurchaseBillForm() {
             onChange={e=>updateItem(r.key,'barcode',e.target.value)}
             onBlur={e=>validateItemBarcode(r.key,e.target.value)}
             onKeyDown={e=>navTable(e,ri,0)}
-            style={{width:'100%',fontSize:13,fontWeight:700,fontFamily:'inherit'}} size="small" placeholder="—"/>
+            size="small" placeholder="—"/>
         </div>
       ),
     },
-    { title:'Product Name', dataIndex:'product_name', width:170,
+    { title:'Product Name', dataIndex:'product_name', width:180,
       render:(v,r,ri)=>(
         <div id={`tc-${ri}-1`}>
           <Input variant="borderless" value={v} onChange={e=>updateItem(r.key,'product_name',e.target.value)}
-            onKeyDown={e=>navTable(e,ri,1)} style={{width:'100%',fontSize:13,fontWeight:700,fontFamily:'inherit'}} size="small"/>
+            onKeyDown={e=>navTable(e,ri,1)} size="small"/>
         </div>
       ),
     },
-    { title:'Size',  dataIndex:'size',             width:60,  render:(v,r,ri)=>txtCell(ri,2,v,'size',54) },
-    { title:'Art#',  dataIndex:'article_number',   width:80,  render:(v,r,ri)=>txtCell(ri,3,v,'article_number',74) },
-    { title:'Qty',   dataIndex:'quantity',          width:72,  align:'center', render:(v,r,ri)=>numCell(ri,4,v,'quantity',0,66) },
-    { title:'P/Box', dataIndex:'quantity_per_box',  width:66,  align:'center', render:(v,r,ri)=>numCell(ri,5,v,'quantity_per_box',1,60) },
-    { title:'Rate ₹',dataIndex:'purchase_rate',    width:96,  align:'right',  render:(v,r,ri)=>numCell(ri,6,v,'purchase_rate',0,90) },
-    { title:'MG%',   dataIndex:'margin_percentage', width:66,  align:'right',  render:(v,r,ri)=>numCell(ri,7,v,'margin_percentage',null,60) },
-    { title:'Sale ₹',dataIndex:'sale_rate',         width:96,  align:'right',  render:(v,r,ri)=>numCell(ri,8,v,'sale_rate',0,90) },
-    { title:'MRP ₹', dataIndex:'mrp',               width:88,  align:'right',  render:(v,r,ri)=>numCell(ri,9,v,'mrp',0,82) },
-    { title:'GST%',  dataIndex:'gst_rate',          width:60,  align:'right',  render:(v,r,ri)=>numCell(ri,10,v,'gst_rate',0,54) },
-    { title:'Amount ₹', width:116, align:'right',
-      render:(_,r)=><span style={{color:'#4f46e5',fontWeight:700,fontSize:13,fontFamily:'inherit',paddingRight:6}}>{fmtN((r.quantity||0)*(r.purchase_rate||0))}</span>,
+    { title:'Size',  dataIndex:'size',             width:70,  render:(v,r,ri)=>txtCell(ri,2,v,'size') },
+    { title:'Art#',  dataIndex:'article_number',   width:80,  render:(v,r,ri)=>txtCell(ri,3,v,'article_number') },
+    { title:'Qty',   dataIndex:'quantity',          width:80,  align:'center', className:'num-cell', render:(v,r,ri)=>numCell(ri,4,v,'quantity',0) },
+    { title:'P/Box', dataIndex:'quantity_per_box',  width:70,  align:'center', className:'num-cell', render:(v,r,ri)=>numCell(ri,5,v,'quantity_per_box',1) },
+    { title:'Rate ₹',dataIndex:'purchase_rate',    width:100, align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,6,v,'purchase_rate',0) },
+    { title:'MG%',   dataIndex:'margin_percentage', width:70,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,7,v,'margin_percentage',null) },
+    { title:'Sale ₹',dataIndex:'sale_rate',         width:100, align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,8,v,'sale_rate',0) },
+    { title:'MRP ₹', dataIndex:'mrp',               width:90,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,9,v,'mrp',0) },
+    { title:'GST%',  dataIndex:'gst_rate',          width:70,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,10,v,'gst_rate',0) },
+    { title:'Amount ₹', width:116, align:'right', className:'num-cell',
+      render:(_,r)=><span style={{color:'var(--fg-primary)',fontWeight:700,fontSize:13,fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{fmtN((r.quantity||0)*(r.purchase_rate||0))}</span>,
     },
-    { title:'', width:32, align:'center',
-      render:(_,r)=><button onClick={()=>removeItem(r.key)} style={{background:'none',border:'none',cursor:'pointer',color:'#f87171',fontSize:16,padding:'2px 4px',borderRadius:4,lineHeight:1}}>×</button>,
+    { title:'', width:36, align:'center',
+      render:(_,r)=><button onClick={()=>removeItem(r.key)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--danger)',fontSize:16,padding:'6px 8px',borderRadius:0,lineHeight:1,width:'100%',height:'100%'}}>×</button>,
     },
   ];
 
-  /* ── input style helper for dark sections ── */
-  const darkIn = { background:'rgba(255,255,255,0.08)', borderColor:'rgba(255,255,255,0.15)', color:'#e2e8f0' };
+  /* ─── Status for badge (Paid / Balance / Overpaid) ──────────────────── */
+  const isOverpaid = balance < -0.001;
+  const isDue      = balance > 0.001;
+  const statusClass = isDue ? 'due' : isOverpaid ? 'over' : 'paid';
+  const statusLabel = isDue ? 'Balance due' : isOverpaid ? 'Overpaid' : 'Paid in full';
 
   return (
     <Form form={form} component={false}>
-      <style>{`
-        .pbf .ant-input, .pbf .ant-input-number, .pbf .ant-picker,
-        .pbf .ant-select:not(.ant-select-customize-input) .ant-select-selector,
-        .pbf .ant-input-affix-wrapper,
-        .pbf .ant-autocomplete .ant-select-selector {
-          background:rgba(255,255,255,0.14)!important;
-          border:1px solid rgba(255,255,255,0.28)!important;
-          border-radius:7px!important;
-          box-shadow:inset 0 1px 3px rgba(0,0,0,0.25)!important;
-        }
-        .pbf .ant-input:focus, .pbf .ant-input:hover,
-        .pbf .ant-picker:hover, .pbf .ant-picker-focused,
-        .pbf .ant-select-focused .ant-select-selector,
-        .pbf .ant-select:hover .ant-select-selector {
-          border-color:rgba(129,140,248,0.7)!important;
-          background:rgba(255,255,255,0.20)!important;
-          box-shadow:0 0 0 2px rgba(99,102,241,0.18)!important;
-        }
-        .pbf .ant-input,
-        .pbf .ant-input-number-input,
-        .pbf .ant-picker-input>input,
-        .pbf .ant-select-selection-item,
-        .pbf .ant-select-selection-placeholder,
-        .pbf .ant-autocomplete .ant-select-selection-search-input {
-          color:#f1f5f9!important; font-size:13px!important; font-weight:600!important;
-        }
-        .pbf .ant-select-selection-placeholder { font-weight:400!important; color:rgba(255,255,255,0.35)!important; }
-        .pbf .ant-input::placeholder, .pbf .ant-picker-input>input::placeholder { color:rgba(255,255,255,0.35)!important; font-weight:400!important; }
-        .pbf .ant-select-arrow, .pbf .ant-picker-suffix, .pbf .ant-picker-separator { color:rgba(255,255,255,0.5)!important; }
-        .pbf .ant-input-number-handler-wrap { background:rgba(255,255,255,0.06)!important; }
-        .pbf .ant-select-clear { background:rgba(13,11,30,.95)!important; color:rgba(255,255,255,.5)!important; }
-        .pbf .ant-autocomplete .ant-select-selector { height:32px!important; }
-        .pbf .ant-autocomplete .ant-select-selection-search { display:flex!important; align-items:center!important; }
-        .pbf .ant-autocomplete .ant-select-selection-search-input { height:30px!important; line-height:30px!important; }
-        .pbf-tbl .ant-table-cell { border-inline-end:none!important; padding:3px 6px!important; border-bottom:1px solid #e0e7ff!important; }
-        .pbf-tbl .ant-table-thead .ant-table-cell { padding:10px 8px!important; border-inline-end:1px solid rgba(255,255,255,0.15)!important; }
-        .pbf-tbl .ant-table-tbody>tr:hover>td { background:#eef2ff!important; }
-        .pbf-tbl .ant-table-summary>tr>td { border-inline-end:none!important; padding:7px 8px!important; background:#f5f3ff!important; }
-        .pbf-tbl .ant-table-placeholder .ant-table-cell { border-bottom:none!important; }
-        .pbf-tbl .ant-input-number-input,
-        .pbf-tbl .ant-input { font-size:13px!important; font-weight:700!important; color:#1f2937!important; }
-        .pbf-bot .ant-input-number, .pbf-bot .ant-input-number-input { background:rgba(255,255,255,0.08)!important; border-color:rgba(255,255,255,0.13)!important; color:#e2e8f0!important; }
-        .pbf-btn { transition:filter .15s,transform .15s; }
-        .pbf-btn:hover:not(:disabled) { filter:brightness(1.18); transform:translateY(-1px); }
-        .pbf-btn:active:not(:disabled) { transform:translateY(0); filter:brightness(.95); }
+      <div className="pbf-page">
 
-        /* Financial panel white inputs */
-        .pbf-fin-in.ant-input-number, .pbf-paid-in.ant-input-number {
-          background:#fff!important; border:1px solid #c7d2fe!important;
-          border-radius:6px!important; box-shadow:0 1px 3px rgba(0,0,0,.12)!important;
-          height:32px!important; width:100%!important;
-        }
-        .pbf-fin-in .ant-input-number-input, .pbf-paid-in .ant-input-number-input {
-          background:#fff!important; color:#1e1b4b!important; font-weight:700!important;
-          font-size:13px!important; text-align:right!important; height:30px!important;
-        }
-        .pbf-fin-in .ant-input-number-input::placeholder,
-        .pbf-paid-in .ant-input-number-input::placeholder { color:#9ca3af!important; font-weight:400!important; }
-        .pbf-fin-in.ant-input-number-disabled { opacity:0.5; }
-      `}</style>
+        {/* ═══════════════════════════════ (1) TOP ════════════════════════════ */}
+        <section className="pbf-top">
+          <div className="pbf-top-inner">
 
-      {/* ── OUTER SHELL — fixed height, no scroll ── */}
-      <div style={{height:H,display:'flex',flexDirection:'column',overflow:'hidden',
-        fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",background:'#f8fafc'}}>
-
-        {/* ══════ TOP ══════════════════════════════════════════════════════ */}
-        <div className="pbf" style={{
-          flexShrink:0, background:DARK,
-          display:'flex', flexDirection:'column', gap:8,
-          padding:'10px 20px 12px',
-          borderBottom:'2px solid rgba(99,102,241,.35)',
-          boxShadow:'0 4px 24px rgba(0,0,0,0.4)',
-        }}>
-
-          {/* Header */}
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <button className="pbf-btn" onClick={()=>navigate('/purchases')}
-              style={{background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.12)',
-                borderRadius:6,color:ACC,cursor:'pointer',padding:'3px 12px',fontSize:12,fontWeight:600}}>
-              ← Back
-            </button>
-            {companyName&&<span style={{color:'rgba(255,255,255,.3)',fontSize:11}}>{companyName}</span>}
-            <div style={{display:'flex',alignItems:'center',gap:7,background:'rgba(99,102,241,.15)',
-              border:'1px solid rgba(99,102,241,.3)',borderRadius:20,padding:'3px 14px'}}>
-              <span style={{width:6,height:6,borderRadius:'50%',background:ACC,display:'inline-block',boxShadow:`0 0 6px ${ACC}`}}/>
-              <span style={{color:ACC,fontWeight:800,fontSize:12,letterSpacing:1.8,textTransform:'uppercase'}}>
-                {isEdit?'Edit Purchase Bill':'Purchase Bill'}
+            <div className="pbf-top-head">
+              <span className="pbf-pill">
+                <span className="dot"></span>
+                {isEdit ? 'Edit Purchase Bill' : 'Purchase Bill'}
               </span>
-            </div>
-            {billNumber&&<span style={{fontSize:11,background:'rgba(99,102,241,.18)',
-              border:'1px solid rgba(99,102,241,.35)',color:'#c7d2fe',borderRadius:12,padding:'2px 10px'}}>{billNumber}</span>}
-            <div style={{marginLeft:'auto'}}/>
-          </div>
-
-          {/* Supplier row */}
-          <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
-            {[
-              { label:'Supplier *', node:<Form.Item name="supplier_id" noStyle rules={[{required:true,message:' '}]}><Select showSearch style={{width:240}} placeholder="Select supplier" optionFilterProp="children" dropdownStyle={{minWidth:280}}>{parties.map(p=><Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>)}</Select></Form.Item> },
-              { label:'Bill Date *', node:<Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}><DatePicker style={{width:130}} format="DD-MM-YYYY"/></Form.Item> },
-              { label:'Supp. Bill #', node:<Form.Item name="supplier_bill_number" noStyle><Input style={{width:110}} placeholder="Ref"/></Form.Item> },
-              { label:'Due Date', node:<Form.Item name="due_date" noStyle><DatePicker style={{width:130}} format="DD-MM-YYYY"/></Form.Item> },
-              { label:'Transport', node:<Form.Item name="transport_name" noStyle><Input style={{width:110}}/></Form.Item> },
-              { label:'Vehicle No.', node:<Form.Item name="vehicle_number" noStyle><Input style={{width:110}}/></Form.Item> },
-              { label:'LR No.', node:<Form.Item name="lr_number" noStyle><Input style={{width:90}}/></Form.Item> },
-            ].map(({label,node})=>(
-              <div key={label} style={{flexShrink:0}}>
-                <div style={lbl}>{label}</div>{node}
+              <div className="pbf-doc">
+                <span>Bill no.</span>
+                <b>{billNumber || `New · ${dayjs().format('DD MMM YYYY')}`}</b>
               </div>
-            ))}
-          </div>
+              {companyName && <span className="pbf-company">· {companyName}</span>}
+            </div>
 
-          {/* Entry row */}
-          <div style={{display:'flex',gap:6,alignItems:'flex-end'}}>
-            <div style={{flexShrink:0}}>
-              <div style={lbl}>Barcode</div>
-              <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan…"
-                onChange={e=>{setEntry(p=>({...p,barcode:e.target.value}));setBarcodeError('');}}
-                onPressEnter={e=>handleBarcodeScan(e.target.value)}
-                onBlur={e=>handleBarcodeBlur(e.target.value)}
-                onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();productRef.current?.focus();}}}
-                style={{width:140,borderColor:barcodeError?'#f87171':undefined}}
-                status={barcodeError?'error':undefined}/>
+            {/* Supplier / bill / transport row */}
+            <div className="pbf-top-row">
+              <div className="pbf-field">
+                <span className="pbf-lbl">Supplier<span className="req">*</span></span>
+                <Form.Item name="supplier_id" noStyle rules={[{required:true,message:' '}]}>
+                  <Select showSearch placeholder="Select supplier" optionFilterProp="children" dropdownStyle={{minWidth:280}}>
+                    {parties.map(p=><Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>)}
+                  </Select>
+                </Form.Item>
+              </div>
+              <div className="pbf-field">
+                <span className="pbf-lbl">Bill date<span className="req">*</span></span>
+                <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
+                  <DatePicker format="DD-MM-YYYY" style={{width:'100%'}}/>
+                </Form.Item>
+              </div>
+              <div className="pbf-field">
+                <span className="pbf-lbl">Supp. bill #</span>
+                <Form.Item name="supplier_bill_number" noStyle>
+                  <Input placeholder="Ref"/>
+                </Form.Item>
+              </div>
+              <div className="pbf-field">
+                <span className="pbf-lbl">Due date</span>
+                <Form.Item name="due_date" noStyle>
+                  <DatePicker format="DD-MM-YYYY" style={{width:'100%'}}/>
+                </Form.Item>
+              </div>
+              <div className="pbf-field">
+                <span className="pbf-lbl">Transport</span>
+                <Form.Item name="transport_name" noStyle>
+                  <Input/>
+                </Form.Item>
+              </div>
+              <div className="pbf-field">
+                <span className="pbf-lbl">Vehicle no.</span>
+                <Form.Item name="vehicle_number" noStyle>
+                  <Input/>
+                </Form.Item>
+              </div>
+              <div className="pbf-field">
+                <span className="pbf-lbl">LR no.</span>
+                <Form.Item name="lr_number" noStyle>
+                  <Input/>
+                </Form.Item>
+              </div>
             </div>
-            <div style={{flexShrink:0}}>
-              <div style={lbl}>Category</div>
-              <Select className="entry-dark-select" style={{width:200}} value={activeCatId}
-                onChange={(v,opt)=>{
-                  setActiveCatId(v||null); // useEffect fetches products + focuses field when ready
-                  setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
-                }}
-                placeholder="All Categories" showSearch
-                filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
-                allowClear notFoundContent={null}
-                dropdownStyle={{
-                  borderRadius:8,
-                  boxShadow:'0 10px 30px rgba(15,23,42,.12), 0 2px 8px rgba(15,23,42,.06)',
-                  border:'1px solid #e2e8f0',
-                  padding:0,
-                }}
-                dropdownRender={menu=>(
-                  <div style={{fontFamily:'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'}}>
-                    <div style={{
-                      padding:'6px 12px',
-                      background:'#f8fafc',
-                      borderBottom:'1px solid #e2e8f0',
-                      fontSize:10, fontWeight:700, letterSpacing:.6,
-                      color:'#64748b', textTransform:'uppercase',
-                    }}>
-                      Category · {categories.length}
-                    </div>
-                    {menu}
-                  </div>
-                )}
-              >
-                {categories.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
-              </Select>
-            </div>
-            <div ref={prodWrapRef} style={{flexShrink:0}}>
-              <div style={lbl}>Product Name</div>
-              <Select key={activeCatId??'no-cat'} ref={productRef} className="entry-dark-select" style={{width:220}}
-                showSearch filterOption={false} optionLabelProp="label"
-                value={entry.product_name||undefined}
-                onSearch={handleProductSearch}
-                onSelect={(val,opt)=>handleProductSelect(val,opt)}
-                onFocus={()=>{
-                  if(justSelectedRef.current){
-                    justSelectedRef.current=false;
-                    requestAnimationFrame(()=>{ productRef.current?.blur(); sizeRef.current?.focus(); sizeRef.current?.select?.(); });
+
+            {/* Product entry row */}
+            <div className="pbf-top-row-2">
+              <div className="pbf-field">
+                <span className="pbf-lbl">Barcode / scan</span>
+                <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type…"
+                  onChange={e=>{setEntry(p=>({...p,barcode:e.target.value}));setBarcodeError('');}}
+                  onPressEnter={e=>handleBarcodeScan(e.target.value)}
+                  onBlur={e=>handleBarcodeBlur(e.target.value)}
+                  onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();productRef.current?.focus();}}}
+                  status={barcodeError?'error':undefined}/>
+              </div>
+              <div className="pbf-field">
+                <span className="pbf-lbl">Category</span>
+                <Select value={activeCatId} placeholder="All categories" showSearch
+                  filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
+                  allowClear notFoundContent={null}
+                  onChange={(v,opt)=>{
+                    setActiveCatId(v||null);
+                    setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
+                  }}>
+                  {categories.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
+                </Select>
+              </div>
+              <div className="pbf-field" ref={prodWrapRef}>
+                <span className="pbf-lbl">Product name</span>
+                <Select key={activeCatId??'no-cat'} ref={productRef}
+                  showSearch filterOption={false} optionLabelProp="label"
+                  value={entry.product_name||undefined}
+                  onSearch={handleProductSearch}
+                  onSelect={(val,opt)=>handleProductSelect(val,opt)}
+                  onFocus={()=>{
+                    if(justSelectedRef.current){
+                      justSelectedRef.current=false;
+                      requestAnimationFrame(()=>{ productRef.current?.blur(); sizeRef.current?.focus(); sizeRef.current?.select?.(); });
+                    }
+                  }}
+                  onClear={()=>setEntry(p=>({...p,product_name:'',product_id:null}))}
+                  allowClear
+                  placeholder={activeCatId?'Search in category…':'Search product…'}
+                  notFoundContent={productSearching?'Searching…':null}
+                  listHeight={320} dropdownMatchSelectWidth={520}>
+                  {dedupedProducts.map(p=>{
+                    const stock = parseFloat(p._totalStock||p.current_stock||0);
+                    const stockColor = stock<=0 ? 'var(--danger)' : stock<=5 ? 'var(--warning)' : 'var(--success)';
+                    return(
+                      <Select.Option key={p.product_id} value={p.product_name} label={p.product_name} product={p}>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 90px 70px 60px 72px',columnGap:10,alignItems:'center',fontVariantNumeric:'tabular-nums'}}>
+                          <span style={{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.product_name}</span>
+                          <span style={{fontSize:11,color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.Category?.category_name||'—'}</span>
+                          <span style={{fontSize:12,color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.article_number||'—'}</span>
+                          <span style={{fontSize:12,color:'var(--fg-tertiary)'}}>{p.size_value||'—'}</span>
+                          <span style={{fontSize:11,fontWeight:600,color:stockColor,justifySelf:'end'}}>
+                            {stock<=0?'out':stock}
+                          </span>
+                        </div>
+                      </Select.Option>
+                    );
+                  })}
+                </Select>
+              </div>
+              {[
+                {lbl2:'Size',    ref:sizeRef,    field:'size',             val:entry.size,                        idx:1, t:'txt'},
+                {lbl2:'Art #',   ref:articleRef, field:'article_number',   val:entry.article_number,              idx:2, t:'txt', wrapRef:articleWrapRef,
+                 onChangeFn:e=>handleArticleChange(e.target.value)},
+                {lbl2:'Rate ₹',  ref:rateRef,    field:'purchase_rate',    val:entry.purchase_rate||undefined,    idx:3, t:'num', min:0, onBlur:handleRateBlur,
+                 wrapRef:rateWrapRef, onChangeFn:v=>handleRateInputChange(v||0)},
+                {lbl2:'Qty',     ref:qtyRef,     field:'quantity',         val:entry.quantity||undefined,         idx:4, t:'num', min:0},
+                {lbl2:'P/Box',   ref:qpbRef,     field:'quantity_per_box', val:entry.quantity_per_box,            idx:5, t:'num', min:1, onBlur:handleRateBlur},
+                {lbl2:'Margin%', ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,idx:6, t:'num'},
+                {lbl2:'Sale ₹',  ref:saleRateRef,field:'sale_rate',        val:entry.sale_rate||undefined,        idx:7, t:'num', min:0, onBlur:handleRateBlur},
+                {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,         idx:8, t:'num', min:0},
+              ].map(({lbl2,ref,field,val,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
+                <div key={field} className="pbf-field" ref={wrapRef||undefined}>
+                  <span className="pbf-lbl">{lbl2}</span>
+                  {t==='txt'
+                    ? <Input ref={ref} value={val}
+                        onChange={onChangeFn||(e=>updateEntry(field,e.target.value))}
+                        onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur}/>
+                    : <InputNumber keyboard={false} ref={ref} value={val} style={{width:'100%'}} min={min}
+                        onChange={onChangeFn||(v=>updateEntry(field,v||0))}
+                        onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur} onFocus={onFocusFn}/>
                   }
-                }}
-                onClear={()=>setEntry(p=>({...p,product_name:'',product_id:null}))}
-                allowClear
-                placeholder={activeCatId?'Search in category…':'Search all products…'}
-                notFoundContent={productSearching?'Searching…':null}
-                listHeight={320} dropdownMatchSelectWidth={520}
-                dropdownStyle={{
-                  borderRadius:8,
-                  boxShadow:'0 10px 30px rgba(15,23,42,.12), 0 2px 8px rgba(15,23,42,.06)',
-                  border:'1px solid #e2e8f0',
-                  padding:0,
-                }}
-                dropdownRender={menu=>(
-                  <div style={{fontFamily:'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'}}>
-                    {/* Column headers — align with option rows below (AntD option padding = 5px 12px) */}
-                    <div style={{
-                      display:'grid',
-                      gridTemplateColumns:'1fr 90px 70px 60px 72px',
-                      columnGap:10, alignItems:'center',
-                      padding:'7px 12px',
-                      background:'#f8fafc',
-                      borderBottom:'1px solid #e2e8f0',
-                      fontSize:10, fontWeight:700, letterSpacing:.6,
-                      color:'#64748b', textTransform:'uppercase',
-                    }}>
-                      <span>Product</span>
-                      <span>Category</span>
-                      <span>Art#</span>
-                      <span>Size</span>
-                      <span style={{textAlign:'right'}}>Stock</span>
-                    </div>
-                    <div style={{
-                      padding:'4px 12px',
-                      background:'#fafbff',
-                      borderBottom:'1px solid #eef2ff',
-                      fontSize:11, fontWeight:600, color:'#4f46e5',
-                    }}>
-                      {dedupedProducts.length} product{dedupedProducts.length!==1?'s':''}
-                      {productSearching?' · searching…':''}
-                    </div>
-                    {menu}
-                  </div>
-                )}
-              >
-                {dedupedProducts.map(p=>{
-                  const stock    = parseFloat(p._totalStock||p.current_stock||0);
-                  const stockColor = stock<=0 ? '#ef4444' : stock<=5 ? '#f59e0b' : '#10b981';
-                  const stockBg    = stock<=0 ? '#fef2f2' : stock<=5 ? '#fffbeb' : '#f0fdf4';
-                  return(
-                    <Select.Option key={p.product_id} value={p.product_name} label={p.product_name} product={p}>
-                      <div style={{
-                        display:'grid',
-                        gridTemplateColumns:'1fr 90px 70px 60px 72px',
-                        columnGap:10, alignItems:'center',
-                        fontFamily:'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-                        fontVariantNumeric:'tabular-nums',
-                      }}>
-                        {/* Product name */}
-                        <span style={{
-                          fontWeight:600, fontSize:13, color:'#0f172a',
-                          whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
-                        }}>{p.product_name}</span>
-
-                        {/* Category */}
-                        <span style={{
-                          fontSize:11, color:'#475569',
-                          whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
-                        }}>{p.Category?.category_name || '—'}</span>
-
-                        {/* Art# */}
-                        <span style={{
-                          fontSize:12, color:'#64748b',
-                          whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
-                        }}>{p.article_number || '—'}</span>
-
-                        {/* Size */}
-                        <span style={{fontSize:12, color:'#64748b'}}>{p.size_value || '—'}</span>
-
-                        {/* Stock */}
-                        <span style={{
-                          display:'inline-flex', alignItems:'center', gap:4,
-                          fontSize:11, fontWeight:600, color:stockColor,
-                          background:stockBg, borderRadius:4, padding:'1px 6px',
-                          justifySelf:'end',
-                        }}>
-                          <span style={{width:6, height:6, borderRadius:'50%', background:stockColor}}/>
-                          {stock<=0 ? 'out' : stock}
-                        </span>
-                      </div>
-                    </Select.Option>
-                  );
-                })}
-              </Select>
-            </div>
-            {[
-              {lbl2:'Size',    ref:sizeRef,    field:'size',             val:entry.size,                       w:70,  idx:1, t:'txt'},
-              {lbl2:'Art #',   ref:articleRef, field:'article_number',   val:entry.article_number,             w:80,  idx:2, t:'txt', wrapRef:articleWrapRef,
-               onChangeFn:e=>handleArticleChange(e.target.value)},
-              {lbl2:'Rate ₹',  ref:rateRef,    field:'purchase_rate',    val:entry.purchase_rate||undefined,   w:100, idx:3, t:'num', min:0, onBlur:handleRateBlur,
-               wrapRef:rateWrapRef, onChangeFn:v=>handleRateInputChange(v||0)},
-              {lbl2:'Qty',     ref:qtyRef,     field:'quantity',         val:entry.quantity||undefined,        w:80,  idx:4, t:'num', min:0},
-              {lbl2:'P/Box',   ref:qpbRef,     field:'quantity_per_box', val:entry.quantity_per_box,           w:70,  idx:5, t:'num', min:1, onBlur:handleRateBlur},
-              {lbl2:'Margin%', ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,w:80, idx:6, t:'num'},
-              {lbl2:'Sale ₹',  ref:saleRateRef,field:'sale_rate',        val:entry.sale_rate||undefined,       w:100, idx:7, t:'num', min:0, onBlur:handleRateBlur},
-              {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,        w:70,  idx:8, t:'num', min:0},
-            ].map(({lbl2,ref,field,val,w,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
-              <div key={field} ref={wrapRef||undefined} style={{flexShrink:0}}>
-                <div style={lbl}>{lbl2}</div>
-                {t==='txt'
-                  ?<Input ref={ref} value={val} style={{width:w}} onChange={onChangeFn||(e=>updateEntry(field,e.target.value))} onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur}/>
-                  :<InputNumber keyboard={false} ref={ref} value={val} style={{width:w}} min={min} onChange={onChangeFn||(v=>updateEntry(field,v||0))} onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur} onFocus={onFocusFn}/>
-                }
-              </div>
-            ))}
-            {/* Variant picker — rendered via portal to document.body so no ancestor CSS can hide it */}
-            {showVariantPicker&&variantOptions.length>0&&(
-              <VariantPickerDropdown
-                options={variantOptions}
-                selectedIdx={variantPickerIdx}
-                onPick={handleVariantPick}
-                top={pickerPos.top}
-                left={pickerPos.left}
-                rateFilter={pickerAnchorRef.current==='rate'?pickerRateFilter:null}
-                articleFilter={pickerAnchorRef.current==='article'?pickerArticleFilter:null}
-              />
-            )}
-            <div style={{flexShrink:0}}>
-              <div style={{height:14}}/>
-              <button className="pbf-btn" onClick={addItem}
-                style={{background:`linear-gradient(135deg,${PRI},#818cf8)`,border:'none',color:'#fff',
-                  borderRadius:7,padding:'6px 22px',fontSize:13,fontWeight:700,cursor:'pointer',height:32,
-                  display:'flex',alignItems:'center',gap:6,boxShadow:`0 0 14px rgba(99,102,241,.55)`}}>
+                </div>
+              ))}
+              {/* Variant picker — rendered via portal so no ancestor CSS can hide it */}
+              {showVariantPicker&&variantOptions.length>0&&(
+                <VariantPickerDropdown
+                  options={variantOptions}
+                  selectedIdx={variantPickerIdx}
+                  onPick={handleVariantPick}
+                  top={pickerPos.top}
+                  left={pickerPos.left}
+                  rateFilter={pickerAnchorRef.current==='rate'?pickerRateFilter:null}
+                  articleFilter={pickerAnchorRef.current==='article'?pickerArticleFilter:null}
+                />
+              )}
+              <button className="pbf-add-btn" onClick={addItem}>
                 ＋ ADD
               </button>
             </div>
-            {lookupLoading&&entry.product_name&&
-              <span style={{alignSelf:'flex-end',fontSize:9,color:'#93c5fd',background:'rgba(59,130,246,.12)',border:'1px solid rgba(59,130,246,.25)',borderRadius:10,padding:'2px 7px'}}>⏳ Checking…</span>}
-            {!lookupLoading&&entry.product_id&&
-              <span style={{alignSelf:'flex-end',fontSize:9,color:'#34d399',background:'rgba(16,185,129,.12)',border:'1px solid rgba(16,185,129,.25)',borderRadius:10,padding:'2px 7px'}}>✓ Existing</span>}
-            {!lookupLoading&&!entry.product_id&&entry.product_name&&
-              <span style={{alignSelf:'flex-end',fontSize:9,color:'#fbbf24',background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.25)',borderRadius:10,padding:'2px 7px'}}>＋ New Barcode</span>}
-          </div>
-        </div>
 
-        {/* ══════ TABLE 65% ════════════════════════════════════════════════ */}
-        <div ref={tableWrapRef} className="pbf-tbl" style={{flex:1,overflow:'hidden',minHeight:0,background:'#fff'}}>
-          <Table columns={itemColumns} dataSource={items} rowKey="key"
-            size="small" pagination={false} loading={pageLoading}
-            scroll={items.length?{x:1240,y:tblHeight}:{y:tblHeight}}
-            components={{header:{cell:(p)=>(
-              <th {...p} style={{background:TH_BG,color:'#fff',fontWeight:700,fontSize:11,letterSpacing:.5,textTransform:'uppercase',
-                padding:'9px 8px',border:'none',borderBottom:'2px solid #3730a3',
-                whiteSpace:'nowrap'}}/>
-            )}}}
-            locale={{emptyText:(
-              <div style={{padding:40,textAlign:'center',color:'#c4c4c4'}}>
-                <div style={{fontSize:28,marginBottom:8}}>⚡</div>
-                <div>Scan a barcode or search a product to add items</div>
+            {/* Lookup status chip — sits under the entry row */}
+            {(lookupLoading || entry.product_name) && (
+              <div style={{marginTop:6,display:'flex',justifyContent:'flex-end'}}>
+                {lookupLoading && entry.product_name &&
+                  <span className="pbf-entry-chip info">⏳ Checking variant…</span>}
+                {!lookupLoading && entry.product_id &&
+                  <span className="pbf-entry-chip ok">✓ Existing product</span>}
+                {!lookupLoading && !entry.product_id && entry.product_name &&
+                  <span className="pbf-entry-chip warn">＋ New barcode will be created</span>}
               </div>
-            )}}
-          />
-        </div>
+            )}
 
-        {/* ══════════════════════════════════════════════════════════════════
-            BOTTOM — LEFT: stats + buttons    RIGHT: financials
-            ═══════════════════════════════════════════════════════════════ */}
-        <div className="pbf-bot" style={{
-          height:'40%', minHeight:310,
-          background:DARK, flexShrink:0,
-          borderTop:'2px solid rgba(99,102,241,.3)',
-          padding:'10px 20px',
-          display:'flex', flexDirection:'row', gap:0,
-          boxShadow:'0 -4px 20px rgba(0,0,0,.4)',
-        }}>
+          </div>
+        </section>
 
-          {/* ── LEFT PANEL — stats + buttons ── */}
-          <div style={{
-            flex:1, display:'flex', flexDirection:'column', justifyContent:'space-between',
-            paddingRight:20, borderRight:'1px solid rgba(255,255,255,0.1)',
-          }}>
+        {/* ═══════════════════════════════ (2) MIDDLE ══════════════════════════ */}
+        <section className="pbf-mid">
+          <div className="pbf-mid-card">
+            <div ref={tableWrapRef} className="pbf-tbl-wrap">
+              <Table
+                columns={itemColumns} dataSource={items} rowKey="key"
+                size="small" pagination={false} loading={pageLoading}
+                scroll={items.length?{x:1176,y:tblHeight}:{y:tblHeight}}
+                locale={{emptyText:(
+                  <div className="pbf-empty">
+                    <div className="pbf-empty-bolt">⚡</div>
+                    <div className="pbf-empty-main">Scan a barcode or search a product to add items</div>
+                    <div className="pbf-empty-sub">Use the entry row above to add products to this purchase</div>
+                    <div className="pbf-empty-hints">
+                      <span><kbd>F1</kbd> save &amp; pay</span>
+                      <span><kbd>F8</kbd> save credit</span>
+                      <span><kbd>Esc</kbd> go back</span>
+                    </div>
+                  </div>
+                )}}
+              />
+            </div>
+          </div>
+        </section>
 
-            {/* Stat mini-cards */}
-            <div style={{display:'flex',gap:8}}>
-              {[
-                {l:'ITEMS', v:items.length,        c:'rgba(129,140,248,0.9)'},
-                {l:'QTY',   v:items.reduce((s,i)=>s+(i.quantity||0),0).toFixed(1), c:'rgba(96,165,250,0.9)'},
-                {l:'BOX',   v:boxQty.toFixed(1),   c:'rgba(251,191,36,0.9)'},
-              ].map(({l,v,c})=>(
-                <div key={l} style={{textAlign:'center',
-                  background:'rgba(255,255,255,0.06)',
-                  border:`1px solid ${c}40`,
-                  borderRadius:8, padding:'4px 16px', minWidth:64}}>
-                  <div style={{fontSize:8,color:c,fontWeight:700,letterSpacing:.8}}>{l}</div>
-                  <div style={{color:'#fff',fontWeight:800,fontSize:20,lineHeight:1.2}}>{v}</div>
+        {/* ═══════════════════════════════ (3) BOTTOM ══════════════════════════ */}
+        <section className="pbf-bottom">
+          <div className="pbf-bottom-inner">
+
+            {/* LEFT: Summary + Notes */}
+            <div className="pbf-bb-left">
+              <div className="pbf-card pbf-summary">
+                <div className="pbf-card-title">Summary</div>
+                <div className="pbf-counters">
+                  <div className="pbf-counter items">
+                    <div className="k">Items</div>
+                    <div className="v">{items.length}</div>
+                  </div>
+                  <div className="pbf-counter qty">
+                    <div className="k">Qty</div>
+                    <div className="v">{items.reduce((s,i)=>s+(i.quantity||0),0).toFixed(1)}</div>
+                  </div>
+                  <div className="pbf-counter box">
+                    <div className="k">Box</div>
+                    <div className="v">{boxQty.toFixed(1)}</div>
+                  </div>
                 </div>
-              ))}
-            </div>
-
-            <div/>
-
-            {/* Action buttons */}
-            <div style={{display:'flex',gap:8}}>
-              {[
-                {label:'Back',        kbd:'ESC',bg:'#1e293b',                               onClick:()=>navigate('/purchases')},
-                {label:'Reset',       kbd:'F5', bg:'#1e293b',                               onClick:handleReset},
-                {label:'Save Credit', kbd:'F8', bg:'#1d4ed8',                               onClick:()=>handleSave(false), disabled:loading},
-                {label:'Save & Pay',  kbd:'F1', bg:'linear-gradient(135deg,#059669,#10b981)',primary:true, onClick:()=>handleSave(true), disabled:loading},
-              ].map(({label,kbd,bg,onClick,primary,disabled})=>(
-                <button key={kbd} className="pbf-btn" onClick={onClick} disabled={disabled}
-                  style={{background:bg, color:'#fff',
-                    border:primary?'none':'1px solid rgba(255,255,255,.12)',
-                    borderRadius:8, padding:'8px 18px', fontSize:13, fontWeight:700,
-                    cursor:'pointer', display:'flex', alignItems:'center', gap:7,
-                    opacity:disabled?.6:1,
-                    boxShadow:primary?'0 0 16px rgba(16,185,129,.4)':'none',
-                    whiteSpace:'nowrap'}}>
-                  <span style={{background:'rgba(0,0,0,.3)',borderRadius:4,
-                    padding:'2px 6px',fontSize:9,fontWeight:700,letterSpacing:.5}}>{kbd}</span>
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── RIGHT PANEL — exact same structure as SalesBillForm ── */}
-          <div style={{
-            width:520,
-            paddingLeft:20,
-            display:'flex', flexDirection:'row', gap:14,
-            borderLeft:'1px solid rgba(255,255,255,.1)',
-          }}>
-
-            {/* ── Sub-left: financial rows ── */}
-            <div style={{flex:1, display:'flex', flexDirection:'column', gap:6}}>
-
-              {/* Sub Total */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>Sub Total</span>
-                <div style={VB}>{fmtN(subTotal)}</div>
-              </div>
-
-              {/* Bill Disc — % and ₹ bidirectional — RIGHT AFTER Sub Total */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>Bill Disc</span>
-                <div style={{flex:1,display:'flex',gap:6}}>
-                  <Form.Item name="discount_percentage" noStyle>
-                    <InputNumber keyboard={false} size="small" min={0} max={100} placeholder="%"
-                      className="pbf-fin-in" style={{flex:1,width:'100%'}}
-                      formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
-                      onChange={pct=>{ discAmtEditingRef.current=false; setDiscAmtVal(+(subTotal*(pct||0)/100).toFixed(2)); }}/>
+                <div className="pbf-summary-notes">
+                  <span className="pbf-lbl">Notes</span>
+                  <Form.Item name="remarks" noStyle>
+                    <Input.TextArea
+                      rows={5}
+                      maxLength={1000}
+                      placeholder="Add remarks, delivery instructions, reference…"
+                      className="pbf-notes-ta"
+                    />
                   </Form.Item>
-                  <InputNumber keyboard={false} size="small" min={0} placeholder="₹ amt"
-                    className="pbf-fin-in" style={{flex:1,width:'100%'}}
-                    value={discAmtVal||undefined}
-                    onFocus={()=>{ discAmtEditingRef.current=true; }}
-                    onBlur={()=>{ discAmtEditingRef.current=false; }}
-                    onChange={amt=>{ discAmtEditingRef.current=true; setDiscAmtVal(amt||0); const pct=subTotal>0?+((amt||0)/subTotal*100).toFixed(4):0; form.setFieldValue('discount_percentage',+pct.toFixed(2)); }}/>
                 </div>
               </div>
+            </div>
 
-              {/* Other Chr. */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>Other Chr.</span>
-                <Form.Item name="other_charges" noStyle>
-                  <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
-                    className="pbf-fin-in" style={{flex:1,width:'100%'}}/>
-                </Form.Item>
-              </div>
+            {/* RIGHT: Totals + Payment */}
+            <div className="pbf-bb-right">
 
-              {/* Freight */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>Freight Chr.</span>
-                <Form.Item name="freight_charges" noStyle>
-                  <InputNumber keyboard={false} size="small" min={0} placeholder="0.00"
-                    className="pbf-fin-in" style={{flex:1,width:'100%'}}/>
-                </Form.Item>
-              </div>
-
-              {/* Taxable */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>Taxable</span>
-                <div style={{...VB,color:'#312e81',fontWeight:800}}>{fmtN(taxableTotal)}</div>
-              </div>
-
-              {/* CGST */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>CGST</span>
-                <div style={{flex:1,display:'flex',gap:6}}>
-                  <div style={{width:62,flexShrink:0}}>
+              {/* Totals card — 6 rows matching Payment height.
+                    CGST+SGST merged into a single shared % (always equal in
+                    intra-state GST). Other + Freight merged into one row. */}
+              <div className="pbf-card pbf-totals">
+                <div className="pbf-card-title">Totals</div>
+                <div className="pbf-tot-lines">
+                  <div className="pbf-tot-line total-row">
+                    <span className="k">Total</span>
+                    <span className="pbf-val-box">{fmtN(taxableTotal)}</span>
+                  </div>
+                  <div className="pbf-tot-line with-pct">
+                    <span className="k" title="CGST + SGST — shared % applies to both halves">GST (C+S)</span>
                     <InputNumber keyboard={false} size="small" min={0} max={100}
-                      className="pbf-fin-in" style={{width:'100%'}}
+                      className="pbf-pct-in" style={{width:'100%'}}
                       value={effCgstPct||undefined} disabled={gstMode==='product'}
-                      onChange={v=>setCgstPct(v||0)}
+                      onChange={v=>{ const n=v||0; setCgstPct(n); setSgstPct(n); }}
                       formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
                       placeholder="%"/>
+                    <span className="pbf-val-box">{fmtN(cgst + sgst)}</span>
                   </div>
-                  <div style={{...VB,flex:1}}>{fmtN(cgst)}</div>
-                </div>
-              </div>
-
-              {/* SGST */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>SGST</span>
-                <div style={{flex:1,display:'flex',gap:6}}>
-                  <div style={{width:62,flexShrink:0}}>
+                  <div className="pbf-tot-line with-pct">
+                    <span className="k">IGST</span>
                     <InputNumber keyboard={false} size="small" min={0} max={100}
-                      className="pbf-fin-in" style={{width:'100%'}}
-                      value={effSgstPct||undefined} disabled={gstMode==='product'}
-                      onChange={v=>setSgstPct(v||0)}
-                      formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
-                      placeholder="%"/>
-                  </div>
-                  <div style={{...VB,flex:1}}>{fmtN(sgst)}</div>
-                </div>
-              </div>
-
-              {/* IGST */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>IGST</span>
-                <div style={{flex:1,display:'flex',gap:6}}>
-                  <div style={{width:62,flexShrink:0}}>
-                    <InputNumber keyboard={false} size="small" min={0} max={100}
-                      className="pbf-fin-in" style={{width:'100%'}}
+                      className="pbf-pct-in" style={{width:'100%'}}
                       value={igstPct||undefined} disabled={gstMode==='product'}
                       onChange={v=>setIgstPct(v||0)}
                       formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
                       placeholder="%"/>
+                    <span className="pbf-val-box">{fmtN(igstAmt)}</span>
                   </div>
-                  <div style={{...VB,flex:1}}>{fmtN(igstAmt)}</div>
+                  <div className="pbf-tot-line gst-total">
+                    <span className="k">Total GST</span>
+                    <span className="pbf-val-box gst-val">{fmtN(totalGST)}</span>
+                  </div>
+                  <div className="pbf-tot-line extras">
+                    <span className="k">Extras</span>
+                    <Form.Item name="other_charges" noStyle>
+                      <InputNumber keyboard={false} size="small" min={0} placeholder="Other"
+                        className="pbf-amt-in" style={{width:'100%'}}/>
+                    </Form.Item>
+                    <Form.Item name="freight_charges" noStyle>
+                      <InputNumber keyboard={false} size="small" min={0} placeholder="Freight"
+                        className="pbf-amt-in" style={{width:'100%'}}/>
+                    </Form.Item>
+                  </div>
+                  <div className="pbf-tot-line with-pct">
+                    <span className="k">Bill Disc</span>
+                    <Form.Item name="discount_percentage" noStyle>
+                      <InputNumber keyboard={false} size="small" min={0} max={100} placeholder="%"
+                        className="pbf-pct-in" style={{width:'100%'}}
+                        formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
+                        onChange={pct=>{
+                          discAmtEditingRef.current=false;
+                          setDiscAmtVal(+(subTotal*(pct||0)/100).toFixed(2));
+                        }}/>
+                    </Form.Item>
+                    <InputNumber keyboard={false} size="small" min={0} placeholder="₹ amt"
+                      className="pbf-amt-in" style={{width:'100%'}}
+                      value={discAmtVal||undefined}
+                      onFocus={()=>{ discAmtEditingRef.current=true; }}
+                      onBlur={()=>{ discAmtEditingRef.current=false; }}
+                      onChange={amt=>{
+                        discAmtEditingRef.current=true;
+                        setDiscAmtVal(amt||0);
+                        const pct = subTotal>0 ? +((amt||0)/subTotal*100).toFixed(4) : 0;
+                        form.setFieldValue('discount_percentage', +pct.toFixed(2));
+                      }}/>
+                  </div>
                 </div>
               </div>
 
-              {/* Total GST */}
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={FL}>Total GST</span>
-                <div style={{...VB,color:'#b45309',fontWeight:700}}>{fmtN(totalGST)}</div>
+              {/* Payment card */}
+              <div className="pbf-card pbf-payment">
+                <div className="pbf-card-title">Payment</div>
+
+                <div className="pbf-net-hero">
+                  <span className="k">Net total ₹</span>
+                  <span className="v">{roundedTotal.toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="pbf-pay-line">
+                  <span className="k">Amt paid</span>
+                  <Form.Item name="paid_amount" noStyle>
+                    <InputNumber keyboard={false} min={0} max={roundedTotal} placeholder="0.00"
+                      style={{width:'100%'}}/>
+                  </Form.Item>
+                </div>
+
+                <div className={`pbf-status ${statusClass}`}>
+                  <span className="k">{statusLabel}</span>
+                  <span className="v">{fmtN(Math.abs(balance))}</span>
+                </div>
               </div>
-
-            </div>
-
-            {/* ── Sub-right: NET TOTAL + payment ── */}
-            <div style={{width:210, display:'flex', flexDirection:'column', gap:7}}>
-
-              <div style={{fontSize:11,fontWeight:800,color:'rgba(255,255,255,.6)',letterSpacing:1,textTransform:'uppercase'}}>
-                Net Total Rs.
-              </div>
-
-              {/* Big NET TOTAL */}
-              <div style={{
-                height:72, background:'#fff', borderRadius:8, flexShrink:0,
-                display:'flex', alignItems:'center', justifyContent:'flex-end',
-                padding:'0 14px', fontSize:38, fontWeight:900, color:'#1e1b4b',
-                letterSpacing:-2, border:'1px solid #c7d2fe',
-                boxShadow:'0 2px 8px rgba(0,0,0,.15)', fontVariantNumeric:'tabular-nums',
-              }}>
-                {roundedTotal.toLocaleString('en-IN')}
-              </div>
-
-              {/* Amt Paid — capped at bill total (Fix: paid cannot exceed total) */}
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <span style={{color:'rgba(255,255,255,.85)',fontWeight:700,fontSize:12,width:56,flexShrink:0}}>Amt Paid</span>
-                <Form.Item name="paid_amount" noStyle>
-                  <InputNumber keyboard={false} size="small" min={0} max={roundedTotal} placeholder="0.00"
-                    className="pbf-paid-in" style={{flex:1,width:'100%'}}/>
-                </Form.Item>
-              </div>
-
-              {/* Balance — show Due / Paid in full / Overpaid explicitly so a
-                   negative balance (e.g. after removing items post-payment) is
-                   never silently hidden by Math.abs. */}
-              {(() => {
-                const isOverpaid = balance < -0.001;
-                const isDue      = balance > 0.001;
-                const bg    = isDue ? 'rgba(239,68,68,0.15)'
-                           : isOverpaid ? 'rgba(251,146,60,0.18)'
-                           : 'rgba(52,211,153,0.12)';
-                const border = isDue ? 'rgba(248,113,113,.4)'
-                            : isOverpaid ? 'rgba(251,146,60,.45)'
-                            : 'rgba(52,211,153,.3)';
-                const color  = isDue ? '#f87171'
-                            : isOverpaid ? '#fdba74'
-                            : '#34d399';
-                const label  = isDue ? 'Balance'
-                            : isOverpaid ? 'Overpaid'
-                            : 'Paid in full';
-                return (
-                  <div style={{
-                    display:'flex', alignItems:'center', justifyContent:'space-between',
-                    background: bg, borderRadius:8, padding:'6px 12px', flexShrink:0,
-                    border:`1px solid ${border}`,
-                  }}>
-                    <span style={{fontSize:10,color:'rgba(255,255,255,.6)',fontWeight:700,letterSpacing:.8,textTransform:'uppercase'}}>{label}</span>
-                    <span style={{fontSize:17,fontWeight:800,color,letterSpacing:-.5}}>
-                      {fmtN(Math.abs(balance))}
-                    </span>
-                  </div>
-                );
-              })()}
 
             </div>
           </div>
-        </div>
+        </section>
+
+        {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
+        <section className="pbf-action-bar">
+          <div className="pbf-action-bar-inner">
+            <button className="pbf-act" onClick={()=>navigate('/purchases')}>
+              <span className="pbf-kbd">Esc</span> Back
+            </button>
+            <button className="pbf-act" onClick={handleReset}>
+              <span className="pbf-kbd">F5</span> Reset
+            </button>
+            <button className="pbf-act credit" onClick={()=>handleSave(false)} disabled={loading}>
+              <span className="pbf-kbd">F8</span> Save Credit
+            </button>
+            <button className="pbf-act primary" onClick={()=>handleSave(true)} disabled={loading}>
+              <span className="pbf-kbd">F1</span> Save &amp; Pay
+            </button>
+          </div>
+        </section>
+
       </div>
 
       <BarcodePrintModal

@@ -587,6 +587,9 @@ exports.update = async (req, res) => {
       transport_name: billData.transport_name || null,
       vehicle_number: billData.vehicle_number || null,
       lr_number: billData.lr_number || null,
+      // remarks/notes — if the client sent the field (including empty string
+      // to clear), respect it; otherwise keep whatever was on the bill.
+      remarks: billData.remarks !== undefined ? billData.remarks : existingBill.remarks,
       total_items: newItems.length, total_quantity: totalQty,
       sub_total: subTotal, discount_amount: billDiscountAmt,
       cgst_pct: parseFloat(cgst_pct) || 0,
