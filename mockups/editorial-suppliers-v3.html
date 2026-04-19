@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Suppliers v3 — Editorial (Payment Board)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Suppliers v3 — "Payment Board".
+ *
+ * Same kanban concept as customers v3, tuned for AP:
+ *   On track (green)   · plenty of time before due
+ *   Due soon (gold)    · within 7 days of terms
+ *   Overdue (orange)   · past terms, needs action
+ *   On hold (red/grey) · disputed or flagged, DON'T pay
+ *
+ * The board's sorting IS the AP workflow: scan left-to-right, stop when
+ * you hit Due Soon or Overdue, pay those. Hold column reminds finance
+ * to chase quality disputes before releasing payment.
+ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+  --bg-hover:    #EEE6D3;
+  --bg-inset:    #EFE8D9;
+  --ink:         #1D1A15;
+  --ink-2:       #6D5F4E;
+  --ink-3:       #9B8F7E;
+  --ink-4:       #C9BFA8;
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10);
+  --accent-border:rgba(177,71,47,0.24);
+
+  --ok:     #7A9660;  --ok-soft:    rgba(122,150,96,0.14);
+  --soon:   #B8923C;  --soon-soft:  rgba(184,146,60,0.14);
+  --over:   #CA7537;  --over-soft:  rgba(202,117,55,0.14);
+  --hold:   #6D6355;  --hold-soft:  rgba(109,99,85,0.14);
+  --danger: #9B3428;  --danger-soft:rgba(155,52,40,0.14);
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:   #B1472F;
+  --sb-active-ink:  #FDFAF2;
+
+  --glass-bg:     rgba(253, 250, 242, 0.55);
+  --glass-border: rgba(253, 250, 242, 0.72);
+  --glass-shadow: rgba(45, 31, 21, 0.08);
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-panel:    #1A1713;
+  --bg-muted:    #14110D;
+  --bg-hover:    #24201B;
+  --bg-inset:    #211C16;
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+
+  --accent:      #E26A4C;
+  --accent-hover:#F08975;
+  --accent-soft: rgba(226,106,76,0.14);
+  --accent-border:rgba(226,106,76,0.32);
+
+  --ok:     #94B885;  --ok-soft:    rgba(148,184,133,0.14);
+  --soon:   #D4A574;  --soon-soft:  rgba(212,165,116,0.14);
+  --over:   #E08856;  --over-soft:  rgba(224,136,86,0.16);
+  --hold:   #8A7F6C;  --hold-soft:  rgba(138,127,108,0.14);
+  --danger: #E26A4C;  --danger-soft:rgba(226,106,76,0.18);
+
+  --sb-bg:       #0B0807;
+  --sb-border:   #1A1713;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-3:    #6D6355;
+  --sb-hover:    rgba(245,238,226,0.05);
+  --sb-active-bg:   #E26A4C;
+  --sb-active-ink:  #0E0B08;
+
+  --glass-bg:     rgba(26, 23, 19, 0.55);
+  --glass-border: rgba(178, 167, 145, 0.18);
+  --glass-shadow: rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13.5px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  height: 100vh; overflow: hidden;
+}
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+.app { display: grid; grid-template-columns: 240px 1fr; height: 100vh; overflow: hidden; }
+
+.sidebar { background: var(--sb-bg); border-right: 1px solid var(--sb-border); padding: 16px 12px 20px; display: flex; flex-direction: column; color: var(--sb-ink); overflow-y: auto; }
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; letter-spacing: -0.01em; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: all .15s; }
+.sb-item:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; box-shadow: 0 2px 10px rgba(177,71,47,0.32); }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main { min-width: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+.crumb-bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 28px 0; font-size: 11.5px; color: var(--ink-3); font-weight: 500; flex-shrink: 0; }
+.crumb-bar b { color: var(--ink); font-weight: 600; }
+.crumb-bar .kbd { font-family: 'Inter'; font-size: 11px; padding: 2px 7px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 4px; color: var(--ink-2); font-weight: 500; }
+
+.page-hd { padding: 10px 28px 14px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; flex-shrink: 0; }
+.page-title h1 { font-family: 'Fraunces', serif; font-size: 32px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1.05; margin-bottom: 4px; }
+.page-title .sub { font-size: 13px; color: var(--ink-2); }
+.page-title .sub b { color: var(--ink); font-weight: 600; }
+.page-title .sub b.over { color: var(--over); }
+
+.hd-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cta { height: 36px; padding: 0 16px; background: var(--accent); color: #FDFAF2; border: 1px solid var(--accent); border-radius: 7px; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 10px var(--accent-soft); transition: all .18s; }
+.cta:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.cta.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); box-shadow: none; }
+.cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+
+/* Budget banner — specific to AP: how much we can pay vs how much is due */
+.budget-banner {
+  margin: 0 28px 14px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, var(--accent-soft), transparent 70%);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.budget-banner .left { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.budget-banner .item { display: flex; flex-direction: column; gap: 2px; }
+.budget-banner .item .k { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.budget-banner .item .v { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.budget-banner .item.in  .v { color: var(--ok); }
+.budget-banner .item.out .v { color: var(--over); }
+.budget-banner .meter { flex: 1; min-width: 200px; max-width: 360px; }
+.budget-banner .meter-track { height: 8px; border-radius: 99px; background: var(--bg-muted); overflow: hidden; position: relative; }
+.budget-banner .meter-fill { height: 100%; background: linear-gradient(90deg, var(--ok), var(--soon) 60%, var(--over)); width: 68%; border-radius: 99px; }
+.budget-banner .meter-lbl { font-size: 11px; color: var(--ink-3); font-weight: 600; margin-top: 4px; text-align: center; }
+.budget-banner .meter-lbl b { color: var(--ink); font-weight: 700; }
+
+.fbar { padding: 0 28px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; flex-shrink: 0; }
+.fbar .search-box { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px; width: 280px; }
+.fbar .search-box input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.fbar .search-box svg { width: 14px; height: 14px; color: var(--ink-3); }
+.fbar .search-box input::placeholder { color: var(--ink-3); }
+.fbar .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.fbar .chips button { height: 30px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 99px; color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: all .15s; }
+.fbar .chips button.on { background: var(--ink); color: var(--bg-panel); border-color: var(--ink); }
+[data-mode="dark"] .fbar .chips button.on { background: var(--ink); color: var(--bg); }
+.fbar .hint { font-size: 11.5px; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+.fbar .hint .kbd { font-family: 'Inter'; font-size: 10.5px; padding: 1px 5px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 3px; color: var(--ink-2); }
+
+/* Board */
+.board { flex: 1; min-height: 0; padding: 0 28px 14px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; overflow: hidden; }
+.col { display: flex; flex-direction: column; min-height: 0; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; border-top: 3px solid var(--ink-4); }
+.col.ok    { border-top-color: var(--ok); }
+.col.soon  { border-top-color: var(--soon); }
+.col.over  { border-top-color: var(--over); }
+.col.hold  { border-top-color: var(--hold); }
+
+.col-hd { padding: 14px 16px 12px; border-bottom: 1px solid var(--rule-soft); background: linear-gradient(180deg, var(--bg-muted), var(--bg-panel) 80%); }
+.col-hd .row1 { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.col-hd .title { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--ink-2); }
+.col-hd .title .dot { width: 8px; height: 8px; border-radius: 50%; }
+.col.ok   .col-hd .title   { color: var(--ok); }     .col.ok   .col-hd .title .dot { background: var(--ok); }
+.col.soon .col-hd .title   { color: var(--soon); }   .col.soon .col-hd .title .dot { background: var(--soon); }
+.col.over .col-hd .title   { color: var(--over); }   .col.over .col-hd .title .dot { background: var(--over); animation: pulse 2s ease-in-out infinite; }
+.col.hold .col-hd .title   { color: var(--hold); }   .col.hold .col-hd .title .dot { background: var(--hold); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+.col-hd .count { font-size: 11.5px; font-weight: 700; padding: 3px 10px; background: var(--bg-muted); color: var(--ink-2); border-radius: 99px; font-variant-numeric: tabular-nums; }
+.col.ok   .col-hd .count { background: var(--ok-soft);   color: var(--ok); }
+.col.soon .col-hd .count { background: var(--soon-soft); color: var(--soon); }
+.col.over .col-hd .count { background: var(--over-soft); color: var(--over); }
+.col.hold .col-hd .count { background: var(--hold-soft); color: var(--hold); }
+
+.col-hd .amt { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.col-hd .amt-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+
+.col-body { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+.pcard { background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 13px; position: relative; cursor: pointer; transition: all .15s cubic-bezier(.2,.7,.2,1); overflow: hidden; }
+.pcard:hover { transform: translateY(-2px); box-shadow: 0 6px 20px var(--glass-shadow); border-color: var(--accent-border); }
+.pcard::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--ink-4); }
+.col.ok   .pcard::before { background: var(--ok); }
+.col.soon .pcard::before { background: var(--soon); }
+.col.over .pcard::before { background: var(--over); }
+.col.hold .pcard::before { background: var(--hold); }
+
+.pcard .hdr { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.pcard .avt { width: 30px; height: 30px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-family: 'Fraunces', serif; font-weight: 600; font-size: 13px; display: grid; place-items: center; box-shadow: inset 0 0 0 1px var(--accent-border); flex-shrink: 0; }
+.pcard .nm { min-width: 0; flex: 1; }
+.pcard .nm b { display: block; font-size: 13.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard .nm .sub { font-size: 11px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pcard .body { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.pcard .out { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1; }
+.pcard .out.adv { color: var(--ok); }
+
+.pcard .meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 11px; }
+.pcard .meta .days { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.col.ok   .pcard .meta .days { color: var(--ok); }
+.col.soon .pcard .meta .days { color: var(--soon); }
+.col.over .pcard .meta .days { color: var(--over); }
+.col.hold .pcard .meta .days { color: var(--hold); }
+.pcard .meta .lbl { color: var(--ink-3); font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; font-weight: 700; }
+
+.pcard .chips-row { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.mini-chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 99px; display: inline-flex; align-items: center; gap: 3px; }
+.mini-chip.terms { background: var(--bg-muted); color: var(--ink-3); }
+.mini-chip.terms b { color: var(--ink); font-weight: 700; }
+.mini-chip.bills { background: var(--accent-soft); color: var(--accent); }
+.mini-chip.hi    { background: var(--accent-soft); color: var(--accent); }
+.mini-chip.alert { background: var(--danger-soft); color: var(--danger); }
+.mini-chip.disp  { background: var(--hold-soft); color: var(--hold); }
+
+.pcard .actions { display: flex; gap: 5px; align-items: center; border-top: 1px solid var(--rule-soft); padding-top: 9px; }
+.pcard-btn { flex: 1; height: 30px; background: var(--accent); color: #FDFAF2; border: none; border-radius: 6px; font: inherit; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; transition: all .12s; }
+.pcard-btn:hover { background: var(--accent-hover); }
+.pcard-btn.ghost { flex: 0; padding: 0 8px; background: transparent; color: var(--ink-2); border: 1px solid var(--rule); }
+.pcard-btn.ghost:hover { background: var(--bg-muted); color: var(--accent); border-color: var(--accent-border); }
+.pcard-btn.ghost svg { width: 13px; height: 13px; }
+.pcard-btn.hold-btn { background: var(--hold); }
+.pcard-btn.hold-btn:hover { background: color-mix(in srgb, var(--hold) 85%, black); }
+
+.theme-bar { padding: 0 28px 12px; display: flex; justify-content: flex-end; flex-shrink: 0; }
+.glass { background: var(--glass-bg); backdrop-filter: blur(18px) saturate(140%); border: 1px solid var(--glass-border); box-shadow: 0 1px 2px var(--glass-shadow), 0 8px 24px var(--glass-shadow); }
+.theme-switch { display: inline-flex; padding: 4px; border-radius: 99px; font-size: 13px; }
+.theme-switch button { padding: 6px 14px; border: none; background: transparent; font-family: inherit; color: var(--ink-2); cursor: pointer; border-radius: 99px; font-weight: 500; transition: all .2s; }
+.theme-switch button.on { background: var(--accent); color: #FDFAF2; box-shadow: 0 2px 10px rgba(177,71,47,0.32); }
+[data-mode="dark"] .theme-switch button.on { color: #0E0B08; }
+</style>
+</head>
+<body data-mode="light">
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sb-brand"><div class="sb-brand-icon">⚡</div><div class="sb-brand-name">Billing ERP</div></div>
+    <div class="sb-section">Overview</div>
+    <div class="sb-item"><span class="ic">◈</span> Dashboard</div>
+    <div class="sb-section">Transactions</div>
+    <div class="sb-item"><span class="ic">⌗</span> Sales</div>
+    <div class="sb-item"><span class="ic">⌕</span> Purchase</div>
+    <div class="sb-section">Master</div>
+    <div class="sb-item"><span class="ic">◉</span> Customers</div>
+    <div class="sb-item active"><span class="ic">◎</span> Suppliers</div>
+    <div class="sb-item"><span class="ic">▢</span> Inventory</div>
+    <div class="sb-item"><span class="ic">☰</span> Categories</div>
+    <div class="sb-section">Finance</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments</div>
+    <div class="sb-item"><span class="ic">∿</span> Reports</div>
+    <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+  </aside>
+
+  <main class="main">
+    <div class="crumb-bar">
+      <div>Master · <b>Suppliers</b> · Payment Board</div>
+      <div>Press <span class="kbd">⌘K</span> · keyboard <span class="kbd">h j k l</span></div>
+    </div>
+
+    <div class="page-hd">
+      <div class="page-title">
+        <h1>Payment Board</h1>
+        <div class="sub"><b>28</b> suppliers · <b>₹ 6,18,400</b> payable · <b class="over">4 overdue</b> · <b>₹ 2,04,500</b> due this week</div>
+      </div>
+      <div class="hd-ctrl">
+        <button class="cta ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          Switch to table
+        </button>
+        <button class="cta">+ New supplier</button>
+      </div>
+    </div>
+
+    <!-- Budget banner (cashflow snapshot) -->
+    <div class="budget-banner">
+      <div class="left">
+        <div class="item in">
+          <span class="k">Expected in · 7 d</span>
+          <span class="v num">₹ 3,02,400</span>
+        </div>
+        <div class="item out">
+          <span class="k">Due out · 7 d</span>
+          <span class="v num">₹ 2,04,500</span>
+        </div>
+        <div class="item">
+          <span class="k">Bank balance</span>
+          <span class="v num">₹ 1,48,700</span>
+        </div>
+      </div>
+      <div class="meter">
+        <div class="meter-track"><div class="meter-fill"></div></div>
+        <div class="meter-lbl">Pay-ratio <b>68%</b> · healthy · can release all Due-Soon payments</div>
+      </div>
+    </div>
+
+    <div class="fbar">
+      <div class="chips">
+        <button class="on">All terms</button>
+        <button>Net 15</button>
+        <button>Net 30</button>
+        <button>Net 45</button>
+        <button>Net 60</button>
+        <button>Advance</button>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <div class="hint"><span class="kbd">j k</span> nav · <span class="kbd">space</span> open · <span class="kbd">p</span> pay</div>
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search supplier…"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="board">
+
+      <!-- ON TRACK -->
+      <section class="col ok">
+        <div class="col-hd">
+          <div class="row1"><span class="title"><span class="dot"></span>On track</span><span class="count">14</span></div>
+          <div class="amt num">₹ 2,65,400</div>
+          <div class="amt-sub">15+ days buffer · no rush</div>
+        </div>
+        <div class="col-body">
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">D</div>
+              <div class="nm"><b>Deep Hardware Co.</b><span class="sub">Ludhiana</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 72,500</div>
+              <div class="meta"><span class="lbl">Days left</span><span class="days num">22</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>30</b></span>
+              <span class="mini-chip bills">3 bills</span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay</button>
+              <button class="pcard-btn ghost" title="More">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">A</div>
+              <div class="nm"><b>Ajanta Distributors</b><span class="sub">Pune</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 56,900</div>
+              <div class="meta"><span class="lbl">Days left</span><span class="days num">9</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>15</b></span>
+              <span class="mini-chip bills">2 bills</span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">S</div>
+              <div class="nm"><b>Surya Electricals</b><span class="sub">Bengaluru</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 39,700</div>
+              <div class="meta"><span class="lbl">Days left</span><span class="days num">18</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>30</b></span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">M</div>
+              <div class="nm"><b>Mehta &amp; Co.</b><span class="sub">Kolkata</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 27,300</div>
+              <div class="meta"><span class="lbl">Days left</span><span class="days num">11</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>15</b></span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">B</div>
+              <div class="nm"><b>Bombay Packaging</b><span class="sub">Mumbai · advance</span></div>
+            </div>
+            <div class="body">
+              <div class="out adv num">₹ 8,400 Dr</div>
+              <div class="meta"><span class="lbl">Status</span><span class="days" style="color: var(--ok);">paid ahead</span></div>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn ghost" style="flex: 1;">New PO</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- DUE SOON -->
+      <section class="col soon">
+        <div class="col-hd">
+          <div class="row1"><span class="title"><span class="dot"></span>Due soon</span><span class="count">8</span></div>
+          <div class="amt num">₹ 2,04,500</div>
+          <div class="amt-sub">&lt; 7 days · ready checks</div>
+        </div>
+        <div class="col-body">
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">G</div>
+              <div class="nm"><b>Gupta Wholesalers</b><span class="sub">Delhi</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 2,42,800</div>
+              <div class="meta"><span class="lbl">Next due</span><span class="days num">20 Apr</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>45</b></span>
+              <span class="mini-chip hi">HI-VOLUME</span>
+              <span class="mini-chip bills">3 bills</span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">G</div>
+              <div class="nm"><b>Gokul Foods</b><span class="sub">Ahmedabad</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 66,800</div>
+              <div class="meta"><span class="lbl">Due in</span><span class="days num">6 d</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>30</b></span>
+              <span class="mini-chip bills">1 bill</span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">K</div>
+              <div class="nm"><b>Kwality Stationers</b><span class="sub">Nagpur</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 18,500</div>
+              <div class="meta"><span class="lbl">Due in</span><span class="days num">4 d</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>15</b></span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">Z</div>
+              <div class="nm"><b>Zenith Imports</b><span class="sub">Chennai</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 14,200</div>
+              <div class="meta"><span class="lbl">Due in</span><span class="days num">2 d</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>30</b></span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- OVERDUE -->
+      <section class="col over">
+        <div class="col-hd">
+          <div class="row1"><span class="title"><span class="dot"></span>Overdue</span><span class="count">4</span></div>
+          <div class="amt num">₹ 1,23,000</div>
+          <div class="amt-sub">Past terms · risk supplier relationship</div>
+        </div>
+        <div class="col-body">
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">M</div>
+              <div class="nm"><b>Mahalaxmi Textiles</b><span class="sub">Surat</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 1,18,600</div>
+              <div class="meta"><span class="lbl">Overdue</span><span class="days num">18 d</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>30</b></span>
+              <span class="mini-chip alert">Past 30d terms</span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay NOW</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">S</div>
+              <div class="nm"><b>Sagar Plastics</b><span class="sub">Vapi</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 41,200</div>
+              <div class="meta"><span class="lbl">Overdue</span><span class="days num">8 d</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>15</b></span>
+              <span class="mini-chip alert">2 bills stuck</span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay NOW</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">N</div>
+              <div class="nm"><b>Nandi Industries</b><span class="sub">Hyderabad</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 24,400</div>
+              <div class="meta"><span class="lbl">Overdue</span><span class="days num">3 d</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>45</b></span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn">+ Pay NOW</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ON HOLD -->
+      <section class="col hold">
+        <div class="col-hd">
+          <div class="row1"><span class="title"><span class="dot"></span>On hold</span><span class="count">2</span></div>
+          <div class="amt num">₹ 89,500</div>
+          <div class="amt-sub">Flagged · resolve before paying</div>
+        </div>
+        <div class="col-body">
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">R</div>
+              <div class="nm"><b>Rajput Paper Mills</b><span class="sub">Jaipur</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 84,300</div>
+              <div class="meta"><span class="lbl">Held</span><span class="days num">6 d</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip terms">Net <b>60</b></span>
+              <span class="mini-chip disp">Quality dispute</span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn ghost" style="flex: 1;">Resolve &amp; release</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="hdr">
+              <div class="avt">R</div>
+              <div class="nm"><b>Raj Steel &amp; Pipes</b><span class="sub">Rajkot · shortage</span></div>
+            </div>
+            <div class="body">
+              <div class="out num">₹ 5,200</div>
+              <div class="meta"><span class="lbl">Held</span><span class="days num">12 d</span></div>
+            </div>
+            <div class="chips-row">
+              <span class="mini-chip disp">Short supply</span>
+            </div>
+            <div class="actions">
+              <button class="pcard-btn ghost" style="flex: 1;">Request credit note</button>
+              <button class="pcard-btn ghost">⋯</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+
+    <div class="theme-bar">
+      <div class="theme-switch glass">
+        <button id="themeLight" class="on">☀ Light</button>
+        <button id="themeDark">☾ Dark</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  document.getElementById('themeLight').onclick = () => { document.body.setAttribute('data-mode', 'light'); themeLight.classList.add('on'); themeDark.classList.remove('on'); };
+  document.getElementById('themeDark').onclick = () => { document.body.setAttribute('data-mode', 'dark'); themeDark.classList.add('on'); themeLight.classList.remove('on'); };
+  document.querySelectorAll('.fbar .chips button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.fbar .chips button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+  }));
+</script>
+
+</body>
+</html>

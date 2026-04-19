@@ -88,6 +88,21 @@ const SystemSettings = sequelize.define('SystemSettings', {
   last_backup_date: {
     type: DataTypes.DATE,
   },
+  // Aging bucket boundaries (in days past due). Inside bucket 1 = "Not yet due",
+  // between 1 and 2 = "Watchful", between 2 and 3 = "Chase", beyond 3 = "Critical".
+  // Defaults mirror the classic 30/60/90 AR split.
+  aging_bucket_1_days: {
+    type: DataTypes.INTEGER,
+    defaultValue: 30,
+  },
+  aging_bucket_2_days: {
+    type: DataTypes.INTEGER,
+    defaultValue: 60,
+  },
+  aging_bucket_3_days: {
+    type: DataTypes.INTEGER,
+    defaultValue: 90,
+  },
 }, {
   tableName: 'system_settings',
   timestamps: false,

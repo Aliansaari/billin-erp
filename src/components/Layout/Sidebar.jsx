@@ -213,9 +213,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
   // Guarded navigate — asks for confirmation when the current form has unsaved work.
   const navigate = (to, opts) => {
     if (to === location.pathname) return;
-    if (useNavGuard.getState().confirmLeave()) {
-      rawNavigate(to, opts);
-    }
+    useNavGuard.getState().confirmLeave(() => rawNavigate(to, opts));
   };
 
   const themeStyle = useThemeStore((s) => s.themeStyle);

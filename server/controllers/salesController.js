@@ -259,14 +259,26 @@ exports.create = async (req, res) => {
     const allowNegativeStock = sysSettings?.allow_negative_stock || false;
 
     for (const item of processedItems) {
+      // Fetch the product once to (a) snapshot its purchase_rate as COGS
+      // for this line, and (b) reuse for the stock deduction below. Doing
+      // both off the same read avoids a second roundtrip and keeps the cost
+      // snapshot in the same transaction as the bill itself.
+      let product = null;
+      if (item.product_id) {
+        product = await Product.findByPk(item.product_id, { transaction: t });
+      }
+      const costRate = product ? parseFloat(product.purchase_rate || 0) : 0;
+
       await SalesBillItem.create({
         sales_bill_id: bill.sales_bill_id,
         ...item,
+        // Server-computed; overrides anything the client might have sent so
+        // profit reports can't be manipulated by a tampered API call.
+        cost_rate: costRate,
       }, { transaction: t });
 
       // Deduct stock
-      if (item.product_id) {
-        const product = await Product.findByPk(item.product_id, { transaction: t });
+      if (product) {
         const currentStock = parseFloat(product.current_stock) || 0;
         const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
 
@@ -523,33 +535,45 @@ exports.update = async (req, res) => {
     const allowNegStockU = sysSettingsU?.allow_negative_stock || false;
 
     for (const item of processedItems) {
-      await SalesBillItem.create({ sales_bill_id: id, ...item }, { transaction: t });
-
+      // Same pattern as create(): fetch the product once, snapshot its cost
+      // onto the line, reuse for stock update. Cost is re-snapshotted on edit
+      // so if the user corrects the line (e.g. fixes a wrong product on a
+      // bill) the COGS follows the new product's cost — matches the user's
+      // mental model of "this edit supersedes the original".
+      let product = null;
       if (item.product_id) {
-        const product = await Product.findByPk(item.product_id, { transaction: t });
-        if (product) {
-          const currentStock = parseFloat(product.current_stock) || 0;
-          const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
+        product = await Product.findByPk(item.product_id, { transaction: t });
+      }
+      const costRate = product ? parseFloat(product.purchase_rate || 0) : 0;
 
-          if (!allowNegStockU && newStock < 0) {
-            await t.rollback();
-            return res.status(400).json({
-              error: `Insufficient stock for "${item.product_name || product.product_name}". Available: ${currentStock}, Requested: ${item.quantity}. Enable "Allow Negative Stock" in Module Settings to proceed.`,
-            });
-          }
+      await SalesBillItem.create({
+        sales_bill_id: id,
+        ...item,
+        cost_rate: costRate,
+      }, { transaction: t });
 
-          await product.update({ current_stock: newStock }, { transaction: t });
-          await StockLedger.create({
-            product_id: item.product_id, barcode: item.barcode,
-            transaction_type: 'Sales',
-            transaction_date: billData.bill_date,
-            reference_id: existingBill.sales_bill_id,
-            reference_number: existingBill.bill_number,
-            quantity_in: 0, quantity_out: item.quantity,
-            rate: item.rate, balance_quantity: newStock,
-            created_by: req.user.user_id,
-          }, { transaction: t });
+      if (product) {
+        const currentStock = parseFloat(product.current_stock) || 0;
+        const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
+
+        if (!allowNegStockU && newStock < 0) {
+          await t.rollback();
+          return res.status(400).json({
+            error: `Insufficient stock for "${item.product_name || product.product_name}". Available: ${currentStock}, Requested: ${item.quantity}. Enable "Allow Negative Stock" in Module Settings to proceed.`,
+          });
         }
+
+        await product.update({ current_stock: newStock }, { transaction: t });
+        await StockLedger.create({
+          product_id: item.product_id, barcode: item.barcode,
+          transaction_type: 'Sales',
+          transaction_date: billData.bill_date,
+          reference_id: existingBill.sales_bill_id,
+          reference_number: existingBill.bill_number,
+          quantity_in: 0, quantity_out: item.quantity,
+          rate: item.rate, balance_quantity: newStock,
+          created_by: req.user.user_id,
+        }, { transaction: t });
       }
     }
 

@@ -1367,7 +1367,7 @@ export default function PurchaseBillForm() {
         {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
         <section className="pbf-action-bar">
           <div className="pbf-action-bar-inner">
-            <button className="pbf-act" onClick={()=>{ if(confirmLeave()) navigate('/purchases'); }}>
+            <button className="pbf-act" onClick={()=>confirmLeave(()=>navigate('/purchases'))}>
               <span className="pbf-kbd">Esc</span> Back
             </button>
             <button className="pbf-act" onClick={handleReset}>
