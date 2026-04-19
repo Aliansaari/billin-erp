@@ -7,6 +7,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
+import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 
 const { Text } = Typography;
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -44,6 +45,9 @@ export default function ReceiptEntry() {
   const [discAmt, setDiscAmt]             = useState(0);
   const [loading, setLoading]             = useState(false);
   const [dueDaysMode, setDueDaysMode]     = useState('bill_date');
+
+  const dirty = !!(selectedParty || payAmt);
+  const confirmLeave = useUnsavedChangesWarning(dirty);
 
   const payAmtRef        = useRef(null);
   const handleSaveRef    = useRef(null);
@@ -312,7 +316,7 @@ export default function ReceiptEntry() {
             </Button>
           </Tooltip>
           <Button icon={<ReloadOutlined />} onClick={handleReset} style={{ borderRadius: 8, height: 36 }}>Reset</Button>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/payments')} style={{ borderRadius: 8, height: 36 }}>Back</Button>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => { if (confirmLeave()) navigate('/payments'); }} style={{ borderRadius: 8, height: 36 }}>Back</Button>
         </div>
       </div>
 

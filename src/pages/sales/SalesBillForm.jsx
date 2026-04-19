@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
+import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import './sales-bill-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -471,7 +472,12 @@ export default function SalesBillForm() {
       };
       const{data}=isEdit?await salesAPI.update(id,body):await salesAPI.create(body);
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
-      navigate('/sales');
+      if(isEdit){
+        navigate('/sales');
+      } else {
+        handleReset();
+        setBillNo('');
+      }
     }catch(e){message.error(e.response?.data?.error||'Failed to save');}
     finally{setLoading(false); submittingRef.current=false;}
   },[form,items,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate,selectedParty]);
@@ -481,6 +487,10 @@ export default function SalesBillForm() {
     form.resetFields(['discount_percentage','paid_amount','return_amount','special_discount','other_charges','freight_charges','salesman_name','remarks']);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   };
+
+  // Warn on tab close/refresh when there's in-progress work.
+  const dirty = items.length > 0;
+  const confirmLeave = useUnsavedChangesWarning(dirty);
 
   useCtrlEnterSubmit(()=>handleSave(true));
 
@@ -563,9 +573,8 @@ export default function SalesBillForm() {
 
             <div className="sbf-top-row">
               <div className="sbf-field">
-                <span className="sbf-lbl">Customer</span>
                 <Form.Item name="customer_id" noStyle>
-                  <Select showSearch placeholder="Cash Sale (optional)"
+                  <Select showSearch placeholder="Customer — Cash Sale (optional)"
                     allowClear optionFilterProp="label"
                     dropdownStyle={{minWidth:600,padding:0}}
                     dropdownRender={menu=>(
@@ -612,15 +621,13 @@ export default function SalesBillForm() {
                 </Form.Item>
               </div>
               <div className="sbf-field">
-                <span className="sbf-lbl">Bill date <span className="req">*</span></span>
                 <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
-                  <DatePicker style={{width:'100%'}} format="DD-MM-YYYY"/>
+                  <DatePicker style={{width:'100%'}} format="DD-MM-YYYY" placeholder="Bill date *"/>
                 </Form.Item>
               </div>
               <div className="sbf-field">
-                <span className="sbf-lbl">Due date</span>
                 <Form.Item name="due_date" noStyle>
-                  <DatePicker style={{width:'100%'}} format="DD-MM-YYYY"/>
+                  <DatePicker style={{width:'100%'}} format="DD-MM-YYYY" placeholder="Due date"/>
                 </Form.Item>
               </div>
             </div>
@@ -642,8 +649,7 @@ export default function SalesBillForm() {
             {/* Entry row */}
             <div className="sbf-top-row-2">
               <div className="sbf-field">
-                <span className="sbf-lbl">Barcode / scan</span>
-                <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type…"
+                <Input ref={barcodeRef} value={entry.barcode} placeholder="Barcode / scan"
                   onChange={e=>setEntry(p=>({...p,barcode:e.target.value}))}
                   onPressEnter={e=>{
                     const val=e.target.value.trim();
@@ -653,21 +659,19 @@ export default function SalesBillForm() {
                 />
               </div>
               <div className="sbf-field">
-                <span className="sbf-lbl">Category</span>
                 <Select value={activeCatId}
                   onChange={(v,opt)=>{
                     justSelectedRef.current = false;
                     setActiveCatId(v||null);
                     setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
                   }}
-                  placeholder="All categories" showSearch
+                  placeholder="Category" showSearch
                   filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
                   allowClear notFoundContent={null}>
                   {cats.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
                 </Select>
               </div>
               <div className="sbf-field" ref={prodWrapRef}>
-                <span className="sbf-lbl">Product name</span>
                 <Select key={activeCatId??'no-cat'} ref={prodRef}
                   showSearch filterOption={false} optionLabelProp="label"
                   value={entry.product_id||undefined}
@@ -683,7 +687,7 @@ export default function SalesBillForm() {
                   }}
                   onClear={()=>{ setProdOpen(false); setEntry(p=>({...p,product_id:null,product_name:''})); }}
                   allowClear
-                  placeholder="Search product…" notFoundContent={null}
+                  placeholder="Product name" notFoundContent={null}
                   listHeight={320} dropdownMatchSelectWidth={460}
                 >
                   {prodOpts.map(p=>{
@@ -716,18 +720,16 @@ export default function SalesBillForm() {
                 {l:'GST%',  ref:gstRef,  f:'gst_rate',           v:entry.gst_rate||undefined,           i:6,t:'num',min:0},
               ].map(({l,ref,f,v,i,t,min})=>(
                 <div key={f} className="sbf-field">
-                  <span className="sbf-lbl">{l}</span>
                   {t==='txt'
-                    ?<Input ref={ref} value={v}
+                    ?<Input ref={ref} value={v} placeholder={l}
                         onChange={e=>ue(f,e.target.value)} onKeyDown={e=>eKey(e,i)}/>
-                    :<InputNumber keyboard={false} ref={ref} value={v} style={{width:'100%'}} min={min}
+                    :<InputNumber keyboard={false} ref={ref} value={v} style={{width:'100%'}} min={min} placeholder={l}
                         onChange={vv=>ue(f,vv||0)} onKeyDown={e=>eKey(e,i)}/>
                   }
                 </div>
               ))}
               <div className="sbf-field">
-                <span className="sbf-lbl">Unit</span>
-                <Select value={entry.unit_type||'Pcs'}
+                <Select value={entry.unit_type||'Pcs'} placeholder="Unit"
                   onChange={v=>ue('unit_type',v)}>
                   {UNITS.map(u=><Select.Option key={u} value={u}>{u}</Select.Option>)}
                 </Select>
@@ -774,7 +776,6 @@ export default function SalesBillForm() {
             {/* LEFT: Summary */}
             <div className="sbf-bb-left">
               <div className="sbf-card sbf-summary">
-                <div className="sbf-card-title">Summary</div>
                 <div className="sbf-counters">
                   <div className="sbf-counter items">
                     <div className="k">Items</div>
@@ -830,7 +831,6 @@ export default function SalesBillForm() {
                     so nothing downstream changes. Other + Freight share one
                     row with two compact side-by-side inputs. */}
               <div className="sbf-card sbf-totals">
-                <div className="sbf-card-title">Totals</div>
                 <div className="sbf-tot-lines">
                   <div className="sbf-tot-line total-row">
                     <span className="k">Total</span>
@@ -899,8 +899,6 @@ export default function SalesBillForm() {
 
               {/* Payment card */}
               <div className="sbf-card sbf-payment">
-                <div className="sbf-card-title">Payment</div>
-
                 <div className="sbf-net-hero">
                   <span className="k">Net total ₹</span>
                   <span className="v">{roundedTotal.toLocaleString('en-IN')}</span>
@@ -964,7 +962,7 @@ export default function SalesBillForm() {
         {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
         <section className="sbf-action-bar">
           <div className="sbf-action-bar-inner">
-            <button className="sbf-act" onClick={()=>navigate('/sales')}>
+            <button className="sbf-act" onClick={()=>{ if(confirmLeave()) navigate('/sales'); }}>
               <span className="sbf-kbd">Esc</span> Back
             </button>
             <button className="sbf-act" onClick={handleReset}>

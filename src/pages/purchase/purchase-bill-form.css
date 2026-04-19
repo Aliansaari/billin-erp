@@ -20,6 +20,7 @@
  */
 .pbf-page {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   height: 100%;
   overflow: hidden;
@@ -207,6 +208,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 }
 .pbf-mid-card {
   flex: 1;
@@ -218,6 +220,7 @@
   border-radius: 0;
   display: flex; flex-direction: column;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -382,16 +385,17 @@
 /* ── (3) BOTTOM ─────────────────────────────────────────────────────── */
 .pbf-bottom {
   padding: 8px 24px 8px;
+  min-width: 0;
 }
 .pbf-bottom-inner {
   display: flex;
   justify-content: space-between;
   align-items: stretch;
-  gap: 20px;
+  gap: 16px;
   flex-wrap: wrap;
 }
-.pbf-bb-left  { display: flex; gap: 16px; align-items: stretch; }
-.pbf-bb-right { display: flex; gap: 16px; align-items: stretch; }
+.pbf-bb-left  { display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap; }
+.pbf-bb-right { display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap; }
 .pbf-bb-left > .pbf-card  { display: flex; flex-direction: column; }
 
 .pbf-card {
@@ -401,25 +405,19 @@
   box-shadow:
     0 1px 2px rgba(45, 31, 21, 0.04),
     0 6px 20px rgba(45, 31, 21, 0.05);
-  padding: 10px 14px;
+  padding: 12px 14px;
   display: flex; flex-direction: column;
-}
-.pbf-card-title {
-  font-size: 10px; font-weight: 700;
-  letter-spacing: 1.4px; text-transform: uppercase;
-  color: var(--fg-tertiary);
-  margin-bottom: 8px;
 }
 
 /* Summary card */
-.pbf-summary { width: 320px; }
+.pbf-summary { width: 260px; padding-left: 10px; padding-right: 10px; }
 .pbf-summary .pbf-counters {
-  display: flex; gap: 6px;
-  margin-bottom: 10px;
+  display: flex; gap: 5px;
+  margin-bottom: 8px;
 }
 .pbf-counter {
   flex: 1;
-  padding: 9px 10px;
+  padding: 6px 8px;
   background:
     linear-gradient(135deg,
       color-mix(in srgb, var(--ctr-c, var(--accent)) 10%, transparent),
@@ -434,7 +432,7 @@
   font-weight: 700; margin-bottom: 2px;
 }
 .pbf-counter .v {
-  font-size: 20px; font-weight: 700;
+  font-size: 17px; font-weight: 700;
   color: var(--fg-primary);
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -446,8 +444,8 @@
 /* Notes textarea fills remaining Summary height so left column matches right */
 .pbf-summary-notes {
   display: flex; flex-direction: column; gap: 4px;
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px dashed var(--border-subtle);
   flex: 1; min-height: 0;
 }
@@ -492,24 +490,24 @@
 }
 
 /* Totals card */
-.pbf-totals { width: 340px; }
+.pbf-totals { width: 260px; padding-left: 10px; padding-right: 10px; }
 .pbf-tot-lines { display: flex; flex-direction: column; }
 .pbf-tot-line {
   display: grid;
-  grid-template-columns: 80px 1fr;
+  grid-template-columns: 64px 1fr;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 5px 0;
   font-size: 13px;
   min-height: 34px;
 }
 .pbf-tot-line.with-pct {
-  grid-template-columns: 80px 62px 1fr;
-  gap: 6px;
+  grid-template-columns: 64px 48px 1fr;
+  gap: 5px;
 }
 .pbf-tot-line.extras {
-  grid-template-columns: 80px 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: 64px 1fr 1fr;
+  gap: 5px;
 }
 .pbf-tot-line .k {
   color: var(--fg-secondary);

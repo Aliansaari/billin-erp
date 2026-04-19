@@ -237,20 +237,28 @@ body {
   color: var(--sidebar-fg) !important;
 }
 
-/* Logo area */
+/* Logo area (with collapse toggle) */
 .erp-sidebar-logo {
   height: 64px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  border-bottom: 1px solid var(--border-subtle);
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
   flex-shrink: 0;
+}
+.erp-sidebar-logo.collapsed {
+  flex-direction: column;
+  height: auto;
+  padding: 12px 6px;
+  gap: 8px;
 }
 
 .erp-sidebar-logo-full {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .erp-sidebar-logo-icon {
@@ -346,18 +354,165 @@ body {
   font-weight: 600;
 }
 
-/* Footer */
-.erp-sidebar-footer {
-  margin-top: auto;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-subtle);
-  text-align: center;
-  flex-shrink: 0;
+/* Sidebar column layout: logo / scrollable menu / sticky bottom */
+.erp-sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.erp-sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-.erp-sidebar-footer span {
-  color: var(--fg-tertiary);
+/* Theme toggle (Light / Dark) — sits above the user bar */
+.erp-sidebar-theme {
+  flex-shrink: 0;
+  padding: 8px 10px 12px;
+}
+.erp-sidebar-theme.collapsed {
+  padding: 8px 6px 4px;
+  display: flex;
+  justify-content: center;
+}
+.erp-sidebar-theme-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 9px;
+}
+[data-theme="modern-light"] .erp-sidebar-theme-toggle {
+  background: rgba(15, 23, 42, 0.05);
+}
+.erp-sidebar-theme-opt {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--sidebar-fg);
+  opacity: 0.6;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: background 0.2s cubic-bezier(.2, .7, .2, 1), opacity 0.18s, color 0.18s;
+}
+.erp-sidebar-theme-opt .anticon {
+  font-size: 13px;
+}
+.erp-sidebar-theme-opt:hover {
+  opacity: 0.9;
+}
+.erp-sidebar-theme-opt.active {
+  background: var(--sidebar-active);
+  color: #fff;
+  opacity: 1;
+  font-weight: 600;
+}
+.erp-sidebar-theme-btn.icon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--sidebar-fg);
+  opacity: 0.75;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.erp-sidebar-theme-btn.icon:hover {
+  background: var(--sidebar-hover);
+  opacity: 1;
+}
+
+/* Bottom bar with user avatar */
+.erp-sidebar-bottom {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 12px;
+}
+.erp-sidebar-bottom.collapsed {
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px;
+}
+
+.erp-sidebar-user {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.18s;
+}
+.erp-sidebar-user:hover {
+  background: var(--sidebar-hover);
+}
+.erp-sidebar-bottom.collapsed .erp-sidebar-user {
+  flex: none;
+  padding: 4px;
+  justify-content: center;
+}
+.erp-sidebar-user-text {
+  min-width: 0;
+  line-height: 1.2;
+}
+.erp-sidebar-user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sidebar-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.erp-sidebar-user-role {
   font-size: 11px;
+  color: var(--sidebar-fg);
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-sidebar-collapse-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--sidebar-fg);
+  opacity: 0.7;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.erp-sidebar-collapse-btn:hover {
+  background: var(--sidebar-hover);
+  opacity: 1;
 }
 
 /* ===== HEADER ENHANCEMENTS =====

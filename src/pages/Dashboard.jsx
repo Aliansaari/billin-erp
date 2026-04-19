@@ -317,14 +317,6 @@ export default function Dashboard() {
               { value: 'year',    label: 'Year' },
             ]}
           />
-          <GlassSwitch
-            value={isDark ? 'dark' : 'light'}
-            onChange={(v) => setAppearance(v)}
-            options={[
-              { value: 'light', label: 'Light', icon: <SunOutlined style={{ marginRight: 4 }} /> },
-              { value: 'dark',  label: 'Dark',  icon: <MoonOutlined style={{ marginRight: 4 }} /> },
-            ]}
-          />
         </div>
       </header>
 

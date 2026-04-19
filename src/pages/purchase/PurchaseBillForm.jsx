@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
+import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import './purchase-bill-form.css';
 
@@ -957,6 +958,11 @@ export default function PurchaseBillForm() {
     form.resetFields(['discount_percentage','paid_amount','other_charges','freight_charges','remarks']);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   };
+
+  // Warn on tab close/refresh when there's in-progress work.
+  const dirty = items.length > 0;
+  const confirmLeave = useUnsavedChangesWarning(dirty);
+
   useCtrlEnterSubmit(()=>handleSave(true));
 
   /* ── Table columns — Excel-style cells ──
@@ -1050,47 +1056,40 @@ export default function PurchaseBillForm() {
             {/* Supplier / bill / transport row */}
             <div className="pbf-top-row">
               <div className="pbf-field">
-                <span className="pbf-lbl">Supplier<span className="req">*</span></span>
                 <Form.Item name="supplier_id" noStyle rules={[{required:true,message:' '}]}>
-                  <Select showSearch placeholder="Select supplier" optionFilterProp="children" dropdownStyle={{minWidth:280}}>
+                  <Select showSearch placeholder="Supplier *" optionFilterProp="children" dropdownStyle={{minWidth:280}}>
                     {parties.map(p=><Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>)}
                   </Select>
                 </Form.Item>
               </div>
               <div className="pbf-field">
-                <span className="pbf-lbl">Bill date<span className="req">*</span></span>
                 <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
-                  <DatePicker format="DD-MM-YYYY" style={{width:'100%'}}/>
+                  <DatePicker format="DD-MM-YYYY" style={{width:'100%'}} placeholder="Bill date *"/>
                 </Form.Item>
               </div>
               <div className="pbf-field">
-                <span className="pbf-lbl">Supp. bill #</span>
                 <Form.Item name="supplier_bill_number" noStyle>
-                  <Input placeholder="Ref"/>
+                  <Input placeholder="Supp. bill #"/>
                 </Form.Item>
               </div>
               <div className="pbf-field">
-                <span className="pbf-lbl">Due date</span>
                 <Form.Item name="due_date" noStyle>
-                  <DatePicker format="DD-MM-YYYY" style={{width:'100%'}}/>
+                  <DatePicker format="DD-MM-YYYY" style={{width:'100%'}} placeholder="Due date"/>
                 </Form.Item>
               </div>
               <div className="pbf-field">
-                <span className="pbf-lbl">Transport</span>
                 <Form.Item name="transport_name" noStyle>
-                  <Input/>
+                  <Input placeholder="Transport"/>
                 </Form.Item>
               </div>
               <div className="pbf-field">
-                <span className="pbf-lbl">Vehicle no.</span>
                 <Form.Item name="vehicle_number" noStyle>
-                  <Input/>
+                  <Input placeholder="Vehicle no."/>
                 </Form.Item>
               </div>
               <div className="pbf-field">
-                <span className="pbf-lbl">LR no.</span>
                 <Form.Item name="lr_number" noStyle>
-                  <Input/>
+                  <Input placeholder="LR no."/>
                 </Form.Item>
               </div>
             </div>
@@ -1098,8 +1097,7 @@ export default function PurchaseBillForm() {
             {/* Product entry row */}
             <div className="pbf-top-row-2">
               <div className="pbf-field">
-                <span className="pbf-lbl">Barcode / scan</span>
-                <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type…"
+                <Input ref={barcodeRef} value={entry.barcode} placeholder="Barcode / scan"
                   onChange={e=>{setEntry(p=>({...p,barcode:e.target.value}));setBarcodeError('');}}
                   onPressEnter={e=>handleBarcodeScan(e.target.value)}
                   onBlur={e=>handleBarcodeBlur(e.target.value)}
@@ -1107,8 +1105,7 @@ export default function PurchaseBillForm() {
                   status={barcodeError?'error':undefined}/>
               </div>
               <div className="pbf-field">
-                <span className="pbf-lbl">Category</span>
-                <Select value={activeCatId} placeholder="All categories" showSearch
+                <Select value={activeCatId} placeholder="Category" showSearch
                   filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
                   allowClear notFoundContent={null}
                   onChange={(v,opt)=>{
@@ -1119,7 +1116,6 @@ export default function PurchaseBillForm() {
                 </Select>
               </div>
               <div className="pbf-field" ref={prodWrapRef}>
-                <span className="pbf-lbl">Product name</span>
                 <Select key={activeCatId??'no-cat'} ref={productRef}
                   showSearch filterOption={false} optionLabelProp="label"
                   value={entry.product_name||undefined}
@@ -1133,7 +1129,7 @@ export default function PurchaseBillForm() {
                   }}
                   onClear={()=>setEntry(p=>({...p,product_name:'',product_id:null}))}
                   allowClear
-                  placeholder={activeCatId?'Search in category…':'Search product…'}
+                  placeholder={activeCatId?'Product name (in category)':'Product name'}
                   notFoundContent={productSearching?'Searching…':null}
                   listHeight={320} dropdownMatchSelectWidth={520}>
                   {dedupedProducts.map(p=>{
@@ -1168,12 +1164,11 @@ export default function PurchaseBillForm() {
                 {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,         idx:8, t:'num', min:0},
               ].map(({lbl2,ref,field,val,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
                 <div key={field} className="pbf-field" ref={wrapRef||undefined}>
-                  <span className="pbf-lbl">{lbl2}</span>
                   {t==='txt'
-                    ? <Input ref={ref} value={val}
+                    ? <Input ref={ref} value={val} placeholder={lbl2}
                         onChange={onChangeFn||(e=>updateEntry(field,e.target.value))}
                         onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur}/>
-                    : <InputNumber keyboard={false} ref={ref} value={val} style={{width:'100%'}} min={min}
+                    : <InputNumber keyboard={false} ref={ref} value={val} style={{width:'100%'}} min={min} placeholder={lbl2}
                         onChange={onChangeFn||(v=>updateEntry(field,v||0))}
                         onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur} onFocus={onFocusFn}/>
                   }
@@ -1243,7 +1238,6 @@ export default function PurchaseBillForm() {
             {/* LEFT: Summary + Notes */}
             <div className="pbf-bb-left">
               <div className="pbf-card pbf-summary">
-                <div className="pbf-card-title">Summary</div>
                 <div className="pbf-counters">
                   <div className="pbf-counter items">
                     <div className="k">Items</div>
@@ -1279,7 +1273,6 @@ export default function PurchaseBillForm() {
                     CGST+SGST merged into a single shared % (always equal in
                     intra-state GST). Other + Freight merged into one row. */}
               <div className="pbf-card pbf-totals">
-                <div className="pbf-card-title">Totals</div>
                 <div className="pbf-tot-lines">
                   <div className="pbf-tot-line total-row">
                     <span className="k">Total</span>
@@ -1348,8 +1341,6 @@ export default function PurchaseBillForm() {
 
               {/* Payment card */}
               <div className="pbf-card pbf-payment">
-                <div className="pbf-card-title">Payment</div>
-
                 <div className="pbf-net-hero">
                   <span className="k">Net total ₹</span>
                   <span className="v">{roundedTotal.toLocaleString('en-IN')}</span>
@@ -1376,7 +1367,7 @@ export default function PurchaseBillForm() {
         {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
         <section className="pbf-action-bar">
           <div className="pbf-action-bar-inner">
-            <button className="pbf-act" onClick={()=>navigate('/purchases')}>
+            <button className="pbf-act" onClick={()=>{ if(confirmLeave()) navigate('/purchases'); }}>
               <span className="pbf-kbd">Esc</span> Back
             </button>
             <button className="pbf-act" onClick={handleReset}>
@@ -1395,7 +1386,11 @@ export default function PurchaseBillForm() {
 
       <BarcodePrintModal
         visible={printModal.visible}
-        onClose={()=>{setPrintModal({visible:false,bill:null});navigate('/purchases');}}
+        onClose={()=>{
+          setPrintModal({visible:false,bill:null});
+          if(isEdit){ navigate('/purchases'); }
+          else { handleReset(); setBillNumber(''); }
+        }}
         billNumber={printModal.bill?.bill_number}
         items={printModal.bill?.printItems||[]}
         initialCompany={companyName}
