@@ -57,7 +57,13 @@ export default function AppLayout() {
             overflow:   isFullPage ? 'hidden' : 'auto',
             flex:       1,
             minWidth:   0,
+            // maxHeight pins Content to the viewport so flex children (like
+            // bill lists / party ledger) can't push the body to overflow.
+            // Without this, `height: 100vh` acts only as a flex basis and
+            // tall internal content grows the column past the window, making
+            // the outer page scrollable.
             height:     isFullPage ? fullPageH : undefined,
+            maxHeight:  isFullPage ? fullPageH : undefined,
             minHeight:  isFullPage ? 0 : `calc(100vh - ${TOP_NAV_H + 40}px)`,
           }}>
             <div
@@ -85,7 +91,13 @@ export default function AppLayout() {
           overflow:   isFullPage ? 'hidden' : 'auto',
           flex:       1,
           minWidth:   0,
+          // maxHeight pins Content to the viewport so flex children (like
+          // bill lists / party ledger) can't push the body to overflow.
+          // Without this, `height: 100vh` acts only as a flex basis and
+          // tall internal content grows the column past the window, making
+          // the outer page scrollable.
           height:     isFullPage ? '100vh' : undefined,
+          maxHeight:  isFullPage ? '100vh' : undefined,
           minHeight:  isFullPage ? 0 : 'calc(100vh - 40px)',
         }}>
           <div

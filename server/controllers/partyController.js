@@ -513,6 +513,27 @@ exports.getSuppliers = async (req, res) => {
  */
 exports.recalculateAll = async (req, res) => {
   try {
+    // Formula MUST match balanceHelper.recalculatePartyBalance exactly, else
+    // the cached party.current_balance will drift from the ledger's running
+    // balance — the user-visible symptom is the party picker showing one
+    // number while the ledger closing shows another.
+    //
+    //   balance = openingSigned
+    //           + (totalSales
+    //              - salesPaid                - at-billing cash
+    //              - salesWalkInReturn        - at-billing refund (sales_bills.return_amount)
+    //              - salesReturnBalance       - open credit from formal SRN
+    //              - salesReturnRefund        - cash refund leg of formal SRN
+    //              - totalReceipts)
+    //           - (totalPurchases
+    //              - purchasePaid             - at-billing cash
+    //              - totalPayments
+    //              - purchaseReturnBalance    - open DN credit
+    //              - purchaseReturnRefund)    - cash refund leg of formal PRN
+    //
+    // Important: we subtract BOTH balance_amount AND refund_amount from each
+    // return bill because together they equal the return's total_amount. The
+    // cash refund leg lives on the Cash ledger, not the customer's ledger.
     await sequelize.query(`
       UPDATE parties p SET current_balance = ROUND((
         CASE WHEN p.opening_balance_type = 'Payable'
@@ -527,6 +548,12 @@ exports.recalculateAll = async (req, res) => {
             WHERE customer_id = p.party_id AND is_cancelled = false
           ), 0)
         - COALESCE((
+            SELECT SUM(COALESCE(balance_amount, 0)
+                     + COALESCE(refund_amount, 0))
+            FROM sales_return_bills
+            WHERE customer_id = p.party_id AND is_cancelled = false
+          ), 0)
+        - COALESCE((
             SELECT SUM(COALESCE(total_amount, 0))
             FROM payments_receipts
             WHERE party_id = p.party_id
@@ -537,6 +564,12 @@ exports.recalculateAll = async (req, res) => {
             SELECT SUM(COALESCE(total_amount, 0)
                      - COALESCE(paid_amount, 0))
             FROM purchase_bills
+            WHERE supplier_id = p.party_id AND is_cancelled = false
+          ), 0)
+        + COALESCE((
+            SELECT SUM(COALESCE(balance_amount, 0)
+                     + COALESCE(refund_amount, 0))
+            FROM purchase_return_bills
             WHERE supplier_id = p.party_id AND is_cancelled = false
           ), 0)
         + COALESCE((
