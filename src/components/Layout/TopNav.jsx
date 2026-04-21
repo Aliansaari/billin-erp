@@ -130,13 +130,11 @@ export default function TopNav() {
         >
           {isDark ? <SunOutlined /> : <MoonOutlined />}
         </button>
+        {/* Avatar-only — the dropdown already shows name + role at the top of
+            its menu, so duplicating them next to the avatar was noise. */}
         <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
-          <div className="erp-topnav-user" title={user?.full_name || 'User'}>
+          <div className="erp-topnav-user icon-only" title={`${user?.full_name || 'User'} · ${user?.role || 'Admin'}`}>
             <Avatar size={30} icon={<UserOutlined />} style={{ backgroundColor: avatarBg }} />
-            <div className="user-text">
-              <div className="user-name">{user?.full_name || 'User'}</div>
-              <div className="user-role">{user?.role || 'Admin'}</div>
-            </div>
           </div>
         </Dropdown>
       </div>

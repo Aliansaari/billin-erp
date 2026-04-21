@@ -123,18 +123,12 @@
   border: 1px solid rgba(255,255,255,0.08);
 }
 .erp-topnav-user:hover { background: rgba(255,255,255,0.06); }
-.erp-topnav-user .user-text { line-height: 1.15; }
-.erp-topnav-user .user-name {
-  font-size: 12.5px; font-weight: 600;
-  color: #F5EFE3;
-  max-width: 140px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.erp-topnav-user .user-role {
-  font-size: 10.5px;
-  color: rgba(245, 239, 227, 0.55);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+/* Icon-only variant — circular pill around the avatar, no name/role text.
+   Name + role still appear at the top of the click-opened dropdown menu. */
+.erp-topnav-user.icon-only {
+  padding: 2px;
+  border-radius: 50%;
+  gap: 0;
 }
 
 /* AntD horizontal-submenu popup — re-skin to match editorial */
@@ -161,11 +155,10 @@
   color: var(--accent, #E26A4C) !important;
 }
 
-/* Responsive — below 900 px the role label next to the avatar gets cramped,
-   so hide it. The brand is icon-only anyway so it stays untouched. */
+/* Responsive tightening — brand and user cluster are already icon-only,
+   so the only thing to shrink is the overall gap/padding. */
 @media (max-width: 900px) {
   .erp-topnav { gap: 10px; padding: 0 12px; }
-  .erp-topnav-user .user-text { display: none; }
 }
 
 /* When horizontal layout is active we want the main content column to take
