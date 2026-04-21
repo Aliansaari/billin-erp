@@ -1,0 +1,178 @@
+/*
+ * Horizontal top-nav styling.
+ *
+ * The bar replaces the left Sidebar when themeStore.menuOrientation = 'horizontal'.
+ * Reads the same theme vars as Sidebar/editorial pages so light/dark/classic/
+ * modern flow through unchanged. AntD's horizontal Menu is restyled to match
+ * the dashboard accent rather than AntD's default indigo/blue.
+ */
+
+.erp-topnav {
+  flex-shrink: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 20px;
+  background: var(--sidebar-bg, #1a1a1a);
+  border-bottom: 1px solid var(--sidebar-border, rgba(255,255,255,0.08));
+  color: rgba(255,255,255,0.92);
+  /* Match Sidebar's dark visual weight so the top bar reads as primary chrome
+     rather than a floating header, regardless of page background. */
+  box-shadow: 0 1px 0 rgba(0,0,0,0.12), 0 2px 10px rgba(0,0,0,0.10);
+  z-index: 20;
+}
+
+/* Brand cluster */
+.erp-topnav-brand {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  user-select: none;
+}
+.erp-topnav-brand:hover { background: rgba(255,255,255,0.06); }
+.erp-topnav-brand .brand-icon {
+  font-size: 20px;
+  color: var(--accent, #B1472F);
+}
+.erp-topnav-brand .brand-text {
+  font-family: 'Fraunces', 'Georgia', serif;
+  font-size: 17px; font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #F5EFE3;
+  white-space: nowrap;
+}
+
+/* Main horizontal menu — reset AntD defaults to match the chrome */
+.erp-topnav-menu {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+.erp-topnav-menu .ant-menu.erp-topnav-menu-inner {
+  flex: 1;
+  background: transparent !important;
+  border-bottom: none !important;
+  line-height: 54px;
+  font-size: 13px;
+}
+.erp-topnav-menu .ant-menu-horizontal > .ant-menu-item,
+.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu {
+  color: rgba(255,255,255,0.75) !important;
+  border-bottom: 2px solid transparent !important;
+  /* Tight spacing so 8 top-level items fit comfortably on a 1200px laptop. */
+  margin: 0 1px !important;
+  padding: 0 10px !important;
+  top: 0 !important;
+  transition: color 0.15s, background 0.15s, border-color 0.15s !important;
+}
+/* Overflow (…) trigger for narrow viewports */
+.erp-topnav-menu .ant-menu-overflow-item .ant-menu-submenu-title {
+  color: rgba(255,255,255,0.75) !important;
+}
+.erp-topnav-menu .ant-menu-horizontal > .ant-menu-item:hover,
+.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu:hover,
+.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu-open {
+  color: #FFF8F4 !important;
+  background: rgba(255,255,255,0.06) !important;
+}
+.erp-topnav-menu .ant-menu-horizontal > .ant-menu-item-selected,
+.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu-selected {
+  color: #FFF8F4 !important;
+  border-bottom-color: var(--accent, #B1472F) !important;
+  background: rgba(255,255,255,0.04) !important;
+}
+.erp-topnav-menu .ant-menu-horizontal > .ant-menu-item-selected::after,
+.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu-selected::after { display: none !important; }
+.erp-topnav-menu .ant-menu-item .anticon,
+.erp-topnav-menu .ant-menu-submenu-title .anticon {
+  margin-right: 6px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+/* Right cluster */
+.erp-topnav-right {
+  display: inline-flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+}
+.erp-topnav-iconbtn {
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.78);
+  display: inline-grid; place-items: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 14px;
+  padding: 0;
+}
+.erp-topnav-iconbtn:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.16);
+  color: #FFF8F4;
+}
+
+.erp-topnav-user {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.erp-topnav-user:hover { background: rgba(255,255,255,0.06); }
+.erp-topnav-user .user-text { line-height: 1.15; }
+.erp-topnav-user .user-name {
+  font-size: 12.5px; font-weight: 600;
+  color: #F5EFE3;
+  max-width: 140px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.erp-topnav-user .user-role {
+  font-size: 10.5px;
+  color: rgba(245, 239, 227, 0.55);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* AntD horizontal-submenu popup — re-skin to match editorial */
+.ant-menu-submenu-popup .ant-menu {
+  background: var(--bg-panel, #1F1B18) !important;
+  border: 1px solid var(--border, rgba(255,255,255,0.08)) !important;
+  border-radius: 8px !important;
+  padding: 4px !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.28) !important;
+}
+.ant-menu-submenu-popup .ant-menu-item {
+  color: var(--fg-primary, #F5EFE3) !important;
+  border-radius: 6px !important;
+  margin: 2px 0 !important;
+  padding: 0 14px !important;
+  line-height: 36px !important;
+  height: 36px !important;
+}
+.ant-menu-submenu-popup .ant-menu-item:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06)) !important;
+}
+.ant-menu-submenu-popup .ant-menu-item-selected {
+  background: var(--accent-bg, rgba(177,71,47,0.15)) !important;
+  color: var(--accent, #E26A4C) !important;
+}
+
+/* Responsive — below 900 px the menu gets crowded; hide brand text + role. */
+@media (max-width: 900px) {
+  .erp-topnav { gap: 10px; padding: 0 12px; }
+  .erp-topnav-brand .brand-text { display: none; }
+  .erp-topnav-user .user-text { display: none; }
+}
+
+/* When horizontal layout is active we want the main content column to take
+   100% width and the page to start immediately below the nav. AppLayout
+   sets height: calc(100vh - 56px) on the layout column — the `has-top-nav`
+   class hook lets per-page CSS opt in if it needs specific tweaks. */
+.app-layout-horizontal .ant-layout-content { width: 100%; }

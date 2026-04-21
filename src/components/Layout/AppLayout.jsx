@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from 'antd';
 import { Outlet, useLocation } from 'react-router-dom';
+import useThemeStore from '../../store/themeStore';
 import Sidebar from './Sidebar';
+import TopNav from './TopNav';
 
 const { Content } = Layout;
 
 const SIDEBAR_KEY = 'sidebar_collapsed';
+// Height of the horizontal top-nav bar (keep in sync with .erp-topnav height
+// in top-nav.css). Used to clamp the Content column so full-page routes get
+// exactly viewport-minus-nav and the bottom action bars land flush.
+const TOP_NAV_H = 56;
 
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(() => {
@@ -13,6 +19,8 @@ export default function AppLayout() {
     return stored === 'true';
   });
   const location = useLocation();
+  const menuOrientation = useThemeStore((s) => s.menuOrientation);
+  const isHorizontal = menuOrientation === 'horizontal';
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed));
@@ -33,6 +41,39 @@ export default function AppLayout() {
     '/reports/party-ledger', '/reports/profit-loss',
   ].includes(location.pathname);
 
+  // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.
+  const fullPageH = isHorizontal ? `calc(100vh - ${TOP_NAV_H}px)` : '100vh';
+
+  // Horizontal mode: stack TopNav + Content vertically.
+  if (isHorizontal) {
+    return (
+      <Layout className="app-layout-horizontal" style={{ minHeight: '100vh', flexDirection: 'column' }}>
+        <TopNav />
+        <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <Content style={{
+            margin:     isFullPage ? 0 : 'clamp(8px, 2vw, 20px)',
+            padding:    isFullPage ? 0 : 'clamp(12px, 2vw, 24px)',
+            background: 'transparent',
+            overflow:   isFullPage ? 'hidden' : 'auto',
+            flex:       1,
+            minWidth:   0,
+            height:     isFullPage ? fullPageH : undefined,
+            minHeight:  isFullPage ? 0 : `calc(100vh - ${TOP_NAV_H + 40}px)`,
+          }}>
+            <div
+              key={location.pathname}
+              className="erp-page-content"
+              style={isFullPage ? { height: '100%', overflow: 'hidden' } : undefined}
+            >
+              <Outlet />
+            </div>
+          </Content>
+        </Layout>
+      </Layout>
+    );
+  }
+
+  // Default: vertical sidebar layout.
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
