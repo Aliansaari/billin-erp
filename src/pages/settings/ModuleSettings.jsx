@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Switch, Select, Button, Input, Typography, Row, Col, Divider, message, Radio, Modal, Checkbox, Alert } from 'antd';
-import { SaveOutlined, SettingOutlined, CloudServerOutlined, CalendarOutlined, NumberOutlined, DeleteOutlined, WarningOutlined } from '@ant-design/icons';
+import { Card, Form, Switch, Select, Button, Input, InputNumber, Typography, Row, Col, Divider, message, Radio, Modal, Checkbox, Alert } from 'antd';
+import { SaveOutlined, SettingOutlined, CloudServerOutlined, CalendarOutlined, NumberOutlined, DeleteOutlined, WarningOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { settingsAPI } from '../../api';
 
 const { Title, Text } = Typography;
@@ -213,6 +213,9 @@ export default function ModuleSettings() {
         gst_mode:                localStorage.getItem('gst_mode') || 'product',
         sales_bill_prefix:       s.sales_bill_prefix    || '',
         purchase_bill_prefix:    s.purchase_bill_prefix || '',
+        aging_bucket_1_days:     s.aging_bucket_1_days ?? 30,
+        aging_bucket_2_days:     s.aging_bucket_2_days ?? 60,
+        aging_bucket_3_days:     s.aging_bucket_3_days ?? 90,
       });
     } catch (error) {
       console.error('ModuleSettings load error:', error);
@@ -235,6 +238,13 @@ export default function ModuleSettings() {
       // Sanitise prefix: uppercase, strip spaces
       if (dbValues.sales_bill_prefix)    dbValues.sales_bill_prefix    = dbValues.sales_bill_prefix.trim().toUpperCase();
       if (dbValues.purchase_bill_prefix) dbValues.purchase_bill_prefix = dbValues.purchase_bill_prefix.trim().toUpperCase();
+      // Enforce strictly-increasing aging bucket thresholds so Watchful < Chase < Critical.
+      const b1 = Math.max(1,      parseInt(dbValues.aging_bucket_1_days, 10) || 30);
+      const b2 = Math.max(b1 + 1, parseInt(dbValues.aging_bucket_2_days, 10) || 60);
+      const b3 = Math.max(b2 + 1, parseInt(dbValues.aging_bucket_3_days, 10) || 90);
+      dbValues.aging_bucket_1_days = b1;
+      dbValues.aging_bucket_2_days = b2;
+      dbValues.aging_bucket_3_days = b3;
       await settingsAPI.updateSystem(dbValues);
       message.success('Settings saved successfully');
     } catch (error) {
@@ -344,6 +354,39 @@ export default function ModuleSettings() {
                     </div>
                   </Radio>
                 </Radio.Group>
+              </Form.Item>
+            </Card>
+          </Col>
+
+          <Col xs={24} lg={12}>
+            <Card loading={loading} title={<><FieldTimeOutlined /> Aging Buckets</>}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+                Set how many days past a bill's due date (bill date + party's credit days) moves it into each bucket on the Customers / Suppliers page. Defaults mirror the classic 30 / 60 / 90 split.
+              </Text>
+
+              <Form.Item
+                name="aging_bucket_1_days"
+                label="Not yet due — up to"
+                extra={<span style={{ fontSize: 12, color: '#6b7280' }}>Bills aged 0 – <b>N</b> days past due</span>}
+              >
+                <InputNumber min={1} max={365} style={{ width: 160 }} addonAfter="days" />
+              </Form.Item>
+
+              <Form.Item
+                name="aging_bucket_2_days"
+                label="Watchful — up to"
+                extra={<span style={{ fontSize: 12, color: '#6b7280' }}>Between the first and second threshold</span>}
+              >
+                <InputNumber min={2} max={365} style={{ width: 160 }} addonAfter="days" />
+              </Form.Item>
+
+              <Form.Item
+                name="aging_bucket_3_days"
+                label="Chase — up to"
+                style={{ marginBottom: 0 }}
+                extra={<span style={{ fontSize: 12, color: '#6b7280' }}>Bills aged beyond this threshold are marked <b>Critical</b></span>}
+              >
+                <InputNumber min={3} max={720} style={{ width: 160 }} addonAfter="days" />
               </Form.Item>
             </Card>
           </Col>

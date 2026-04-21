@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Party Ledger — Editorial v4 (Simple Statement)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+ *  Party Ledger v4 — simple full-width statement.
+ *
+ *  Single-screen account statement.
+ *    · No party-list pane on the left — only the app's main sidebar remains.
+ *    · Header, LEFT:  inline party search-and-select.
+ *    · Header, RIGHT: period picker, then a columns dropdown (⚙) that lets
+ *                     the user toggle extras (Notes, Bill allocation, GST,
+ *                     Payment mode, Due date, Dr/Cr tag, Cancelled vouchers).
+ *    · Table:  Date · Type · Ref. · Debit · Credit · Balance.  Totals row
+ *              sits at the bottom. Each column is Fraunces-numeric, monospace
+ *              where values ought to align.
+ *    · Type column header doubles as a filter — click the ▽ hint to pop a
+ *      check-list of transaction types. Active filters show a pill badge in
+ *      the header so the user always knows what's filtered out.
+ *
+ *  Everything else (aging, cards, sparklines, narration forced-on) has been
+ *  removed. Narrations appear ONLY when the user ticks them in the columns
+ *  dropdown. The statement breathes.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg: #F5EFE3;
+  --bg-panel: #FDFAF2;
+  --bg-soft: #FAF5E9;
+  --bg-strip: #F1E9D6;
+  --ink: #1D1A15;
+  --ink-2: #5C5040;
+  --ink-3: #8E8270;
+  --ink-4: #BBAF98;
+  --rule: #E5D9C0;
+  --rule-soft: #EEE4CC;
+  --accent: #B1472F;
+  --accent-hover: #8B2E1F;
+  --accent-soft: rgba(177, 71, 47, 0.08);
+  --dr: #8F4A26;
+  --cr: #657F50;
+  --warn: #C68A1F;
+  --sb-bg: #1D1814;
+  --sb-border: #2C2821;
+  --sb-ink: #E8DFC9;
+  --sb-ink-3: #8A7F6C;
+  --sb-hover: rgba(245, 238, 226, 0.06);
+  --sb-active-bg: #B1472F;
+  --sb-active-ink: #FDFAF2;
+  --sb-w: 216px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ══════════════ Sidebar (main app nav, unchanged) ══════════════ */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 14px 10px 16px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  z-index: 20;
+  font-size: 12.5px;
+}
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 14px; border-bottom: 1px solid var(--sb-border); margin-bottom: 8px; }
+.sb-brand-icon { width: 26px; height: 26px; border-radius: 5px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; }
+.sb-brand-icon .bolt { display: inline-block; width: 8px; height: 14px; background: currentColor; clip-path: polygon(62% 0%, 0% 60%, 38% 60%, 28% 100%, 100% 40%, 62% 40%); }
+.sb-brand-name { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; color: #F5EEE2; }
+.sb-group  { font-size: 9.5px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--sb-ink-3); padding: 12px 10px 4px; }
+.sb-item   { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 5px; font-size: 12.5px; cursor: pointer; margin-bottom: 1px; transition: background .12s; }
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; }
+.sb-item .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+/* ══════════════ Main: single-column statement ══════════════ */
+.page {
+  margin-left: var(--sb-w);
+  padding: 26px clamp(24px, 4vw, 56px) 40px;
+  max-width: 1320px;
+}
+
+/* ── Header row: [party picker] ................. [period] [columns] ── */
+.stmt-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+/* Party picker — search/select */
+.party-picker {
+  position: relative;
+  min-width: 320px;
+  max-width: 520px;
+}
+.pp-trigger {
+  width: 100%;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: border-color .12s, box-shadow .12s;
+}
+.pp-trigger:hover { border-color: var(--ink-4); }
+.pp-trigger:focus-within, .pp-trigger.open { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pp-avatar {
+  width: 34px; height: 34px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #FDFAF2;
+  display: grid; place-items: center;
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 14px;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+.pp-body {
+  min-width: 0;
+  flex: 1;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.pp-kicker {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  line-height: 1;
+}
+.pp-name-row {
+  display: flex; align-items: baseline; gap: 8px;
+  min-width: 0;
+}
+.pp-name {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 20px;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  line-height: 1.1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pp-meta {
+  font-size: 11.5px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pp-caret {
+  color: var(--ink-3);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* Dropdown panel under party picker (open state demo) */
+.pp-panel {
+  position: absolute; top: calc(100% + 6px); left: 0;
+  width: min(520px, calc(100vw - 48px));
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  box-shadow: 0 20px 40px rgba(29, 26, 21, 0.15);
+  z-index: 40;
+  overflow: hidden;
+  display: none;
+}
+.pp-panel.open { display: block; }
+.pp-search-row {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule-soft);
+  display: flex; align-items: center; gap: 8px;
+}
+.pp-search-row input {
+  flex: 1;
+  border: none; outline: none; background: transparent;
+  font: inherit; font-size: 13.5px;
+  color: var(--ink);
+}
+.pp-search-row input::placeholder { color: var(--ink-3); }
+.pp-search-row kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--bg-strip);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--ink-3);
+}
+.pp-list { max-height: 320px; overflow-y: auto; padding: 4px 0; }
+.pp-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background .1s;
+}
+.pp-row:hover { background: var(--bg-soft); }
+.pp-row-main .n { font-weight: 500; font-size: 13px; color: var(--ink); }
+.pp-row-main .s { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
+.pp-row-bal {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 13px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.pp-row-bal.dr { color: var(--dr); }
+.pp-row-bal.cr { color: var(--cr); }
+.pp-row-bal.zero { color: var(--ink-4); font-weight: 400; }
+
+/* Right cluster: period picker + columns dropdown */
+.h-right {
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+}
+.chip-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 38px; padding: 0 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: all .12s;
+}
+.chip-btn:hover { border-color: var(--ink-4); }
+.chip-btn .lbl {
+  font-size: 9.5px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 700;
+  margin-right: 2px;
+}
+.chip-btn .val {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--ink);
+}
+.chip-btn .caret { color: var(--ink-3); font-size: 10px; }
+
+.cols-btn {
+  position: relative;
+  width: 38px; height: 38px;
+  display: grid; place-items: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.cols-btn:hover { border-color: var(--ink-4); }
+.cols-btn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.cols-btn svg { width: 16px; height: 16px; color: var(--ink-2); }
+.cols-btn.on svg { color: var(--accent); }
+.cols-btn .badge {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  display: grid; place-items: center;
+  font-size: 10px; font-weight: 700;
+  background: var(--accent);
+  color: #FDFAF2;
+  border: 2px solid var(--bg);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Columns dropdown panel */
+.cols-panel {
+  position: absolute; top: calc(100% + 6px); right: 0;
+  width: 260px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  box-shadow: 0 20px 40px rgba(29, 26, 21, 0.15);
+  z-index: 40;
+  overflow: hidden;
+}
+.cp-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.cp-list { padding: 4px 0; }
+.cp-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  transition: background .1s;
+}
+.cp-row:hover { background: var(--bg-soft); }
+.cp-row input[type="checkbox"] {
+  width: 14px; height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin: 0;
+}
+.cp-row .desc {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-top: 1px;
+}
+.cp-row kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  padding: 1px 4px;
+  background: var(--bg-strip);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--ink-3);
+}
+.cp-sep {
+  height: 1px; background: var(--rule-soft); margin: 4px 10px;
+}
+.cp-foot {
+  display: flex; justify-content: space-between;
+  padding: 8px 14px 10px;
+  font-size: 11.5px;
+}
+.cp-link {
+  background: none; border: none; padding: 0;
+  color: var(--accent); cursor: pointer; font: inherit;
+  font-size: 11.5px;
+}
+.cp-link:hover { text-decoration: underline; }
+
+/* ── Context line under the picker (kind · city · phone · credit) ── */
+.stmt-sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.15px;
+  margin-bottom: 20px;
+  padding-left: 58px; /* align with name */
+}
+.stmt-sub .warn { color: var(--warn); font-weight: 600; }
+
+/* ── Opening/Closing strip — just two numbers, inline, subtle ── */
+.balance-strip {
+  display: flex; gap: 44px;
+  padding: 14px 0 16px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 22px;
+}
+.balance {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.balance .k {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.balance .v {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.balance .v.dr { color: var(--dr); }
+.balance .v.cr { color: var(--cr); }
+.balance .v .rs { color: var(--ink-3); font-weight: 500; font-size: 14px; margin-right: 4px; }
+.balance .v .tag {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-left: 5px;
+  vertical-align: 4px;
+}
+.balance .s {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Table ── */
+.tbl-wrap {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tbl thead th {
+  padding: 11px 14px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: left;
+  background: var(--bg-strip);
+  border-bottom: 1px solid var(--rule);
+}
+.tbl thead th.r { text-align: right; }
+.tbl thead th.sortable,
+.tbl thead th.filter-trigger {
+  cursor: pointer;
+  user-select: none;
+  transition: color .12s;
+}
+.tbl thead th.sortable:hover,
+.tbl thead th.filter-trigger:hover { color: var(--ink); }
+.tbl thead th .hint {
+  display: inline-flex; align-items: center;
+  margin-left: 5px;
+  color: var(--ink-4);
+  font-size: 9px;
+}
+.tbl thead th.filter-trigger.active {
+  color: var(--accent);
+}
+.tbl thead th .filter-badge {
+  display: inline-flex; align-items: center;
+  padding: 1px 6px;
+  background: var(--accent);
+  color: #FDFAF2;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+}
+
+/* Filter popover anchored on a TH */
+.th-filter-wrap { position: relative; display: inline-block; }
+.filter-pop {
+  position: absolute; top: calc(100% + 10px); left: -10px;
+  width: 220px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  box-shadow: 0 20px 40px rgba(29, 26, 21, 0.15);
+  z-index: 30;
+  overflow: hidden;
+}
+.filter-pop .fp-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.filter-pop .fp-link {
+  background: none; border: none; padding: 0;
+  color: var(--accent);
+  font: inherit; font-size: 11px; font-weight: 500;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.filter-pop .fp-list { padding: 4px 0 6px; max-height: 240px; overflow-y: auto; }
+.filter-pop .fp-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 9px;
+  align-items: center;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+}
+.filter-pop .fp-row:hover { background: var(--bg-soft); }
+.filter-pop .fp-row input { width: 13px; height: 13px; accent-color: var(--accent); margin: 0; cursor: pointer; }
+.filter-pop .fp-row .tdot {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+  margin-bottom: 1px;
+}
+.filter-pop .fp-row .n {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.fp-tdot-sale     { background: var(--accent); }
+.fp-tdot-purchase { background: var(--ink); }
+.fp-tdot-receipt  { background: var(--cr); }
+.fp-tdot-payment  { background: var(--accent); opacity: 0.55; }
+.fp-tdot-sret     { background: var(--warn); }
+.fp-tdot-pret     { background: var(--cr); opacity: 0.55; }
+
+/* Body rows */
+.tbl tbody tr {
+  border-bottom: 1px solid var(--rule-soft);
+  transition: background .1s;
+}
+.tbl tbody tr:hover { background: var(--bg-soft); }
+.tbl tbody tr.opening { background: var(--bg-strip); font-style: italic; color: var(--ink-2); }
+.tbl tbody tr.opening:hover { background: var(--bg-strip); }
+.tbl td {
+  padding: 10px 14px;
+  vertical-align: top;
+}
+.tbl td.date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  width: 100px;
+}
+.tbl td.type {
+  width: 132px;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.tbl td.type .tdot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  margin-bottom: 1px;
+}
+.tbl td.type .tdot.sale     { background: var(--accent); }
+.tbl td.type .tdot.purchase { background: var(--ink); }
+.tbl td.type .tdot.receipt  { background: var(--cr); }
+.tbl td.type .tdot.payment  { background: var(--accent); opacity: 0.55; }
+.tbl td.type .tdot.sret     { background: var(--warn); }
+.tbl td.type .tdot.pret     { background: var(--cr); opacity: 0.55; }
+.tbl td.type .tdot.open     { background: var(--ink-4); }
+.tbl td.ref {
+  width: 130px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.tbl td.ref .dim { color: var(--ink-4); font-weight: 400; }
+
+/* Optional sub-row: narration */
+.tbl td .narr {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 3px;
+  line-height: 1.35;
+}
+.tbl td .alloc {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-top: 2px;
+  letter-spacing: 0.1px;
+}
+.tbl td .alloc::before { content: '↳ '; color: var(--ink-4); }
+.tbl td .alloc .ref { color: var(--accent); }
+.tbl td .meta-line {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.1px;
+}
+.tbl td .meta-line .kv { margin-right: 12px; }
+.tbl td .meta-line .kv b { color: var(--ink-2); font-weight: 600; }
+
+.tbl td.num {
+  text-align: right;
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 500; font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  width: 120px;
+  line-height: 1.4;
+}
+.tbl td.num.dr { color: var(--dr); }
+.tbl td.num.cr { color: var(--cr); }
+.tbl td.num.zero { color: var(--ink-4); font-size: 12px; font-family: 'Inter', sans-serif; font-weight: 400; }
+
+.tbl td.bal {
+  text-align: right;
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  width: 140px;
+  line-height: 1.4;
+}
+.tbl td.bal.dr { color: var(--dr); }
+.tbl td.bal.cr { color: var(--cr); }
+.tbl td.bal .tag {
+  font-family: 'Inter', sans-serif;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--ink-3);
+  margin-left: 5px;
+}
+
+.tbl tfoot td {
+  padding: 13px 14px;
+  background: var(--bg-strip);
+  border-top: 2px solid var(--ink-4);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.tbl tfoot td.num {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 700; font-size: 15px;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+.tbl tfoot td.num.dr { color: var(--dr); }
+.tbl tfoot td.num.cr { color: var(--cr); }
+.tbl tfoot td.bal {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 700; font-size: 15px;
+  letter-spacing: -0.01em;
+  color: var(--dr);
+  text-transform: none;
+}
+.tbl tfoot td.bal .tag { font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; color: var(--ink-3); margin-left: 5px; }
+
+/* Footer caption */
+.stmt-foot-cap {
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.stmt-foot-cap .link {
+  background: none; border: none; padding: 0;
+  color: var(--accent); cursor: pointer; font: inherit;
+  font-size: 12px; margin-left: 14px;
+}
+.stmt-foot-cap .link:hover { text-decoration: underline; }
+
+/* Checkbox (when toggle-like) */
+.check-ic {
+  width: 14px; height: 14px;
+  border-radius: 3px;
+  background: var(--bg);
+  border: 1px solid var(--ink-4);
+  display: inline-block;
+}
+.check-ic.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  position: relative;
+}
+.check-ic.on::after {
+  content: '';
+  position: absolute;
+  left: 3px; top: 0px;
+  width: 4px; height: 8px;
+  border: solid #FDFAF2;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--ink-4); border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar (app chrome, unchanged) -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-brand-icon"><span class="bolt"></span></div>
+    <div class="sb-brand-name">Billing ERP</div>
+  </div>
+  <div class="sb-group">Workspace</div>
+  <div class="sb-item"><span class="ic">◉</span>Dashboard</div>
+  <div class="sb-item"><span class="ic">↗</span>Sales</div>
+  <div class="sb-item"><span class="ic">↙</span>Purchase</div>
+  <div class="sb-group">Parties</div>
+  <div class="sb-item"><span class="ic">●</span>Customers</div>
+  <div class="sb-item"><span class="ic">○</span>Suppliers</div>
+  <div class="sb-group">Money</div>
+  <div class="sb-item"><span class="ic">＋</span>Payments</div>
+  <div class="sb-item active"><span class="ic">◔</span>Party Ledger</div>
+  <div class="sb-item"><span class="ic">⊟</span>Reports</div>
+  <div class="sb-item"><span class="ic">⚙</span>Settings</div>
+</aside>
+
+<!-- Main page -->
+<main class="page">
+
+  <!-- HEADER ROW -->
+  <div class="stmt-head">
+
+    <!-- LEFT: Party search & select -->
+    <div class="party-picker">
+      <div class="pp-trigger open" id="ppTrigger">
+        <div class="pp-avatar">R</div>
+        <div class="pp-body">
+          <div class="pp-kicker">Ledger · Sundry Debtors</div>
+          <div class="pp-name-row">
+            <span class="pp-name">Rameshwar Traders</span>
+          </div>
+        </div>
+        <span class="pp-caret">▾</span>
+      </div>
+
+      <!-- Dropdown panel (shown in demo) -->
+      <div class="pp-panel open">
+        <div class="pp-search-row">
+          <span style="color:var(--ink-3);">⌕</span>
+          <input placeholder="Search party by name, phone, GSTIN…">
+          <kbd>Esc</kbd>
+        </div>
+        <div class="pp-list">
+          <div class="pp-row" style="background:var(--bg-soft);">
+            <div class="pp-row-main">
+              <div class="n">Rameshwar Traders</div>
+              <div class="s">Navsari · 98765 43210</div>
+            </div>
+            <div class="pp-row-bal dr">48,720 Dr</div>
+          </div>
+          <div class="pp-row">
+            <div class="pp-row-main">
+              <div class="n">K.A. Enterprises</div>
+              <div class="s">Rajkot · 94262 34567</div>
+            </div>
+            <div class="pp-row-bal dr">37,900 Dr</div>
+          </div>
+          <div class="pp-row">
+            <div class="pp-row-main">
+              <div class="n">Shree Krishna Mart</div>
+              <div class="s">Surat · 98123 12345</div>
+            </div>
+            <div class="pp-row-bal dr">12,450 Dr</div>
+          </div>
+          <div class="pp-row">
+            <div class="pp-row-main">
+              <div class="n">Harshad Patel</div>
+              <div class="s">Walk-in · 99990 00112</div>
+            </div>
+            <div class="pp-row-bal dr">8,200 Dr</div>
+          </div>
+          <div class="pp-row">
+            <div class="pp-row-main">
+              <div class="n">Ansari Impex</div>
+              <div class="s">Mumbai · 98989 11112</div>
+            </div>
+            <div class="pp-row-bal cr">2,300 Cr</div>
+          </div>
+          <div class="pp-row">
+            <div class="pp-row-main">
+              <div class="n">Mehta Silk House</div>
+              <div class="s">Ahmedabad · 99000 88777</div>
+            </div>
+            <div class="pp-row-bal zero">Settled</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: period + columns dropdown -->
+    <div class="h-right">
+      <button class="chip-btn" title="Change period">
+        <span class="lbl">Period</span>
+        <span class="val">01 Jan 26 — 22 Apr 26</span>
+        <span class="caret">▾</span>
+      </button>
+      <div style="position:relative;">
+        <button class="cols-btn on" id="colsBtn" title="Columns & extras">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <line x1="3" y1="4" x2="13" y2="4"/>
+            <line x1="3" y1="8" x2="13" y2="8"/>
+            <line x1="3" y1="12" x2="13" y2="12"/>
+            <circle cx="6" cy="4" r="1.5" fill="currentColor" stroke="none"/>
+            <circle cx="10" cy="8" r="1.5" fill="currentColor" stroke="none"/>
+            <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+          </svg>
+          <span class="badge">3</span>
+        </button>
+
+        <!-- Columns dropdown panel (shown open for demo) -->
+        <div class="cols-panel">
+          <div class="cp-head">Show extra in list</div>
+          <div class="cp-list">
+            <label class="cp-row">
+              <input type="checkbox" checked>
+              <div>
+                <div>Notes / narration</div>
+                <div class="desc">Remark stored with each voucher</div>
+              </div>
+              <span></span>
+            </label>
+            <label class="cp-row">
+              <input type="checkbox" checked>
+              <div>
+                <div>Payment depth</div>
+                <div class="desc">Which bills each receipt/payment covered</div>
+              </div>
+              <span></span>
+            </label>
+            <label class="cp-row">
+              <input type="checkbox" checked>
+              <div>
+                <div>Dr / Cr tag</div>
+                <div class="desc">Show direction beside every amount</div>
+              </div>
+              <span></span>
+            </label>
+            <div class="cp-sep"></div>
+            <label class="cp-row">
+              <input type="checkbox">
+              <div>
+                <div>GST breakdown</div>
+                <div class="desc">CGST · SGST · IGST on each bill</div>
+              </div>
+              <span></span>
+            </label>
+            <label class="cp-row">
+              <input type="checkbox">
+              <div>
+                <div>Payment mode</div>
+                <div class="desc">Cash · UPI · Bank · Cheque</div>
+              </div>
+              <span></span>
+            </label>
+            <label class="cp-row">
+              <input type="checkbox">
+              <div>
+                <div>Due date</div>
+                <div class="desc">Show due date on every bill</div>
+              </div>
+              <span></span>
+            </label>
+            <div class="cp-sep"></div>
+            <label class="cp-row">
+              <input type="checkbox">
+              <div>
+                <div>Cancelled vouchers</div>
+                <div class="desc">Include cancelled bills with strike-through</div>
+              </div>
+              <span></span>
+            </label>
+          </div>
+          <div class="cp-foot">
+            <button class="cp-link">Reset to default</button>
+            <span style="color:var(--ink-3);">3 of 7 on</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Party context line (tight, mono) -->
+  <div class="stmt-sub">
+    Customer · 98765 43210 · Navsari, Gujarat · GSTIN 24ABCDE1234F1Z5 · Credit ₹1,00,000 / 30 d · <span class="warn">4 d past credit</span>
+  </div>
+
+  <!-- Opening / Closing balance strip -->
+  <div class="balance-strip">
+    <div class="balance">
+      <div class="k">Opening Balance</div>
+      <div class="v dr"><span class="rs">₹</span>24,300<span class="tag">Dr</span></div>
+      <div class="s">as on 01 Jan 2026</div>
+    </div>
+    <div class="balance">
+      <div class="k">Closing Balance</div>
+      <div class="v dr"><span class="rs">₹</span>48,720<span class="tag">Dr</span></div>
+      <div class="s">as on 22 Apr 2026</div>
+    </div>
+    <div class="balance" style="margin-left:auto; text-align:right;">
+      <div class="k">Period Movement</div>
+      <div class="v"><span class="rs">₹</span>24,420<span class="tag" style="color:var(--dr);">Net Dr</span></div>
+      <div class="s" style="font-family:'JetBrains Mono',monospace;">Dr 89,880 · Cr 65,460</div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th class="sortable">Date <span class="hint">▾</span></th>
+          <th class="filter-trigger active">
+            <span class="th-filter-wrap">
+              Type
+              <span class="hint">▽</span>
+              <span class="filter-badge">4</span>
+
+              <!-- Type filter popover (shown open for demo) -->
+              <div class="filter-pop">
+                <div class="fp-head">
+                  <span>Show types</span>
+                  <button class="fp-link">All</button>
+                </div>
+                <div class="fp-list">
+                  <label class="fp-row"><input type="checkbox" checked><span><span class="tdot fp-tdot-sale"></span>Sales</span><span class="n">4</span></label>
+                  <label class="fp-row"><input type="checkbox"><span><span class="tdot fp-tdot-purchase"></span>Purchase</span><span class="n">0</span></label>
+                  <label class="fp-row"><input type="checkbox" checked><span><span class="tdot fp-tdot-receipt"></span>Receipts</span><span class="n">4</span></label>
+                  <label class="fp-row"><input type="checkbox"><span><span class="tdot fp-tdot-payment"></span>Payments</span><span class="n">0</span></label>
+                  <label class="fp-row"><input type="checkbox" checked><span><span class="tdot fp-tdot-sret"></span>Sales Returns</span><span class="n">2</span></label>
+                  <label class="fp-row"><input type="checkbox"><span><span class="tdot fp-tdot-pret"></span>Purchase Returns</span><span class="n">0</span></label>
+                  <label class="fp-row"><input type="checkbox" checked><span><span class="tdot" style="background:var(--ink-4);"></span>Journals / Other</span><span class="n">1</span></label>
+                </div>
+              </div>
+            </span>
+          </th>
+          <th>Ref. / Voucher</th>
+          <th class="r">Debit ₹</th>
+          <th class="r">Credit ₹</th>
+          <th class="r">Running Total</th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <tr class="opening">
+          <td class="date">01-01-2026</td>
+          <td class="type"><span class="tdot open"></span>Opening</td>
+          <td class="ref">—</td>
+          <td class="num zero">—</td>
+          <td class="num zero">—</td>
+          <td class="bal dr">24,300<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">08-01-2026</td>
+          <td class="type"><span class="tdot sale"></span>Sales</td>
+          <td class="ref">INV-0102</td>
+          <td class="num dr">18,450.00</td>
+          <td class="num zero">—</td>
+          <td class="bal dr">42,750<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">12-01-2026</td>
+          <td class="type"><span class="tdot receipt"></span>Receipt</td>
+          <td class="ref">RCT-000215</td>
+          <td class="num zero">—</td>
+          <td class="num cr">
+            15,000.00
+            <span class="alloc">Against <span class="ref">INV-0102</span> · ₹15,000.00</span>
+            <span class="narr">Bank Transfer · HDFC ***4521</span>
+          </td>
+          <td class="bal dr">27,750<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">02-02-2026</td>
+          <td class="type"><span class="tdot sale"></span>Sales</td>
+          <td class="ref">INV-0117</td>
+          <td class="num dr">
+            32,100.00
+            <span class="narr">Wholesale · GST 5% · Cash ₹10,000 received at billing</span>
+          </td>
+          <td class="num zero">—</td>
+          <td class="bal dr">59,850<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">02-02-2026</td>
+          <td class="type"><span class="tdot receipt"></span>Receipt</td>
+          <td class="ref">INV-0117 <span class="dim">·pay</span></td>
+          <td class="num zero">—</td>
+          <td class="num cr">
+            10,000.00
+            <span class="alloc">At-billing cash · <span class="ref">INV-0117</span></span>
+          </td>
+          <td class="bal dr">49,850<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">14-02-2026</td>
+          <td class="type"><span class="tdot sret"></span>Sales Return</td>
+          <td class="ref">SR-0009</td>
+          <td class="num zero">—</td>
+          <td class="num cr">
+            4,260.00
+            <span class="alloc">Against <span class="ref">INV-0117</span> · 3 pcs returned</span>
+            <span class="narr">Goods damaged in transit · refund held as credit note</span>
+          </td>
+          <td class="bal dr">45,590<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">21-02-2026</td>
+          <td class="type"><span class="tdot receipt"></span>Receipt</td>
+          <td class="ref">RCT-000242</td>
+          <td class="num zero">—</td>
+          <td class="num cr">
+            20,000.00
+            <span class="alloc">Applied to <span class="ref">INV-0102</span> ₹2,750 · <span class="ref">INV-0117</span> ₹17,250</span>
+            <span class="narr">UPI · GPay @rameshtraders · Ref UPI/BHIM.442513</span>
+          </td>
+          <td class="bal dr">25,590<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">05-03-2026</td>
+          <td class="type"><span class="tdot sale"></span>Sales</td>
+          <td class="ref">INV-0142</td>
+          <td class="num dr">
+            26,800.00
+            <span class="narr">Dress material · GST 5%</span>
+          </td>
+          <td class="num zero">—</td>
+          <td class="bal dr">52,390<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">18-03-2026</td>
+          <td class="type"><span class="tdot sret"></span>Credit Note</td>
+          <td class="ref">SR-0014</td>
+          <td class="num zero">—</td>
+          <td class="num cr">
+            1,200.00
+            <span class="narr">Amount-only · Rate revision 10% → 6% on Feb purchases</span>
+          </td>
+          <td class="bal dr">51,190<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">02-04-2026</td>
+          <td class="type"><span class="tdot sale"></span>Sales</td>
+          <td class="ref">INV-0168</td>
+          <td class="num dr">12,530.00</td>
+          <td class="num zero">—</td>
+          <td class="bal dr">63,720<span class="tag">Dr</span></td>
+        </tr>
+
+        <tr>
+          <td class="date">18-04-2026</td>
+          <td class="type"><span class="tdot receipt"></span>Receipt</td>
+          <td class="ref">RCT-000289</td>
+          <td class="num zero">—</td>
+          <td class="num cr">
+            15,000.00
+            <span class="alloc">Against <span class="ref">INV-0142</span> · cash</span>
+          </td>
+          <td class="bal dr">48,720<span class="tag">Dr</span></td>
+        </tr>
+
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3" style="text-align:right;">List Total</td>
+          <td class="num dr">89,880.00</td>
+          <td class="num cr">65,460.00</td>
+          <td class="bal">48,720<span class="tag">Dr</span></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <div class="stmt-foot-cap">
+    <span>Showing 11 of 11 vouchers · 3 types selected · 3 extras on</span>
+    <span>
+      <button class="link">Print</button>
+      <button class="link">Share</button>
+      <button class="link">Export</button>
+    </span>
+  </div>
+
+</main>
+
+</body>
+</html>

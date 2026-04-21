@@ -30,6 +30,7 @@ export const authAPI = {
   login: (data) => api.post('/auth/login', data),
   getProfile: () => api.get('/auth/profile'),
   changePassword: (data) => api.post('/auth/change-password', data),
+  verifyPassword: (password) => api.post('/auth/verify-password', { password }),
 };
 
 // Parties
@@ -37,6 +38,8 @@ export const partyAPI = {
   getAll: (params) => api.get('/parties', { params }),
   getCustomers: (params) => api.get('/parties/customers', { params }),
   getSuppliers: (params) => api.get('/parties/suppliers', { params }),
+  getAging: (params) => api.get('/parties/aging', { params }),
+  getProfit: (id, params) => api.get(`/parties/${id}/profit`, { params }),
   getById: (id) => api.get(`/parties/${id}`),
   getLedger: (id, params) => api.get(`/parties/${id}/ledger`, { params }),
   create: (data) => api.post('/parties', data),

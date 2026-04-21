@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Suppliers v4 — Editorial (Payment Calendar)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Suppliers v4 — "Payment Calendar".
+ *
+ * Same calendar concept as customers v4, tuned for AP. Each day cell
+ * shows how much we owe that day and a pressure indicator; past-terms
+ * days are flagged with a red pulse. The right panel lists bills due
+ * that day with one-click Pay.
+ *
+ * AP-specific additions:
+ *   • Cashflow meter at top — running bank balance projected across
+ *     the month, overlay showing days where we dip below a safety line.
+ *   • Drag-and-drop bills between dates to reschedule payments (implied
+ *     by the draggable affordance on bill rows).
+ *   • "Batch pay today" CTA — tick multiple bills on selected day and
+ *     release in one payment run.
+ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+  --bg-hover:    #EEE6D3;
+  --bg-inset:    #EFE8D9;
+  --ink:         #1D1A15;
+  --ink-2:       #6D5F4E;
+  --ink-3:       #9B8F7E;
+  --ink-4:       #C9BFA8;
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10);
+  --accent-border:rgba(177,71,47,0.24);
+
+  /* Heat scale for payments due (calmer → hotter) */
+  --h1: rgba(122,150,96,0.14);
+  --h2: rgba(184,146,60,0.16);
+  --h3: rgba(202,117,55,0.20);
+  --h4: rgba(155,52,40,0.22);
+
+  --up:     #7A9660;  --up-soft:   rgba(122,150,96,0.14);
+  --down:   #B1472F;  --down-soft: rgba(177,71,47,0.10);
+  --warn:   #B8923C;  --warn-soft: rgba(184,146,60,0.14);
+  --hot:    #CA7537;  --hot-soft:  rgba(202,117,55,0.14);
+  --danger: #9B3428;  --danger-soft:rgba(155,52,40,0.14);
+  --flat:   #9B8F7E;
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:   #B1472F;
+  --sb-active-ink:  #FDFAF2;
+
+  --glass-bg:     rgba(253, 250, 242, 0.55);
+  --glass-border: rgba(253, 250, 242, 0.72);
+  --glass-shadow: rgba(45, 31, 21, 0.08);
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-panel:    #1A1713;
+  --bg-muted:    #14110D;
+  --bg-hover:    #24201B;
+  --bg-inset:    #211C16;
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+
+  --accent:      #E26A4C;
+  --accent-hover:#F08975;
+  --accent-soft: rgba(226,106,76,0.14);
+  --accent-border:rgba(226,106,76,0.32);
+
+  --h1: rgba(148,184,133,0.14);
+  --h2: rgba(212,165,116,0.16);
+  --h3: rgba(224,136,86,0.20);
+  --h4: rgba(226,106,76,0.26);
+
+  --up:     #94B885;  --up-soft:   rgba(148,184,133,0.14);
+  --down:   #E26A4C;  --down-soft: rgba(226,106,76,0.14);
+  --warn:   #D4A574;  --warn-soft: rgba(212,165,116,0.14);
+  --hot:    #E08856;  --hot-soft:  rgba(224,136,86,0.16);
+  --danger: #E26A4C;  --danger-soft:rgba(226,106,76,0.18);
+  --flat:   #8A7F6C;
+
+  --sb-bg:       #0B0807;
+  --sb-border:   #1A1713;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-3:    #6D6355;
+  --sb-hover:    rgba(245,238,226,0.05);
+  --sb-active-bg:   #E26A4C;
+  --sb-active-ink:  #0E0B08;
+
+  --glass-bg:     rgba(26, 23, 19, 0.55);
+  --glass-border: rgba(178, 167, 145, 0.18);
+  --glass-shadow: rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased; font-feature-settings: 'cv11'; height: 100vh; overflow: hidden; }
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+.app { display: grid; grid-template-columns: 240px 1fr; height: 100vh; overflow: hidden; }
+
+.sidebar { background: var(--sb-bg); border-right: 1px solid var(--sb-border); padding: 16px 12px 20px; display: flex; flex-direction: column; color: var(--sb-ink); overflow-y: auto; }
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; letter-spacing: -0.01em; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: all .15s; }
+.sb-item:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; box-shadow: 0 2px 10px rgba(177,71,47,0.32); }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main { min-width: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+.crumb-bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 28px 0; font-size: 11.5px; color: var(--ink-3); font-weight: 500; flex-shrink: 0; }
+.crumb-bar b { color: var(--ink); font-weight: 600; }
+.crumb-bar .kbd { font-family: 'Inter'; font-size: 11px; padding: 2px 7px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 4px; color: var(--ink-2); font-weight: 500; }
+
+.page-hd { padding: 10px 28px 14px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; flex-shrink: 0; }
+.page-title h1 { font-family: 'Fraunces', serif; font-size: 32px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1.05; margin-bottom: 4px; }
+.page-title .sub { font-size: 13px; color: var(--ink-2); }
+.page-title .sub b { color: var(--ink); font-weight: 600; }
+.page-title .sub b.over { color: var(--danger); }
+
+.hd-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cta { height: 36px; padding: 0 16px; background: var(--accent); color: #FDFAF2; border: 1px solid var(--accent); border-radius: 7px; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 10px var(--accent-soft); transition: all .18s; }
+.cta:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.cta.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); box-shadow: none; }
+.cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+
+.view-toggle { display: inline-flex; padding: 3px; background: var(--bg-muted); border: 1px solid var(--rule); border-radius: 99px; }
+.view-toggle button { padding: 5px 12px; border: none; background: transparent; font: inherit; font-size: 12px; font-weight: 600; color: var(--ink-2); border-radius: 99px; cursor: pointer; transition: all .15s; }
+.view-toggle button.on { background: var(--ink); color: var(--bg-panel); }
+[data-mode="dark"] .view-toggle button.on { background: var(--ink); color: var(--bg); }
+
+/* Cashflow banner (unique to suppliers v4) */
+.cashflow-banner {
+  margin: 0 28px 14px;
+  padding: 14px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  display: grid; grid-template-columns: 1fr 2fr; gap: 20px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.cashflow-banner .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.cashflow-banner .s-item { }
+.cashflow-banner .s-item .k { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.cashflow-banner .s-item .v { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 2px; }
+.cashflow-banner .s-item .sub { font-size: 11px; color: var(--ink-2); margin-top: 1px; }
+.cashflow-banner .s-item.in  .v { color: var(--up); }
+.cashflow-banner .s-item.out .v { color: var(--down); }
+
+.cashflow-chart { position: relative; height: 64px; background: var(--bg-muted); border-radius: 8px; overflow: hidden; border: 1px solid var(--rule); padding: 4px 6px; }
+.cashflow-chart .bars { display: flex; align-items: flex-end; gap: 2px; height: 100%; }
+.cashflow-chart .bar {
+  flex: 1; min-width: 0; background: linear-gradient(180deg, var(--accent) 0%, var(--accent-soft) 100%);
+  border-radius: 3px 3px 0 0;
+  position: relative;
+  min-height: 4px;
+}
+.cashflow-chart .bar.safe   { background: linear-gradient(180deg, var(--up), var(--up-soft)); }
+.cashflow-chart .bar.warn   { background: linear-gradient(180deg, var(--warn), var(--warn-soft)); }
+.cashflow-chart .bar.hot    { background: linear-gradient(180deg, var(--hot), var(--hot-soft)); }
+.cashflow-chart .bar.danger { background: linear-gradient(180deg, var(--danger), var(--danger-soft)); }
+.cashflow-chart .bar.today { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 2; }
+.cashflow-chart .safety-line { position: absolute; left: 6px; right: 6px; top: 70%; height: 1px; background: var(--ink-3); opacity: 0.5; border-top: 1px dashed var(--ink-3); }
+.cashflow-chart .safety-lbl { position: absolute; right: 6px; top: 68%; transform: translateY(-100%); font-size: 9.5px; color: var(--ink-3); font-weight: 600; background: var(--bg-panel); padding: 0 4px; border-radius: 3px; }
+
+/* Split: calendar + day panel */
+.split { flex: 1; min-height: 0; padding: 0 28px 14px; display: grid; grid-template-columns: 1fr 360px; gap: 16px; overflow: hidden; }
+
+.cal-card { display: flex; flex-direction: column; min-height: 0; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+.cal-hd { padding: 12px 16px; border-bottom: 1px solid var(--rule-soft); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: linear-gradient(180deg, var(--bg-muted), var(--bg-panel)); }
+.cal-hd .month { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+.cal-hd .month-sub { font-size: 11.5px; color: var(--ink-3); }
+.cal-hd .nav-group { display: flex; gap: 4px; align-items: center; }
+.cal-hd .nav-btn { width: 32px; height: 32px; border: 1px solid var(--rule); background: var(--bg-panel); border-radius: 7px; color: var(--ink-2); cursor: pointer; display: grid; place-items: center; transition: all .15s; }
+.cal-hd .nav-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.cal-hd .today-btn { height: 32px; padding: 0 14px; border: 1px solid var(--rule); background: var(--bg-panel); border-radius: 7px; color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.cal-hd .today-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+
+.weekdays { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--rule-soft); background: var(--bg-muted); }
+.weekdays div { padding: 8px 10px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--ink-3); text-align: left; border-right: 1px solid var(--rule-soft); }
+.weekdays div:last-child { border-right: none; }
+.weekdays .we { color: var(--flat); }
+
+.cal-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 1fr; overflow: auto; }
+.day { border-right: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); padding: 8px 9px; min-height: 92px; display: flex; flex-direction: column; cursor: pointer; transition: background .12s; position: relative; overflow: hidden; }
+.day:hover { background: var(--bg-muted); }
+.day.muted { opacity: 0.4; }
+.day.we    { background: var(--bg-muted); }
+.day.today { box-shadow: inset 0 0 0 2px var(--accent); z-index: 1; }
+.day.selected { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); z-index: 2; }
+
+.day .dt-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.day .dt { font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.day.today .dt { background: var(--accent); color: #FDFAF2; padding: 0 6px; border-radius: 99px; }
+.day.muted .dt { color: var(--ink-4); }
+.day .dt-pill { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; padding: 1px 5px; border-radius: 99px; background: var(--bg-muted); color: var(--ink-3); }
+.day .dt-pill.hol { background: var(--down-soft); color: var(--down); }
+.day .dt-pill.we  { background: var(--bg-inset); color: var(--flat); }
+.day .dt-pill.over { background: var(--danger-soft); color: var(--danger); }
+
+.day .amt { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: auto; color: var(--ink); }
+.day .amt.safe { color: var(--up); }
+.day .amt.warn { color: var(--warn); }
+.day .amt.hot  { color: var(--hot); }
+.day .amt.over { color: var(--danger); }
+
+.day .count-chip { font-size: 10.5px; font-weight: 600; color: var(--ink-2); margin-top: 1px; }
+.day .count-chip b { color: var(--ink); font-weight: 700; }
+
+/* Heat background */
+.day.heat-1 { background: var(--h1); }
+.day.heat-2 { background: var(--h2); }
+.day.heat-3 { background: var(--h3); }
+.day.heat-4 { background: var(--h4); }
+.day.heat-1.selected, .day.heat-2.selected, .day.heat-3.selected, .day.heat-4.selected { background: var(--accent-soft); }
+
+.day .over-dot {
+  position: absolute; top: 8px; right: 8px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* Day detail panel */
+.day-panel { display: flex; flex-direction: column; min-height: 0; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+.dp-hd { padding: 14px 16px; border-bottom: 1px solid var(--rule-soft); background: linear-gradient(180deg, var(--bg-muted), var(--bg-panel)); }
+.dp-hd .date { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 600; color: var(--ink); line-height: 1; letter-spacing: -0.01em; }
+.dp-hd .sub { font-size: 12px; color: var(--ink-3); margin-top: 3px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dp-hd .sub .chip-today { font-size: 10px; font-weight: 700; padding: 2px 8px; background: var(--accent-soft); color: var(--accent); border-radius: 99px; letter-spacing: 0.5px; text-transform: uppercase; }
+.dp-hd .sub .chip-over  { font-size: 10px; font-weight: 700; padding: 2px 8px; background: var(--danger-soft); color: var(--danger); border-radius: 99px; letter-spacing: 0.5px; text-transform: uppercase; }
+
+.dp-stats { padding: 12px 16px; border-bottom: 1px solid var(--rule-soft); display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: var(--bg-muted); }
+.dp-stats .s-item .k { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.dp-stats .s-item .v { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 2px; }
+.dp-stats .s-item.due  .v { color: var(--down); }
+.dp-stats .s-item.bal  .v { color: var(--up); }
+
+.dp-afterpay { padding: 10px 16px; background: var(--warn-soft); border-bottom: 1px solid var(--rule-soft); font-size: 11.5px; color: var(--ink); display: flex; justify-content: space-between; align-items: center; }
+.dp-afterpay b { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.dp-list { flex: 1; overflow-y: auto; padding: 6px 6px; }
+.dp-item {
+  padding: 10px 10px;
+  border-radius: 8px;
+  cursor: grab;
+  transition: all .12s;
+  display: flex; align-items: center; gap: 10px;
+  position: relative;
+}
+.dp-item:hover { background: var(--bg-muted); box-shadow: 0 2px 8px var(--glass-shadow); }
+.dp-item::before {
+  content: '⋮⋮';
+  position: absolute; left: 2px; top: 50%; transform: translateY(-50%);
+  color: var(--ink-4); font-size: 12px; letter-spacing: -3px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.dp-item:hover::before { opacity: 1; }
+.dp-item .cbox { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; margin-left: 4px; }
+.dp-item .avt { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-family: 'Fraunces', serif; font-weight: 600; font-size: 12px; display: grid; place-items: center; box-shadow: inset 0 0 0 1px var(--accent-border); flex-shrink: 0; }
+.dp-item .main { flex: 1; min-width: 0; }
+.dp-item .main .nm { font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-item .main .sub { font-size: 11px; color: var(--ink-3); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-item .amt-right { text-align: right; flex-shrink: 0; }
+.dp-item .amt-right .v { font-size: 14px; font-weight: 700; color: var(--up); font-variant-numeric: tabular-nums; }
+.dp-item .amt-right .v.over { color: var(--danger); }
+.dp-item .amt-right .s { font-size: 10.5px; color: var(--ink-3); margin-top: 1px; }
+.dp-item .amt-right .s.over { color: var(--danger); font-weight: 700; }
+
+.dp-ft { padding: 12px 16px; border-top: 1px solid var(--rule-soft); background: var(--bg-muted); display: flex; gap: 8px; }
+.dp-ft .cta { flex: 1; height: 38px; }
+
+.theme-bar { padding: 0 28px 12px; display: flex; justify-content: flex-end; flex-shrink: 0; }
+.glass { background: var(--glass-bg); backdrop-filter: blur(18px) saturate(140%); border: 1px solid var(--glass-border); box-shadow: 0 1px 2px var(--glass-shadow), 0 8px 24px var(--glass-shadow); }
+.theme-switch { display: inline-flex; padding: 4px; border-radius: 99px; font-size: 13px; }
+.theme-switch button { padding: 6px 14px; border: none; background: transparent; font-family: inherit; color: var(--ink-2); cursor: pointer; border-radius: 99px; font-weight: 500; transition: all .2s; }
+.theme-switch button.on { background: var(--accent); color: #FDFAF2; box-shadow: 0 2px 10px rgba(177,71,47,0.32); }
+[data-mode="dark"] .theme-switch button.on { color: #0E0B08; }
+</style>
+</head>
+<body data-mode="light">
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sb-brand"><div class="sb-brand-icon">⚡</div><div class="sb-brand-name">Billing ERP</div></div>
+    <div class="sb-section">Overview</div>
+    <div class="sb-item"><span class="ic">◈</span> Dashboard</div>
+    <div class="sb-section">Transactions</div>
+    <div class="sb-item"><span class="ic">⌗</span> Sales</div>
+    <div class="sb-item"><span class="ic">⌕</span> Purchase</div>
+    <div class="sb-section">Master</div>
+    <div class="sb-item"><span class="ic">◉</span> Customers</div>
+    <div class="sb-item active"><span class="ic">◎</span> Suppliers</div>
+    <div class="sb-item"><span class="ic">▢</span> Inventory</div>
+    <div class="sb-item"><span class="ic">☰</span> Categories</div>
+    <div class="sb-section">Finance</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments</div>
+    <div class="sb-item"><span class="ic">∿</span> Reports</div>
+    <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+  </aside>
+
+  <main class="main">
+    <div class="crumb-bar">
+      <div>Master · <b>Suppliers</b> · Payment Calendar</div>
+      <div>Press <span class="kbd">⌘K</span> · <span class="kbd">T</span> today · drag bills to reschedule</div>
+    </div>
+
+    <div class="page-hd">
+      <div class="page-title">
+        <h1>Payment Calendar</h1>
+        <div class="sub">Plan the week by what goes out — <b>5 bills</b> due <b>today</b> · <b>₹ 84,900</b> · <b class="over">4 overdue</b></div>
+      </div>
+      <div class="hd-ctrl">
+        <div class="view-toggle">
+          <button>Week</button>
+          <button class="on">Month</button>
+          <button>Quarter</button>
+        </div>
+        <button class="cta ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+          Table view
+        </button>
+        <button class="cta">Batch pay today</button>
+      </div>
+    </div>
+
+    <!-- Cashflow banner -->
+    <div class="cashflow-banner">
+      <div class="stats">
+        <div class="s-item in">
+          <span class="k">Projected in · Apr</span>
+          <span class="v num">₹ 12,14,600</span>
+          <span class="sub">based on invoice due dates</span>
+        </div>
+        <div class="s-item out">
+          <span class="k">Due out · Apr</span>
+          <span class="v num">₹ 6,18,400</span>
+          <span class="sub">22 bills across 11 suppliers</span>
+        </div>
+        <div class="s-item">
+          <span class="k">Bank balance</span>
+          <span class="v num">₹ 1,48,700</span>
+          <span class="sub">as of 19 Apr morning</span>
+        </div>
+        <div class="s-item">
+          <span class="k">Month-end projection</span>
+          <span class="v num" style="color: var(--up);">₹ 7,44,900</span>
+          <span class="sub">if all bills released on due</span>
+        </div>
+      </div>
+      <div class="cashflow-chart">
+        <div class="bars">
+          <div class="bar safe" style="height: 38%"></div>
+          <div class="bar safe" style="height: 42%"></div>
+          <div class="bar safe" style="height: 32%"></div>
+          <div class="bar safe" style="height: 55%"></div>
+          <div class="bar safe" style="height: 38%"></div>
+          <div class="bar safe" style="height: 48%"></div>
+          <div class="bar safe" style="height: 26%"></div>
+          <div class="bar warn" style="height: 68%"></div>
+          <div class="bar warn" style="height: 74%"></div>
+          <div class="bar hot"  style="height: 88%"></div>
+          <div class="bar hot"  style="height: 82%"></div>
+          <div class="bar warn" style="height: 62%"></div>
+          <div class="bar safe" style="height: 52%"></div>
+          <div class="bar safe" style="height: 44%"></div>
+          <div class="bar safe" style="height: 36%"></div>
+          <div class="bar safe" style="height: 30%"></div>
+          <div class="bar safe" style="height: 26%"></div>
+          <div class="bar hot today" style="height: 92%"></div>
+          <div class="bar danger" style="height: 100%"></div>
+          <div class="bar hot" style="height: 78%"></div>
+          <div class="bar warn" style="height: 60%"></div>
+          <div class="bar safe" style="height: 44%"></div>
+          <div class="bar safe" style="height: 38%"></div>
+          <div class="bar safe" style="height: 34%"></div>
+          <div class="bar safe" style="height: 30%"></div>
+          <div class="bar safe" style="height: 40%"></div>
+          <div class="bar warn" style="height: 66%"></div>
+          <div class="bar warn" style="height: 70%"></div>
+          <div class="bar safe" style="height: 54%"></div>
+          <div class="bar safe" style="height: 42%"></div>
+        </div>
+        <div class="safety-line"></div>
+        <div class="safety-lbl">Safety line</div>
+      </div>
+    </div>
+
+    <div class="split">
+
+      <section class="cal-card">
+        <div class="cal-hd">
+          <div>
+            <div class="month">April 2026</div>
+            <div class="month-sub">19/30 days · Net-45 cycle week</div>
+          </div>
+          <div class="nav-group">
+            <button class="today-btn">Today</button>
+            <button class="nav-btn">‹</button>
+            <button class="nav-btn">›</button>
+          </div>
+        </div>
+
+        <div class="weekdays">
+          <div class="we">Sun</div>
+          <div>Mon</div>
+          <div>Tue</div>
+          <div>Wed</div>
+          <div>Thu</div>
+          <div>Fri</div>
+          <div class="we">Sat</div>
+        </div>
+
+        <div class="cal-grid">
+
+          <!-- Week 1 (Mar 29 – Apr 4) -->
+          <div class="day muted we"><div class="dt-row"><span class="dt">29</span></div></div>
+          <div class="day muted"><div class="dt-row"><span class="dt">30</span></div></div>
+          <div class="day muted"><div class="dt-row"><span class="dt">31</span></div></div>
+          <div class="day"><div class="dt-row"><span class="dt">1</span></div></div>
+          <div class="day heat-2">
+            <span class="over-dot"></span>
+            <div class="dt-row"><span class="dt">2</span><span class="dt-pill over">Over</span></div>
+            <div class="count-chip"><b>2</b> overdue bills</div>
+            <div class="amt over num">₹ 38,200</div>
+          </div>
+          <div class="day heat-1"><div class="dt-row"><span class="dt">3</span></div><div class="count-chip"><b>1</b> bill</div><div class="amt safe num">₹ 14,200</div></div>
+          <div class="day we heat-1"><div class="dt-row"><span class="dt">4</span><span class="dt-pill we">Sat</span></div></div>
+
+          <!-- Week 2 (Apr 5-11) -->
+          <div class="day we"><div class="dt-row"><span class="dt">5</span><span class="dt-pill we">Sun</span></div></div>
+          <div class="day heat-2"><div class="dt-row"><span class="dt">6</span></div><div class="count-chip"><b>2</b> bills</div><div class="amt warn num">₹ 42,100</div></div>
+          <div class="day heat-1"><div class="dt-row"><span class="dt">7</span></div><div class="count-chip"><b>1</b> bill</div><div class="amt safe num">₹ 16,500</div></div>
+          <div class="day heat-2"><div class="dt-row"><span class="dt">8</span></div><div class="count-chip"><b>2</b> bills</div><div class="amt warn num">₹ 48,500</div></div>
+          <div class="day heat-3"><div class="dt-row"><span class="dt">9</span><span class="dt-pill hol">Hol</span></div><div class="count-chip"><b>3</b> bills</div><div class="amt hot num">₹ 72,800</div></div>
+          <div class="day heat-1"><div class="dt-row"><span class="dt">10</span></div><div class="count-chip"><b>1</b> bill</div><div class="amt safe num">₹ 22,100</div></div>
+          <div class="day we heat-1"><div class="dt-row"><span class="dt">11</span><span class="dt-pill we">Sat</span></div></div>
+
+          <!-- Week 3 (Apr 12-18) -->
+          <div class="day we"><div class="dt-row"><span class="dt">12</span><span class="dt-pill we">Sun</span></div></div>
+          <div class="day heat-2"><div class="dt-row"><span class="dt">13</span></div><div class="count-chip"><b>2</b> bills</div><div class="amt warn num">₹ 46,200</div></div>
+          <div class="day heat-3"><div class="dt-row"><span class="dt">14</span></div><div class="count-chip"><b>3</b> bills</div><div class="amt hot num">₹ 64,800</div></div>
+          <div class="day heat-4"><div class="dt-row"><span class="dt">15</span></div><div class="count-chip"><b>4</b> bills</div><div class="amt hot num">₹ 88,500</div></div>
+          <div class="day heat-2"><div class="dt-row"><span class="dt">16</span></div><div class="count-chip"><b>2</b> bills</div><div class="amt warn num">₹ 38,900</div></div>
+          <div class="day heat-1"><div class="dt-row"><span class="dt">17</span></div><div class="count-chip"><b>1</b> bill</div><div class="amt safe num">₹ 22,100</div></div>
+          <div class="day we"><div class="dt-row"><span class="dt">18</span><span class="dt-pill we">Sat</span></div></div>
+
+          <!-- Week 4 (Apr 19-25) — today = 19 -->
+          <div class="day we today selected heat-4">
+            <span class="over-dot"></span>
+            <div class="dt-row"><span class="dt">19</span><span class="dt-pill">Today</span></div>
+            <div class="count-chip"><b>5</b> bills · 2 overdue</div>
+            <div class="amt hot num">₹ 84,900</div>
+          </div>
+          <div class="day heat-4">
+            <div class="dt-row"><span class="dt">20</span><span class="dt-pill" style="background: var(--hot-soft); color: var(--hot);">Peak</span></div>
+            <div class="count-chip"><b>4</b> bills</div>
+            <div class="amt hot num">₹ 1,28,500</div>
+          </div>
+          <div class="day heat-3"><div class="dt-row"><span class="dt">21</span></div><div class="count-chip"><b>3</b> bills</div><div class="amt hot num">₹ 76,400</div></div>
+          <div class="day heat-2"><div class="dt-row"><span class="dt">22</span></div><div class="count-chip"><b>2</b> bills</div><div class="amt warn num">₹ 42,100</div></div>
+          <div class="day heat-1"><div class="dt-row"><span class="dt">23</span></div><div class="count-chip"><b>1</b> bill</div><div class="amt safe num">₹ 20,500</div></div>
+          <div class="day heat-1"><div class="dt-row"><span class="dt">24</span></div><div class="count-chip"><b>1</b> bill</div><div class="amt safe num">₹ 14,500</div></div>
+          <div class="day we"><div class="dt-row"><span class="dt">25</span><span class="dt-pill we">Sat</span></div></div>
+
+          <!-- Week 5 (Apr 26 – May 2) -->
+          <div class="day we"><div class="dt-row"><span class="dt">26</span><span class="dt-pill we">Sun</span></div></div>
+          <div class="day heat-2"><div class="dt-row"><span class="dt">27</span></div><div class="count-chip"><b>2</b> bills</div><div class="amt warn num">₹ 46,500</div></div>
+          <div class="day heat-2"><div class="dt-row"><span class="dt">28</span></div><div class="count-chip"><b>2</b> bills</div><div class="amt warn num">₹ 42,100</div></div>
+          <div class="day heat-3"><div class="dt-row"><span class="dt">29</span></div><div class="count-chip"><b>3</b> bills</div><div class="amt hot num">₹ 66,500</div></div>
+          <div class="day heat-2"><div class="dt-row"><span class="dt">30</span></div><div class="count-chip"><b>2</b> bills</div><div class="amt warn num">₹ 48,900</div></div>
+          <div class="day muted"><div class="dt-row"><span class="dt">1</span></div></div>
+          <div class="day muted we"><div class="dt-row"><span class="dt">2</span></div></div>
+
+        </div>
+      </section>
+
+      <!-- Day detail panel -->
+      <aside class="day-panel">
+        <div class="dp-hd">
+          <div class="date">Saturday, 19 April</div>
+          <div class="sub">
+            <span class="chip-today">TODAY</span>
+            <span class="chip-over">2 OVERDUE</span>
+          </div>
+        </div>
+
+        <div class="dp-stats">
+          <div class="s-item due">
+            <span class="k">Due today</span>
+            <span class="v num">₹ 84,900</span>
+          </div>
+          <div class="s-item bal">
+            <span class="k">Bank balance</span>
+            <span class="v num">₹ 1,48,700</span>
+          </div>
+        </div>
+
+        <div class="dp-afterpay">
+          <span>After paying all today: <b>₹ 63,800</b> remaining</span>
+          <span style="color: var(--warn);">⚠ Below safety</span>
+        </div>
+
+        <div class="dp-list">
+
+          <div class="dp-item">
+            <input type="checkbox" class="cbox" checked/>
+            <div class="avt">M</div>
+            <div class="main">
+              <div class="nm">Mahalaxmi Textiles</div>
+              <div class="sub">PB-000062 · Net 30 · overdue</div>
+            </div>
+            <div class="amt-right">
+              <div class="v over num">₹ 38,200</div>
+              <div class="s over">18 d over</div>
+            </div>
+          </div>
+
+          <div class="dp-item">
+            <input type="checkbox" class="cbox" checked/>
+            <div class="avt">S</div>
+            <div class="main">
+              <div class="nm">Sagar Plastics</div>
+              <div class="sub">PB-000058 · Net 15 · overdue</div>
+            </div>
+            <div class="amt-right">
+              <div class="v over num">₹ 23,700</div>
+              <div class="s over">8 d over</div>
+            </div>
+          </div>
+
+          <div class="dp-item">
+            <input type="checkbox" class="cbox" checked/>
+            <div class="avt">G</div>
+            <div class="main">
+              <div class="nm">Gupta Wholesalers</div>
+              <div class="sub">PB-000054 · Net 45 · due today</div>
+            </div>
+            <div class="amt-right">
+              <div class="v num">₹ 12,800</div>
+              <div class="s">Due now</div>
+            </div>
+          </div>
+
+          <div class="dp-item">
+            <input type="checkbox" class="cbox"/>
+            <div class="avt">G</div>
+            <div class="main">
+              <div class="nm">Gokul Foods</div>
+              <div class="sub">PB-000070 · Net 30</div>
+            </div>
+            <div class="amt-right">
+              <div class="v num">₹ 6,200</div>
+              <div class="s">Drag to Apr 24</div>
+            </div>
+          </div>
+
+          <div class="dp-item">
+            <input type="checkbox" class="cbox"/>
+            <div class="avt">K</div>
+            <div class="main">
+              <div class="nm">Kwality Stationers</div>
+              <div class="sub">PB-000073 · Net 15</div>
+            </div>
+            <div class="amt-right">
+              <div class="v num">₹ 4,000</div>
+              <div class="s">Early-pay 2%</div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="dp-ft">
+          <button class="cta ghost" style="flex: 1;">Reschedule</button>
+          <button class="cta" style="flex: 1.4;">Pay ₹ 74,700 (3)</button>
+        </div>
+      </aside>
+
+    </div>
+
+    <div class="theme-bar">
+      <div class="theme-switch glass">
+        <button id="themeLight" class="on">☀ Light</button>
+        <button id="themeDark">☾ Dark</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  document.getElementById('themeLight').onclick = () => { document.body.setAttribute('data-mode', 'light'); themeLight.classList.add('on'); themeDark.classList.remove('on'); };
+  document.getElementById('themeDark').onclick = () => { document.body.setAttribute('data-mode', 'dark'); themeDark.classList.add('on'); themeLight.classList.remove('on'); };
+
+  document.querySelectorAll('.day').forEach(d => d.addEventListener('click', () => {
+    document.querySelectorAll('.day.selected').forEach(x => x.classList.remove('selected'));
+    d.classList.add('selected');
+  }));
+
+  document.querySelectorAll('.view-toggle button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.view-toggle button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+  }));
+</script>
+
+</body>
+</html>

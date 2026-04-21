@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sales List v2 — Editorial (compact)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Sales List v2 — Compact.
+ *
+ * Same chrome as v1 but re-weighted toward the list itself:
+ *   — KPIs compress into a single low-profile strip (one row, tight)
+ *   — table gets ~70% of the vertical space; most bills stay on-screen
+ *   — each bill renders on one line (no stacked meta); you can still see
+ *     payment % / status / balance without wrapping
+ *   — row height ~54px so ten bills fit in a typical laptop viewport.
+ */
+
+:root {
+  --bg: #F5EFE3; --bg-panel: #FDFAF2; --bg-muted: #F8F2E4;
+  --ink: #1D1A15; --ink-2: #6D5F4E; --ink-3: #9B8F7E;
+  --rule: #E3D9C5; --rule-soft: #ECE2CD;
+  --accent: #B1472F; --accent-hover: #8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10); --accent-border: rgba(177,71,47,0.24);
+  --paid: #7A9660; --paid-soft: rgba(122,150,96,0.14);
+  --partial: #B8923C; --partial-soft: rgba(184,146,60,0.14);
+  --unpaid: #9B3428; --unpaid-soft: rgba(155,52,40,0.14);
+  --cancelled: #6D6355; --cancelled-soft: rgba(109,99,85,0.14);
+  --down: #B1472F; --down-soft: rgba(177,71,47,0.08);
+  --sb-bg: #1D1814; --sb-border: #2C2821;
+  --sb-ink: #E8DFC9; --sb-ink-3: #8A7F6C;
+  --sb-hover: rgba(245,238,226,0.06);
+  --sb-active-bg: #B1472F; --sb-active-ink: #FDFAF2;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased; height: 100vh; overflow: hidden; }
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+.app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
+
+.sidebar { background: var(--sb-bg); border-right: 1px solid var(--sb-border); padding: 16px 12px 20px; display: flex; flex-direction: column; color: var(--sb-ink); overflow-y: auto; }
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: all .15s; }
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main { min-width: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* Title — tight */
+.page-hd { padding: 20px 32px 14px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-shrink: 0; }
+.page-title h1 { font-family: 'Fraunces', Georgia, serif; font-size: 30px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1; margin-bottom: 6px; }
+.page-title .sub { font-size: 12.5px; color: var(--ink-3); }
+.page-title .sub b { color: var(--ink-2); font-weight: 600; }
+.hd-ctrl { display: flex; gap: 8px; align-items: center; }
+.cta { height: 34px; padding: 0 14px; background: var(--accent); color: #FDFAF2; border: 1px solid var(--accent); border-radius: 7px; font: inherit; font-weight: 600; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.cta:hover { background: var(--accent-hover); }
+.cta.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); }
+.cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); }
+.cta svg { width: 13px; height: 13px; }
+
+/* KPI strip — one row, compact, tap to filter */
+.kpi-strip { margin: 0 32px 12px; display: grid; grid-template-columns: 1.1fr 0.9fr 0.9fr 0.9fr 1fr; gap: 10px; flex-shrink: 0; }
+.kpi-tile { background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; cursor: pointer; position: relative; transition: all .18s; }
+.kpi-tile:hover { border-color: var(--accent-border); }
+.kpi-tile.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.kpi-tile .k { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.kpi-tile .v { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; color: var(--ink); margin-top: 4px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kpi-tile .s { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+.kpi-tile .pct { position: absolute; top: 12px; right: 14px; font-size: 10.5px; color: var(--ink-3); font-weight: 600; font-variant-numeric: tabular-nums; }
+.kpi-tile.revenue { background: linear-gradient(135deg, var(--accent-soft), transparent 80%); border-color: var(--accent-border); }
+.kpi-tile.revenue .v { color: var(--accent); }
+.kpi-tile.paid .v    { color: var(--paid); }
+.kpi-tile.partial .v { color: var(--partial); }
+.kpi-tile.unpaid .v  { color: var(--unpaid); }
+.kpi-tile.outstanding { background: linear-gradient(135deg, var(--down-soft), transparent 80%); border-color: rgba(177,71,47,0.18); }
+.kpi-tile.outstanding .v { color: var(--down); }
+
+/* Toolbar — tiny */
+.toolbar { padding: 0 32px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+.toolbar .scope { font-size: 12px; color: var(--ink-3); }
+.toolbar .scope b { color: var(--ink-2); font-weight: 600; }
+.toolbar .right { display: flex; gap: 6px; align-items: center; }
+.search-box { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; width: 240px; }
+.search-box input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--ink); }
+.search-box svg { width: 13px; height: 13px; color: var(--ink-3); }
+.chip-btn { height: 32px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink-2); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.chip-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.chip-btn svg { width: 12px; height: 12px; }
+
+/* TABLE — the star of the show (dense, one line per bill) */
+.table-wrap { flex: 1; min-height: 0; padding: 0 32px 16px; display: flex; flex-direction: column; }
+.table-card { flex: 1; min-height: 0; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+.table-scroll { flex: 1; overflow: auto; }
+.ctable { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; table-layout: fixed; }
+.ctable thead th { background: var(--bg-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--ink-3); padding: 10px 14px; border-bottom: 1px solid var(--rule); text-align: left; position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+.ctable thead th.r { text-align: right; }
+.ctable tbody td { padding: 12px 14px; border-bottom: 1px solid var(--rule-soft); font-size: 13px; color: var(--ink); vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctable tbody tr.row { cursor: pointer; transition: background .1s; height: 54px; }
+.ctable tbody tr.row:hover td { background: var(--bg-muted); }
+.ctable tbody tr.row.cancelled td { opacity: 0.5; }
+
+.ctable col.c-bill    { width: 12%; }
+.ctable col.c-date    { width: 10%; }
+.ctable col.c-cust    { width: 20%; }
+.ctable col.c-total   { width: 11%; }
+.ctable col.c-pay     { width: 9%; }
+.ctable col.c-bar     { width: 15%; }
+.ctable col.c-bal     { width: 14%; }
+.ctable col.c-status  { width: 9%; }
+
+.bill-id { font-family: 'Fraunces', serif; font-weight: 600; font-size: 14px; color: var(--ink); }
+.bill-kind { font-size: 11px; color: var(--ink-3); margin-left: 6px; }
+
+.date-main { font-size: 13px; color: var(--ink); }
+.date-rel { font-size: 10.5px; color: var(--ink-3); margin-left: 6px; }
+
+.cust-main { font-size: 13px; color: var(--ink); font-weight: 500; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.cust-main.cash { color: var(--ink-3); font-style: italic; }
+.vip-chip { font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: rgba(127,90,163,0.14); color: #7F5AA3; letter-spacing: 0.5px; flex-shrink: 0; }
+.vip-chip::before { content: '★'; margin-right: 1px; }
+
+.total-n { font-family: 'Fraunces', serif; font-weight: 600; font-size: 15px; color: var(--ink); text-align: right; display: block; }
+.total-n .rupee { color: var(--ink-3); margin-right: 2px; font-weight: 500; }
+
+.pay-pct { font-size: 13px; font-weight: 700; text-align: right; display: block; }
+.pay-pct.paid    { color: var(--paid); }
+.pay-pct.partial { color: var(--partial); }
+.pay-pct.unpaid  { color: var(--unpaid); }
+.pay-pct.n-a { color: var(--ink-3); font-weight: 500; font-size: 11px; font-style: italic; }
+
+.mini-bar { height: 5px; border-radius: 99px; overflow: hidden; display: flex; background: var(--bg-muted); margin: 0 auto; width: 100%; max-width: 180px; }
+.mini-bar .seg { height: 100%; }
+.mini-bar .seg.paid { background: var(--paid); }
+.mini-bar .seg.unpaid { background: var(--unpaid); }
+
+.bal-n { font-size: 12.5px; text-align: right; display: block; font-variant-numeric: tabular-nums; }
+.bal-n b { font-weight: 700; }
+.bal-n b.due  { color: var(--unpaid); }
+.bal-n b.done { color: var(--paid); }
+
+.status-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700; padding: 2px 9px; border-radius: 99px; letter-spacing: 0.4px; text-transform: uppercase; }
+.status-pill.paid    { background: var(--paid-soft);    color: var(--paid); }
+.status-pill.partial { background: var(--partial-soft); color: var(--partial); }
+.status-pill.unpaid  { background: var(--unpaid-soft);  color: var(--unpaid); }
+.status-pill.cancelled { background: var(--cancelled-soft); color: var(--cancelled); }
+.status-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+.tfoot { display: flex; justify-content: flex-end; gap: 22px; padding: 12px 16px; border-top: 1px solid var(--rule); background: var(--bg-muted); flex-shrink: 0; font-size: 12px; color: var(--ink-3); }
+.tfoot b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="sb-brand"><div class="sb-brand-icon">B</div><div class="sb-brand-name">Billin ERP</div></div>
+    <div class="sb-section">Workspace</div>
+    <div class="sb-item"><span class="ic">◎</span> Dashboard</div>
+    <div class="sb-item active"><span class="ic">◧</span> Sales</div>
+    <div class="sb-item"><span class="ic">◨</span> Purchases</div>
+    <div class="sb-item"><span class="ic">◐</span> Customers</div>
+    <div class="sb-item"><span class="ic">◑</span> Suppliers</div>
+    <div class="sb-item"><span class="ic">⊡</span> Inventory</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments &amp; Receipts</div>
+    <div class="sb-item"><span class="ic">◫</span> Reports</div>
+  </aside>
+
+  <main class="main">
+
+    <div class="page-hd">
+      <div class="page-title">
+        <h1>Sales Bills</h1>
+        <div class="sub"><b>178</b> bills · FY 2025-26</div>
+      </div>
+      <div class="hd-ctrl">
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Receipt</button>
+        <button class="cta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> New Sale</button>
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export</button>
+      </div>
+    </div>
+
+    <!-- Compact KPI strip — 5 tiles in one row, small, tap-to-filter -->
+    <div class="kpi-strip">
+      <div class="kpi-tile revenue active">
+        <div class="k">This-Month Revenue</div>
+        <div class="v">₹ 6,48,200</div>
+        <div class="s">42 bills</div>
+      </div>
+      <div class="kpi-tile paid">
+        <span class="pct">62%</span>
+        <div class="k">Paid</div>
+        <div class="v">₹ 4,02,000</div>
+        <div class="s">26 bills</div>
+      </div>
+      <div class="kpi-tile partial">
+        <span class="pct">22%</span>
+        <div class="k">Partial</div>
+        <div class="v">₹ 1,42,000</div>
+        <div class="s">10 bills</div>
+      </div>
+      <div class="kpi-tile unpaid">
+        <span class="pct">16%</span>
+        <div class="k">Unpaid</div>
+        <div class="v">₹ 1,04,200</div>
+        <div class="s">6 bills</div>
+      </div>
+      <div class="kpi-tile outstanding">
+        <div class="k">Outstanding</div>
+        <div class="v">₹ 3,76,120</div>
+        <div class="s">16 open · 1 overdue</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="scope">Showing <b>42</b> bills in <b>This Month</b></div>
+      <div class="right">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search bill or customer">
+        </div>
+        <button class="chip-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> 01 – 19 Apr</button>
+        <button class="chip-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg> Date ↓</button>
+      </div>
+    </div>
+
+    <!-- TABLE — one bill per line, 10+ bills visible -->
+    <div class="table-wrap">
+      <div class="table-card">
+        <div class="table-scroll">
+          <table class="ctable">
+            <colgroup>
+              <col class="c-bill"/>
+              <col class="c-date"/>
+              <col class="c-cust"/>
+              <col class="c-total"/>
+              <col class="c-pay"/>
+              <col class="c-bar"/>
+              <col class="c-bal"/>
+              <col class="c-status"/>
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Bill</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th class="r">Total</th>
+                <th class="r">Paid</th>
+                <th>Progress</th>
+                <th class="r">Balance</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="row">
+                <td><span class="bill-id">INV-0178</span><span class="bill-kind">Credit 30</span></td>
+                <td><span class="date-main">19 Apr</span><span class="date-rel">Today</span></td>
+                <td><span class="cust-main">ansari <span class="vip-chip">VIP</span></span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>51,300</span></td>
+                <td><span class="pay-pct partial">20%</span></td>
+                <td><div class="mini-bar"><span class="seg paid" style="width: 20%"></span><span class="seg unpaid" style="width: 80%"></span></div></td>
+                <td><span class="bal-n"><b class="due">₹ 41,300</b></span></td>
+                <td><span class="status-pill partial"><span class="dot"></span> Partial</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0177</span><span class="bill-kind">Cash</span></td>
+                <td><span class="date-main">19 Apr</span><span class="date-rel">2h</span></td>
+                <td><span class="cust-main cash">Cash Sale · walk-in</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>2,300</span></td>
+                <td><span class="pay-pct paid">100%</span></td>
+                <td><div class="mini-bar"><span class="seg paid" style="width: 100%"></span></div></td>
+                <td><span class="bal-n"><b class="done">Settled</b></span></td>
+                <td><span class="status-pill paid"><span class="dot"></span> Paid</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0176</span><span class="bill-kind">Credit 30</span></td>
+                <td><span class="date-main">18 Apr</span><span class="date-rel">1d</span></td>
+                <td><span class="cust-main">Madhav Traders</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>1,65,200</span></td>
+                <td><span class="pay-pct unpaid">0%</span></td>
+                <td><div class="mini-bar"><span class="seg unpaid" style="width: 100%"></span></div></td>
+                <td><span class="bal-n"><b class="due">₹ 1,65,200</b></span></td>
+                <td><span class="status-pill unpaid"><span class="dot"></span> Unpaid</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0175</span><span class="bill-kind">Credit 15</span></td>
+                <td><span class="date-main">17 Apr</span><span class="date-rel">2d</span></td>
+                <td><span class="cust-main">ALi</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>18,080</span></td>
+                <td><span class="pay-pct paid">100%</span></td>
+                <td><div class="mini-bar"><span class="seg paid" style="width: 100%"></span></div></td>
+                <td><span class="bal-n"><b class="done">Settled</b></span></td>
+                <td><span class="status-pill paid"><span class="dot"></span> Paid</span></td>
+              </tr>
+
+              <tr class="row cancelled">
+                <td><span class="bill-id">INV-0174</span><span class="bill-kind">Cash</span></td>
+                <td><span class="date-main">17 Apr</span><span class="date-rel">Cxd</span></td>
+                <td><span class="cust-main cash">Cash Sale</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>1,000</span></td>
+                <td><span class="pay-pct n-a">—</span></td>
+                <td><div class="mini-bar"></div></td>
+                <td><span class="bal-n">—</span></td>
+                <td><span class="status-pill cancelled"><span class="dot"></span> Cancelled</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0173</span><span class="bill-kind">Credit 30</span></td>
+                <td><span class="date-main">16 Apr</span><span class="date-rel">3d</span></td>
+                <td><span class="cust-main">Kamat Traders</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>42,800</span></td>
+                <td><span class="pay-pct partial">50%</span></td>
+                <td><div class="mini-bar"><span class="seg paid" style="width: 50%"></span><span class="seg unpaid" style="width: 50%"></span></div></td>
+                <td><span class="bal-n"><b class="due">₹ 21,400</b></span></td>
+                <td><span class="status-pill partial"><span class="dot"></span> Partial</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0172</span><span class="bill-kind">Cash</span></td>
+                <td><span class="date-main">16 Apr</span><span class="date-rel">3d</span></td>
+                <td><span class="cust-main cash">Cash Sale · walk-in</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>4,750</span></td>
+                <td><span class="pay-pct paid">100%</span></td>
+                <td><div class="mini-bar"><span class="seg paid" style="width: 100%"></span></div></td>
+                <td><span class="bal-n"><b class="done">Settled</b></span></td>
+                <td><span class="status-pill paid"><span class="dot"></span> Paid</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0171</span><span class="bill-kind">Credit 45</span></td>
+                <td><span class="date-main">15 Apr</span><span class="date-rel">4d</span></td>
+                <td><span class="cust-main">Vinayak Wholesale</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>88,920</span></td>
+                <td><span class="pay-pct partial">60%</span></td>
+                <td><div class="mini-bar"><span class="seg paid" style="width: 60%"></span><span class="seg unpaid" style="width: 40%"></span></div></td>
+                <td><span class="bal-n"><b class="due">₹ 35,568</b></span></td>
+                <td><span class="status-pill partial"><span class="dot"></span> Partial</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0170</span><span class="bill-kind">Credit 15</span></td>
+                <td><span class="date-main">14 Apr</span><span class="date-rel">5d</span></td>
+                <td><span class="cust-main">Prakash Stores</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>12,300</span></td>
+                <td><span class="pay-pct paid">100%</span></td>
+                <td><div class="mini-bar"><span class="seg paid" style="width: 100%"></span></div></td>
+                <td><span class="bal-n"><b class="done">Settled</b></span></td>
+                <td><span class="status-pill paid"><span class="dot"></span> Paid</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0169</span><span class="bill-kind">Credit 30</span></td>
+                <td><span class="date-main">13 Apr</span><span class="date-rel">6d</span></td>
+                <td><span class="cust-main">Sharma Textiles</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>2,15,400</span></td>
+                <td><span class="pay-pct unpaid">0%</span></td>
+                <td><div class="mini-bar"><span class="seg unpaid" style="width: 100%"></span></div></td>
+                <td><span class="bal-n"><b class="due">₹ 2,15,400</b></span></td>
+                <td><span class="status-pill unpaid"><span class="dot"></span> Unpaid</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0168</span><span class="bill-kind">Cash</span></td>
+                <td><span class="date-main">12 Apr</span><span class="date-rel">7d</span></td>
+                <td><span class="cust-main cash">Cash Sale · walk-in</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>3,220</span></td>
+                <td><span class="pay-pct paid">100%</span></td>
+                <td><div class="mini-bar"><span class="seg paid" style="width: 100%"></span></div></td>
+                <td><span class="bal-n"><b class="done">Settled</b></span></td>
+                <td><span class="status-pill paid"><span class="dot"></span> Paid</span></td>
+              </tr>
+
+              <tr class="row">
+                <td><span class="bill-id">INV-0167</span><span class="bill-kind">Credit 30</span></td>
+                <td><span class="date-main">11 Apr</span><span class="date-rel">8d</span></td>
+                <td><span class="cust-main">Rohit Retail</span></td>
+                <td><span class="total-n"><span class="rupee">₹</span>34,180</span></td>
+                <td><span class="pay-pct paid">100%</span></td>
+                <td><div class="mini-bar"><span class="seg paid" style="width: 100%"></span></div></td>
+                <td><span class="bal-n"><b class="done">Settled</b></span></td>
+                <td><span class="status-pill paid"><span class="dot"></span> Paid</span></td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+
+        <div class="tfoot">
+          <span>Shown: <b>12 of 42</b></span>
+          <span>Page total: <b>₹ 6,59,490</b></span>
+          <span>Paid: <b style="color: var(--paid);">₹ 1,80,222</b></span>
+          <span>Balance: <b style="color: var(--unpaid);">₹ 4,78,868</b></span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+</body>
+</html>

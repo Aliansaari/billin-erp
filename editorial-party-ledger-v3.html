@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Party Ledger — Editorial v3 (Accounting-grade)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+ *  Party Ledger v3 — Accounting-software-grade
+ *
+ *  Design foundation: conventions a bookkeeper coming from Tally / Vyapar /
+ *  Busy already knows. Their muscle memory decides if the software is
+ *  usable in the first 30 seconds — if we break it, they leave.
+ *
+ *   1. Separate Dr and Cr columns. NEVER merge them into "amount ± direction".
+ *      Accountants read a trial-balance shape left-to-right.
+ *   2. Summary strip above the table: Opening | Debit | Credit | Closing.
+ *      Matches the Tally Display Ledger footer/header arrangement.
+ *   3. Voucher number is ALWAYS visible and monospace — drilldown anchor.
+ *   4. Narration and bill-allocation live as sub-rows under the transaction
+ *      line, indented — "Against INV-0102" or "Received via UPI" etc.
+ *   5. Period control is top-right, with keyboard shortcut (F2) — the most
+ *      common action on this screen.
+ *   6. Keyboard-first. A persistent shortcut bar at the bottom lists every
+ *      key. Every action has a mnemonic (P=Print, E=Export, N=New…).
+ *   7. Group context in the breadcrumb. "Sundry Debtors > Rameshwar Traders"
+ *      reminds the user this is an ACCOUNTING ledger, not a CRM card.
+ *   8. Aging as a one-line footer — bucketed rupees, no chart glyphs.
+ *   9. Density over decoration. 32-px row height is the Tally sweet spot —
+ *      dense enough to see 20 transactions at once, airy enough to scan.
+ *  10. Hover reveals row actions (view voucher · edit · reverse). Right-click
+ *      too. Drilldown is always one click away, never more.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg: #F5EFE3;
+  --bg-panel: #FDFAF2;
+  --bg-soft: #FAF5E9;
+  --bg-strip: #F1E9D6;
+  --ink: #1D1A15;
+  --ink-2: #5C5040;
+  --ink-3: #8E8270;
+  --ink-4: #BBAF98;
+  --rule: #E5D9C0;
+  --rule-soft: #EEE4CC;
+  --accent: #B1472F;
+  --accent-hover: #8B2E1F;
+  --accent-soft: rgba(177, 71, 47, 0.08);
+  --dr: #8F4A26;
+  --cr: #657F50;
+  --receivable: #8F4A26;
+  --payable: #657F50;
+  --warn: #C68A1F;
+  --warn-soft: rgba(198, 138, 31, 0.12);
+  --danger: #B1472F;
+  --sb-bg: #1D1814;
+  --sb-border: #2C2821;
+  --sb-ink: #E8DFC9;
+  --sb-ink-3: #8A7F6C;
+  --sb-hover: rgba(245, 238, 226, 0.06);
+  --sb-active-bg: #B1472F;
+  --sb-active-ink: #FDFAF2;
+  --sb-w: 216px;
+  --pp-w: 264px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ══════════════ Sidebar ══════════════ */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 14px 10px 16px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  z-index: 20;
+  font-size: 12.5px;
+}
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 14px; border-bottom: 1px solid var(--sb-border); margin-bottom: 8px; }
+.sb-brand-icon { width: 26px; height: 26px; border-radius: 5px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; }
+.sb-brand-icon .bolt { display: inline-block; width: 8px; height: 14px; background: currentColor; clip-path: polygon(62% 0%, 0% 60%, 38% 60%, 28% 100%, 100% 40%, 62% 40%); }
+.sb-brand-name { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; color: #F5EEE2; }
+.sb-group { font-size: 9.5px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--sb-ink-3); padding: 12px 10px 4px; }
+.sb-item { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 5px; font-size: 12.5px; cursor: pointer; margin-bottom: 1px; transition: background .12s; }
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; }
+.sb-item .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+/* ══════════════ Main + panes ══════════════ */
+.main {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: grid;
+  grid-template-columns: var(--pp-w) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+/* ── Ledger index pane (left of ledger) ─────────────────────────── */
+.idx {
+  border-right: 1px solid var(--rule);
+  display: flex; flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+  font-size: 12.5px;
+}
+.idx-hd {
+  flex-shrink: 0;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.idx-group {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding-bottom: 5px;
+}
+.idx-group .caret { color: var(--ink-4); font-size: 8px; }
+.idx-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 18px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  line-height: 1.1;
+}
+.idx-meta {
+  font-size: 11.5px; color: var(--ink-3);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.idx-search {
+  position: relative;
+  padding: 10px 14px 8px;
+  flex-shrink: 0;
+}
+.idx-search input {
+  width: 100%; height: 28px;
+  padding: 0 10px 0 26px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  outline: none;
+  font: inherit; font-size: 12.5px;
+  color: var(--ink);
+}
+.idx-search .ic {
+  position: absolute; left: 22px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-3); font-size: 11px;
+}
+.idx-search input:focus { border-color: var(--accent); background: var(--bg-panel); }
+.idx-search kbd {
+  position: absolute; right: 22px; top: 50%;
+  transform: translateY(-50%);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--bg-strip);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--ink-3);
+}
+.idx-sort {
+  display: flex; gap: 0; padding: 0 14px 8px;
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule-soft);
+  flex-shrink: 0;
+}
+.idx-sort > span { padding: 0 0 6px; cursor: pointer; }
+.idx-sort > span:hover { color: var(--ink); }
+.idx-sort > span.active {
+  color: var(--accent);
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 4px;
+  margin-bottom: -2px;
+}
+.idx-sort .grow { flex: 1; }
+
+.idx-list { flex: 1; min-height: 0; overflow-y: auto; }
+.idx-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+  cursor: pointer;
+  transition: background .1s;
+}
+.idx-row:hover { background: var(--bg-soft); }
+.idx-row.active { background: var(--bg-panel); box-shadow: inset 3px 0 0 var(--accent); }
+.idx-name { font-weight: 500; color: var(--ink); font-size: 13px; }
+.idx-row.active .idx-name { color: var(--accent); font-weight: 600; }
+.idx-sub { font-size: 11px; color: var(--ink-3); margin-top: 1px; font-variant-numeric: tabular-nums; }
+.idx-amt {
+  align-self: center;
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.idx-amt.dr { color: var(--dr); }
+.idx-amt.cr { color: var(--cr); }
+.idx-amt.zero { color: var(--ink-4); font-weight: 400; }
+
+/* ══════════════ Ledger (main canvas) ══════════════ */
+.ledger {
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+  min-height: 0; min-width: 0;
+  background: var(--bg-panel);
+}
+
+/* — Breadcrumb + title + period control — */
+.l-header {
+  padding: 16px 26px 12px;
+  border-bottom: 1px solid var(--rule-soft);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: flex-end;
+}
+.bc {
+  font-size: 11px;
+  color: var(--ink-3);
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 6px;
+}
+.bc a { color: var(--ink-3); text-decoration: none; }
+.bc a:hover { color: var(--accent); }
+.bc .sep { color: var(--ink-4); }
+.bc .here { color: var(--ink); font-weight: 500; }
+
+.l-title {
+  display: flex; align-items: baseline; gap: 14px;
+  flex-wrap: wrap;
+}
+.l-name {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 24px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  line-height: 1.05;
+}
+.l-badges {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.l-badges .chip {
+  padding: 2px 8px;
+  background: var(--bg-strip);
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--ink-2);
+}
+.l-badges .chip.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.l-contact {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.15px;
+}
+
+/* Period selector */
+.period-box {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  align-items: stretch;
+}
+.period-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-panel);
+  border: none;
+  font: inherit; font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  border-right: 1px solid var(--rule);
+  transition: background .12s;
+}
+.period-btn:hover { background: var(--bg-strip); }
+.period-btn .lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); font-weight: 700; }
+.period-btn .val {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500; font-size: 12px;
+  color: var(--ink);
+}
+.period-btn.key {
+  background: var(--bg);
+  border-right: none;
+  padding: 0 10px;
+}
+.period-btn.key kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+/* — Summary strip (Opening | Debit | Credit | Closing) — */
+.sum-strip {
+  padding: 14px 26px;
+  background: var(--bg-strip);
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+.sum {
+  display: flex; flex-direction: column; gap: 3px;
+}
+.sum .k {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.sum .v {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 22px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.sum .v.dr { color: var(--dr); }
+.sum .v.cr { color: var(--cr); }
+.sum .v .rs { color: var(--ink-3); font-weight: 500; font-size: 14px; margin-right: 3px; }
+.sum .v .tag {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.4px;
+  margin-left: 6px;
+  vertical-align: 4px;
+}
+
+.sum-strip .actions {
+  display: flex; gap: 6px; align-items: center;
+}
+.a-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  color: var(--ink);
+  font: inherit; font-size: 12.5px; font-weight: 500;
+  cursor: pointer;
+  transition: all .12s;
+}
+.a-btn:hover { border-color: var(--ink-4); background: var(--bg-soft); }
+.a-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FDFAF2;
+  font-weight: 600;
+}
+.a-btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #FDFAF2; }
+.a-btn kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 600;
+  padding: 1px 5px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 3px;
+  color: var(--ink-3);
+}
+.a-btn.primary kbd {
+  background: rgba(255,255,255,0.22);
+  color: #FDFAF2;
+}
+
+/* — Filter row — */
+.filter-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 26px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 12px;
+}
+.f-chip-group {
+  display: flex; gap: 1px;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 2px;
+}
+.f-chip {
+  padding: 4px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  font: inherit; font-size: 11.5px; font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all .1s;
+}
+.f-chip:hover { color: var(--ink); }
+.f-chip.active {
+  background: var(--bg-panel);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(29, 26, 21, 0.06);
+}
+.f-chip .n {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  font-weight: 500;
+  margin-left: 4px;
+}
+.f-chip.active .n { color: var(--ink-2); }
+
+.filter-row .toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ink-2);
+  font-size: 11.5px;
+}
+.filter-row .toggle:hover { background: var(--bg-soft); color: var(--ink); }
+.filter-row .toggle input { margin: 0; accent-color: var(--accent); }
+
+.filter-row .tx-search {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 7px;
+  height: 28px; width: 220px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.filter-row .tx-search input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font: inherit; font-size: 12px;
+  color: var(--ink);
+}
+.filter-row .tx-search input::placeholder { color: var(--ink-3); }
+.filter-row .tx-search .ic { color: var(--ink-3); font-size: 11px; }
+
+/* — Statement table — */
+.table-wrap {
+  min-height: 0;
+  overflow-y: auto;
+}
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.tbl thead th {
+  position: sticky; top: 0;
+  background: var(--bg-panel);
+  z-index: 1;
+  padding: 9px 14px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+}
+.tbl thead th.r { text-align: right; }
+.tbl tbody tr {
+  border-bottom: 1px solid var(--rule-soft);
+  transition: background .1s;
+}
+.tbl tbody tr:hover { background: var(--bg-soft); }
+.tbl tbody tr.opening { background: var(--bg-strip); font-style: italic; color: var(--ink-2); }
+.tbl tbody tr.opening:hover { background: var(--bg-strip); }
+.tbl td {
+  padding: 9px 14px;
+  vertical-align: top;
+}
+.tbl td.date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  width: 88px;
+}
+.tbl td.vtype {
+  width: 120px;
+  font-size: 12px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.tbl td.vtype .vkind {
+  display: inline-block;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: middle;
+  margin-bottom: 1px;
+}
+.tbl td.vtype .vkind.sale     { background: var(--accent); }
+.tbl td.vtype .vkind.purchase { background: var(--ink); }
+.tbl td.vtype .vkind.receipt  { background: var(--cr); }
+.tbl td.vtype .vkind.payment  { background: var(--accent); opacity: 0.55; }
+.tbl td.vtype .vkind.sret     { background: var(--warn); }
+.tbl td.vtype .vkind.pret     { background: var(--cr); opacity: 0.55; }
+.tbl td.vtype .vkind.open     { background: var(--ink-4); }
+
+.tbl td.vno {
+  width: 108px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--accent);
+}
+.tbl td.vno .dim { color: var(--ink-4); font-weight: 400; }
+.tbl td.part {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.tbl td.part .title {
+  color: var(--ink);
+  font-weight: 400;
+}
+.tbl td.part .narr {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 2px;
+  display: block;
+}
+.tbl td.part .alloc {
+  display: inline-flex; align-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+.tbl td.part .alloc::before {
+  content: '⇣';
+  margin-right: 4px;
+  color: var(--ink-4);
+}
+.tbl td.part .alloc .ref {
+  color: var(--accent);
+  margin-left: 2px;
+}
+
+.tbl td.num {
+  text-align: right;
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 500; font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  white-space: nowrap;
+  width: 110px;
+}
+.tbl td.num.dr-col { color: var(--dr); }
+.tbl td.num.cr-col { color: var(--cr); }
+.tbl td.num.zero { color: var(--ink-4); font-size: 11px; font-family: 'Inter', sans-serif; font-weight: 400; }
+.tbl td.bal {
+  text-align: right;
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  white-space: nowrap;
+  width: 130px;
+}
+.tbl td.bal .tag {
+  font-family: 'Inter', sans-serif;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--ink-3);
+  margin-left: 5px;
+}
+.tbl td.bal.dr { color: var(--dr); }
+.tbl td.bal.cr { color: var(--cr); }
+
+.tbl td.row-actions {
+  width: 96px;
+  padding: 0;
+  text-align: right;
+}
+.tbl tbody tr .row-actions .act-grp {
+  opacity: 0;
+  display: inline-flex;
+  gap: 2px;
+  padding-right: 8px;
+  transition: opacity .12s;
+}
+.tbl tbody tr:hover .row-actions .act-grp { opacity: 1; }
+.tbl tbody tr .row-actions .iconbtn {
+  width: 24px; height: 24px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink-3);
+  cursor: pointer;
+  display: inline-grid; place-items: center;
+  font-size: 12px;
+}
+.tbl tbody tr .row-actions .iconbtn:hover {
+  background: var(--bg-panel);
+  border-color: var(--rule);
+  color: var(--accent);
+}
+
+.tbl tfoot {
+  position: sticky; bottom: 0;
+  background: var(--bg-strip);
+}
+.tbl tfoot td {
+  padding: 11px 14px;
+  border-top: 2px solid var(--ink-4);
+  border-bottom: 1px solid var(--rule);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--ink-2);
+  text-transform: uppercase;
+}
+.tbl tfoot td.num {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 700; font-size: 15px;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.tbl tfoot td.num.dr-col { color: var(--dr); }
+.tbl tfoot td.num.cr-col { color: var(--cr); }
+.tbl tfoot td.bal {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 700; font-size: 15px;
+  color: var(--dr);
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+.tbl tfoot td.bal .tag { font-family: 'Inter', sans-serif; font-size: 10px; color: var(--ink-3); margin-left: 6px; font-weight: 700; letter-spacing: 0.5px; }
+
+/* — Aging + status footer strip — */
+.l-foot {
+  padding: 9px 26px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--rule);
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.aging-line {
+  display: flex; align-items: center; gap: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.aging-line .k {
+  font-family: 'Inter', sans-serif;
+  font-size: 9.5px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 700;
+}
+.aging-line .bucket { font-variant-numeric: tabular-nums; }
+.aging-line .bucket .ok  { color: var(--cr); }
+.aging-line .bucket .mid { color: var(--warn); }
+.aging-line .bucket .hot { color: var(--accent); font-weight: 600; }
+
+/* — Keyboard bar at the very bottom (Tally shortcut bar style) — */
+.kbd-bar {
+  display: flex; align-items: center; gap: 2px;
+  padding: 6px 18px;
+  background: var(--sb-bg);
+  border-top: 1px solid var(--sb-border);
+  color: var(--sb-ink-3);
+  font-size: 11px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+.kbd-bar .slot {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  border-right: 1px solid var(--sb-border);
+  color: var(--sb-ink);
+  cursor: pointer;
+  transition: color .1s;
+}
+.kbd-bar .slot:hover { color: #F5EEE2; }
+.kbd-bar .slot:last-child { border-right: none; }
+.kbd-bar .slot kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; font-weight: 700;
+  padding: 2px 6px;
+  background: rgba(245, 238, 226, 0.08);
+  border: 1px solid var(--sb-border);
+  border-radius: 3px;
+  color: #F5EEE2;
+  letter-spacing: 0.2px;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--ink-4); border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-brand-icon"><span class="bolt"></span></div>
+    <div class="sb-brand-name">Billing ERP</div>
+  </div>
+  <div class="sb-group">Workspace</div>
+  <div class="sb-item"><span class="ic">◉</span>Dashboard</div>
+  <div class="sb-item"><span class="ic">↗</span>Sales</div>
+  <div class="sb-item"><span class="ic">↙</span>Purchase</div>
+  <div class="sb-group">Accounting</div>
+  <div class="sb-item active"><span class="ic">●</span>Ledgers</div>
+  <div class="sb-item"><span class="ic">◇</span>Groups</div>
+  <div class="sb-item"><span class="ic">⇄</span>Journals</div>
+  <div class="sb-item"><span class="ic">＋</span>Payments</div>
+  <div class="sb-group">Reports</div>
+  <div class="sb-item"><span class="ic">⊟</span>Trial Balance</div>
+  <div class="sb-item"><span class="ic">⊞</span>P &amp; L</div>
+  <div class="sb-item"><span class="ic">⊠</span>GST Reports</div>
+  <div class="sb-group">Settings</div>
+  <div class="sb-item"><span class="ic">⚙</span>Configure</div>
+</aside>
+
+<div class="main">
+
+  <!-- Ledger index (left pane) -->
+  <aside class="idx">
+    <div class="idx-hd">
+      <div class="idx-group">
+        <span>Sundry Debtors</span>
+        <span class="caret">▾</span>
+      </div>
+      <div class="idx-title">Ledger Accounts</div>
+      <div class="idx-meta">14 parties · 4 open · ₹ 1,09,270 Dr</div>
+    </div>
+    <div class="idx-search">
+      <span class="ic">⌕</span>
+      <input placeholder="Search party…">
+      <kbd>/</kbd>
+    </div>
+    <div class="idx-sort">
+      <span class="active">Name</span>
+      <span class="grow"></span>
+      <span>Balance</span>
+      <span style="margin-left:12px;">Recent</span>
+    </div>
+    <div class="idx-list">
+      <div class="idx-row active">
+        <div>
+          <div class="idx-name">Rameshwar Traders</div>
+          <div class="idx-sub">Navsari · last 2d</div>
+        </div>
+        <div class="idx-amt dr">48,720</div>
+      </div>
+      <div class="idx-row">
+        <div>
+          <div class="idx-name">K.A. Enterprises</div>
+          <div class="idx-sub">Rajkot · last 11d</div>
+        </div>
+        <div class="idx-amt dr">37,900</div>
+      </div>
+      <div class="idx-row">
+        <div>
+          <div class="idx-name">Shree Krishna Mart</div>
+          <div class="idx-sub">Surat · last 5d</div>
+        </div>
+        <div class="idx-amt dr">12,450</div>
+      </div>
+      <div class="idx-row">
+        <div>
+          <div class="idx-name">Harshad Patel</div>
+          <div class="idx-sub">Walk-in · last 21d</div>
+        </div>
+        <div class="idx-amt dr">8,200</div>
+      </div>
+      <div class="idx-row">
+        <div>
+          <div class="idx-name">Ansari Impex</div>
+          <div class="idx-sub">Mumbai · advance</div>
+        </div>
+        <div class="idx-amt cr">2,300</div>
+      </div>
+      <div class="idx-row">
+        <div>
+          <div class="idx-name">Mehta Silk House</div>
+          <div class="idx-sub">Ahmedabad · settled</div>
+        </div>
+        <div class="idx-amt zero">0</div>
+      </div>
+      <div class="idx-row">
+        <div>
+          <div class="idx-name">Vishal Textiles</div>
+          <div class="idx-sub">Bhavnagar · settled</div>
+        </div>
+        <div class="idx-amt zero">0</div>
+      </div>
+      <div class="idx-row">
+        <div>
+          <div class="idx-name">Cash Sale</div>
+          <div class="idx-sub">Walk-in group</div>
+        </div>
+        <div class="idx-amt zero">—</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Ledger canvas -->
+  <main class="ledger">
+
+    <!-- Header: breadcrumb + title + period -->
+    <section class="l-header">
+      <div>
+        <div class="bc">
+          <a href="#">Ledgers</a>
+          <span class="sep">/</span>
+          <a href="#">Sundry Debtors</a>
+          <span class="sep">/</span>
+          <span class="here">Rameshwar Traders</span>
+        </div>
+        <div class="l-title">
+          <h1 class="l-name">Rameshwar Traders</h1>
+          <div class="l-badges">
+            <span class="chip">Customer</span>
+            <span class="chip">Priority</span>
+            <span class="chip warn">4 days past credit</span>
+          </div>
+        </div>
+        <div class="l-contact">
+          GSTIN 24ABCDE1234F1Z5 · 98765 43210 · Navsari, Gujarat · Credit ₹1,00,000 · 30 days
+        </div>
+      </div>
+
+      <div class="period-box">
+        <button class="period-btn">
+          <div>
+            <div class="lbl">Period</div>
+            <div class="val">01 Jan 2026 → 22 Apr 2026</div>
+          </div>
+        </button>
+        <button class="period-btn key" title="Change period (F2)">
+          <kbd>F2</kbd>
+        </button>
+      </div>
+    </section>
+
+    <!-- Summary strip -->
+    <section class="sum-strip">
+      <div class="sum">
+        <div class="k">Opening Balance</div>
+        <div class="v dr"><span class="rs">₹</span>24,300<span class="tag">Dr</span></div>
+      </div>
+      <div class="sum">
+        <div class="k">Debit Total</div>
+        <div class="v"><span class="rs">₹</span>89,880</div>
+      </div>
+      <div class="sum">
+        <div class="k">Credit Total</div>
+        <div class="v"><span class="rs">₹</span>65,460</div>
+      </div>
+      <div class="sum">
+        <div class="k">Closing Balance</div>
+        <div class="v dr"><span class="rs">₹</span>48,720<span class="tag">Dr</span></div>
+      </div>
+      <div class="actions">
+        <button class="a-btn primary">＋ Record Receipt <kbd>Alt+R</kbd></button>
+        <button class="a-btn">Print <kbd>P</kbd></button>
+        <button class="a-btn">Export <kbd>E</kbd></button>
+      </div>
+    </section>
+
+    <!-- Filter row -->
+    <section class="filter-row">
+      <div class="f-chip-group">
+        <button class="f-chip active">All <span class="n">10</span></button>
+        <button class="f-chip">Sales <span class="n">4</span></button>
+        <button class="f-chip">Receipts <span class="n">3</span></button>
+        <button class="f-chip">Returns <span class="n">2</span></button>
+        <button class="f-chip">Journals <span class="n">1</span></button>
+      </div>
+      <label class="toggle"><input type="checkbox" checked> Show narrations</label>
+      <label class="toggle"><input type="checkbox" checked> Show bill allocation</label>
+      <label class="toggle"><input type="checkbox"> Include cancelled</label>
+      <div class="tx-search">
+        <span class="ic">⌕</span>
+        <input placeholder="Search voucher…">
+      </div>
+    </section>
+
+    <!-- Statement table -->
+    <section class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Voucher Type</th>
+            <th>No.</th>
+            <th>Particulars</th>
+            <th class="r">Debit ₹</th>
+            <th class="r">Credit ₹</th>
+            <th class="r">Running Balance</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="opening">
+            <td class="date">01-01-2026</td>
+            <td class="vtype"><span class="vkind open"></span>Opening</td>
+            <td class="vno">—</td>
+            <td class="part"><span class="title">Opening Balance brought forward</span></td>
+            <td class="num zero">—</td>
+            <td class="num zero">—</td>
+            <td class="bal dr">24,300<span class="tag">Dr</span></td>
+            <td class="row-actions"></td>
+          </tr>
+
+          <tr>
+            <td class="date">08-01-2026</td>
+            <td class="vtype"><span class="vkind sale"></span>Sales</td>
+            <td class="vno">INV-0102</td>
+            <td class="part">
+              <span class="title">Sales — credit</span>
+              <span class="narr">Sari — 14 pcs · GST 5% · Due 07-Feb-2026</span>
+            </td>
+            <td class="num dr-col">18,450.00</td>
+            <td class="num zero">—</td>
+            <td class="bal dr">42,750<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn" title="Open voucher">↗</button><button class="iconbtn" title="Edit">✎</button></span></td>
+          </tr>
+
+          <tr>
+            <td class="date">12-01-2026</td>
+            <td class="vtype"><span class="vkind receipt"></span>Receipt</td>
+            <td class="vno">RCT-000215</td>
+            <td class="part">
+              <span class="title">Bank Transfer — HDFC ***4521</span>
+              <span class="alloc">Against <span class="ref">INV-0102</span> · ₹15,000.00</span>
+            </td>
+            <td class="num zero">—</td>
+            <td class="num cr-col">15,000.00</td>
+            <td class="bal dr">27,750<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn">↗</button><button class="iconbtn">✎</button></span></td>
+          </tr>
+
+          <tr>
+            <td class="date">02-02-2026</td>
+            <td class="vtype"><span class="vkind sale"></span>Sales</td>
+            <td class="vno">INV-0117</td>
+            <td class="part">
+              <span class="title">Sales — partly cash</span>
+              <span class="narr">Wholesale · GST 5% · Cash received ₹10,000 at billing</span>
+            </td>
+            <td class="num dr-col">32,100.00</td>
+            <td class="num zero">—</td>
+            <td class="bal dr">59,850<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn">↗</button><button class="iconbtn">✎</button></span></td>
+          </tr>
+
+          <tr>
+            <td class="date">02-02-2026</td>
+            <td class="vtype"><span class="vkind receipt"></span>Receipt</td>
+            <td class="vno">INV-0117<span class="dim">·pay</span></td>
+            <td class="part">
+              <span class="title">At-billing cash</span>
+              <span class="alloc">Against <span class="ref">INV-0117</span> · ₹10,000.00</span>
+            </td>
+            <td class="num zero">—</td>
+            <td class="num cr-col">10,000.00</td>
+            <td class="bal dr">49,850<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn">↗</button></span></td>
+          </tr>
+
+          <tr>
+            <td class="date">14-02-2026</td>
+            <td class="vtype"><span class="vkind sret"></span>Sales Return</td>
+            <td class="vno">SR-0009</td>
+            <td class="part">
+              <span class="title">Credit Note — goods returned</span>
+              <span class="narr">3 pcs defective / stained · Refund held as credit</span>
+              <span class="alloc">Against <span class="ref">INV-0117</span> · ₹4,260.00</span>
+            </td>
+            <td class="num zero">—</td>
+            <td class="num cr-col">4,260.00</td>
+            <td class="bal dr">45,590<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn">↗</button><button class="iconbtn">✎</button></span></td>
+          </tr>
+
+          <tr>
+            <td class="date">21-02-2026</td>
+            <td class="vtype"><span class="vkind receipt"></span>Receipt</td>
+            <td class="vno">RCT-000242</td>
+            <td class="part">
+              <span class="title">UPI — GPay @rameshtraders</span>
+              <span class="alloc">Applied to <span class="ref">INV-0102</span> ₹2,750 · <span class="ref">INV-0117</span> ₹17,250</span>
+            </td>
+            <td class="num zero">—</td>
+            <td class="num cr-col">20,000.00</td>
+            <td class="bal dr">25,590<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn">↗</button><button class="iconbtn">✎</button></span></td>
+          </tr>
+
+          <tr>
+            <td class="date">05-03-2026</td>
+            <td class="vtype"><span class="vkind sale"></span>Sales</td>
+            <td class="vno">INV-0142</td>
+            <td class="part">
+              <span class="title">Sales — credit</span>
+              <span class="narr">Dress material · GST 5% · Due 04-Apr-2026</span>
+            </td>
+            <td class="num dr-col">26,800.00</td>
+            <td class="num zero">—</td>
+            <td class="bal dr">52,390<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn">↗</button><button class="iconbtn">✎</button></span></td>
+          </tr>
+
+          <tr>
+            <td class="date">18-03-2026</td>
+            <td class="vtype"><span class="vkind sret"></span>Credit Note</td>
+            <td class="vno">SR-0014</td>
+            <td class="part">
+              <span class="title">Credit Note — amount-only rate adjustment</span>
+              <span class="narr">Rate revision from 10% → 6% on Feb purchases · No stock movement</span>
+            </td>
+            <td class="num zero">—</td>
+            <td class="num cr-col">1,200.00</td>
+            <td class="bal dr">51,190<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn">↗</button><button class="iconbtn">✎</button></span></td>
+          </tr>
+
+          <tr>
+            <td class="date">02-04-2026</td>
+            <td class="vtype"><span class="vkind sale"></span>Sales</td>
+            <td class="vno">INV-0168</td>
+            <td class="part">
+              <span class="title">Sales — credit</span>
+              <span class="narr">Kurti set · GST 5% · Due 02-May-2026</span>
+            </td>
+            <td class="num dr-col">12,530.00</td>
+            <td class="num zero">—</td>
+            <td class="bal dr">63,720<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn">↗</button><button class="iconbtn">✎</button></span></td>
+          </tr>
+
+          <tr>
+            <td class="date">18-04-2026</td>
+            <td class="vtype"><span class="vkind receipt"></span>Receipt</td>
+            <td class="vno">RCT-000289</td>
+            <td class="part">
+              <span class="title">Cash — counter</span>
+              <span class="alloc">Against <span class="ref">INV-0142</span> · ₹15,000.00</span>
+            </td>
+            <td class="num zero">—</td>
+            <td class="num cr-col">15,000.00</td>
+            <td class="bal dr">48,720<span class="tag">Dr</span></td>
+            <td class="row-actions"><span class="act-grp"><button class="iconbtn">↗</button><button class="iconbtn">✎</button></span></td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4" style="text-align:right;">Period Totals →</td>
+            <td class="num dr-col">89,880.00</td>
+            <td class="num cr-col">65,460.00</td>
+            <td class="bal">48,720<span class="tag">Dr</span></td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </section>
+
+    <!-- Aging + status footer -->
+    <section class="l-foot">
+      <div class="aging-line">
+        <span class="k">Aging</span>
+        <span class="bucket"><span class="ok">0–30:</span> ₹ 28,200</span>
+        <span class="bucket"><span class="mid">31–60:</span> ₹ 12,120</span>
+        <span class="bucket"><span class="hot">60+:</span> ₹ 8,400</span>
+        <span style="color:var(--ink-3);">·</span>
+        <span style="color:var(--ink-3);">Oldest bill: INV-0091 (13-Nov-2025)</span>
+      </div>
+      <div style="font-size:10.5px;letter-spacing:0.5px;color:var(--ink-3);">
+        Reconciled with cached balance · 11 vouchers · Last sync 2 mins ago
+      </div>
+    </section>
+
+    <!-- Keyboard shortcut bar -->
+    <section class="kbd-bar">
+      <div class="slot"><kbd>F1</kbd>Help</div>
+      <div class="slot"><kbd>F2</kbd>Period</div>
+      <div class="slot"><kbd>F4</kbd>Party</div>
+      <div class="slot"><kbd>/</kbd>Search</div>
+      <div class="slot"><kbd>↵</kbd>Open</div>
+      <div class="slot"><kbd>E</kbd>Edit</div>
+      <div class="slot"><kbd>Alt+R</kbd>Receipt</div>
+      <div class="slot"><kbd>Alt+N</kbd>New Bill</div>
+      <div class="slot"><kbd>P</kbd>Print</div>
+      <div class="slot"><kbd>X</kbd>Export</div>
+      <div class="slot"><kbd>Esc</kbd>Back</div>
+      <div class="slot" style="margin-left:auto;border-right:none;color:var(--sb-ink-3);">
+        Page 1 of 1 · 11 vouchers
+      </div>
+    </section>
+  </main>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Suppliers — Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Suppliers — Editorial layout.
+ *
+ * Mirror of editorial-customers.html. Same two-pane master/detail, same
+ * palette, different semantics:
+ *
+ *   • Balance convention inverted — positive supplier balance = PAYABLE
+ *     (we owe them), negative = advance paid to supplier.
+ *   • KPIs: Active count · Payable total · Due this week (pay cycle).
+ *   • Party-header chip is "Payable" instead of "Receivable".
+ *   • Footer Closing reads as "Cr" by default (we owe the supplier).
+ *
+ * Palette + sidebar identical to the customers mockup.
+ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+  --bg-hover:    #EEE6D3;
+  --bg-inset:    #EFE8D9;
+
+  --ink:         #1D1A15;
+  --ink-2:       #6D5F4E;
+  --ink-3:       #9B8F7E;
+  --ink-4:       #C9BFA8;
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10);
+  --accent-border:rgba(177,71,47,0.24);
+
+  --up:   #7A9660;
+  --up-soft: rgba(122,150,96,0.12);
+  --down: #B1472F;
+  --down-soft: rgba(177,71,47,0.10);
+  --flat: #9B8F7E;
+
+  --t-sale:     #7F5AA3;   --t-sale-soft:     rgba(127,90,163,0.12);
+  --t-purchase: #B8923C;   --t-purchase-soft: rgba(184,146,60,0.14);
+  --t-receipt:  #7A9660;   --t-receipt-soft:  rgba(122,150,96,0.14);
+  --t-payment:  #B1472F;   --t-payment-soft:  rgba(177,71,47,0.12);
+  --t-opening:  #6D6355;   --t-opening-soft:  rgba(109,99,85,0.12);
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-2:    #B2A791;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:   #B1472F;
+  --sb-active-ink:  #FDFAF2;
+
+  --glass-bg:     rgba(253, 250, 242, 0.55);
+  --glass-border: rgba(253, 250, 242, 0.72);
+  --glass-inset:  rgba(253, 250, 242, 0.65);
+  --glass-shadow: rgba(45, 31, 21, 0.08);
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-panel:    #1A1713;
+  --bg-muted:    #14110D;
+  --bg-hover:    #24201B;
+  --bg-inset:    #211C16;
+
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+
+  --accent:      #E26A4C;
+  --accent-hover:#F08975;
+  --accent-soft: rgba(226,106,76,0.14);
+  --accent-border:rgba(226,106,76,0.32);
+
+  --up:   #94B885;  --up-soft:   rgba(148,184,133,0.14);
+  --down: #E26A4C;  --down-soft: rgba(226,106,76,0.14);
+  --flat: #8A7F6C;
+
+  --t-sale:     #AC8FC7;   --t-sale-soft:     rgba(172,143,199,0.14);
+  --t-purchase: #D4A574;   --t-purchase-soft: rgba(212,165,116,0.14);
+  --t-receipt:  #94B885;   --t-receipt-soft:  rgba(148,184,133,0.14);
+  --t-payment:  #E26A4C;   --t-payment-soft:  rgba(226,106,76,0.14);
+  --t-opening:  #8A7F6C;   --t-opening-soft:  rgba(138,127,108,0.14);
+
+  --sb-bg:       #0B0807;
+  --sb-border:   #1A1713;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-2:    #B2A791;
+  --sb-ink-3:    #6D6355;
+  --sb-hover:    rgba(245,238,226,0.05);
+  --sb-active-bg:   #E26A4C;
+  --sb-active-ink:  #0E0B08;
+
+  --glass-bg:     rgba(26, 23, 19, 0.55);
+  --glass-border: rgba(178, 167, 145, 0.18);
+  --glass-inset:  rgba(178, 167, 145, 0.08);
+  --glass-shadow: rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  transition: background .25s ease, color .25s ease;
+  height: 100vh;
+  overflow: hidden;
+}
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+.micro { font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+
+.app { display: grid; grid-template-columns: 240px 1fr; height: 100vh; overflow: hidden; }
+
+.sidebar {
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 16px 12px 20px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  overflow-y: auto;
+}
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; letter-spacing: -0.01em; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: background .15s, color .15s; }
+.sb-item:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; box-shadow: 0 2px 10px rgba(177,71,47,0.32); }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main { min-width: 0; display: grid; grid-template-rows: auto auto 1fr auto; height: 100vh; }
+
+.crumb-bar { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px 0; font-size: 11.5px; letter-spacing: 0.4px; color: var(--ink-3); font-weight: 500; }
+.crumb-bar b { color: var(--ink); font-weight: 600; }
+.crumb-bar .kbd { font-family: 'Inter'; font-size: 11px; padding: 2px 7px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 4px; color: var(--ink-2); font-weight: 500; }
+
+.header-bar { padding: 14px 32px 16px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.header-title h1 { font-family: 'Fraunces', Georgia, serif; font-size: 34px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1.05; margin-bottom: 6px; }
+.header-title .sub { font-size: 13.5px; color: var(--ink-2); }
+.header-title .sub b { color: var(--ink); font-weight: 600; }
+
+.kpi { background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 140px; }
+.kpi .k { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.kpi .v { font-size: 18px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kpi.payable .v { color: var(--up); }
+.kpi.due     .v { color: var(--accent); }
+
+.ctrl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+.glass { background: var(--glass-bg); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); border: 1px solid var(--glass-border); box-shadow: 0 1px 2px var(--glass-shadow), 0 8px 24px var(--glass-shadow), inset 0 1px 0 var(--glass-inset); }
+.toggle-switch, .theme-switch { display: inline-flex; padding: 4px; border-radius: 99px; font-size: 13px; }
+.toggle-switch button, .theme-switch button { padding: 7px 14px; border: none; background: transparent; font-family: inherit; color: var(--ink-2); cursor: pointer; border-radius: 99px; transition: all .2s; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+.toggle-switch button:hover, .theme-switch button:hover { color: var(--ink); }
+.toggle-switch button.on, .theme-switch button.on { background: var(--accent); color: #FDFAF2; box-shadow: 0 2px 10px rgba(177,71,47,0.32); }
+[data-mode="dark"] .toggle-switch button.on, [data-mode="dark"] .theme-switch button.on { color: #0E0B08; box-shadow: 0 2px 14px rgba(226,106,76,0.4); }
+
+.cta { height: 36px; padding: 0 16px; background: var(--accent); color: #FDFAF2; border: 1px solid var(--accent); border-radius: 7px; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 10px var(--accent-soft); transition: all .18s cubic-bezier(.2,.7,.2,1); }
+.cta:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-soft); }
+
+.body-split { display: grid; grid-template-columns: 320px 1fr; gap: 0; min-height: 0; overflow: hidden; }
+
+.parties { display: flex; flex-direction: column; min-height: 0; background: var(--bg-panel); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); border-right: 1px solid var(--rule); margin-left: 32px; border-radius: 10px 10px 0 0; overflow: hidden; }
+.parties-hd { padding: 12px 14px 10px; border-bottom: 1px solid var(--rule-soft); }
+.parties-search { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; background: var(--bg-muted); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink); font-size: 13px; }
+.parties-search input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.parties-search svg { width: 14px; height: 14px; color: var(--ink-3); flex-shrink: 0; }
+.parties-search input::placeholder { color: var(--ink-3); }
+
+.parties-cols { display: flex; align-items: center; justify-content: space-between; padding: 7px 14px; background: var(--bg-muted); border-bottom: 1px solid var(--rule-soft); font-size: 10.5px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.6px; }
+
+.parties-list { flex: 1; overflow-y: auto; }
+.party-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--rule-soft); border-left: 3px solid transparent; transition: background .12s, border-color .12s; }
+.party-row:hover { background: var(--bg-muted); }
+.party-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.party-name { font-size: 13.5px; color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.party-row.active .party-name { color: var(--accent); font-weight: 600; }
+.party-sub { font-size: 11px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.party-bal { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--flat); white-space: nowrap; }
+.party-bal.up   { color: var(--up); }   /* payable (we owe them) */
+.party-bal.down { color: var(--down); } /* advance paid */
+.party-bal .dir { font-size: 10px; font-weight: 700; letter-spacing: 0.6px; margin-left: 2px; opacity: 0.7; }
+
+.ledger-card { display: flex; flex-direction: column; min-height: 0; background: var(--bg-panel); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-right: 32px; margin-left: 16px; border-radius: 10px 10px 0 0; overflow: hidden; }
+
+.party-hd { padding: 14px 20px; border-bottom: 1px solid var(--rule-soft); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; background: linear-gradient(180deg, var(--bg-muted), var(--bg-panel) 80%); }
+.party-hd-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.party-avatar { width: 44px; height: 44px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-family: 'Fraunces', serif; font-weight: 600; font-size: 18px; box-shadow: inset 0 0 0 1px var(--accent-border); }
+.party-hd-name { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+.party-hd-meta { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--ink-2); flex-wrap: wrap; margin-top: 2px; }
+.party-hd-meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-4); display: inline-block; }
+.party-hd-meta a { color: var(--accent); text-decoration: none; font-weight: 500; }
+
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.chip.payable  { background: var(--up-soft);   color: var(--up); }
+.chip.advance  { background: var(--down-soft); color: var(--down); }
+.chip.terms    { background: var(--bg-muted);  color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--rule); }
+
+.party-hd-actions { display: flex; gap: 6px; align-items: center; }
+.icon-btn { width: 34px; height: 34px; border: 1px solid var(--rule); background: var(--bg-panel); color: var(--ink-2); border-radius: 8px; display: grid; place-items: center; cursor: pointer; transition: all .15s; }
+.icon-btn:hover { border-color: var(--accent-border); color: var(--accent); transform: translateY(-1px); }
+.icon-btn.good { color: var(--up); border-color: var(--up-soft); background: var(--up-soft); }
+.icon-btn.good:hover { background: color-mix(in srgb, var(--up) 20%, transparent); }
+.icon-btn svg { width: 15px; height: 15px; }
+
+.filter-strip { padding: 10px 20px; border-bottom: 1px solid var(--rule-soft); background: var(--bg-muted); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.date-range { display: flex; align-items: center; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; height: 32px; overflow: hidden; }
+.date-range input { width: 110px; padding: 0 10px; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.date-range .sep { width: 1px; height: 18px; background: var(--rule); }
+.date-range input::placeholder { color: var(--ink-3); }
+
+.presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.presets button { padding: 5px 12px; border: 1px solid var(--rule); background: var(--bg-panel); color: var(--ink-2); border-radius: 99px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.presets button.on { background: var(--accent); color: #FDFAF2; border-color: var(--accent); box-shadow: 0 2px 8px var(--accent-soft); }
+.presets button:hover:not(.on) { border-color: var(--accent-border); color: var(--accent); }
+
+.tx-search { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; width: 220px; }
+.tx-search input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--ink); }
+.tx-search svg { width: 13px; height: 13px; color: var(--ink-3); }
+.tx-search input::placeholder { color: var(--ink-3); }
+
+.ledger-scroll { flex: 1; overflow: auto; }
+.ledger-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.ledger-table thead th { background: var(--bg-muted); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--ink-3); padding: 10px 12px; border-bottom: 1px solid var(--rule); text-align: left; position: sticky; top: 0; z-index: 1; }
+.ledger-table thead th.r { text-align: right; }
+
+.ledger-table tbody td { padding: 11px 12px; border-bottom: 1px solid var(--rule-soft); font-size: 13px; color: var(--ink); vertical-align: middle; }
+.ledger-table tbody td.r { text-align: right; font-weight: 600; }
+.ledger-table tbody tr:hover td { background: var(--bg-muted); }
+.ledger-table tbody tr.opening td { background: var(--bg-inset); font-style: italic; color: var(--ink-2); }
+
+.type-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+.type-chip.sale     { background: var(--t-sale-soft);     color: var(--t-sale); }
+.type-chip.purchase { background: var(--t-purchase-soft); color: var(--t-purchase); }
+.type-chip.receipt  { background: var(--t-receipt-soft);  color: var(--t-receipt); }
+.type-chip.payment  { background: var(--t-payment-soft);  color: var(--t-payment); }
+.type-chip.opening  { background: var(--t-opening-soft);  color: var(--t-opening); }
+
+.ref-link { color: var(--accent); font-weight: 600; cursor: pointer; }
+.ref-link:hover { text-decoration: underline; }
+
+.debit-val   { color: var(--down); }
+.credit-val  { color: var(--up); }
+.neutral-val { color: var(--ink-4); }
+.bal-val.dr { color: var(--down); }
+.bal-val.cr { color: var(--up); }
+
+.ledger-ft { padding: 12px 20px; border-top: 1px solid var(--rule); background: linear-gradient(180deg, var(--bg-panel), var(--bg-muted)); display: flex; justify-content: flex-end; align-items: center; gap: 32px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.ft-item { display: inline-flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.ft-item b { color: var(--ink); font-weight: 600; }
+.ft-item.debit  b { color: var(--down); }
+.ft-item.credit b { color: var(--up); }
+.ft-item.closing { padding: 6px 14px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px; }
+.ft-item.closing b { font-size: 15px; font-weight: 700; }
+
+.theme-toggle-row { padding: 0 32px 12px; display: flex; justify-content: flex-end; }
+</style>
+</head>
+<body data-mode="light">
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-brand-icon">⚡</div>
+      <div class="sb-brand-name">Billing ERP</div>
+    </div>
+    <div class="sb-section">Overview</div>
+    <div class="sb-item"><span class="ic">◈</span> Dashboard</div>
+    <div class="sb-section">Transactions</div>
+    <div class="sb-item"><span class="ic">⌗</span> Sales</div>
+    <div class="sb-item"><span class="ic">⌕</span> Purchase</div>
+    <div class="sb-section">Master</div>
+    <div class="sb-item"><span class="ic">◉</span> Customers</div>
+    <div class="sb-item active"><span class="ic">◎</span> Suppliers</div>
+    <div class="sb-item"><span class="ic">▢</span> Inventory</div>
+    <div class="sb-item"><span class="ic">☰</span> Categories</div>
+    <div class="sb-section">Finance</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments</div>
+    <div class="sb-item"><span class="ic">∿</span> Reports</div>
+    <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+  </aside>
+
+  <main class="main">
+
+    <div class="crumb-bar">
+      <div>Master · <b>Suppliers</b></div>
+      <div>Press <span class="kbd">⌘K</span> to search anywhere</div>
+    </div>
+
+    <div class="header-bar">
+      <div class="header-title">
+        <h1>Suppliers</h1>
+        <div class="sub"><b>28</b> active · <b>₹ 6,18,400</b> total payable this cycle</div>
+      </div>
+
+      <div class="ctrl-row">
+        <div class="kpi"><span class="k">Active</span><span class="v num">28</span></div>
+        <div class="kpi payable"><span class="k">Payable</span><span class="v num">₹ 6,18,400</span></div>
+        <div class="kpi due"><span class="k">Due this week</span><span class="v num">₹ 2,04,500</span></div>
+
+        <div class="toggle-switch glass">
+          <button class="on">Active</button>
+          <button>Inactive</button>
+        </div>
+
+        <button class="cta"><span style="font-size:14px; line-height:1;">+</span> New supplier</button>
+      </div>
+    </div>
+
+    <div class="body-split">
+
+      <!-- LEFT: suppliers list -->
+      <section class="parties">
+        <div class="parties-hd">
+          <div class="parties-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" placeholder="Search suppliers…"/>
+          </div>
+        </div>
+
+        <div class="parties-cols"><span>Supplier</span><span>Balance</span></div>
+
+        <div class="parties-list">
+          <div class="party-row active">
+            <div>
+              <div class="party-name">Gupta Wholesalers</div>
+              <div class="party-sub">Delhi · 98100 22330</div>
+            </div>
+            <div class="party-bal up num">2,42,800 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Mahalaxmi Textiles</div>
+              <div class="party-sub">Surat · 99241 77050</div>
+            </div>
+            <div class="party-bal up num">1,18,600 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Rajput Paper Mills</div>
+              <div class="party-sub">Jaipur</div>
+            </div>
+            <div class="party-bal up num">84,300 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Deep Hardware Co.</div>
+              <div class="party-sub">Ludhiana · 98141 66550</div>
+            </div>
+            <div class="party-bal up num">72,500 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Naresh Agencies</div>
+              <div class="party-sub">Mumbai</div>
+            </div>
+            <div class="party-bal num">0</div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Ajanta Distributors</div>
+              <div class="party-sub">Pune · 98220 88441</div>
+            </div>
+            <div class="party-bal up num">56,900 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Sagar Plastics</div>
+              <div class="party-sub">Vapi · 99980 11220</div>
+            </div>
+            <div class="party-bal up num">41,200 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Bombay Packaging</div>
+              <div class="party-sub">Mumbai</div>
+            </div>
+            <div class="party-bal down num">8,400 <span class="dir">Dr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Surya Electricals</div>
+              <div class="party-sub">Bengaluru</div>
+            </div>
+            <div class="party-bal up num">39,700 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Mehta &amp; Co.</div>
+              <div class="party-sub">Kolkata · 98330 44110</div>
+            </div>
+            <div class="party-bal up num">27,300 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Kwality Stationers</div>
+              <div class="party-sub">Nagpur</div>
+            </div>
+            <div class="party-bal up num">18,500 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Raj Steel &amp; Pipes</div>
+              <div class="party-sub">Rajkot</div>
+            </div>
+            <div class="party-bal down num">5,200 <span class="dir">Dr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Gokul Foods</div>
+              <div class="party-sub">Ahmedabad · 98706 22110</div>
+            </div>
+            <div class="party-bal up num">66,800 <span class="dir">Cr</span></div>
+          </div>
+          <div class="party-row">
+            <div>
+              <div class="party-name">Zenith Imports</div>
+              <div class="party-sub">Chennai</div>
+            </div>
+            <div class="party-bal up num">14,200 <span class="dir">Cr</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: supplier ledger -->
+      <section class="ledger-card">
+
+        <div class="party-hd">
+          <div class="party-hd-left">
+            <div class="party-avatar">G</div>
+            <div>
+              <div class="party-hd-name">Gupta Wholesalers</div>
+              <div class="party-hd-meta">
+                <span>📍 Old Delhi Market, New Delhi</span>
+                <span class="dot"></span>
+                <a href="tel:+919810022330">📞 98100 22330</a>
+                <span class="dot"></span>
+                <span>GST 07AAFCG6652L1ZP</span>
+              </div>
+              <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
+                <span class="chip payable">Payable: ₹ 2,42,800</span>
+                <span class="chip terms">Terms: Net 45</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="party-hd-actions">
+            <button class="icon-btn good" title="Call">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.92.35 1.82.66 2.68a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.4-1.4a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.68.66A2 2 0 0 1 22 16.92z"/></svg>
+            </button>
+            <button class="icon-btn good" title="WhatsApp">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A12 12 0 0 0 3.7 19.36L2 22l2.72-1.65A12 12 0 1 0 20.52 3.48zm-8.52 18a9.93 9.93 0 0 1-5.12-1.42l-.37-.22-2.42 1.47.5-2.4-.26-.39A10 10 0 1 1 12 21.48zm5.5-7.5c-.3-.15-1.77-.87-2.05-.97-.27-.1-.48-.15-.68.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.8-1.67-2.1-.17-.3-.02-.47.13-.62.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.25-.6-.5-.52-.67-.53h-.57c-.2 0-.52.07-.8.37-.27.3-1.05 1.03-1.05 2.5 0 1.48 1.07 2.9 1.22 3.1.15.2 2.1 3.2 5.1 4.5.7.3 1.25.48 1.68.62.7.22 1.35.2 1.85.12.57-.08 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.13-.27-.2-.57-.35z"/></svg>
+            </button>
+            <button class="icon-btn" title="Edit">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button class="icon-btn" title="Print ledger">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            </button>
+            <button class="icon-btn" title="Export Excel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-strip">
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <div class="date-range">
+              <input type="text" placeholder="From" value="01 Apr 26"/>
+              <span class="sep"></span>
+              <input type="text" placeholder="To" value="19 Apr 26"/>
+            </div>
+            <div class="presets">
+              <button>Today</button>
+              <button>Week</button>
+              <button class="on">Month</button>
+              <button>Quarter</button>
+              <button>Year</button>
+              <button>All</button>
+            </div>
+          </div>
+          <div class="tx-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" placeholder="Search transactions…"/>
+          </div>
+        </div>
+
+        <div class="ledger-scroll">
+          <table class="ledger-table">
+            <thead>
+              <tr>
+                <th style="width: 150px;">Type</th>
+                <th style="width: 130px;">Number</th>
+                <th style="width: 100px;">Date</th>
+                <th>Particulars</th>
+                <th class="r" style="width: 120px;">Debit</th>
+                <th class="r" style="width: 120px;">Credit</th>
+                <th class="r" style="width: 140px;">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="opening">
+                <td><span class="type-chip opening">Opening</span></td>
+                <td>—</td>
+                <td>01 Apr 26</td>
+                <td>Opening balance brought forward</td>
+                <td class="r neutral-val">—</td>
+                <td class="r credit-val num">₹ 1,14,200</td>
+                <td class="r bal-val cr num">₹ 1,14,200 Cr</td>
+              </tr>
+              <tr>
+                <td><span class="type-chip purchase">Purchase Bill</span></td>
+                <td><span class="ref-link">PB-000054</span></td>
+                <td>04 Apr 26</td>
+                <td>Stock refill · 42 SKUs · Net 45 terms</td>
+                <td class="r neutral-val">—</td>
+                <td class="r credit-val num">₹ 1,28,500</td>
+                <td class="r bal-val cr num">₹ 2,42,700 Cr</td>
+              </tr>
+              <tr>
+                <td><span class="type-chip payment">Payment</span></td>
+                <td><span class="ref-link">PAY-000077</span></td>
+                <td>08 Apr 26</td>
+                <td>RTGS · against PB-000054 full clearance</td>
+                <td class="r debit-val num">₹ 60,000</td>
+                <td class="r neutral-val">—</td>
+                <td class="r bal-val cr num">₹ 1,82,700 Cr</td>
+              </tr>
+              <tr>
+                <td><span class="type-chip purchase">Purchase Bill</span></td>
+                <td><span class="ref-link">PB-000068</span></td>
+                <td>11 Apr 26</td>
+                <td>Stock refill · 18 SKUs</td>
+                <td class="r neutral-val">—</td>
+                <td class="r credit-val num">₹ 84,600</td>
+                <td class="r bal-val cr num">₹ 2,67,300 Cr</td>
+              </tr>
+              <tr>
+                <td><span class="type-chip payment">Payment</span></td>
+                <td><span class="ref-link">PAY-000082</span></td>
+                <td>14 Apr 26</td>
+                <td>Cheque · partial against PB-000068</td>
+                <td class="r debit-val num">₹ 50,000</td>
+                <td class="r neutral-val">—</td>
+                <td class="r bal-val cr num">₹ 2,17,300 Cr</td>
+              </tr>
+              <tr>
+                <td><span class="type-chip purchase">Purchase Bill</span></td>
+                <td><span class="ref-link">PB-000079</span></td>
+                <td>16 Apr 26</td>
+                <td>Express order · 6 SKUs · cash discount</td>
+                <td class="r neutral-val">—</td>
+                <td class="r credit-val num">₹ 45,500</td>
+                <td class="r bal-val cr num">₹ 2,62,800 Cr</td>
+              </tr>
+              <tr>
+                <td><span class="type-chip payment">Payment</span></td>
+                <td><span class="ref-link">PAY-000088</span></td>
+                <td>18 Apr 26</td>
+                <td>UPI · on-account FIFO allocation</td>
+                <td class="r debit-val num">₹ 20,000</td>
+                <td class="r neutral-val">—</td>
+                <td class="r bal-val cr num">₹ 2,42,800 Cr</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="ledger-ft">
+          <span class="ft-item debit">Debit <b class="num">₹ 1,30,000</b></span>
+          <span class="ft-item credit">Credit <b class="num">₹ 3,72,800</b></span>
+          <span class="ft-item closing">Closing <b class="num" style="color: var(--up);">₹ 2,42,800 Cr</b></span>
+        </div>
+
+      </section>
+    </div>
+
+    <div class="theme-toggle-row">
+      <div class="theme-switch glass">
+        <button id="themeLight" class="on">☀ Light</button>
+        <button id="themeDark">☾ Dark</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  const lightBtn = document.getElementById('themeLight');
+  const darkBtn  = document.getElementById('themeDark');
+  lightBtn.onclick = () => { document.body.setAttribute('data-mode', 'light'); lightBtn.classList.add('on'); darkBtn.classList.remove('on'); };
+  darkBtn.onclick  = () => { document.body.setAttribute('data-mode', 'dark');  darkBtn.classList.add('on');  lightBtn.classList.remove('on'); };
+
+  document.querySelectorAll('.party-row').forEach(row => {
+    row.addEventListener('click', () => {
+      document.querySelectorAll('.party-row.active').forEach(r => r.classList.remove('active'));
+      row.classList.add('active');
+    });
+  });
+</script>
+
+</body>
+</html>

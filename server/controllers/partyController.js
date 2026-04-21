@@ -12,6 +12,7 @@ const getAgingBuckets = async () => {
   const b1 = parseInt(s?.aging_bucket_1_days ?? 30, 10);
   const b2 = parseInt(s?.aging_bucket_2_days ?? 60, 10);
   const b3 = parseInt(s?.aging_bucket_3_days ?? 90, 10);
+  // Guard against misordered or zero values — clamp so b1<b2<b3 is always true.
   const a = Math.max(1, b1);
   const b = Math.max(a + 1, b2);
   const c = Math.max(b + 1, b3);
@@ -142,6 +143,198 @@ exports.update = async (req, res) => {
     res.json(party);
   } catch (error) {
     console.error('Update party error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Aging buckets across all open bills for customers or suppliers.
+// Returns totals per bucket + party counts so the v5 list header can render
+// its aging cards without the client having to fetch every open bill and
+// aggregate itself.
+//
+// Aging anchor = (bill_date + party.credit_days). A positive age_days means
+// the bill is past its due date; 0 or negative means still inside the party's
+// Net-X credit window and is shown as "Not yet due". Bucket boundaries come
+// from SystemSettings so admins can tune what counts as Watchful/Chase/Critical.
+exports.getAging = async (req, res) => {
+  try {
+    const { party_type } = req.query;
+    const isCust = party_type !== 'Supplier';
+    const table  = isCust ? 'sales_bills'    : 'purchase_bills';
+    const fk     = isCust ? 'customer_id'    : 'supplier_id';
+    const { b1, b2, b3 } = await getAgingBuckets();
+    const rows = await sequelize.query(
+      `
+      WITH open_bills AS (
+        SELECT
+          b.${fk} AS party_id,
+          b.balance_amount::float AS bal,
+          (CURRENT_DATE - (b.bill_date + COALESCE(p.credit_days, 0)))::int AS age_days
+        FROM ${table} b
+        JOIN parties p ON p.party_id = b.${fk}
+        WHERE b.is_cancelled = false
+          AND b.balance_amount > 0
+          AND p.is_active = true
+      )
+      SELECT
+        COUNT(DISTINCT party_id)                                              AS party_count,
+        COALESCE(SUM(bal), 0)::float                                          AS total,
+        COALESCE(SUM(bal) FILTER (WHERE age_days <= :b1), 0)::float                     AS b0_30,
+        COALESCE(SUM(bal) FILTER (WHERE age_days BETWEEN :b1p1 AND :b2), 0)::float      AS b31_60,
+        COALESCE(SUM(bal) FILTER (WHERE age_days BETWEEN :b2p1 AND :b3), 0)::float      AS b61_90,
+        COALESCE(SUM(bal) FILTER (WHERE age_days > :b3), 0)::float                      AS b90plus,
+        COUNT(DISTINCT party_id) FILTER (WHERE age_days <= :b1)                         AS c0_30,
+        COUNT(DISTINCT party_id) FILTER (WHERE age_days BETWEEN :b1p1 AND :b2)          AS c31_60,
+        COUNT(DISTINCT party_id) FILTER (WHERE age_days BETWEEN :b2p1 AND :b3)          AS c61_90,
+        COUNT(DISTINCT party_id) FILTER (WHERE age_days > :b3)                          AS c90plus,
+        COUNT(DISTINCT party_id) FILTER (WHERE age_days > :b1)                          AS overdue_count
+      FROM open_bills
+      `,
+      {
+        type: sequelize.QueryTypes.SELECT,
+        replacements: { b1, b2, b3, b1p1: b1 + 1, b2p1: b2 + 1 },
+      }
+    );
+    const out = rows[0] || {};
+    out.buckets = { b1, b2, b3 };
+    res.json(out);
+  } catch (error) {
+    console.error('Get aging error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Per-party gross profit earned, computed from snapshotted line-item costs.
+// Query shape:
+//   GET /api/parties/:id/profit?period=fy-current | fy-previous | lifetime
+//
+// Math (per non-cancelled sales bill to this customer):
+//     line_revenue = sum(sales_bill_items.taxable_amount)          — post-trade-disc, excl GST
+//     line_cogs    = sum(sales_bill_items.quantity × cost_rate)    — snapshot at sale time
+//     bill_profit  = line_revenue − line_cogs
+//                    − sales_bills.special_discount − sales_bills.return_amount
+// Sum bill_profit across the selected period. Only makes sense for Customers
+// (profit from a Supplier would require per-sale attribution back to the
+// supplier we bought from, which we don't currently track).
+//
+// Suppliers get a simplified view: gross purchase spend in the period, so
+// the expanded row still has a meaningful revenue-side number.
+exports.getPartyProfit = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { period = 'fy-current' } = req.query;
+
+    const party = await Party.findByPk(id);
+    if (!party) return res.status(404).json({ error: 'Party not found' });
+
+    // Resolve the date range.
+    //   fy-current  → 1 Apr (current FY) to today
+    //   fy-previous → 1 Apr to 31 Mar of the previous FY
+    //   lifetime    → no filter
+    const today = new Date();
+    const curMonth = today.getMonth() + 1; // 1..12
+    const curYear = today.getFullYear();
+    const fyStartYear = curMonth >= 4 ? curYear : curYear - 1;
+    const fyStart = `${fyStartYear}-04-01`;
+    const fyEnd   = `${fyStartYear + 1}-03-31`;
+
+    let range = null;
+    let label = '';
+    if (period === 'fy-current') {
+      range = { start: fyStart, end: fyEnd };
+      label = `FY ${String(fyStartYear).slice(-2)}-${String(fyStartYear + 1).slice(-2)}`;
+    } else if (period === 'fy-previous') {
+      range = { start: `${fyStartYear - 1}-04-01`, end: `${fyStartYear}-03-31` };
+      label = `FY ${String(fyStartYear - 1).slice(-2)}-${String(fyStartYear).slice(-2)}`;
+    } else if (period === 'lifetime') {
+      range = null;
+      label = 'Lifetime';
+    } else {
+      return res.status(400).json({ error: 'Invalid period' });
+    }
+
+    const isCustomer = party.party_type === 'Customer' || party.party_type === 'Both';
+
+    if (isCustomer) {
+      // Customer-side: compute true gross profit from line-level COGS.
+      //
+      // Split the math by grain: items are aggregated against the item table,
+      // bill-level adjustments (special_discount, return_amount) against the
+      // bill table. Earlier a single JOIN caused a 3-item bill's ₹100
+      // return to be counted 3× in adjustments. Using two separate scalar
+      // subqueries keeps both sums at their correct granularity.
+      const dateFilterItems = range ? `AND sb.bill_date BETWEEN :start AND :end` : '';
+      const dateFilterBills = range ? `AND bill_date BETWEEN :start AND :end`    : '';
+      const [row] = await sequelize.query(
+        `
+        SELECT
+          (
+            SELECT COALESCE(SUM(sbi.taxable_amount), 0)::float
+            FROM sales_bill_items sbi
+            JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+            WHERE sb.customer_id = :id AND sb.is_cancelled = false ${dateFilterItems}
+          ) AS revenue,
+          (
+            SELECT COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float
+            FROM sales_bill_items sbi
+            JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+            WHERE sb.customer_id = :id AND sb.is_cancelled = false ${dateFilterItems}
+          ) AS cogs,
+          (
+            SELECT COALESCE(SUM(special_discount + return_amount), 0)::float
+            FROM sales_bills
+            WHERE customer_id = :id AND is_cancelled = false ${dateFilterBills}
+          ) AS adjustments,
+          (
+            SELECT COUNT(*)::int
+            FROM sales_bills
+            WHERE customer_id = :id AND is_cancelled = false ${dateFilterBills}
+          ) AS bill_count
+        `,
+        {
+          replacements: { id, ...(range || {}) },
+          type: sequelize.QueryTypes.SELECT,
+        }
+      );
+      const profit = (row.revenue || 0) - (row.cogs || 0) - (row.adjustments || 0);
+      const margin = row.revenue > 0 ? (profit / row.revenue) * 100 : 0;
+      return res.json({
+        period, label, kind: 'customer',
+        revenue: +row.revenue.toFixed(2),
+        cogs:    +row.cogs.toFixed(2),
+        adjustments: +row.adjustments.toFixed(2),
+        profit:  +profit.toFixed(2),
+        margin_pct: +margin.toFixed(2),
+        bill_count: row.bill_count,
+      });
+    }
+
+    // Supplier-side: we don't have per-sale attribution to the supplier we
+    // bought from, so "profit from a supplier" can't be computed accurately.
+    // Return the gross purchase spend instead so the UI has something real
+    // to show in the expanded row.
+    const dateFilter = range ? `AND pb.bill_date BETWEEN :start AND :end` : '';
+    const [row] = await sequelize.query(
+      `
+      SELECT COALESCE(SUM(pb.total_amount), 0)::float AS purchases,
+             COUNT(DISTINCT pb.purchase_bill_id)::int AS bill_count
+      FROM purchase_bills pb
+      WHERE pb.supplier_id = :id
+        AND pb.is_cancelled = false
+        ${dateFilter}
+      `,
+      {
+        replacements: { id, ...(range || {}) },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+    return res.json({
+      period, label, kind: 'supplier',
+      purchases: +row.purchases.toFixed(2),
+      bill_count: row.bill_count,
+    });
+  } catch (error) {
+    console.error('Get party profit error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -481,14 +674,172 @@ exports.getLedger = async (req, res) => {
   }
 };
 
+// The customers/suppliers list page (PartyListView) needs two extra bits of
+// info per row that aren't on the Party table: the oldest unpaid bill's age
+// (so the UI can render an aging cell) and the single most recent ledger
+// entry (so the "Last transaction" column isn't blank). Fetching them in
+// separate API calls per row would be an N+1 disaster — we do it in one
+// aggregated SQL pass here instead.
+//
+// Returns the same shape as getAll() plus per-row `_aging_days` and
+// `_last_transaction` fields. The underscore prefix signals to the client
+// these are derived from other tables (not columns of the Party model).
+const enrichPartiesForList = async (parties, kind /* 'Customer' | 'Supplier' */) => {
+  if (parties.length === 0) return parties;
+  const ids = parties.map(p => p.party_id);
+  const billTable = kind === 'Customer' ? 'sales_bills' : 'purchase_bills';
+  const billPartyCol = kind === 'Customer' ? 'customer_id' : 'supplier_id';
+  const billPkCol = kind === 'Customer' ? 'sales_bill_id' : 'purchase_bill_id';
+  const billRefCol = 'bill_number';
+  const billDateCol = 'bill_date';
+  const { b1, b2, b3 } = await getAgingBuckets();
+
+  const [agingRows, lastBillRows, lastPaymentRows] = await Promise.all([
+    sequelize.query(
+      // Single pass per party: oldest-days-past-due AND the per-bucket sum of
+      // open balances. The frontend uses the oldest-days count + bucket class
+      // for the column text, and the bucket amounts to render a stacked bar
+      // showing how this party's dues are distributed across aging windows.
+      `
+      WITH ob AS (
+        SELECT b.${billPartyCol} AS party_id,
+               (CURRENT_DATE - (b.${billDateCol} + COALESCE(p.credit_days, 0)))::int AS age_days,
+               b.balance_amount::float AS bal
+        FROM ${billTable} b
+        JOIN parties p ON p.party_id = b.${billPartyCol}
+        WHERE b.${billPartyCol} IN (:ids) AND b.is_cancelled = false AND b.balance_amount > 0
+      )
+      SELECT party_id,
+             MAX(age_days)                                                         AS oldest_days,
+             COALESCE(SUM(bal) FILTER (WHERE age_days <= :b1), 0)::float            AS b0,
+             COALESCE(SUM(bal) FILTER (WHERE age_days BETWEEN :b1p1 AND :b2), 0)::float AS b30,
+             COALESCE(SUM(bal) FILTER (WHERE age_days BETWEEN :b2p1 AND :b3), 0)::float AS b60,
+             COALESCE(SUM(bal) FILTER (WHERE age_days > :b3), 0)::float             AS b90
+      FROM ob
+      GROUP BY party_id
+      `,
+      {
+        replacements: { ids, b1, b2, b3, b1p1: b1 + 1, b2p1: b2 + 1 },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    ),
+    sequelize.query(
+      `
+      SELECT DISTINCT ON (${billPartyCol})
+        ${billPartyCol} AS party_id,
+        '${kind === 'Customer' ? 'Sales Bill' : 'Purchase Bill'}' AS type,
+        ${billRefCol} AS ref,
+        ${billDateCol}::text AS dt,
+        total_amount::float AS amt
+      FROM ${billTable}
+      WHERE ${billPartyCol} IN (:ids) AND is_cancelled = false
+      ORDER BY ${billPartyCol}, ${billDateCol} DESC, ${billPkCol} DESC
+      `,
+      { replacements: { ids }, type: sequelize.QueryTypes.SELECT }
+    ).catch(() => []),
+    sequelize.query(
+      `
+      SELECT DISTINCT ON (party_id)
+        party_id,
+        transaction_type AS type,
+        transaction_number AS ref,
+        transaction_date::text AS dt,
+        total_amount::float AS amt
+      FROM payments_receipts
+      WHERE party_id IN (:ids) AND is_cancelled = false
+      ORDER BY party_id, transaction_date DESC, transaction_id DESC
+      `,
+      { replacements: { ids }, type: sequelize.QueryTypes.SELECT }
+    ),
+  ]);
+
+  const agingByParty = Object.fromEntries(agingRows.map(r => [r.party_id, r]));
+  const billByParty  = Object.fromEntries(lastBillRows.map(r => [r.party_id, r]));
+  const payByParty   = Object.fromEntries(lastPaymentRows.map(r => [r.party_id, r]));
+
+  return parties.map(p => {
+    const pj = p.toJSON ? p.toJSON() : p;
+    const lastBill = billByParty[p.party_id];
+    const lastPay  = payByParty[p.party_id];
+    // Pick whichever transaction is more recent. When a customer's latest
+    // activity is a receipt (e.g. they paid off a bill), we want "Last
+    // transaction" to reflect that — not a stale sale from 3 months prior.
+    let lastTxn = null;
+    if (lastBill && lastPay) {
+      lastTxn = new Date(lastBill.dt) >= new Date(lastPay.dt) ? lastBill : lastPay;
+    } else {
+      lastTxn = lastBill || lastPay || null;
+    }
+    const a = agingByParty[p.party_id];
+    return {
+      ...pj,
+      _aging_days: a ? a.oldest_days : null,
+      // Per-bucket open-balance sums. Frontend uses these to render the
+      // stacked aging bar inside each row's Aging cell.
+      _aging_buckets: a ? { b0: a.b0, b30: a.b30, b60: a.b60, b90: a.b90 } : null,
+      _last_transaction: lastTxn,
+    };
+  });
+};
+
 exports.getCustomers = async (req, res) => {
-  req.query.party_type = 'Customer';
-  return exports.getAll(req, res);
+  try {
+    req.query.party_type = 'Customer';
+    const { party_type, search, status, balance_status, sort_by, sort_order } = req.query;
+    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
+    const where = {};
+    where.party_type = { [Op.in]: ['Customer', 'Both'] };
+    if (status) where.party_status = status;
+    if (search) {
+      where[Op.or] = [
+        { party_name: { [Op.iLike]: `%${search}%` } },
+        { mobile_1: { [Op.like]: `%${search}%` } },
+        { mobile_2: { [Op.like]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+    if (balance_status === 'Receivable') where.current_balance = { [Op.gt]: 0 };
+    if (balance_status === 'Payable') where.current_balance = { [Op.lt]: 0 };
+    if (balance_status === 'NoDues') where.current_balance = 0;
+
+    const order = sort_by ? [[sort_by, sort_order || 'ASC']] : [['party_name', 'ASC']];
+    const { count, rows } = await Party.findAndCountAll({ where, order, limit, offset });
+    const enriched = await enrichPartiesForList(rows, 'Customer');
+    res.json({ total: count, page, limit, data: enriched });
+  } catch (error) {
+    console.error('Get customers error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
 };
 
 exports.getSuppliers = async (req, res) => {
-  req.query.party_type = 'Supplier';
-  return exports.getAll(req, res);
+  try {
+    req.query.party_type = 'Supplier';
+    const { search, status, balance_status, sort_by, sort_order } = req.query;
+    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
+    const where = {};
+    where.party_type = { [Op.in]: ['Supplier', 'Both'] };
+    if (status) where.party_status = status;
+    if (search) {
+      where[Op.or] = [
+        { party_name: { [Op.iLike]: `%${search}%` } },
+        { mobile_1: { [Op.like]: `%${search}%` } },
+        { mobile_2: { [Op.like]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+    if (balance_status === 'Receivable') where.current_balance = { [Op.gt]: 0 };
+    if (balance_status === 'Payable') where.current_balance = { [Op.lt]: 0 };
+    if (balance_status === 'NoDues') where.current_balance = 0;
+
+    const order = sort_by ? [[sort_by, sort_order || 'ASC']] : [['party_name', 'ASC']];
+    const { count, rows } = await Party.findAndCountAll({ where, order, limit, offset });
+    const enriched = await enrichPartiesForList(rows, 'Supplier');
+    res.json({ total: count, page, limit, data: enriched });
+  } catch (error) {
+    console.error('Get suppliers error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
 };
 
 /**
