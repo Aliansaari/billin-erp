@@ -24,6 +24,7 @@ import {
   StockOutlined,
   PlusCircleOutlined,
   UnorderedListOutlined,
+  RollbackOutlined,
   BankOutlined,
   ThunderboltOutlined,
   TableOutlined,
@@ -48,6 +49,8 @@ const menuItems = [
     children: [
       { key: '/sale/new', icon: <PlusCircleOutlined />, label: 'New Sales Bill' },
       { key: '/sales', icon: <UnorderedListOutlined />, label: 'Sales List' },
+      { key: '/sales-return/new', icon: <RollbackOutlined />, label: 'New Sales Return' },
+      { key: '/sales-returns', icon: <UnorderedListOutlined />, label: 'Sales Returns' },
     ],
   },
   {
@@ -57,6 +60,8 @@ const menuItems = [
     children: [
       { key: '/purchase/new', icon: <PlusCircleOutlined />, label: 'New Purchase Bill' },
       { key: '/purchases', icon: <UnorderedListOutlined />, label: 'Purchase List' },
+      { key: '/purchase-return/new', icon: <RollbackOutlined />, label: 'New Purchase Return' },
+      { key: '/purchase-returns', icon: <UnorderedListOutlined />, label: 'Purchase Returns' },
     ],
   },
   {
@@ -117,6 +122,10 @@ const menuItems = [
 ];
 
 const getOpenKeys = (pathname) => {
+  // Order matters: more specific prefixes first so /sales-return* doesn't
+  // match the /sale or /sales check below when routing rehydrates on reload.
+  if (pathname.startsWith('/sales-return')) return ['sales-menu'];
+  if (pathname.startsWith('/purchase-return')) return ['purchase-menu'];
   if (pathname.startsWith('/sale') || pathname === '/sales') return ['sales-menu'];
   if (pathname.startsWith('/purchase') || pathname === '/purchases') return ['purchase-menu'];
   if (pathname.startsWith('/customer') || pathname.startsWith('/supplier')) return ['parties-menu'];

@@ -5,8 +5,19 @@ const { Op } = require('sequelize');
  *
  * Formula:
  *   balance = openingSigned
- *           + (totalSales - salesPaidAtBilling - salesReturnAmount - totalReceipts)
- *           - (totalPurchases - purchasePaidAtBilling - totalPayments)
+ *           + (totalSales - salesPaidAtBilling - walkInReturnAmount
+ *              - formalSalesReturnNet - formalSalesReturnRefund - totalReceipts)
+ *           - (totalPurchases - purchasePaidAtBilling
+ *              - formalPurchaseReturnNet - formalPurchaseReturnRefund - totalPayments)
+ *
+ * Formal return modelling:
+ *   A SalesReturnBill represents a credit note we issued. Its total_amount is
+ *   a liability to the customer (customer's receivable drops). Any refund_amount
+ *   paid in cash immediately settles part of that liability. The NET effect on
+ *   the customer's balance is -(total_amount - refund_amount) = -balance_amount.
+ *   Equivalent: subtract total_amount from sales AND add refund_amount back
+ *   as a cash payout. We use the simpler `- balance_amount` form.
+ *   PurchaseReturnBill is the mirror on the supplier side.
  *
  * Key design decisions:
  *  - Uses total_amount from bills (NOT balance_amount), so the formula is
@@ -20,7 +31,10 @@ const { Op } = require('sequelize');
  * Negative balance = payable (we owe party)
  */
 async function recalculatePartyBalance(partyId, t = null) {
-  const { Party, SalesBill, PurchaseBill, PaymentReceipt } = require('../models');
+  const {
+    Party, SalesBill, PurchaseBill, PaymentReceipt,
+    SalesReturnBill, PurchaseReturnBill,
+  } = require('../models');
   const opts = t ? { transaction: t } : {};
 
   const party = await Party.findByPk(partyId, opts);
@@ -33,7 +47,10 @@ async function recalculatePartyBalance(partyId, t = null) {
     :  Math.abs(rawOpening);
 
   // ── Sales side (customer owes us) ─────────────────────────────────────────
-  const [totalSalesRaw, salesPaidRaw, salesReturnRaw, totalReceiptsRaw] = await Promise.all([
+  const [
+    totalSalesRaw, salesPaidRaw, salesWalkInReturnRaw, totalReceiptsRaw,
+    salesReturnBalanceRaw,
+  ] = await Promise.all([
     SalesBill.sum('total_amount',  { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
     SalesBill.sum('paid_amount',   { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
     SalesBill.sum('return_amount', { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
@@ -41,32 +58,61 @@ async function recalculatePartyBalance(partyId, t = null) {
       where: { party_id: partyId, transaction_type: 'Receipt', is_cancelled: false },
       ...opts,
     }),
+    // Net credit-note effect per formal return: total - refund = balance_amount.
+    // Already clamped ≥ 0 in the controller, so this sum is monotonic.
+    SalesReturnBill.sum('balance_amount', {
+      where: { customer_id: partyId, is_cancelled: false },
+      ...opts,
+    }),
+    // Cash refund leg of formal returns is a DEBIT to party (we paid them cash);
+    // we model that by subtracting `refund_amount` from the sales side below.
   ]);
+  const salesReturnRefundRaw = await SalesReturnBill.sum('refund_amount', {
+    where: { customer_id: partyId, is_cancelled: false },
+    ...opts,
+  });
 
-  const totalSales       = parseFloat(totalSalesRaw)    || 0;
-  const salesPaid        = parseFloat(salesPaidRaw)     || 0;
-  const salesReturn      = parseFloat(salesReturnRaw)   || 0;
-  const totalReceipts    = parseFloat(totalReceiptsRaw) || 0;
+  const totalSales          = parseFloat(totalSalesRaw)           || 0;
+  const salesPaid           = parseFloat(salesPaidRaw)            || 0;
+  const salesWalkInReturn   = parseFloat(salesWalkInReturnRaw)    || 0;
+  const totalReceipts       = parseFloat(totalReceiptsRaw)        || 0;
+  const salesReturnBalance  = parseFloat(salesReturnBalanceRaw)   || 0;
+  const salesReturnRefund   = parseFloat(salesReturnRefundRaw)    || 0;
 
-  // Net still owed by customer from sales
-  const salesNet = totalSales - salesPaid - salesReturn - totalReceipts;
+  // salesReturnBalance drops the open credit still owed to customer.
+  // salesReturnRefund represents cash we've already paid back — also drops receivable.
+  const salesNet = totalSales - salesPaid - salesWalkInReturn
+                 - salesReturnBalance - salesReturnRefund - totalReceipts;
 
   // ── Purchase side (we owe supplier) ──────────────────────────────────────
-  const [totalPurchasesRaw, purchasePaidRaw, totalPaymentsRaw] = await Promise.all([
+  const [
+    totalPurchasesRaw, purchasePaidRaw, totalPaymentsRaw,
+    purchaseReturnBalanceRaw, purchaseReturnRefundRaw,
+  ] = await Promise.all([
     PurchaseBill.sum('total_amount', { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
     PurchaseBill.sum('paid_amount',  { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
     PaymentReceipt.sum('total_amount', {
       where: { party_id: partyId, transaction_type: 'Payment', is_cancelled: false },
       ...opts,
     }),
+    PurchaseReturnBill.sum('balance_amount', {
+      where: { supplier_id: partyId, is_cancelled: false },
+      ...opts,
+    }),
+    PurchaseReturnBill.sum('refund_amount', {
+      where: { supplier_id: partyId, is_cancelled: false },
+      ...opts,
+    }),
   ]);
 
-  const totalPurchases   = parseFloat(totalPurchasesRaw)  || 0;
-  const purchasePaid     = parseFloat(purchasePaidRaw)     || 0;
-  const totalPayments    = parseFloat(totalPaymentsRaw)    || 0;
+  const totalPurchases         = parseFloat(totalPurchasesRaw)        || 0;
+  const purchasePaid           = parseFloat(purchasePaidRaw)          || 0;
+  const totalPayments          = parseFloat(totalPaymentsRaw)         || 0;
+  const purchaseReturnBalance  = parseFloat(purchaseReturnBalanceRaw) || 0;
+  const purchaseReturnRefund   = parseFloat(purchaseReturnRefundRaw)  || 0;
 
-  // Net still owed to supplier from purchases
-  const purchaseNet = totalPurchases - purchasePaid - totalPayments;
+  const purchaseNet = totalPurchases - purchasePaid - totalPayments
+                    - purchaseReturnBalance - purchaseReturnRefund;
 
   // ── Final balance ─────────────────────────────────────────────────────────
   const newBalance = +(openingSigned + salesNet - purchaseNet).toFixed(2);
@@ -83,7 +129,10 @@ async function recalculatePartyBalance(partyId, t = null) {
  * For Receipt  (customer pays us): returns max(0, what they owe us)
  */
 async function getPartyOutstanding(partyId, transactionType, t = null) {
-  const { Party, SalesBill, PurchaseBill, PaymentReceipt } = require('../models');
+  const {
+    Party, SalesBill, PurchaseBill, PaymentReceipt,
+    SalesReturnBill, PurchaseReturnBill,
+  } = require('../models');
   const opts = t ? { transaction: t } : {};
 
   const party = await Party.findByPk(partyId, opts);
@@ -95,24 +144,28 @@ async function getPartyOutstanding(partyId, transactionType, t = null) {
     :  Math.abs(rawOpening);
 
   if (transactionType === 'Payment') {
-    const [totalPurchasesRaw, purchasePaidRaw, totalPaymentsRaw] = await Promise.all([
+    const [totalPurchasesRaw, purchasePaidRaw, totalPaymentsRaw, prBalRaw, prRefundRaw] = await Promise.all([
       PurchaseBill.sum('total_amount', { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
       PurchaseBill.sum('paid_amount',  { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
       PaymentReceipt.sum('total_amount', {
         where: { party_id: partyId, transaction_type: 'Payment', is_cancelled: false },
         ...opts,
       }),
+      PurchaseReturnBill.sum('balance_amount', { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
+      PurchaseReturnBill.sum('refund_amount',  { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
     ]);
     const totalPurchases = parseFloat(totalPurchasesRaw) || 0;
     const purchasePaid   = parseFloat(purchasePaidRaw)   || 0;
     const totalPayments  = parseFloat(totalPaymentsRaw)  || 0;
-    // What we owe them: payable opening + unpaid purchases
+    const prBal          = parseFloat(prBalRaw)          || 0;
+    const prRefund       = parseFloat(prRefundRaw)       || 0;
+    // What we owe them: payable opening + unpaid purchases - net return credits/refunds.
     const payableOpening = Math.max(0, -openingSigned);
-    return +(Math.max(0, payableOpening + totalPurchases - purchasePaid - totalPayments)).toFixed(2);
+    return +(Math.max(0, payableOpening + totalPurchases - purchasePaid - totalPayments - prBal - prRefund)).toFixed(2);
   }
 
   if (transactionType === 'Receipt') {
-    const [totalSalesRaw, salesPaidRaw, salesReturnRaw, totalReceiptsRaw] = await Promise.all([
+    const [totalSalesRaw, salesPaidRaw, salesReturnRaw, totalReceiptsRaw, srBalRaw, srRefundRaw] = await Promise.all([
       SalesBill.sum('total_amount',  { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
       SalesBill.sum('paid_amount',   { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
       SalesBill.sum('return_amount', { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
@@ -120,14 +173,19 @@ async function getPartyOutstanding(partyId, transactionType, t = null) {
         where: { party_id: partyId, transaction_type: 'Receipt', is_cancelled: false },
         ...opts,
       }),
+      SalesReturnBill.sum('balance_amount', { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
+      SalesReturnBill.sum('refund_amount',  { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
     ]);
     const totalSales    = parseFloat(totalSalesRaw)    || 0;
     const salesPaid     = parseFloat(salesPaidRaw)     || 0;
     const salesReturn   = parseFloat(salesReturnRaw)   || 0;
     const totalReceipts = parseFloat(totalReceiptsRaw) || 0;
-    // What they owe us: receivable opening + unpaid sales
+    const srBal         = parseFloat(srBalRaw)         || 0;
+    const srRefund      = parseFloat(srRefundRaw)      || 0;
+    // What they owe us: receivable opening + unpaid sales - walk-in returns
+    // - formal return credit owed - formal return refund already paid.
     const receivableOpening = Math.max(0, openingSigned);
-    return +(Math.max(0, receivableOpening + totalSales - salesPaid - salesReturn - totalReceipts)).toFixed(2);
+    return +(Math.max(0, receivableOpening + totalSales - salesPaid - salesReturn - totalReceipts - srBal - srRefund)).toFixed(2);
   }
 
   return 0;

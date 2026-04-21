@@ -17,6 +17,10 @@ import PurchaseBillForm from './pages/purchase/PurchaseBillForm';
 import PurchaseList from './pages/purchase/PurchaseList';
 import SalesBillForm from './pages/sales/SalesBillForm';
 import SalesList from './pages/sales/SalesList';
+import SalesReturnForm from './pages/returns/SalesReturnForm';
+import SalesReturnList from './pages/returns/SalesReturnList';
+import PurchaseReturnForm from './pages/returns/PurchaseReturnForm';
+import PurchaseReturnList from './pages/returns/PurchaseReturnList';
 import PaymentEntry from './pages/payments/PaymentEntry';
 import ReceiptEntry from './pages/payments/ReceiptEntry';
 import PaymentList from './pages/payments/PaymentList';
@@ -110,6 +114,12 @@ export default function App() {
           <Route path="sale/new" element={<SalesBillForm />} />
           <Route path="sale/edit/:id" element={<SalesBillForm />} />
           <Route path="sales" element={<SalesList />} />
+          <Route path="sales-return/new" element={<SalesReturnForm />} />
+          <Route path="sales-return/edit/:id" element={<SalesReturnForm />} />
+          <Route path="sales-returns" element={<SalesReturnList />} />
+          <Route path="purchase-return/new" element={<PurchaseReturnForm />} />
+          <Route path="purchase-return/edit/:id" element={<PurchaseReturnForm />} />
+          <Route path="purchase-returns" element={<PurchaseReturnList />} />
           <Route path="payment/new" element={<PaymentEntry />} />
           <Route path="receipt/new" element={<ReceiptEntry />} />
           <Route path="payments" element={<PaymentList />} />

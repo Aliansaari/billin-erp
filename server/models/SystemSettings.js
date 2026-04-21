@@ -81,6 +81,14 @@ const SystemSettings = sequelize.define('SystemSettings', {
     type: DataTypes.STRING(20),
     defaultValue: '',
   },
+  sales_return_prefix: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'SR',
+  },
+  purchase_return_prefix: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'PR',
+  },
   backup_frequency: {
     type: DataTypes.ENUM('Hourly', 'Daily', 'Weekly', 'Manual'),
     defaultValue: 'Daily',
