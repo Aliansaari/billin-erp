@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Dropdown, Avatar } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -49,6 +49,14 @@ export default function TopNav() {
   const mode   = resolveMode(themeStyle, appearance);
   const isDark = mode.endsWith('dark');
 
+  // Controlled open state for the submenu dropdowns. Only one top-level
+  // pill's submenu is open at a time (the key of that pill is stored here).
+  // Having this explicit instead of leaving AntD to manage it means we can
+  // force-close the dropdown after navigation (belt-and-braces for flaky
+  // AntD auto-close timing) and also ensure mouse-out from the pill does
+  // not close the dropdown while the cursor is still inside the popup.
+  const [openKey, setOpenKey] = useState(null);
+
   // Guarded navigate — honours the unsaved-changes confirmation the way Sidebar does.
   const navigate = (to, opts) => {
     if (to === location.pathname) return;
@@ -93,10 +101,11 @@ export default function TopNav() {
     const pillClass = `erp-topnav-pill${isActive ? ' is-active' : ''}`;
 
     if (item.children && item.children.length > 0) {
-      // Child `key` is the route path. We put the navigate() call on the
-      // MENU itself (onClick at the AntD-menu level) rather than per-item
-      // so AntD auto-closes the dropdown after selection. Per-item onClick
-      // works too but leaves the dropdown visible on some AntD 5 releases.
+      // Child `key` is the route path. The nav handler is centralised at
+      // the AntD menu level (not per-item) so the dropdown auto-closes on
+      // select. We track our own `open` state for the Dropdown too, so we
+      // can explicitly close on select even if AntD 5's auto-close timing
+      // flakes under fast clicks.
       const dropdownItems = item.children.map((c) => ({
         key: c.key,
         icon: c.icon,
@@ -109,17 +118,22 @@ export default function TopNav() {
             items: dropdownItems,
             selectedKeys: [location.pathname],
             onClick: ({ key, domEvent }) => {
-              // Prevent AntD's default keep-open behaviour, then route.
+              // Stop the click from bubbling to the outer pill button (which
+              // would toggle the dropdown state right after we navigate).
               domEvent?.stopPropagation?.();
+              // Close the dropdown explicitly in case AntD's auto-close
+              // doesn't fire in time for the navigation render.
+              setOpenKey(null);
               navigate(key);
             },
           }}
           /* Click-only trigger. The earlier ['click', 'hover'] combination
              caused a toggle conflict: hover would open the menu, then click
              (which AntD treats as a toggle) would close it again — making
-             click look broken. Hover alone feels flaky on touch devices
-             anyway; click is the predictable, universal trigger. */
+             click look broken. */
           trigger={['click']}
+          open={openKey === item.key}
+          onOpenChange={(next) => setOpenKey(next ? item.key : null)}
           placement="bottom"
           overlayClassName="erp-topnav-dropdown"
         >
