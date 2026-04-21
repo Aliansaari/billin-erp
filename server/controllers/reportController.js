@@ -1,6 +1,6 @@
 const { Op, fn, col, literal } = require('sequelize');
 const sequelize = require('../config/database');
-const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger } = require('../models');
+const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, PurchaseReturnBill } = require('../models');
 const { sanitizePagination } = require('../utils/helpers');
 
 // Local calendar date (YYYY-MM-DD) in the server's timezone. We deliberately
@@ -499,7 +499,38 @@ exports.profitLoss = async (req, res) => {
       raw: true,
     });
 
+    // Formal returns — aggregate gross + GST components over the same date range.
+    // Walk-in returns (SalesBill.return_amount) are already netted into that bill's
+    // total_amount, so including them here would double-count the reversal.
+    const dateWhereReturn = {};
+    if (from_date && to_date) dateWhereReturn.return_date = { [Op.between]: [from_date, to_date] };
+
+    const salesReturns = await SalesReturnBill.findAll({
+      where: { ...dateWhereReturn, is_cancelled: false },
+      attributes: [
+        [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
+        [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
+        [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
+        [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'igst'],
+        [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'cess'],
+      ],
+      raw: true,
+    });
+    const purchaseReturns = await PurchaseReturnBill.findAll({
+      where: { ...dateWhereReturn, is_cancelled: false },
+      attributes: [
+        [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
+        [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
+        [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
+        [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'igst'],
+        [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'cess'],
+      ],
+      raw: true,
+    });
+
     const s = sales[0], p = purchases[0];
+    const sr = salesReturns[0], pr = purchaseReturns[0];
+
     const salesGross      = parseFloat(s.total);
     const purchGross      = parseFloat(p.total);
     const salesGST        = parseFloat(s.cgst) + parseFloat(s.sgst) + parseFloat(s.igst) + parseFloat(s.cess);
@@ -507,8 +538,13 @@ exports.profitLoss = async (req, res) => {
     const salesExGST      = +(salesGross - salesGST).toFixed(2);
     const purchExGST      = +(purchGross - purchGST).toFixed(2);
 
-    const salesReturn     = 0; // TODO: implement returns when return module ships
-    const purchaseReturn  = 0;
+    const salesReturnGross = parseFloat(sr.total);
+    const purchReturnGross = parseFloat(pr.total);
+    const salesReturnGST   = parseFloat(sr.cgst) + parseFloat(sr.sgst) + parseFloat(sr.igst) + parseFloat(sr.cess);
+    const purchReturnGST   = parseFloat(pr.cgst) + parseFloat(pr.sgst) + parseFloat(pr.igst) + parseFloat(pr.cess);
+    const salesReturn      = +(salesReturnGross - salesReturnGST).toFixed(2);
+    const purchaseReturn   = +(purchReturnGross - purchReturnGST).toFixed(2);
+
     const netSales        = +(salesExGST - salesReturn).toFixed(2);
     const netPurchases    = +(purchExGST - purchaseReturn).toFixed(2);
 
@@ -545,7 +581,12 @@ exports.profitLoss = async (req, res) => {
     const cogs            = parseFloat(cogsRow.cogs) || 0;
     const billAdjustments = parseFloat(cogsRow.adjustments) || 0;
     const grossProfit     = +(netSales - cogs - billAdjustments).toFixed(2);
-    const gstLiability    = +(salesGST - purchGST).toFixed(2); // output – input credit
+    // GST on formal returns reverses the liability on its side:
+    //   · a sales-return credit note REVERSES the output GST we billed the customer
+    //   · a purchase-return debit note REVERSES the input credit we had claimed
+    // Keeping this as an expression (not an intermediate var) so the reasoning
+    // sits right next to the formula for future readers.
+    const gstLiability    = +((salesGST - salesReturnGST) - (purchGST - purchReturnGST)).toFixed(2);
 
     res.json({
       revenue: {

@@ -91,6 +91,27 @@ export const salesAPI = {
   cancel: (id) => api.post(`/sales/${id}/cancel`),
 };
 
+// Sales Returns — credit notes. getReferenceBill fetches the original sales
+// bill's items so the return form can pre-populate lines for "return this bill".
+export const salesReturnAPI = {
+  getAll: (params) => api.get('/sales-returns', { params }),
+  getById: (id) => api.get(`/sales-returns/${id}`),
+  getReferenceBill: (salesBillId) => api.get(`/sales-returns/reference/${salesBillId}`),
+  create: (data) => api.post('/sales-returns', data),
+  update: (id, data) => api.put(`/sales-returns/${id}`, data),
+  cancel: (id) => api.post(`/sales-returns/${id}/cancel`),
+};
+
+// Purchase Returns — debit notes. Mirrors salesReturnAPI.
+export const purchaseReturnAPI = {
+  getAll: (params) => api.get('/purchase-returns', { params }),
+  getById: (id) => api.get(`/purchase-returns/${id}`),
+  getReferenceBill: (purchaseBillId) => api.get(`/purchase-returns/reference/${purchaseBillId}`),
+  create: (data) => api.post('/purchase-returns', data),
+  update: (id, data) => api.put(`/purchase-returns/${id}`, data),
+  cancel: (id) => api.post(`/purchase-returns/${id}/cancel`),
+};
+
 // Payments
 export const paymentAPI = {
   getAll: (params) => api.get('/payments', { params }),
