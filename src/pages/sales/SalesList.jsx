@@ -1,18 +1,36 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
-  Table, Button, Tag, Typography, message, Card, Space, Input,
-  DatePicker, Select, Popconfirm, Tooltip, Modal, Descriptions, Divider,
+  Table, Tag, Typography, message, DatePicker, Select, Tooltip,
+  Modal, Descriptions, Divider, Dropdown,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, StopOutlined,
-  PrinterOutlined, EditOutlined,
+  PrinterOutlined, EditOutlined, MoreOutlined,
+  DollarOutlined, CopyOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, settingsAPI } from '../../api';
+import '../../styles/bill-list.css';
 
-const { Title, Text } = Typography;
+// Optional columns the user can toggle via the Columns picker. Keys match
+// the state shape persisted to localStorage.
+const SALES_OPTIONAL_COLS = [
+  { key: 'items',    label: 'Items (count · pcs)' },
+  { key: 'gst',      label: 'GST amount' },
+  { key: 'discount', label: 'Discount' },
+  { key: 'return',   label: 'Return amount' },
+];
+const COLS_STORAGE_KEY = 'salesList_cols_v1';
+const DEFAULT_COLS = { items: true, gst: false, discount: false, return: false };
+
+const { Text } = Typography;
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+const fmtShort = (v) => {
+  const n = parseFloat(v || 0);
+  if (n === 0) return '₹ 0';
+  return `₹ ${Math.round(n).toLocaleString('en-IN')}`;
+};
 
 // ── Invoice printer (iframe) ───────────────────────────────────────────────────
 function printBill(bill, companyName) {
@@ -96,7 +114,7 @@ function SummaryRow({ label, value, color, bold, borderTop }) {
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '5px 0', borderTop: borderTop ? '1px solid #d9d9d9' : undefined,
+      padding: '5px 0', borderTop: borderTop ? '1px solid var(--border)' : undefined,
       fontWeight: bold ? 700 : 400, fontSize: bold ? 14 : 13, color: color || undefined,
     }}>
       <span>{label}</span><span>{value}</span>
@@ -107,9 +125,9 @@ function SummaryRow({ label, value, color, bold, borderTop }) {
 function ViewModal({ bill, onClose }) {
   if (!bill) return null;
   const items = bill.items || [];
-  const cgst  = parseFloat(bill.cgst_amount  || 0);
-  const sgst  = parseFloat(bill.sgst_amount  || 0);
-  const igst  = parseFloat(bill.igst_amount  || 0);
+  const cgst = parseFloat(bill.cgst_amount || 0);
+  const sgst = parseFloat(bill.sgst_amount || 0);
+  const igst = parseFloat(bill.igst_amount || 0);
   const totalGst = cgst + sgst + igst;
   const discount = parseFloat(bill.discount_amount || 0);
   const returnAmt = parseFloat(bill.return_amount || 0);
@@ -119,8 +137,7 @@ function ViewModal({ bill, onClose }) {
   const itemColumns = [
     { title: '#', width: 40, render: (_, __, i) => i + 1 },
     { title: 'Product', dataIndex: 'product_name' },
-    { title: 'Barcode', dataIndex: 'barcode', width: 110,
-      render: v => <Text style={{ fontSize: 11 }}>{v}</Text> },
+    { title: 'Barcode', dataIndex: 'barcode', width: 110, render: v => <Text style={{ fontSize: 11 }}>{v}</Text> },
     { title: 'Size', dataIndex: 'size', width: 70 },
     { title: 'Qty', dataIndex: 'quantity', width: 65, align: 'right' },
     { title: 'Rate', dataIndex: 'sale_rate', width: 90, align: 'right',
@@ -160,67 +177,72 @@ function ViewModal({ bill, onClose }) {
         <div style={{ width: 300 }}>
           <SummaryRow label="Sub Total" value={fmt(bill.sub_total)} />
           {discount > 0 && (
-            <SummaryRow
-              label={`Discount${bill.discount_percentage > 0 ? ` (${bill.discount_percentage}%)` : ''}`}
-              value={`- ${fmt(discount)}`}
-              color="#d97706"
-            />
+            <SummaryRow label={`Discount${bill.discount_percentage > 0 ? ` (${bill.discount_percentage}%)` : ''}`}
+              value={`- ${fmt(discount)}`} color="#d97706" />
           )}
-          {igst > 0 && (
-            <SummaryRow
-              label={`IGST${bill.igst_pct > 0 ? ` (${bill.igst_pct}%)` : ''}`}
-              value={fmt(igst)}
-            />
-          )}
-          {cgst > 0 && (
-            <SummaryRow
-              label={`CGST${bill.cgst_pct > 0 ? ` (${bill.cgst_pct}%)` : ''}`}
-              value={fmt(cgst)}
-            />
-          )}
-          {sgst > 0 && (
-            <SummaryRow
-              label={`SGST${bill.sgst_pct > 0 ? ` (${bill.sgst_pct}%)` : ''}`}
-              value={fmt(sgst)}
-            />
-          )}
-          {totalGst === 0 && parseFloat(bill.gst_amount || 0) > 0 && (
-            <SummaryRow label="GST" value={fmt(bill.gst_amount)} />
-          )}
-          {roundOff !== 0 && (
-            <SummaryRow label="Round Off" value={roundOff.toFixed(2)} />
-          )}
+          {igst > 0 && (<SummaryRow label={`IGST${bill.igst_pct > 0 ? ` (${bill.igst_pct}%)` : ''}`} value={fmt(igst)} />)}
+          {cgst > 0 && (<SummaryRow label={`CGST${bill.cgst_pct > 0 ? ` (${bill.cgst_pct}%)` : ''}`} value={fmt(cgst)} />)}
+          {sgst > 0 && (<SummaryRow label={`SGST${bill.sgst_pct > 0 ? ` (${bill.sgst_pct}%)` : ''}`} value={fmt(sgst)} />)}
+          {totalGst === 0 && parseFloat(bill.gst_amount || 0) > 0 && (<SummaryRow label="GST" value={fmt(bill.gst_amount)} />)}
+          {roundOff !== 0 && (<SummaryRow label="Round Off" value={roundOff.toFixed(2)} />)}
           <SummaryRow label="Total" value={fmt(bill.total_amount)} bold borderTop />
-          {returnAmt > 0 && (
-            <SummaryRow label="Return Amount" value={`- ${fmt(returnAmt)}`} color="#7c3aed" />
-          )}
+          {returnAmt > 0 && (<SummaryRow label="Return Amount" value={`- ${fmt(returnAmt)}`} color="#7c3aed" />)}
           <SummaryRow label="Paid" value={fmt(bill.paid_amount)} color="#16a34a" />
-          <SummaryRow
-            label="Balance Due"
-            value={fmt(bill.balance_amount)}
-            color={balance > 0 ? '#dc2626' : '#16a34a'}
-            bold borderTop
-          />
+          <SummaryRow label="Balance Due" value={fmt(bill.balance_amount)}
+            color={balance > 0 ? '#dc2626' : '#16a34a'} bold borderTop />
         </div>
       </div>
     </Modal>
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+// ── Circular progress ring (for KPI cards) ─────────────────────────────────────
+function Ring({ pct, tone = 'ok' }) {
+  // r=22 → circumference = 2πr ≈ 138.23
+  const C = 138.23;
+  const p = Math.max(0, Math.min(100, pct));
+  const offset = C * (1 - p / 100);
+  return (
+    <div className="kpi-ring" aria-label={`${Math.round(p)}%`}>
+      <svg viewBox="0 0 56 56">
+        <circle className="track" cx="28" cy="28" r="22" fill="none" strokeWidth="3.5"/>
+        <circle className={tone === 'bad' ? 'fill-bad' : 'fill-ok'}
+          cx="28" cy="28" r="22" fill="none" strokeWidth="3.5"
+          strokeDasharray={C} strokeDashoffset={offset}
+          strokeLinecap="round" transform="rotate(-90 28 28)"/>
+      </svg>
+      <span className="label">{Math.round(p)}%</span>
+    </div>
+  );
+}
+
+// ── Main list ──────────────────────────────────────────────────────────────────
 export default function SalesList() {
   const [bills, setBills]           = useState([]);
   const [loading, setLoading]       = useState(false);
-  const [total, setTotal] = useState(0);
+  const [total, setTotal]           = useState(0);
   const [filters, setFilters]       = useState({ search: '', payment_status: null, from_date: null, to_date: null });
   const [viewBill, setViewBill]     = useState(null);
   const [actionLoading, setActionLoading] = useState({});
   const [companyName, setCompanyName] = useState('');
+  // Column visibility — persisted so user's choice survives reload.
+  const [cols, setCols] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
+      return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
+    } catch { return DEFAULT_COLS; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(cols)); } catch {}
+  }, [cols]);
+  const visibleOptionalCount = Object.values(cols).filter(Boolean).length;
+
   const navigate = useNavigate();
 
   useEffect(() => {
     loadBills();
     settingsAPI.getSystem().then(({ data }) => setCompanyName(data?.data?.company_name || '')).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
   const loadBills = async () => {
@@ -245,29 +267,14 @@ export default function SalesList() {
         ? '💡 Go to Receipts, find the listed receipt(s) and cancel them. Then come back to cancel this bill.'
         : '💡 To reverse this sale, consider creating a Sales Return to keep your ledger accurate.';
       Modal.error({
-        title: 'Cannot Cancel Bill',
-        icon: null,
-        width: 500,
+        title: 'Cannot Cancel Bill', icon: null, width: 500,
         content: (
           <div style={{ paddingTop: 8 }}>
-            <div style={{
-              background: '#fef2f2', border: '1px solid #fca5a5',
-              borderRadius: 8, padding: '12px 16px', marginBottom: 12,
-              color: '#7f1d1d', fontSize: 13, lineHeight: 1.6,
-            }}>
-              {reason}
-            </div>
-            <div style={{
-              background: '#eff6ff', border: '1px solid #bfdbfe',
-              borderRadius: 8, padding: '10px 14px',
-              fontSize: 12, color: '#1e40af', lineHeight: 1.6,
-            }}>
-              {tip}
-            </div>
+            <div style={{ background:'#fef2f2', border:'1px solid #fca5a5', borderRadius:8, padding:'12px 16px', marginBottom:12, color:'#7f1d1d', fontSize:13, lineHeight:1.6 }}>{reason}</div>
+            <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'10px 14px', fontSize:12, color:'#1e40af', lineHeight:1.6 }}>{tip}</div>
           </div>
         ),
-        okText: 'Got it',
-        okButtonProps: { danger: true },
+        okText: 'Got it', okButtonProps: { danger: true },
       });
     }
   };
@@ -285,93 +292,373 @@ export default function SalesList() {
     }
   }, []);
 
-  const handleView = async (id) => {
-    const bill = await fetchBill(id);
-    if (bill) setViewBill(bill);
+  const handleView  = async (id) => { const b = await fetchBill(id); if (b) setViewBill(b); };
+  const handlePrint = async (id) => { const b = await fetchBill(id); if (b) printBill(b, companyName); };
+  const handleEdit  = (id) => navigate(`/sale/edit/${id}`);
+  const handleRecordReceipt = (bill) => {
+    // Pre-select this customer + bill when opening receipt entry. ReceiptEntry
+    // reads location.state.preselect to auto-fill the party and highlight the
+    // specific bill if passed.
+    navigate('/receipt/new', { state: { preselect: { party_id: bill.customer?.party_id, bill_id: bill.sales_bill_id } } });
   };
 
-  const handlePrint = async (id) => {
-    const bill = await fetchBill(id);
-    if (bill) printBill(bill, companyName);
-  };
+  // ── KPI computation (excludes cancelled bills) ──
+  const kpis = useMemo(() => {
+    const active = bills.filter(b => !b.is_cancelled);
+    const totalAmount = active.reduce((s, b) => s + parseFloat(b.total_amount || 0), 0);
+    const received = active.reduce((s, b) => s + parseFloat(b.paid_amount || 0), 0);
+    const outstanding = active.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
+    const openBills = active.filter(b => parseFloat(b.balance_amount || 0) > 0.01).length;
+    const avg = active.length > 0 ? totalAmount / active.length : 0;
+    return { totalAmount, received, outstanding, openBills, count: active.length, avg };
+  }, [bills]);
 
-  const columns = [
-    { title: 'Bill No', dataIndex: 'bill_number', width: 150,
-      render: (v) => <span style={{ fontWeight: 600, }}>{v}</span> },
-    { title: 'Date', dataIndex: 'bill_date', width: 110, render: (v) => dayjs(v).format('DD-MMM-YYYY') },
-    { title: 'Customer', dataIndex: ['customer', 'party_name'], width: 180, render: (v) => v || 'Cash Sale' },
-    { title: 'Total', dataIndex: 'total_amount', width: 120, align: 'right', render: fmt },
-    { title: 'Paid', dataIndex: 'paid_amount', width: 120, align: 'right', render: fmt },
-    { title: 'Balance', dataIndex: 'balance_amount', width: 120, align: 'right',
-      render: (v) => <span style={{ color: v > 0 ? '#ff4d4f' : '#52c41a' }}>{fmt(v)}</span> },
-    { title: 'Status', dataIndex: 'payment_status', width: 90,
-      render: (s) => <Tag color={s === 'Paid' ? 'green' : s === 'Partial' ? 'orange' : 'red'}>{s}</Tag> },
-    { title: 'Actions', width: 200, render: (_, r) => {
-      const id = r.sales_bill_id;
-      const busy = actionLoading[id];
-      return (
-        <Space size={6}>
-          <Tooltip title="View">
-            <Button icon={<EyeOutlined />} loading={busy}
-              onClick={() => handleView(id)} />
-          </Tooltip>
-          <Tooltip title="Print">
-            <Button icon={<PrinterOutlined />} loading={busy}
-              onClick={() => handlePrint(id)} />
-          </Tooltip>
-          <Tooltip title="Edit">
-            <Button type="primary" icon={<EditOutlined />}
-              onClick={() => navigate(`/sale/edit/${id}`)}
-              style={{ background: '#4F46E5', borderColor: '#4F46E5' }} />
-          </Tooltip>
-          <Popconfirm title="Cancel this bill?" onConfirm={() => handleCancel(id)}>
-            <Tooltip title="Cancel">
-              <Button icon={<StopOutlined />} danger />
-            </Tooltip>
-          </Popconfirm>
-        </Space>
-      );
-    }},
-  ];
+  const receivedPct = kpis.totalAmount > 0 ? (kpis.received / kpis.totalAmount) * 100 : 0;
+  const outstandingPct = kpis.totalAmount > 0 ? (kpis.outstanding / kpis.totalAmount) * 100 : 0;
+
+  // ── Page totals (what's currently shown after filters) ──
+  const pageTotals = useMemo(() => {
+    const active = bills.filter(b => !b.is_cancelled);
+    return {
+      total: active.reduce((s, b) => s + parseFloat(b.total_amount || 0), 0),
+      paid:  active.reduce((s, b) => s + parseFloat(b.paid_amount  || 0), 0),
+      bal:   active.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0),
+    };
+  }, [bills]);
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Page Header */}
-      <div className="erp-page-header" style={{ padding: '12px 20px', marginBottom: 0, background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-        <div className="erp-page-header-title">
-          <Title level={3} style={{ margin: 0, fontWeight: 700, color: '#1f2937' }}>Sales Bills</Title>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>{total} bills total</span>
+    <div className="blist-page">
+
+      {/* Top bar — title + search + date + status + CTAs */}
+      <div className="blist-hd">
+        <div className="blist-title">
+          <h1>Sales Bills</h1>
+          <div className="sub"><b>{total}</b> bills total</div>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/sale/new')}
-          style={{ height: 38, fontWeight: 500 }}>
-          New Sale
-        </Button>
+        <div className="blist-ctrl">
+          <div className="blist-search">
+            <SearchOutlined />
+            <input
+              type="text"
+              placeholder="Search bill no or customer"
+              value={filters.search}
+              onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))}
+            />
+          </div>
+          <DatePicker.RangePicker
+            size="middle" format="DD MMM"
+            placeholder={['From', 'To']}
+            onChange={(v) => setFilters(f => ({
+              ...f,
+              from_date: v?.[0]?.format('YYYY-MM-DD') || null,
+              to_date:   v?.[1]?.format('YYYY-MM-DD') || null,
+            }))}
+            style={{ height: 34, width: 220 }}
+          />
+          <Select
+            placeholder="All statuses" allowClear
+            style={{ width: 130, height: 34 }}
+            onChange={(v) => setFilters(f => ({ ...f, payment_status: v }))}
+            options={[
+              { value: 'Paid',    label: 'Paid' },
+              { value: 'Partial', label: 'Partial' },
+              { value: 'Unpaid',  label: 'Unpaid' },
+            ]}
+          />
+          <Dropdown
+            trigger={['click']}
+            placement="bottomRight"
+            dropdownRender={() => (
+              <div className="cols-menu" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.12)' }}>
+                <div className="mh">Optional columns</div>
+                {SALES_OPTIONAL_COLS.map(c => (
+                  <label key={c.key} className="opt">
+                    <input
+                      type="checkbox"
+                      checked={!!cols[c.key]}
+                      onChange={(e) => setCols(prev => ({ ...prev, [c.key]: e.target.checked }))}
+                    />
+                    {c.label}
+                  </label>
+                ))}
+                <div className="sep" />
+                <div className="mh" style={{ paddingBottom: 2 }}>Always shown</div>
+                <label className="opt"><span>Bill · Date · Customer</span><span className="pin">Pinned</span></label>
+                <label className="opt"><span>Total · Paid · Balance</span><span className="pin">Pinned</span></label>
+              </div>
+            )}
+          >
+            <button className={`blist-chip${visibleOptionalCount > 0 ? ' on' : ''}`}>
+              <AppstoreOutlined /> Columns
+              {visibleOptionalCount > 0 && <span className="col-count">{visibleOptionalCount}</span>}
+            </button>
+          </Dropdown>
+          <span className="blist-divider"></span>
+          <button className="blist-cta ghost" onClick={() => navigate('/receipt/new')}>
+            <PlusOutlined /> Receipt
+          </button>
+          <button className="blist-cta" onClick={() => navigate('/sale/new')}>
+            <PlusOutlined /> New Sale
+          </button>
+        </div>
       </div>
 
-      <Card bodyStyle={{ padding: 0, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
-        style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {/* Filter Bar */}
-        <div className="erp-filter-bar" style={{ flexShrink: 0 }}>
-          <Input placeholder="Search bill no / customer..." prefix={<SearchOutlined />}
-            style={{ width: 220, height: 34 }}
-            onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))} allowClear />
-          <DatePicker.RangePicker format="DD-MM-YYYY" style={{ height: 34 }}
-            onChange={(v) => setFilters(f => ({ ...f, from_date: v?.[0]?.format('YYYY-MM-DD'), to_date: v?.[1]?.format('YYYY-MM-DD') }))} />
-          <Select placeholder="All Statuses" style={{ width: 130, height: 34 }} allowClear
-            onChange={(v) => setFilters(f => ({ ...f, payment_status: v }))}>
-            <Select.Option value="Paid">Paid</Select.Option>
-            <Select.Option value="Partial">Partial</Select.Option>
-            <Select.Option value="Unpaid">Unpaid</Select.Option>
-          </Select>
+      {/* KPI cards */}
+      <div className="blist-kpi">
+        <div className="kpi-card total">
+          <div className="kpi-text">
+            <div className="k">Total Sale · This View</div>
+            <div className="v">{fmt(kpis.totalAmount)}</div>
+            <div className="sub">{kpis.count} bills · avg {fmtShort(kpis.avg)}</div>
+          </div>
         </div>
+        <div className="kpi-card received">
+          <div className="kpi-text">
+            <div className="k">Received</div>
+            <div className="v">{fmt(kpis.received)}</div>
+            <div className="sub">of {fmtShort(kpis.totalAmount)} sold</div>
+          </div>
+          <Ring pct={receivedPct} tone="ok" />
+        </div>
+        <div className="kpi-card outstanding">
+          <div className="kpi-text">
+            <div className="k">Outstanding</div>
+            <div className="v">{fmt(kpis.outstanding)}</div>
+            <div className="sub">from {kpis.openBills} open bills</div>
+          </div>
+          <Ring pct={outstandingPct} tone="bad" />
+        </div>
+      </div>
 
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          <Table columns={columns} dataSource={bills} rowKey="sales_bill_id" loading={loading}
-            size="small" scroll={{ x: 1000 }} pagination={false} />
+      {/* Bill list — fixed chrome, internal scroll */}
+      <div className="blist-wrap">
+        <div className="blist">
+
+          <div className="brow head">
+            <div className="c-sr">#</div>
+            <div className="c-bill">Bill #</div>
+            <div className="c-date">Date · Time</div>
+            <div className="c-cust">Customer</div>
+            {cols.items    && <div className="c-items">Items</div>}
+            <div className="c-total">Total</div>
+            {cols.gst      && <div className="c-gst">GST</div>}
+            {cols.discount && <div className="c-discount">Discount</div>}
+            <div className="c-paid">Paid</div>
+            <div className="c-bal">Balance</div>
+            {cols.return   && <div className="c-return">Return</div>}
+            <div className="c-act"></div>
+          </div>
+
+          <div className="bscroll">
+            {loading ? (
+              <div className="brow empty">Loading bills…</div>
+            ) : bills.length === 0 ? (
+              <div className="brow empty">No bills match the current filters.</div>
+            ) : (
+              bills.map((bill, i) => (
+                <BillRow
+                  key={bill.sales_bill_id}
+                  bill={bill}
+                  index={i}
+                  cols={cols}
+                  actionLoading={!!actionLoading[bill.sales_bill_id]}
+                  onView={() => handleView(bill.sales_bill_id)}
+                  onPrint={() => handlePrint(bill.sales_bill_id)}
+                  onEdit={() => handleEdit(bill.sales_bill_id)}
+                  onCancel={() => handleCancel(bill.sales_bill_id)}
+                  onReceipt={() => handleRecordReceipt(bill)}
+                />
+              ))
+            )}
+          </div>
+
+          <div className="bfoot">
+            <span>Shown: <b>{bills.length} of {total}</b></span>
+            <span>Page total: <b>{fmt(pageTotals.total)}</b></span>
+            <span>Paid: <b style={{ color: 'var(--success)' }}>{fmt(pageTotals.paid)}</b></span>
+            <span>Balance: <b style={{ color: 'var(--danger)' }}>{fmt(pageTotals.bal)}</b></span>
+          </div>
         </div>
-      </Card>
+      </div>
 
       <ViewModal bill={viewBill} onClose={() => setViewBill(null)} />
+    </div>
+  );
+}
+
+// ── Row component ─────────────────────────────────────────────────────────────
+function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, onCancel, onReceipt }) {
+  const cancelled = !!bill.is_cancelled;
+  const total = parseFloat(bill.total_amount || 0);
+  const paid = parseFloat(bill.paid_amount || 0);
+  const balance = parseFloat(bill.balance_amount || 0);
+
+  // Item count + total pieces come pre-computed from the list endpoint
+  // (_item_count / _pcs_total). Fall back to counting loaded items if
+  // the bill object happens to have them (e.g. after a detail fetch).
+  const itemCount = bill._item_count ?? bill.items?.length ?? null;
+  const pcsTotal = bill._pcs_total ?? (bill.items
+    ? bill.items.reduce((s, it) => s + parseFloat(it.quantity || 0), 0)
+    : null);
+
+  const billDate = bill.bill_date ? dayjs(bill.bill_date) : null;
+  const timeSource = bill.createdAt || bill.created_date || bill.bill_date;
+  const billTime = timeSource ? dayjs(timeSource) : null;
+  const isSameDay = billDate && billTime && billDate.isSame(billTime, 'day');
+
+  const customerName = bill.customer?.party_name;
+  const customerPhone = bill.customer?.mobile_1;
+  const isCash = !customerName;
+
+  // Optional amounts
+  const gstAmt = parseFloat(bill.gst_amount || 0) ||
+                 (parseFloat(bill.cgst_amount || 0) + parseFloat(bill.sgst_amount || 0) + parseFloat(bill.igst_amount || 0));
+  const discAmt = parseFloat(bill.discount_amount || 0);
+  const retAmt = parseFloat(bill.return_amount || 0);
+
+  const openBill = !cancelled && balance > 0.01;
+
+  // Menu items — the longer-tail actions live here. Record Receipt is in
+  // this menu (no longer the primary hover button) so the row's hover
+  // cluster stays quiet: just View + Print.
+  const moreMenu = {
+    items: [
+      ...(openBill ? [{
+        key: 'receipt', icon: <DollarOutlined />, label: 'Record receipt',
+        onClick: onReceipt,
+      }, { type: 'divider' }] : []),
+      { key: 'edit',  icon: <EditOutlined />,    label: 'Edit',   onClick: onEdit, disabled: cancelled },
+      { key: 'dup',   icon: <CopyOutlined />,    label: 'Duplicate to new sale', onClick: onEdit, disabled: cancelled },
+      { type: 'divider' },
+      {
+        key: 'cancel',
+        icon: <StopOutlined />,
+        label: cancelled ? 'Already cancelled' : 'Cancel bill',
+        danger: true, disabled: cancelled,
+        onClick: () => {
+          Modal.confirm({
+            title: `Cancel bill ${bill.bill_number}?`,
+            content: 'Cancelling is permanent. Stock and ledger entries will be reversed.',
+            okText: 'Cancel this bill', okButtonProps: { danger: true },
+            cancelText: 'Keep it',
+            onOk: onCancel,
+          });
+        },
+      },
+    ],
+  };
+
+  return (
+    <div className={`brow data${cancelled ? ' cancelled' : ''}`}>
+      <div className="c-sr"><span className="sr-n">{String(index + 1).padStart(2, '0')}</span></div>
+      <div className="c-bill"><span className="bill-no">{bill.bill_number}</span></div>
+
+      <div className="c-date">
+        <div className="stk">
+          <span className="m">{billDate ? billDate.format('DD MMM YYYY') : '—'}</span>
+          {billTime && isSameDay
+            ? <span className="s">{billTime.format('h:mm a')}</span>
+            : <span className="s">&nbsp;</span>}
+        </div>
+      </div>
+
+      <div className="c-cust">
+        <div className={`stk${isCash ? ' cash' : ''}`}>
+          <span className="m">{customerName || 'Cash Sale'}</span>
+          <span className="s">{customerPhone || (isCash ? 'Walk-in' : '—')}</span>
+        </div>
+      </div>
+
+      {cols.items && (
+        <div className="c-items">
+          <div className="stk">
+            <span className="m">{itemCount != null ? itemCount : '—'}</span>
+            <span className="s">{pcsTotal != null ? `${pcsTotal} pcs` : '\u00A0'}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="c-total">
+        <span className={`amt${cancelled ? ' muted' : ''}`}>
+          <span className="rs">₹</span>{Math.round(total).toLocaleString('en-IN')}
+        </span>
+      </div>
+
+      {cols.gst && (
+        <div className="c-gst">
+          {gstAmt > 0.01
+            ? <span className="amt"><span className="rs">₹</span>{Math.round(gstAmt).toLocaleString('en-IN')}</span>
+            : <span className="amt zero">—</span>}
+        </div>
+      )}
+
+      {cols.discount && (
+        <div className="c-discount">
+          {discAmt > 0.01
+            ? <span className="amt"><span className="rs">₹</span>{Math.round(discAmt).toLocaleString('en-IN')}</span>
+            : <span className="amt zero">—</span>}
+        </div>
+      )}
+
+      <div className="c-paid">
+        {paid > 0.01 ? (
+          <span className="amt paid"><span className="rs">₹</span>{Math.round(paid).toLocaleString('en-IN')}</span>
+        ) : (
+          <span className="amt zero">—</span>
+        )}
+      </div>
+
+      <div className="c-bal">
+        {cancelled ? (
+          <span className="voided-tag">Voided</span>
+        ) : balance < 0.01 ? (
+          <span className="settled-tag">Settled</span>
+        ) : (
+          <span className="amt due"><span className="rs">₹</span>{Math.round(balance).toLocaleString('en-IN')}</span>
+        )}
+      </div>
+
+      {cols.return && (
+        <div className="c-return">
+          {retAmt > 0.01
+            ? <span className="amt"><span className="rs">₹</span>{Math.round(retAmt).toLocaleString('en-IN')}</span>
+            : <span className="amt zero">—</span>}
+        </div>
+      )}
+
+      <div className="c-act">
+        <div className="act-box">
+          <div className="group">
+            <Tooltip title="View">
+              <button
+                className="abtn"
+                onClick={(e) => { e.stopPropagation(); onView(); }}
+                disabled={actionLoading}
+              >
+                <EyeOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Print">
+              <button
+                className="abtn"
+                onClick={(e) => { e.stopPropagation(); onPrint(); }}
+                disabled={actionLoading}
+              >
+                <PrinterOutlined />
+              </button>
+            </Tooltip>
+            <Dropdown menu={moreMenu} trigger={['click']} placement="bottomRight">
+              <button
+                className="abtn"
+                onClick={(e) => e.stopPropagation()}
+                disabled={actionLoading}
+              >
+                <MoreOutlined />
+              </button>
+            </Dropdown>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
