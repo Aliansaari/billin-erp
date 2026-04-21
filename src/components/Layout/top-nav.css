@@ -32,17 +32,14 @@
   transition: background 0.15s;
   user-select: none;
 }
+.erp-topnav-brand.icon-only {
+  /* With no wordmark, shrink the tap target to just the icon. */
+  padding: 6px 8px;
+}
 .erp-topnav-brand:hover { background: rgba(255,255,255,0.06); }
 .erp-topnav-brand .brand-icon {
   font-size: 20px;
   color: var(--accent, #B1472F);
-}
-.erp-topnav-brand .brand-text {
-  font-family: 'Fraunces', 'Georgia', serif;
-  font-size: 17px; font-weight: 600;
-  letter-spacing: -0.01em;
-  color: #F5EFE3;
-  white-space: nowrap;
 }
 
 /* Main horizontal menu — reset AntD defaults to match the chrome */
@@ -164,10 +161,10 @@
   color: var(--accent, #E26A4C) !important;
 }
 
-/* Responsive — below 900 px the menu gets crowded; hide brand text + role. */
+/* Responsive — below 900 px the role label next to the avatar gets cramped,
+   so hide it. The brand is icon-only anyway so it stays untouched. */
 @media (max-width: 900px) {
   .erp-topnav { gap: 10px; padding: 0 12px; }
-  .erp-topnav-brand .brand-text { display: none; }
   .erp-topnav-user .user-text { display: none; }
 }
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, Typography, Segmented, Space, Row, Col, Tag } from 'antd';
 import {
   SunOutlined, MoonOutlined, DesktopOutlined,
-  LayoutOutlined, BgColorsOutlined,
+  LayoutOutlined, BgColorsOutlined, MenuOutlined, AlignLeftOutlined,
 } from '@ant-design/icons';
 import useThemeStore from '../../store/themeStore';
 import { resolveMode } from '../../theme/tokens';
@@ -17,10 +17,12 @@ const { Title, Text } = Typography;
  * controls shows exactly how a panel looks in the chosen combination.
  */
 export default function ThemeSettings() {
-  const themeStyle   = useThemeStore((s) => s.themeStyle);
-  const appearance   = useThemeStore((s) => s.appearance);
-  const setThemeStyle = useThemeStore((s) => s.setThemeStyle);
-  const setAppearance = useThemeStore((s) => s.setAppearance);
+  const themeStyle    = useThemeStore((s) => s.themeStyle);
+  const appearance    = useThemeStore((s) => s.appearance);
+  const menuOrientation    = useThemeStore((s) => s.menuOrientation);
+  const setThemeStyle      = useThemeStore((s) => s.setThemeStyle);
+  const setAppearance      = useThemeStore((s) => s.setAppearance);
+  const setMenuOrientation = useThemeStore((s) => s.setMenuOrientation);
 
   const resolved = resolveMode(themeStyle, appearance);
   const isModern = themeStyle === 'modern';
@@ -98,6 +100,40 @@ export default function ThemeSettings() {
             { label: (<SegmentLabel icon={<SunOutlined />}     title="Light"   subtitle="Soft off-white" />), value: 'light'  },
             { label: (<SegmentLabel icon={<MoonOutlined />}    title="Dark"    subtitle="Muted slate" />),     value: 'dark'   },
             { label: (<SegmentLabel icon={<DesktopOutlined />} title="System"  subtitle="Follows OS" />),      value: 'system' },
+          ]}
+          block
+        />
+      </Card>
+
+      {/* ── Menu Layout ── */}
+      <Card
+        className="erp-glass"
+        bodyStyle={{ padding: 24 }}
+        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 24 }}
+      >
+        <Space align="start" size={16} style={{ display: 'flex', marginBottom: 16 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12,
+            background: 'var(--accent-bg)', color: 'var(--accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+          }}>
+            <MenuOutlined />
+          </div>
+          <div>
+            <Title level={5} style={{ margin: 0, color: 'var(--fg-primary)' }}>Menu Layout</Title>
+            <Text style={{ color: 'var(--fg-secondary)', fontSize: 13 }}>
+              Vertical keeps the left sidebar (default). Horizontal moves the menu to a top bar,
+              giving the content column the full width of the screen.
+            </Text>
+          </div>
+        </Space>
+        <Segmented
+          size="large"
+          value={menuOrientation}
+          onChange={(v) => setMenuOrientation(v)}
+          options={[
+            { label: (<SegmentLabel icon={<AlignLeftOutlined />} title="Vertical"   subtitle="Left sidebar" />),    value: 'vertical'   },
+            { label: (<SegmentLabel icon={<MenuOutlined />}      title="Horizontal" subtitle="Top nav bar" />),     value: 'horizontal' },
           ]}
           block
         />

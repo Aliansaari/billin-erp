@@ -17,7 +17,6 @@ import {
   LockOutlined,
   SunOutlined,
   MoonOutlined,
-  SwapOutlined,
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -120,9 +119,6 @@ export default function Sidebar({ collapsed, setCollapsed }) {
   const themeStyle = useThemeStore((s) => s.themeStyle);
   const appearance = useThemeStore((s) => s.appearance);
   const setAppearance = useThemeStore((s) => s.setAppearance);
-  // Switch to the horizontal top-nav layout. Persisted in themeStore so the
-  // user's choice survives reloads; AppLayout re-renders with TopNav when it flips.
-  const toggleMenuOrientation = useThemeStore((s) => s.toggleMenuOrientation);
   const mode = resolveMode(themeStyle, appearance);
   const isDark = mode.endsWith('dark');
   const menuTheme = 'dark';
@@ -246,22 +242,8 @@ export default function Sidebar({ collapsed, setCollapsed }) {
           )}
         </div>
 
-        {/* Layout orientation toggle — flips between vertical sidebar (current)
-            and horizontal top-nav. Persisted via themeStore so it stays set
-            across reloads. Sidebar is the default; this button moves the menu
-            to the top and renders TopNav via AppLayout. */}
-        <div className={`erp-sidebar-layout${collapsed ? ' collapsed' : ''}`}>
-          <button
-            type="button"
-            className="erp-sidebar-layout-btn"
-            onClick={toggleMenuOrientation}
-            title="Switch to horizontal top-nav layout"
-            aria-label="Switch to horizontal top-nav layout"
-          >
-            <SwapOutlined />
-            {!collapsed && <span>Horizontal layout</span>}
-          </button>
-        </div>
+        {/* Menu orientation (vertical / horizontal) lives in Settings → Theme —
+            it's a "pick once" preference, not something to flip from every page. */}
 
         <div className={`erp-sidebar-bottom${collapsed ? ' collapsed' : ''}`}>
           <Dropdown menu={{ items: userMenuItems }} placement={collapsed ? 'topLeft' : 'topRight'} trigger={['click']}>

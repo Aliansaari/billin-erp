@@ -3,7 +3,7 @@ import { Menu, Dropdown, Avatar } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ThunderboltOutlined, UserOutlined, SettingOutlined, LockOutlined,
-  LogoutOutlined, SunOutlined, MoonOutlined, SwapOutlined,
+  LogoutOutlined, SunOutlined, MoonOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
@@ -47,7 +47,6 @@ export default function TopNav() {
   const themeStyle    = useThemeStore((s) => s.themeStyle);
   const appearance    = useThemeStore((s) => s.appearance);
   const setAppearance = useThemeStore((s) => s.setAppearance);
-  const toggleMenuOrientation = useThemeStore((s) => s.toggleMenuOrientation);
   const mode   = resolveMode(themeStyle, appearance);
   const isDark = mode.endsWith('dark');
 
@@ -91,10 +90,11 @@ export default function TopNav() {
 
   return (
     <header className="erp-topnav" data-mode={isDark ? 'dark' : 'light'}>
-      {/* Brand */}
-      <div className="erp-topnav-brand" onClick={() => navigate('/')} role="button" tabIndex={0}>
+      {/* Brand — icon only (double as a home link). The wordmark lives in
+          the vertical sidebar layout; in horizontal mode we give every
+          pixel back to the nav items. */}
+      <div className="erp-topnav-brand icon-only" onClick={() => navigate('/')} role="button" tabIndex={0} title="Home">
         <ThunderboltOutlined className="brand-icon" />
-        <span className="brand-text">Billing ERP</span>
       </div>
 
       {/* Main menu — horizontal */}
@@ -117,17 +117,10 @@ export default function TopNav() {
         />
       </div>
 
-      {/* Right cluster: layout toggle · appearance · user */}
+      {/* Right cluster: appearance toggle + user. The layout-orientation
+          toggle lives in Settings → Theme (it's a "pick once" preference,
+          not something to flip from every page). */}
       <div className="erp-topnav-right">
-        <button
-          type="button"
-          className="erp-topnav-iconbtn"
-          onClick={toggleMenuOrientation}
-          title="Switch to vertical sidebar layout"
-          aria-label="Switch to vertical sidebar layout"
-        >
-          <SwapOutlined rotate={90} />
-        </button>
         <button
           type="button"
           className="erp-topnav-iconbtn"

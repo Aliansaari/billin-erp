@@ -440,57 +440,9 @@ body {
   opacity: 1;
 }
 
-/* Layout-orientation toggle — small button that moves the menu to the top
-   (horizontal) and back. Visually understated so it doesn't compete with
-   the primary navigation; sits between the theme toggle and the user bar. */
-.erp-sidebar-layout {
-  flex-shrink: 0;
-  padding: 0 10px 6px;
-}
-.erp-sidebar-layout.collapsed {
-  padding: 0 6px 6px;
-  display: flex;
-  justify-content: center;
-}
-.erp-sidebar-layout-btn {
-  width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 10px;
-  background: transparent;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-  border-radius: 7px;
-  color: var(--sidebar-fg);
-  opacity: 0.68;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.erp-sidebar-layout-btn .anticon { font-size: 13px; }
-.erp-sidebar-layout-btn:hover {
-  opacity: 1;
-  border-color: rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.04);
-}
-.erp-sidebar-layout.collapsed .erp-sidebar-layout-btn {
-  width: 34px;
-  padding: 0;
-}
-[data-theme="modern-light"] .erp-sidebar-layout-btn,
-[data-theme="classic-light"] .erp-sidebar-layout-btn {
-  border-color: rgba(15, 23, 42, 0.12);
-}
-[data-theme="modern-light"] .erp-sidebar-layout-btn:hover,
-[data-theme="classic-light"] .erp-sidebar-layout-btn:hover {
-  border-color: rgba(15, 23, 42, 0.24);
-  background: rgba(15, 23, 42, 0.04);
-}
+/* .erp-sidebar-layout removed: the menu-orientation toggle is now only in
+   Settings → Theme (Menu Layout segmented control). Kept here as a marker
+   so future reviewers searching for the class aren't surprised it's gone. */
 
 /* Bottom bar with user avatar */
 .erp-sidebar-bottom {
