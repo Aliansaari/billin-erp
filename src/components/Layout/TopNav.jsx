@@ -108,12 +108,15 @@ export default function TopNav() {
           /* AntD adds its own className ("ant-menu") which we style to fit
              the editorial chrome via top-nav.css. */
           className="erp-topnav-menu-inner"
-          /* Let AntD fold overflowing items into its "..." submenu on narrow
-             viewports rather than wrapping onto a second row (which would
-             overflow the fixed 56px bar). Setting disabledOverflow=false is
-             the default; we spell it out so future edits don't accidentally
-             flip back to the broken wrapping behaviour. */
-          disabledOverflow={false}
+          /* disabledOverflow keeps all top-level items inline at their
+             natural width. Without it, AntD's overflow logic needs a
+             container with a bounded width to work, and it fights our
+             content-sized menu — hiding everything behind a "..." button
+             even when the items would comfortably fit.
+             On narrow viewports the nav bar allows horizontal scroll as a
+             fallback; most users will pick the vertical sidebar on small
+             screens anyway (via Settings → Theme). */
+          disabledOverflow
         />
       </div>
 

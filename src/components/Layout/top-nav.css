@@ -12,7 +12,8 @@
   height: 56px;
   display: flex;
   align-items: center;
-  gap: 18px;
+  /* Tight gap — brand icon sits snug against the first menu item. */
+  gap: 6px;
   padding: 0 20px;
   background: var(--sidebar-bg, #1a1a1a);
   border-bottom: 1px solid var(--sidebar-border, rgba(255,255,255,0.08));
@@ -21,7 +22,12 @@
      rather than a floating header, regardless of page background. */
   box-shadow: 0 1px 0 rgba(0,0,0,0.12), 0 2px 10px rgba(0,0,0,0.10);
   z-index: 20;
+  /* On very narrow viewports the menu + right cluster may not all fit; let
+     the whole bar scroll horizontally instead of clipping nav items. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
+.erp-topnav::-webkit-scrollbar { height: 0; }
 
 /* Brand cluster */
 .erp-topnav-brand {
@@ -42,15 +48,22 @@
   color: var(--accent, #B1472F);
 }
 
-/* Main horizontal menu — reset AntD defaults to match the chrome */
+/* Main horizontal menu — sized to its contents, NOT stretched to fill.
+   The menu sits tight against the brand on the left; the right cluster
+   gets `margin-left: auto` so it always pins to the right edge. */
 .erp-topnav-menu {
-  flex: 1 1 auto;
+  /* flex: 0 0 auto → never grow, never shrink past content. min-width: 0
+     keeps flex-in-flex overflow safe. No overflow: hidden here — with
+     `disabledOverflow` on the AntD menu, items render inline at their
+     natural width; clipping them would hide real navigation. */
+  flex: 0 0 auto;
   min-width: 0;
   display: flex;
-  overflow: hidden;
 }
 .erp-topnav-menu .ant-menu.erp-topnav-menu-inner {
-  flex: 1;
+  /* No flex-grow: the menu hugs the width of its items, so AntD doesn't
+     spread them with the extra space and leave the visual gap the user
+     was seeing. */
   background: transparent !important;
   border-bottom: none !important;
   line-height: 54px;
@@ -60,9 +73,11 @@
 .erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu {
   color: rgba(255,255,255,0.75) !important;
   border-bottom: 2px solid transparent !important;
-  /* Tight spacing so 8 top-level items fit comfortably on a 1200px laptop. */
-  margin: 0 1px !important;
-  padding: 0 10px !important;
+  /* Tight horizontal rhythm — each item takes only the space its label needs
+     plus an 8-pixel breathing margin on either side. No flex-grow so the
+     menu width always hugs the content. */
+  margin: 0 !important;
+  padding: 0 8px !important;
   top: 0 !important;
   transition: color 0.15s, background 0.15s, border-color 0.15s !important;
 }
@@ -86,13 +101,17 @@
 .erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu-selected::after { display: none !important; }
 .erp-topnav-menu .ant-menu-item .anticon,
 .erp-topnav-menu .ant-menu-submenu-title .anticon {
-  margin-right: 6px;
+  /* Snug against the label — AntD's default margin leaves a noticeable gap
+     between icon and text; 4px reads as a single glyph pair. */
+  margin-right: 4px !important;
   font-size: 13px;
   opacity: 0.85;
 }
 
-/* Right cluster */
+/* Right cluster — pushed to the end of the bar with margin-left: auto so
+   the menu (now content-sized) still sits tight against the brand icon. */
 .erp-topnav-right {
+  margin-left: auto;
   display: inline-flex; align-items: center; gap: 8px;
   flex-shrink: 0;
 }
