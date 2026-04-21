@@ -800,7 +800,7 @@ function PartyRow({ p, cols, isCustomer, expanded, expandData, onExpand, onOpenM
 
         {cols.aging && (
           <td>
-            <AgingCell days={p._aging_days}/>
+            <AgingCell days={p._aging_days} buckets={p._aging_buckets}/>
           </td>
         )}
 
@@ -908,25 +908,47 @@ function MiniTxnRow({ e }) {
   );
 }
 
-/* Aging cell — colored pill indicating how old this party's oldest open bill
-   is. `days` comes from `_aging_days` which the list endpoint computes in
-   one SQL pass. `null` means no open bill → show dash. */
-function AgingCell({ days }) {
+/* Aging cell — how old this party's oldest open bill is, plus a stacked bar
+   showing how their open-balance is distributed across the four buckets.
+   `days` and `buckets` both come from the list endpoint's enrichment pass.
+   `null` means no open bill → show dash. */
+function AgingCell({ days, buckets }) {
   if (days == null) return <span style={{ color: 'var(--fg-tertiary)', fontSize: 12 }}>—</span>;
   const cls = days <= 30 ? 'a0' : days <= 60 ? 'a30' : days <= 90 ? 'a60' : 'a90';
   const label = days <= 30 ? 'Not yet due' : days <= 60 ? 'Watchful' : days <= 90 ? 'Chase' : 'Critical';
+  const colorKey = cls === 'a0' ? '0' : cls === 'a30' ? '30' : cls === 'a60' ? '60' : '90';
+  // Normalise the bucket sums into percentages for a stacked bar. When the
+  // server hasn't sent buckets (older cache, empty response), fall back to a
+  // single solid fill in the "oldest-bucket" colour so the layout doesn't
+  // collapse.
+  const segs = (() => {
+    if (!buckets) return [{ cls, w: 100 }];
+    const tot = (buckets.b0 || 0) + (buckets.b30 || 0) + (buckets.b60 || 0) + (buckets.b90 || 0);
+    if (tot <= 0) return [{ cls, w: 100 }];
+    return [
+      { cls: 'a0',  w: (buckets.b0  || 0) / tot * 100 },
+      { cls: 'a30', w: (buckets.b30 || 0) / tot * 100 },
+      { cls: 'a60', w: (buckets.b60 || 0) / tot * 100 },
+      { cls: 'a90', w: (buckets.b90 || 0) / tot * 100 },
+    ].filter(s => s.w > 0);
+  })();
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span className={`plv-num aging-days-${cls}`} style={{ fontSize: 14, fontWeight: 700, color: `var(--plv-age-${cls === 'a0' ? '0' : cls === 'a30' ? '30' : cls === 'a60' ? '60' : '90'})` }}>
+    <div className="plv-aging-cell">
+      <div className="plv-aging-days">
+        <span className={`plv-num aging-days-${cls}`} style={{ fontSize: 14, fontWeight: 700, color: `var(--plv-age-${colorKey})` }}>
           {days}
         </span>
         <span style={{ fontSize: 11, color: 'var(--fg-tertiary)' }}>days oldest</span>
       </div>
       <span style={{
         fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase',
-        color: `var(--plv-age-${cls === 'a0' ? '0' : cls === 'a30' ? '30' : cls === 'a60' ? '60' : '90'})`,
+        color: `var(--plv-age-${colorKey})`,
       }}>{label}</span>
+      <div className="plv-aging-bar">
+        {segs.map((s, i) => (
+          <span key={i} className={`plv-aging-seg ${s.cls}`} style={{ width: `${s.w}%` }}/>
+        ))}
+      </div>
     </div>
   );
 }

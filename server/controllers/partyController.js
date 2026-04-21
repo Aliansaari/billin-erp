@@ -610,18 +610,36 @@ const enrichPartiesForList = async (parties, kind /* 'Customer' | 'Supplier' */)
   const billPkCol = kind === 'Customer' ? 'sales_bill_id' : 'purchase_bill_id';
   const billRefCol = 'bill_number';
   const billDateCol = 'bill_date';
+  const { b1, b2, b3 } = await getAgingBuckets();
 
   const [agingRows, lastBillRows, lastPaymentRows] = await Promise.all([
     sequelize.query(
+      // Single pass per party: oldest-days-past-due AND the per-bucket sum of
+      // open balances. The frontend uses the oldest-days count + bucket class
+      // for the column text, and the bucket amounts to render a stacked bar
+      // showing how this party's dues are distributed across aging windows.
       `
-      SELECT b.${billPartyCol} AS party_id,
-             MAX(CURRENT_DATE - (b.${billDateCol} + COALESCE(p.credit_days, 0)))::int AS oldest_days
-      FROM ${billTable} b
-      JOIN parties p ON p.party_id = b.${billPartyCol}
-      WHERE b.${billPartyCol} IN (:ids) AND b.is_cancelled = false AND b.balance_amount > 0
-      GROUP BY b.${billPartyCol}
+      WITH ob AS (
+        SELECT b.${billPartyCol} AS party_id,
+               (CURRENT_DATE - (b.${billDateCol} + COALESCE(p.credit_days, 0)))::int AS age_days,
+               b.balance_amount::float AS bal
+        FROM ${billTable} b
+        JOIN parties p ON p.party_id = b.${billPartyCol}
+        WHERE b.${billPartyCol} IN (:ids) AND b.is_cancelled = false AND b.balance_amount > 0
+      )
+      SELECT party_id,
+             MAX(age_days)                                                         AS oldest_days,
+             COALESCE(SUM(bal) FILTER (WHERE age_days <= :b1), 0)::float            AS b0,
+             COALESCE(SUM(bal) FILTER (WHERE age_days BETWEEN :b1p1 AND :b2), 0)::float AS b30,
+             COALESCE(SUM(bal) FILTER (WHERE age_days BETWEEN :b2p1 AND :b3), 0)::float AS b60,
+             COALESCE(SUM(bal) FILTER (WHERE age_days > :b3), 0)::float             AS b90
+      FROM ob
+      GROUP BY party_id
       `,
-      { replacements: { ids }, type: sequelize.QueryTypes.SELECT }
+      {
+        replacements: { ids, b1, b2, b3, b1p1: b1 + 1, b2p1: b2 + 1 },
+        type: sequelize.QueryTypes.SELECT,
+      }
     ),
     sequelize.query(
       `
@@ -653,7 +671,7 @@ const enrichPartiesForList = async (parties, kind /* 'Customer' | 'Supplier' */)
     ),
   ]);
 
-  const agingByParty = Object.fromEntries(agingRows.map(r => [r.party_id, r.oldest_days]));
+  const agingByParty = Object.fromEntries(agingRows.map(r => [r.party_id, r]));
   const billByParty  = Object.fromEntries(lastBillRows.map(r => [r.party_id, r]));
   const payByParty   = Object.fromEntries(lastPaymentRows.map(r => [r.party_id, r]));
 
@@ -670,9 +688,13 @@ const enrichPartiesForList = async (parties, kind /* 'Customer' | 'Supplier' */)
     } else {
       lastTxn = lastBill || lastPay || null;
     }
+    const a = agingByParty[p.party_id];
     return {
       ...pj,
-      _aging_days: agingByParty[p.party_id] ?? null,
+      _aging_days: a ? a.oldest_days : null,
+      // Per-bucket open-balance sums. Frontend uses these to render the
+      // stacked aging bar inside each row's Aging cell.
+      _aging_buckets: a ? { b0: a.b0, b30: a.b30, b60: a.b60, b90: a.b90 } : null,
       _last_transaction: lastTxn,
     };
   });

@@ -516,6 +516,20 @@
   letter-spacing: 0.5px; margin-left: 3px;
 }
 
+/* Aging cell — stacked bar showing how a party's open balance splits across
+   the four aging buckets. Matches the v5 mockup's aging column. */
+.plv-aging-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.plv-aging-days { display: flex; align-items: baseline; gap: 6px; }
+.plv-aging-bar {
+  height: 5px; border-radius: 99px; overflow: hidden;
+  display: flex; background: var(--bg-muted); margin-top: 2px;
+}
+.plv-aging-seg { height: 100%; }
+.plv-aging-seg.a0  { background: var(--plv-age-0); }
+.plv-aging-seg.a30 { background: var(--plv-age-30); }
+.plv-aging-seg.a60 { background: var(--plv-age-60); }
+.plv-aging-seg.a90 { background: var(--plv-age-90); }
+
 /* Credit cell */
 .plv-credit-cell { display: flex; flex-direction: column; gap: 4px; }
 .plv-credit-num { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--fg-secondary); }
