@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sales List v3 — Editorial (hover actions)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Sales List v3 — Hover-reveal actions.
+ *
+ * Keeps v1's shape (5 KPI cards + 7 columns) but redesigns the trailing
+ * cell so actions are calm when idle and one click away when you need them.
+ *
+ * Trailing cell (replaces the old "Status + big empty space + ⋯" layout):
+ *   — Idle row   →  status pill only
+ *   — Hovered row→  status pill + 3 quick icons (View · + Receipt · Print)
+ *                   + ⋯ menu for the long tail (Edit, Duplicate, Cancel)
+ *
+ * The quick icons swap based on bill state: an unpaid/partial bill gets a
+ * "+ Receipt" shortcut in primary accent, a paid bill gets a neutral
+ * "View ledger" instead. This matches what you'd actually do on each bill.
+ *
+ * Rows are a fixed 56px tall with `white-space: nowrap` on every cell, so
+ * ~10-12 bills fit a laptop viewport without the rendering glitches
+ * earlier versions had when long text wrapped unpredictably.
+ */
+
+:root {
+  --bg: #F5EFE3; --bg-panel: #FDFAF2; --bg-muted: #F8F2E4;
+  --ink: #1D1A15; --ink-2: #6D5F4E; --ink-3: #9B8F7E;
+  --rule: #E3D9C5; --rule-soft: #ECE2CD;
+  --accent: #B1472F; --accent-hover: #8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10); --accent-border: rgba(177,71,47,0.24);
+  --paid: #7A9660; --paid-soft: rgba(122,150,96,0.14);
+  --partial: #B8923C; --partial-soft: rgba(184,146,60,0.14);
+  --unpaid: #9B3428; --unpaid-soft: rgba(155,52,40,0.14);
+  --cancelled: #6D6355; --cancelled-soft: rgba(109,99,85,0.14);
+  --down: #B1472F; --down-soft: rgba(177,71,47,0.08);
+  --sb-bg: #1D1814; --sb-border: #2C2821;
+  --sb-ink: #E8DFC9; --sb-ink-3: #8A7F6C;
+  --sb-hover: rgba(245,238,226,0.06);
+  --sb-active-bg: #B1472F; --sb-active-ink: #FDFAF2;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased; height: 100vh; overflow: hidden; }
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+.app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
+
+/* Sidebar */
+.sidebar { background: var(--sb-bg); border-right: 1px solid var(--sb-border); padding: 16px 12px 20px; display: flex; flex-direction: column; color: var(--sb-ink); overflow-y: auto; }
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: all .15s; }
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main { min-width: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* Title */
+.page-hd { padding: 20px 32px 14px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-shrink: 0; }
+.page-title h1 { font-family: 'Fraunces', Georgia, serif; font-size: 32px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1; margin-bottom: 6px; }
+.page-title .sub { font-size: 13px; color: var(--ink-3); font-weight: 500; }
+.page-title .sub b { color: var(--ink-2); font-weight: 600; }
+.page-title .sub .warn { color: var(--accent); font-weight: 600; }
+.hd-ctrl { display: flex; gap: 8px; align-items: center; }
+.cta { height: 36px; padding: 0 16px; background: var(--accent); color: #FDFAF2; border: 1px solid var(--accent); border-radius: 7px; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 10px var(--accent-soft); transition: all .18s; }
+.cta:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.cta.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); box-shadow: none; }
+.cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+.cta svg { width: 14px; height: 14px; }
+
+/* KPI hero — 5 tiles */
+.hero-wrap { padding: 0 32px 14px; flex-shrink: 0; }
+.kpi-hero { display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr 1.1fr; gap: 12px; }
+.kpi-card { background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 16px; position: relative; overflow: hidden; cursor: pointer; transition: all .18s; }
+.kpi-card:hover { border-color: var(--accent-border); }
+.kpi-card.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.kpi-card .k { font-size: 10px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.kpi-card .v { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600; color: var(--ink); line-height: 1.05; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.kpi-card .sub { font-size: 11.5px; color: var(--ink-2); margin-top: 2px; }
+.kpi-card .bar { height: 3px; border-radius: 99px; margin-top: 10px; background: var(--bg-muted); overflow: hidden; }
+.kpi-card .fill { height: 100%; border-radius: 99px; }
+.kpi-card .pct { position: absolute; top: 14px; right: 16px; font-size: 11px; color: var(--ink-3); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.kpi-card.revenue { background: linear-gradient(135deg, var(--accent-soft), transparent 65%); border-color: var(--accent-border); }
+.kpi-card.revenue .v { color: var(--accent); }
+.kpi-card.revenue .fill { background: var(--accent); width: 100%; }
+.kpi-card.paid .v { color: var(--paid); }       .kpi-card.paid .fill { background: var(--paid); width: 62%; }
+.kpi-card.partial .v { color: var(--partial); } .kpi-card.partial .fill { background: var(--partial); width: 22%; }
+.kpi-card.unpaid .v { color: var(--unpaid); }   .kpi-card.unpaid .fill { background: var(--unpaid); width: 16%; }
+.kpi-card.outstanding { background: linear-gradient(135deg, var(--down-soft), transparent 65%); border-color: rgba(177,71,47,0.18); }
+.kpi-card.outstanding .v { color: var(--down); }
+.kpi-card.outstanding .fill { background: var(--down); width: 100%; }
+
+/* Toolbar */
+.toolbar { padding: 0 32px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+.toolbar .scope { font-size: 12.5px; color: var(--ink-3); }
+.toolbar .scope b { color: var(--ink-2); font-weight: 600; }
+.toolbar .right { display: flex; gap: 8px; align-items: center; }
+
+.search-box { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px; width: 260px; }
+.search-box input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.search-box svg { width: 13px; height: 13px; color: var(--ink-3); }
+.chip-btn { height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px; color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.chip-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.chip-btn svg { width: 13px; height: 13px; }
+
+/* Table */
+.table-wrap { flex: 1; min-height: 0; padding: 0 32px 16px; display: flex; flex-direction: column; }
+.table-card { flex: 1; min-height: 0; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+.table-scroll { flex: 1; overflow: auto; }
+.ctable { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; table-layout: fixed; }
+.ctable thead th { background: var(--bg-muted); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--ink-3); padding: 12px 14px; border-bottom: 1px solid var(--rule); text-align: left; position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+.ctable thead th.r { text-align: right; }
+.ctable tbody td { padding: 14px 14px; border-bottom: 1px solid var(--rule-soft); font-size: 13px; color: var(--ink); vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctable tbody tr.row { cursor: pointer; transition: background .1s; height: 56px; }
+.ctable tbody tr.row:hover td { background: var(--bg-muted); }
+.ctable tbody tr.row.cancelled td { opacity: 0.5; }
+
+.ctable col.c-bill    { width: 12%; }
+.ctable col.c-date    { width: 10%; }
+.ctable col.c-cust    { width: 20%; }
+.ctable col.c-items   { width: 7%; }
+.ctable col.c-total   { width: 14%; }
+.ctable col.c-pay     { width: 17%; }
+.ctable col.c-act     { width: 20%; }
+
+/* Cells */
+.bill-id { font-family: 'Fraunces', serif; font-weight: 600; font-size: 14px; color: var(--ink); }
+.bill-kind { font-size: 11px; color: var(--ink-3); margin-top: 2px; display: block; }
+
+.date-main { font-size: 13px; color: var(--ink); }
+.date-rel { font-size: 10.5px; color: var(--ink-3); margin-top: 2px; display: block; }
+
+.cust-main { font-size: 13.5px; color: var(--ink); font-weight: 500; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.cust-main.cash { color: var(--ink-3); font-style: italic; }
+.cust-sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; display: block; }
+.vip-chip { font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: rgba(127,90,163,0.14); color: #7F5AA3; letter-spacing: 0.5px; flex-shrink: 0; }
+.vip-chip::before { content: '★'; margin-right: 1px; }
+
+.items-n { font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; display: block; }
+.items-u { font-size: 11px; color: var(--ink-3); margin-left: 2px; }
+
+.total-n { font-family: 'Fraunces', serif; font-weight: 600; font-size: 15px; color: var(--ink); text-align: right; display: block; }
+.total-n .rupee { color: var(--ink-3); margin-right: 2px; font-weight: 500; }
+.total-n-meta { font-size: 10.5px; color: var(--ink-3); text-align: right; display: block; margin-top: 2px; font-family: 'Inter', sans-serif; }
+
+/* Paid / balance compact cell */
+.pay-inline { display: flex; flex-direction: column; gap: 4px; }
+.pay-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.pay-head .pct { font-size: 13px; font-weight: 700; }
+.pay-head .pct.paid    { color: var(--paid); }
+.pay-head .pct.partial { color: var(--partial); }
+.pay-head .pct.unpaid  { color: var(--unpaid); }
+.pay-head .bal { font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.pay-head .bal b { font-weight: 700; }
+.pay-head .bal b.due  { color: var(--unpaid); }
+.pay-head .bal b.done { color: var(--paid); }
+.pay-bar { height: 4px; border-radius: 99px; overflow: hidden; display: flex; background: var(--bg-muted); }
+.pay-bar .seg { height: 100%; }
+.pay-bar .seg.paid   { background: var(--paid); }
+.pay-bar .seg.unpaid { background: var(--unpaid); }
+
+/* ── Trailing action cell — status pill + hover-revealed icon bar ── */
+.act-cell {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; height: 100%;
+}
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 700;
+  padding: 3px 10px; border-radius: 99px;
+  letter-spacing: 0.4px; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.status-pill.paid    { background: var(--paid-soft);    color: var(--paid); }
+.status-pill.partial { background: var(--partial-soft); color: var(--partial); }
+.status-pill.unpaid  { background: var(--unpaid-soft);  color: var(--unpaid); }
+.status-pill.cancelled { background: var(--cancelled-soft); color: var(--cancelled); }
+.status-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+/* Action icons — hidden by default, slide in on row hover */
+.act-icons {
+  display: inline-flex; gap: 4px; align-items: center;
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity .15s, transform .15s;
+  pointer-events: none;
+}
+.ctable tbody tr.row:hover .act-icons {
+  opacity: 1; transform: translateX(0);
+  pointer-events: auto;
+}
+.act-btn {
+  width: 30px; height: 30px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  color: var(--ink-2);
+  cursor: pointer;
+  display: inline-grid; place-items: center;
+  transition: all .12s;
+}
+.act-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.act-btn.primary {
+  background: var(--accent); border-color: var(--accent);
+  color: #FDFAF2;
+  box-shadow: 0 2px 6px var(--accent-soft);
+}
+.act-btn.primary:hover { background: var(--accent-hover); color: #FDFAF2; }
+.act-btn.paid-tone {
+  background: var(--paid-soft); border-color: transparent; color: var(--paid);
+}
+.act-btn.paid-tone:hover { background: var(--paid); color: #FDFAF2; }
+.act-btn svg { width: 14px; height: 14px; }
+
+/* Tooltip label appears under button on hover */
+.act-btn { position: relative; }
+.act-btn::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: var(--ink); color: var(--bg-panel);
+  font-size: 10.5px; font-weight: 600;
+  padding: 3px 8px; border-radius: 5px;
+  white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity .12s;
+  z-index: 10;
+}
+.act-btn:hover::after { opacity: 1; }
+
+.tfoot { display: flex; justify-content: flex-end; gap: 22px; padding: 12px 16px; border-top: 1px solid var(--rule); background: var(--bg-muted); flex-shrink: 0; font-size: 12px; color: var(--ink-3); }
+.tfoot b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Subtle hint under toolbar explaining hover-actions */
+.hover-hint { font-size: 11px; color: var(--ink-3); font-style: italic; }
+.hover-hint kbd { font-family: inherit; font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--bg-panel); border: 1px solid var(--rule); color: var(--ink-2); font-style: normal; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="sb-brand"><div class="sb-brand-icon">B</div><div class="sb-brand-name">Billin ERP</div></div>
+    <div class="sb-section">Workspace</div>
+    <div class="sb-item"><span class="ic">◎</span> Dashboard</div>
+    <div class="sb-item active"><span class="ic">◧</span> Sales</div>
+    <div class="sb-item"><span class="ic">◨</span> Purchases</div>
+    <div class="sb-item"><span class="ic">◐</span> Customers</div>
+    <div class="sb-item"><span class="ic">◑</span> Suppliers</div>
+    <div class="sb-item"><span class="ic">⊡</span> Inventory</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments &amp; Receipts</div>
+    <div class="sb-item"><span class="ic">◫</span> Reports</div>
+  </aside>
+
+  <main class="main">
+
+    <!-- Title -->
+    <div class="page-hd">
+      <div class="page-title">
+        <h1>Sales Bills</h1>
+        <div class="sub"><b>178</b> bills in FY 2025-26 · <b>₹ 24,18,450</b> total · <span class="warn">₹ 3,76,120</span> outstanding</div>
+      </div>
+      <div class="hd-ctrl">
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Receipt</button>
+        <button class="cta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> New Sale</button>
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export</button>
+      </div>
+    </div>
+
+    <!-- KPI hero -->
+    <div class="hero-wrap">
+      <div class="kpi-hero">
+        <div class="kpi-card revenue active">
+          <div class="k">This-Month Revenue</div>
+          <div class="v">₹ 6,48,200</div>
+          <div class="sub">42 bills · avg ₹ 15,433</div>
+          <div class="bar"><div class="fill"></div></div>
+        </div>
+        <div class="kpi-card paid">
+          <span class="pct">62%</span>
+          <div class="k">Paid</div>
+          <div class="v">₹ 4,02,000</div>
+          <div class="sub">26 bills · fully settled</div>
+          <div class="bar"><div class="fill"></div></div>
+        </div>
+        <div class="kpi-card partial">
+          <span class="pct">22%</span>
+          <div class="k">Partial</div>
+          <div class="v">₹ 1,42,000</div>
+          <div class="sub">10 bills · ₹ 68,450 pending</div>
+          <div class="bar"><div class="fill"></div></div>
+        </div>
+        <div class="kpi-card unpaid">
+          <span class="pct">16%</span>
+          <div class="k">Unpaid</div>
+          <div class="v">₹ 1,04,200</div>
+          <div class="sub">6 bills · ₹ 1,04,200 due</div>
+          <div class="bar"><div class="fill"></div></div>
+        </div>
+        <div class="kpi-card outstanding">
+          <div class="k">Outstanding</div>
+          <div class="v">₹ 3,76,120</div>
+          <div class="sub">from 16 open bills · 1 overdue</div>
+          <div class="bar"><div class="fill"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div>
+        <div class="scope">Showing <b>42</b> bills in <b>This Month</b> · tap a card to change the view</div>
+        <div class="hover-hint" style="margin-top: 4px;">Hover a row for quick actions. <kbd>Enter</kbd> opens the bill.</div>
+      </div>
+      <div class="right">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search by bill number or customer">
+        </div>
+        <button class="chip-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> 01 – 19 Apr</button>
+        <button class="chip-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg> Date ↓</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <div class="table-card">
+        <div class="table-scroll">
+          <table class="ctable">
+            <colgroup>
+              <col class="c-bill"/>
+              <col class="c-date"/>
+              <col class="c-cust"/>
+              <col class="c-items"/>
+              <col class="c-total"/>
+              <col class="c-pay"/>
+              <col class="c-act"/>
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Bill #</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th class="r">Items</th>
+                <th class="r">Sub · GST · Total</th>
+                <th>Paid / Balance</th>
+                <th class="r">Status · Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+
+              <!-- Row 1 — Partial (primary action = + Receipt) -->
+              <tr class="row">
+                <td>
+                  <span class="bill-id">INV-0178</span>
+                  <span class="bill-kind">Retail · Credit 30</span>
+                </td>
+                <td>
+                  <span class="date-main">19 Apr 2026</span>
+                  <span class="date-rel">Today</span>
+                </td>
+                <td>
+                  <span class="cust-main">ansari <span class="vip-chip">VIP</span></span>
+                  <span class="cust-sub">Pune · 7758 066 131</span>
+                </td>
+                <td class="r">
+                  <span class="items-n">12<span class="items-u">pcs</span></span>
+                </td>
+                <td class="r">
+                  <span class="total-n"><span class="rupee">₹</span>51,300</span>
+                  <span class="total-n-meta">Sub ₹ 51,100 · GST ₹ 200</span>
+                </td>
+                <td>
+                  <div class="pay-inline">
+                    <div class="pay-head">
+                      <span class="pct partial">20%</span>
+                      <span class="bal">₹ 10,000 · <b class="due">₹ 41,300 due</b></span>
+                    </div>
+                    <div class="pay-bar">
+                      <span class="seg paid" style="width: 20%"></span>
+                      <span class="seg unpaid" style="width: 80%"></span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="act-cell">
+                    <span class="status-pill partial"><span class="dot"></span> Partial</span>
+                    <div class="act-icons">
+                      <button class="act-btn primary" data-tip="Record receipt">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Print">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="More">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 2 — Paid (primary = View) -->
+              <tr class="row">
+                <td>
+                  <span class="bill-id">INV-0177</span>
+                  <span class="bill-kind">Retail · Cash</span>
+                </td>
+                <td>
+                  <span class="date-main">19 Apr 2026</span>
+                  <span class="date-rel">2 hr ago</span>
+                </td>
+                <td>
+                  <span class="cust-main cash">Cash Sale</span>
+                  <span class="cust-sub">Walk-in · no record</span>
+                </td>
+                <td class="r">
+                  <span class="items-n">4<span class="items-u">pcs</span></span>
+                </td>
+                <td class="r">
+                  <span class="total-n"><span class="rupee">₹</span>2,300</span>
+                  <span class="total-n-meta">Sub ₹ 2,200 · GST ₹ 100</span>
+                </td>
+                <td>
+                  <div class="pay-inline">
+                    <div class="pay-head">
+                      <span class="pct paid">100%</span>
+                      <span class="bal"><b class="done">Fully settled · Cash</b></span>
+                    </div>
+                    <div class="pay-bar"><span class="seg paid" style="width: 100%"></span></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="act-cell">
+                    <span class="status-pill paid"><span class="dot"></span> Paid</span>
+                    <div class="act-icons">
+                      <button class="act-btn paid-tone" data-tip="View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Print">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Duplicate">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="More">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 3 — Unpaid, high value -->
+              <tr class="row">
+                <td>
+                  <span class="bill-id">INV-0176</span>
+                  <span class="bill-kind">Wholesale · Credit 30</span>
+                </td>
+                <td>
+                  <span class="date-main">18 Apr 2026</span>
+                  <span class="date-rel">1 day ago</span>
+                </td>
+                <td>
+                  <span class="cust-main">Madhav Traders</span>
+                  <span class="cust-sub">Mumbai · 27ABCDE1234F1Z5</span>
+                </td>
+                <td class="r">
+                  <span class="items-n">48<span class="items-u">pcs</span></span>
+                </td>
+                <td class="r">
+                  <span class="total-n"><span class="rupee">₹</span>1,65,200</span>
+                  <span class="total-n-meta">Sub ₹ 1,40,000 · GST ₹ 25,200</span>
+                </td>
+                <td>
+                  <div class="pay-inline">
+                    <div class="pay-head">
+                      <span class="pct unpaid">0%</span>
+                      <span class="bal">Nothing received · <b class="due">₹ 1,65,200</b></span>
+                    </div>
+                    <div class="pay-bar"><span class="seg unpaid" style="width: 100%"></span></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="act-cell">
+                    <span class="status-pill unpaid"><span class="dot"></span> Unpaid</span>
+                    <div class="act-icons">
+                      <button class="act-btn primary" data-tip="Record receipt">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Print">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="More">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 4 — Paid credit -->
+              <tr class="row">
+                <td>
+                  <span class="bill-id">INV-0175</span>
+                  <span class="bill-kind">Retail · Credit 15</span>
+                </td>
+                <td>
+                  <span class="date-main">17 Apr 2026</span>
+                  <span class="date-rel">2 days ago</span>
+                </td>
+                <td>
+                  <span class="cust-main">ALi</span>
+                  <span class="cust-sub">7758 066 131</span>
+                </td>
+                <td class="r">
+                  <span class="items-n">6<span class="items-u">pcs</span></span>
+                </td>
+                <td class="r">
+                  <span class="total-n"><span class="rupee">₹</span>18,080</span>
+                  <span class="total-n-meta">Sub ₹ 17,600 · GST ₹ 480</span>
+                </td>
+                <td>
+                  <div class="pay-inline">
+                    <div class="pay-head">
+                      <span class="pct paid">100%</span>
+                      <span class="bal"><b class="done">Fully settled · RTGS 18 Apr</b></span>
+                    </div>
+                    <div class="pay-bar"><span class="seg paid" style="width: 100%"></span></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="act-cell">
+                    <span class="status-pill paid"><span class="dot"></span> Paid</span>
+                    <div class="act-icons">
+                      <button class="act-btn paid-tone" data-tip="View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Print">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Duplicate">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="More">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 5 — Cancelled -->
+              <tr class="row cancelled">
+                <td>
+                  <span class="bill-id">INV-0174</span>
+                  <span class="bill-kind">Retail · Cash</span>
+                </td>
+                <td>
+                  <span class="date-main">17 Apr 2026</span>
+                  <span class="date-rel">Cancelled 17 Apr</span>
+                </td>
+                <td>
+                  <span class="cust-main cash">Cash Sale</span>
+                  <span class="cust-sub">Walk-in</span>
+                </td>
+                <td class="r">
+                  <span class="items-n">1<span class="items-u">pc</span></span>
+                </td>
+                <td class="r">
+                  <span class="total-n"><span class="rupee">₹</span>1,000</span>
+                  <span class="total-n-meta">Sub ₹ 850 · GST ₹ 150</span>
+                </td>
+                <td>
+                  <div class="pay-inline"><div class="pay-head"><span class="bal">Voided · not in totals</span></div></div>
+                </td>
+                <td>
+                  <div class="act-cell">
+                    <span class="status-pill cancelled"><span class="dot"></span> Cancelled</span>
+                    <div class="act-icons">
+                      <button class="act-btn" data-tip="View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="More">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 6 — Unpaid credit -->
+              <tr class="row">
+                <td>
+                  <span class="bill-id">INV-0173</span>
+                  <span class="bill-kind">Retail · Credit 30</span>
+                </td>
+                <td>
+                  <span class="date-main">16 Apr 2026</span>
+                  <span class="date-rel">3 days ago</span>
+                </td>
+                <td>
+                  <span class="cust-main">Kamat Traders</span>
+                  <span class="cust-sub">Kolhapur · 27FGHIJ5678K1Z5</span>
+                </td>
+                <td class="r">
+                  <span class="items-n">9<span class="items-u">pcs</span></span>
+                </td>
+                <td class="r">
+                  <span class="total-n"><span class="rupee">₹</span>42,800</span>
+                  <span class="total-n-meta">Sub ₹ 36,271 · GST ₹ 6,529</span>
+                </td>
+                <td>
+                  <div class="pay-inline">
+                    <div class="pay-head">
+                      <span class="pct partial">50%</span>
+                      <span class="bal">₹ 21,400 · <b class="due">₹ 21,400 due</b></span>
+                    </div>
+                    <div class="pay-bar">
+                      <span class="seg paid" style="width: 50%"></span>
+                      <span class="seg unpaid" style="width: 50%"></span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="act-cell">
+                    <span class="status-pill partial"><span class="dot"></span> Partial</span>
+                    <div class="act-icons">
+                      <button class="act-btn primary" data-tip="Record receipt">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Print">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="More">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 7 — Paid cash -->
+              <tr class="row">
+                <td>
+                  <span class="bill-id">INV-0172</span>
+                  <span class="bill-kind">Retail · Cash</span>
+                </td>
+                <td>
+                  <span class="date-main">16 Apr 2026</span>
+                  <span class="date-rel">3 days ago</span>
+                </td>
+                <td>
+                  <span class="cust-main cash">Cash Sale</span>
+                  <span class="cust-sub">Walk-in</span>
+                </td>
+                <td class="r">
+                  <span class="items-n">3<span class="items-u">pcs</span></span>
+                </td>
+                <td class="r">
+                  <span class="total-n"><span class="rupee">₹</span>4,750</span>
+                  <span class="total-n-meta">Sub ₹ 4,025 · GST ₹ 725</span>
+                </td>
+                <td>
+                  <div class="pay-inline">
+                    <div class="pay-head">
+                      <span class="pct paid">100%</span>
+                      <span class="bal"><b class="done">Fully settled · Cash</b></span>
+                    </div>
+                    <div class="pay-bar"><span class="seg paid" style="width: 100%"></span></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="act-cell">
+                    <span class="status-pill paid"><span class="dot"></span> Paid</span>
+                    <div class="act-icons">
+                      <button class="act-btn paid-tone" data-tip="View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Print">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Duplicate">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="More">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 8 — Partial wholesale -->
+              <tr class="row">
+                <td>
+                  <span class="bill-id">INV-0171</span>
+                  <span class="bill-kind">Wholesale · Credit 45</span>
+                </td>
+                <td>
+                  <span class="date-main">15 Apr 2026</span>
+                  <span class="date-rel">4 days ago</span>
+                </td>
+                <td>
+                  <span class="cust-main">Vinayak Wholesale</span>
+                  <span class="cust-sub">Nashik · 27LMNOP9999Q1Z5</span>
+                </td>
+                <td class="r">
+                  <span class="items-n">32<span class="items-u">pcs</span></span>
+                </td>
+                <td class="r">
+                  <span class="total-n"><span class="rupee">₹</span>88,920</span>
+                  <span class="total-n-meta">Sub ₹ 75,356 · GST ₹ 13,564</span>
+                </td>
+                <td>
+                  <div class="pay-inline">
+                    <div class="pay-head">
+                      <span class="pct partial">60%</span>
+                      <span class="bal">₹ 53,352 · <b class="due">₹ 35,568 due</b></span>
+                    </div>
+                    <div class="pay-bar">
+                      <span class="seg paid" style="width: 60%"></span>
+                      <span class="seg unpaid" style="width: 40%"></span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="act-cell">
+                    <span class="status-pill partial"><span class="dot"></span> Partial</span>
+                    <div class="act-icons">
+                      <button class="act-btn primary" data-tip="Record receipt">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="Print">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                      </button>
+                      <button class="act-btn" data-tip="More">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+
+        <div class="tfoot">
+          <span>Shown: <b>8 of 42</b></span>
+          <span>Page total: <b>₹ 3,74,350</b></span>
+          <span>Paid: <b style="color: var(--paid);">₹ 89,402</b></span>
+          <span>Balance: <b style="color: var(--unpaid);">₹ 2,63,468</b></span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+</body>
+</html>

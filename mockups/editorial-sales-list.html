@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sales List — Editorial (calm)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Sales List — Editorial (calm recreate).
+ *
+ * Priorities:
+ *   — more air, fewer elements, fewer colors competing for attention.
+ *   — 3 KPI cards (Revenue · Payment split · Outstanding) not 5.
+ *   — 5 table columns (Bill · Customer · Total · Payment · ⋯) not 8.
+ *   — one toolbar, right-aligned, no chip bands beneath the hero.
+ *   — generous vertical rhythm (32px between sections, 18-20px row padding).
+ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+
+  --ink:         #1D1A15;
+  --ink-2:       #6D5F4E;
+  --ink-3:       #9B8F7E;
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10);
+  --accent-border:rgba(177,71,47,0.24);
+
+  --paid:     #7A9660;  --paid-soft: rgba(122,150,96,0.14);
+  --partial:  #B8923C;  --partial-soft: rgba(184,146,60,0.14);
+  --unpaid:   #9B3428;  --unpaid-soft: rgba(155,52,40,0.14);
+  --cancelled:#6D6355;  --cancelled-soft: rgba(109,99,85,0.14);
+  --down:     #B1472F;  --down-soft: rgba(177,71,47,0.08);
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:   #B1472F;
+  --sb-active-ink:  #FDFAF2;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased; height: 100vh; overflow: hidden; }
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+.app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
+
+/* ── Sidebar ── */
+.sidebar { background: var(--sb-bg); border-right: 1px solid var(--sb-border); padding: 16px 12px 20px; display: flex; flex-direction: column; color: var(--sb-ink); overflow-y: auto; }
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: all .15s; }
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; box-shadow: 0 2px 10px rgba(177,71,47,0.32); }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main { min-width: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ── Title bar — quieter than before (no border divider; title + CTAs) ── */
+.page-hd {
+  padding: 28px 40px 24px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 24px;
+  flex-shrink: 0;
+}
+.page-title h1 {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 36px; font-weight: 600; letter-spacing: -0.02em;
+  color: var(--ink); line-height: 1;
+  margin-bottom: 8px;
+}
+.page-title .sub {
+  font-size: 13px; color: var(--ink-3); font-weight: 500;
+  letter-spacing: 0.2px;
+}
+.page-title .sub b { color: var(--ink-2); font-weight: 600; }
+
+.hd-ctrl { display: flex; gap: 10px; align-items: center; }
+.cta {
+  height: 38px; padding: 0 18px;
+  background: var(--accent); color: #FDFAF2;
+  border: 1px solid var(--accent); border-radius: 8px;
+  font: inherit; font-weight: 600; font-size: 13px;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  box-shadow: 0 2px 10px var(--accent-soft);
+  transition: all .18s;
+}
+.cta:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.cta.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); box-shadow: none; }
+.cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+.cta svg { width: 14px; height: 14px; }
+
+/* ── KPI hero — 3 cards only, wider, more breathing room ── */
+.hero-wrap { padding: 4px 40px 32px; flex-shrink: 0; }
+.kpi-hero {
+  display: grid;
+  grid-template-columns: 1.2fr 1.8fr 1.2fr;
+  gap: 16px;
+}
+.kpi-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 22px 24px;
+  position: relative;
+  cursor: pointer;
+  transition: all .2s cubic-bezier(.2,.7,.2,1);
+}
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(45,31,21,0.08);
+}
+.kpi-card.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.kpi-card .k {
+  font-size: 10.5px; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--ink-3); font-weight: 700;
+}
+.kpi-card .v {
+  font-family: 'Fraunces', serif; font-size: 34px; font-weight: 600;
+  color: var(--ink); line-height: 1.05;
+  margin-top: 8px; font-variant-numeric: tabular-nums;
+}
+.kpi-card .sub {
+  font-size: 12px; color: var(--ink-2); margin-top: 6px;
+}
+
+.kpi-card.revenue { background: linear-gradient(135deg, var(--accent-soft), transparent 70%); border-color: var(--accent-border); }
+.kpi-card.revenue .v { color: var(--accent); }
+
+.kpi-card.outstanding { background: linear-gradient(135deg, var(--down-soft), transparent 70%); border-color: rgba(177,71,47,0.18); }
+.kpi-card.outstanding .v { color: var(--down); }
+
+/* Payment-split card: one stacked bar + legend underneath */
+.kpi-card.split .split-bar {
+  height: 10px; border-radius: 99px; overflow: hidden;
+  display: flex; background: var(--bg-muted);
+  margin-top: 14px;
+}
+.kpi-card.split .split-bar .seg { height: 100%; }
+.kpi-card.split .split-bar .seg.paid    { background: var(--paid); }
+.kpi-card.split .split-bar .seg.partial { background: var(--partial); }
+.kpi-card.split .split-bar .seg.unpaid  { background: var(--unpaid); }
+.kpi-card.split .split-legend {
+  margin-top: 12px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+}
+.kpi-card.split .leg { display: flex; flex-direction: column; gap: 2px; }
+.kpi-card.split .leg .head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; }
+.kpi-card.split .leg .head .dot { width: 7px; height: 7px; border-radius: 50%; }
+.kpi-card.split .leg .head .dot.paid    { background: var(--paid); }
+.kpi-card.split .leg .head .dot.partial { background: var(--partial); }
+.kpi-card.split .leg .head .dot.unpaid  { background: var(--unpaid); }
+.kpi-card.split .leg .amt { font-family: 'Fraunces', serif; font-size: 17px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.kpi-card.split .leg .meta { font-size: 11px; color: var(--ink-3); }
+
+/* ── Toolbar — calm, right-aligned ── */
+.toolbar {
+  padding: 0 40px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.toolbar .scope-hint { font-size: 12.5px; color: var(--ink-3); }
+.toolbar .scope-hint b { color: var(--ink-2); font-weight: 600; }
+.toolbar .right { display: flex; gap: 8px; align-items: center; }
+
+.search-box { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px; width: 280px; }
+.search-box input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.search-box svg { width: 14px; height: 14px; color: var(--ink-3); }
+.search-box input::placeholder { color: var(--ink-3); }
+
+.chip-btn {
+  height: 36px; padding: 0 14px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px;
+  color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 500;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .15s, color .15s;
+}
+.chip-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.chip-btn svg { width: 13px; height: 13px; }
+
+/* ── Table — fewer columns, wider row padding ── */
+.table-wrap { flex: 1; min-height: 0; padding: 0 40px 24px; display: flex; flex-direction: column; }
+.table-card {
+  flex: 1; min-height: 0;
+  background: var(--bg-panel); border: 1px solid var(--rule);
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.table-scroll { flex: 1; overflow: auto; }
+.ctable { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; table-layout: fixed; }
+
+.ctable thead th {
+  background: var(--bg-muted);
+  font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.7px;
+  color: var(--ink-3);
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  position: sticky; top: 0; z-index: 2;
+  white-space: nowrap;
+}
+.ctable thead th.r { text-align: right; }
+.ctable tbody td {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 13px; color: var(--ink);
+  vertical-align: middle;
+}
+.ctable tbody tr.row { cursor: pointer; transition: background .1s; }
+.ctable tbody tr.row:hover td { background: var(--bg-muted); }
+.ctable tbody tr.row.cancelled td { opacity: 0.5; }
+
+.ctable col.c-bill    { width: 18%; }
+.ctable col.c-cust    { width: 28%; }
+.ctable col.c-total   { width: 16%; }
+.ctable col.c-pay     { width: 26%; }
+.ctable col.c-act     { width: 12%; }
+
+.bill-num {
+  font-family: 'Fraunces', serif; font-weight: 600; font-size: 16px;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+.bill-meta { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
+
+.cust-nm .main { font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px; }
+.cust-nm .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
+.cust-nm.cash .main { color: var(--ink-3); font-style: italic; }
+.vip-tag { font-size: 9.5px; font-weight: 700; padding: 1.5px 7px; border-radius: 99px; background: rgba(127,90,163,0.14); color: #7F5AA3; letter-spacing: 0.5px; }
+.vip-tag::before { content: '★'; margin-right: 2px; }
+
+.total-cell {
+  font-family: 'Fraunces', serif; font-weight: 600;
+  font-size: 17px; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.total-cell .rupee { color: var(--ink-3); margin-right: 3px; font-weight: 500; }
+.total-cell .sub { font-size: 11px; font-weight: 500; color: var(--ink-3); margin-top: 3px; font-family: 'Inter', sans-serif; letter-spacing: 0; }
+
+/* Payment cell — status pill + compact paid/due line with a thin bar beneath */
+.pay-cell { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pay-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pay-head .bal { font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.pay-head .bal b { font-weight: 700; }
+.pay-head .bal b.due  { color: var(--unpaid); }
+.pay-head .bal b.done { color: var(--paid); }
+.pay-bar {
+  height: 4px; border-radius: 99px; overflow: hidden;
+  display: flex; background: var(--bg-muted);
+}
+.pay-bar .seg { height: 100%; }
+.pay-bar .seg.paid   { background: var(--paid); }
+.pay-bar .seg.unpaid { background: var(--unpaid); }
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700;
+  padding: 3px 10px; border-radius: 99px;
+  letter-spacing: 0.4px; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.status-pill.paid    { background: var(--paid-soft);    color: var(--paid); }
+.status-pill.partial { background: var(--partial-soft); color: var(--partial); }
+.status-pill.unpaid  { background: var(--unpaid-soft);  color: var(--unpaid); }
+.status-pill.cancelled { background: var(--cancelled-soft); color: var(--cancelled); }
+.status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* Actions */
+.actions-cell { display: flex; justify-content: flex-end; }
+.row-btn {
+  width: 34px; height: 34px; border-radius: 8px;
+  background: var(--bg-muted); border: 1px solid var(--rule);
+  color: var(--ink-2); cursor: pointer;
+  display: inline-grid; place-items: center;
+  transition: all .15s;
+}
+.row-btn:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+.row-btn svg { width: 14px; height: 14px; }
+
+/* Footer totals */
+.tfoot {
+  display: flex; justify-content: flex-end; gap: 28px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--rule);
+  background: var(--bg-muted);
+  flex-shrink: 0;
+  font-size: 12.5px; color: var(--ink-3);
+}
+.tfoot b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ SIDEBAR ═════════════════════════════════════════════════════════ -->
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-brand-icon">B</div>
+      <div class="sb-brand-name">Billin ERP</div>
+    </div>
+    <div class="sb-section">Workspace</div>
+    <div class="sb-item"><span class="ic">◎</span> Dashboard</div>
+    <div class="sb-item active"><span class="ic">◧</span> Sales</div>
+    <div class="sb-item"><span class="ic">◨</span> Purchases</div>
+    <div class="sb-item"><span class="ic">◐</span> Customers</div>
+    <div class="sb-item"><span class="ic">◑</span> Suppliers</div>
+    <div class="sb-item"><span class="ic">⊡</span> Inventory</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments &amp; Receipts</div>
+    <div class="sb-item"><span class="ic">◫</span> Reports</div>
+    <div class="sb-section">Settings</div>
+    <div class="sb-item"><span class="ic">⚙</span> Module Settings</div>
+    <div class="sb-item"><span class="ic">☰</span> Users &amp; Roles</div>
+  </aside>
+
+  <!-- ═══ MAIN ════════════════════════════════════════════════════════════ -->
+  <main class="main">
+
+    <!-- Title -->
+    <div class="page-hd">
+      <div class="page-title">
+        <h1>Sales Bills</h1>
+        <div class="sub"><b>178</b> bills · FY 2025-26</div>
+      </div>
+      <div class="hd-ctrl">
+        <button class="cta ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Receipt
+        </button>
+        <button class="cta">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          New Sale
+        </button>
+        <button class="cta ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+      </div>
+    </div>
+
+    <!-- ── KPI HERO — 3 cards ── -->
+    <div class="hero-wrap">
+      <div class="kpi-hero">
+
+        <!-- Revenue -->
+        <div class="kpi-card revenue active">
+          <div class="k">This-Month Revenue</div>
+          <div class="v">₹ 6,48,200</div>
+          <div class="sub">42 bills · avg ₹ 15,433</div>
+        </div>
+
+        <!-- Payment split — stacked bar + 3-column legend -->
+        <div class="kpi-card split">
+          <div class="k">Payment Split · This Month</div>
+          <div class="split-bar">
+            <span class="seg paid" style="width: 62%"></span>
+            <span class="seg partial" style="width: 22%"></span>
+            <span class="seg unpaid" style="width: 16%"></span>
+          </div>
+          <div class="split-legend">
+            <div class="leg">
+              <div class="head"><span class="dot paid"></span> Paid</div>
+              <div class="amt">₹ 4,02,000</div>
+              <div class="meta">26 bills · 62%</div>
+            </div>
+            <div class="leg">
+              <div class="head"><span class="dot partial"></span> Partial</div>
+              <div class="amt">₹ 1,42,000</div>
+              <div class="meta">10 bills · 22%</div>
+            </div>
+            <div class="leg">
+              <div class="head"><span class="dot unpaid"></span> Unpaid</div>
+              <div class="amt">₹ 1,04,200</div>
+              <div class="meta">6 bills · 16%</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Outstanding -->
+        <div class="kpi-card outstanding">
+          <div class="k">Outstanding</div>
+          <div class="v">₹ 3,76,120</div>
+          <div class="sub">from 16 open bills · 1 overdue</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="scope-hint">
+        Showing <b class="num">42</b> bills in <b>This Month</b>
+      </div>
+      <div class="right">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search bill or customer">
+        </div>
+        <button class="chip-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          01 – 19 Apr
+        </button>
+        <button class="chip-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+          Date ↓
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Table ── -->
+    <div class="table-wrap">
+      <div class="table-card">
+        <div class="table-scroll">
+          <table class="ctable">
+            <colgroup>
+              <col class="c-bill"/>
+              <col class="c-cust"/>
+              <col class="c-total"/>
+              <col class="c-pay"/>
+              <col class="c-act"/>
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Bill · Date</th>
+                <th>Customer</th>
+                <th class="r">Total</th>
+                <th>Payment</th>
+                <th class="r">&nbsp;</th>
+              </tr>
+            </thead>
+            <tbody>
+
+              <!-- Row 1 — VIP, partial -->
+              <tr class="row">
+                <td>
+                  <div class="bill-num">INV-0178</div>
+                  <div class="bill-meta">19 Apr 2026 · Credit 30</div>
+                </td>
+                <td>
+                  <div class="cust-nm">
+                    <div class="main">ansari <span class="vip-tag">VIP</span></div>
+                    <div class="sub">Pune · 7758 066 131</div>
+                  </div>
+                </td>
+                <td class="r">
+                  <div class="total-cell"><span class="rupee">₹</span>51,300</div>
+                  <div class="total-cell sub">Sub ₹ 51,100 + GST ₹ 200</div>
+                </td>
+                <td>
+                  <div class="pay-cell">
+                    <div class="pay-head">
+                      <span class="status-pill partial"><span class="dot"></span> Partial · 20%</span>
+                      <span class="bal">₹ 10,000 received · <b class="due">₹ 41,300 due</b></span>
+                    </div>
+                    <div class="pay-bar">
+                      <span class="seg paid" style="width: 20%"></span>
+                      <span class="seg unpaid" style="width: 80%"></span>
+                    </div>
+                  </div>
+                </td>
+                <td class="actions-cell">
+                  <button class="row-btn" title="More">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                  </button>
+                </td>
+              </tr>
+
+              <!-- Row 2 — Cash sale, paid -->
+              <tr class="row">
+                <td>
+                  <div class="bill-num">INV-0177</div>
+                  <div class="bill-meta">19 Apr 2026 · Cash</div>
+                </td>
+                <td>
+                  <div class="cust-nm cash">
+                    <div class="main">Cash Sale</div>
+                    <div class="sub">Walk-in · no customer record</div>
+                  </div>
+                </td>
+                <td class="r">
+                  <div class="total-cell"><span class="rupee">₹</span>2,300</div>
+                  <div class="total-cell sub">Sub ₹ 2,200 + GST ₹ 100</div>
+                </td>
+                <td>
+                  <div class="pay-cell">
+                    <div class="pay-head">
+                      <span class="status-pill paid"><span class="dot"></span> Paid · 100%</span>
+                      <span class="bal"><b class="done">Fully settled</b> · Cash</span>
+                    </div>
+                    <div class="pay-bar"><span class="seg paid" style="width: 100%"></span></div>
+                  </div>
+                </td>
+                <td class="actions-cell">
+                  <button class="row-btn" title="More">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                  </button>
+                </td>
+              </tr>
+
+              <!-- Row 3 — Unpaid, high value -->
+              <tr class="row">
+                <td>
+                  <div class="bill-num">INV-0176</div>
+                  <div class="bill-meta">18 Apr 2026 · Credit 30</div>
+                </td>
+                <td>
+                  <div class="cust-nm">
+                    <div class="main">Madhav Traders</div>
+                    <div class="sub">Mumbai · 27ABCDE1234F1Z5</div>
+                  </div>
+                </td>
+                <td class="r">
+                  <div class="total-cell"><span class="rupee">₹</span>1,65,200</div>
+                  <div class="total-cell sub">Sub ₹ 1,40,000 + GST ₹ 25,200</div>
+                </td>
+                <td>
+                  <div class="pay-cell">
+                    <div class="pay-head">
+                      <span class="status-pill unpaid"><span class="dot"></span> Unpaid · 0%</span>
+                      <span class="bal">Nothing received · <b class="due">₹ 1,65,200 due</b></span>
+                    </div>
+                    <div class="pay-bar"><span class="seg unpaid" style="width: 100%"></span></div>
+                  </div>
+                </td>
+                <td class="actions-cell">
+                  <button class="row-btn" title="More">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                  </button>
+                </td>
+              </tr>
+
+              <!-- Row 4 — Paid credit -->
+              <tr class="row">
+                <td>
+                  <div class="bill-num">INV-0175</div>
+                  <div class="bill-meta">17 Apr 2026 · Credit 15</div>
+                </td>
+                <td>
+                  <div class="cust-nm">
+                    <div class="main">ALi</div>
+                    <div class="sub">7758 066 131</div>
+                  </div>
+                </td>
+                <td class="r">
+                  <div class="total-cell"><span class="rupee">₹</span>18,080</div>
+                  <div class="total-cell sub">Sub ₹ 17,600 + GST ₹ 480</div>
+                </td>
+                <td>
+                  <div class="pay-cell">
+                    <div class="pay-head">
+                      <span class="status-pill paid"><span class="dot"></span> Paid · 100%</span>
+                      <span class="bal"><b class="done">Fully settled</b> · RTGS 18 Apr</span>
+                    </div>
+                    <div class="pay-bar"><span class="seg paid" style="width: 100%"></span></div>
+                  </div>
+                </td>
+                <td class="actions-cell">
+                  <button class="row-btn" title="More">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                  </button>
+                </td>
+              </tr>
+
+              <!-- Row 5 — Cancelled -->
+              <tr class="row cancelled">
+                <td>
+                  <div class="bill-num">INV-0174</div>
+                  <div class="bill-meta">17 Apr 2026 · Cancelled</div>
+                </td>
+                <td>
+                  <div class="cust-nm cash">
+                    <div class="main">Cash Sale</div>
+                    <div class="sub">Walk-in</div>
+                  </div>
+                </td>
+                <td class="r">
+                  <div class="total-cell"><span class="rupee">₹</span>1,000</div>
+                  <div class="total-cell sub">Sub ₹ 850 + GST ₹ 150</div>
+                </td>
+                <td>
+                  <div class="pay-cell">
+                    <div class="pay-head">
+                      <span class="status-pill cancelled"><span class="dot"></span> Cancelled</span>
+                      <span class="bal">Voided · not counted in totals</span>
+                    </div>
+                  </div>
+                </td>
+                <td class="actions-cell">
+                  <button class="row-btn" title="More">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                  </button>
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+
+        <div class="tfoot">
+          <span>Shown: <b>5 of 42</b></span>
+          <span>Page total: <b>₹ 2,37,880</b></span>
+          <span>Paid: <b style="color: var(--paid);">₹ 31,380</b></span>
+          <span>Balance: <b style="color: var(--unpaid);">₹ 2,06,500</b></span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+</body>
+</html>
