@@ -93,19 +93,33 @@ export default function TopNav() {
     const pillClass = `erp-topnav-pill${isActive ? ' is-active' : ''}`;
 
     if (item.children && item.children.length > 0) {
-      // Flatten AntD-menu-style children into dropdown items that carry a
-      // click handler. Child `key` is the route path.
+      // Child `key` is the route path. We put the navigate() call on the
+      // MENU itself (onClick at the AntD-menu level) rather than per-item
+      // so AntD auto-closes the dropdown after selection. Per-item onClick
+      // works too but leaves the dropdown visible on some AntD 5 releases.
       const dropdownItems = item.children.map((c) => ({
         key: c.key,
         icon: c.icon,
         label: c.label,
-        onClick: () => navigate(c.key),
       }));
       return (
         <Dropdown
           key={item.key}
-          menu={{ items: dropdownItems, selectedKeys: [location.pathname] }}
-          trigger={['click', 'hover']}
+          menu={{
+            items: dropdownItems,
+            selectedKeys: [location.pathname],
+            onClick: ({ key, domEvent }) => {
+              // Prevent AntD's default keep-open behaviour, then route.
+              domEvent?.stopPropagation?.();
+              navigate(key);
+            },
+          }}
+          /* Click-only trigger. The earlier ['click', 'hover'] combination
+             caused a toggle conflict: hover would open the menu, then click
+             (which AntD treats as a toggle) would close it again — making
+             click look broken. Hover alone feels flaky on touch devices
+             anyway; click is the predictable, universal trigger. */
+          trigger={['click']}
           placement="bottom"
           overlayClassName="erp-topnav-dropdown"
         >
