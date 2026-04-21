@@ -1,0 +1,355 @@
+/*
+ * Shared bill-list styles — used by SalesList and PurchaseList.
+ *
+ * Reads the global theme variables so the same markup works under
+ * classic-light, classic-dark, modern-light, and modern-dark without
+ * per-theme overrides.
+ *
+ * Layout (from v8 mockup):
+ *   — top bar with title + search + date + sort + CTAs
+ *   — 3 KPI cards (Total · Received · Outstanding), fixed 300px wide
+ *   — bill list with sticky header, internally scrollable rows, fixed foot
+ *   — each data row is a flexbox with 9 fixed-width cells
+ *   — stacked cells (Date/Time, Customer/Phone, Items/Pieces) render as
+ *     plain block divs; first line aligns to the top of the row
+ *   — hover reveals 3 action icons (contextual + Print + More)
+ */
+
+/* ── Page chrome ── */
+.blist-page {
+  /* Full-page route: AppLayout gives us 100vh with overflow:hidden, so
+     100% fills the available viewport and lets the table flex to fill
+     the space below the hero. Previously we hard-coded calc(100vh - 64px)
+     which left a big empty strip at the bottom. */
+  height: 100%;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.blist-hd {
+  flex-shrink: 0;
+  padding: 18px 28px 14px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+}
+.blist-title h1 {
+  font-family: 'Fraunces', 'Georgia', serif;
+  font-size: 28px; font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg-primary);
+  line-height: 1; margin: 0 0 4px;
+}
+.blist-title .sub {
+  font-size: 12.5px; color: var(--fg-tertiary); font-weight: 500;
+}
+.blist-title .sub b { color: var(--fg-secondary); font-weight: 600; }
+
+.blist-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.blist-search {
+  display: flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 12px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 7px; width: 240px;
+}
+.blist-search input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font: inherit; font-size: 13px; color: var(--fg-primary);
+}
+.blist-search input::placeholder { color: var(--fg-tertiary); }
+.blist-search .anticon { color: var(--fg-tertiary); font-size: 13px; }
+
+.blist-chip {
+  height: 34px; padding: 0 12px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 7px; color: var(--fg-secondary);
+  font: inherit; font-size: 12.5px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all .15s;
+  position: relative;
+}
+.blist-chip:hover { border-color: var(--accent-border); color: var(--accent); }
+.blist-chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+/* Column-picker dot indicator showing how many optional cols are visible */
+.col-count {
+  display: inline-grid; place-items: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 99px;
+  background: var(--accent-bg); color: var(--accent);
+  font-size: 10.5px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Columns dropdown body */
+.cols-menu {
+  min-width: 220px; padding: 4px 0;
+}
+.cols-menu .opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--fg-primary);
+  cursor: pointer;
+  user-select: none;
+  transition: background .1s;
+}
+.cols-menu .opt:hover { background: var(--bg-hover); }
+.cols-menu .opt input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+.cols-menu .opt .pin {
+  margin-left: auto; font-size: 10px; color: var(--fg-tertiary);
+  letter-spacing: 0.5px; text-transform: uppercase; font-weight: 700;
+}
+.cols-menu .sep {
+  height: 1px; background: var(--border-subtle); margin: 4px 0;
+}
+.cols-menu .mh {
+  padding: 6px 14px 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+}
+
+.blist-divider { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+
+.blist-cta {
+  height: 34px; padding: 0 14px;
+  background: var(--accent); color: var(--fg-inverse);
+  border: 1px solid var(--accent); border-radius: 7px;
+  font: inherit; font-weight: 600; font-size: 12.5px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  box-shadow: 0 2px 8px var(--accent-bg);
+  transition: all .18s;
+}
+.blist-cta:hover { background: var(--accent-hover); transform: translateY(-1px); color: var(--fg-inverse); }
+.blist-cta.ghost {
+  background: transparent; color: var(--fg-secondary);
+  border: 1px solid var(--border); box-shadow: none;
+}
+.blist-cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+.blist-cta .anticon { font-size: 12px; }
+
+/* ── KPI cards ── */
+.blist-kpi {
+  flex-shrink: 0;
+  padding: 6px 28px 20px;
+  display: flex; gap: 14px; flex-wrap: wrap;
+}
+.kpi-card {
+  width: 300px; flex: 0 0 300px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px;
+}
+.kpi-card .kpi-text { flex: 1; min-width: 0; }
+.kpi-card .k {
+  font-size: 10.5px; letter-spacing: 1.3px;
+  text-transform: uppercase; color: var(--fg-tertiary); font-weight: 700;
+}
+.kpi-card .v {
+  font-family: 'Fraunces', 'Georgia', serif;
+  font-size: 24px; font-weight: 600;
+  color: var(--fg-primary); line-height: 1.05;
+  margin-top: 6px; font-variant-numeric: tabular-nums;
+}
+.kpi-card .sub { font-size: 11px; color: var(--fg-tertiary); margin-top: 4px; }
+
+.kpi-card.total {
+  background: linear-gradient(135deg, var(--bg-muted), transparent 70%);
+  border-color: var(--border-strong);
+}
+.kpi-card.received {
+  background: linear-gradient(135deg, var(--success-bg), transparent 70%);
+  border-color: color-mix(in srgb, var(--success) 28%, transparent);
+}
+.kpi-card.received .v { color: var(--success); }
+.kpi-card.outstanding {
+  background: linear-gradient(135deg, var(--danger-bg), transparent 70%);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+.kpi-card.outstanding .v { color: var(--danger); }
+
+/* Circular percentage ring */
+.kpi-ring { position: relative; width: 52px; height: 52px; flex-shrink: 0; }
+.kpi-ring svg { width: 100%; height: 100%; display: block; }
+.kpi-ring .track { stroke: var(--bg-muted); }
+.kpi-ring .fill-ok  { stroke: var(--success); }
+.kpi-ring .fill-bad { stroke: var(--danger); }
+.kpi-ring .label {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-primary);
+  letter-spacing: -0.02em;
+}
+
+/* ── Bill list container ── */
+.blist-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 28px 20px;
+  display: flex;
+}
+.blist {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+.brow {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px; color: var(--fg-primary);
+}
+.brow.head {
+  flex-shrink: 0;
+  background: var(--bg-muted);
+  padding: 11px 16px;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--fg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+.brow.data { cursor: pointer; transition: background .1s; }
+.brow.data:hover { background: var(--bg-hover); }
+.brow.data.cancelled { opacity: 0.55; }
+.brow.empty {
+  padding: 48px 16px; justify-content: center;
+  color: var(--fg-tertiary); border-bottom: none;
+}
+
+.bscroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* Column widths (must match head + data) */
+.c-sr    { width: 40px;  flex: 0 0 40px;  padding-right: 12px; text-align: center; }
+.c-bill  { width: 110px; flex: 0 0 110px; padding-right: 12px; }
+.c-date  { width: 130px; flex: 0 0 130px; padding-right: 12px; }
+.c-cust  { flex: 1 1 auto; min-width: 180px; padding-right: 12px; overflow: hidden; }
+.c-items { width: 72px;  flex: 0 0 72px;  padding-right: 12px; }
+.c-total { width: 118px; flex: 0 0 118px; padding-right: 12px; text-align: right; }
+.c-paid  { width: 118px; flex: 0 0 118px; padding-right: 12px; text-align: right; }
+.c-bal   { width: 130px; flex: 0 0 130px; padding-right: 12px; text-align: right; }
+.c-act   { width: 100px; flex: 0 0 100px; }
+/* Optional columns (picker-toggled) */
+.c-gst      { width: 100px; flex: 0 0 100px; padding-right: 12px; text-align: right; }
+.c-discount { width: 100px; flex: 0 0 100px; padding-right: 12px; text-align: right; }
+.c-return   { width: 100px; flex: 0 0 100px; padding-right: 12px; text-align: right; }
+.brow.head .c-total,
+.brow.head .c-paid,
+.brow.head .c-bal,
+.brow.head .c-gst,
+.brow.head .c-discount,
+.brow.head .c-return { text-align: right; }
+
+/* Stacked cell — main line + muted sub line underneath */
+.stk { display: block; }
+.stk > .m {
+  display: block;
+  font-size: 13.5px; color: var(--fg-primary); font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stk > .s {
+  display: block;
+  font-size: 11px; color: var(--fg-tertiary);
+  line-height: 1.3;
+  margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stk.cash > .m { color: var(--fg-tertiary); font-style: italic; }
+
+.sr-n {
+  display: block; font-size: 11.5px; color: var(--fg-tertiary);
+  font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.3;
+}
+.bill-no {
+  display: block;
+  font-family: 'Fraunces', 'Georgia', serif;
+  font-weight: 600; font-size: 14.5px;
+  color: var(--fg-primary); letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.amt {
+  display: block;
+  font-family: 'Fraunces', 'Georgia', serif;
+  font-weight: 600; font-size: 14.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-primary); line-height: 1.3;
+}
+.amt .rs { color: var(--fg-tertiary); margin-right: 2px; font-weight: 500; }
+.amt.muted { color: var(--fg-tertiary); font-weight: 500; }
+.amt.paid  { color: var(--success); }
+.amt.due   { color: var(--danger); }
+.amt.zero  {
+  color: var(--fg-tertiary);
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 12.5px; font-weight: 500; font-style: italic;
+}
+.settled-tag {
+  display: block;
+  font-size: 12.5px; color: var(--success); font-weight: 600;
+  line-height: 1.3;
+}
+.voided-tag {
+  display: block;
+  font-size: 12px; color: var(--fg-tertiary);
+  font-style: italic; font-weight: 500; line-height: 1.3;
+}
+
+/* Actions — hover reveal */
+.act-box {
+  display: flex; justify-content: flex-end; align-items: flex-start;
+  gap: 4px;
+}
+.act-box .group {
+  display: inline-flex; gap: 4px; align-items: center;
+  opacity: 0; transform: translateX(6px);
+  transition: opacity .15s, transform .15s;
+  pointer-events: none;
+}
+.brow.data:hover .act-box .group {
+  opacity: 1; transform: translateX(0);
+  pointer-events: auto;
+}
+.abtn {
+  width: 30px; height: 30px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  display: inline-grid; place-items: center;
+  transition: all .12s;
+  padding: 0;
+}
+.abtn:hover { border-color: var(--accent-border); color: var(--accent); }
+.abtn.primary {
+  background: var(--accent); border-color: var(--accent);
+  color: var(--fg-inverse);
+  box-shadow: 0 2px 6px var(--accent-bg);
+}
+.abtn.primary:hover { background: var(--accent-hover); color: var(--fg-inverse); }
+.abtn .anticon { font-size: 13px; }
+
+/* Footer totals */
+.bfoot {
+  flex-shrink: 0;
+  display: flex; justify-content: flex-end; gap: 24px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-muted);
+  font-size: 12px; color: var(--fg-tertiary);
+}
+.bfoot b { color: var(--fg-primary); font-weight: 700; font-variant-numeric: tabular-nums; }

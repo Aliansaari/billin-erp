@@ -1,0 +1,220 @@
+/*
+ * top-nav.css — horizontal top-bar layout (used when themeStore.menuOrientation
+ * is 'horizontal'). Matches the sidebar's dark chrome so the top bar reads as
+ * primary navigation rather than a floating header.
+ *
+ * Design philosophy: every interactive element is a proper pill-shaped
+ * container with exact padding — no AntD horizontal-menu defaults to fight.
+ * The result: icon and label always align perfectly (single inline-flex
+ * inside each pill), pills are content-sized, the bar hugs what it needs,
+ * and the right cluster is pinned to the right edge.
+ */
+
+/* ── Bar ────────────────────────────────────────────────────────────── */
+.erp-topnav {
+  flex-shrink: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  background: var(--sidebar-bg, #1a1a1a);
+  border-bottom: 1px solid var(--sidebar-border, rgba(255, 255, 255, 0.08));
+  color: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12), 0 2px 10px rgba(0, 0, 0, 0.10);
+  z-index: 20;
+  /* Very narrow viewports get horizontal scroll — scrollbar hidden. The
+     vertical sidebar layout is the right pick for small screens, exposed
+     via Settings → Theme. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.erp-topnav::-webkit-scrollbar { height: 0; }
+
+/* ── Brand (home link, icon-only) ───────────────────────────────────── */
+.erp-topnav-brand {
+  flex-shrink: 0;
+  width: 34px; height: 34px;
+  display: inline-grid; place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--accent, #B1472F);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.erp-topnav-brand:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+.erp-topnav-brand .brand-icon { font-size: 20px; }
+
+/* Brand-to-menu separator — a subtle vertical rule so the eye reads the
+   brand and the nav as two sections. */
+.erp-topnav-brand + .erp-topnav-menu::before {
+  content: '';
+  width: 1px; height: 24px;
+  margin: 0 6px 0 2px;
+  background: rgba(255, 255, 255, 0.10);
+}
+
+/* ── Menu (content-sized, never stretches) ──────────────────────────── */
+.erp-topnav-menu {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;              /* tight visual rhythm — pills carry their own padding */
+}
+
+/* Each top-level entry is a perfectly uniform pill container. Padding is
+   symmetrical; icon + label sit on one line via inline-flex + gap. Fixed
+   height (34px) so a hover pill never shifts the baseline of its neighbours.
+   No caret: AntD Dropdown already gives hover/click affordance on its own. */
+.erp-topnav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.78);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.erp-topnav-pill:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #FFF8F4;
+}
+.erp-topnav-pill.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FFF8F4;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+/* Accent underline on the active pill for extra affordance without the
+   pill itself feeling heavy. 2px from baseline, matches sidebar active. */
+.erp-topnav-pill.is-active::after {
+  content: '';
+  position: absolute;
+  /* We don't actually position-absolute here — keep the bar's overflow
+     clean. A box-shadow inset draws the underline instead. */
+}
+.erp-topnav-pill.is-active {
+  box-shadow: inset 0 -2px 0 var(--accent, #B1472F);
+}
+
+.erp-topnav-pill .pill-icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  opacity: 0.85;
+  color: inherit;
+}
+.erp-topnav-pill:hover .pill-icon,
+.erp-topnav-pill.is-active .pill-icon { opacity: 1; }
+
+.erp-topnav-pill .pill-label {
+  display: inline-block;
+  line-height: 1;
+}
+
+/* ── Right cluster (pinned to the right edge) ───────────────────────── */
+.erp-topnav-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding-left: 8px;
+  /* Soft divider between menu and right cluster for visual grouping. */
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.erp-topnav-iconbtn {
+  width: 34px; height: 34px;
+  display: inline-grid; place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  font-size: 13px;
+}
+.erp-topnav-iconbtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: #FFF8F4;
+}
+
+.erp-topnav-avatarbtn {
+  width: 34px; height: 34px;
+  display: inline-grid; place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.erp-topnav-avatarbtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+/* ── Dropdown popups (submenu under each pill) ──────────────────────── */
+.erp-topnav-dropdown .ant-dropdown-menu {
+  background: var(--bg-panel, #1F1B18) !important;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08)) !important;
+  border-radius: 10px !important;
+  padding: 4px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28) !important;
+  min-width: 200px !important;
+}
+.erp-topnav-dropdown .ant-dropdown-menu-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  color: var(--fg-primary, #F5EFE3) !important;
+  border-radius: 7px !important;
+  margin: 2px 0 !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+}
+.erp-topnav-dropdown .ant-dropdown-menu-item:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06)) !important;
+}
+.erp-topnav-dropdown .ant-dropdown-menu-item-selected {
+  background: var(--accent-bg, rgba(177, 71, 47, 0.15)) !important;
+  color: var(--accent, #E26A4C) !important;
+}
+.erp-topnav-dropdown .ant-dropdown-menu-item .anticon {
+  font-size: 13px;
+  opacity: 0.78;
+}
+.erp-topnav-dropdown .ant-dropdown-menu-item-selected .anticon {
+  opacity: 1;
+  color: var(--accent, #E26A4C);
+}
+
+/* ── Responsive — under 900px, tighten gaps but keep all elements. ──── */
+@media (max-width: 900px) {
+  .erp-topnav { gap: 6px; padding: 0 10px; }
+  .erp-topnav-pill { padding: 0 10px; }
+  .erp-topnav-pill .pill-label { display: none; }  /* icon-only on narrow */
+  .erp-topnav-pill .pill-caret { display: none; }
+}
+
+/* Hook so per-page CSS can opt in if needed (used by AppLayout). */
+.app-layout-horizontal .ant-layout-content { width: 100%; }

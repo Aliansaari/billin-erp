@@ -440,6 +440,10 @@ body {
   opacity: 1;
 }
 
+/* .erp-sidebar-layout removed: the menu-orientation toggle is now only in
+   Settings → Theme (Menu Layout segmented control). Kept here as a marker
+   so future reviewers searching for the class aren't surprised it's gone. */
+
 /* Bottom bar with user avatar */
 .erp-sidebar-bottom {
   flex-shrink: 0;

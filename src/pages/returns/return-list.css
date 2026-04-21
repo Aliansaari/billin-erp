@@ -1,0 +1,89 @@
+/*
+ * return-list.css — delta styles for SalesReturnList / PurchaseReturnList.
+ *
+ * The editorial shell (.blist-page / .brow / .kpi-card / .c-sr / .c-bill …)
+ * is inherited unchanged from bill-list.css so a single theme change flows
+ * through every list page. This file only defines the columns + pills that
+ * don't exist on the sales/purchase list:
+ *
+ *   .c-ref      — linked invoice / bill (stacked cell)
+ *   .c-mode     — Items / Amount pill
+ *   .c-reason   — truncated free-text reason
+ *   .mode-pill  — small capsule that colours Items blue and Amount purple
+ *
+ * Column widths deliberately match the sizing rhythm of bill-list.css so
+ * the sticky header and data rows keep lining up.
+ */
+
+.c-ref {
+  width: 140px; flex: 0 0 140px;
+  padding-right: 12px;
+  overflow: hidden;
+}
+.c-ref .m.ref-num {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'Fraunces', 'Georgia', serif;
+  font-weight: 600; font-size: 13.5px;
+  color: var(--accent);
+  letter-spacing: -0.01em;
+}
+.c-ref .m.ref-num .anticon { font-size: 11px; opacity: 0.7; }
+.c-ref .amt.zero {
+  /* "Standalone" hint — matches the muted dash look used elsewhere. */
+  font-size: 12px;
+}
+
+.c-mode {
+  width: 90px; flex: 0 0 90px;
+  padding-right: 12px;
+}
+.mode-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+.mode-pill .anticon { font-size: 10px; }
+/* Items mode — neutral blue-ish, matches the "invoice-style" feel */
+.mode-pill.mode-items {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+/* Amount mode — purple, distinct so you can tell goodwill credits apart */
+.mode-pill.mode-amount {
+  background: #f5f3ff;
+  color: #7c3aed;
+  border: 1px solid #ddd6fe;
+}
+[data-theme="modern-dark"] .mode-pill.mode-amount,
+[data-theme="classic-dark"] .mode-pill.mode-amount {
+  background: rgba(124, 58, 237, 0.14);
+  color: #c4b5fd;
+  border-color: rgba(124, 58, 237, 0.4);
+}
+
+.c-reason {
+  width: 180px; flex: 0 0 180px;
+  padding-right: 12px;
+  overflow: hidden;
+}
+.c-reason .reason-text {
+  display: block;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+/* Head row tuning for the return-only columns */
+.brow.head .c-ref,
+.brow.head .c-mode,
+.brow.head .c-reason {
+  text-align: left;
+}

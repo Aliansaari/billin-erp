@@ -17,6 +17,10 @@ import { themeTokens, resolveMode } from '../theme/tokens';
 const defaults = {
   themeStyle: 'classic',
   appearance: 'system',
+  // menuOrientation: 'vertical' (sidebar, default) or 'horizontal' (top-nav).
+  // Persisted like theme/appearance so the operator's layout choice survives
+  // reloads and cross-tab navigation.
+  menuOrientation: 'vertical',
 
   // Legacy fields — kept for transitional compat. New code should not read these.
   colorPrimary: '#4F46E5',
@@ -42,6 +46,12 @@ const useThemeStore = create(
       /** Change appearance: 'light', 'dark', or 'system'. */
       setAppearance: (mode) =>
         set({ appearance: ['light', 'dark', 'system'].includes(mode) ? mode : 'system' }),
+
+      /** Flip menu orientation between vertical (sidebar) and horizontal (top-nav). */
+      setMenuOrientation: (orientation) =>
+        set({ menuOrientation: orientation === 'horizontal' ? 'horizontal' : 'vertical' }),
+      toggleMenuOrientation: () =>
+        set((s) => ({ menuOrientation: s.menuOrientation === 'horizontal' ? 'vertical' : 'horizontal' })),
 
       /** Resolve current effective mode key (e.g. 'modern-dark'). */
       resolveMode: () => {
@@ -81,8 +91,11 @@ const useThemeStore = create(
         ...persisted,
         themeStyle: persisted?.themeStyle || defaults.themeStyle,
         appearance: persisted?.appearance || defaults.appearance,
+        // v3: menuOrientation added. Older stores default to 'vertical'
+        // so the switch is opt-in and nobody gets surprised by a new layout.
+        menuOrientation: persisted?.menuOrientation === 'horizontal' ? 'horizontal' : 'vertical',
       }),
-      version: 2,
+      version: 3,
     },
   ),
 );
