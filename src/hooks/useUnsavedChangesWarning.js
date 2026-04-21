@@ -35,6 +35,11 @@ export const useNavGuard = create((set) => ({
       cancelButtonProps: { danger: true, size: 'large', style: { minWidth: 160 } },
       okButtonProps: { size: 'large', style: { minWidth: 120 } },
       centered: true,
+      // Custom class so global.css can theme this modal to match the app
+      // chrome (light/dark · classic/modern). Without it the confirm modal
+      // falls back to AntD's default white-on-white because static methods
+      // like Modal.confirm bypass ConfigProvider's theme context.
+      className: 'erp-confirm-modal',
       onCancel: onConfirm,
     });
   },
