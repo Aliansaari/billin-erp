@@ -962,7 +962,7 @@ export default function SalesBillForm() {
         {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
         <section className="sbf-action-bar">
           <div className="sbf-action-bar-inner">
-            <button className="sbf-act" onClick={()=>{ if(confirmLeave()) navigate('/sales'); }}>
+            <button className="sbf-act" onClick={()=>{ confirmLeave(() => navigate('/sales')); }}>
               <span className="sbf-kbd">Esc</span> Back
             </button>
             <button className="sbf-act" onClick={handleReset}>

@@ -57,10 +57,14 @@ export default function TopNav() {
   // not close the dropdown while the cursor is still inside the popup.
   const [openKey, setOpenKey] = useState(null);
 
-  // Guarded navigate — honours the unsaved-changes confirmation the way Sidebar does.
+  // Guarded navigate — matches Sidebar. confirmLeave takes an onConfirm
+  // callback and fires it (clean form) or shows the AntD modal and fires
+  // it on "Discard and leave" (dirty form). The earlier boolean form was
+  // swallowing every click because confirmLeave returns undefined when
+  // used without its callback.
   const navigate = (to, opts) => {
     if (to === location.pathname) return;
-    if (useNavGuard.getState().confirmLeave()) rawNavigate(to, opts);
+    useNavGuard.getState().confirmLeave(() => rawNavigate(to, opts));
   };
 
   // Which top-level pill is "active". Walk up via getOpenKeys so deep routes

@@ -828,7 +828,7 @@ export default function PurchaseReturnForm() {
 
         <section className="rtn-action-bar">
           <div className="rtn-action-bar-inner">
-            <button className="rtn-act" onClick={() => { if (confirmLeave()) navigate('/purchase-returns'); }}>
+            <button className="rtn-act" onClick={() => confirmLeave(() => navigate('/purchase-returns'))}>
               <span className="rtn-kbd">Esc</span> Back
             </button>
             <button className="rtn-act" onClick={handleReset}>

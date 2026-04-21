@@ -846,7 +846,7 @@ export default function SalesReturnForm() {
         {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
         <section className="rtn-action-bar">
           <div className="rtn-action-bar-inner">
-            <button className="rtn-act" onClick={() => { if (confirmLeave()) navigate('/sales-returns'); }}>
+            <button className="rtn-act" onClick={() => confirmLeave(() => navigate('/sales-returns'))}>
               <span className="rtn-kbd">Esc</span> Back
             </button>
             <button className="rtn-act" onClick={handleReset}>

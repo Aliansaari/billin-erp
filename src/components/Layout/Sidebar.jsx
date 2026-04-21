@@ -109,11 +109,14 @@ export default function Sidebar({ collapsed, setCollapsed }) {
   const [openKeys, setOpenKeys] = useState(() => getOpenKeys(location.pathname));
 
   // Guarded navigate — asks for confirmation when the current form has unsaved work.
+  // confirmLeave takes an onConfirm callback; when the form is clean it calls
+  // the callback immediately, when dirty it pops the AntD modal and calls the
+  // callback only on "Discard and leave". Previously we called it as a boolean
+  // and wrapped navigation in an `if`, which silently dropped every click
+  // because confirmLeave returns undefined when used without its callback.
   const navigate = (to, opts) => {
     if (to === location.pathname) return;
-    if (useNavGuard.getState().confirmLeave()) {
-      rawNavigate(to, opts);
-    }
+    useNavGuard.getState().confirmLeave(() => rawNavigate(to, opts));
   };
 
   const themeStyle = useThemeStore((s) => s.themeStyle);

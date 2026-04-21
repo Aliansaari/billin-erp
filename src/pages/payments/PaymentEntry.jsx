@@ -311,7 +311,7 @@ export default function PaymentEntry() {
             </Button>
           </Tooltip>
           <Button icon={<ReloadOutlined />} onClick={handleReset} style={{ borderRadius: 8, height: 36 }}>Reset</Button>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => { if (confirmLeave()) navigate('/payments'); }} style={{ borderRadius: 8, height: 36 }}>Back</Button>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => { confirmLeave(() => navigate('/payments')); }} style={{ borderRadius: 8, height: 36 }}>Back</Button>
         </div>
       </div>
 
