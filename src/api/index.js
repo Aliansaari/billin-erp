@@ -197,6 +197,39 @@ export const dataAPI = {
       },
     });
   },
+  // Post-import: regenerate barcodes for product_ids that had blank Barcode
+  // cells in the import file (the server sets them to auto-generated values
+  // during import, and this call re-rolls them after the user confirms).
+  regenerateBarcodes: (productIds) =>
+    api.post('/data/regenerate-barcodes', { product_ids: productIds }),
+};
+
+// TallyPrime Sync — config, file-based export, live HTTP push/pull.
+// Not all endpoints are implemented server-side yet; see TALLY_INTEGRATION.md
+// for status. The client exposes the full surface so the UI can be built
+// against it and stubs can be filled in incrementally.
+export const tallyAPI = {
+  getConfig: () => api.get('/tally/config'),
+  updateConfig: (data) => api.put('/tally/config', data),
+  testConnection: (data) => api.post('/tally/test-connection', data),
+  exportMastersXML: (params = {}) =>
+    api.get('/tally/export/masters', { params, responseType: 'blob', timeout: 300000 }),
+  exportVouchersXML: (params = {}) =>
+    api.get('/tally/export/vouchers', { params, responseType: 'blob', timeout: 300000 }),
+  importXML: (file, onProgress) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/tally/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000,
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) onProgress(Math.round((e.loaded * 100) / e.total));
+      },
+    });
+  },
+  pushLive: (data) => api.post('/tally/live/push', data, { timeout: 300000 }),
+  pullLive: (data) => api.post('/tally/live/pull', data, { timeout: 300000 }),
+  getSyncLogs: (params) => api.get('/tally/sync-logs', { params }),
 };
 
 export default api;

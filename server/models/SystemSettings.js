@@ -111,6 +111,28 @@ const SystemSettings = sequelize.define('SystemSettings', {
     type: DataTypes.INTEGER,
     defaultValue: 90,
   },
+  // TallyPrime integration — host/port for live XML sync, active company
+  // (Tally only talks to the currently-loaded company), sync toggle, and
+  // timestamp of the last successful sync (either direction). These are
+  // optional; if not set the UI falls back to defaults (localhost:9000).
+  tally_host: {
+    type: DataTypes.STRING(100),
+    defaultValue: 'localhost',
+  },
+  tally_port: {
+    type: DataTypes.INTEGER,
+    defaultValue: 9000,
+  },
+  tally_company: {
+    type: DataTypes.STRING(200),
+  },
+  tally_sync_enabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  tally_last_sync: {
+    type: DataTypes.DATE,
+  },
 }, {
   tableName: 'system_settings',
   timestamps: false,

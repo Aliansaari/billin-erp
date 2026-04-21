@@ -145,13 +145,98 @@ exports.exportToExcel = async (req, res) => {
   }
 };
 
+// Column instructions keyed per module so the Instructions sheet matches the
+// template headers. Each row becomes [Column, Required, Description, Example].
+const TEMPLATE_INSTRUCTIONS = {
+  customers: [
+    ['Party Name',    'Yes', 'Customer business or individual name.',                          'ABC Trading Co'],
+    ['Mobile 1',      'Yes', '10-digit Indian mobile (primary contact).',                      '9876543210'],
+    ['Mobile 2',      'No',  'Optional secondary mobile.',                                      '9876543211'],
+    ['Email',         'No',  'Optional email for invoices / receipts.',                         'abc@example.com'],
+    ['Address Line 1','No',  'Street / shop address.',                                          '12, MG Road'],
+    ['City',          'No',  'City name.',                                                      'Mumbai'],
+    ['State',         'No',  'Indian state (spelled out).',                                     'Maharashtra'],
+    ['Pincode',       'No',  '6-digit postal code.',                                            '400001'],
+    ['GSTIN',         'No',  '15-character GST identification number. Leave blank for unregistered.','27AABCU9603R1Z2'],
+    ['PAN',           'No',  '10-character PAN.',                                               'AABCU9603R'],
+    ['Credit Allowed','No',  'Yes if you sell on credit, No if cash-only.',                     'Yes'],
+    ['Credit Limit',  'No',  'Maximum outstanding you allow, in ₹. Leave 0 if no limit.',       '50000'],
+    ['Opening Balance','No', 'Balance at financial-year start. Always positive — use Balance Type for sign.','0'],
+    ['Balance Type',  'No',  'Receivable = customer owes you. Payable = you owe customer (advance).','Receivable'],
+  ],
+  suppliers: [
+    ['Party Name',    'Yes', 'Supplier business or individual name.',                          'XYZ Textiles Ltd'],
+    ['Mobile 1',      'Yes', '10-digit Indian mobile (primary contact).',                      '9876543210'],
+    ['Mobile 2',      'No',  'Optional secondary mobile.',                                      '9876543211'],
+    ['Email',         'No',  'Optional email.',                                                 'xyz@example.com'],
+    ['Address Line 1','No',  'Street address.',                                                 '45, Industrial Area'],
+    ['City',          'No',  'City.',                                                           'Surat'],
+    ['State',         'No',  'State.',                                                          'Gujarat'],
+    ['Pincode',       'No',  'Postal code.',                                                    '395003'],
+    ['GSTIN',         'No',  '15-character GSTIN.',                                             '24AABCX9603Z1Z5'],
+    ['PAN',           'No',  '10-character PAN.',                                               'AABCX9603Z'],
+    ['Credit Allowed','No',  'Yes if supplier gives you credit terms.',                         'Yes'],
+    ['Credit Limit',  'No',  'Your credit limit with them, in ₹.',                              '100000'],
+    ['Opening Balance','No', 'Positive amount only.',                                           '0'],
+    ['Balance Type',  'No',  'Payable = you owe supplier. Receivable = supplier owes you (advance).','Payable'],
+  ],
+  products: [
+    ['Barcode',            'No',  'Leave blank — system will auto-generate and offer to regenerate after import.','PROD-0000000123'],
+    ['Category',           'Yes', 'Product category. Auto-created if it does not exist.',                         'Textiles'],
+    ['Product Name',       'Yes', 'Name shown on bills.',                                                         'Cotton Fabric Premium'],
+    ['Size',               'No',  'Free-text size (e.g. M, L, 42, 36 inch).',                                     'M'],
+    ['Article No',         'No',  'Supplier or internal SKU / article code.',                                     'ART-001'],
+    ['HSN Code',           'No',  'GST HSN/SAC code (4–8 digits).',                                               '5208'],
+    ['GST %',              'No',  'GST rate slab: 0, 5, 12, 18, or 28.',                                          '5'],
+    ['Unit',               'No',  'One of PCS, KG, METER, LITER, BOX, DOZEN. Defaults to PCS.',                   'PCS'],
+    ['Pieces per Box',     'No',  'Used when selling by box. Fractional allowed.',                                '12'],
+    ['Min Stock Level',    'No',  'Triggers low-stock alerts.',                                                   '10'],
+    ['Opening Stock',      'No',  'Stock on hand at financial-year start.',                                       '50'],
+    ['Opening Stock Rate', 'No',  'Cost rate for the opening stock valuation.',                                   '100'],
+    ['Purchase Rate',      'Yes', 'Default purchase price.',                                                      '100'],
+    ['Margin %',           'No',  'Expected margin — informational only.',                                        '20'],
+    ['Sale Rate',          'Yes', 'Default sale price.',                                                          '120'],
+    ['MRP',                'No',  'Maximum retail price (statutory cap).',                                        '150'],
+  ],
+};
+
+function addInstructionsSheet(workbook, moduleName, extraNotes = []) {
+  const instr = workbook.addWorksheet('Instructions', { state: 'visible' });
+  instr.columns = [
+    { header: 'Column',      key: 'col',  width: 24 },
+    { header: 'Required?',   key: 'req',  width: 10 },
+    { header: 'Description', key: 'desc', width: 60 },
+    { header: 'Example',     key: 'ex',   width: 22 },
+  ];
+  instr.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  instr.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } };
+
+  const rows = TEMPLATE_INSTRUCTIONS[moduleName] || [];
+  rows.forEach(([col, req, desc, ex]) => {
+    const r = instr.addRow({ col, req, desc, ex });
+    if (req === 'Yes') r.getCell('req').font = { bold: true, color: { argb: 'FFDC2626' } };
+  });
+
+  // Append general notes (e.g. barcode post-import prompt behaviour)
+  instr.addRow({});
+  instr.addRow({ col: 'Notes', req: '', desc: '', ex: '' }).font = { bold: true };
+  const defaults = [
+    'Required columns are marked with * in the header row of the Data sheet.',
+    'Duplicate detection uses (Party Name + Mobile 1) for parties and Barcode for products.',
+    'Re-importing the same file is safe — duplicates are skipped, not overwritten.',
+    'After import, a summary dialog shows how many rows imported / skipped / failed, with a downloadable Excel error report.',
+  ];
+  [...defaults, ...extraNotes].forEach(n => instr.addRow({ desc: n }));
+}
+
 exports.downloadTemplate = async (req, res) => {
   try {
     const { module: moduleName } = req.params;
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Template');
+    const sheet = workbook.addWorksheet('Data');
 
     let columns = [];
+    let extraNotes = [];
     switch (moduleName) {
       case 'customers':
       case 'suppliers':
@@ -192,6 +277,10 @@ exports.downloadTemplate = async (req, res) => {
           { header: 'Sale Rate *', key: 'sale_rate', width: 12 },
           { header: 'MRP', key: 'mrp', width: 12 },
         ];
+        extraNotes = [
+          'If the Barcode column is blank, the system will auto-generate one during import.',
+          'After importing, a prompt appears showing how many items got auto-barcodes — you can Review / Regenerate them before printing labels.',
+        ];
         break;
 
       default:
@@ -206,9 +295,12 @@ exports.downloadTemplate = async (req, res) => {
     // Add sample row
     const sampleRow = moduleName === 'products'
       ? { barcode: '', category_name: 'Textiles', product_name: 'Cotton Fabric', size_value: 'M', article_number: 'ART-001', hsn_code: '5208', gst_rate: 5, unit_of_measurement: 'PCS', quantity_per_box: 12, minimum_stock_level: 10, opening_stock: 50, opening_stock_rate: 100, purchase_rate: 100, margin_percentage: 20, sale_rate: 120, mrp: 150 }
-      : { party_name: 'ABC Trading Co', mobile_1: '9876543210', email: 'abc@example.com', city: 'Mumbai', state: 'Maharashtra', credit_allowed: 'Yes', credit_limit: 50000, opening_balance: 0, opening_balance_type: 'Receivable' };
+      : { party_name: 'ABC Trading Co', mobile_1: '9876543210', email: 'abc@example.com', city: 'Mumbai', state: 'Maharashtra', credit_allowed: 'Yes', credit_limit: 50000, opening_balance: 0, opening_balance_type: moduleName === 'suppliers' ? 'Payable' : 'Receivable' };
     sheet.addRow(sampleRow);
     sheet.getRow(2).font = { italic: true, color: { argb: 'FF808080' } };
+
+    // Separate Instructions sheet — every column explained with required/example.
+    addInstructionsSheet(workbook, moduleName, extraNotes);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${moduleName}_template.xlsx`);
@@ -248,6 +340,8 @@ exports.importFromExcel = async (req, res) => {
 
     let imported = 0;
     let skipped = 0;
+    let autoBarcoded = 0;
+    const autoBarcodedIds = []; // product_ids whose barcode was auto-generated
 
     if (moduleName === 'products') {
       // ── Bulk import for products (handles large files efficiently) ────────
@@ -325,7 +419,8 @@ exports.importFromExcel = async (req, res) => {
         }
 
         const rawBarcode = data['Barcode (auto if blank)'] || data['Barcode'];
-        const barcode = rawBarcode != null && String(rawBarcode).trim() !== ''
+        const hadBarcode = rawBarcode != null && String(rawBarcode).trim() !== '';
+        const barcode = hadBarcode
           ? String(rawBarcode).trim()
           : await generateBarcode();
 
@@ -341,6 +436,7 @@ exports.importFromExcel = async (req, res) => {
 
         toCreate.push({
           _rowNumber: rowNumber,   // preserved for accurate error reporting in fallback
+          _autoBarcoded: !hadBarcode,
           barcode,
           category_id: catMap[catName] || null,
           product_name: productName,
@@ -377,13 +473,22 @@ exports.importFromExcel = async (req, res) => {
       const today = new Date().toISOString().split('T')[0];
       const createdProducts = []; // collect newly inserted products for ledger entries
 
+      // Build a barcode→autoBarcoded map so we can tag products AFTER insert.
+      const autoByBarcode = new Map(toCreate.map(r => [r.barcode, !!r._autoBarcoded]));
+
       for (let i = 0; i < toCreate.length; i += CHUNK) {
         const chunk = toCreate.slice(i, i + CHUNK);
-        // Strip _rowNumber before DB insert
-        const chunkData = chunk.map(({ _rowNumber, ...rest }) => rest);
+        // Strip internal tracking fields before DB insert
+        const chunkData = chunk.map(({ _rowNumber, _autoBarcoded, ...rest }) => rest);
         try {
           const results = await Product.bulkCreate(chunkData, { ignoreDuplicates: true, returning: true });
-          results.forEach(p => createdProducts.push(p));
+          results.forEach(p => {
+            createdProducts.push(p);
+            if (autoByBarcode.get(p.barcode)) {
+              autoBarcoded++;
+              autoBarcodedIds.push(p.product_id);
+            }
+          });
           imported += results.length;
         } catch (bulkErr) {
           // Chunk failed — retry each row individually so only bad rows are skipped
@@ -391,6 +496,10 @@ exports.importFromExcel = async (req, res) => {
             try {
               const p = await Product.create(chunkData[j]);
               createdProducts.push(p);
+              if (autoByBarcode.get(p.barcode)) {
+                autoBarcoded++;
+                autoBarcodedIds.push(p.product_id);
+              }
               imported++;
             } catch (rowErr) {
               errors.push({ row: chunk[j]._rowNumber, reason: rowErr.message, rowData: chunkData[j] });
@@ -489,10 +598,66 @@ exports.importFromExcel = async (req, res) => {
       skipped,
       errors,
       total: rows.length,
+      // Products-only: how many rows had an empty Barcode cell and were
+      // auto-assigned a system barcode. The client uses this to prompt
+      // "Review / Regenerate auto-barcoded items?" after a products import.
+      auto_barcoded: autoBarcoded,
+      auto_barcoded_ids: autoBarcodedIds,
     });
   } catch (error) {
     console.error('Import error:', error);
     res.status(500).json({ error: 'Import failed: ' + error.message });
+  }
+};
+
+/* ── Regenerate barcodes for a set of product_ids ──────────────────────────
+ *
+ * Post-import flow: after a products import auto-assigns barcodes to rows
+ * that had the Barcode cell blank, the UI shows those product_ids in a
+ * review list and calls this endpoint when the user hits "Regenerate".
+ *
+ * We reuse the same barcode util used everywhere else in the app — never
+ * invent our own numbering here — so new barcodes follow the user's
+ * configured prefix / padding / starting-number exactly.
+ */
+exports.regenerateBarcodes = async (req, res) => {
+  try {
+    const { product_ids } = req.body || {};
+    if (!Array.isArray(product_ids) || product_ids.length === 0) {
+      return res.status(400).json({ error: 'product_ids (non-empty array) required' });
+    }
+    const { generateBarcode } = require('../utils/barcode');
+    const sequelize = require('../config/database');
+
+    const updated = [];
+    const failed = [];
+    // Allocate under a transaction so a mid-run crash doesn't leave half the
+    // batch with new barcodes and half with old ones — either the whole
+    // request succeeds or nothing changes.
+    await sequelize.transaction(async (t) => {
+      for (const id of product_ids) {
+        try {
+          const newBarcode = await generateBarcode(t);
+          const [n] = await Product.update(
+            { barcode: newBarcode },
+            { where: { product_id: id }, transaction: t }
+          );
+          if (n === 1) updated.push({ product_id: id, barcode: newBarcode });
+          else failed.push({ product_id: id, reason: 'Product not found' });
+        } catch (e) {
+          failed.push({ product_id: id, reason: e.message });
+        }
+      }
+    });
+
+    res.json({
+      message: `Regenerated ${updated.length} barcodes`,
+      updated,
+      failed,
+    });
+  } catch (error) {
+    console.error('Regenerate barcodes error:', error);
+    res.status(500).json({ error: 'Barcode regeneration failed' });
   }
 };
 

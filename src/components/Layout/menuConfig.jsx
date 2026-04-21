@@ -20,6 +20,7 @@ import {
   FundOutlined, AppstoreOutlined, StockOutlined, PlusCircleOutlined,
   UnorderedListOutlined, RollbackOutlined, BankOutlined, ThunderboltOutlined,
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
+  SwapOutlined, ApiOutlined,
 } from '@ant-design/icons';
 
 export const menuItems = [
@@ -93,12 +94,14 @@ export const menuItems = [
     icon: <SettingOutlined />,
     label: 'Settings',
     children: [
-      { key: '/settings/company', icon: <BankOutlined />,        label: 'Company Profile' },
-      { key: '/settings/users',   icon: <UserOutlined />,        label: 'Users' },
-      { key: '/settings/theme',   icon: <BgColorsOutlined />,    label: 'Theme' },
-      { key: '/settings/barcode', icon: <TagsOutlined />,        label: 'Barcode' },
-      { key: '/settings/modules', icon: <ThunderboltOutlined />, label: 'Modules' },
-      { key: '/settings/backup',  icon: <CloudServerOutlined />, label: 'Backup & Recovery' },
+      { key: '/settings/company',        icon: <BankOutlined />,        label: 'Company Profile' },
+      { key: '/settings/users',          icon: <UserOutlined />,        label: 'Users' },
+      { key: '/settings/theme',          icon: <BgColorsOutlined />,    label: 'Theme' },
+      { key: '/settings/barcode',        icon: <TagsOutlined />,        label: 'Barcode' },
+      { key: '/settings/modules',        icon: <ThunderboltOutlined />, label: 'Modules' },
+      { key: '/settings/import-export',  icon: <SwapOutlined />,        label: 'Import & Export' },
+      { key: '/settings/tally',          icon: <ApiOutlined />,         label: 'TallyPrime Sync' },
+      { key: '/settings/backup',         icon: <CloudServerOutlined />, label: 'Backup & Recovery' },
     ],
   },
 ];

@@ -24,5 +24,6 @@ router.get('/export/:module', importExportController.exportToExcel);
 router.get('/template/:module', importExportController.downloadTemplate);
 router.post('/import/:module', upload.single('file'), importExportController.importFromExcel);
 router.post('/failed-report', importExportController.generateFailedReport);
+router.post('/regenerate-barcodes', importExportController.regenerateBarcodes);
 
 module.exports = router;

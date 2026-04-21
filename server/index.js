@@ -31,6 +31,7 @@ app.use('/api/payments', require('./routes/payments'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/data', require('./routes/importExport'));
+app.use('/api/tally', require('./routes/tally'));
 app.use('/api/backup', require('./routes/backup'));
 
 // Health check
@@ -79,6 +80,23 @@ async function startServer() {
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='aging_bucket_3_days') THEN
           ALTER TABLE system_settings ADD COLUMN aging_bucket_3_days INTEGER DEFAULT 90;
+        END IF;
+        -- TallyPrime sync config. These live on system_settings rather than
+        -- a separate table because there's always exactly one active config.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_host') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_host VARCHAR(100) DEFAULT 'localhost';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_port') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_port INTEGER DEFAULT 9000;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_company') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_company VARCHAR(200);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_sync_enabled') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_sync_enabled BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_last_sync') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_last_sync TIMESTAMP;
         END IF;
         -- Return bill prefixes. Defaults match the seeder; existing DBs that
         -- ran the seeder before this column shipped still need a value so the
