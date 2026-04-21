@@ -18,10 +18,17 @@ export default function AppLayout() {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed));
   }, [collapsed]);
 
-  // Full-page views: bill forms, lists, reports
-  const isFullPage = /^\/(sale|purchase|payment|receipt)\//.test(location.pathname) || [
+  // Full-page views: bill forms, lists, reports. The regex below matches
+  // new/edit routes that need the full viewport (height: 100vh, overflow:
+  // hidden). ORDER MATTERS: sales-return must come before sale and
+  // purchase-return before purchase — otherwise `/sales-return/new` would
+  // partial-match `sale` and then fail the trailing \/, falling through to
+  // the padded layout. That made the return forms visibly shrink to content
+  // height instead of filling the screen.
+  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt)\//.test(location.pathname) || [
     '/products', '/stock-report', '/stock-report-pro', '/categories', '/customers', '/suppliers',
     '/sales', '/purchases', '/payments',
+    '/sales-returns', '/purchase-returns',
     '/reports/sales', '/reports/purchases', '/reports/stock',
     '/reports/party-ledger', '/reports/profit-loss',
   ].includes(location.pathname);
