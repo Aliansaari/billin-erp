@@ -1,187 +1,220 @@
 /*
- * Horizontal top-nav styling.
+ * top-nav.css — horizontal top-bar layout (used when themeStore.menuOrientation
+ * is 'horizontal'). Matches the sidebar's dark chrome so the top bar reads as
+ * primary navigation rather than a floating header.
  *
- * The bar replaces the left Sidebar when themeStore.menuOrientation = 'horizontal'.
- * Reads the same theme vars as Sidebar/editorial pages so light/dark/classic/
- * modern flow through unchanged. AntD's horizontal Menu is restyled to match
- * the dashboard accent rather than AntD's default indigo/blue.
+ * Design philosophy: every interactive element is a proper pill-shaped
+ * container with exact padding — no AntD horizontal-menu defaults to fight.
+ * The result: icon and label always align perfectly (single inline-flex
+ * inside each pill), pills are content-sized, the bar hugs what it needs,
+ * and the right cluster is pinned to the right edge.
  */
 
+/* ── Bar ────────────────────────────────────────────────────────────── */
 .erp-topnav {
   flex-shrink: 0;
   height: 56px;
   display: flex;
   align-items: center;
-  /* Tight gap — brand icon sits snug against the first menu item. */
-  gap: 6px;
-  padding: 0 20px;
+  gap: 10px;
+  padding: 0 16px;
   background: var(--sidebar-bg, #1a1a1a);
-  border-bottom: 1px solid var(--sidebar-border, rgba(255,255,255,0.08));
-  color: rgba(255,255,255,0.92);
-  /* Match Sidebar's dark visual weight so the top bar reads as primary chrome
-     rather than a floating header, regardless of page background. */
-  box-shadow: 0 1px 0 rgba(0,0,0,0.12), 0 2px 10px rgba(0,0,0,0.10);
+  border-bottom: 1px solid var(--sidebar-border, rgba(255, 255, 255, 0.08));
+  color: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12), 0 2px 10px rgba(0, 0, 0, 0.10);
   z-index: 20;
-  /* On very narrow viewports the menu + right cluster may not all fit; let
-     the whole bar scroll horizontally instead of clipping nav items. */
+  /* Very narrow viewports get horizontal scroll — scrollbar hidden. The
+     vertical sidebar layout is the right pick for small screens, exposed
+     via Settings → Theme. */
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
 }
 .erp-topnav::-webkit-scrollbar { height: 0; }
 
-/* Brand cluster */
+/* ── Brand (home link, icon-only) ───────────────────────────────────── */
 .erp-topnav-brand {
-  display: inline-flex; align-items: center; gap: 9px;
-  padding: 6px 10px;
+  flex-shrink: 0;
+  width: 34px; height: 34px;
+  display: inline-grid; place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-  user-select: none;
-}
-.erp-topnav-brand.icon-only {
-  /* With no wordmark, shrink the tap target to just the icon. */
-  padding: 6px 8px;
-}
-.erp-topnav-brand:hover { background: rgba(255,255,255,0.06); }
-.erp-topnav-brand .brand-icon {
-  font-size: 20px;
   color: var(--accent, #B1472F);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.erp-topnav-brand:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+.erp-topnav-brand .brand-icon { font-size: 20px; }
+
+/* Brand-to-menu separator — a subtle vertical rule so the eye reads the
+   brand and the nav as two sections. */
+.erp-topnav-brand + .erp-topnav-menu::before {
+  content: '';
+  width: 1px; height: 24px;
+  margin: 0 6px 0 2px;
+  background: rgba(255, 255, 255, 0.10);
 }
 
-/* Main horizontal menu — sized to its contents, NOT stretched to fill.
-   The menu sits tight against the brand on the left; the right cluster
-   gets `margin-left: auto` so it always pins to the right edge. */
+/* ── Menu (content-sized, never stretches) ──────────────────────────── */
 .erp-topnav-menu {
-  /* flex: 0 0 auto → never grow, never shrink past content. min-width: 0
-     keeps flex-in-flex overflow safe. No overflow: hidden here — with
-     `disabledOverflow` on the AntD menu, items render inline at their
-     natural width; clipping them would hide real navigation. */
   flex: 0 0 auto;
   min-width: 0;
   display: flex;
-}
-.erp-topnav-menu .ant-menu.erp-topnav-menu-inner {
-  /* No flex-grow: the menu hugs the width of its items, so AntD doesn't
-     spread them with the extra space and leave the visual gap the user
-     was seeing. */
-  background: transparent !important;
-  border-bottom: none !important;
-  line-height: 54px;
-  font-size: 13px;
-}
-.erp-topnav-menu .ant-menu-horizontal > .ant-menu-item,
-.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu {
-  color: rgba(255,255,255,0.75) !important;
-  border-bottom: 2px solid transparent !important;
-  /* Tight horizontal rhythm — each item takes only the space its label needs
-     plus an 8-pixel breathing margin on either side. No flex-grow so the
-     menu width always hugs the content. */
-  margin: 0 !important;
-  padding: 0 8px !important;
-  top: 0 !important;
-  transition: color 0.15s, background 0.15s, border-color 0.15s !important;
-}
-/* Overflow (…) trigger for narrow viewports */
-.erp-topnav-menu .ant-menu-overflow-item .ant-menu-submenu-title {
-  color: rgba(255,255,255,0.75) !important;
-}
-.erp-topnav-menu .ant-menu-horizontal > .ant-menu-item:hover,
-.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu:hover,
-.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu-open {
-  color: #FFF8F4 !important;
-  background: rgba(255,255,255,0.06) !important;
-}
-.erp-topnav-menu .ant-menu-horizontal > .ant-menu-item-selected,
-.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu-selected {
-  color: #FFF8F4 !important;
-  border-bottom-color: var(--accent, #B1472F) !important;
-  background: rgba(255,255,255,0.04) !important;
-}
-.erp-topnav-menu .ant-menu-horizontal > .ant-menu-item-selected::after,
-.erp-topnav-menu .ant-menu-horizontal > .ant-menu-submenu-selected::after { display: none !important; }
-.erp-topnav-menu .ant-menu-item .anticon,
-.erp-topnav-menu .ant-menu-submenu-title .anticon {
-  /* Snug against the label — AntD's default margin leaves a noticeable gap
-     between icon and text; 4px reads as a single glyph pair. */
-  margin-right: 4px !important;
-  font-size: 13px;
-  opacity: 0.85;
+  align-items: center;
+  gap: 2px;              /* tight visual rhythm — pills carry their own padding */
 }
 
-/* Right cluster — pushed to the end of the bar with margin-left: auto so
-   the menu (now content-sized) still sits tight against the brand icon. */
+/* Each top-level entry is a perfectly uniform pill container. Padding is
+   symmetrical; icon + label sit on one line via inline-flex + gap. Fixed
+   height (34px) so a hover pill never shifts the baseline of its neighbours.
+   No caret: AntD Dropdown already gives hover/click affordance on its own. */
+.erp-topnav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.78);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.erp-topnav-pill:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #FFF8F4;
+}
+.erp-topnav-pill.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FFF8F4;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+/* Accent underline on the active pill for extra affordance without the
+   pill itself feeling heavy. 2px from baseline, matches sidebar active. */
+.erp-topnav-pill.is-active::after {
+  content: '';
+  position: absolute;
+  /* We don't actually position-absolute here — keep the bar's overflow
+     clean. A box-shadow inset draws the underline instead. */
+}
+.erp-topnav-pill.is-active {
+  box-shadow: inset 0 -2px 0 var(--accent, #B1472F);
+}
+
+.erp-topnav-pill .pill-icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  opacity: 0.85;
+  color: inherit;
+}
+.erp-topnav-pill:hover .pill-icon,
+.erp-topnav-pill.is-active .pill-icon { opacity: 1; }
+
+.erp-topnav-pill .pill-label {
+  display: inline-block;
+  line-height: 1;
+}
+
+/* ── Right cluster (pinned to the right edge) ───────────────────────── */
 .erp-topnav-right {
   margin-left: auto;
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   flex-shrink: 0;
+  padding-left: 8px;
+  /* Soft divider between menu and right cluster for visual grouping. */
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
 }
+
 .erp-topnav-iconbtn {
   width: 34px; height: 34px;
-  border-radius: 8px;
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.78);
   display: inline-grid; place-items: center;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-size: 14px;
   padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  font-size: 13px;
 }
 .erp-topnav-iconbtn:hover {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.16);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
   color: #FFF8F4;
 }
 
-.erp-topnav-user {
-  display: inline-flex; align-items: center; gap: 10px;
-  padding: 4px 10px 4px 4px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-  border: 1px solid rgba(255,255,255,0.08);
-}
-.erp-topnav-user:hover { background: rgba(255,255,255,0.06); }
-/* Icon-only variant — circular pill around the avatar, no name/role text.
-   Name + role still appear at the top of the click-opened dropdown menu. */
-.erp-topnav-user.icon-only {
-  padding: 2px;
+.erp-topnav-avatarbtn {
+  width: 34px; height: 34px;
+  display: inline-grid; place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 50%;
-  gap: 0;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.erp-topnav-avatarbtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
 }
 
-/* AntD horizontal-submenu popup — re-skin to match editorial */
-.ant-menu-submenu-popup .ant-menu {
+/* ── Dropdown popups (submenu under each pill) ──────────────────────── */
+.erp-topnav-dropdown .ant-dropdown-menu {
   background: var(--bg-panel, #1F1B18) !important;
-  border: 1px solid var(--border, rgba(255,255,255,0.08)) !important;
-  border-radius: 8px !important;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08)) !important;
+  border-radius: 10px !important;
   padding: 4px !important;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.28) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28) !important;
+  min-width: 200px !important;
 }
-.ant-menu-submenu-popup .ant-menu-item {
+.erp-topnav-dropdown .ant-dropdown-menu-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
   color: var(--fg-primary, #F5EFE3) !important;
-  border-radius: 6px !important;
+  border-radius: 7px !important;
   margin: 2px 0 !important;
-  padding: 0 14px !important;
-  line-height: 36px !important;
-  height: 36px !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
 }
-.ant-menu-submenu-popup .ant-menu-item:hover {
-  background: var(--bg-hover, rgba(255,255,255,0.06)) !important;
+.erp-topnav-dropdown .ant-dropdown-menu-item:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06)) !important;
 }
-.ant-menu-submenu-popup .ant-menu-item-selected {
-  background: var(--accent-bg, rgba(177,71,47,0.15)) !important;
+.erp-topnav-dropdown .ant-dropdown-menu-item-selected {
+  background: var(--accent-bg, rgba(177, 71, 47, 0.15)) !important;
   color: var(--accent, #E26A4C) !important;
 }
-
-/* Responsive tightening — brand and user cluster are already icon-only,
-   so the only thing to shrink is the overall gap/padding. */
-@media (max-width: 900px) {
-  .erp-topnav { gap: 10px; padding: 0 12px; }
+.erp-topnav-dropdown .ant-dropdown-menu-item .anticon {
+  font-size: 13px;
+  opacity: 0.78;
+}
+.erp-topnav-dropdown .ant-dropdown-menu-item-selected .anticon {
+  opacity: 1;
+  color: var(--accent, #E26A4C);
 }
 
-/* When horizontal layout is active we want the main content column to take
-   100% width and the page to start immediately below the nav. AppLayout
-   sets height: calc(100vh - 56px) on the layout column — the `has-top-nav`
-   class hook lets per-page CSS opt in if it needs specific tweaks. */
+/* ── Responsive — under 900px, tighten gaps but keep all elements. ──── */
+@media (max-width: 900px) {
+  .erp-topnav { gap: 6px; padding: 0 10px; }
+  .erp-topnav-pill { padding: 0 10px; }
+  .erp-topnav-pill .pill-label { display: none; }  /* icon-only on narrow */
+  .erp-topnav-pill .pill-caret { display: none; }
+}
+
+/* Hook so per-page CSS can opt in if needed (used by AppLayout). */
 .app-layout-horizontal .ant-layout-content { width: 100%; }

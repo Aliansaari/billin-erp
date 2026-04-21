@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Menu, Dropdown, Avatar } from 'antd';
+import { Dropdown, Avatar } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ThunderboltOutlined, UserOutlined, SettingOutlined, LockOutlined,
@@ -13,22 +13,21 @@ import { menuItems, getOpenKeys } from './menuConfig';
 import './top-nav.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
- *  TopNav — horizontal menu layout, paired with Sidebar via themeStore.menuOrientation.
+ *  TopNav — horizontal menu layout (vertical alternative lives in Sidebar).
  *
- *  Structure (left → right):
- *    · Logo + app name
- *    · AntD horizontal Menu with dropdown submenus for multi-child entries
- *    · Layout-orientation toggle (flips back to Sidebar)
- *    · Appearance toggle (light/dark)
- *    · User avatar → dropdown
+ *  Built from native buttons + AntD Dropdown instead of `<Menu mode="horizontal">`
+ *  so every element is a predictable, properly-contained pill. Fighting AntD's
+ *  horizontal menu defaults (variable line-height, space distribution, icon
+ *  vertical-align) caused the earlier layout bugs — the menu stretching to
+ *  fill the bar, icons not aligning with text, items appearing with different
+ *  heights on hover. Hand-rolling the row gives us exact control over:
  *
- *  Selected key: computed the same way Sidebar does — try an exact path match
- *  first, then fall back to the parent-menu key via getOpenKeys so a deep
- *  route like /sale/edit/42 still highlights "Sales" in the top bar.
+ *    · the pill container around each item (hover + active states)
+ *    · icon-to-label alignment (single inline-flex, no line-height drift)
+ *    · the overall menu width (hugs its content, right cluster pinned right)
  *
- *  Navigation guard: uses the shared useNavGuard store so pages with unsaved
- *  work (sales form, purchase form, etc.) get a confirmation before changing
- *  route — same behaviour as Sidebar.
+ *  Submenus still use AntD's Dropdown so we inherit the proven popup behaviour
+ *  (click/hover, keyboard, portal, viewport clamping) without reinventing it.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 const roleColors = {
@@ -56,14 +55,13 @@ export default function TopNav() {
     if (useNavGuard.getState().confirmLeave()) rawNavigate(to, opts);
   };
 
-  // AntD horizontal Menu has a quirk: if selectedKeys includes a key that's
-  // not a top-level item (like a deep path), nothing renders selected. Solve
-  // by selecting either the exact path OR the parent-menu key.
-  const selectedKeys = useMemo(() => {
-    const exact = menuItems.some((m) => m.key === location.pathname);
-    if (exact) return [location.pathname];
+  // Which top-level pill is "active". Walk up via getOpenKeys so deep routes
+  // like /sale/edit/42 still highlight the Sales pill.
+  const activeKey = useMemo(() => {
+    const exact = menuItems.find((m) => m.key === location.pathname);
+    if (exact) return exact.key;
     const opens = getOpenKeys(location.pathname);
-    return opens.length ? opens : [];
+    return opens[0] || null;
   }, [location.pathname]);
 
   const handleLogout = () => { logout(); navigate('/login'); };
@@ -88,41 +86,70 @@ export default function TopNav() {
 
   const avatarBg = roleColors[user?.role] || '#4F46E5';
 
+  // Render a single top-level entry. Entries with `children` open a dropdown
+  // of sub-routes; leaf entries navigate directly.
+  const renderItem = (item) => {
+    const isActive = activeKey === item.key;
+    const pillClass = `erp-topnav-pill${isActive ? ' is-active' : ''}`;
+
+    if (item.children && item.children.length > 0) {
+      // Flatten AntD-menu-style children into dropdown items that carry a
+      // click handler. Child `key` is the route path.
+      const dropdownItems = item.children.map((c) => ({
+        key: c.key,
+        icon: c.icon,
+        label: c.label,
+        onClick: () => navigate(c.key),
+      }));
+      return (
+        <Dropdown
+          key={item.key}
+          menu={{ items: dropdownItems, selectedKeys: [location.pathname] }}
+          trigger={['click', 'hover']}
+          placement="bottom"
+          overlayClassName="erp-topnav-dropdown"
+        >
+          <button type="button" className={pillClass} aria-label={item.label}>
+            <span className="pill-icon">{item.icon}</span>
+            <span className="pill-label">{item.label}</span>
+          </button>
+        </Dropdown>
+      );
+    }
+
+    return (
+      <button
+        key={item.key}
+        type="button"
+        className={pillClass}
+        onClick={() => navigate(item.key)}
+        aria-label={item.label}
+      >
+        <span className="pill-icon">{item.icon}</span>
+        <span className="pill-label">{item.label}</span>
+      </button>
+    );
+  };
+
   return (
     <header className="erp-topnav" data-mode={isDark ? 'dark' : 'light'}>
-      {/* Brand — icon only (double as a home link). The wordmark lives in
-          the vertical sidebar layout; in horizontal mode we give every
-          pixel back to the nav items. */}
-      <div className="erp-topnav-brand icon-only" onClick={() => navigate('/')} role="button" tabIndex={0} title="Home">
+      {/* Brand — icon only (doubles as a home link). */}
+      <button
+        type="button"
+        className="erp-topnav-brand"
+        onClick={() => navigate('/')}
+        title="Home"
+        aria-label="Home"
+      >
         <ThunderboltOutlined className="brand-icon" />
-      </div>
+      </button>
 
-      {/* Main menu — horizontal */}
-      <div className="erp-topnav-menu">
-        <Menu
-          theme="dark"
-          mode="horizontal"
-          selectedKeys={selectedKeys}
-          items={menuItems}
-          onClick={({ key }) => { if (!key.endsWith('-menu')) navigate(key); }}
-          /* AntD adds its own className ("ant-menu") which we style to fit
-             the editorial chrome via top-nav.css. */
-          className="erp-topnav-menu-inner"
-          /* disabledOverflow keeps all top-level items inline at their
-             natural width. Without it, AntD's overflow logic needs a
-             container with a bounded width to work, and it fights our
-             content-sized menu — hiding everything behind a "..." button
-             even when the items would comfortably fit.
-             On narrow viewports the nav bar allows horizontal scroll as a
-             fallback; most users will pick the vertical sidebar on small
-             screens anyway (via Settings → Theme). */
-          disabledOverflow
-        />
-      </div>
+      {/* Main menu — hugs its content, doesn't stretch the bar. */}
+      <nav className="erp-topnav-menu" aria-label="Primary">
+        {menuItems.map(renderItem)}
+      </nav>
 
-      {/* Right cluster: appearance toggle + user. The layout-orientation
-          toggle lives in Settings → Theme (it's a "pick once" preference,
-          not something to flip from every page). */}
+      {/* Right cluster — pinned to the right edge via margin-left: auto. */}
       <div className="erp-topnav-right">
         <button
           type="button"
@@ -136,9 +163,14 @@ export default function TopNav() {
         {/* Avatar-only — the dropdown already shows name + role at the top of
             its menu, so duplicating them next to the avatar was noise. */}
         <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
-          <div className="erp-topnav-user icon-only" title={`${user?.full_name || 'User'} · ${user?.role || 'Admin'}`}>
-            <Avatar size={30} icon={<UserOutlined />} style={{ backgroundColor: avatarBg }} />
-          </div>
+          <button
+            type="button"
+            className="erp-topnav-avatarbtn"
+            title={`${user?.full_name || 'User'} · ${user?.role || 'Admin'}`}
+            aria-label="User menu"
+          >
+            <Avatar size={28} icon={<UserOutlined />} style={{ backgroundColor: avatarBg }} />
+          </button>
         </Dropdown>
       </div>
     </header>
