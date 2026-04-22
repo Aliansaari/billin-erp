@@ -38,22 +38,27 @@ function createWindow() {
 
 ipcMain.handle('print:list-printers', async () => {
   try {
-    if (!mainWindow) return [];
-    // getPrintersAsync is the Electron 25+ API; fall back to sync enum on
-    // older runtimes so this doesn't hard-crash on whatever the user has.
+    if (!mainWindow) return { printers: [], error: 'main window not ready' };
     const wc = mainWindow.webContents;
-    const printers = wc.getPrintersAsync
-      ? await wc.getPrintersAsync()
-      : (wc.getPrinters ? wc.getPrinters() : []);
-    return printers.map(p => ({
+    let printers = [];
+    if (typeof wc.getPrintersAsync === 'function') {
+      printers = await wc.getPrintersAsync();
+    } else if (typeof wc.getPrinters === 'function') {
+      printers = wc.getPrinters();
+    }
+    // Normalise the shape; different Electron releases include different
+    // optional fields (displayName vs name on macOS, description on Linux).
+    const mapped = (printers || []).map(p => ({
       name: p.name,
       displayName: p.displayName || p.name,
       description: p.description || '',
       status: p.status,
       isDefault: p.isDefault,
     }));
+    return { printers: mapped };
   } catch (e) {
-    return { error: e.message };
+    console.error('[print:list-printers]', e);
+    return { printers: [], error: e.message };
   }
 });
 

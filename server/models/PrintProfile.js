@@ -25,6 +25,10 @@ const PrintProfile = sequelize.define('PrintProfile', {
     allowNull: false,
   },
   format:       { type: DataTypes.ENUM('a4', 'a5', 'thermal'), allowNull: false, defaultValue: 'a4' },
+  // Visual theme applied on top of the format's structural layout. Does NOT
+  // change which fields print — only fonts, borders, spacing, colors.
+  theme:        { type: DataTypes.ENUM('classic', 'modern', 'minimal', 'elegant', 'boxed'), defaultValue: 'classic' },
+  accent_color: { type: DataTypes.STRING(9), defaultValue: '#111111' },
   is_default:   { type: DataTypes.BOOLEAN, defaultValue: false },
 
   // Paper + margins (all in mm; thermal uses widthMm and a 0 bottom margin).

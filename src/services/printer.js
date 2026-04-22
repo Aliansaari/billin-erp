@@ -161,12 +161,15 @@ function openPreview(html) {
 /* ── printer enumeration (Electron only) ───────────────────────────── */
 
 export async function listPrinters() {
-  if (!window.electronAPI?.listPrinters) return [];
+  if (!window.electronAPI?.listPrinters) {
+    return { printers: [], error: 'not running in Electron — printer enumeration requires the desktop build (npm run electron:dev)' };
+  }
   try {
     const res = await window.electronAPI.listPrinters();
-    if (Array.isArray(res)) return res;
-    return [];
-  } catch {
-    return [];
+    // New shape: { printers, error? }. Legacy shape: bare array. Handle both.
+    if (Array.isArray(res)) return { printers: res };
+    return res || { printers: [] };
+  } catch (e) {
+    return { printers: [], error: e.message };
   }
 }

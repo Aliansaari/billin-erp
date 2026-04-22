@@ -174,14 +174,66 @@ const renderPartyBlock = (bill) => {
 
 /* ── styles ─────────────────────────────────────────────────────────── */
 
+/* ── theme overlays ──────────────────────────────────────────────────
+ *  Themes don't change LAYOUT (what fields print, columns, totals) — only
+ *  borders, fonts, spacing, colors. Base CSS handles layout; each theme
+ *  below contributes a small override block appended after it.
+ * ──────────────────────────────────────────────────────────────────── */
+
+const themeCSS = (profile) => {
+  const t = profile?.theme || 'classic';
+  const accent = profile?.accent_color || '#111111';
+  if (t === 'modern') return `
+    body { font-family: ${profile?.font_family || "'Inter', 'Segoe UI', system-ui, sans-serif"}; }
+    .hdr-name { font-weight: 800; color: ${accent}; letter-spacing: -0.5px; }
+    .doc-type { border: none; background: ${accent}; color: #fff; padding: 5px 14px; border-radius: 4px; display: inline-block; letter-spacing: 3px; }
+    table.items th, table.items td { border: none; border-bottom: 1px solid #e5e7eb; }
+    table.items th { background: transparent; color: #6b7280; font-size: .75em; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid ${accent}; }
+    .tot-grand { border-top: 2px solid ${accent}; border-bottom: none; color: ${accent}; }
+  `;
+  if (t === 'minimal') return `
+    body { font-family: ${profile?.font_family || "'Inter', system-ui, sans-serif"}; color: #1f2937; }
+    .hdr-name { font-weight: 600; font-size: 1.3em; }
+    .doc-type { border: none; color: ${accent}; font-size: .85em; letter-spacing: 4px; margin-top: 4mm; }
+    table.items th, table.items td { border: none; padding: 6px 8px; }
+    table.items th { background: transparent; color: #9ca3af; font-weight: 500; font-size: .75em; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid #e5e7eb; }
+    table.items tbody tr { border-bottom: 1px solid #f3f4f6; }
+    .tot-grand { border-top: 1px solid #d1d5db; border-bottom: none; padding-top: 8px; font-size: 1.2em; }
+    .sig-line { border-color: #d1d5db; }
+  `;
+  if (t === 'elegant') return `
+    body { font-family: ${profile?.font_family || "'Fraunces', 'Georgia', serif"}; }
+    .hdr-name { font-family: 'Fraunces', 'Georgia', serif; font-weight: 600; font-style: italic; font-size: 1.9em; color: ${accent}; }
+    .hdr-sub { font-style: italic; letter-spacing: .5px; }
+    .doc-type { font-family: 'Inter', sans-serif; font-size: .8em; letter-spacing: 4px; border: none; color: ${accent};
+      border-top: 1px solid ${accent}; border-bottom: 1px solid ${accent}; padding: 4px 0; margin: 4mm auto; max-width: 40%; }
+    table.items th { background: transparent; font-family: 'Inter', sans-serif; font-size: .75em; letter-spacing: 1.5px; text-transform: uppercase; border: none; border-bottom: 1.5px solid ${accent}; color: ${accent}; }
+    table.items td { border: none; border-bottom: 1px solid #e5e7eb; padding: 8px 6px; }
+    .tot-grand { font-family: 'Fraunces', 'Georgia', serif; font-size: 1.3em; border-top: 1.5px solid ${accent}; border-bottom: 1.5px solid ${accent}; color: ${accent}; }
+  `;
+  if (t === 'boxed') return `
+    body { font-family: ${profile?.font_family || "'Inter', system-ui, sans-serif"}; }
+    .page { border: 2px solid ${accent}; padding: 6mm; }
+    .hdr { background: ${accent}; color: #fff; padding: 5mm; margin: -6mm -6mm 6mm; }
+    .hdr-name, .hdr-sub, .doc-type { color: #fff; }
+    .hdr-sub { opacity: 0.9; }
+    .doc-type { border: 1px solid rgba(255,255,255,0.3); padding: 3px 10px; display: inline-block; margin-top: 3mm; }
+    table.items th { background: ${accent}; color: #fff; border-color: ${accent}; }
+    table.items td { border-color: #d1d5db; }
+    .tot-grand { background: ${accent}; color: #fff; padding: 8px 10px; border: none; margin-top: 4mm; }
+    .fb-bank, .fb-tc { background: #f9fafb; padding: 4mm; border-radius: 4px; }
+  `;
+  return '';  // classic = base CSS only
+};
+
 const baseCSS = (profile) => `
   * { box-sizing: border-box; }
+  html, body { background: #fff; color: #111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body {
     margin: 0;
     font-family: ${profile?.font_family || 'Inter, system-ui, sans-serif'};
     font-size: ${profile?.font_size_pt || 10}pt;
     line-height: ${profile?.line_spacing || 1.35};
-    color: #111;
   }
   .page { padding: 0; }
   .hdr { margin-bottom: 8mm; }
@@ -211,21 +263,36 @@ const baseCSS = (profile) => `
     .page { page-break-after: always; }
     .page:last-child { page-break-after: auto; }
   }
+  ${themeCSS(profile)}
 `;
 
-const thermalCSS = (profile) => `
+const thermalCSS = (profile) => {
+  const accent = profile?.accent_color || '#000';
+  const t = profile?.theme || 'classic';
+  // Thermal has very little room for decorative themes; we keep the layout
+  // constant and let accent + bold / border choices vary lightly.
+  const themeTweak =
+    t === 'modern'  ? `.doc-type { border: none; background: ${accent}; color: #fff; padding: 1mm 2mm; display: inline-block; }`
+  : t === 'minimal' ? `.doc-type { border: none; letter-spacing: 3px; font-weight: 600; }`
+  : t === 'elegant' ? `.hdr-name { font-family: 'Fraunces', 'Georgia', serif; font-style: italic; }`
+  : t === 'boxed'   ? `.hdr { background: ${accent}; color: #fff; padding: 2mm; } .hdr-name, .hdr-sub { color: #fff; }`
+  : '';
+  return `
   * { box-sizing: border-box; }
+  /* Explicit white BG + print-color-adjust so the receipt physically prints
+     the text/borders we see on-screen — some thermal drivers otherwise skip
+     any element with no explicit color and produce a blank roll. */
+  html, body { background: #fff; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body {
     margin: 0;
-    font-family: 'Courier New', ${profile?.font_family || 'monospace'};
+    font-family: ${profile?.font_family || "'Courier New', monospace"};
     font-size: ${profile?.font_size_pt || 9}pt;
     line-height: 1.25;
-    color: #000;
     width: ${profile?.paper_width_mm || 80}mm;
   }
   .page { padding: 0; }
   .hdr { text-align: center; margin-bottom: 3mm; }
-  .hdr-name { font-size: 1.15em; font-weight: 700; }
+  .hdr-name { font-size: 1.15em; font-weight: 700; color: ${accent}; }
   .hdr-sub { font-size: .85em; }
   .doc-type { margin-top: 2mm; font-weight: 700; border: 1px dashed #000; padding: 1mm; }
   .meta-row { display: flex; justify-content: space-between; font-size: .85em; margin: 2mm 0; }
@@ -239,7 +306,9 @@ const thermalCSS = (profile) => `
   .t-grand { font-weight: 700; font-size: 1.1em; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 1mm 0; margin: 1mm 0; }
   .fb { margin-top: 3mm; text-align: center; font-size: .8em; white-space: pre-wrap; }
   @media print { .page { page-break-after: always; } .page:last-child { page-break-after: auto; } }
+  ${themeTweak}
 `;
+};
 
 /* ── renderers per format ───────────────────────────────────────────── */
 

@@ -247,6 +247,15 @@ async function startServer() {
           EXCEPTION WHEN others THEN NULL;
           END;
         END IF;
+
+        -- PrintProfile: theme + accent_color columns added post-v1. Existing
+        -- profiles from the initial seed get defaulted to 'classic' / '#111'.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_profiles' AND column_name='theme') THEN
+          ALTER TABLE print_profiles ADD COLUMN theme VARCHAR(20) DEFAULT 'classic';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_profiles' AND column_name='accent_color') THEN
+          ALTER TABLE print_profiles ADD COLUMN accent_color VARCHAR(9) DEFAULT '#111111';
+        END IF;
       END $$;
     `).catch((err) => {
       // Log but don't crash on migration errors — the server should still

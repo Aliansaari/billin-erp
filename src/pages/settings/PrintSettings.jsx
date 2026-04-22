@@ -30,6 +30,17 @@ const FORMATS = [
   { v: 'thermal', l: 'Thermal · 80 mm roll' },
 ];
 
+// Visual themes. Layout stays constant; only typography, borders, colors
+// change. Each paired with a short description + a swatch of the accent
+// color default so users can eye-pick before clicking.
+const THEMES = [
+  { v: 'classic', l: 'Classic',  d: 'Traditional tax-invoice layout, bordered table, uppercase headers.', swatch: '#111111' },
+  { v: 'modern',  l: 'Modern',   d: 'Sans-serif, borderless rows, pill-shaped doc-type badge.',        swatch: '#4F46E5' },
+  { v: 'minimal', l: 'Minimal',  d: 'Zero borders, thin dividers, light ink — clean retail look.',     swatch: '#6B7280' },
+  { v: 'elegant', l: 'Elegant',  d: 'Serif display font, letterspaced dividers — boutique style.',     swatch: '#8B5CF6' },
+  { v: 'boxed',   l: 'Boxed',    d: 'Full-page border, solid header block — formal / legal feel.',     swatch: '#B1472F' },
+];
+
 // Sample bill used for preview only — never submitted. Shape matches what
 // salesAPI.getById returns so renderBillHTML produces a realistic layout.
 const sampleBill = (docType) => {
@@ -83,6 +94,7 @@ const sampleBill = (docType) => {
 
 const blankProfile = (docType = 'sales') => ({
   name: 'New profile', doc_type: docType, format: 'a4', is_default: false,
+  theme: 'classic', accent_color: '#111111',
   paper_width_mm: 210, paper_height_mm: 297,
   margin_top_mm: 10, margin_right_mm: 10, margin_bottom_mm: 10, margin_left_mm: 10,
   font_family: 'Inter, system-ui, sans-serif', font_size_pt: 10, line_spacing: 1.35,
@@ -103,6 +115,7 @@ export default function PrintSettings() {
   const [draft,      setDraft]      = useState(blankProfile());
   const [dirty,      setDirty]      = useState(false);
   const [printers,   setPrinters]   = useState([]);
+  const [printerErr, setPrinterErr] = useState('');
   const [company,    setCompany]    = useState({});
   const [filterDoc,  setFilterDoc]  = useState('');
 
@@ -110,9 +123,16 @@ export default function PrintSettings() {
 
   /* ── load everything on mount ────────────────────────────────── */
 
+  const refreshPrinters = () => {
+    listPrinters().then(res => {
+      setPrinters(res.printers || []);
+      setPrinterErr(res.error || '');
+    });
+  };
+
   useEffect(() => {
     loadProfiles();
-    listPrinters().then(setPrinters);
+    refreshPrinters();
     settingsAPI.getSystem().then(r => setCompany(r.data?.data || r.data || {})).catch(() => {});
   }, []);
 
@@ -508,28 +528,115 @@ export default function PrintSettings() {
                   ),
                 },
                 {
+                  key: 'theme', label: 'Theme',
+                  children: (
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 8 }}>Visual theme</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        {THEMES.map(t => {
+                          const active = draft.theme === t.v;
+                          return (
+                            <div
+                              key={t.v}
+                              onClick={() => { set('theme', t.v); if (!draft.accent_color || draft.accent_color === '#111111' || THEMES.some(th => th.swatch === draft.accent_color)) set('accent_color', t.swatch); }}
+                              style={{
+                                padding: 12, borderRadius: 8, cursor: 'pointer',
+                                border: active ? '2px solid var(--accent, #4F46E5)' : '1px solid var(--border, #e5e7eb)',
+                                background: active ? 'var(--accent-bg, rgba(79,70,229,0.06))' : 'transparent',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                <span style={{ width: 16, height: 16, borderRadius: 4, background: t.swatch, display: 'inline-block' }} />
+                                <b>{t.l}</b>
+                              </div>
+                              <div style={{ fontSize: 12, color: 'var(--fg-secondary, #666)' }}>{t.d}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <Divider orientation="left" plain style={{ margin: '16px 0 8px' }}>Accent color</Divider>
+                      <Row gutter={12} align="middle">
+                        <Col>
+                          <input
+                            type="color"
+                            value={draft.accent_color || '#111111'}
+                            onChange={e => set('accent_color', e.target.value)}
+                            style={{ width: 54, height: 36, border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}
+                          />
+                        </Col>
+                        <Col flex="auto">
+                          <Input
+                            value={draft.accent_color || ''}
+                            onChange={e => set('accent_color', e.target.value)}
+                            placeholder="#111111"
+                          />
+                        </Col>
+                        <Col>
+                          <Button size="small" onClick={() => {
+                            const def = THEMES.find(t => t.v === draft.theme)?.swatch || '#111111';
+                            set('accent_color', def);
+                          }}>Theme default</Button>
+                        </Col>
+                      </Row>
+                      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--fg-tertiary, #999)' }}>
+                        The accent color drives headline text on Modern/Elegant/Minimal themes and the full header block on Boxed.
+                      </div>
+                    </div>
+                  ),
+                },
+                {
                   key: 'printer', label: 'Printer',
                   children: (
                     <div>
-                      <label>Default printer</label>
-                      <Select
-                        value={draft.printer_name || undefined}
-                        onChange={v => set('printer_name', v || '')}
-                        style={{ width: '100%' }}
-                        allowClear
-                        placeholder={printers.length ? 'Pick a printer' : 'No printers detected (Electron only)'}
-                        options={printers.map(p => ({
-                          value: p.name,
-                          label: `${p.displayName || p.name}${p.isDefault ? '  (system default)' : ''}`,
-                        }))}
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <label>Default printer</label>
+                          <Select
+                            value={draft.printer_name || undefined}
+                            onChange={v => set('printer_name', v || '')}
+                            style={{ width: '100%' }}
+                            allowClear
+                            showSearch
+                            placeholder={printers.length ? 'Pick a printer' : 'No printers detected — type a name below'}
+                            options={printers.map(p => ({
+                              value: p.name,
+                              label: `${p.displayName || p.name}${p.isDefault ? '  (system default)' : ''}`,
+                            }))}
+                          />
+                        </div>
+                        <Button icon={<ReloadOutlined />} onClick={refreshPrinters}>Refresh</Button>
+                      </div>
+                      {/* Manual fallback: if Electron isn't exposing printers (running in
+                          a web browser) or enumeration failed, let the user type the
+                          exact Windows/mac driver name — the silent-print IPC will
+                          still match on it. */}
+                      <label style={{ marginTop: 8, display: 'block' }}>Or type printer name manually</label>
+                      <Input
+                        value={draft.printer_name || ''}
+                        onChange={e => set('printer_name', e.target.value)}
+                        placeholder="e.g. POS-80C  or  HP LaserJet Pro M404  or  leave blank for system default"
                       />
-                      <div style={{ marginTop: 12 }}>
+                      {printerErr && (
+                        <div style={{ marginTop: 8, padding: 8, background: 'rgba(239,68,68,0.08)', color: '#b91c1c', borderRadius: 6, fontSize: 12 }}>
+                          Printer list error: {printerErr}
+                        </div>
+                      )}
+                      {!printerErr && !printers.length && (
+                        <div style={{ marginTop: 8, padding: 8, background: 'rgba(245,158,11,0.08)', color: '#92400e', borderRadius: 6, fontSize: 12 }}>
+                          No printers returned by the OS. Run the desktop build (<code>npm run electron:dev</code>) so we can enumerate them,
+                          or install your printer's Windows driver and click Refresh. In the web-only preview the name field is still used —
+                          type it exactly as it appears in Windows &rarr; Devices and Printers.
+                        </div>
+                      )}
+                      <div style={{ marginTop: 14 }}>
                         <Switch checked={draft.silent_print} onChange={v => set('silent_print', v)} />
                         <Text style={{ marginLeft: 8 }}>Silent direct print (no system dialog)</Text>
                       </div>
                       <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-muted, #f5f5f5)', borderRadius: 6, fontSize: 12, color: '#666' }}>
-                        Silent printing requires running inside Electron. In the web-only build the app will fall back to the browser print dialog.
-                        If your thermal printer driver doesn't accept HTML, install its "Generic / Text Only" Windows driver for best results, or switch to a dedicated ESC/POS library.
+                        Silent printing requires the Electron build. On the web-only preview the button falls back to the browser print dialog.
+                        For USB thermal printers: install the vendor's Windows driver (or the "Generic / Text Only" driver as a fallback) —
+                        Electron then sends the HTML through that driver silently.
                       </div>
                       <div style={{ marginTop: 16 }}>
                         <Button icon={<PrinterOutlined />} onClick={handleTestPrint}>Test print sample</Button>
