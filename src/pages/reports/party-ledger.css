@@ -747,17 +747,50 @@
   font-weight: 600;
 }
 
-/* tfoot totals — sticky to the bottom of the scroll container */
-.pl-tbl tfoot td {
-  position: sticky;
-  bottom: 0;
-  z-index: 4;
+/* Period-total bar — lives OUTSIDE .pl-scroll, pinned to the bottom of
+ * .pl-box (which is a flex column). Always visible, never floating over
+ * scrolled content, never chasing the last data row when the list is
+ * short. Columns right-align to roughly mirror the table's numeric
+ * columns on the right edge. */
+.pl-totbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
   background: var(--bg-muted);
   border-top: 2px solid var(--border);
-  border-bottom: none;
   font-weight: 700;
-  padding: 12px 14px;
-  box-shadow: 0 -1px 0 var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.pl-totbar .label {
+  flex: 1 1 auto;
+  text-align: right;
+  color: var(--fg-secondary);
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.pl-totbar .num,
+.pl-totbar .bal {
+  min-width: 140px;
+  text-align: right;
+  font-size: 14px;
+}
+.pl-totbar .num.dr  { color: var(--danger); }
+.pl-totbar .num.cr  { color: var(--success); }
+.pl-totbar .bal.dr  { color: var(--danger); }
+.pl-totbar .bal.cr  { color: var(--success); }
+.pl-totbar .bal .tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
+  background: var(--bg-panel);
+  color: inherit;
+  vertical-align: middle;
 }
 .pl-tbl tfoot .label {
   text-align: right;

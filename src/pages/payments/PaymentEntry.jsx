@@ -48,6 +48,7 @@ export default function PaymentEntry() {
   const confirmLeave = useUnsavedChangesWarning(dirty);
 
   const payAmtRef     = useRef(null);
+  const partyRef      = useRef(null);
   const handleSaveRef = useRef(null);
   const submittingRef = useRef(false);
 
@@ -62,6 +63,9 @@ export default function PaymentEntry() {
     loadParties();
     refreshNextNumber();
     setDueDaysMode(localStorage.getItem('purchase_due_days_mode') || 'bill_date');
+    // Open with the supplier search focused. Amount field focus happens
+    // later, right after a party is picked (see handlePartyChange).
+    setTimeout(() => partyRef.current?.focus(), 100);
     const onKey = (e) => {
       if (e.isComposing || e.keyCode === 229) return;
       const active = document.activeElement;
@@ -292,6 +296,7 @@ export default function PaymentEntry() {
           <div className="be-fld">
             <label className="be-lbl">Supplier <span className="hint">F4 to search</span></label>
             <Select
+              ref={partyRef}
               showSearch
               placeholder="Search supplier..."
               optionFilterProp="children"
