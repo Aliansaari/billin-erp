@@ -119,6 +119,10 @@ export const paymentAPI = {
   create: (data) => api.post('/payments', data),
   cancel: (id) => api.post(`/payments/${id}/cancel`),
   getUnpaidBills: (params) => api.get('/payments/unpaid-bills', { params }),
+  // Preview the next auto-generated transaction number for the type.
+  // Server-side, the real number is allocated atomically inside create().
+  nextNumber: (type /* 'Receipt' | 'Payment' */) =>
+    api.get('/payments/next-number', { params: { type } }),
 };
 
 // Reports

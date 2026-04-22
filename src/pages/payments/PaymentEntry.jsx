@@ -1,24 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Input, DatePicker, Select, Button, InputNumber, Typography, message, Checkbox, Tag, Tooltip, Divider, Modal } from 'antd';
+import { Input, DatePicker, Select, Button, InputNumber, message, Checkbox, Modal, Tooltip } from 'antd';
 import {
-  ArrowLeftOutlined, ReloadOutlined, MessageOutlined,
-  CheckCircleOutlined, UserOutlined, CalendarOutlined,
+  ArrowLeftOutlined, ReloadOutlined, CheckCircleOutlined,
+  CheckOutlined, MinusOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import '../../styles/bill-entry.css';
 
-const { Text } = Typography;
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 
 const fmt2 = (v) =>
   parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const rupee = (v) => '₹ ' + fmt2(v);
-
-const accent   = '#b91c1c';
-const accentMd = '#dc2626';
-const grad     = 'linear-gradient(135deg,#b91c1c,#dc2626)';
 
 const parseDateInput = (str) => {
   if (!str) return null;
@@ -45,49 +41,34 @@ export default function PaymentEntry() {
   const [discAmt, setDiscAmt]             = useState(0);
   const [loading, setLoading]             = useState(false);
   const [dueDaysMode, setDueDaysMode]     = useState('bill_date');
+  // Preview of the next PAY-* number. See ReceiptEntry for rationale.
+  const [nextPayNo, setNextPayNo]         = useState('');
 
   const dirty = !!(selectedParty || payAmt);
   const confirmLeave = useUnsavedChangesWarning(dirty);
 
-  const payAmtRef        = useRef(null);
-  const handleSaveRef    = useRef(null);
-  const dateInputRef     = useRef(null);
-  const submittingRef    = useRef(false);
-  const openDateEditRef  = useRef(null);  // ref-based so F2 handler sees fresh closure
+  const payAmtRef     = useRef(null);
+  const handleSaveRef = useRef(null);
+  const submittingRef = useRef(false);
 
-  const [dateEditMode, setDateEditMode] = useState(false);
-  const [dateInputVal, setDateInputVal] = useState('');
-
-  const openDateEdit = () => {
-    setDateInputVal(date.format('D-M-YYYY'));
-    setDateEditMode(true);
-    setTimeout(() => { dateInputRef.current?.select(); }, 30);
-  };
-  // Kept in sync each render so the mount-time F2 listener picks up the
-  // current `date` closure (see handleSaveRef pattern below).
-  openDateEditRef.current = openDateEdit;
-
-  const commitDateInput = () => {
-    const parsed = parseDateInput(dateInputVal);
-    if (parsed) { setDate(parsed); message.success(`Date set to ${parsed.format('DD-MM-YYYY')}`); }
-    else if (dateInputVal) message.warning('Invalid date — use d-m-yy or d-m-yyyy');
-    setDateEditMode(false);
+  const refreshNextNumber = async () => {
+    try {
+      const { data } = await paymentAPI.nextNumber('Payment');
+      setNextPayNo(data?.next || '');
+    } catch (_) {}
   };
 
   useEffect(() => {
     loadParties();
+    refreshNextNumber();
     setDueDaysMode(localStorage.getItem('purchase_due_days_mode') || 'bill_date');
     const onKey = (e) => {
-      // Skip F-key shortcuts while focus is inside a modal / picker dropdown /
-      // select dropdown / popover — otherwise F1 submits the parent form while
-      // the user is interacting with a popup. Also skip during IME composition.
       if (e.isComposing || e.keyCode === 229) return;
       const active = document.activeElement;
       if (active && active.closest(
         '.ant-modal, .ant-picker-dropdown, .ant-select-dropdown, .ant-popover'
       )) return;
       if (e.key === 'F1') { e.preventDefault(); handleSaveRef.current?.(); }
-      if (e.key === 'F2') { e.preventDefault(); openDateEditRef.current?.(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -113,23 +94,14 @@ export default function PaymentEntry() {
         checked: true,
         dueDays: b.bill_date ? dayjs().diff(dayjs(b.bill_date), 'day') : 0,
       }));
-
-      // Remaining opening balance row — only shown when the party actually has
-      // a Payable opening balance and some of it is still unpaid.
-      //
-      // Two guards to prevent "phantom OB" double-allocation:
-      //   1. opening_balance_type must be 'Payable' — otherwise the OB isn't
-      //      owed on this side of the ledger (e.g. a Receivable OB would never
-      //      appear under supplier payments).
-      //   2. remainingOB is capped at the party's original opening_balance. If
-      //      current_balance has drifted (manual edit, legacy data), we never
-      //      invent more OB than the party actually started with.
-      const billsTotal       = rows.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
-      const partyOutstanding = Math.max(0, -parseFloat(party?.current_balance || 0)); // positive = what we owe
-      const originalOB       = parseFloat(party?.opening_balance || 0);
-      const obIsPayable      = party?.opening_balance_type === 'Payable' && originalOB > 0;
-      const derivedOB        = Math.max(0, partyOutstanding - billsTotal);
-      const remainingOB      = obIsPayable
+      // Remaining opening balance row — Payable side. Same two guards as
+      // ReceiptEntry, mirrored for opening_balance_type === 'Payable'.
+      const billsTotal    = rows.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
+      const partyBal      = parseFloat(party?.current_balance || 0); // -ve = we owe them
+      const originalOB    = parseFloat(party?.opening_balance || 0);
+      const obIsPayable   = party?.opening_balance_type === 'Payable' && originalOB > 0;
+      const derivedOB     = Math.max(0, Math.abs(Math.min(0, partyBal)) - billsTotal);
+      const remainingOB   = obIsPayable
         ? parseFloat(Math.min(originalOB, derivedOB).toFixed(2))
         : 0;
       if (remainingOB > 0) {
@@ -137,7 +109,7 @@ export default function PaymentEntry() {
           purchase_bill_id: '__ob__',
           bill_number:      'Opening Balance',
           bill_date:        party.created_date,
-          total_amount:     remainingOB,   // what remains of OB — not the original full amount
+          total_amount:     remainingOB,
           balance_amount:   remainingOB,
           isOpening:        true,
           checked:          true,
@@ -153,20 +125,21 @@ export default function PaymentEntry() {
     setBills(prev => prev.map((b, i) => i === idx ? { ...b, checked } : b));
   };
 
-  // Max Payable = min(sum of ticked bill balances, what we actually owe supplier).
-  // Party current_balance is negative for payables in this schema, so the true
-  // payable is `-current_balance` when negative. The server rejects payments
-  // above that anyway; this keeps the UI honest even when a bill's balance_amount
-  // has drifted above the real outstanding due to earlier on-account entries.
+  const allChecked = bills.length > 0 && bills.every(b => b.checked);
+  const toggleAll = () => {
+    const next = !allChecked;
+    setBills(prev => prev.map(b => ({ ...b, checked: next })));
+  };
+
+  // Max Payable = min(sum of ticked bill balances, party's TRUE payable).
+  // Payable appears as a negative current_balance for suppliers, so take abs.
   const maxPayAmt = useMemo(() => {
     const sumTicked = bills.filter(b => b.checked).reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
-    const partyBal  = parseFloat(selectedParty?.current_balance || 0);  // −ve = we owe them
-    const truePayable = partyBal < 0 ? -partyBal : 0;
-    if (truePayable > 0) return Math.min(sumTicked, truePayable);
+    const partyBal  = parseFloat(selectedParty?.current_balance || 0);
+    if (partyBal < 0) return Math.min(sumTicked, Math.abs(partyBal));
     return sumTicked;
   }, [bills, selectedParty]);
 
-  // Fix: compute netAmount first so allocations use the actual amount being paid (after discount)
   const netAmount = Math.max(0, (payAmt || 0) - (discAmt || 0));
 
   const billsWithAlloc = useMemo(() => {
@@ -209,17 +182,11 @@ export default function PaymentEntry() {
     if (netAmount <= 0) { message.warning('Net amount must be greater than 0'); return; }
 
     const refBill = checkedBills.find(b => !b.isOpening);
-    // Build per-bill allocations so each bill's balance gets updated correctly
     const bill_allocations = billsWithAlloc
       .filter(b => !b.isOpening && b.allocated > 0)
       .map(b => ({ bill_id: b.purchase_bill_id, bill_type: 'Purchase', amount: b.allocated }));
 
-    // ── On-account guard ────────────────────────────────────────────────────
-    // Fire in two cases:
-    //   (a) Nothing ticked at all — the full amount becomes on-account credit.
-    //   (b) Ticked bills don't cover the pay amount — the SURPLUS is on-account.
-    // Server auto-FIFO-applies on-account amounts to older unpaid bills, but
-    // the user should still know the ticked bills aren't the whole story.
+    // On-account guard — same as ReceiptEntry, mirrored for payables.
     const obBill = checkedBills.find(b => b.isOpening);
     const obAlloc = obBill ? parseFloat(obBill.allocated) || 0 : 0;
     const sumAllocated = bill_allocations.reduce((s, a) => s + parseFloat(a.amount || 0), 0) + obAlloc;
@@ -262,268 +229,254 @@ export default function PaymentEntry() {
       });
       message.success(`Payment ${result.transaction_number} saved! ✓`);
       handleReset();
+      refreshNextNumber();
     } catch (e) {
       message.error(e.response?.data?.error || 'Failed to save payment');
     } finally {
       setLoading(false);
       submittingRef.current = false;
     }
-  }, [selectedParty, payAmt, netAmount, date, payMode, payNo, checkedBills, selectedInvNos]);
+  }, [selectedParty, payAmt, netAmount, date, payMode, payNo, checkedBills, selectedInvNos, billsWithAlloc]);
 
   handleSaveRef.current = handleSave;
 
-  const renderDueDays = (bill) => {
+  const renderAge = (bill) => {
     if (dueDaysMode === 'due_date' && bill.due_date) {
       const diff = dayjs(bill.due_date).diff(dayjs(), 'day');
-      if (diff < 0) return <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>Overdue<br />{Math.abs(diff)}d</span>;
-      return <span style={{ color: diff <= 7 ? '#f59e0b' : '#16a34a', fontWeight: 600, fontSize: 12 }}>Due in<br />{diff}d</span>;
+      if (diff < 0) return <span className="be-age over">{Math.abs(diff)}d<span className="over-lbl">overdue</span></span>;
+      return <span className={`be-age${diff <= 7 ? ' warn' : ''}`}>{diff}d</span>;
     }
     const age = bill.bill_date ? dayjs().diff(dayjs(bill.bill_date), 'day') : 0;
-    return (
-      <span style={{ color: age > 60 ? '#dc2626' : age > 30 ? '#f59e0b' : '#64748b', fontWeight: age > 30 ? 700 : 400, fontSize: 13 }}>
-        {age}d
-      </span>
-    );
+    return <span className={`be-age${age > 60 ? ' over' : age > 30 ? ' warn' : ''}`}>{age}d</span>;
   };
 
-  // Label style — readable size, not all-caps
-  const lbl = { fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5, display: 'block' };
-  const row = { marginBottom: 14 };
-
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#f1f5f9', overflow: 'hidden' }}>
+    <div className="be-page money-out">
 
-      {/* HEADER */}
-      <div style={{ flexShrink: 0, background: 'white', borderBottom: '1px solid #e2e8f0', padding: '0 20px', height: 56, display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-        <div style={{ width: 36, height: 36, borderRadius: 8, background: grad, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <CheckCircleOutlined style={{ color: 'white', fontSize: 17 }} />
+      {/* ── COMPACT HEADER ── */}
+      <div className="be-vh">
+        <div className="be-vh-fld">
+          <span className="be-k">Date <span className="hint">· F2</span></span>
+          <div className="be-vh-date">
+            <DatePicker
+              value={date}
+              onChange={(d) => d && setDate(d)}
+              format="DD-MM-YYYY"
+              allowClear={false}
+              placeholder="d-m-yy or d-m-yyyy"
+            />
+          </div>
         </div>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b', lineHeight: 1.2 }}>Supplier Payment</div>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>Money Out · To Supplier</div>
+
+        <div className="be-vh-fld">
+          <span className="be-k">Payment # <span className="hint">· next auto</span></span>
+          <Input
+            className="be-vh-recpt"
+            value={nextPayNo || 'Loading…'}
+            readOnly
+          />
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Tag color="red" style={{ borderRadius: 6, fontSize: 13, padding: '2px 10px' }}>Payment #: Auto</Tag>
-          <Tooltip title="F1 — Save Payment">
-            <Button type="primary" icon={<CheckCircleOutlined />} loading={loading} onClick={handleSave}
-              style={{ background: grad, border: 'none', fontWeight: 600, borderRadius: 8, height: 36, fontSize: 14 }}>
-              PAYMENT &nbsp;<span style={{ opacity: 0.75, fontSize: 12 }}>F1</span>
-            </Button>
-          </Tooltip>
-          <Button icon={<ReloadOutlined />} onClick={handleReset} style={{ borderRadius: 8, height: 36 }}>Reset</Button>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => confirmLeave(() => navigate('/payments'))} style={{ borderRadius: 8, height: 36 }}>Back</Button>
+
+        <div className="be-vh-tag">
+          <span className="dir">↑</span>
+          <span className="t">Supplier Payment</span>
         </div>
       </div>
 
-      {/* SPLIT */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      {/* ── SPLIT BODY ── */}
+      <div className="be-body">
 
-        {/* LEFT PANEL */}
-        <div style={{ width: 300, flexShrink: 0, background: 'white', borderRight: '1px solid #e2e8f0', padding: '18px 16px', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        {/* LEFT FORM */}
+        <div className="be-left">
 
-          <div style={row}>
-            <span style={lbl}><CalendarOutlined style={{ marginRight: 6 }} />Date <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af' }}>— F2 to type</span></span>
-            {dateEditMode ? (
-              <Input
-                ref={dateInputRef}
-                value={dateInputVal}
-                onChange={e => setDateInputVal(e.target.value)}
-                placeholder="d-m-yy  or  d-m-yyyy"
-                style={{ borderColor: accentMd, fontWeight: 600, fontSize: 14, height: 36 }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') { e.preventDefault(); commitDateInput(); }
-                  if (e.key === 'Escape') { setDateEditMode(false); }
-                }}
-                onBlur={commitDateInput}
-                suffix={<span style={{ fontSize: 11, color: '#94a3b8' }}>Enter ↵</span>}
-              />
-            ) : (
-              <DatePicker value={date} onChange={setDate} format="DD-MM-YYYY" style={{ width: '100%', height: 36 }} />
-            )}
-          </div>
-
-          <div style={row}>
-            <span style={lbl}><UserOutlined style={{ marginRight: 6 }} />Supplier</span>
-            <Select showSearch placeholder="Search supplier..." optionFilterProp="children" style={{ width: '100%' }}
-              onChange={handlePartyChange} value={selectedParty?.party_id}>
-              {parties.map(p => <Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>)}
+          <div className="be-fld">
+            <label className="be-lbl">Supplier <span className="hint">F4 to search</span></label>
+            <Select
+              showSearch
+              placeholder="Search supplier..."
+              optionFilterProp="children"
+              style={{ width: '100%' }}
+              onChange={handlePartyChange}
+              value={selectedParty?.party_id}
+            >
+              {parties.map(p => (
+                <Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>
+              ))}
             </Select>
           </div>
 
           {selectedParty && (
-            <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, background: 'linear-gradient(135deg,#fef2f2,#fee2e2)', border: '1px solid #fca5a5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#7f1d1d' }}>Balance (Payable)</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: accent }}>{rupee(Math.abs(selectedParty.current_balance || 0))}</span>
+            <div className="be-bal-card">
+              <span className="who">{selectedParty.party_name}</span>
+              <div className="amt">
+                {rupee(Math.abs(parseFloat(selectedParty.current_balance || 0)))}
+                <span className="s">Payable</span>
+              </div>
             </div>
           )}
 
-          <div style={row}>
-            <span style={lbl}>Invoice Nos.</span>
-            <Input value={selectedInvNos} readOnly placeholder="Auto-filled from selected bills →"
-              style={{ background: '#f8fafc', fontSize: 13, height: 36 }} />
+          <div className="be-fld">
+            <label className="be-lbl">Invoice Nos.</label>
+            <Input value={selectedInvNos} readOnly placeholder="Auto-filled from selected bills →" />
           </div>
 
-          <Divider style={{ margin: '10px 0', borderColor: '#e2e8f0' }} />
+          <hr className="be-sep"/>
 
-          <div style={row}>
-            <span style={lbl}>Payment Mode</span>
-            <Select value={payMode} onChange={setPayMode} style={{ width: '100%' }}>
-              {MODES.map(m => <Select.Option key={m} value={m}>{m}</Select.Option>)}
-            </Select>
-          </div>
-
-          <div style={row}>
-            <span style={{ ...lbl, color: '#7f1d1d' }}>Pay Amount (₹)</span>
+          <div className="be-fld">
+            <label className="be-lbl">Pay Amount (₹)</label>
             <InputNumber
               ref={payAmtRef}
+              className="be-big"
               keyboard={false}
               value={payAmt}
               onChange={handlePayAmtChange}
               min={0}
               max={maxPayAmt || undefined}
               placeholder="Enter amount"
-              style={{ width: '100%', fontWeight: 700, borderColor: accentMd, height: 36 }}
+              style={{ width: '100%' }}
               formatter={v => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
               parser={v => v.replace(/₹\s?|(,*)/g, '')}
             />
             {maxPayAmt > 0 && (
-              <div style={{ fontSize: 12, color: accent, marginTop: 3 }}>Max: ₹ {fmt2(maxPayAmt)}</div>
+              <div className="be-hint-below">Max: ₹ {fmt2(maxPayAmt)}</div>
             )}
           </div>
 
-          <div style={row}>
-            <span style={lbl}>Discount Amount (₹)</span>
-            <InputNumber keyboard={false} value={discAmt} onChange={v => setDiscAmt(v || 0)} min={0}
-              style={{ width: '100%', height: 36 }}
-              formatter={v => `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-              parser={v => v.replace(/₹\s?|(,*)/g, '')} />
+          <div className="be-fld">
+            <label className="be-lbl">Payment Mode</label>
+            <Select value={payMode} onChange={setPayMode} style={{ width: '100%' }}>
+              {MODES.map(m => <Select.Option key={m} value={m}>{m}</Select.Option>)}
+            </Select>
           </div>
 
-          <div style={row}>
-            <span style={lbl}>Ref / Pay No.</span>
-            <Input value={payNo} onChange={e => setPayNo(e.target.value)} placeholder="Cheque / UTR / Ref no." style={{ height: 36 }} />
+          <div className="be-row-2">
+            <div className="be-fld">
+              <label className="be-lbl">Discount Taken (₹)</label>
+              <InputNumber
+                keyboard={false}
+                value={discAmt}
+                onChange={v => setDiscAmt(v || 0)}
+                min={0}
+                style={{ width: '100%' }}
+                formatter={v => `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                parser={v => v.replace(/₹\s?|(,*)/g, '')}
+              />
+            </div>
+            <div className="be-fld">
+              <label className="be-lbl">Ref / Pay No.</label>
+              <Input value={payNo} onChange={e => setPayNo(e.target.value)} placeholder="Cheque / UTR / Ref no." />
+            </div>
           </div>
 
-          <div style={{ marginTop: 4, marginBottom: 14, padding: '12px 16px', borderRadius: 10, background: grad, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600, fontSize: 14 }}>Net Amount</span>
-            <span style={{ color: 'white', fontWeight: 800, fontSize: 18 }}>{rupee(netAmount)}</span>
-          </div>
-
-          <Tooltip title="Send SMS to supplier">
-            <Button icon={<MessageOutlined />} style={{ width: '100%', borderRadius: 8, marginBottom: 10, height: 36, fontSize: 14 }}>Send SMS</Button>
-          </Tooltip>
-          <Button type="primary" icon={<CheckCircleOutlined />} loading={loading} onClick={handleSave}
-            style={{ width: '100%', borderRadius: 10, fontWeight: 700, fontSize: 15, height: 46, background: grad, border: 'none', boxShadow: '0 4px 14px rgba(185,28,28,0.35)' }}>
-            PAYMENT &nbsp;<span style={{ opacity: 0.7, fontSize: 12 }}>F1</span>
-          </Button>
         </div>
 
-        {/* RIGHT PANEL */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f8fafc' }}>
+        {/* RIGHT — bills table */}
+        <div className="be-right">
 
-          {/* Table header */}
-          <div style={{ flexShrink: 0, display: 'grid', gridTemplateColumns: '1fr 90px 120px 130px 50px 130px 80px', background: grad, color: 'white', fontWeight: 700, fontSize: 12, padding: '10px 16px', letterSpacing: 0.3 }}>
+          <div className="be-grid-head">
             <span>Bill No.</span>
             <span>Date</span>
-            <span style={{ textAlign: 'right' }}>Net Amt</span>
-            <span style={{ textAlign: 'right' }}>Balance</span>
-            <span style={{ textAlign: 'center' }}>Pay</span>
-            <span style={{ textAlign: 'right' }}>Paying Now</span>
-            <span style={{ textAlign: 'center' }}>Age</span>
+            <span className="r">Net Amt</span>
+            <span className="r">Balance</span>
+            <Tooltip title={allChecked ? 'Deselect all' : 'Select all'}>
+              <button
+                className={`be-toggle-all${allChecked ? ' on' : ''}`}
+                onClick={toggleAll}
+                disabled={bills.length === 0}
+              >
+                {allChecked ? <MinusOutlined /> : <CheckOutlined />}
+              </button>
+            </Tooltip>
+            <span className="r">Paying Now</span>
+            <span className="c">Age</span>
           </div>
 
-          {/* Rows */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="be-rows">
             {billsWithAlloc.length === 0 ? (
-              <div style={{ padding: '80px 20px', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>
+              <div className="be-empty">
                 {selectedParty ? 'No outstanding bills for this supplier' : 'Select a supplier to see outstanding bills'}
               </div>
             ) : billsWithAlloc.map((bill, idx) => {
-              const netAmt   = parseFloat(bill.total_amount || 0);
-              const balance  = parseFloat(bill.balance_amount || 0);
+              const netAmt = parseFloat(bill.total_amount || 0);
+              const balance = parseFloat(bill.balance_amount || 0);
               const isPartiallyPaid = netAmt > balance;
-              const alloc    = bill.allocated || 0;
-              const rem      = parseFloat((balance - alloc).toFixed(2));
+              const alloc = bill.allocated || 0;
+              const rem = parseFloat((balance - alloc).toFixed(2));
               const fullPaid = bill.checked && alloc > 0 && rem === 0;
-              const partial  = bill.checked && alloc > 0 && rem > 0;
+              const partial = bill.checked && alloc > 0 && rem > 0;
+              const rowClass = [
+                'be-row',
+                bill.isOpening ? 'opening' : '',
+                fullPaid ? 'checked' : partial ? 'partial' : '',
+                idx % 2 === 1 && !bill.isOpening && !fullPaid && !partial ? 'alt' : '',
+              ].filter(Boolean).join(' ');
 
               return (
                 <div
                   key={bill.purchase_bill_id}
+                  className={rowClass}
                   onClick={() => !bill.checked && toggleBill(idx, true)}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 90px 120px 130px 50px 130px 80px',
-                    padding: '9px 16px',
-                    borderBottom: '1px solid #e2e8f0',
-                    alignItems: 'center',
-                    background: fullPaid
-                      ? 'linear-gradient(135deg,#fef2f2,#fee2e2)'
-                      : partial
-                      ? 'linear-gradient(135deg,#fffbeb,#fef9c3)'
-                      : bill.isOpening
-                      ? 'linear-gradient(135deg,#eff6ff,#dbeafe)'
-                      : idx % 2 === 0 ? 'white' : '#fafbfc',
-                    cursor: bill.checked ? 'default' : 'pointer',
-                    transition: 'background 0.15s',
-                    borderLeft: fullPaid ? `3px solid ${accent}` : partial ? '3px solid #f59e0b' : bill.isOpening ? '3px solid #6366f1' : '3px solid transparent',
-                  }}
                 >
-                  <span style={{ fontWeight: 700, fontSize: 13, color: bill.isOpening ? '#4338ca' : '#7f1d1d', fontStyle: bill.isOpening ? 'italic' : 'normal' }}>
-                    {bill.bill_number}
-                  </span>
-                  <span style={{ fontSize: 12, color: '#64748b' }}>
-                    {dayjs(bill.bill_date || bill.created_at).format('DD-MM-YY')}
-                  </span>
-                  {/* Net Amount (original bill total) */}
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 13, color: '#475569' }}>₹ {fmt2(netAmt)}</div>
+                  <span className="bn">{bill.bill_number}</span>
+                  <span className="dt">{dayjs(bill.bill_date || bill.created_at).format('DD-MM-YY')}</span>
+                  <span className="amt">
+                    ₹ {fmt2(netAmt)}
                     {isPartiallyPaid && (
-                      <div style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}>
-                        Pd: ₹ {fmt2(netAmt - balance)}
-                      </div>
+                      <span className="sub" style={{ color: 'var(--success)' }}>Pd: ₹ {fmt2(netAmt - balance)}</span>
                     )}
-                  </div>
-                  {/* Balance (remaining to be paid) */}
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{
-                      fontSize: 13, fontWeight: 700,
-                      color: isPartiallyPaid ? '#d97706' : '#dc2626',
-                    }}>
-                      ₹ {fmt2(balance)}
-                    </div>
-                    {partial && <div style={{ fontSize: 10, color: '#92400e' }}>After: ₹ {fmt2(rem)}</div>}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'center' }} onClick={e => e.stopPropagation()}>
+                  </span>
+                  <span className={`amt bal${partial ? ' partial' : ''}`}>
+                    ₹ {fmt2(balance)}
+                    {partial && <span className="sub">After: ₹ {fmt2(rem)}</span>}
+                  </span>
+                  <span style={{ display: 'flex', justifyContent: 'center' }} onClick={e => e.stopPropagation()}>
                     <Checkbox checked={bill.checked} onChange={e => toggleBill(idx, e.target.checked)} />
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    {bill.checked && alloc > 0 ? (
-                      <span style={{ fontSize: 13, fontWeight: 700, color: fullPaid ? accent : '#d97706' }}>₹ {fmt2(alloc)}</span>
-                    ) : (
-                      <span style={{ color: '#cbd5e1', fontSize: 13 }}>—</span>
-                    )}
-                  </div>
-                  <div style={{ textAlign: 'center' }}>{renderDueDays(bill)}</div>
+                  </span>
+                  <span className={`amt${fullPaid ? ' paid' : partial ? ' partial' : ''}`}>
+                    {bill.checked && alloc > 0
+                      ? <>₹ {fmt2(alloc)}</>
+                      : <span className="dash">—</span>}
+                  </span>
+                  {renderAge(bill)}
                 </div>
               );
             })}
           </div>
+        </div>
+      </div>
 
-          {/* Footer */}
-          <div style={{ flexShrink: 0, borderTop: '2px solid #e2e8f0', padding: '10px 18px', background: 'white', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 24 }}>
-            {checkedBills.length > 0 ? (
-              <>
-                <Text style={{ fontSize: 13, color: '#64748b' }}>Bills: <b style={{ color: '#1e293b' }}>{checkedBills.length}</b></Text>
-                <Text style={{ fontSize: 13, color: '#64748b' }}>Max Payable: <b style={{ color: accent }}>{rupee(maxPayAmt)}</b></Text>
-                {payAmt > 0 && <Text style={{ fontSize: 13, color: '#64748b' }}>Paying: <b style={{ color: '#7f1d1d', fontSize: 15 }}>{rupee(payAmt)}</b></Text>}
-                {discAmt > 0 && <Text style={{ fontSize: 13, color: '#64748b' }}>Disc: <b style={{ color: '#dc2626' }}>{rupee(discAmt)}</b></Text>}
-                {discAmt > 0 && <Text style={{ fontSize: 13, color: '#64748b' }}>Net: <b style={{ color: accent, fontSize: 15 }}>{rupee(netAmount)}</b></Text>}
-              </>
-            ) : (
-              <Text style={{ color: '#94a3b8', fontSize: 13 }}>Check the Pay box on bills to select them</Text>
-            )}
-          </div>
+      {/* ── BOTTOM ACTION BAR ── */}
+      <div className="be-action-bar">
+        <div className="totals">
+          {checkedBills.length > 0 ? (
+            <>
+              <span><span className="k">Bills</span><b>{checkedBills.length}</b></span>
+              <span><span className="k">Max</span><b>{rupee(maxPayAmt)}</b></span>
+              {payAmt > 0 && <span><span className="k">Paying</span><b className="paid">{rupee(payAmt)}</b></span>}
+              {discAmt > 0 && <span><span className="k">Disc</span><b className="disc">{rupee(discAmt)}</b></span>}
+              <span><span className="k">Net</span><b className="net">{rupee(netAmount)}</b></span>
+            </>
+          ) : (
+            <span style={{ color: 'var(--fg-tertiary)' }}>Tick bills to allocate this payment</span>
+          )}
+        </div>
+        <div className="buttons">
+          <Button
+            className="be-btn"
+            icon={<ArrowLeftOutlined />}
+            onClick={() => confirmLeave(() => navigate('/payments'))}
+          >
+            Back
+          </Button>
+          <Button className="be-btn" icon={<ReloadOutlined />} onClick={handleReset}>Reset</Button>
+          <Button
+            className="be-btn be-primary"
+            icon={<CheckCircleOutlined />}
+            loading={loading}
+            onClick={handleSave}
+          >
+            Save Payment<span className="kbd">F1</span>
+          </Button>
         </div>
       </div>
     </div>

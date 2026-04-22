@@ -6,6 +6,7 @@ const { authenticateToken } = require('../middleware/auth');
 router.use(authenticateToken);
 
 router.get('/', paymentController.getAll);
+router.get('/next-number', paymentController.getNextNumber);
 router.get('/unpaid-bills', paymentController.getUnpaidBills);
 router.get('/:id', paymentController.getById);
 router.post('/', paymentController.create);

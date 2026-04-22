@@ -4,6 +4,42 @@ const { PaymentReceipt, PaymentSplit, Party, SalesBill, PurchaseBill } = require
 const { generateTransactionNumber, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance, getPartyOutstanding, reconcileBillsForParty } = require('../utils/balanceHelper');
 
+// Returns a best-guess preview of the next transaction number for the given
+// type so the entry form can show `REC-000046` instead of "Auto-numbered"
+// before Save is clicked. The real number is generated atomically inside
+// the create() transaction — this endpoint does NOT claim the number, so a
+// concurrent save could race past it. The UI treats this as a preview only.
+//
+// Filters by prefix (PAY-/REC-) so transactions imported from Tally or
+// Excel (which may have non-standard numbering like "TALLY-REC-1776...")
+// don't pollute the auto-increment seed.
+exports.getNextNumber = async (req, res) => {
+  try {
+    const type = req.query.type === 'Payment' ? 'Payment' : 'Receipt';
+    const prefix = type === 'Payment' ? 'PAY' : 'REC';
+    const last = await PaymentReceipt.findOne({
+      where: {
+        transaction_type: type,
+        transaction_number: { [Op.like]: `${prefix}-%` },
+      },
+      order: [['transaction_id', 'DESC']],
+    });
+    // Only take the trailing segment if it parses as an integer — avoids
+    // a numeric suffix like "1776..." sneaking in from imports that happen
+    // to have the same prefix.
+    let lastNum = 0;
+    if (last) {
+      const tail = last.transaction_number.split('-').pop();
+      const parsed = parseInt(tail, 10);
+      if (Number.isFinite(parsed) && String(parsed) === tail) lastNum = parsed;
+    }
+    res.json({ next: generateTransactionNumber(prefix, lastNum) });
+  } catch (error) {
+    console.error('Get next transaction number error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 exports.getAll = async (req, res) => {
   try {
     const { transaction_type, from_date, to_date, party_id, search } = req.query;
