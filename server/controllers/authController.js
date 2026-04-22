@@ -89,6 +89,32 @@ exports.getProfile = async (req, res) => {
   res.json({ user: req.user });
 };
 
+// Verifies the CURRENTLY authenticated user's password. Used by sensitive
+// in-app admin gates — eye-toggle on receivables totals, table column picker,
+// etc. — where we want a second-factor confirmation before the action runs.
+// Returns { ok: true } on success; 401 with a generic message otherwise so
+// timing / response shape doesn't leak whether the user account is valid.
+exports.verifyPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+    const user = await User.findByPk(req.user.user_id);
+    if (!user || !user.is_active) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Verify password error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 exports.changePassword = async (req, res) => {
   try {
     const { current_password, new_password } = req.body;

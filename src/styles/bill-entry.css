@@ -1,0 +1,372 @@
+/*
+ * Shared styles for Receipt Entry + Payment Entry.
+ *
+ * The layout is identical between the two pages; only the semantic accent
+ * colour changes. Each page sets `--be-accent` on the root .be-page
+ * element (green for receipts / money-in, red for payments / money-out)
+ * and every accent-tinted surface in this sheet reads from it.
+ */
+
+.be-page {
+  /* Consumer (Receipt/Payment) overrides --be-accent per page. */
+  --be-accent:      var(--success, #7A9660);
+  --be-accent-hover:var(--success, #5E7647);
+  --be-accent-bg:   var(--success-bg, rgba(122,150,96,0.14));
+  --be-accent-border:color-mix(in srgb, var(--be-accent) 32%, transparent);
+
+  height: 100%;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-app);
+  color: var(--fg-primary);
+}
+
+.be-page.money-out {
+  --be-accent:       var(--danger, #B1472F);
+  --be-accent-hover: #8B2E1F;
+  --be-accent-bg:    var(--danger-bg, rgba(177,71,47,0.10));
+  --be-accent-border:color-mix(in srgb, var(--be-accent) 32%, transparent);
+}
+
+/* ══ COMPACT HEADER ══════════════════════════════════════════════════ */
+.be-vh {
+  flex-shrink: 0;
+  height: 58px;
+  padding: 0 20px;
+  display: flex; align-items: center; gap: 14px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  position: relative;  /* so the direction tag can center over the bar */
+}
+.be-vh-back {
+  width: 36px; height: 36px;
+  border-radius: 7px;
+  background: var(--bg-muted); border: 1px solid var(--border);
+  color: var(--fg-secondary); cursor: pointer;
+  display: grid; place-items: center;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.be-vh-back:hover { border-color: var(--be-accent-border); color: var(--be-accent); }
+.be-vh-back .anticon { font-size: 14px; }
+
+.be-vh-fld {
+  display: flex; flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.be-vh-fld .be-k {
+  font-size: 9.5px; letter-spacing: 1.2px;
+  text-transform: uppercase; font-weight: 700;
+  color: var(--fg-tertiary);
+  margin-bottom: 3px;
+  line-height: 1;
+}
+.be-vh-fld .be-k .hint {
+  font-weight: 500; letter-spacing: 0.3px;
+  text-transform: none; opacity: 0.7;
+  margin-left: 6px;
+}
+
+.be-vh-recpt {
+  width: 160px; height: 34px; padding: 0 12px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit; font-size: 14px; font-weight: 600;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  outline: none; transition: border-color .15s, box-shadow .15s;
+}
+.be-vh-recpt:focus { border-color: var(--be-accent); box-shadow: 0 0 0 3px var(--be-accent-bg); }
+
+/* DatePicker container styling — inherits Ant Design sizing */
+.be-vh-date .ant-picker {
+  width: 170px; height: 34px;
+  border-radius: 7px; border-color: var(--border);
+}
+.be-vh-date .ant-picker:hover,
+.be-vh-date .ant-picker-focused {
+  border-color: var(--be-accent);
+}
+
+/* Direction tag — absolutely centered over the header bar so it always
+   sits in the middle regardless of the Date/Receipt# input widths.
+   Name of the customer/supplier is NOT shown here anymore — the tag is
+   just the window label ("Customer Receipt" / "Supplier Payment"). */
+.be-vh-tag {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex; align-items: center; gap: 10px;
+  height: 34px; padding: 0 16px;
+  background: var(--be-accent-bg); border: 1px solid var(--be-accent-border);
+  border-radius: 20px;
+  pointer-events: none;  /* don't block clicks on inputs behind it if they overlap */
+}
+.be-vh-tag .dir {
+  display: inline-grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--be-accent); color: var(--fg-inverse, #FDFAF2);
+  font-size: 13px; font-weight: 700;
+}
+.be-vh-tag .t {
+  font-size: 12.5px; font-weight: 700;
+  color: var(--be-accent);
+  letter-spacing: 0.3px;
+}
+
+/* ══ SPLIT BODY ══════════════════════════════════════════════════════ */
+.be-body { flex: 1; display: flex; overflow: hidden; }
+
+.be-left {
+  width: 400px; flex-shrink: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  padding: 22px 26px;
+  overflow-y: auto;
+}
+
+.be-fld { margin-bottom: 16px; }
+.be-fld .be-lbl {
+  display: block;
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+  margin-bottom: 7px;
+}
+.be-fld .be-lbl .hint {
+  font-weight: 500; letter-spacing: 0.3px;
+  text-transform: none; opacity: 0.7; margin-left: 6px;
+}
+
+.be-fld .ant-input,
+.be-fld .ant-input-number,
+.be-fld .ant-input-number-input,
+.be-fld .ant-select .ant-select-selector,
+.be-fld .ant-picker {
+  height: 40px !important;
+  border-color: var(--border);
+  border-radius: 8px !important;
+}
+.be-fld .ant-input-number-input-wrap { display: flex; align-items: center; height: 100%; }
+.be-fld .ant-input:focus,
+.be-fld .ant-input-number-focused,
+.be-fld .ant-select-focused .ant-select-selector,
+.be-fld .ant-picker-focused {
+  border-color: var(--be-accent) !important;
+  box-shadow: 0 0 0 3px var(--be-accent-bg) !important;
+}
+.be-fld .ant-select-selection-item { line-height: 38px !important; }
+.be-fld .ant-input-number-input { height: 38px !important; }
+
+.be-fld input[readonly],
+.be-fld .ant-input[readonly] {
+  background: var(--bg-muted); color: var(--fg-secondary);
+}
+
+/* Big receive-amount input */
+.be-fld .be-big .ant-input-number-input {
+  height: 52px !important;
+  font-family: 'Fraunces', 'Georgia', serif;
+  font-size: 22px; font-weight: 600;
+  color: var(--be-accent);
+  font-variant-numeric: tabular-nums;
+  padding-left: 14px !important;
+}
+.be-fld .be-big.ant-input-number {
+  height: 54px !important;
+  border-color: var(--be-accent) !important;
+}
+
+/* Balance card — minimal (name + balance only) */
+.be-bal-card {
+  padding: 12px 16px; border-radius: 12px;
+  background: linear-gradient(135deg, var(--be-accent-bg), transparent 70%);
+  border: 1px solid var(--be-accent-border);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 16px;
+}
+.be-bal-card .who {
+  font-size: 15px; font-weight: 600; color: var(--fg-primary);
+  line-height: 1.2; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.be-bal-card .amt {
+  text-align: right; flex-shrink: 0;
+  font-family: 'Fraunces', 'Georgia', serif;
+  font-weight: 700; font-size: 17px;
+  color: var(--be-accent); font-variant-numeric: tabular-nums;
+}
+.be-bal-card .amt .s {
+  display: block; font-family: 'Inter', sans-serif;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--be-accent); opacity: 0.8;
+  margin-top: 2px;
+}
+
+.be-hint-below { font-size: 12px; color: var(--be-accent); margin-top: 5px; }
+.be-sep { border: none; border-top: 1px dashed var(--border); margin: 8px 0 16px; }
+.be-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ══ RIGHT — BILLS TABLE ═════════════════════════════════════════════ */
+.be-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-muted); }
+
+.be-grid-head {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 1fr 90px 120px 130px 50px 130px 80px;
+  background: var(--bg-muted);
+  color: var(--fg-tertiary);
+  font-weight: 700; font-size: 10.5px;
+  letter-spacing: 0.7px; text-transform: uppercase;
+  padding: 11px 24px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.be-grid-head .r { text-align: right; }
+.be-grid-head .c { text-align: center; }
+
+/* Mini select-all toggle inside the Pay column header */
+.be-toggle-all {
+  justify-self: center;
+  width: 22px; height: 22px;
+  border: 1.5px solid var(--fg-tertiary); border-radius: 5px;
+  background: transparent; cursor: pointer;
+  display: grid; place-items: center;
+  color: var(--fg-tertiary);
+  transition: all .12s;
+  padding: 0;
+}
+.be-toggle-all:hover { border-color: var(--be-accent); color: var(--be-accent); }
+.be-toggle-all.on {
+  background: var(--be-accent); border-color: var(--be-accent);
+  color: var(--fg-inverse, #FDFAF2);
+}
+.be-toggle-all .anticon { font-size: 11px; }
+
+.be-rows { flex: 1; overflow-y: auto; }
+
+.be-row {
+  display: grid;
+  grid-template-columns: 1fr 90px 120px 130px 50px 130px 80px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  align-items: center;
+  background: var(--bg-panel);
+  border-left: 3px solid transparent;
+  transition: background .15s;
+  cursor: pointer;
+}
+.be-row.alt { background: var(--bg-muted); }
+.be-row.checked {
+  background: linear-gradient(135deg, var(--be-accent-bg), transparent 80%);
+  border-left-color: var(--be-accent);
+}
+.be-row.partial {
+  background: linear-gradient(135deg, var(--warning-bg, rgba(184,146,60,0.14)), transparent 80%);
+  border-left-color: var(--warning, #B8923C);
+}
+.be-row.opening {
+  background: linear-gradient(135deg, rgba(99,102,241,0.10), transparent 80%);
+  border-left-color: #6366f1;
+}
+.be-row:hover:not(.checked):not(.partial):not(.opening) { background: var(--bg-hover); }
+
+.be-row .bn {
+  font-weight: 600; font-size: 14px; color: var(--fg-primary);
+  font-family: 'Fraunces', 'Georgia', serif;
+  letter-spacing: -0.01em;
+}
+.be-row.opening .bn { color: #4338ca; font-style: italic; }
+.be-row .dt { font-size: 12px; color: var(--fg-tertiary); font-variant-numeric: tabular-nums; }
+
+.be-row .amt {
+  text-align: right;
+  font-size: 13px; color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
+  font-family: 'Fraunces', 'Georgia', serif; font-weight: 500;
+}
+.be-row .amt.bal { font-weight: 700; color: var(--danger, #B1472F); }
+.be-row .amt.bal.partial { color: var(--warning, #B8923C); }
+.be-row .amt.bal .sub {
+  display: block; font-family: 'Inter', sans-serif;
+  font-size: 10px; color: var(--fg-tertiary); font-weight: 500;
+}
+.be-row .amt.paid { font-weight: 700; color: var(--be-accent); }
+.be-row .amt.partial { color: var(--warning, #B8923C); }
+.be-row .amt .dash { color: var(--fg-tertiary); font-family: 'Inter', sans-serif; }
+
+.be-row .ant-checkbox-inner {
+  width: 18px; height: 18px; border-radius: 4px;
+  border-color: var(--border);
+}
+.be-row .ant-checkbox-checked .ant-checkbox-inner {
+  background: var(--be-accent); border-color: var(--be-accent);
+}
+
+.be-age {
+  text-align: center;
+  font-size: 13px; font-weight: 600; color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.be-age.warn { color: var(--warning, #B8923C); }
+.be-age.over { color: var(--danger, #B1472F); font-weight: 700; }
+.be-age .over-lbl { font-size: 10px; display: block; font-weight: 500; }
+
+.be-empty {
+  padding: 80px 20px; text-align: center;
+  color: var(--fg-tertiary); font-size: 14px;
+}
+
+/* ══ BOTTOM ACTION BAR ══════════════════════════════════════════════ */
+.be-action-bar {
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  padding: 14px 28px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 20px;
+  box-shadow: 0 -4px 20px rgba(45,31,21,0.05);
+}
+.be-action-bar .totals {
+  display: flex; gap: 28px; align-items: center;
+  font-size: 13px; color: var(--fg-tertiary);
+}
+.be-action-bar .totals .k {
+  font-size: 10.5px; letter-spacing: 0.8px;
+  text-transform: uppercase; font-weight: 700;
+  color: var(--fg-tertiary); margin-right: 6px;
+}
+.be-action-bar .totals b {
+  font-family: 'Fraunces', 'Georgia', serif; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 16px; color: var(--fg-primary);
+}
+.be-action-bar .totals b.paid { color: var(--be-accent); }
+.be-action-bar .totals b.disc { color: var(--danger, #B1472F); }
+.be-action-bar .totals b.net { color: var(--be-accent); font-size: 19px; }
+
+.be-action-bar .buttons { display: flex; gap: 10px; align-items: center; }
+
+/* Buttons override Ant sizing to match the editorial action bar */
+.be-btn {
+  height: 42px !important; padding: 0 18px !important;
+  border-radius: 9px !important;
+  font: inherit !important; font-size: 13.5px !important; font-weight: 600 !important;
+  display: inline-flex !important; align-items: center !important; gap: 7px !important;
+}
+.be-btn.be-primary {
+  background: var(--be-accent) !important; border-color: var(--be-accent) !important;
+  color: var(--fg-inverse, #FDFAF2) !important;
+  font-weight: 700 !important; padding: 0 26px !important;
+  letter-spacing: 0.3px;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--be-accent) 32%, transparent) !important;
+}
+.be-btn.be-primary:hover {
+  background: var(--be-accent-hover) !important; border-color: var(--be-accent-hover) !important;
+  transform: translateY(-1px);
+}
+.be-btn .kbd {
+  font-family: inherit; font-size: 11px; opacity: 0.75; font-weight: 500;
+  margin-left: 4px; padding: 1px 6px;
+  background: rgba(0,0,0,0.14); border-radius: 4px;
+}

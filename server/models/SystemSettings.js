@@ -81,11 +81,56 @@ const SystemSettings = sequelize.define('SystemSettings', {
     type: DataTypes.STRING(20),
     defaultValue: '',
   },
+  sales_return_prefix: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'SR',
+  },
+  purchase_return_prefix: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'PR',
+  },
   backup_frequency: {
     type: DataTypes.ENUM('Hourly', 'Daily', 'Weekly', 'Manual'),
     defaultValue: 'Daily',
   },
   last_backup_date: {
+    type: DataTypes.DATE,
+  },
+  // Aging bucket boundaries (in days past due). Inside bucket 1 = "Not yet due",
+  // between 1 and 2 = "Watchful", between 2 and 3 = "Chase", beyond 3 = "Critical".
+  // Defaults mirror the classic 30/60/90 AR split.
+  aging_bucket_1_days: {
+    type: DataTypes.INTEGER,
+    defaultValue: 30,
+  },
+  aging_bucket_2_days: {
+    type: DataTypes.INTEGER,
+    defaultValue: 60,
+  },
+  aging_bucket_3_days: {
+    type: DataTypes.INTEGER,
+    defaultValue: 90,
+  },
+  // TallyPrime integration — host/port for live XML sync, active company
+  // (Tally only talks to the currently-loaded company), sync toggle, and
+  // timestamp of the last successful sync (either direction). These are
+  // optional; if not set the UI falls back to defaults (localhost:9000).
+  tally_host: {
+    type: DataTypes.STRING(100),
+    defaultValue: 'localhost',
+  },
+  tally_port: {
+    type: DataTypes.INTEGER,
+    defaultValue: 9000,
+  },
+  tally_company: {
+    type: DataTypes.STRING(200),
+  },
+  tally_sync_enabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  tally_last_sync: {
     type: DataTypes.DATE,
   },
 }, {

@@ -440,6 +440,10 @@ body {
   opacity: 1;
 }
 
+/* .erp-sidebar-layout removed: the menu-orientation toggle is now only in
+   Settings → Theme (Menu Layout segmented control). Kept here as a marker
+   so future reviewers searching for the class aren't surprised it's gone. */
+
 /* Bottom bar with user avatar */
 .erp-sidebar-bottom {
   flex-shrink: 0;
@@ -850,4 +854,89 @@ body {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: 8px;
+}
+
+/* ============================================================================
+ * erp-confirm-modal — themed styling for the Unsaved-Changes confirm dialog
+ *
+ * AntD's static Modal.confirm bypasses ConfigProvider's theme context (a
+ * documented limitation: static methods don't see the React context tree).
+ * As a result the default popup renders white-on-white regardless of the
+ * app's light/dark mode and looks like a foreign OS dialog.
+ *
+ * Fix: override the AntD classes against our own `.erp-confirm-modal`
+ * wrapper class, reading CSS vars so light/dark/classic/modern all follow
+ * through automatically. Scoped to this class so other modals (which go
+ * through the normal React render path) aren't affected.
+ * ========================================================================== */
+.erp-confirm-modal .ant-modal-content {
+  background: var(--bg-panel) !important;
+  color: var(--fg-primary) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-lg, 14px) !important;
+  padding: 20px 24px !important;
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.28),
+    0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+}
+.erp-confirm-modal .ant-modal-confirm-body > .anticon {
+  /* The warning icon — pull it into the editorial palette instead of
+     AntD's default amber so it reads as one coherent design. */
+  font-size: 22px !important;
+  margin-inline-end: 14px !important;
+}
+.erp-confirm-modal .ant-modal-confirm-title {
+  color: var(--fg-primary) !important;
+  font-family: 'Fraunces', 'Georgia', serif !important;
+  font-weight: 600 !important;
+  font-size: 20px !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.2 !important;
+}
+.erp-confirm-modal .ant-modal-confirm-content {
+  color: var(--fg-secondary) !important;
+  margin-top: 10px !important;
+  font-size: 14px !important;
+  line-height: 1.55 !important;
+  max-width: 440px;
+}
+.erp-confirm-modal .ant-modal-confirm-btns {
+  margin-top: 24px !important;
+  display: flex !important;
+  gap: 10px !important;
+  justify-content: flex-end !important;
+}
+/* "Stay" (ok) button — accent primary, matches the app's New-Sale CTA. */
+.erp-confirm-modal .ant-btn-primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--fg-inverse, #FDFAF2) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 10px var(--accent-bg) !important;
+  font-weight: 600 !important;
+}
+.erp-confirm-modal .ant-btn-primary:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+  color: var(--fg-inverse, #FDFAF2) !important;
+}
+/* "Discard and leave" (danger) button — outlined, red text, doesn't compete
+   with the primary CTA but clearly destructive. */
+.erp-confirm-modal .ant-btn-dangerous:not(.ant-btn-primary) {
+  background: transparent !important;
+  border: 1px solid var(--danger) !important;
+  color: var(--danger) !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+}
+.erp-confirm-modal .ant-btn-dangerous:not(.ant-btn-primary):hover {
+  background: var(--danger-bg) !important;
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+}
+/* Backdrop — subtle and matches the app's feel, not AntD's 40% black. */
+.erp-confirm-modal.ant-modal,
+.erp-confirm-modal + .ant-modal-mask,
+body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp-confirm-modal) .ant-modal-mask {
+  /* Safari-era :has() needs recent browsers; safe fallback is the default mask. */
 }

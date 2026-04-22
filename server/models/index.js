@@ -8,6 +8,10 @@ const PurchaseBill = require('./PurchaseBill');
 const PurchaseBillItem = require('./PurchaseBillItem');
 const SalesBill = require('./SalesBill');
 const SalesBillItem = require('./SalesBillItem');
+const SalesReturnBill = require('./SalesReturnBill');
+const SalesReturnBillItem = require('./SalesReturnBillItem');
+const PurchaseReturnBill = require('./PurchaseReturnBill');
+const PurchaseReturnBillItem = require('./PurchaseReturnBillItem');
 const PaymentReceipt = require('./PaymentReceipt');
 const PaymentSplit = require('./PaymentSplit');
 const StockLedger = require('./StockLedger');
@@ -60,6 +64,38 @@ SalesBillItem.belongsTo(SalesBill, { foreignKey: 'sales_bill_id' });
 Product.hasMany(SalesBillItem, { foreignKey: 'product_id', as: 'salesItems' });
 SalesBillItem.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
 
+// ── SalesReturnBill <-> Party (Customer) ──
+Party.hasMany(SalesReturnBill, { foreignKey: 'customer_id', as: 'salesReturns' });
+SalesReturnBill.belongsTo(Party, { foreignKey: 'customer_id', as: 'customer' });
+
+// SalesReturnBill ↔ SalesReturnBillItem
+SalesReturnBill.hasMany(SalesReturnBillItem, { foreignKey: 'sales_return_id', as: 'items' });
+SalesReturnBillItem.belongsTo(SalesReturnBill, { foreignKey: 'sales_return_id' });
+
+// SalesReturnBillItem <-> Product
+Product.hasMany(SalesReturnBillItem, { foreignKey: 'product_id', as: 'salesReturnItems' });
+SalesReturnBillItem.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
+
+// Reference back to original SalesBill (nullable — amount-only / free-form returns)
+SalesBill.hasMany(SalesReturnBill, { foreignKey: 'reference_bill_id', as: 'returns' });
+SalesReturnBill.belongsTo(SalesBill, { foreignKey: 'reference_bill_id', as: 'referenceBill' });
+
+// ── PurchaseReturnBill <-> Party (Supplier) ──
+Party.hasMany(PurchaseReturnBill, { foreignKey: 'supplier_id', as: 'purchaseReturns' });
+PurchaseReturnBill.belongsTo(Party, { foreignKey: 'supplier_id', as: 'supplier' });
+
+// PurchaseReturnBill ↔ PurchaseReturnBillItem
+PurchaseReturnBill.hasMany(PurchaseReturnBillItem, { foreignKey: 'purchase_return_id', as: 'items' });
+PurchaseReturnBillItem.belongsTo(PurchaseReturnBill, { foreignKey: 'purchase_return_id' });
+
+// PurchaseReturnBillItem <-> Product
+Product.hasMany(PurchaseReturnBillItem, { foreignKey: 'product_id', as: 'purchaseReturnItems' });
+PurchaseReturnBillItem.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
+
+// Reference back to original PurchaseBill (nullable — amount-only / free-form returns)
+PurchaseBill.hasMany(PurchaseReturnBill, { foreignKey: 'reference_bill_id', as: 'returns' });
+PurchaseReturnBill.belongsTo(PurchaseBill, { foreignKey: 'reference_bill_id', as: 'referenceBill' });
+
 // PaymentReceipt <-> Party
 Party.hasMany(PaymentReceipt, { foreignKey: 'party_id' });
 PaymentReceipt.belongsTo(Party, { foreignKey: 'party_id', as: 'party' });
@@ -87,6 +123,10 @@ module.exports = {
   PurchaseBillItem,
   SalesBill,
   SalesBillItem,
+  SalesReturnBill,
+  SalesReturnBillItem,
+  PurchaseReturnBill,
+  PurchaseReturnBillItem,
   PaymentReceipt,
   PaymentSplit,
   StockLedger,

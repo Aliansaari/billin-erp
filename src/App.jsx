@@ -17,6 +17,10 @@ import PurchaseBillForm from './pages/purchase/PurchaseBillForm';
 import PurchaseList from './pages/purchase/PurchaseList';
 import SalesBillForm from './pages/sales/SalesBillForm';
 import SalesList from './pages/sales/SalesList';
+import SalesReturnForm from './pages/returns/SalesReturnForm';
+import SalesReturnList from './pages/returns/SalesReturnList';
+import PurchaseReturnForm from './pages/returns/PurchaseReturnForm';
+import PurchaseReturnList from './pages/returns/PurchaseReturnList';
 import PaymentEntry from './pages/payments/PaymentEntry';
 import ReceiptEntry from './pages/payments/ReceiptEntry';
 import PaymentList from './pages/payments/PaymentList';
@@ -31,6 +35,8 @@ import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
 import ModuleSettings from './pages/settings/ModuleSettings';
 import BackupRestore from './pages/settings/BackupRestore';
 import ThemeSettings from './pages/settings/ThemeSettings';
+import ImportExport from './pages/settings/ImportExport';
+import TallySync from './pages/settings/TallySync';
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -110,6 +116,12 @@ export default function App() {
           <Route path="sale/new" element={<SalesBillForm />} />
           <Route path="sale/edit/:id" element={<SalesBillForm />} />
           <Route path="sales" element={<SalesList />} />
+          <Route path="sales-return/new" element={<SalesReturnForm />} />
+          <Route path="sales-return/edit/:id" element={<SalesReturnForm />} />
+          <Route path="sales-returns" element={<SalesReturnList />} />
+          <Route path="purchase-return/new" element={<PurchaseReturnForm />} />
+          <Route path="purchase-return/edit/:id" element={<PurchaseReturnForm />} />
+          <Route path="purchase-returns" element={<PurchaseReturnList />} />
           <Route path="payment/new" element={<PaymentEntry />} />
           <Route path="receipt/new" element={<ReceiptEntry />} />
           <Route path="payments" element={<PaymentList />} />
@@ -124,6 +136,8 @@ export default function App() {
           <Route path="settings/modules" element={<ModuleSettings />} />
           <Route path="settings/backup" element={<BackupRestore />} />
           <Route path="settings/theme" element={<ThemeSettings />} />
+          <Route path="settings/import-export" element={<ImportExport />} />
+          <Route path="settings/tally" element={<TallySync />} />
         </Route>
       </Routes>
     </>

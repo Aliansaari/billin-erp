@@ -1,4 +1,4 @@
-import PartyLedgerView from './PartyLedgerView';
+import PartyListView from './PartyListView';
 export default function CustomerList() {
-  return <PartyLedgerView partyType="Customer" />;
+  return <PartyListView partyType="Customer" />;
 }

@@ -1,6 +1,6 @@
 const { Op, fn, col, literal } = require('sequelize');
 const sequelize = require('../config/database');
-const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger } = require('../models');
+const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, PurchaseReturnBill } = require('../models');
 const { sanitizePagination } = require('../utils/helpers');
 
 // Local calendar date (YYYY-MM-DD) in the server's timezone. We deliberately
@@ -187,8 +187,39 @@ exports.dashboardStats = async (req, res) => {
     const monthlyPurchGST     = parseFloat(mp.cgst) + parseFloat(mp.sgst) + parseFloat(mp.igst) + parseFloat(mp.cess);
     const monthlySalesExGST   = +(monthlySalesGross - monthlySalesGST).toFixed(2);
     const monthlyPurchExGST   = +(monthlyPurchGross - monthlyPurchGST).toFixed(2);
-    const monthlyProfit       = +(monthlySalesExGST - monthlyPurchExGST).toFixed(2);
     const monthlyGSTLiability = +(monthlySalesGST - monthlyPurchGST).toFixed(2); // output GST – input credit
+
+    // Real gross profit — uses per-line COGS from sales_bill_items.cost_rate,
+    // which we snapshot at the moment each sale is created. This is the
+    // correct accounting definition: revenue (ex-GST) minus COGS on items
+    // actually sold this month. The legacy "sales-minus-purchases" figure
+    // mixed inflow vs. outflow and double-counted stock that stayed in
+    // inventory; this number replaces it without breaking the existing
+    // `monthly_profit` contract on the dashboard.
+    //
+    // Bill-level adjustments (special_discount, return_amount) are summed
+    // separately from the bills table — joining with items would multiply
+    // them by the line count.
+    const [cogsRow] = await sequelize.query(
+      `
+      SELECT
+        (
+          SELECT COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float
+          FROM sales_bill_items sbi
+          JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+          WHERE sb.is_cancelled = false AND sb.bill_date >= :monthStart
+        ) AS cogs,
+        (
+          SELECT COALESCE(SUM(special_discount + return_amount), 0)::float
+          FROM sales_bills
+          WHERE is_cancelled = false AND bill_date >= :monthStart
+        ) AS adjustments
+      `,
+      { replacements: { monthStart }, type: sequelize.QueryTypes.SELECT }
+    );
+    const monthlyCOGS   = parseFloat(cogsRow.cogs) || 0;
+    const monthlyAdj    = parseFloat(cogsRow.adjustments) || 0;
+    const monthlyProfit = +(monthlySalesExGST - monthlyCOGS - monthlyAdj).toFixed(2);
 
     res.json({
       today_sales: { count: parseInt(todaySales[0].count), total: parseFloat(todaySales[0].total) },
@@ -468,7 +499,38 @@ exports.profitLoss = async (req, res) => {
       raw: true,
     });
 
+    // Formal returns — aggregate gross + GST components over the same date range.
+    // Walk-in returns (SalesBill.return_amount) are already netted into that bill's
+    // total_amount, so including them here would double-count the reversal.
+    const dateWhereReturn = {};
+    if (from_date && to_date) dateWhereReturn.return_date = { [Op.between]: [from_date, to_date] };
+
+    const salesReturns = await SalesReturnBill.findAll({
+      where: { ...dateWhereReturn, is_cancelled: false },
+      attributes: [
+        [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
+        [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
+        [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
+        [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'igst'],
+        [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'cess'],
+      ],
+      raw: true,
+    });
+    const purchaseReturns = await PurchaseReturnBill.findAll({
+      where: { ...dateWhereReturn, is_cancelled: false },
+      attributes: [
+        [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
+        [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
+        [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
+        [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'igst'],
+        [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'cess'],
+      ],
+      raw: true,
+    });
+
     const s = sales[0], p = purchases[0];
+    const sr = salesReturns[0], pr = purchaseReturns[0];
+
     const salesGross      = parseFloat(s.total);
     const purchGross      = parseFloat(p.total);
     const salesGST        = parseFloat(s.cgst) + parseFloat(s.sgst) + parseFloat(s.igst) + parseFloat(s.cess);
@@ -476,12 +538,55 @@ exports.profitLoss = async (req, res) => {
     const salesExGST      = +(salesGross - salesGST).toFixed(2);
     const purchExGST      = +(purchGross - purchGST).toFixed(2);
 
-    const salesReturn     = 0; // TODO: implement returns when return module ships
-    const purchaseReturn  = 0;
+    const salesReturnGross = parseFloat(sr.total);
+    const purchReturnGross = parseFloat(pr.total);
+    const salesReturnGST   = parseFloat(sr.cgst) + parseFloat(sr.sgst) + parseFloat(sr.igst) + parseFloat(sr.cess);
+    const purchReturnGST   = parseFloat(pr.cgst) + parseFloat(pr.sgst) + parseFloat(pr.igst) + parseFloat(pr.cess);
+    const salesReturn      = +(salesReturnGross - salesReturnGST).toFixed(2);
+    const purchaseReturn   = +(purchReturnGross - purchReturnGST).toFixed(2);
+
     const netSales        = +(salesExGST - salesReturn).toFixed(2);
     const netPurchases    = +(purchExGST - purchaseReturn).toFixed(2);
-    const grossProfit     = +(netSales - netPurchases).toFixed(2);
-    const gstLiability    = +(salesGST - purchGST).toFixed(2); // output – input credit
+
+    // Real gross profit — use per-line COGS (sales_bill_items.cost_rate × qty)
+    // instead of the cruder netSales − netPurchases. Prior math double-counted
+    // inventory: stock bought in the period but not yet sold was treated as an
+    // expense, understating margin. Using COGS on items actually sold matches
+    // standard accounting and stays consistent with the per-party profit
+    // endpoint used by the Customer page. Bill-level adjustments are summed
+    // from the bills table directly — joining items would multiply them.
+    const cogsItemsFilter = (from_date && to_date)
+      ? `AND sb.bill_date BETWEEN :from_date AND :to_date`
+      : '';
+    const cogsBillsFilter = (from_date && to_date)
+      ? `AND bill_date BETWEEN :from_date AND :to_date`
+      : '';
+    const [cogsRow] = await sequelize.query(
+      `
+      SELECT
+        (
+          SELECT COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float
+          FROM sales_bill_items sbi
+          JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+          WHERE sb.is_cancelled = false ${cogsItemsFilter}
+        ) AS cogs,
+        (
+          SELECT COALESCE(SUM(special_discount + return_amount), 0)::float
+          FROM sales_bills
+          WHERE is_cancelled = false ${cogsBillsFilter}
+        ) AS adjustments
+      `,
+      { replacements: { from_date, to_date }, type: sequelize.QueryTypes.SELECT }
+    );
+    const cogs            = parseFloat(cogsRow.cogs) || 0;
+    const billAdjustments = parseFloat(cogsRow.adjustments) || 0;
+    const grossProfit     = +(netSales - cogs - billAdjustments).toFixed(2);
+    // GST on formal returns reverses the liability on its side:
+    //   · a sales-return credit note REVERSES the output GST we billed the customer
+    //   · a purchase-return debit note REVERSES the input credit we had claimed
+    // Keeping this as an expression (not an intermediate var) so the reasoning
+    // sits right next to the formula for future readers.
+    const gstLiability    = +((salesGST - salesReturnGST) - (purchGST - purchReturnGST)).toFixed(2);
 
     res.json({
       revenue: {
@@ -501,6 +606,8 @@ exports.profitLoss = async (req, res) => {
         gst_paid: +purchGST.toFixed(2),      // input GST credit
         gst_liability: gstLiability,         // net GST payable (if positive)
       },
+      cogs: +cogs.toFixed(2),
+      bill_adjustments: +billAdjustments.toFixed(2),
       gross_profit: grossProfit,
       gross_margin: netSales > 0 ? +((grossProfit / netSales) * 100).toFixed(1) : 0,
       net_profit: grossProfit,

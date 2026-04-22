@@ -50,6 +50,15 @@ const SalesBillItem = sequelize.define('SalesBillItem', {
     type: DataTypes.DECIMAL(15, 2),
     allowNull: false,
   },
+  // Cost-of-goods-sold snapshot: the product's purchase_rate at the moment
+  // this line was billed. Frozen on create so historic gross-profit stays
+  // stable even if product.purchase_rate is later edited. Defaulting to 0
+  // is intentional — pre-migration rows get backfilled at startup from the
+  // current purchase_rate (see safe-migrations in server/index.js).
+  cost_rate: {
+    type: DataTypes.DECIMAL(15, 2),
+    defaultValue: 0,
+  },
   mrp: {
     type: DataTypes.DECIMAL(15, 2),
     defaultValue: 0,

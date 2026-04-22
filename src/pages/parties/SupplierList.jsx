@@ -1,4 +1,4 @@
-import PartyLedgerView from './PartyLedgerView';
+import PartyListView from './PartyListView';
 export default function SupplierList() {
-  return <PartyLedgerView partyType="Supplier" />;
+  return <PartyListView partyType="Supplier" />;
 }

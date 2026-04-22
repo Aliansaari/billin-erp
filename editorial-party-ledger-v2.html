@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Party Ledger — Editorial v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+ *  Party Ledger — v2. Less is more.
+ *
+ *  Design rules for this revision
+ *   1. No cards. No bars. No chips with counts. Typography + whitespace
+ *      carries hierarchy — borders only where truly needed.
+ *   2. Three numbers matter: party balance, transaction amount, running
+ *      balance. Everything else is support and should whisper.
+ *   3. One primary action. Everything else in a quiet overflow.
+ *   4. Statement rows are flat — each one reads as a short sentence:
+ *        "21 Apr  Receipt against INV-0142  —   15,000 Cr   bal 48,720 Dr"
+ *      You can scan the whole history in one vertical pass.
+ *   5. Colour is a scarce resource. Terracotta only on the live CTA and
+ *      the balance direction. Everything else is ink tones.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg: #F5EFE3;
+  --bg-panel: #FDFAF2;
+  --bg-soft: #FAF5E9;
+  --ink: #1D1A15;
+  --ink-2: #6D5F4E;
+  --ink-3: #9B8F7E;
+  --ink-4: #C9BFA8;
+  --rule: #E9DFC9;
+  --rule-soft: #F0E7D2;
+  --accent: #B1472F;
+  --accent-hover: #8B2E1F;
+  --accent-soft: rgba(177, 71, 47, 0.08);
+  --receivable: #8F4A26;
+  --payable: #657F50;
+  --warn: #C68A1F;
+  --sb-bg: #1D1814;
+  --sb-border: #2C2821;
+  --sb-ink: #E8DFC9;
+  --sb-ink-3: #8A7F6C;
+  --sb-hover: rgba(245, 238, 226, 0.06);
+  --sb-active-bg: #B1472F;
+  --sb-active-ink: #FDFAF2;
+  --sb-w: 232px;
+  --pp-w: 280px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Sidebar (main nav) ─────────────────────────────────────────────── */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 16px 12px 20px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  z-index: 20;
+}
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 6px 12px 16px; border-bottom: 1px solid var(--sb-border); margin-bottom: 10px; }
+.sb-brand-icon { width: 28px; height: 28px; border-radius: 6px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.sb-brand-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; color: #F5EEE2; }
+.sb-group  { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item   { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; margin-bottom: 1px; transition: background .15s; }
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; }
+.sb-item .ic { width: 14px; text-align: center; font-size: 13px; color: var(--sb-ink-3); }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+/* ── Two-pane layout: party list + ledger ──────────────────────────── */
+.main {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: grid;
+  grid-template-columns: var(--pp-w) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+/* ── Party list pane — quiet, searchable, essentials only ──────────── */
+.parties {
+  border-right: 1px solid var(--rule-soft);
+  display: flex; flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+.pp-header {
+  padding: 22px 24px 14px;
+  flex-shrink: 0;
+}
+.pp-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 18px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  line-height: 1;
+}
+.pp-count {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: 4px;
+}
+.pp-tabs {
+  display: flex; gap: 18px;
+  margin-top: 18px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.pp-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0 0 10px;
+  font: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color .12s, border-color .12s;
+}
+.pp-tab:hover { color: var(--ink-2); }
+.pp-tab.active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.pp-search {
+  padding: 12px 24px;
+  flex-shrink: 0;
+}
+.pp-search input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  outline: none;
+  font: inherit; font-size: 13px;
+  color: var(--ink);
+  transition: border-color .12s;
+}
+.pp-search input:focus { border-bottom-color: var(--accent); }
+.pp-search input::placeholder { color: var(--ink-3); }
+
+.pp-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 12px 18px; }
+.pp-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.pp-row:hover { background: var(--bg-soft); }
+.pp-row.active { background: var(--bg-panel); }
+.pp-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.3;
+}
+.pp-row.active .pp-name { color: var(--accent); font-weight: 600; }
+.pp-row-sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+.pp-amt {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 13px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  align-self: center;
+}
+.pp-amt.receivable { color: var(--receivable); }
+.pp-amt.payable    { color: var(--payable); }
+.pp-amt.zero       { color: var(--ink-4); font-weight: 500; }
+
+/* ── Ledger pane — the main canvas ─────────────────────────────────── */
+.ledger {
+  min-width: 0; min-height: 0;
+  overflow-y: auto;
+  padding: 40px clamp(28px, 4vw, 56px) 28px;
+}
+
+/* Hero — name + balance, nothing else. */
+.hero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 40px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--rule);
+}
+.hero-name {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 40px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  line-height: 1;
+}
+.hero-sub {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
+}
+.hero-sub .dot { color: var(--ink-4); }
+.hero-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px;
+  color: var(--warn);
+  padding: 2px 0 2px 10px;
+  border-left: 1px solid var(--rule);
+}
+.hero-status::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+
+.hero-balance {
+  text-align: right;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+}
+.hero-balance-lbl {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.hero-balance-amt {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 44px;
+  letter-spacing: -0.03em;
+  color: var(--receivable);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.hero-balance-amt .rs {
+  color: var(--ink-3);
+  font-weight: 500;
+  font-size: 28px;
+  margin-right: 6px;
+}
+.hero-balance-dir {
+  font-size: 11.5px;
+  color: var(--receivable);
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+/* Actions — one primary, rest quiet. No buttons-look-heavy. */
+.actions {
+  margin-top: 22px;
+  display: flex; gap: 6px;
+  align-items: center;
+}
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 36px; padding: 0 14px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  color: var(--ink-2);
+  font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: all .12s;
+}
+.btn:hover { border-color: var(--ink-4); color: var(--ink); }
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FDFAF2;
+  font-weight: 600;
+}
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #FDFAF2; }
+.btn.icon-only {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+.btn .ic { font-size: 13px; opacity: 0.7; }
+.btn.primary .ic { opacity: 1; }
+
+/* ── Filter row — three controls, nothing more ─────────────────────── */
+.filters {
+  display: flex; align-items: center; gap: 8px;
+  margin: 28px 0 0;
+  padding-bottom: 4px;
+}
+.f-select {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 10px 0 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ink-2);
+  font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: all .12s;
+}
+.f-select:hover { border-color: var(--rule); background: var(--bg-panel); color: var(--ink); }
+.f-select .caret { color: var(--ink-4); font-size: 10px; margin-top: 1px; }
+.f-divider {
+  width: 1px; height: 20px;
+  background: var(--rule);
+  margin: 0 4px;
+}
+.f-search {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; width: 220px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  transition: all .12s;
+}
+.f-search:focus-within,
+.f-search:hover { border-color: var(--rule); background: var(--bg-panel); }
+.f-search input {
+  flex: 1;
+  border: none; outline: none; background: transparent;
+  font: inherit; font-size: 13px;
+  color: var(--ink);
+}
+.f-search input::placeholder { color: var(--ink-3); }
+.f-search .ic { color: var(--ink-3); font-size: 13px; }
+
+/* ── Statement — a clean list, not a table with borders ───────────── */
+.stmt {
+  margin-top: 18px;
+}
+.stmt-head {
+  display: grid;
+  grid-template-columns: 96px 1fr 150px 160px;
+  padding: 10px 16px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule);
+}
+.stmt-head > .r { text-align: right; }
+
+.stmt-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 150px 160px;
+  padding: 16px;
+  border-bottom: 1px solid var(--rule-soft);
+  align-items: baseline;
+  transition: background .12s;
+  position: relative;
+}
+.stmt-row:hover { background: var(--bg-panel); }
+.stmt-row.opening {
+  color: var(--ink-2);
+  font-style: italic;
+}
+.stmt-row.opening:hover { background: transparent; }
+
+/* Date */
+.cell-date {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 500; font-size: 13.5px;
+  color: var(--ink-2);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* Particulars — just text. Type marker is a tiny coloured dot before title. */
+.cell-part { min-width: 0; }
+.part-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  display: flex; align-items: center; gap: 8px;
+  line-height: 1.3;
+}
+.part-title .tdot {
+  flex-shrink: 0;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.part-title .tdot.sale      { background: var(--accent); }
+.part-title .tdot.purchase  { background: var(--ink); }
+.part-title .tdot.receipt   { background: var(--payable); }
+.part-title .tdot.payment   { background: var(--accent); opacity: 0.6; }
+.part-title .tdot.sales-ret { background: var(--warn); }
+.part-title .tdot.purch-ret { background: var(--payable); opacity: 0.6; }
+.part-ref {
+  margin-top: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.1px;
+}
+.part-ref .link {
+  color: var(--ink-2);
+}
+.part-ref .link::before {
+  content: '→ ';
+  color: var(--ink-4);
+  margin: 0 3px 0 5px;
+}
+
+/* Amount columns — Fraunces numerals, right-aligned, direction in small caps */
+.cell-amt {
+  text-align: right;
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 500; font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  line-height: 1;
+  display: flex; align-items: baseline; justify-content: flex-end; gap: 6px;
+}
+.cell-amt .dir {
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.cell-amt.zero {
+  color: var(--ink-4);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+}
+.cell-bal {
+  text-align: right;
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--receivable);
+  line-height: 1;
+  display: flex; align-items: baseline; justify-content: flex-end; gap: 6px;
+}
+.cell-bal.cr { color: var(--payable); }
+.cell-bal .dir {
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+/* Footer — one subtle line, inline */
+.stmt-foot {
+  padding: 20px 16px;
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.foot-totals {
+  display: flex; gap: 28px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.2px;
+}
+.foot-totals .k { color: var(--ink-3); }
+.foot-totals .v { color: var(--ink-2); margin-left: 6px; }
+.foot-close {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 14px;
+  color: var(--receivable);
+  letter-spacing: -0.01em;
+}
+.foot-close .rs { color: var(--ink-3); font-weight: 500; margin-right: 3px; }
+
+/* Share strip — quiet link buttons */
+.share-strip {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--rule-soft);
+  display: flex; gap: 6px; align-items: center;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.share-lbl { margin-right: 14px; letter-spacing: 0.2px; }
+.link-btn {
+  background: none;
+  border: none;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font: inherit; font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all .12s;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+}
+.link-btn:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+/* Tiny icon helpers — use text chars, no emoji clutter */
+.ic-search::before { content: '⌕'; font-size: 14px; }
+.ic-plus::before   { content: '＋'; }
+.ic-print::before  { content: '⎙'; font-size: 14px; }
+.ic-more::before   { content: '⋯'; }
+.ic-caret::before  { content: '▾'; }
+.ic-wa::before     { content: ''; }
+
+.bolt-glyph {
+  display: inline-block;
+  width: 10px; height: 16px;
+  background: currentColor;
+  clip-path: polygon(62% 0%, 0% 60%, 38% 60%, 28% 100%, 100% 40%, 62% 40%);
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--ink-4); border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-brand-icon"><span class="bolt-glyph"></span></div>
+    <div class="sb-brand-name">Billing ERP</div>
+  </div>
+  <div class="sb-group">Workspace</div>
+  <div class="sb-item"><span class="ic">◉</span>Dashboard</div>
+  <div class="sb-item"><span class="ic">↗</span>Sales</div>
+  <div class="sb-item"><span class="ic">↙</span>Purchase</div>
+  <div class="sb-group">Parties</div>
+  <div class="sb-item active"><span class="ic">●</span>Customers</div>
+  <div class="sb-item"><span class="ic">○</span>Suppliers</div>
+  <div class="sb-group">Money</div>
+  <div class="sb-item"><span class="ic">＋</span>Payments</div>
+  <div class="sb-item"><span class="ic">◔</span>Reports</div>
+  <div class="sb-item"><span class="ic">⚙</span>Settings</div>
+</aside>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Parties list -->
+  <aside class="parties">
+    <div class="pp-header">
+      <div class="pp-title">Customers</div>
+      <div class="pp-count">14 parties</div>
+      <div class="pp-tabs">
+        <button class="pp-tab active">All</button>
+        <button class="pp-tab">With Dues</button>
+        <button class="pp-tab">Inactive</button>
+      </div>
+    </div>
+    <div class="pp-search">
+      <input placeholder="Search…">
+    </div>
+    <div class="pp-list">
+      <div class="pp-row active">
+        <div>
+          <div class="pp-name">Rameshwar Traders</div>
+          <div class="pp-row-sub">Navsari</div>
+        </div>
+        <div class="pp-amt receivable">48,720</div>
+      </div>
+      <div class="pp-row">
+        <div>
+          <div class="pp-name">Shree Krishna Mart</div>
+          <div class="pp-row-sub">Surat</div>
+        </div>
+        <div class="pp-amt receivable">12,450</div>
+      </div>
+      <div class="pp-row">
+        <div>
+          <div class="pp-name">K.A. Enterprises</div>
+          <div class="pp-row-sub">Rajkot</div>
+        </div>
+        <div class="pp-amt receivable">37,900</div>
+      </div>
+      <div class="pp-row">
+        <div>
+          <div class="pp-name">Harshad Patel</div>
+          <div class="pp-row-sub">Walk-in</div>
+        </div>
+        <div class="pp-amt receivable">8,200</div>
+      </div>
+      <div class="pp-row">
+        <div>
+          <div class="pp-name">Ansari Impex</div>
+          <div class="pp-row-sub">Mumbai</div>
+        </div>
+        <div class="pp-amt payable">−2,300</div>
+      </div>
+      <div class="pp-row">
+        <div>
+          <div class="pp-name">Mehta Silk House</div>
+          <div class="pp-row-sub">Ahmedabad</div>
+        </div>
+        <div class="pp-amt zero">0</div>
+      </div>
+      <div class="pp-row">
+        <div>
+          <div class="pp-name">Vishal Textiles</div>
+          <div class="pp-row-sub">Bhavnagar</div>
+        </div>
+        <div class="pp-amt zero">0</div>
+      </div>
+      <div class="pp-row">
+        <div>
+          <div class="pp-name">Cash Sale</div>
+          <div class="pp-row-sub">Walk-in</div>
+        </div>
+        <div class="pp-amt zero">—</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Ledger -->
+  <main class="ledger">
+
+    <!-- Hero -->
+    <section class="hero">
+      <div>
+        <h1 class="hero-name">Rameshwar Traders</h1>
+        <div class="hero-sub">
+          <span>Customer</span>
+          <span class="dot">·</span>
+          <span>Navsari, Gujarat</span>
+          <span class="dot">·</span>
+          <span>98765 43210</span>
+          <span class="hero-status">4 days past credit</span>
+        </div>
+      </div>
+      <div class="hero-balance">
+        <div class="hero-balance-lbl">Current Balance</div>
+        <div class="hero-balance-amt"><span class="rs">₹</span>48,720</div>
+        <div class="hero-balance-dir">Receivable · You'll get</div>
+      </div>
+    </section>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button class="btn primary"><span class="ic">＋</span>Record Receipt</button>
+      <button class="btn">Print</button>
+      <button class="btn">Share</button>
+      <button class="btn icon-only" title="More"><span class="ic ic-more"></span></button>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters">
+      <button class="f-select">Last 90 days <span class="caret">▾</span></button>
+      <span class="f-divider"></span>
+      <button class="f-select">All types <span class="caret">▾</span></button>
+      <div class="f-search">
+        <span class="ic ic-search"></span>
+        <input placeholder="Search bill or reference">
+      </div>
+    </div>
+
+    <!-- Statement -->
+    <section class="stmt">
+      <div class="stmt-head">
+        <div>Date</div>
+        <div>Particulars</div>
+        <div class="r">Amount</div>
+        <div class="r">Balance</div>
+      </div>
+
+      <div class="stmt-row opening">
+        <div class="cell-date">01 Jan</div>
+        <div class="cell-part">
+          <div class="part-title">Opening Balance</div>
+        </div>
+        <div class="cell-amt zero">—</div>
+        <div class="cell-bal"><span>24,300</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-row">
+        <div class="cell-date">08 Jan</div>
+        <div class="cell-part">
+          <div class="part-title"><span class="tdot sale"></span>Sales</div>
+          <div class="part-ref">INV-0102</div>
+        </div>
+        <div class="cell-amt"><span>18,450</span><span class="dir">Dr</span></div>
+        <div class="cell-bal"><span>42,750</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-row">
+        <div class="cell-date">12 Jan</div>
+        <div class="cell-part">
+          <div class="part-title"><span class="tdot receipt"></span>Receipt</div>
+          <div class="part-ref">RCT-000215 <span class="link">INV-0102</span></div>
+        </div>
+        <div class="cell-amt" style="color:var(--payable);"><span>15,000</span><span class="dir">Cr</span></div>
+        <div class="cell-bal"><span>27,750</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-row">
+        <div class="cell-date">02 Feb</div>
+        <div class="cell-part">
+          <div class="part-title"><span class="tdot sale"></span>Sales</div>
+          <div class="part-ref">INV-0117 · cash 10,000 received</div>
+        </div>
+        <div class="cell-amt"><span>32,100</span><span class="dir">Dr</span></div>
+        <div class="cell-bal"><span>49,850</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-row">
+        <div class="cell-date">14 Feb</div>
+        <div class="cell-part">
+          <div class="part-title"><span class="tdot sales-ret"></span>Sales Return · damaged goods</div>
+          <div class="part-ref">SR-0009 <span class="link">INV-0117</span></div>
+        </div>
+        <div class="cell-amt" style="color:var(--payable);"><span>4,260</span><span class="dir">Cr</span></div>
+        <div class="cell-bal"><span>45,590</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-row">
+        <div class="cell-date">21 Feb</div>
+        <div class="cell-part">
+          <div class="part-title"><span class="tdot receipt"></span>Receipt</div>
+          <div class="part-ref">RCT-000242 · UPI <span class="link">INV-0102, INV-0117</span></div>
+        </div>
+        <div class="cell-amt" style="color:var(--payable);"><span>20,000</span><span class="dir">Cr</span></div>
+        <div class="cell-bal"><span>25,590</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-row">
+        <div class="cell-date">05 Mar</div>
+        <div class="cell-part">
+          <div class="part-title"><span class="tdot sale"></span>Sales</div>
+          <div class="part-ref">INV-0142</div>
+        </div>
+        <div class="cell-amt"><span>26,800</span><span class="dir">Dr</span></div>
+        <div class="cell-bal"><span>52,390</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-row">
+        <div class="cell-date">18 Mar</div>
+        <div class="cell-part">
+          <div class="part-title"><span class="tdot sales-ret"></span>Credit Note · rate adjustment</div>
+          <div class="part-ref">SR-0014 · amount-only</div>
+        </div>
+        <div class="cell-amt" style="color:var(--payable);"><span>1,200</span><span class="dir">Cr</span></div>
+        <div class="cell-bal"><span>51,190</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-row">
+        <div class="cell-date">02 Apr</div>
+        <div class="cell-part">
+          <div class="part-title"><span class="tdot sale"></span>Sales</div>
+          <div class="part-ref">INV-0168</div>
+        </div>
+        <div class="cell-amt"><span>12,530</span><span class="dir">Dr</span></div>
+        <div class="cell-bal"><span>63,720</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-row">
+        <div class="cell-date">18 Apr</div>
+        <div class="cell-part">
+          <div class="part-title"><span class="tdot receipt"></span>Receipt</div>
+          <div class="part-ref">RCT-000289 · cash <span class="link">INV-0142</span></div>
+        </div>
+        <div class="cell-amt" style="color:var(--payable);"><span>15,000</span><span class="dir">Cr</span></div>
+        <div class="cell-bal"><span>48,720</span><span class="dir">Dr</span></div>
+      </div>
+
+      <div class="stmt-foot">
+        <div class="foot-totals">
+          <div><span class="k">Debit</span><span class="v">₹ 89,880</span></div>
+          <div><span class="k">Credit</span><span class="v">₹ 65,460</span></div>
+        </div>
+        <div class="foot-close"><span class="rs">₹</span>48,720 Dr</div>
+      </div>
+    </section>
+
+    <!-- Share strip -->
+    <div class="share-strip">
+      <span class="share-lbl">Share</span>
+      <button class="link-btn">WhatsApp</button>
+      <button class="link-btn">Email PDF</button>
+      <button class="link-btn">Export Excel</button>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

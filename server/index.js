@@ -25,10 +25,13 @@ app.use('/api/categories', require('./routes/categories'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/purchases', require('./routes/purchases'));
 app.use('/api/sales', require('./routes/sales'));
+app.use('/api/sales-returns', require('./routes/salesReturns'));
+app.use('/api/purchase-returns', require('./routes/purchaseReturns'));
 app.use('/api/payments', require('./routes/payments'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/data', require('./routes/importExport'));
+app.use('/api/tally', require('./routes/tally'));
 app.use('/api/backup', require('./routes/backup'));
 
 // Health check
@@ -68,6 +71,41 @@ async function startServer() {
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='purchase_bill_prefix') THEN
           ALTER TABLE system_settings ADD COLUMN purchase_bill_prefix VARCHAR(20) DEFAULT '';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='aging_bucket_1_days') THEN
+          ALTER TABLE system_settings ADD COLUMN aging_bucket_1_days INTEGER DEFAULT 30;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='aging_bucket_2_days') THEN
+          ALTER TABLE system_settings ADD COLUMN aging_bucket_2_days INTEGER DEFAULT 60;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='aging_bucket_3_days') THEN
+          ALTER TABLE system_settings ADD COLUMN aging_bucket_3_days INTEGER DEFAULT 90;
+        END IF;
+        -- TallyPrime sync config. These live on system_settings rather than
+        -- a separate table because there's always exactly one active config.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_host') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_host VARCHAR(100) DEFAULT 'localhost';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_port') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_port INTEGER DEFAULT 9000;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_company') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_company VARCHAR(200);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_sync_enabled') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_sync_enabled BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_last_sync') THEN
+          ALTER TABLE system_settings ADD COLUMN tally_last_sync TIMESTAMP;
+        END IF;
+        -- Return bill prefixes. Defaults match the seeder; existing DBs that
+        -- ran the seeder before this column shipped still need a value so the
+        -- controller trim() call does not throw on NULL.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='sales_return_prefix') THEN
+          ALTER TABLE system_settings ADD COLUMN sales_return_prefix VARCHAR(20) DEFAULT 'SR';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='purchase_return_prefix') THEN
+          ALTER TABLE system_settings ADD COLUMN purchase_return_prefix VARCHAR(20) DEFAULT 'PR';
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bills' AND column_name='sale_type') THEN
           ALTER TABLE sales_bills ADD COLUMN sale_type VARCHAR(20) DEFAULT 'Retail';
@@ -122,6 +160,23 @@ async function startServer() {
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bill_items' AND column_name='quantity_per_box') THEN
           ALTER TABLE sales_bill_items ADD COLUMN quantity_per_box DECIMAL(10,2) DEFAULT 1;
+        END IF;
+        -- COGS at time of sale. Snapshotted from products.purchase_rate whenever
+        -- a sales bill is created so historic profit is stable even if the
+        -- product's cost is edited later. Without this column, gross profit on
+        -- last year's sales would silently change whenever the owner updates
+        -- purchase prices for new stock — breaking audit trails.
+        --
+        -- Backfill: for rows that pre-date this column we copy the product's
+        -- CURRENT purchase_rate as a best-effort estimate. This is explicitly
+        -- an approximation for old sales; going forward the value is captured
+        -- accurately at bill-creation time in salesController.create.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bill_items' AND column_name='cost_rate') THEN
+          ALTER TABLE sales_bill_items ADD COLUMN cost_rate DECIMAL(15,2) DEFAULT 0;
+          UPDATE sales_bill_items sbi
+             SET cost_rate = COALESCE(p.purchase_rate, 0)
+            FROM products p
+           WHERE sbi.product_id = p.product_id AND sbi.cost_rate = 0;
         END IF;
         -- Cancellation audit trail for payments/receipts
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payments_receipts' AND column_name='cancelled_by') THEN

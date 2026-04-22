@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Suppliers v2 — Editorial (Payables-first)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Suppliers v2 — Editorial, "better than Tally".
+ *
+ * Mirror of customers-v2 with AP semantics:
+ *   • Hero strip = DUE BUCKETS (Due this week / 8-30 / 31-60 / 60+)
+ *     — critical color is on the "overdue" bucket (we're past payment terms)
+ *   • Lens chips: All · Due this week · Overdue · High balance ₹1L+ ·
+ *     Terms mismatch · Hold list · New this month
+ *   • Rows show: supplier, contact, payable, payment terms + days
+ *     remaining, last PO, last payment, quick Pay button
+ *   • Expanded row: last 5 txns inline + Net-of-terms stat + PTD spend
+ *     + Pay/Ledger quick actions
+ *   • Side drawer: Pay flow + full Ledger
+ *
+ * Why this beats Tally:
+ *   1. Cashflow planner at the top — you see EXACTLY how much to pay
+ *      this week before anything else. Tally buries this in reports.
+ *   2. One-click Pay with bill-wise FIFO allocation from the row.
+ *   3. Terms vs days-remaining visual (green-red gradient) surfaces
+ *      relationship risk instantly. Tally makes you compute this.
+ *   4. Hold / resume payment toggle right in the row.
+ *   5. Dark mode, keyboard-first, fast — same chrome as the rest of ERP.
+ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+  --bg-hover:    #EEE6D3;
+  --bg-inset:    #EFE8D9;
+
+  --ink:         #1D1A15;
+  --ink-2:       #6D5F4E;
+  --ink-3:       #9B8F7E;
+  --ink-4:       #C9BFA8;
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10);
+  --accent-border:rgba(177,71,47,0.24);
+
+  --up:   #7A9660;  --up-soft: rgba(122,150,96,0.14);
+  --down: #B1472F;  --down-soft: rgba(177,71,47,0.10);
+  --warn: #B8923C;  --warn-soft: rgba(184,146,60,0.14);
+  --danger: #9B3428; --danger-soft: rgba(155,52,40,0.12);
+  --flat: #9B8F7E;
+
+  /* Due-bucket palette (calm → alarm) */
+  --due-ok:   #7A9660;   --due-ok-soft:   rgba(122,150,96,0.12);
+  --due-soon: #B8923C;   --due-soon-soft: rgba(184,146,60,0.14);
+  --due-hot:  #CA7537;   --due-hot-soft:  rgba(202,117,55,0.14);
+  --due-over: #9B3428;   --due-over-soft: rgba(155,52,40,0.14);
+
+  --t-sale:     #7F5AA3;   --t-sale-soft:     rgba(127,90,163,0.12);
+  --t-receipt:  #7A9660;   --t-receipt-soft:  rgba(122,150,96,0.14);
+  --t-purchase: #B8923C;   --t-purchase-soft: rgba(184,146,60,0.14);
+  --t-payment:  #B1472F;   --t-payment-soft:  rgba(177,71,47,0.12);
+  --t-opening:  #6D6355;   --t-opening-soft:  rgba(109,99,85,0.12);
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-2:    #B2A791;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:   #B1472F;
+  --sb-active-ink:  #FDFAF2;
+
+  --glass-bg:     rgba(253, 250, 242, 0.55);
+  --glass-border: rgba(253, 250, 242, 0.72);
+  --glass-inset:  rgba(253, 250, 242, 0.65);
+  --glass-shadow: rgba(45, 31, 21, 0.08);
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-panel:    #1A1713;
+  --bg-muted:    #14110D;
+  --bg-hover:    #24201B;
+  --bg-inset:    #211C16;
+
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+
+  --accent:      #E26A4C;
+  --accent-hover:#F08975;
+  --accent-soft: rgba(226,106,76,0.14);
+  --accent-border:rgba(226,106,76,0.32);
+
+  --up:   #94B885;  --up-soft:   rgba(148,184,133,0.14);
+  --down: #E26A4C;  --down-soft: rgba(226,106,76,0.14);
+  --warn: #D4A574;  --warn-soft: rgba(212,165,116,0.14);
+  --danger: #E26A4C; --danger-soft: rgba(226,106,76,0.18);
+  --flat: #8A7F6C;
+
+  --due-ok:   #94B885;   --due-ok-soft:   rgba(148,184,133,0.14);
+  --due-soon: #D4A574;   --due-soon-soft: rgba(212,165,116,0.14);
+  --due-hot:  #E08856;   --due-hot-soft:  rgba(224,136,86,0.16);
+  --due-over: #E26A4C;   --due-over-soft: rgba(226,106,76,0.18);
+
+  --t-sale:     #AC8FC7;   --t-sale-soft:     rgba(172,143,199,0.14);
+  --t-receipt:  #94B885;   --t-receipt-soft:  rgba(148,184,133,0.14);
+  --t-purchase: #D4A574;   --t-purchase-soft: rgba(212,165,116,0.14);
+  --t-payment:  #E26A4C;   --t-payment-soft:  rgba(226,106,76,0.14);
+  --t-opening:  #8A7F6C;   --t-opening-soft:  rgba(138,127,108,0.14);
+
+  --sb-bg:       #0B0807;
+  --sb-border:   #1A1713;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-2:    #B2A791;
+  --sb-ink-3:    #6D6355;
+  --sb-hover:    rgba(245,238,226,0.05);
+  --sb-active-bg:   #E26A4C;
+  --sb-active-ink:  #0E0B08;
+
+  --glass-bg:     rgba(26, 23, 19, 0.55);
+  --glass-border: rgba(178, 167, 145, 0.18);
+  --glass-inset:  rgba(178, 167, 145, 0.08);
+  --glass-shadow: rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  height: 100vh;
+  overflow: hidden;
+}
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+.app { display: grid; grid-template-columns: 240px 1fr; height: 100vh; overflow: hidden; }
+
+.sidebar { background: var(--sb-bg); border-right: 1px solid var(--sb-border); padding: 16px 12px 20px; display: flex; flex-direction: column; color: var(--sb-ink); overflow-y: auto; }
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; letter-spacing: -0.01em; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: background .15s, color .15s; }
+.sb-item:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; box-shadow: 0 2px 10px rgba(177,71,47,0.32); }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main { min-width: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+.crumb-bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 28px 0; font-size: 11.5px; color: var(--ink-3); font-weight: 500; flex-shrink: 0; }
+.crumb-bar b { color: var(--ink); font-weight: 600; }
+.crumb-bar .kbd { font-family: 'Inter'; font-size: 11px; padding: 2px 7px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 4px; color: var(--ink-2); font-weight: 500; }
+
+.page-hd { padding: 10px 28px 16px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; flex-shrink: 0; }
+.page-title h1 { font-family: 'Fraunces', Georgia, serif; font-size: 32px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1.05; margin-bottom: 4px; }
+.page-title .sub { font-size: 13px; color: var(--ink-2); }
+.page-title .sub b { color: var(--ink); font-weight: 600; }
+
+.hd-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cta { height: 36px; padding: 0 16px; background: var(--accent); color: #FDFAF2; border: 1px solid var(--accent); border-radius: 7px; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 10px var(--accent-soft); transition: all .18s; }
+.cta:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-soft); }
+.cta.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); box-shadow: none; }
+.cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+
+/* Due hero */
+.due-hero {
+  padding: 0 28px 16px;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.due-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all .2s cubic-bezier(.2,.7,.2,1);
+}
+.due-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px var(--glass-shadow); }
+.due-card.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.due-card .k { font-size: 10px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.due-card .v { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; color: var(--ink); line-height: 1.05; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.due-card .sub { font-size: 11.5px; color: var(--ink-2); margin-top: 2px; }
+.due-card .bar { height: 4px; border-radius: 99px; margin-top: 10px; background: var(--bg-muted); overflow: hidden; }
+.due-card .fill { height: 100%; border-radius: 99px; }
+.due-card .pct { position: absolute; top: 14px; right: 16px; font-size: 11px; color: var(--ink-3); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.due-card.total { background: linear-gradient(135deg, var(--accent-soft), transparent 65%); border-color: var(--accent-border); }
+.due-card.total .v { color: var(--accent); }
+
+.due-card.week    .fill { background: var(--due-soon); width: 33%; }
+.due-card.week    .v    { color: var(--due-soon); }
+.due-card.short   .fill { background: var(--due-ok);   width: 24%; }
+.due-card.short   .v    { color: var(--due-ok); }
+.due-card.medium  .fill { background: var(--due-hot);  width: 23%; }
+.due-card.medium  .v    { color: var(--due-hot); }
+.due-card.over    .fill { background: var(--due-over); width: 20%; }
+.due-card.over    .v    { color: var(--due-over); }
+
+.alarm-indicator {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700;
+  color: var(--due-over);
+  margin-top: 4px;
+}
+.alarm-indicator .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--due-over); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Lens + search */
+.lens-bar { padding: 0 28px 10px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; flex-shrink: 0; }
+.lens-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.lens-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--rule); background: var(--bg-panel); color: var(--ink-2); border-radius: 99px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: all .15s; }
+.lens-chip:hover { border-color: var(--accent-border); color: var(--accent); }
+.lens-chip.on { background: var(--ink); color: var(--bg-panel); border-color: var(--ink); }
+[data-mode="dark"] .lens-chip.on { background: var(--ink); color: var(--bg); }
+.lens-chip .count { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: var(--bg-muted); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.lens-chip.on .count { background: rgba(255,255,255,0.18); color: inherit; }
+.lens-chip.alarm { color: var(--danger); }
+.lens-chip.alarm .count { background: var(--danger-soft); color: var(--danger); }
+.lens-chip.alarm.on { background: var(--danger); color: #FDFAF2; border-color: var(--danger); }
+.lens-chip.alarm.on .count { background: rgba(255,255,255,0.22); color: #FDFAF2; }
+
+.search-group { display: flex; align-items: center; gap: 8px; }
+.search-box { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px; width: 260px; }
+.search-box input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.search-box svg { width: 14px; height: 14px; color: var(--ink-3); }
+.search-box input::placeholder { color: var(--ink-3); }
+
+.sort-btn { height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px; color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .15s; }
+.sort-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+
+/* Table */
+.table-wrap { flex: 1; min-height: 0; padding: 0 28px 14px; display: flex; flex-direction: column; }
+.table-card { flex: 1; min-height: 0; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+.table-scroll { flex: 1; overflow: auto; }
+.ctable { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; table-layout: fixed; }
+
+.ctable thead th { background: var(--bg-muted); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--ink-3); padding: 11px 14px; border-bottom: 1px solid var(--rule); text-align: left; position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+.ctable thead th.r { text-align: right; }
+.ctable thead th.c { text-align: center; }
+
+.ctable tbody td { padding: 12px 14px; border-bottom: 1px solid var(--rule-soft); font-size: 13px; color: var(--ink); vertical-align: middle; }
+.ctable tbody tr.row { cursor: pointer; transition: background .1s; }
+.ctable tbody tr.row:hover td { background: var(--bg-muted); }
+.ctable tbody tr.row.expanded td { background: var(--accent-soft); }
+
+.ctable col.c-supp       { width: 22%; }
+.ctable col.c-contact    { width: 12%; }
+.ctable col.c-pay        { width: 13%; }
+.ctable col.c-terms      { width: 16%; }
+.ctable col.c-ptd        { width: 13%; }
+.ctable col.c-last       { width: 14%; }
+.ctable col.c-act        { width: 10%; }
+
+.party-inline { display: flex; align-items: center; gap: 10px; }
+.party-inline .nm { display: flex; flex-direction: column; min-width: 0; }
+
+.pc-name { font-size: 14px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+.pc-sub  { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+
+.avatar-sm { width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-family: 'Fraunces', serif; font-weight: 600; font-size: 12px; display: inline-grid; place-items: center; box-shadow: inset 0 0 0 1px var(--accent-border); flex-shrink: 0; }
+
+.contact-icons { display: flex; gap: 4px; align-items: center; }
+.cib { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; background: var(--bg-muted); color: var(--ink-2); cursor: pointer; transition: all .12s; }
+.cib:hover { background: var(--up-soft); color: var(--up); }
+.cib svg { width: 13px; height: 13px; }
+.contact-phone { font-size: 11.5px; color: var(--ink-2); margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+.pay-v { font-size: 15px; font-weight: 700; color: var(--up); }
+.pay-tag { font-size: 10px; font-weight: 700; color: var(--ink-3); letter-spacing: 0.5px; margin-left: 2px; }
+.pay-v.zero { color: var(--flat); font-weight: 600; }
+.pay-v.adv  { color: var(--down); }
+
+/* Terms cell */
+.terms-cell { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.terms-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.terms-row .label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--ink-3); }
+.terms-row .days   { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.terms-row .days.ok   { color: var(--due-ok); }
+.terms-row .days.soon { color: var(--due-soon); }
+.terms-row .days.hot  { color: var(--due-hot); }
+.terms-row .days.over { color: var(--due-over); }
+.terms-row .days.over::before { content: '▲ '; font-size: 9px; }
+
+.terms-bar {
+  height: 5px; border-radius: 99px; overflow: hidden;
+  background: var(--bg-muted); position: relative;
+}
+.terms-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 99px; }
+.terms-fill.ok   { background: var(--due-ok); }
+.terms-fill.soon { background: var(--due-soon); }
+.terms-fill.hot  { background: var(--due-hot); }
+.terms-fill.over { background: var(--due-over); }
+.terms-marker {
+  position: absolute; top: -2px; width: 1.5px; height: 9px;
+  background: var(--ink); opacity: 0.4;
+}
+
+/* PTD (Paid to date) */
+.ptd-cell { display: flex; flex-direction: column; gap: 3px; }
+.ptd-cell .lbl-row { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--ink-3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.ptd-cell .num-row { display: flex; justify-content: space-between; font-size: 12.5px; }
+.ptd-cell .num-row .paid  { color: var(--up); font-weight: 700; font-variant-numeric: tabular-nums; }
+.ptd-cell .num-row .total { color: var(--ink-2); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Last txn */
+.last-cell { display: flex; flex-direction: column; gap: 3px; }
+.last-cell .type { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 99px; width: fit-content; }
+.last-cell .type.purchase { background: var(--t-purchase-soft); color: var(--t-purchase); }
+.last-cell .type.payment  { background: var(--t-payment-soft);  color: var(--t-payment); }
+.last-cell .ref { font-size: 11.5px; color: var(--ink-2); font-weight: 500; }
+.last-cell .dt  { font-size: 11px; color: var(--ink-3); }
+
+/* Actions */
+.actions-cell { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+.row-btn { height: 28px; padding: 0 10px; background: var(--accent); color: #FDFAF2; border: none; border-radius: 6px; font: inherit; font-weight: 600; font-size: 11.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 4px var(--accent-soft); transition: all .12s; }
+.row-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.row-btn.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); box-shadow: none; }
+.row-btn.ghost:hover { background: var(--bg-muted); color: var(--accent); border-color: var(--accent-border); }
+.row-btn.icon { padding: 0; width: 28px; justify-content: center; }
+
+.ctable tbody tr.row .chev { width: 16px; height: 16px; display: inline-block; color: var(--ink-3); transition: transform .2s; }
+.ctable tbody tr.row.expanded .chev { transform: rotate(90deg); color: var(--accent); }
+
+/* Hold badge */
+.hold-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  padding: 2px 8px; border-radius: 99px;
+  background: var(--warn-soft); color: var(--warn);
+  margin-left: 6px;
+}
+
+/* Risk dot */
+.risk-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.risk-dot.ok   { background: var(--due-ok); }
+.risk-dot.soon { background: var(--due-soon); }
+.risk-dot.hot  { background: var(--due-hot); box-shadow: 0 0 0 3px var(--due-hot-soft); }
+.risk-dot.over { background: var(--due-over); box-shadow: 0 0 0 3px var(--due-over-soft); animation: pulse 2s ease-in-out infinite; }
+
+/* Expanded */
+.ctable tbody tr.exp-content td { padding: 0; background: var(--bg-inset); border-bottom: 1px solid var(--rule); }
+.exp-inner { padding: 16px 24px 18px; display: grid; grid-template-columns: 1fr 280px; gap: 24px; }
+.exp-title { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; }
+.mini-txn { display: grid; grid-template-columns: 90px 110px 90px 1fr 110px 110px; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--rule-soft); font-size: 12.5px; align-items: center; }
+.mini-txn:last-child { border-bottom: none; }
+.mini-txn .ref-link { color: var(--accent); font-weight: 600; cursor: pointer; }
+.mini-txn .d   { color: var(--ink-3); }
+.mini-txn .r   { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mini-txn .r.dr { color: var(--down); }
+.mini-txn .r.cr { color: var(--up); }
+.mini-txn .r.mut { color: var(--ink-4); font-weight: 500; }
+
+.stat-panel { display: flex; flex-direction: column; gap: 10px; }
+.stat-row { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px; }
+.stat-row .k { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--ink-3); }
+.stat-row .v { font-size: 14px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stat-row .v.d { color: var(--down); }
+.stat-row .v.u { color: var(--up); }
+
+.exp-actions { display: flex; gap: 8px; margin-top: 14px; grid-column: 1 / -1; padding-top: 14px; border-top: 1px solid var(--rule-soft); }
+.exp-actions .row-btn { height: 34px; padding: 0 16px; font-size: 13px; }
+
+/* Drawer */
+.scrim { position: fixed; inset: 0; background: rgba(29,26,21,0.45); backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 50; }
+.scrim.open { opacity: 1; pointer-events: auto; }
+
+.drawer { position: fixed; right: 0; top: 0; bottom: 0; width: 440px; background: var(--bg-panel); border-left: 1px solid var(--rule); box-shadow: -12px 0 40px rgba(29,26,21,0.18); transform: translateX(100%); transition: transform .3s cubic-bezier(.2,.7,.2,1); z-index: 51; display: flex; flex-direction: column; }
+.drawer.ledger { width: 720px; }
+.drawer.open { transform: translateX(0); }
+.drawer-hd { padding: 16px 20px; border-bottom: 1px solid var(--rule-soft); display: flex; align-items: center; justify-content: space-between; }
+.drawer-hd h3 { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; color: var(--ink); }
+.drawer-hd .close { width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--rule); background: var(--bg-panel); color: var(--ink-2); cursor: pointer; display: grid; place-items: center; }
+.drawer-hd .close:hover { color: var(--accent); border-color: var(--accent-border); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 18px 20px; }
+
+.d-party { padding: 12px 14px; background: var(--bg-muted); border: 1px solid var(--rule); border-radius: 10px; display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.d-party .avatar-md { width: 40px; height: 40px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-family: 'Fraunces', serif; font-weight: 600; font-size: 16px; display: grid; place-items: center; box-shadow: inset 0 0 0 1px var(--accent-border); }
+.d-party .name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.d-party .out { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.d-party .out b { color: var(--up); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.field { margin-bottom: 14px; }
+.field .lbl { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); margin-bottom: 5px; }
+.field input, .field select { width: 100%; height: 40px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink); font: inherit; font-size: 14px; outline: none; transition: all .15s; }
+.field input:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.field.money input { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.mode-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.mode-pills .pill { padding: 7px 14px; border: 1px solid var(--rule); background: var(--bg-panel); color: var(--ink-2); border-radius: 99px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: all .15s; }
+.mode-pills .pill.on { background: var(--accent); color: #FDFAF2; border-color: var(--accent); }
+
+.alloc-list { background: var(--bg-muted); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.alloc-head { padding: 8px 12px; background: var(--bg-inset); font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px; color: var(--ink-3); text-transform: uppercase; display: grid; grid-template-columns: 24px 1fr auto auto; gap: 10px; }
+.alloc-row { padding: 10px 12px; display: grid; grid-template-columns: 24px 1fr auto 100px; gap: 10px; align-items: center; border-top: 1px solid var(--rule-soft); font-size: 13px; }
+.alloc-row input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+.alloc-row .bn { font-weight: 600; color: var(--ink); }
+.alloc-row .bd { font-size: 11.5px; color: var(--ink-3); }
+.alloc-row .bd .chip-over {
+  font-size: 10px; font-weight: 700; color: var(--due-over); padding: 1px 6px; background: var(--due-over-soft); border-radius: 99px; margin-left: 4px;
+}
+.alloc-row .bal { text-align: right; font-weight: 600; color: var(--up); font-variant-numeric: tabular-nums; }
+.alloc-row input.inp-amt { height: 32px; padding: 0 8px; border: 1px solid var(--rule); border-radius: 6px; text-align: right; font-size: 13px; font-weight: 600; background: var(--bg-panel); font-variant-numeric: tabular-nums; color: var(--ink); }
+
+.drawer-ft { padding: 14px 20px; border-top: 1px solid var(--rule-soft); background: var(--bg-muted); display: flex; gap: 10px; justify-content: space-between; align-items: center; }
+.summary-out { font-size: 12px; color: var(--ink-2); }
+.summary-out b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Ledger table */
+.ld-hero { padding: 14px; background: var(--bg-muted); border: 1px solid var(--rule); border-radius: 10px; margin-bottom: 14px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.ld-hero .k { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); }
+.ld-hero .v { font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.ld-hero .v.dr { color: var(--down); }
+.ld-hero .v.cr { color: var(--up); }
+.ld-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ld-tbl th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--ink-3); padding: 8px; border-bottom: 1px solid var(--rule); background: var(--bg-muted); position: sticky; top: 0; }
+.ld-tbl th.r { text-align: right; }
+.ld-tbl td { padding: 9px 8px; border-bottom: 1px solid var(--rule-soft); font-variant-numeric: tabular-nums; }
+.ld-tbl td.r { text-align: right; font-weight: 600; }
+
+.theme-bar { padding: 0 28px 12px; display: flex; justify-content: flex-end; flex-shrink: 0; }
+.glass { background: var(--glass-bg); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); border: 1px solid var(--glass-border); box-shadow: 0 1px 2px var(--glass-shadow), 0 8px 24px var(--glass-shadow), inset 0 1px 0 var(--glass-inset); }
+.theme-switch { display: inline-flex; padding: 4px; border-radius: 99px; font-size: 13px; }
+.theme-switch button { padding: 6px 14px; border: none; background: transparent; font-family: inherit; color: var(--ink-2); cursor: pointer; border-radius: 99px; font-weight: 500; transition: all .2s; }
+.theme-switch button.on { background: var(--accent); color: #FDFAF2; box-shadow: 0 2px 10px rgba(177,71,47,0.32); }
+[data-mode="dark"] .theme-switch button.on { color: #0E0B08; }
+</style>
+</head>
+<body data-mode="light">
+
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-brand-icon">⚡</div>
+      <div class="sb-brand-name">Billing ERP</div>
+    </div>
+    <div class="sb-section">Overview</div>
+    <div class="sb-item"><span class="ic">◈</span> Dashboard</div>
+    <div class="sb-section">Transactions</div>
+    <div class="sb-item"><span class="ic">⌗</span> Sales</div>
+    <div class="sb-item"><span class="ic">⌕</span> Purchase</div>
+    <div class="sb-section">Master</div>
+    <div class="sb-item"><span class="ic">◉</span> Customers</div>
+    <div class="sb-item active"><span class="ic">◎</span> Suppliers</div>
+    <div class="sb-item"><span class="ic">▢</span> Inventory</div>
+    <div class="sb-item"><span class="ic">☰</span> Categories</div>
+    <div class="sb-section">Finance</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments</div>
+    <div class="sb-item"><span class="ic">∿</span> Reports</div>
+    <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+  </aside>
+
+  <main class="main">
+
+    <div class="crumb-bar">
+      <div>Master · <b>Suppliers</b></div>
+      <div>Press <span class="kbd">⌘K</span> to search anywhere</div>
+    </div>
+
+    <div class="page-hd">
+      <div class="page-title">
+        <h1>Suppliers</h1>
+        <div class="sub"><b>28</b> active · <b>₹ 6,18,400</b> payable · <b style="color: var(--due-over)">4</b> overdue · <b>₹ 2,04,500</b> due this week</div>
+      </div>
+      <div class="hd-ctrl">
+        <button class="cta ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+        <button class="cta">+ New supplier</button>
+      </div>
+    </div>
+
+    <!-- Due hero -->
+    <div class="due-hero">
+      <div class="due-card total">
+        <div class="k">Total Payable</div>
+        <div class="v num">₹ 6,18,400</div>
+        <div class="sub">22 bills · 11 suppliers</div>
+        <div class="bar"><div class="fill" style="background: var(--accent); width: 100%;"></div></div>
+      </div>
+      <div class="due-card week active">
+        <span class="pct">33%</span>
+        <div class="k">Due this week</div>
+        <div class="v num">₹ 2,04,500</div>
+        <div class="sub">5 bills · next: 20 Apr</div>
+        <div class="bar"><div class="fill"></div></div>
+      </div>
+      <div class="due-card short">
+        <span class="pct">24%</span>
+        <div class="k">8 – 30 days</div>
+        <div class="v num">₹ 1,48,400</div>
+        <div class="sub">8 bills · on track</div>
+        <div class="bar"><div class="fill"></div></div>
+      </div>
+      <div class="due-card medium">
+        <span class="pct">23%</span>
+        <div class="k">31 – 60 days</div>
+        <div class="v num">₹ 1,42,500</div>
+        <div class="sub">5 bills · watch</div>
+        <div class="bar"><div class="fill"></div></div>
+      </div>
+      <div class="due-card over">
+        <span class="pct">20%</span>
+        <div class="k">Overdue</div>
+        <div class="v num">₹ 1,23,000</div>
+        <div class="sub">4 bills · past terms</div>
+        <div class="alarm-indicator"><span class="dot"></span> ACTION NEEDED</div>
+      </div>
+    </div>
+
+    <!-- Lens + search -->
+    <div class="lens-bar">
+      <div class="lens-chips">
+        <button class="lens-chip on">All <span class="count">28</span></button>
+        <button class="lens-chip alarm">Overdue <span class="count">4</span></button>
+        <button class="lens-chip">Due this week <span class="count">5</span></button>
+        <button class="lens-chip">High balance · &gt; ₹1L <span class="count">4</span></button>
+        <button class="lens-chip">Terms mismatch <span class="count">3</span></button>
+        <button class="lens-chip">Hold list <span class="count">2</span></button>
+        <button class="lens-chip">New this month <span class="count">3</span></button>
+      </div>
+      <div class="search-group">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search suppliers…"/>
+        </div>
+        <button class="sort-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+          Sort: Due date ↑
+        </button>
+      </div>
+    </div>
+
+    <!-- Main table -->
+    <div class="table-wrap">
+      <div class="table-card">
+        <div class="table-scroll">
+          <table class="ctable">
+            <colgroup>
+              <col class="c-supp"/>
+              <col class="c-contact"/>
+              <col class="c-pay"/>
+              <col class="c-terms"/>
+              <col class="c-ptd"/>
+              <col class="c-last"/>
+              <col class="c-act"/>
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Supplier</th>
+                <th>Contact</th>
+                <th class="r">Payable</th>
+                <th>Terms · Days to pay</th>
+                <th>Paid / Billed · 90 d</th>
+                <th>Last transaction</th>
+                <th class="r">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+
+              <!-- Row 1: expanded -->
+              <tr class="row expanded" data-row="1">
+                <td>
+                  <div class="party-inline">
+                    <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    <div class="avatar-sm">G</div>
+                    <div class="nm">
+                      <span class="pc-name">Gupta Wholesalers <span class="risk-dot soon"></span></span>
+                      <span class="pc-sub">Delhi · 07AAFCG6652L1ZP</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="contact-icons">
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.92.35 1.82.66 2.68a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.4-1.4a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.68.66A2 2 0 0 1 22 16.92z"/></svg></span>
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A12 12 0 0 0 3.7 19.36L2 22l2.72-1.65A12 12 0 1 0 20.52 3.48zm-8.52 18a9.93 9.93 0 0 1-5.12-1.42l-.37-.22-2.42 1.47.5-2.4-.26-.39A10 10 0 1 1 12 21.48z"/></svg></span>
+                  </div>
+                  <div class="contact-phone">98100 22330</div>
+                </td>
+                <td class="r"><span class="pay-v num">₹ 2,42,800</span> <span class="pay-tag">Cr</span></td>
+                <td>
+                  <div class="terms-cell">
+                    <div class="terms-row">
+                      <span class="label">Net 45</span>
+                      <span class="days soon num">12 days left</span>
+                    </div>
+                    <div class="terms-bar">
+                      <div class="terms-fill soon" style="width: 73%"></div>
+                      <div class="terms-marker" style="left: 73%"></div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ptd-cell">
+                    <div class="lbl-row"><span>Paid</span><span>Billed</span></div>
+                    <div class="num-row"><span class="paid">₹ 1,30,000</span><span class="total">₹ 3,72,800</span></div>
+                    <div style="height: 4px; border-radius: 99px; background: var(--bg-muted); margin-top: 4px; overflow: hidden;"><div style="height: 100%; background: var(--up); width: 35%;"></div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="last-cell">
+                    <span class="type payment">Payment</span>
+                    <span class="ref">PAY-000088 · ₹ 20,000</span>
+                    <span class="dt">18 Apr · 1 day ago</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="actions-cell">
+                    <button class="row-btn">+ Pay</button>
+                    <button class="row-btn ghost icon">⋯</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Expanded content -->
+              <tr class="exp-content" data-exp-for="1">
+                <td colspan="7">
+                  <div class="exp-inner">
+                    <div>
+                      <div class="exp-title">Last 5 transactions</div>
+                      <div class="mini-txn"><span class="type payment" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-payment-soft); color: var(--t-payment);">Payment</span><span class="ref-link">PAY-000088</span><span class="d">18 Apr</span><span>UPI · on-account FIFO</span><span class="r dr num">₹ 20,000</span><span class="r mut">—</span></div>
+                      <div class="mini-txn"><span class="type purchase" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-purchase-soft); color: var(--t-purchase);">Purchase</span><span class="ref-link">PB-000079</span><span class="d">16 Apr</span><span>Express order · 6 SKUs</span><span class="r mut">—</span><span class="r cr num">₹ 45,500</span></div>
+                      <div class="mini-txn"><span class="type payment" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-payment-soft); color: var(--t-payment);">Payment</span><span class="ref-link">PAY-000082</span><span class="d">14 Apr</span><span>Cheque · partial against PB-068</span><span class="r dr num">₹ 50,000</span><span class="r mut">—</span></div>
+                      <div class="mini-txn"><span class="type purchase" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-purchase-soft); color: var(--t-purchase);">Purchase</span><span class="ref-link">PB-000068</span><span class="d">11 Apr</span><span>Stock refill · 18 SKUs</span><span class="r mut">—</span><span class="r cr num">₹ 84,600</span></div>
+                      <div class="mini-txn"><span class="type payment" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-payment-soft); color: var(--t-payment);">Payment</span><span class="ref-link">PAY-000077</span><span class="d">08 Apr</span><span>RTGS · against PB-054 full</span><span class="r dr num">₹ 60,000</span><span class="r mut">—</span></div>
+                    </div>
+                    <div class="stat-panel">
+                      <div class="stat-row"><span class="k">Next payment due</span><span class="v num">20 Apr</span></div>
+                      <div class="stat-row"><span class="k">90-day spend</span><span class="v num">₹ 3,72,800</span></div>
+                      <div class="stat-row"><span class="k">Avg days to pay</span><span class="v num">39 d</span></div>
+                      <div class="stat-row"><span class="k">Purchase orders · 12m</span><span class="v num">48</span></div>
+                    </div>
+                    <div class="exp-actions">
+                      <button class="row-btn" onclick="openDrawer('pay')">+ Make payment</button>
+                      <button class="row-btn ghost" onclick="openDrawer('ledger')">View full ledger →</button>
+                      <button class="row-btn ghost">Purchase history</button>
+                      <button class="row-btn ghost">Edit details</button>
+                      <button class="row-btn ghost" style="margin-left: auto;">Put on hold</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 2 -->
+              <tr class="row">
+                <td>
+                  <div class="party-inline">
+                    <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    <div class="avatar-sm">M</div>
+                    <div class="nm">
+                      <span class="pc-name">Mahalaxmi Textiles <span class="risk-dot over"></span></span>
+                      <span class="pc-sub">Surat · 24AAACM9902K1ZX</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="contact-icons">
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.92.35 1.82.66 2.68a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.4-1.4a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.68.66A2 2 0 0 1 22 16.92z"/></svg></span>
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A12 12 0 0 0 3.7 19.36L2 22l2.72-1.65A12 12 0 1 0 20.52 3.48z"/></svg></span>
+                  </div>
+                  <div class="contact-phone">99241 77050</div>
+                </td>
+                <td class="r"><span class="pay-v num">₹ 1,18,600</span> <span class="pay-tag">Cr</span></td>
+                <td>
+                  <div class="terms-cell">
+                    <div class="terms-row">
+                      <span class="label">Net 30</span>
+                      <span class="days over num">18 days over</span>
+                    </div>
+                    <div class="terms-bar">
+                      <div class="terms-fill over" style="width: 100%"></div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ptd-cell">
+                    <div class="lbl-row"><span>Paid</span><span>Billed</span></div>
+                    <div class="num-row"><span class="paid">₹ 84,000</span><span class="total">₹ 2,02,600</span></div>
+                    <div style="height: 4px; border-radius: 99px; background: var(--bg-muted); margin-top: 4px; overflow: hidden;"><div style="height: 100%; background: var(--up); width: 41%;"></div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="last-cell">
+                    <span class="type purchase">Purchase</span>
+                    <span class="ref">PB-000062 · ₹ 1,18,600</span>
+                    <span class="dt">20 Mar · 30 days ago</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="actions-cell">
+                    <button class="row-btn">+ Pay</button>
+                    <button class="row-btn ghost icon">⋯</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 3 -->
+              <tr class="row">
+                <td>
+                  <div class="party-inline">
+                    <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    <div class="avatar-sm">R</div>
+                    <div class="nm">
+                      <span class="pc-name">Rajput Paper Mills <span class="risk-dot soon"></span><span class="hold-badge">HOLD</span></span>
+                      <span class="pc-sub">Jaipur · quality dispute open</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="contact-icons">
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.92.35 1.82.66 2.68a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.4-1.4a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.68.66A2 2 0 0 1 22 16.92z"/></svg></span>
+                  </div>
+                  <div class="contact-phone">—</div>
+                </td>
+                <td class="r"><span class="pay-v num">₹ 84,300</span> <span class="pay-tag">Cr</span></td>
+                <td>
+                  <div class="terms-cell">
+                    <div class="terms-row">
+                      <span class="label">Net 60</span>
+                      <span class="days hot num">4 days left</span>
+                    </div>
+                    <div class="terms-bar">
+                      <div class="terms-fill hot" style="width: 94%"></div>
+                      <div class="terms-marker" style="left: 94%"></div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ptd-cell">
+                    <div class="lbl-row"><span>Paid</span><span>Billed</span></div>
+                    <div class="num-row"><span class="paid">₹ 42,000</span><span class="total">₹ 1,26,300</span></div>
+                    <div style="height: 4px; border-radius: 99px; background: var(--bg-muted); margin-top: 4px; overflow: hidden;"><div style="height: 100%; background: var(--up); width: 33%;"></div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="last-cell">
+                    <span class="type purchase">Purchase</span>
+                    <span class="ref">PB-000047 · ₹ 42,150</span>
+                    <span class="dt">19 Feb · 60 days ago</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="actions-cell">
+                    <button class="row-btn ghost">Resume</button>
+                    <button class="row-btn ghost icon">⋯</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 4 -->
+              <tr class="row">
+                <td>
+                  <div class="party-inline">
+                    <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    <div class="avatar-sm">D</div>
+                    <div class="nm">
+                      <span class="pc-name">Deep Hardware Co. <span class="risk-dot ok"></span></span>
+                      <span class="pc-sub">Ludhiana · 03AAFCD5502K1ZE</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="contact-icons">
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.92.35 1.82.66 2.68a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.4-1.4a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.68.66A2 2 0 0 1 22 16.92z"/></svg></span>
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A12 12 0 0 0 3.7 19.36L2 22l2.72-1.65A12 12 0 1 0 20.52 3.48z"/></svg></span>
+                  </div>
+                  <div class="contact-phone">98141 66550</div>
+                </td>
+                <td class="r"><span class="pay-v num">₹ 72,500</span> <span class="pay-tag">Cr</span></td>
+                <td>
+                  <div class="terms-cell">
+                    <div class="terms-row">
+                      <span class="label">Net 30</span>
+                      <span class="days ok num">22 days left</span>
+                    </div>
+                    <div class="terms-bar">
+                      <div class="terms-fill ok" style="width: 27%"></div>
+                      <div class="terms-marker" style="left: 27%"></div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ptd-cell">
+                    <div class="lbl-row"><span>Paid</span><span>Billed</span></div>
+                    <div class="num-row"><span class="paid">₹ 1,18,200</span><span class="total">₹ 1,90,700</span></div>
+                    <div style="height: 4px; border-radius: 99px; background: var(--bg-muted); margin-top: 4px; overflow: hidden;"><div style="height: 100%; background: var(--up); width: 62%;"></div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="last-cell">
+                    <span class="type purchase">Purchase</span>
+                    <span class="ref">PB-000076 · ₹ 72,500</span>
+                    <span class="dt">12 Apr · 7 days ago</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="actions-cell">
+                    <button class="row-btn">+ Pay</button>
+                    <button class="row-btn ghost icon">⋯</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 5 -->
+              <tr class="row">
+                <td>
+                  <div class="party-inline">
+                    <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    <div class="avatar-sm">A</div>
+                    <div class="nm">
+                      <span class="pc-name">Ajanta Distributors <span class="risk-dot ok"></span></span>
+                      <span class="pc-sub">Pune</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="contact-icons">
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.92.35 1.82.66 2.68a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.4-1.4a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.68.66A2 2 0 0 1 22 16.92z"/></svg></span>
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A12 12 0 0 0 3.7 19.36L2 22l2.72-1.65A12 12 0 1 0 20.52 3.48z"/></svg></span>
+                  </div>
+                  <div class="contact-phone">98220 88441</div>
+                </td>
+                <td class="r"><span class="pay-v num">₹ 56,900</span> <span class="pay-tag">Cr</span></td>
+                <td>
+                  <div class="terms-cell">
+                    <div class="terms-row">
+                      <span class="label">Net 15</span>
+                      <span class="days ok num">9 days left</span>
+                    </div>
+                    <div class="terms-bar">
+                      <div class="terms-fill ok" style="width: 40%"></div>
+                      <div class="terms-marker" style="left: 40%"></div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ptd-cell">
+                    <div class="lbl-row"><span>Paid</span><span>Billed</span></div>
+                    <div class="num-row"><span class="paid">₹ 94,500</span><span class="total">₹ 1,51,400</span></div>
+                    <div style="height: 4px; border-radius: 99px; background: var(--bg-muted); margin-top: 4px; overflow: hidden;"><div style="height: 100%; background: var(--up); width: 62%;"></div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="last-cell">
+                    <span class="type payment">Payment</span>
+                    <span class="ref">PAY-000085 · ₹ 25,000</span>
+                    <span class="dt">15 Apr · 4 days ago</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="actions-cell">
+                    <button class="row-btn">+ Pay</button>
+                    <button class="row-btn ghost icon">⋯</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 6 -->
+              <tr class="row">
+                <td>
+                  <div class="party-inline">
+                    <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    <div class="avatar-sm">S</div>
+                    <div class="nm">
+                      <span class="pc-name">Sagar Plastics <span class="risk-dot over"></span></span>
+                      <span class="pc-sub">Vapi · last 2 bills overdue</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="contact-icons">
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.92.35 1.82.66 2.68a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.4-1.4a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.68.66A2 2 0 0 1 22 16.92z"/></svg></span>
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A12 12 0 0 0 3.7 19.36L2 22l2.72-1.65A12 12 0 1 0 20.52 3.48z"/></svg></span>
+                  </div>
+                  <div class="contact-phone">99980 11220</div>
+                </td>
+                <td class="r"><span class="pay-v num">₹ 41,200</span> <span class="pay-tag">Cr</span></td>
+                <td>
+                  <div class="terms-cell">
+                    <div class="terms-row">
+                      <span class="label">Net 15</span>
+                      <span class="days over num">8 days over</span>
+                    </div>
+                    <div class="terms-bar">
+                      <div class="terms-fill over" style="width: 100%"></div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ptd-cell">
+                    <div class="lbl-row"><span>Paid</span><span>Billed</span></div>
+                    <div class="num-row"><span class="paid">₹ 28,000</span><span class="total">₹ 69,200</span></div>
+                    <div style="height: 4px; border-radius: 99px; background: var(--bg-muted); margin-top: 4px; overflow: hidden;"><div style="height: 100%; background: var(--up); width: 40%;"></div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="last-cell">
+                    <span class="type purchase">Purchase</span>
+                    <span class="ref">PB-000058 · ₹ 23,700</span>
+                    <span class="dt">20 Mar · 30 days ago</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="actions-cell">
+                    <button class="row-btn">+ Pay</button>
+                    <button class="row-btn ghost icon">⋯</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 7 -->
+              <tr class="row">
+                <td>
+                  <div class="party-inline">
+                    <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    <div class="avatar-sm">B</div>
+                    <div class="nm">
+                      <span class="pc-name">Bombay Packaging</span>
+                      <span class="pc-sub">Mumbai · advance paid</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="contact-icons">
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.92.35 1.82.66 2.68a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.4-1.4a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.68.66A2 2 0 0 1 22 16.92z"/></svg></span>
+                  </div>
+                  <div class="contact-phone">—</div>
+                </td>
+                <td class="r"><span class="pay-v adv num">₹ 8,400</span> <span class="pay-tag">Dr</span></td>
+                <td>
+                  <div class="terms-cell">
+                    <div class="terms-row">
+                      <span class="label">—</span>
+                      <span class="days ok">advance on account</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ptd-cell">
+                    <div class="lbl-row"><span>Paid</span><span>Billed</span></div>
+                    <div class="num-row"><span class="paid">₹ 42,400</span><span class="total">₹ 34,000</span></div>
+                    <div style="height: 4px; border-radius: 99px; background: var(--bg-muted); margin-top: 4px; overflow: hidden;"><div style="height: 100%; background: var(--down); width: 100%;"></div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="last-cell">
+                    <span class="type payment">Payment</span>
+                    <span class="ref">PAY-000081 · ₹ 15,000</span>
+                    <span class="dt">09 Apr · 10 days ago</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="actions-cell">
+                    <button class="row-btn ghost">New PO</button>
+                    <button class="row-btn ghost icon">⋯</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 8 -->
+              <tr class="row">
+                <td>
+                  <div class="party-inline">
+                    <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    <div class="avatar-sm">G</div>
+                    <div class="nm">
+                      <span class="pc-name">Gokul Foods <span class="risk-dot soon"></span></span>
+                      <span class="pc-sub">Ahmedabad</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="contact-icons">
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.92.35 1.82.66 2.68a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.4-1.4a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.68.66A2 2 0 0 1 22 16.92z"/></svg></span>
+                    <span class="cib"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A12 12 0 0 0 3.7 19.36L2 22l2.72-1.65A12 12 0 1 0 20.52 3.48z"/></svg></span>
+                  </div>
+                  <div class="contact-phone">98706 22110</div>
+                </td>
+                <td class="r"><span class="pay-v num">₹ 66,800</span> <span class="pay-tag">Cr</span></td>
+                <td>
+                  <div class="terms-cell">
+                    <div class="terms-row">
+                      <span class="label">Net 30</span>
+                      <span class="days soon num">6 days left</span>
+                    </div>
+                    <div class="terms-bar">
+                      <div class="terms-fill soon" style="width: 80%"></div>
+                      <div class="terms-marker" style="left: 80%"></div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ptd-cell">
+                    <div class="lbl-row"><span>Paid</span><span>Billed</span></div>
+                    <div class="num-row"><span class="paid">₹ 55,200</span><span class="total">₹ 1,22,000</span></div>
+                    <div style="height: 4px; border-radius: 99px; background: var(--bg-muted); margin-top: 4px; overflow: hidden;"><div style="height: 100%; background: var(--up); width: 45%;"></div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="last-cell">
+                    <span class="type purchase">Purchase</span>
+                    <span class="ref">PB-000074 · ₹ 66,800</span>
+                    <span class="dt">06 Apr · 13 days ago</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="actions-cell">
+                    <button class="row-btn">+ Pay</button>
+                    <button class="row-btn ghost icon">⋯</button>
+                  </div>
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Theme -->
+    <div class="theme-bar">
+      <div class="theme-switch glass">
+        <button id="themeLight" class="on">☀ Light</button>
+        <button id="themeDark">☾ Dark</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Pay drawer -->
+<div class="scrim" id="scrim"></div>
+<div class="drawer" id="drawerPay">
+  <div class="drawer-hd">
+    <h3>Make payment</h3>
+    <button class="close" onclick="closeDrawers()">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="d-party">
+      <div class="avatar-md">G</div>
+      <div style="flex: 1;">
+        <div class="name">Gupta Wholesalers</div>
+        <div class="out">Payable: <b>₹ 2,42,800 Cr</b> · 3 open bills · Net 45</div>
+      </div>
+    </div>
+
+    <div class="field money">
+      <div class="lbl">Amount to pay</div>
+      <input type="text" value="₹ 80,000"/>
+    </div>
+
+    <div class="field">
+      <div class="lbl">Payment mode</div>
+      <div class="mode-pills">
+        <button class="pill">Cash</button>
+        <button class="pill">UPI</button>
+        <button class="pill on">Bank transfer</button>
+        <button class="pill">Cheque</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="lbl">Allocate to bills · oldest first</div>
+      <div class="alloc-list">
+        <div class="alloc-head"><span></span><span>Bill</span><span>Balance</span><span>Allocate</span></div>
+        <div class="alloc-row">
+          <input type="checkbox" checked/>
+          <div><div class="bn">PB-000054</div><div class="bd">04 Apr · Net 45 <span class="chip-over">18 d left</span></div></div>
+          <div class="bal">₹ 68,500</div>
+          <input class="inp-amt" value="68,500"/>
+        </div>
+        <div class="alloc-row">
+          <input type="checkbox" checked/>
+          <div><div class="bn">PB-000068</div><div class="bd">11 Apr · Net 45</div></div>
+          <div class="bal">₹ 34,600</div>
+          <input class="inp-amt" value="11,500"/>
+        </div>
+        <div class="alloc-row">
+          <input type="checkbox"/>
+          <div><div class="bn">PB-000079</div><div class="bd">16 Apr · Net 45</div></div>
+          <div class="bal">₹ 45,500</div>
+          <input class="inp-amt" value="0"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="lbl">Bank reference (optional)</div>
+      <input type="text" placeholder="UTR, cheque number…"/>
+    </div>
+  </div>
+  <div class="drawer-ft">
+    <div class="summary-out">Allocated <b>₹ 80,000</b> · unallocated <b>₹ 0</b></div>
+    <div style="display: flex; gap: 8px;">
+      <button class="cta ghost" onclick="closeDrawers()">Cancel</button>
+      <button class="cta">Save payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ledger drawer -->
+<div class="drawer ledger" id="drawerLedger">
+  <div class="drawer-hd">
+    <h3>Gupta Wholesalers · Ledger</h3>
+    <button class="close" onclick="closeDrawers()">✕</button>
+  </div>
+  <div class="drawer-body">
+
+    <div class="ld-hero">
+      <div><div class="k">Debit (paid)</div><div class="v dr num">₹ 1,30,000</div></div>
+      <div><div class="k">Credit (billed)</div><div class="v cr num">₹ 3,72,800</div></div>
+      <div><div class="k">Closing</div><div class="v cr num">₹ 2,42,800 Cr</div></div>
+    </div>
+
+    <table class="ld-tbl">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Number</th>
+          <th>Date</th>
+          <th>Particulars</th>
+          <th class="r">Debit</th>
+          <th class="r">Credit</th>
+          <th class="r">Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background: var(--bg-inset); font-style: italic; color: var(--ink-2);">
+          <td><span class="type" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-opening-soft); color: var(--t-opening);">Opening</span></td>
+          <td>—</td><td>01 Apr 26</td><td>Opening balance</td>
+          <td class="r" style="color: var(--ink-4);">—</td><td class="r" style="color: var(--up);">₹ 1,14,200</td><td class="r" style="color: var(--up);">₹ 1,14,200 Cr</td>
+        </tr>
+        <tr>
+          <td><span class="type" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-purchase-soft); color: var(--t-purchase);">Purchase</span></td>
+          <td><a style="color: var(--accent); font-weight: 600;">PB-000054</a></td>
+          <td>04 Apr 26</td><td>Stock refill · 42 SKUs</td>
+          <td class="r" style="color: var(--ink-4);">—</td><td class="r" style="color: var(--up);">₹ 1,28,500</td><td class="r" style="color: var(--up);">₹ 2,42,700 Cr</td>
+        </tr>
+        <tr>
+          <td><span class="type" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-payment-soft); color: var(--t-payment);">Payment</span></td>
+          <td><a style="color: var(--accent); font-weight: 600;">PAY-000077</a></td>
+          <td>08 Apr 26</td><td>RTGS · PB-054 full</td>
+          <td class="r" style="color: var(--down);">₹ 60,000</td><td class="r" style="color: var(--ink-4);">—</td><td class="r" style="color: var(--up);">₹ 1,82,700 Cr</td>
+        </tr>
+        <tr>
+          <td><span class="type" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-purchase-soft); color: var(--t-purchase);">Purchase</span></td>
+          <td><a style="color: var(--accent); font-weight: 600;">PB-000068</a></td>
+          <td>11 Apr 26</td><td>Stock refill · 18 SKUs</td>
+          <td class="r" style="color: var(--ink-4);">—</td><td class="r" style="color: var(--up);">₹ 84,600</td><td class="r" style="color: var(--up);">₹ 2,67,300 Cr</td>
+        </tr>
+        <tr>
+          <td><span class="type" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-payment-soft); color: var(--t-payment);">Payment</span></td>
+          <td><a style="color: var(--accent); font-weight: 600;">PAY-000082</a></td>
+          <td>14 Apr 26</td><td>Cheque · partial PB-068</td>
+          <td class="r" style="color: var(--down);">₹ 50,000</td><td class="r" style="color: var(--ink-4);">—</td><td class="r" style="color: var(--up);">₹ 2,17,300 Cr</td>
+        </tr>
+        <tr>
+          <td><span class="type" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-purchase-soft); color: var(--t-purchase);">Purchase</span></td>
+          <td><a style="color: var(--accent); font-weight: 600;">PB-000079</a></td>
+          <td>16 Apr 26</td><td>Express order · 6 SKUs</td>
+          <td class="r" style="color: var(--ink-4);">—</td><td class="r" style="color: var(--up);">₹ 45,500</td><td class="r" style="color: var(--up);">₹ 2,62,800 Cr</td>
+        </tr>
+        <tr>
+          <td><span class="type" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background: var(--t-payment-soft); color: var(--t-payment);">Payment</span></td>
+          <td><a style="color: var(--accent); font-weight: 600;">PAY-000088</a></td>
+          <td>18 Apr 26</td><td>UPI · on-account FIFO</td>
+          <td class="r" style="color: var(--down);">₹ 20,000</td><td class="r" style="color: var(--ink-4);">—</td><td class="r" style="color: var(--up);">₹ 2,42,800 Cr</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="drawer-ft">
+    <div class="summary-out">Showing <b>7 transactions</b> · period 01-19 Apr</div>
+    <div style="display: flex; gap: 8px;">
+      <button class="cta ghost">Print</button>
+      <button class="cta ghost">Export</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById('themeLight').onclick = () => { document.body.setAttribute('data-mode', 'light'); themeLight.classList.add('on'); themeDark.classList.remove('on'); };
+  document.getElementById('themeDark').onclick = () => { document.body.setAttribute('data-mode', 'dark'); themeDark.classList.add('on'); themeLight.classList.remove('on'); };
+
+  document.querySelectorAll('tr.row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.row-btn, .cib')) return;
+      const wasExpanded = row.classList.contains('expanded');
+      document.querySelectorAll('tr.row.expanded').forEach(r => r.classList.remove('expanded'));
+      if (!wasExpanded) row.classList.add('expanded');
+    });
+  });
+
+  document.querySelectorAll('.row-btn').forEach(btn => {
+    if (btn.innerText.trim().startsWith('+ Pay')) {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); openDrawer('pay'); });
+    }
+  });
+
+  function openDrawer(which) {
+    document.getElementById('scrim').classList.add('open');
+    if (which === 'pay')    document.getElementById('drawerPay').classList.add('open');
+    if (which === 'ledger') document.getElementById('drawerLedger').classList.add('open');
+  }
+  function closeDrawers() {
+    document.getElementById('scrim').classList.remove('open');
+    document.getElementById('drawerPay').classList.remove('open');
+    document.getElementById('drawerLedger').classList.remove('open');
+  }
+  document.getElementById('scrim').onclick = closeDrawers;
+
+  document.querySelectorAll('.lens-chip').forEach(c => c.addEventListener('click', () => {
+    document.querySelectorAll('.lens-chip.on').forEach(x => x.classList.remove('on'));
+    c.classList.add('on');
+  }));
+</script>
+
+</body>
+</html>

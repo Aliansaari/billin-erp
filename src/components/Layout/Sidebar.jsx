@@ -6,29 +6,11 @@ import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
+import { menuItems, getOpenKeys } from './menuConfig';
 import {
-  DashboardOutlined,
-  ShoppingCartOutlined,
-  ShoppingOutlined,
-  TeamOutlined,
-  InboxOutlined,
-  DollarOutlined,
-  BarChartOutlined,
   SettingOutlined,
   UserOutlined,
-  TagsOutlined,
-  FileTextOutlined,
-  WalletOutlined,
-  FundOutlined,
-  AppstoreOutlined,
-  StockOutlined,
-  PlusCircleOutlined,
-  UnorderedListOutlined,
-  BankOutlined,
   ThunderboltOutlined,
-  TableOutlined,
-  CloudServerOutlined,
-  BgColorsOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   LogoutOutlined,
@@ -39,93 +21,9 @@ import {
 
 const { Sider } = Layout;
 
-const menuItems = [
-  { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
-  {
-    key: 'sales-menu',
-    icon: <ShoppingOutlined />,
-    label: 'Sales',
-    children: [
-      { key: '/sale/new', icon: <PlusCircleOutlined />, label: 'New Sales Bill' },
-      { key: '/sales', icon: <UnorderedListOutlined />, label: 'Sales List' },
-    ],
-  },
-  {
-    key: 'purchase-menu',
-    icon: <ShoppingCartOutlined />,
-    label: 'Purchase',
-    children: [
-      { key: '/purchase/new', icon: <PlusCircleOutlined />, label: 'New Purchase Bill' },
-      { key: '/purchases', icon: <UnorderedListOutlined />, label: 'Purchase List' },
-    ],
-  },
-  {
-    key: 'parties-menu',
-    icon: <TeamOutlined />,
-    label: 'Parties',
-    children: [
-      { key: '/customers', icon: <UserOutlined />, label: 'Customers' },
-      { key: '/suppliers', icon: <BankOutlined />, label: 'Suppliers' },
-    ],
-  },
-  {
-    key: 'inventory-menu',
-    icon: <InboxOutlined />,
-    label: 'Inventory',
-    children: [
-      { key: '/products', icon: <AppstoreOutlined />, label: 'Products' },
-      { key: '/categories', icon: <TagsOutlined />, label: 'Categories' },
-      { key: '/stock-report', icon: <StockOutlined />, label: 'Stock Report' },
-      { key: '/stock-report-pro', icon: <TableOutlined />, label: 'Smart Stock' },
-    ],
-  },
-  {
-    key: 'payments-menu',
-    icon: <DollarOutlined />,
-    label: 'Payments',
-    children: [
-      { key: '/payment/new', icon: <PlusCircleOutlined />, label: 'Make Payment' },
-      { key: '/receipt/new', icon: <WalletOutlined />, label: 'Receive Payment' },
-      { key: '/payments', icon: <UnorderedListOutlined />, label: 'All Transactions' },
-    ],
-  },
-  {
-    key: 'reports-menu',
-    icon: <BarChartOutlined />,
-    label: 'Reports',
-    children: [
-      { key: '/reports/sales', icon: <FileTextOutlined />, label: 'Sales Report' },
-      { key: '/reports/purchases', icon: <FileTextOutlined />, label: 'Purchase Report' },
-      { key: '/reports/stock', icon: <StockOutlined />, label: 'Stock Report' },
-      { key: '/reports/party-ledger', icon: <WalletOutlined />, label: 'Party Ledger' },
-      { key: '/reports/profit-loss', icon: <FundOutlined />, label: 'Profit & Loss' },
-    ],
-  },
-  {
-    key: 'settings-menu',
-    icon: <SettingOutlined />,
-    label: 'Settings',
-    children: [
-      { key: '/settings/company', icon: <BankOutlined />, label: 'Company Profile' },
-      { key: '/settings/users', icon: <UserOutlined />, label: 'Users' },
-      { key: '/settings/theme', icon: <BgColorsOutlined />, label: 'Theme' },
-      { key: '/settings/barcode', icon: <TagsOutlined />, label: 'Barcode' },
-      { key: '/settings/modules', icon: <ThunderboltOutlined />, label: 'Modules' },
-      { key: '/settings/backup', icon: <CloudServerOutlined />, label: 'Backup & Recovery' },
-    ],
-  },
-];
-
-const getOpenKeys = (pathname) => {
-  if (pathname.startsWith('/sale') || pathname === '/sales') return ['sales-menu'];
-  if (pathname.startsWith('/purchase') || pathname === '/purchases') return ['purchase-menu'];
-  if (pathname.startsWith('/customer') || pathname.startsWith('/supplier')) return ['parties-menu'];
-  if (pathname.startsWith('/product') || pathname.startsWith('/categor') || pathname === '/stock-report' || pathname === '/stock-report-pro') return ['inventory-menu'];
-  if (pathname.startsWith('/payment') || pathname.startsWith('/receipt')) return ['payments-menu'];
-  if (pathname.startsWith('/reports')) return ['reports-menu'];
-  if (pathname.startsWith('/settings')) return ['settings-menu'];
-  return [];
-};
+// menuItems + getOpenKeys are defined once in ./menuConfig and shared with
+// TopNav so the two layouts always expose the same navigation. Adding a new
+// route only needs one edit.
 
 const roleColors = {
   'Admin':           '#4F46E5',
@@ -211,11 +109,14 @@ export default function Sidebar({ collapsed, setCollapsed }) {
   const [openKeys, setOpenKeys] = useState(() => getOpenKeys(location.pathname));
 
   // Guarded navigate — asks for confirmation when the current form has unsaved work.
+  // confirmLeave takes an onConfirm callback; when the form is clean it calls
+  // the callback immediately, when dirty it pops the AntD modal and calls the
+  // callback only on "Discard and leave". Previously we called it as a boolean
+  // and wrapped navigation in an `if`, which silently dropped every click
+  // because confirmLeave returns undefined when used without its callback.
   const navigate = (to, opts) => {
     if (to === location.pathname) return;
-    if (useNavGuard.getState().confirmLeave()) {
-      rawNavigate(to, opts);
-    }
+    useNavGuard.getState().confirmLeave(() => rawNavigate(to, opts));
   };
 
   const themeStyle = useThemeStore((s) => s.themeStyle);
@@ -313,7 +214,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
           )}
         </div>
 
-        {/* ── Sticky bottom: theme toggle + user avatar ── */}
+        {/* ── Sticky bottom: theme toggle + layout toggle + user avatar ── */}
         <div className={`erp-sidebar-theme${collapsed ? ' collapsed' : ''}`}>
           {collapsed ? (
             <button
@@ -343,6 +244,9 @@ export default function Sidebar({ collapsed, setCollapsed }) {
             </div>
           )}
         </div>
+
+        {/* Menu orientation (vertical / horizontal) lives in Settings → Theme —
+            it's a "pick once" preference, not something to flip from every page. */}
 
         <div className={`erp-sidebar-bottom${collapsed ? ' collapsed' : ''}`}>
           <Dropdown menu={{ items: userMenuItems }} placement={collapsed ? 'topLeft' : 'topRight'} trigger={['click']}>

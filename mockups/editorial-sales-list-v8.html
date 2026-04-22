@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>Sales List v8 — Editorial (flex rows)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Sales List v8 — Flex rows, fixed widths, zero clever CSS.
+ *
+ * Why v8 exists:
+ *   Every previous version used either a <table> or CSS Grid for the bill
+ *   list. Both kept producing Safari rendering glitches (huge gaps
+ *   between stacked lines, rows stretching beyond their content).
+ *
+ * v8 uses the dumbest possible layout: each row is a flexbox, each cell
+ * is a block div with a fixed pixel width, each stack is a block
+ * container with two block children. No `1fr`, no `minmax`, no
+ * `align-items: stretch`, no `table-layout`. It just renders top-to-bottom
+ * and left-to-right like HTML from 1999.
+ */
+
+:root {
+  --bg: #F5EFE3; --bg-panel: #FDFAF2; --bg-muted: #F8F2E4;
+  --ink: #1D1A15; --ink-2: #6D5F4E; --ink-3: #9B8F7E; --ink-4: #C9BFA8;
+  --rule: #E3D9C5; --rule-soft: #ECE2CD;
+  --accent: #B1472F; --accent-hover: #8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10); --accent-border: rgba(177,71,47,0.24);
+  --paid: #7A9660; --paid-soft: rgba(122,150,96,0.14); --paid-border: rgba(122,150,96,0.28);
+  --due: #B1472F; --due-soft: rgba(177,71,47,0.10); --due-border: rgba(177,71,47,0.24);
+  --neutral: #3F3526; --neutral-soft: rgba(63,53,38,0.06); --neutral-border: rgba(63,53,38,0.14);
+  --sb-bg: #1D1814; --sb-border: #2C2821;
+  --sb-ink: #E8DFC9; --sb-ink-3: #8A7F6C;
+  --sb-hover: rgba(245,238,226,0.06);
+  --sb-active-bg: #B1472F; --sb-active-ink: #FDFAF2;
+  --sb-w: 232px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh;
+  overflow: hidden;  /* page itself doesn't scroll — only the bill list does */
+}
+
+/* Sidebar */
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sb-w);
+  background: var(--sb-bg); border-right: 1px solid var(--sb-border);
+  padding: 16px 12px 20px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  overflow-y: auto; z-index: 20;
+}
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: all .15s; }
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* Top bar — natural part of the layout (no sticky needed; page doesn't scroll) */
+.page-hd {
+  flex-shrink: 0;
+  background: var(--bg);
+  padding: 18px 28px 14px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.page-title h1 { font-family: 'Fraunces', Georgia, serif; font-size: 28px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1; margin-bottom: 4px; }
+.page-title .sub-hd { font-size: 12.5px; color: var(--ink-3); font-weight: 500; }
+.page-title .sub-hd b { color: var(--ink-2); font-weight: 600; }
+.hd-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.search-box { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; width: 240px; }
+.search-box input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.search-box svg { width: 13px; height: 13px; color: var(--ink-3); }
+.search-box input::placeholder { color: var(--ink-3); }
+.chip-btn { height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.chip-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.chip-btn svg { width: 13px; height: 13px; }
+.divider { width: 1px; height: 22px; background: var(--rule); margin: 0 4px; }
+.cta { height: 34px; padding: 0 14px; background: var(--accent); color: #FDFAF2; border: 1px solid var(--accent); border-radius: 7px; font: inherit; font-weight: 600; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px var(--accent-soft); transition: all .18s; }
+.cta:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.cta.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); box-shadow: none; }
+.cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+.cta svg { width: 13px; height: 13px; }
+
+/* KPI */
+.hero-wrap { flex-shrink: 0; padding: 6px 28px 20px; }
+.kpi-hero { display: flex; gap: 14px; flex-wrap: wrap; }
+.kpi-card { width: 300px; flex: 0 0 300px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 12px; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.kpi-card .kpi-text { flex: 1; min-width: 0; }
+.kpi-card .k { font-size: 10.5px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.kpi-card .v { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600; color: var(--ink); line-height: 1.05; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.kpi-card .sub-k { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+.kpi-card.total { background: linear-gradient(135deg, var(--neutral-soft), transparent 70%); border-color: var(--neutral-border); }
+.kpi-card.total .v { color: var(--neutral); }
+.kpi-card.received { background: linear-gradient(135deg, var(--paid-soft), transparent 70%); border-color: var(--paid-border); }
+.kpi-card.received .v { color: var(--paid); }
+.kpi-card.outstanding { background: linear-gradient(135deg, var(--due-soft), transparent 70%); border-color: var(--due-border); }
+.kpi-card.outstanding .v { color: var(--due); }
+.ring { position: relative; width: 52px; height: 52px; flex-shrink: 0; }
+.ring svg { width: 100%; height: 100%; display: block; }
+.ring .track { stroke: var(--bg-muted); }
+.ring .fill.paid { stroke: var(--paid); }
+.ring .fill.due { stroke: var(--due); }
+.ring .label { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); letter-spacing: -0.02em; }
+
+/* ═════════════════════════════════════════════════════════════════════
+   Bill list — flexbox rows, fixed widths per cell, block-level stacks.
+   Every cell is a plain <div>; nothing clever.
+   ═════════════════════════════════════════════════════════════════════ */
+.blist-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 28px 20px;
+  display: flex;
+}
+.blist {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+/* Scroll container wrapping just the data rows */
+.bscroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.brow {
+  display: flex;
+  align-items: flex-start;        /* everyone aligns at the top */
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 13px; color: var(--ink);
+}
+.brow:last-of-type { border-bottom: none; }
+.brow.head {
+  flex-shrink: 0;
+  background: var(--bg-muted);
+  padding: 11px 16px;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule);
+}
+.brow.data { cursor: pointer; transition: background .1s; }
+.brow.data:hover { background: var(--bg-muted); }
+.brow.data.cancelled { opacity: 0.55; }
+
+/* Column widths — fixed, so layout is 100% predictable */
+.c-sr    { width: 40px;  flex: 0 0 40px;  padding-right: 12px; text-align: center; }
+.c-bill  { width: 110px; flex: 0 0 110px; padding-right: 12px; }
+.c-date  { width: 130px; flex: 0 0 130px; padding-right: 12px; }
+.c-cust  { flex: 1 1 auto; min-width: 180px; padding-right: 12px; overflow: hidden; }
+.c-items { width: 72px;  flex: 0 0 72px;  padding-right: 12px; }
+.c-total { width: 118px; flex: 0 0 118px; padding-right: 12px; text-align: right; }
+.c-paid  { width: 118px; flex: 0 0 118px; padding-right: 12px; text-align: right; }
+.c-bal   { width: 130px; flex: 0 0 130px; padding-right: 12px; text-align: right; }
+.c-act   { width: 140px; flex: 0 0 140px; }
+
+/* Stack = two block divs, one underneath the other. No flex here. */
+.stk { display: block; }
+.stk > .m {
+  display: block;
+  font-size: 13.5px; color: var(--ink); font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stk > .s {
+  display: block;
+  font-size: 11px; color: var(--ink-3);
+  line-height: 1.3;
+  margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stk.cash > .m { color: var(--ink-3); font-style: italic; }
+
+.sr-n    { display: block; font-size: 11.5px; color: var(--ink-3); font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.bill-no { display: block; font-family: 'Fraunces', serif; font-weight: 600; font-size: 14.5px; color: var(--ink); letter-spacing: -0.01em; line-height: 1.3; }
+.it-one  { display: block; font-size: 13.5px; color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.3; }
+
+.amt   { display: block; font-family: 'Fraunces', serif; font-weight: 600; font-size: 14.5px; font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.3; }
+.amt .rs { color: var(--ink-3); margin-right: 2px; font-weight: 500; }
+.amt.muted { color: var(--ink-4); font-weight: 500; }
+.amt.paid  { color: var(--paid); }
+.amt.due   { color: var(--due); }
+.amt.zero  { color: var(--ink-3); font-family: 'Inter', sans-serif; font-size: 12.5px; font-weight: 500; font-style: italic; }
+.settled   { display: block; font-size: 12.5px; color: var(--paid); font-weight: 600; line-height: 1.3; }
+.voided    { display: block; font-size: 12px; color: var(--ink-3); font-style: italic; font-weight: 500; line-height: 1.3; }
+
+/* Header cell alignment helper */
+.brow.head .c-total,
+.brow.head .c-paid,
+.brow.head .c-bal,
+.brow.head .c-act { text-align: right; }
+.brow.head .c-sr  { text-align: center; }
+
+/* Actions */
+.act-box { display: flex; justify-content: flex-end; align-items: flex-start; gap: 4px; }
+.act-box .group {
+  display: inline-flex; gap: 4px; align-items: center;
+  opacity: 0; transform: translateX(6px);
+  transition: opacity .15s, transform .15s;
+  pointer-events: none;
+}
+.brow.data:hover .act-box .group { opacity: 1; transform: translateX(0); pointer-events: auto; }
+.abtn { width: 30px; height: 30px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink-2); cursor: pointer; display: inline-grid; place-items: center; transition: all .12s; position: relative; }
+.abtn:hover { border-color: var(--accent-border); color: var(--accent); }
+.abtn.primary { background: var(--accent); border-color: var(--accent); color: #FDFAF2; box-shadow: 0 2px 6px var(--accent-soft); }
+.abtn.primary:hover { background: var(--accent-hover); color: #FDFAF2; }
+.abtn svg { width: 14px; height: 14px; }
+.abtn::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg-panel); font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 5px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 10; }
+.abtn:hover::after { opacity: 1; }
+
+/* Footer */
+.bfoot {
+  flex-shrink: 0;
+  display: flex; justify-content: flex-end; gap: 24px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--rule);
+  background: var(--bg-muted);
+  font-size: 12px; color: var(--ink-3);
+}
+.bfoot b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+  <aside class="sidebar">
+    <div class="sb-brand"><div class="sb-brand-icon">B</div><div class="sb-brand-name">Billin ERP</div></div>
+    <div class="sb-section">Workspace</div>
+    <div class="sb-item"><span class="ic">◎</span> Dashboard</div>
+    <div class="sb-item active"><span class="ic">◧</span> Sales</div>
+    <div class="sb-item"><span class="ic">◨</span> Purchases</div>
+    <div class="sb-item"><span class="ic">◐</span> Customers</div>
+    <div class="sb-item"><span class="ic">◑</span> Suppliers</div>
+    <div class="sb-item"><span class="ic">⊡</span> Inventory</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments &amp; Receipts</div>
+    <div class="sb-item"><span class="ic">◫</span> Reports</div>
+  </aside>
+
+  <main class="main">
+
+    <div class="page-hd">
+      <div class="page-title">
+        <h1>Sales Bills</h1>
+        <div class="sub-hd"><b>178</b> bills · FY 2025-26</div>
+      </div>
+      <div class="hd-ctrl">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search bill or customer">
+        </div>
+        <button class="chip-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> 01 – 21 Apr</button>
+        <button class="chip-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg> Date ↓</button>
+        <span class="divider"></span>
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Receipt</button>
+        <button class="cta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> New Sale</button>
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export</button>
+      </div>
+    </div>
+
+    <div class="hero-wrap">
+      <div class="kpi-hero">
+        <div class="kpi-card total">
+          <div class="kpi-text">
+            <div class="k">Total Sale · This Month</div>
+            <div class="v">₹ 6,48,200</div>
+            <div class="sub-k">42 bills · avg ₹ 15,433</div>
+          </div>
+        </div>
+        <div class="kpi-card received">
+          <div class="kpi-text">
+            <div class="k">Received</div>
+            <div class="v">₹ 2,72,080</div>
+            <div class="sub-k">of ₹ 6,48,200 sold</div>
+          </div>
+          <div class="ring"><svg viewBox="0 0 56 56"><circle class="track" cx="28" cy="28" r="22" fill="none" stroke-width="3.5"/><circle class="fill paid" cx="28" cy="28" r="22" fill="none" stroke-width="3.5" stroke-dasharray="138.23" stroke-dashoffset="80.17" stroke-linecap="round" transform="rotate(-90 28 28)"/></svg><span class="label">42%</span></div>
+        </div>
+        <div class="kpi-card outstanding">
+          <div class="kpi-text">
+            <div class="k">Outstanding</div>
+            <div class="v">₹ 3,76,120</div>
+            <div class="sub-k">from 16 open bills</div>
+          </div>
+          <div class="ring"><svg viewBox="0 0 56 56"><circle class="track" cx="28" cy="28" r="22" fill="none" stroke-width="3.5"/><circle class="fill due" cx="28" cy="28" r="22" fill="none" stroke-width="3.5" stroke-dasharray="138.23" stroke-dashoffset="58.06" stroke-linecap="round" transform="rotate(-90 28 28)"/></svg><span class="label">58%</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="blist-wrap">
+      <div class="blist">
+
+        <div class="brow head">
+          <div class="c-sr">#</div>
+          <div class="c-bill">Bill #</div>
+          <div class="c-date">Date · Time</div>
+          <div class="c-cust">Customer</div>
+          <div class="c-items">Items</div>
+          <div class="c-total">Total</div>
+          <div class="c-paid">Paid</div>
+          <div class="c-bal">Balance</div>
+          <div class="c-act"></div>
+        </div>
+
+        <div class="bscroll">
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">01</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0178</span></div>
+          <div class="c-date"><div class="stk"><span class="m">21 Apr 2026</span><span class="s">11:42 am</span></div></div>
+          <div class="c-cust"><div class="stk"><span class="m">ansari</span><span class="s">7758 066 131</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">5</span><span class="s">12 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>51,300</span></div>
+          <div class="c-paid"><span class="amt paid"><span class="rs">₹</span>10,000</span></div>
+          <div class="c-bal"><span class="amt due"><span class="rs">₹</span>41,300</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn primary" data-tip="Record receipt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">02</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0177</span></div>
+          <div class="c-date"><div class="stk"><span class="m">19 Apr 2026</span><span class="s">8:12 pm</span></div></div>
+          <div class="c-cust"><div class="stk cash"><span class="m">Cash Sale</span><span class="s">Walk-in · no record</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">3</span><span class="s">4 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>2,300</span></div>
+          <div class="c-paid"><span class="amt paid"><span class="rs">₹</span>2,300</span></div>
+          <div class="c-bal"><span class="settled">Settled</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn" data-tip="View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">03</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0176</span></div>
+          <div class="c-date"><div class="stk"><span class="m">18 Apr 2026</span><span class="s">3:05 pm</span></div></div>
+          <div class="c-cust"><div class="stk"><span class="m">Madhav Traders</span><span class="s">Mumbai · 9822 111 222</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">14</span><span class="s">48 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>1,65,200</span></div>
+          <div class="c-paid"><span class="amt zero">—</span></div>
+          <div class="c-bal"><span class="amt due"><span class="rs">₹</span>1,65,200</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn primary" data-tip="Record receipt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">04</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0175</span></div>
+          <div class="c-date"><div class="stk"><span class="m">17 Apr 2026</span><span class="s">11:20 am</span></div></div>
+          <div class="c-cust"><div class="stk"><span class="m">ALi</span><span class="s">7758 066 131</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">2</span><span class="s">6 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>18,080</span></div>
+          <div class="c-paid"><span class="amt paid"><span class="rs">₹</span>18,080</span></div>
+          <div class="c-bal"><span class="settled">Settled</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn" data-tip="View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data cancelled">
+          <div class="c-sr"><span class="sr-n">05</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0174</span></div>
+          <div class="c-date"><div class="stk"><span class="m">17 Apr 2026</span><span class="s">9:48 am · Cancelled</span></div></div>
+          <div class="c-cust"><div class="stk cash"><span class="m">Cash Sale</span><span class="s">Walk-in</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">1</span><span class="s">1 pc</span></div></div>
+          <div class="c-total"><span class="amt muted"><span class="rs">₹</span>1,000</span></div>
+          <div class="c-paid"><span class="amt zero">—</span></div>
+          <div class="c-bal"><span class="voided">Voided</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn" data-tip="View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">06</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0173</span></div>
+          <div class="c-date"><div class="stk"><span class="m">16 Apr 2026</span><span class="s">5:18 pm</span></div></div>
+          <div class="c-cust"><div class="stk"><span class="m">Kamat Traders</span><span class="s">Kolhapur · 9823 555 901</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">4</span><span class="s">9 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>42,800</span></div>
+          <div class="c-paid"><span class="amt paid"><span class="rs">₹</span>21,400</span></div>
+          <div class="c-bal"><span class="amt due"><span class="rs">₹</span>21,400</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn primary" data-tip="Record receipt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">07</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0172</span></div>
+          <div class="c-date"><div class="stk"><span class="m">16 Apr 2026</span><span class="s">2:07 pm</span></div></div>
+          <div class="c-cust"><div class="stk cash"><span class="m">Cash Sale</span><span class="s">Walk-in</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">2</span><span class="s">3 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>4,750</span></div>
+          <div class="c-paid"><span class="amt paid"><span class="rs">₹</span>4,750</span></div>
+          <div class="c-bal"><span class="settled">Settled</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn" data-tip="View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">08</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0171</span></div>
+          <div class="c-date"><div class="stk"><span class="m">15 Apr 2026</span><span class="s">4:32 pm</span></div></div>
+          <div class="c-cust"><div class="stk"><span class="m">Vinayak Wholesale</span><span class="s">Nashik · 9822 408 120</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">9</span><span class="s">32 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>88,920</span></div>
+          <div class="c-paid"><span class="amt paid"><span class="rs">₹</span>53,352</span></div>
+          <div class="c-bal"><span class="amt due"><span class="rs">₹</span>35,568</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn primary" data-tip="Record receipt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">09</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0170</span></div>
+          <div class="c-date"><div class="stk"><span class="m">14 Apr 2026</span><span class="s">10:15 am</span></div></div>
+          <div class="c-cust"><div class="stk"><span class="m">Prakash Stores</span><span class="s">Pune · 9822 307 501</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">3</span><span class="s">8 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>12,300</span></div>
+          <div class="c-paid"><span class="amt paid"><span class="rs">₹</span>12,300</span></div>
+          <div class="c-bal"><span class="settled">Settled</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn" data-tip="View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">10</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0169</span></div>
+          <div class="c-date"><div class="stk"><span class="m">13 Apr 2026</span><span class="s">1:40 pm</span></div></div>
+          <div class="c-cust"><div class="stk"><span class="m">Sharma Textiles</span><span class="s">Ichalkaranji · 9823 112 004</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">22</span><span class="s">88 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>2,15,400</span></div>
+          <div class="c-paid"><span class="amt zero">—</span></div>
+          <div class="c-bal"><span class="amt due"><span class="rs">₹</span>2,15,400</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn primary" data-tip="Record receipt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">11</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0168</span></div>
+          <div class="c-date"><div class="stk"><span class="m">12 Apr 2026</span><span class="s">6:02 pm</span></div></div>
+          <div class="c-cust"><div class="stk cash"><span class="m">Cash Sale</span><span class="s">Walk-in</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">2</span><span class="s">2 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>3,220</span></div>
+          <div class="c-paid"><span class="amt paid"><span class="rs">₹</span>3,220</span></div>
+          <div class="c-bal"><span class="settled">Settled</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn" data-tip="View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brow data">
+          <div class="c-sr"><span class="sr-n">12</span></div>
+          <div class="c-bill"><span class="bill-no">INV-0167</span></div>
+          <div class="c-date"><div class="stk"><span class="m">11 Apr 2026</span><span class="s">11:30 am</span></div></div>
+          <div class="c-cust"><div class="stk"><span class="m">Rohit Retail</span><span class="s">Satara · 9823 701 205</span></div></div>
+          <div class="c-items"><div class="stk"><span class="m">6</span><span class="s">14 pcs</span></div></div>
+          <div class="c-total"><span class="amt"><span class="rs">₹</span>34,180</span></div>
+          <div class="c-paid"><span class="amt paid"><span class="rs">₹</span>34,180</span></div>
+          <div class="c-bal"><span class="settled">Settled</span></div>
+          <div class="c-act">
+            <div class="act-box">
+              <div class="group">
+                <button class="abtn" data-tip="View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <button class="abtn" data-tip="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+                <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        </div><!-- /.bscroll -->
+
+        <div class="bfoot">
+          <span>Shown: <b>12 of 42</b></span>
+          <span>Page total: <b>₹ 6,39,450</b></span>
+          <span>Paid: <b style="color: var(--paid);">₹ 1,59,582</b></span>
+          <span>Balance: <b style="color: var(--due);">₹ 4,79,868</b></span>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+</body>
+</html>
