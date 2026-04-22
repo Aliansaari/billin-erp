@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Tag, Typography, message, Card, Space, DatePicker, Select, Popconfirm, Tooltip } from 'antd';
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, PrinterOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI } from '../../api';
+import { printDocument } from '../../services/printer';
 
 const { Title } = Typography;
 
@@ -57,27 +58,41 @@ export default function PaymentList() {
     { title: 'Remarks', dataIndex: 'remarks', width: 180, ellipsis: true,
       render: (v) => <span style={{ fontSize: 12, color: '#6b7280' }}>{v || '—'}</span> },
     {
-      title: '', width: 60, align: 'center', fixed: 'right',
-      render: (_, record) => record.is_cancelled ? (
-        <Tag color="default" style={{ fontSize: 10 }}>Cancelled</Tag>
-      ) : (
-        <Popconfirm
-          title="Cancel this transaction?"
-          description="This will reverse the payment and update party balance."
-          okText="Yes, Cancel"
-          okButtonProps={{ danger: true }}
-          cancelText="No"
-          onConfirm={() => handleDelete(record.transaction_id)}
-        >
-          <Tooltip title="Cancel transaction">
+      title: '', width: 110, align: 'center', fixed: 'right',
+      render: (_, record) => (
+        <Space size={4}>
+          <Tooltip title="Print voucher / receipt">
             <Button
               size="small"
-              danger
-              icon={<DeleteOutlined />}
-              loading={deletingId === record.transaction_id}
+              icon={<PrinterOutlined />}
+              onClick={() => printDocument({
+                docType: record.transaction_type === 'Receipt' ? 'receipt' : 'payment',
+                id: record.transaction_id,
+              })}
             />
           </Tooltip>
-        </Popconfirm>
+          {record.is_cancelled ? (
+            <Tag color="default" style={{ fontSize: 10 }}>Cancelled</Tag>
+          ) : (
+            <Popconfirm
+              title="Cancel this transaction?"
+              description="This will reverse the payment and update party balance."
+              okText="Yes, Cancel"
+              okButtonProps={{ danger: true }}
+              cancelText="No"
+              onConfirm={() => handleDelete(record.transaction_id)}
+            >
+              <Tooltip title="Cancel transaction">
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  loading={deletingId === record.transaction_id}
+                />
+              </Tooltip>
+            </Popconfirm>
+          )}
+        </Space>
       ),
     },
   ];

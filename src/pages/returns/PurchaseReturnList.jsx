@@ -11,6 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseReturnAPI, settingsAPI } from '../../api';
+import { printDocument } from '../../services/printer';
 import '../../styles/bill-list.css';
 import './return-list.css';
 
@@ -307,7 +308,7 @@ export default function PurchaseReturnList() {
   }, []);
 
   const handleView  = async (id) => { const b = await fetchBill(id); if (b) setViewBill(b); };
-  const handlePrint = async (id) => { const b = await fetchBill(id); if (b) printReturn(b, companyName); };
+  const handlePrint = (id) => printDocument({ docType: 'purchase_return', id });
   const handleEdit  = (id) => navigate(`/purchase-return/edit/${id}`);
 
   const kpis = useMemo(() => {

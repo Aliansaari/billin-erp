@@ -236,4 +236,14 @@ export const tallyAPI = {
   getSyncLogs: (params) => api.get('/tally/sync-logs', { params }),
 };
 
+export const printAPI = {
+  list:       (params = {}) => api.get('/print/profiles', { params }),
+  getById:    (id)           => api.get(`/print/profiles/${id}`),
+  getDefault: (docType)      => api.get(`/print/profiles/default/${docType}`),
+  create:     (data)         => api.post('/print/profiles', data),
+  update:     (id, data)     => api.put(`/print/profiles/${id}`, data),
+  remove:     (id)           => api.delete(`/print/profiles/${id}`),
+  duplicate:  (id)           => api.post(`/print/profiles/${id}/duplicate`),
+};
+
 export default api;

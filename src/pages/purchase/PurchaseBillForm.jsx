@@ -4,6 +4,7 @@ import { Form, Input, DatePicker, Select, InputNumber, Table, message } from 'an
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
+import { printDocument } from '../../services/printer';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
@@ -1373,6 +1374,11 @@ export default function PurchaseBillForm() {
             <button className="pbf-act" onClick={handleReset}>
               <span className="pbf-kbd">F5</span> Reset
             </button>
+            {isEdit && (
+              <button className="pbf-act" onClick={() => printDocument({ docType: 'purchase', id })}>
+                <span className="pbf-kbd">Ctrl+P</span> Print
+              </button>
+            )}
             <button className="pbf-act credit" onClick={()=>handleSave(false)} disabled={loading}>
               <span className="pbf-kbd">F8</span> Save Credit
             </button>

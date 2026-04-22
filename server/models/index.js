@@ -19,6 +19,7 @@ const LedgerAccount = require('./LedgerAccount');
 const LedgerEntry = require('./LedgerEntry');
 const BarcodeSettings = require('./BarcodeSettings');
 const SystemSettings = require('./SystemSettings');
+const PrintProfile = require('./PrintProfile');
 
 // ── Associations ──
 
@@ -134,4 +135,5 @@ module.exports = {
   LedgerEntry,
   BarcodeSettings,
   SystemSettings,
+  PrintProfile,
 };

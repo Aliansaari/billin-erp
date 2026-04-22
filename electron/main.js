@@ -1,10 +1,12 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
 const isDev = process.env.NODE_ENV !== 'production';
 
+let mainWindow = null;
+
 function createWindow() {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1024,
@@ -18,14 +20,91 @@ function createWindow() {
   });
 
   if (isDev) {
-    win.loadURL('http://localhost:5173');
-    win.webContents.openDevTools();
+    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.webContents.openDevTools();
   } else {
-    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
 
-  win.setMenuBarVisibility(false);
+  mainWindow.setMenuBarVisibility(false);
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+ *  Print IPC
+ *  — Renderer asks for the list of printers or to silently print an HTML
+ *    document to a specific device. Silent print uses an off-screen hidden
+ *    BrowserWindow so the user never sees the system print dialog.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+ipcMain.handle('print:list-printers', async () => {
+  try {
+    if (!mainWindow) return [];
+    // getPrintersAsync is the Electron 25+ API; fall back to sync enum on
+    // older runtimes so this doesn't hard-crash on whatever the user has.
+    const wc = mainWindow.webContents;
+    const printers = wc.getPrintersAsync
+      ? await wc.getPrintersAsync()
+      : (wc.getPrinters ? wc.getPrinters() : []);
+    return printers.map(p => ({
+      name: p.name,
+      displayName: p.displayName || p.name,
+      description: p.description || '',
+      status: p.status,
+      isDefault: p.isDefault,
+    }));
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+// Silent print: spin up a hidden BrowserWindow with the rendered HTML,
+// call webContents.print({silent:true,deviceName}), then close. Returning
+// a Promise so the renderer awaits completion — avoids race where the
+// window is GC'd before the print job is queued.
+ipcMain.handle('print:silent', async (_ev, payload) => {
+  const { html, deviceName, copies, paperWidthMm, paperHeightMm, marginsMm } = payload || {};
+  if (!html) return { error: 'No HTML supplied' };
+
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  try {
+    // Load the HTML as a data: URL so we don't need a temp file.
+    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+    await win.loadURL(dataUrl);
+
+    const opts = {
+      silent: true,
+      deviceName: deviceName || '',
+      printBackground: true,
+      copies: Math.max(1, Number(copies || 1)),
+      margins: marginsMm ? {
+        marginType: 'custom',
+        top: (marginsMm.top ?? 10),
+        right: (marginsMm.right ?? 10),
+        bottom: (marginsMm.bottom ?? 10),
+        left: (marginsMm.left ?? 10),
+      } : { marginType: 'default' },
+    };
+    // Page size in microns (1 mm = 1000 µm). Only set if the caller gave us
+    // explicit dimensions — omitting it falls back to printer-default paper.
+    if (paperWidthMm) {
+      opts.pageSize = {
+        width: Math.round(paperWidthMm * 1000),
+        height: Math.round((paperHeightMm || paperWidthMm * 3) * 1000),
+      };
+    }
+
+    const result = await new Promise((resolve) => {
+      win.webContents.print(opts, (success, failureReason) => {
+        resolve({ success, failureReason: failureReason || null });
+      });
+    });
+    return result;
+  } catch (e) {
+    return { error: e.message };
+  } finally {
+    setTimeout(() => { try { win.close(); } catch {} }, 500);
+  }
+});
 
 app.whenReady().then(createWindow);
 

@@ -11,6 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, settingsAPI } from '../../api';
+import { printDocument } from '../../services/printer';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import '../../styles/bill-list.css';
 
@@ -295,7 +296,8 @@ export default function PurchaseList() {
   }, []);
 
   const handleView  = async (id) => { const b = await fetchBill(id); if (b) setViewBill(b); };
-  const handlePrint = async (id) => { const b = await fetchBill(id); if (b) printBill(b, companyName); };
+  // Route through unified printer service — uses user's default Purchase profile.
+  const handlePrint = (id) => printDocument({ docType: 'purchase', id });
   const handleEdit  = (id) => navigate(`/purchase/edit/${id}`);
 
   const handleBarcode = async (id) => {
