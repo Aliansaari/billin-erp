@@ -16,6 +16,7 @@
  */
 
 const http = require('http');
+const sequelize = require('../config/database');
 const { SystemSettings, Party, Product, SalesBill, SalesBillItem,
         PurchaseBill, PurchaseBillItem, PaymentReceipt } = require('../models');
 const { Op } = require('sequelize');
@@ -424,9 +425,63 @@ function extractTag(xml, tag) {
   return out;
 }
 
+// Like extractTag but also captures the attribute string of each tag's
+// opening bracket — needed for <VOUCHER VCHTYPE="Sales" ACTION="Create">
+// where VCHTYPE lives in attributes, not as a child element.
+function extractTagWithAttrs(xml, tag) {
+  const re = new RegExp(`<${tag}([^>]*)>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+  const out = [];
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    const attrs = {};
+    const attrRe = /(\w+)\s*=\s*"([^"]*)"/g;
+    let am;
+    while ((am = attrRe.exec(m[1])) !== null) attrs[am[1].toUpperCase()] = am[2];
+    out.push({ attrs, body: m[2] });
+  }
+  return out;
+}
+
 function readField(block, tag) {
   const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
   return m ? m[1].trim() : '';
+}
+
+// Parse Tally's date format. Tally writes YYYYMMDD in <DATE> tags; we
+// normalise to YYYY-MM-DD so Sequelize DATEONLY accepts it cleanly.
+function parseTallyDate(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (/^\d{8}$/.test(s)) {
+    return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  }
+  // Fallback — whatever Tally version produced, try JS Date.
+  const d = new Date(s);
+  return isNaN(d) ? null : d.toISOString().slice(0, 10);
+}
+
+// Tally convention: amounts are strings like "12345.00" (positive = debit)
+// or "-12345.00" (positive = credit). Bare number parse works for both.
+function parseTallyAmount(raw) {
+  const n = parseFloat(String(raw || '').trim());
+  return isFinite(n) ? n : 0;
+}
+
+// Classify a <LEDGERENTRIES.LIST> entry into one of a few buckets based on
+// ledger name. Tally installs vary wildly in how GST ledgers are named —
+// some use bare "CGST", others "Output CGST @ 18%", others "CGST 9%
+// Payable". We match case-insensitive substrings and take the first hit.
+function classifyLedger(name) {
+  if (!name) return 'other';
+  const u = name.toUpperCase();
+  if (u.includes('IGST')) return 'igst';
+  if (u.includes('CGST')) return 'cgst';
+  if (u.includes('SGST') || u.includes('UGST')) return 'sgst';
+  if (u.includes('ROUND') && u.includes('OFF')) return 'roundoff';
+  if (u.includes('SALES ACCOUNT') || u.includes('SALES A/C') || u === 'SALES') return 'sales';
+  if (u.includes('PURCHASE ACCOUNT') || u.includes('PURCHASE A/C') || u === 'PURCHASE') return 'purchase';
+  if (u.includes('CASH') || u.includes('BANK')) return 'cash_bank';
+  return 'party_or_other';
 }
 
 exports.importXML = async (req, res) => {
@@ -437,9 +492,10 @@ exports.importXML = async (req, res) => {
 
     const ledgers = extractTag(xml, 'LEDGER');
     const stockItems = extractTag(xml, 'STOCKITEM');
-    const vouchers = extractTag(xml, 'VOUCHER');
+    const vouchers = extractTagWithAttrs(xml, 'VOUCHER');
 
     let ledgersImported = 0, stockItemsImported = 0;
+    let vouchersImported = 0;
     const errors = [];
 
     // Ledgers → Parties
@@ -512,14 +568,248 @@ exports.importXML = async (req, res) => {
       }
     }
 
+    // Vouchers → Sales Bills / Purchase Bills / Receipts / Payments.
+    // Masters must already be in place, so we run this AFTER ledgers +
+    // stock items above. Each voucher is inserted under its own
+    // transaction so a half-parsed inventory block never leaves a
+    // partial bill in the DB.
+    //
+    // Idempotency: bill_number / transaction_number are unique. Pre-fetch
+    // the existing keys in one query per voucher-type for O(1) "skip
+    // duplicate" checks inside the loop.
+    const existingSales    = new Set((await SalesBill.findAll({ attributes: ['bill_number'], raw: true })).map(b => b.bill_number));
+    const existingPurchase = new Set((await PurchaseBill.findAll({ attributes: ['bill_number'], raw: true })).map(b => b.bill_number));
+    const existingTxn      = new Set((await PaymentReceipt.findAll({ attributes: ['transaction_number'], raw: true })).map(r => r.transaction_number));
+
+    for (const { attrs, body } of vouchers) {
+      try {
+        const vchtype = (attrs.VCHTYPE || readField(body, 'VOUCHERTYPENAME') || '').toLowerCase();
+        const voucherNumber = readField(body, 'VOUCHERNUMBER');
+        if (!voucherNumber) {
+          errors.push({ type: 'voucher', reason: 'Missing VOUCHERNUMBER' });
+          continue;
+        }
+
+        const billDate = parseTallyDate(readField(body, 'DATE'));
+        if (!billDate) {
+          errors.push({ type: 'voucher', reason: `Voucher ${voucherNumber}: unparseable <DATE>` });
+          continue;
+        }
+
+        const partyName = readField(body, 'PARTYLEDGERNAME') || readField(body, 'PARTYNAME');
+        const narration = readField(body, 'NARRATION');
+
+        // Parse LEDGERENTRIES so we can compute GST / sales-account / party
+        // amounts regardless of which voucher type we're handling.
+        const ledgerEntries = extractTag(body, 'LEDGERENTRIES.LIST').map(block => ({
+          name:   readField(block, 'LEDGERNAME'),
+          amount: parseTallyAmount(readField(block, 'AMOUNT')),
+          isDeemedPositive: /yes/i.test(readField(block, 'ISDEEMEDPOSITIVE')),
+        }));
+
+        // Parse ALLINVENTORYENTRIES for sales/purchase bills.
+        const inventoryEntries = extractTag(body, 'ALLINVENTORYENTRIES.LIST').map(block => ({
+          stockItem: readField(block, 'STOCKITEMNAME'),
+          qty:       parseFloat(String(readField(block, 'ACTUALQTY') || readField(block, 'BILLEDQTY') || '0').replace(/[^\d.-]/g, '')) || 0,
+          rate:      parseFloat(String(readField(block, 'RATE') || '0').replace(/[^\d.-]/g, '')) || 0,
+          amount:    parseTallyAmount(readField(block, 'AMOUNT')),
+        }));
+
+        // Helper: aggregate signed amounts from classified ledgers. We use
+        // abs() because downstream bills store positive tax amounts and the
+        // sign is conveyed by the voucher type + accounting direction.
+        const totalFor = (bucket) => ledgerEntries
+          .filter(e => classifyLedger(e.name) === bucket)
+          .reduce((s, e) => s + Math.abs(e.amount), 0);
+
+        const cgstAmt = totalFor('cgst');
+        const sgstAmt = totalFor('sgst');
+        const igstAmt = totalFor('igst');
+        const roundOff = ledgerEntries
+          .filter(e => classifyLedger(e.name) === 'roundoff')
+          .reduce((s, e) => s + e.amount, 0); // sign matters on round-off
+
+        /* ── Sales voucher ─────────────────────────────────────────────── */
+        if (vchtype.includes('sales') && !vchtype.includes('return')) {
+          if (existingSales.has(voucherNumber)) {
+            errors.push({ type: 'voucher', reason: `Sales voucher ${voucherNumber}: duplicate bill number, skipped` });
+            continue;
+          }
+          const customer = partyName ? await Party.findOne({ where: { party_name: partyName, party_type: { [Op.in]: ['Customer', 'Both'] } } }) : null;
+          if (!customer) {
+            errors.push({ type: 'voucher', reason: `Sales voucher ${voucherNumber}: customer '${partyName}' not found — import its Ledger first` });
+            continue;
+          }
+
+          // Resolve every inventory line to a local product — abort the
+          // whole voucher if any one is missing, rather than inserting a
+          // half-represented bill.
+          const resolved = [];
+          let missingItem = null;
+          for (const inv of inventoryEntries) {
+            const product = await Product.findOne({ where: { product_name: inv.stockItem } });
+            if (!product) { missingItem = inv.stockItem; break; }
+            resolved.push({ product, ...inv });
+          }
+          if (missingItem) {
+            errors.push({ type: 'voucher', reason: `Sales voucher ${voucherNumber}: product '${missingItem}' not found — import Stock Items first` });
+            continue;
+          }
+
+          const subTotal = resolved.reduce((s, it) => s + it.qty * it.rate, 0);
+          const totalAmt = subTotal + cgstAmt + sgstAmt + igstAmt + roundOff;
+
+          await sequelize.transaction(async (t) => {
+            const bill = await SalesBill.create({
+              bill_number: voucherNumber,
+              customer_id: customer.party_id,
+              bill_date: billDate,
+              total_items: resolved.length,
+              total_quantity: resolved.reduce((s, it) => s + it.qty, 0),
+              sub_total: subTotal,
+              cgst_amount: cgstAmt, sgst_amount: sgstAmt, igst_amount: igstAmt,
+              round_off: roundOff,
+              total_amount: totalAmt,
+              balance_amount: totalAmt,
+              payment_status: 'Unpaid',
+              remarks: narration || null,
+              created_by: req.user?.user_id || null,
+            }, { transaction: t });
+            await SalesBillItem.bulkCreate(resolved.map(r => ({
+              sales_bill_id: bill.sales_bill_id,
+              product_id: r.product.product_id,
+              barcode: r.product.barcode,
+              product_name: r.product.product_name,
+              category_id: r.product.category_id,
+              hsn_code: r.product.hsn_code,
+              quantity: r.qty,
+              rate: r.rate,
+              cost_rate: r.product.purchase_rate || 0,
+              gst_rate: r.product.gst_rate || 0,
+              taxable_amount: r.qty * r.rate,
+              total_amount: r.qty * r.rate,
+              quantity_per_box: r.product.quantity_per_box || 1,
+            })), { transaction: t });
+          });
+          existingSales.add(voucherNumber);
+          vouchersImported++;
+          continue;
+        }
+
+        /* ── Purchase voucher ──────────────────────────────────────────── */
+        if (vchtype.includes('purchase') && !vchtype.includes('return')) {
+          if (existingPurchase.has(voucherNumber)) {
+            errors.push({ type: 'voucher', reason: `Purchase voucher ${voucherNumber}: duplicate bill number, skipped` });
+            continue;
+          }
+          const supplier = partyName ? await Party.findOne({ where: { party_name: partyName, party_type: { [Op.in]: ['Supplier', 'Both'] } } }) : null;
+          if (!supplier) {
+            errors.push({ type: 'voucher', reason: `Purchase voucher ${voucherNumber}: supplier '${partyName}' not found` });
+            continue;
+          }
+
+          const resolved = [];
+          let missingItem = null;
+          for (const inv of inventoryEntries) {
+            const product = await Product.findOne({ where: { product_name: inv.stockItem } });
+            if (!product) { missingItem = inv.stockItem; break; }
+            resolved.push({ product, ...inv });
+          }
+          if (missingItem) {
+            errors.push({ type: 'voucher', reason: `Purchase voucher ${voucherNumber}: product '${missingItem}' not found` });
+            continue;
+          }
+
+          const subTotal = resolved.reduce((s, it) => s + it.qty * it.rate, 0);
+          const totalAmt = subTotal + cgstAmt + sgstAmt + igstAmt + roundOff;
+
+          await sequelize.transaction(async (t) => {
+            const bill = await PurchaseBill.create({
+              bill_number: voucherNumber,
+              supplier_id: supplier.party_id,
+              bill_date: billDate,
+              total_items: resolved.length,
+              total_quantity: resolved.reduce((s, it) => s + it.qty, 0),
+              sub_total: subTotal,
+              cgst_amount: cgstAmt, sgst_amount: sgstAmt, igst_amount: igstAmt,
+              round_off: roundOff,
+              total_amount: totalAmt,
+              balance_amount: totalAmt,
+              payment_status: 'Unpaid',
+              remarks: narration || null,
+              created_by: req.user?.user_id || null,
+            }, { transaction: t });
+            await PurchaseBillItem.bulkCreate(resolved.map(r => ({
+              purchase_bill_id: bill.purchase_bill_id,
+              product_id: r.product.product_id,
+              barcode: r.product.barcode,
+              product_name: r.product.product_name,
+              hsn_code: r.product.hsn_code,
+              quantity: r.qty,
+              purchase_rate: r.rate,
+              gst_rate: r.product.gst_rate || 0,
+              taxable_amount: r.qty * r.rate,
+              total_amount: r.qty * r.rate,
+              quantity_per_box: r.product.quantity_per_box || 1,
+            })), { transaction: t });
+          });
+          existingPurchase.add(voucherNumber);
+          vouchersImported++;
+          continue;
+        }
+
+        /* ── Receipt / Payment voucher ─────────────────────────────────── */
+        if (vchtype.includes('receipt') || vchtype.includes('payment')) {
+          const txnType = vchtype.includes('receipt') ? 'Receipt' : 'Payment';
+          if (existingTxn.has(voucherNumber)) {
+            errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: duplicate transaction number, skipped` });
+            continue;
+          }
+          const party = partyName ? await Party.findOne({
+            where: { party_name: partyName,
+              party_type: { [Op.in]: txnType === 'Receipt' ? ['Customer', 'Both'] : ['Supplier', 'Both'] } },
+          }) : null;
+          if (!party) {
+            errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: party '${partyName}' not found` });
+            continue;
+          }
+          // Amount = absolute value of the party ledger entry, which is
+          // what Tally credits (for Receipt) or debits (for Payment).
+          const partyEntry = ledgerEntries.find(e => e.name === partyName);
+          const amount = partyEntry ? Math.abs(partyEntry.amount) : 0;
+          if (!(amount > 0)) {
+            errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: zero amount on party ledger` });
+            continue;
+          }
+          await PaymentReceipt.create({
+            transaction_number: voucherNumber,
+            transaction_type: txnType,
+            transaction_date: billDate,
+            party_id: party.party_id,
+            total_amount: amount,
+            remarks: narration || null,
+            created_by: req.user?.user_id || null,
+          });
+          existingTxn.add(voucherNumber);
+          vouchersImported++;
+          continue;
+        }
+
+        // Voucher type we don't handle (Journal / Contra / Return etc.) —
+        // surface it so the user knows we saw it but didn't ingest.
+        errors.push({ type: 'voucher', reason: `Voucher ${voucherNumber}: unsupported VCHTYPE '${vchtype}' (skipped)` });
+      } catch (e) {
+        errors.push({ type: 'voucher', reason: e.message });
+      }
+    }
+
     // Delete the temp upload
     try { fs.unlinkSync(req.file.path); } catch {}
 
     res.json({
       ledgers_imported: ledgersImported,
       stockitems_imported: stockItemsImported,
-      // Voucher ingestion is dry-run only in this milestone.
-      vouchers_imported: 0,
+      vouchers_imported: vouchersImported,
       vouchers_previewed: vouchers.length,
       errors,
     });
