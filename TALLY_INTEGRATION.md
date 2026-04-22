@@ -57,9 +57,47 @@ Current mapping behaviour:
   / bank / journal) are silently skipped.
 - **Stock Items** → Products in a default category "Imported from Tally".
   HSN, GST rate, and barcode (if present on `<BARCODE>`) are preserved.
-- **Vouchers** — parsed, counted in the response as
-  `vouchers_previewed`, but **not yet inserted** into sales_bills /
-  purchase_bills. Dry-run only in this milestone; see Follow-ups below.
+- **Vouchers** — VCHTYPE="Sales" / "Purchase" / "Receipt" / "Payment"
+  are fully ingested. See the Voucher ingestion section below for the
+  mapping logic. Unsupported types (Journal, Contra, returns) are
+  surfaced in the `errors[]` response with an `unsupported VCHTYPE`
+  reason so nothing silently drops.
+
+### Voucher ingestion
+
+`<VOUCHER>` blocks run AFTER `<LEDGER>` + `<STOCKITEM>` ingestion so
+parties and products already exist when vouchers reference them.
+
+For each voucher:
+
+1. **Classification** — `VCHTYPE` attribute is the source of truth
+   (fallback to the `<VOUCHERTYPENAME>` child if missing).
+2. **Idempotency** — pre-fetched sets of existing `bill_number` /
+   `transaction_number` values; duplicates skip with an explicit
+   "already exists" error.
+3. **Party lookup** — `<PARTYLEDGERNAME>` matched to a Party scoped to
+   the right type (Customer for Sales/Receipt, Supplier for
+   Purchase/Payment). Mismatched type = skipped bill, error recorded.
+4. **Line items (Sales/Purchase only)** — each
+   `<ALLINVENTORYENTRIES.LIST>` block looked up by `<STOCKITEMNAME>`.
+   Any unresolved line aborts the whole voucher — never a partial bill.
+5. **GST amounts** — `classifyLedger(name)` fuzzy-matches ledger names
+   to buckets: `cgst`, `sgst`, `igst`, `roundoff`, `sales`, `purchase`,
+   `cash_bank`, `party_or_other`. Match is case-insensitive substring
+   so both bare `CGST` and Tally installations using
+   `Output CGST @ 18%` or `CGST 9% Payable` land in the same bucket.
+6. **Totals** — `sub_total` recomputed from `Σ(qty × rate)` on resolved
+   line items; `total_amount` = sub + CGST + SGST + IGST + round-off.
+   We deliberately don't trust totals from the file.
+7. **Atomicity** — the SalesBill/PurchaseBill + every BillItem row are
+   inserted inside a single `sequelize.transaction`, so a constraint
+   failure on any line rolls back the whole voucher.
+
+For Receipts / Payments (no line items):
+
+- Amount = `Math.abs()` of the party ledger entry in
+  `<LEDGERENTRIES.LIST>`. Tally conveys direction via sign; we store
+  positive and split by `transaction_type`.
 
 ## Mode B — Live HTTP-XML
 
@@ -177,10 +215,10 @@ order of risk:
 
 ## Follow-ups (not in this milestone)
 
-- **Voucher ingestion** — currently imports count vouchers but don't
-  insert them. Needs: map `<LEDGERENTRIES.LIST>` + `<ALLINVENTORYENTRIES.LIST>`
-  to `SalesBill` + `SalesBillItem` rows, regenerate bill_number or
-  respect `<VOUCHERNUMBER>`, handle conflicts.
+- **Voucher returns (Credit Note / Debit Note)** — currently
+  `VCHTYPE="Credit Note"` and `VCHTYPE="Debit Note"` land in the
+  "unsupported" bucket. Mapping them to `sales_return_bills` /
+  `purchase_return_bills` is the next piece.
 - **Conflict UI** — when the same entity has been modified on both
   sides (same `MASTERID` / `ALTERIDSERVER`), surface a three-way
   diff (keep mine / keep Tally's / merge field-by-field).

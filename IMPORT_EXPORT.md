@@ -6,14 +6,14 @@ them are comfortable with Excel but never open a JSON or a CSV.
 
 ## What's implemented
 
-| Entity        | Template | Export | Import | Notes                                                        |
-| ------------- | :------: | :----: | :----: | ------------------------------------------------------------ |
-| Customers     |    ✓     |   ✓    |   ✓    | Full round-trip. Dedup on (party_name + mobile_1).           |
-| Suppliers     |    ✓     |   ✓    |   ✓    | Shares the party controller with Customers.                  |
-| Stock Items   |    ✓     |   ✓    |   ✓    | Barcode post-import prompt. Dedup on barcode.                |
-| Sales Bills   |    —     |   —    |   —    | Scaffolded UI ("Soon"); controller not yet built.            |
-| Purchase Bills|    —     |   —    |   —    | Same.                                                        |
-| Payments & Receipts | — |   —    |   —    | Same — header + allocations is complex.                      |
+| Entity              | Template | Export | Import | Notes                                                                |
+| ------------------- | :------: | :----: | :----: | -------------------------------------------------------------------- |
+| Customers           |    ✓     |   ✓    |   ✓    | Full round-trip. Dedup on (party_name + mobile_1).                   |
+| Suppliers           |    ✓     |   ✓    |   ✓    | Shares the party controller with Customers.                          |
+| Stock Items         |    ✓     |   ✓    |   ✓    | Barcode post-import prompt. Dedup on barcode.                        |
+| Sales Bills         |    ✓     |   ✓    |   ✓    | Two-sheet (Bills + Items). Transactional insert. Dedup on bill_number. |
+| Purchase Bills      |    ✓     |   ✓    |   ✓    | Same shape as Sales with Supplier / Transport / Vehicle fields.      |
+| Payments & Receipts |    ✓     |   ✓    |   ✓    | Single sheet. Type = Payment (out) / Receipt (in). Dedup on txn_number. |
 
 ## Template anatomy
 
@@ -85,16 +85,46 @@ template**. A file exported this way can be re-imported without edits
 (idempotency enforced via dedup keys above — second run creates zero
 new records).
 
+## Bill workbook shape (Sales + Purchase)
+
+Two sheets linked by Bill Number:
+
+- **Bills** — one row per bill: Bill Number, Bill Date, Party Mobile,
+  Party Name (informational), Discount %, CGST/SGST/IGST %, Other
+  Charges, Freight, Round Off. Purchase adds Supplier Bill No /
+  Transport / Vehicle.
+- **Items** — one row per line item: Bill Number (join key), Product
+  Barcode, Product Name, Category, HSN, Quantity, Rate / Purchase Rate,
+  GST %, Unit. Repeat the Bill Number for each line.
+
+Why two-sheet (not single-sheet with repeated headers): round-trip
+cleanliness. The importer reads the two sheets independently, the user
+edits bill-header fields once in the Bills sheet, and a line-item typo
+doesn't force re-typing the whole header.
+
+Totals are server-computed — the workbook does not need Sub Total /
+Total columns. sub_total = Σ(qty × rate); CGST/SGST/IGST amounts =
+taxable × rate%; total_amount = taxable + taxes + other + freight + roundoff.
+
+Party lookup order: Mobile (unique-er) → Name (fallback). Product
+lookup: Barcode → Name. Missing party or product skips the whole bill
+with a clear error — never a partial insert.
+
+Idempotency: Bill Number (Sales/Purchase) and Transaction Number
+(Receipts) are unique. Re-uploading the same workbook skips every row
+as a duplicate.
+
 ## Known limitations
 
-- Sales/Purchase/Receipt workbooks are not ingested yet. The controller
-  accepts only `customers | suppliers | products` — hitting
-  `/api/data/import/sales_bills` returns 400.
 - Very large imports (10K+ rows) work but don't stream the response; the
   whole errors array comes back in one JSON payload. OK up to ~50K rows;
   beyond that the client needs pagination.
 - The "Review each" barcode inspector is not implemented — it's a
   disabled button in the modal.
+- Bills with per-item overrides (different discount % per line,
+  different GST rates per line) aren't yet captured in the template —
+  one tax rate per bill. Per-line GST works on read (we store it on
+  the item row) but write-side uses the header rate.
 
 ## Files touched
 
