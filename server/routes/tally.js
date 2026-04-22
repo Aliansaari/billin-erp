@@ -12,7 +12,11 @@ const upload = multer({
     if (['.xml', '.txt'].includes(ext)) cb(null, true);
     else cb(new Error('Only .xml files are allowed'));
   },
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB — Tally exports can be hefty
+  // Tally XML exports are UTF-16 LE (2 bytes per char) and voucher files
+  // from a full year can be 100+ MB on disk. 50 MB was routinely rejecting
+  // real-world Transactions.xml exports; 250 MB is enough for ~5 years of
+  // daily bills on a mid-size business.
+  limits: { fileSize: 250 * 1024 * 1024 },
 });
 
 router.use(authenticateToken);

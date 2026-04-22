@@ -417,8 +417,16 @@ exports.exportVouchers = async (req, res) => {
  * next milestone).
  * ─────────────────────────────────────────────────────────────────────── */
 
+// Tag-name boundary: the opening tag must be `<TAG>` or `<TAG ` (attrs
+// start with whitespace). Without this, the old `<${tag}[^>]*>` pattern
+// happily matched `<NAME.LIST>` while looking for `<NAME>` or `<PARENTID>`
+// while looking for `<PARENT>` — so product names landed in the DB with
+// literal `<NAME>` prefixes and "Sundry Debtors" never matched the PARENT
+// check, dropping every ledger on the floor.
+const TAG_BOUNDARY = '(?:\\s[^>]*)?';
+
 function extractTag(xml, tag) {
-  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+  const re = new RegExp(`<${tag}${TAG_BOUNDARY}>([\\s\\S]*?)<\\/${tag}>`, 'gi');
   const out = [];
   let m;
   while ((m = re.exec(xml)) !== null) out.push(m[1]);
@@ -429,7 +437,7 @@ function extractTag(xml, tag) {
 // opening bracket — needed for <VOUCHER VCHTYPE="Sales" ACTION="Create">
 // where VCHTYPE lives in attributes, not as a child element.
 function extractTagWithAttrs(xml, tag) {
-  const re = new RegExp(`<${tag}([^>]*)>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+  const re = new RegExp(`<${tag}((?:\\s[^>]*)?)>([\\s\\S]*?)<\\/${tag}>`, 'gi');
   const out = [];
   let m;
   while ((m = re.exec(xml)) !== null) {
@@ -443,8 +451,36 @@ function extractTagWithAttrs(xml, tag) {
 }
 
 function readField(block, tag) {
-  const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  const m = block.match(new RegExp(`<${tag}${TAG_BOUNDARY}>([\\s\\S]*?)<\\/${tag}>`, 'i'));
   return m ? m[1].trim() : '';
+}
+
+// Tally writes rates as "5000/PCS", "12.50/NOS", or plain "5000". Strip
+// anything after the first non-numeric/decimal char so DECIMAL columns
+// don't NaN-out on insert.
+function parseTallyRate(raw) {
+  if (!raw) return 0;
+  const m = String(raw).replace(',', '').match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : 0;
+}
+
+// Tally's <STANDARDPRICELIST.LIST> / <STANDARDCOSTLIST.LIST> wrap a series
+// of <STANDARDPRICEDETAILS.LIST> each with <RATE>. We take the LATEST
+// (last) one — Tally appends new rate slabs by date, so the tail is the
+// currently-effective rate.
+function readLastRateFromPriceList(block, listTag) {
+  const lists = extractTag(block, listTag);
+  if (!lists.length) return 0;
+  const rates = extractTag(lists[lists.length - 1], 'RATE');
+  if (!rates.length) return 0;
+  return parseTallyRate(rates[rates.length - 1]);
+}
+
+// Join ADDRESS.LIST children into a comma-separated string for display.
+function readAddressList(block) {
+  const lists = extractTag(block, 'ADDRESS.LIST');
+  if (!lists.length) return '';
+  return extractTag(lists[0], 'ADDRESS').map(a => a.trim()).filter(Boolean).join(', ');
 }
 
 // Parse Tally's date format. Tally writes YYYYMMDD in <DATE> tags; we
@@ -484,333 +520,543 @@ function classifyLedger(name) {
   return 'party_or_other';
 }
 
+// Ledgers → Parties. Idempotent via findOrCreate on party_name.
+// Skips non-party ledgers (income, expense, tax, etc.) by checking PARENT
+// contains "Debtor" / "Creditor".
+async function ingestLedgersFromXml(xml, userId) {
+  const ledgers = extractTag(xml, 'LEDGER');
+  let imported = 0;
+  const errors = [];
+  for (const block of ledgers) {
+    try {
+      const name = readField(block, 'NAME');
+      if (!name) continue;
+      const parent = readField(block, 'PARENT').toLowerCase();
+      if (!/debtor|creditor/.test(parent)) continue;
+      const partyType = parent.includes('debtor') ? 'Customer' : 'Supplier';
+      const gstin = readField(block, 'GSTIN') || readField(block, 'PARTYGSTIN');
+      const openBal = parseFloat(readField(block, 'OPENINGBALANCE') || 0);
+      const state = readField(block, 'LEDSTATENAME');
+      const pin = readField(block, 'PINCODE');
+      const country = readField(block, 'COUNTRYOFRESIDENCE') || readField(block, 'LEDGERPHONE.COUNTRY') || 'India';
+      const mobile = readField(block, 'LEDGERMOBILE') || readField(block, 'LEDGERCONTACT') || '';
+      const email = readField(block, 'LEDGEREMAIL') || readField(block, 'EMAIL');
+      const pan = readField(block, 'INCOMETAXNUMBER') || readField(block, 'PANNUMBER');
+      const creditLimit = parseTallyRate(readField(block, 'CREDITLIMIT'));
+      const creditDays = parseInt(readField(block, 'CREDITPERIOD'), 10) || 0;
+      const address = readAddressList(block);
+
+      const [, created] = await Party.findOrCreate({
+        where: { party_name: name },
+        defaults: {
+          party_type: partyType,
+          party_name: name,
+          mobile_1: mobile || '0000000000',
+          email: email || null,
+          gstin: gstin || null,
+          pan_number: pan || null,
+          address_line1: address || null,
+          state: state || null,
+          pincode: pin || null,
+          country: country || 'India',
+          credit_allowed: creditLimit > 0 || creditDays > 0,
+          credit_limit: creditLimit,
+          credit_days: creditDays,
+          opening_balance: Math.abs(openBal),
+          opening_balance_type: openBal < 0 ? 'Payable' : 'Receivable',
+          created_by: userId,
+        },
+      });
+      if (created) imported++;
+    } catch (e) {
+      errors.push({ type: 'ledger', reason: e.message, name: readField(block, 'NAME') });
+    }
+  }
+  return { imported, errors, seen: ledgers.length };
+}
+
+// Stock Summary report (StkSum.xml) → Products. Tally's Stock Summary is
+// a display report, not a master export: rows come as sibling
+// <DSPACCNAME>…<DSPSTKINFO>… pairs using `DSP*` tags instead of `NAME` /
+// `OPENINGBALANCE`. If the XML uploaded by the user is a Stock Summary
+// rather than a Masters export, the normal STOCKITEM parser returns zero
+// and we fall through to this path so rates + on-hand qty still land.
+async function ingestStockSummaryFromXml(xml) {
+  // Walk the tags in document order so each DSPACCNAME pairs with the
+  // DSPSTKINFO that follows it.
+  const rowRe = /<(DSPACCNAME|DSPSTKINFO)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
+  const rows = [];
+  let m;
+  while ((m = rowRe.exec(xml)) !== null) rows.push({ tag: m[1].toUpperCase(), body: m[2] });
+  if (!rows.length) return { imported: 0, errors: [], seen: 0 };
+
+  const { generateBarcode } = require('../utils/barcode');
+  const { Category } = require('../models');
+  const [defaultCat] = await Category.findOrCreate({
+    where: { category_name: 'Imported from Tally' },
+    defaults: { category_name: 'Imported from Tally' },
+  });
+
+  let imported = 0;
+  let seen = 0;
+  const errors = [];
+  for (let i = 0; i < rows.length - 1; i++) {
+    if (rows[i].tag !== 'DSPACCNAME' || rows[i + 1].tag !== 'DSPSTKINFO') continue;
+    seen++;
+    try {
+      const name = readField(rows[i].body, 'DSPDISPNAME');
+      if (!name) continue;
+      const info = rows[i + 1].body;
+      const qty = parseTallyRate(readField(info, 'DSPCLQTY'));
+      const rate = parseTallyRate(readField(info, 'DSPCLRATE'));
+      // DSPCLAMTA is typically negative in Tally's stock summary (credit
+      // convention on inventory). Keep unsigned abs for the DB.
+      const [, created] = await Product.findOrCreate({
+        where: { product_name: name },
+        defaults: {
+          product_name: name,
+          category_id: defaultCat.category_id,
+          barcode: await generateBarcode(),
+          unit_of_measurement: 'PCS',
+          gst_rate: 0,
+          opening_stock: qty,
+          current_stock: qty,
+          opening_stock_rate: rate,
+          purchase_rate: rate,
+          sale_rate: rate,
+          mrp: rate,
+        },
+      });
+      if (created) imported++;
+    } catch (e) {
+      errors.push({ type: 'stocksum', reason: e.message });
+    }
+    i++;  // jump over the consumed DSPSTKINFO
+  }
+  return { imported, errors, seen };
+}
+
+// Stock Items → Products. Idempotent via findOrCreate on product_name.
+// Auto-creates the "Imported from Tally" category on first run so imported
+// items have a home without forcing the user to pick one upfront.
+async function ingestStockItemsFromXml(xml) {
+  const stockItems = extractTag(xml, 'STOCKITEM');
+  const { generateBarcode } = require('../utils/barcode');
+  const { Category } = require('../models');
+  const [defaultCat] = await Category.findOrCreate({
+    where: { category_name: 'Imported from Tally' },
+    defaults: { category_name: 'Imported from Tally' },
+  });
+  // Tally units → our ENUM. Unknown units fall back to PCS (documented in
+  // the ENUM in Product.js: PCS/KG/METER/LITER/BOX/DOZEN).
+  const mapUnit = { NOS: 'PCS', PCS: 'PCS', KGS: 'KG', KG: 'KG',
+                    MTRS: 'METER', MTR: 'METER', M: 'METER',
+                    LTRS: 'LITER', LTR: 'LITER', L: 'LITER',
+                    BOX: 'BOX', BOXES: 'BOX',
+                    DOZ: 'DOZEN', DOZEN: 'DOZEN' };
+  let imported = 0;
+  const errors = [];
+  for (const block of stockItems) {
+    try {
+      const name = readField(block, 'NAME');
+      if (!name) continue;
+      const hsn = readField(block, 'HSNCODE') || readField(block, 'GSTHSNCODE');
+      const gstRate = parseFloat(readField(block, 'GSTRATE') || readField(block, 'IGSTRATE') || 0) || 0;
+      const barcode = readField(block, 'BARCODE') || readField(block, 'PARTNUMBER') || await generateBarcode();
+      const unit = (readField(block, 'BASEUNITS') || readField(block, 'ADDITIONALUNITS')).toUpperCase();
+      const uom = mapUnit[unit] || 'PCS';
+
+      // Opening stock: Tally reports qty as "100 PCS" or bare "100".
+      const openingStock = parseTallyRate(readField(block, 'OPENINGBALANCE'));
+      const openingRate = parseTallyRate(readField(block, 'OPENINGRATE'));
+      // Closing balance/rate come from our Live Mode TDL (FETCH includes
+      // ClosingBalance / ClosingRate / ClosingValue). Prefer them over the
+      // opening snapshot when present — they represent "what's in stock
+      // right now" as Tally sees it, which is what the ERP stock report
+      // should show.
+      const closingStock = parseTallyRate(readField(block, 'CLOSINGBALANCE'));
+      const closingRate = parseTallyRate(readField(block, 'CLOSINGRATE'));
+      const lastCostPrice = parseTallyRate(readField(block, 'LASTCOSTPRICE') || readField(block, 'COSTPRICE'));
+      // Prefer the standard price list (selling) → last entry = current rate.
+      // Fall back to LASTSELLINGPRICE if the price list is empty.
+      const saleRate = readLastRateFromPriceList(block, 'STANDARDPRICELIST.LIST')
+                    || parseTallyRate(readField(block, 'LASTSELLINGPRICE'))
+                    || closingRate;
+      const purchaseRate = openingRate || lastCostPrice
+                        || readLastRateFromPriceList(block, 'STANDARDCOSTLIST.LIST')
+                        || closingRate;
+      const mrp = parseTallyRate(readField(block, 'MRPRATE') || readField(block, 'MAXIMUMRETAILPRICE'));
+      const description = readField(block, 'DESCRIPTION');
+      const article = readField(block, 'PARTNUMBER') || readField(block, 'ALIAS');
+      const onHand = closingStock || openingStock;
+
+      const [, created] = await Product.findOrCreate({
+        where: { product_name: name },
+        defaults: {
+          barcode,
+          category_id: defaultCat.category_id,
+          product_name: name,
+          product_description: description || null,
+          article_number: article || null,
+          hsn_code: hsn || null,
+          gst_rate: gstRate,
+          unit_of_measurement: uom,
+          opening_stock: openingStock,
+          opening_stock_rate: purchaseRate || 0,
+          current_stock: onHand,
+          purchase_rate: purchaseRate || 0,
+          sale_rate: saleRate || 0,
+          mrp: mrp || saleRate || 0,
+        },
+      });
+      if (created) imported++;
+    } catch (e) {
+      errors.push({ type: 'stockitem', reason: e.message, name: readField(block, 'NAME') });
+    }
+  }
+  return { imported, errors, seen: stockItems.length };
+}
+
+// Tally exports XML files in UTF-16 LE (BOM: FF FE) by default — reading
+// them with `utf-8` leaves null bytes wedged between every character, so
+// no tag regex matches and the import silently lands zero rows. Detect the
+// BOM and decode accordingly; fall back to UTF-8 for files from other
+// sources (our own re-exports, hand-edited samples).
+function decodeXmlBuffer(buf) {
+  if (buf.length >= 2 && buf[0] === 0xFF && buf[1] === 0xFE) {
+    return buf.slice(2).toString('utf16le');
+  }
+  if (buf.length >= 2 && buf[0] === 0xFE && buf[1] === 0xFF) {
+    // UTF-16 BE — Node only has utf16le, so byte-swap first.
+    return Buffer.from(buf.slice(2)).swap16().toString('utf16le');
+  }
+  if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
+    return buf.slice(3).toString('utf-8');
+  }
+  // Heuristic: if more than half the first 128 bytes are 0x00, treat as
+  // UTF-16 LE without BOM — some Tally installations strip the BOM.
+  if (buf.length >= 128) {
+    let zeroCount = 0;
+    for (let i = 1; i < 128; i += 2) if (buf[i] === 0x00) zeroCount++;
+    if (zeroCount > 40) return buf.toString('utf16le');
+  }
+  return buf.toString('utf-8');
+}
+
+// Vouchers → Sales / Purchase / Receipt / Payment rows. Each voucher goes
+// in its own DB transaction so a half-parsed inventory block can't leave a
+// partial bill. Missing parties/products are auto-created as stubs so the
+// user can upload transactions without having to pre-populate masters.
+async function ingestVouchersFromXml(xml, userId) {
+  const vouchers = extractTagWithAttrs(xml, 'VOUCHER');
+  let imported = 0;
+  const errors = [];
+
+  // Idempotency caches — bill_number / transaction_number are unique, so
+  // one pre-fetch per voucher-type is enough for O(1) "skip duplicate".
+  const existingSales    = new Set((await SalesBill.findAll({ attributes: ['bill_number'], raw: true })).map(b => b.bill_number));
+  const existingPurchase = new Set((await PurchaseBill.findAll({ attributes: ['bill_number'], raw: true })).map(b => b.bill_number));
+  const existingTxn      = new Set((await PaymentReceipt.findAll({ attributes: ['transaction_number'], raw: true })).map(r => r.transaction_number));
+
+  // Stub-master auto-create: Tally transaction exports frequently arrive
+  // without masters. Rather than fail the voucher, we spin up a minimal
+  // Party / Product with whatever the line gives us (party name; product
+  // name + line rate). Caches prevent duplicate queries inside one pass.
+  const { generateBarcode } = require('../utils/barcode');
+  const { Category } = require('../models');
+  const [tallyCat] = await Category.findOrCreate({
+    where: { category_name: 'Imported from Tally' },
+    defaults: { category_name: 'Imported from Tally' },
+  });
+  const partyCache   = new Map();
+  const productCache = new Map();
+
+  const resolveParty = async (name, preferredType) => {
+    if (!name) return null;
+    if (partyCache.has(name)) return partyCache.get(name);
+    let party = await Party.findOne({ where: { party_name: name } });
+    if (!party) {
+      party = await Party.create({
+        party_name: name,
+        party_type: preferredType,
+        mobile_1: '0000000000',
+        created_by: userId,
+      });
+    } else if (preferredType && party.party_type !== preferredType && party.party_type !== 'Both') {
+      // Existing row is Customer but we need Supplier (or vice versa) —
+      // promote to 'Both' so both voucher-types can link it.
+      await party.update({ party_type: 'Both' });
+    }
+    partyCache.set(name, party);
+    return party;
+  };
+  const resolveProduct = async (name, hintedRate) => {
+    if (!name) return null;
+    if (productCache.has(name)) return productCache.get(name);
+    let product = await Product.findOne({ where: { product_name: name } });
+    if (!product) {
+      product = await Product.create({
+        product_name: name,
+        category_id: tallyCat.category_id,
+        barcode: await generateBarcode(),
+        unit_of_measurement: 'PCS',
+        gst_rate: 0,
+        purchase_rate: hintedRate || 0,
+        sale_rate: hintedRate || 0,
+        mrp: hintedRate || 0,
+      });
+    }
+    productCache.set(name, product);
+    return product;
+  };
+
+  for (const { attrs, body } of vouchers) {
+    try {
+      const vchtype = (attrs.VCHTYPE || readField(body, 'VOUCHERTYPENAME') || '').toLowerCase();
+      const voucherNumber = readField(body, 'VOUCHERNUMBER');
+      if (!voucherNumber) {
+        errors.push({ type: 'voucher', reason: 'Missing VOUCHERNUMBER' });
+        continue;
+      }
+
+      const billDate = parseTallyDate(readField(body, 'DATE'));
+      if (!billDate) {
+        errors.push({ type: 'voucher', reason: `Voucher ${voucherNumber}: unparseable <DATE>` });
+        continue;
+      }
+
+      const partyName = readField(body, 'PARTYLEDGERNAME') || readField(body, 'PARTYNAME');
+      const narration = readField(body, 'NARRATION');
+
+      // Tally uses two different tag names for ledger postings depending on
+      // voucher type:
+      //   • Sales / Purchase (invoice mode)     → <LEDGERENTRIES.LIST>
+      //   • Payment / Receipt / Contra / Journal → <ALLLEDGERENTRIES.LIST>
+      // Previously we read only the first — so every Payment voucher had
+      // zero ledgerEntries and bailed with "zero amount on party ledger".
+      const ledgerEntries = [
+        ...extractTag(body, 'LEDGERENTRIES.LIST'),
+        ...extractTag(body, 'ALLLEDGERENTRIES.LIST'),
+      ].map(block => ({
+        name:   readField(block, 'LEDGERNAME'),
+        amount: parseTallyAmount(readField(block, 'AMOUNT')),
+        isDeemedPositive: /yes/i.test(readField(block, 'ISDEEMEDPOSITIVE')),
+      }));
+
+      const inventoryEntries = extractTag(body, 'ALLINVENTORYENTRIES.LIST').map(block => ({
+        stockItem: readField(block, 'STOCKITEMNAME'),
+        qty:       parseFloat(String(readField(block, 'ACTUALQTY') || readField(block, 'BILLEDQTY') || '0').replace(/[^\d.-]/g, '')) || 0,
+        rate:      parseFloat(String(readField(block, 'RATE') || '0').replace(/[^\d.-]/g, '')) || 0,
+        amount:    parseTallyAmount(readField(block, 'AMOUNT')),
+      }));
+
+      // Tax bucket aggregation — abs() because bills store positive tax
+      // amounts; sign is implicit in the voucher-type + accounting direction.
+      const totalFor = (bucket) => ledgerEntries
+        .filter(e => classifyLedger(e.name) === bucket)
+        .reduce((s, e) => s + Math.abs(e.amount), 0);
+      const cgstAmt = totalFor('cgst');
+      const sgstAmt = totalFor('sgst');
+      const igstAmt = totalFor('igst');
+      const roundOff = ledgerEntries
+        .filter(e => classifyLedger(e.name) === 'roundoff')
+        .reduce((s, e) => s + e.amount, 0);
+
+      /* ── Sales voucher ─────────────────────────────────────────────── */
+      if (vchtype.includes('sales') && !vchtype.includes('return')) {
+        if (existingSales.has(voucherNumber)) {
+          errors.push({ type: 'voucher', reason: `Sales voucher ${voucherNumber}: duplicate bill number, skipped` });
+          continue;
+        }
+        const customer = await resolveParty(partyName, 'Customer');
+        if (!customer) {
+          errors.push({ type: 'voucher', reason: `Sales voucher ${voucherNumber}: missing <PARTYLEDGERNAME>` });
+          continue;
+        }
+        const resolved = [];
+        for (const inv of inventoryEntries) {
+          const product = await resolveProduct(inv.stockItem, inv.rate);
+          if (product) resolved.push({ product, ...inv });
+        }
+        const subTotal = resolved.reduce((s, it) => s + it.qty * it.rate, 0);
+        const totalAmt = subTotal + cgstAmt + sgstAmt + igstAmt + roundOff;
+
+        await sequelize.transaction(async (t) => {
+          const bill = await SalesBill.create({
+            bill_number: voucherNumber,
+            customer_id: customer.party_id,
+            bill_date: billDate,
+            total_items: resolved.length,
+            total_quantity: resolved.reduce((s, it) => s + it.qty, 0),
+            sub_total: subTotal,
+            cgst_amount: cgstAmt, sgst_amount: sgstAmt, igst_amount: igstAmt,
+            round_off: roundOff,
+            total_amount: totalAmt,
+            balance_amount: totalAmt,
+            payment_status: 'Unpaid',
+            remarks: narration || null,
+            created_by: userId,
+          }, { transaction: t });
+          await SalesBillItem.bulkCreate(resolved.map(r => ({
+            sales_bill_id: bill.sales_bill_id,
+            product_id: r.product.product_id,
+            barcode: r.product.barcode,
+            product_name: r.product.product_name,
+            category_id: r.product.category_id,
+            hsn_code: r.product.hsn_code,
+            quantity: r.qty,
+            rate: r.rate,
+            cost_rate: r.product.purchase_rate || 0,
+            gst_rate: r.product.gst_rate || 0,
+            taxable_amount: r.qty * r.rate,
+            total_amount: r.qty * r.rate,
+            quantity_per_box: r.product.quantity_per_box || 1,
+          })), { transaction: t });
+        });
+        existingSales.add(voucherNumber);
+        imported++;
+        continue;
+      }
+
+      /* ── Purchase voucher ──────────────────────────────────────────── */
+      if (vchtype.includes('purchase') && !vchtype.includes('return')) {
+        if (existingPurchase.has(voucherNumber)) {
+          errors.push({ type: 'voucher', reason: `Purchase voucher ${voucherNumber}: duplicate bill number, skipped` });
+          continue;
+        }
+        const supplier = await resolveParty(partyName, 'Supplier');
+        if (!supplier) {
+          errors.push({ type: 'voucher', reason: `Purchase voucher ${voucherNumber}: missing <PARTYLEDGERNAME>` });
+          continue;
+        }
+        const resolved = [];
+        for (const inv of inventoryEntries) {
+          const product = await resolveProduct(inv.stockItem, inv.rate);
+          if (product) resolved.push({ product, ...inv });
+        }
+        const subTotal = resolved.reduce((s, it) => s + it.qty * it.rate, 0);
+        const totalAmt = subTotal + cgstAmt + sgstAmt + igstAmt + roundOff;
+
+        await sequelize.transaction(async (t) => {
+          const bill = await PurchaseBill.create({
+            bill_number: voucherNumber,
+            supplier_id: supplier.party_id,
+            bill_date: billDate,
+            total_items: resolved.length,
+            total_quantity: resolved.reduce((s, it) => s + it.qty, 0),
+            sub_total: subTotal,
+            cgst_amount: cgstAmt, sgst_amount: sgstAmt, igst_amount: igstAmt,
+            round_off: roundOff,
+            total_amount: totalAmt,
+            balance_amount: totalAmt,
+            payment_status: 'Unpaid',
+            remarks: narration || null,
+            created_by: userId,
+          }, { transaction: t });
+          await PurchaseBillItem.bulkCreate(resolved.map(r => ({
+            purchase_bill_id: bill.purchase_bill_id,
+            product_id: r.product.product_id,
+            barcode: r.product.barcode,
+            product_name: r.product.product_name,
+            hsn_code: r.product.hsn_code,
+            quantity: r.qty,
+            purchase_rate: r.rate,
+            gst_rate: r.product.gst_rate || 0,
+            taxable_amount: r.qty * r.rate,
+            total_amount: r.qty * r.rate,
+            quantity_per_box: r.product.quantity_per_box || 1,
+          })), { transaction: t });
+        });
+        existingPurchase.add(voucherNumber);
+        imported++;
+        continue;
+      }
+
+      /* ── Receipt / Payment voucher ─────────────────────────────────── */
+      if (vchtype.includes('receipt') || vchtype.includes('payment')) {
+        const txnType = vchtype.includes('receipt') ? 'Receipt' : 'Payment';
+        // Tally numbers Payment and Receipt vouchers in separate series —
+        // both start at "1". Our PaymentReceipt.transaction_number has a
+        // global unique index, so an unprefixed "1" would collide across
+        // types. Prefix with type initial to keep them disjoint while
+        // still readable (and reversible — the suffix is the original
+        // Tally voucher number).
+        const key = `${txnType === 'Receipt' ? 'RCT' : 'PMT'}-${voucherNumber}`;
+        if (existingTxn.has(key)) {
+          errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: duplicate transaction number, skipped` });
+          continue;
+        }
+        const party = await resolveParty(partyName, txnType === 'Receipt' ? 'Customer' : 'Supplier');
+        if (!party) {
+          errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: missing <PARTYLEDGERNAME>` });
+          continue;
+        }
+        const partyEntry = ledgerEntries.find(e => e.name === partyName);
+        const amount = partyEntry ? Math.abs(partyEntry.amount) : 0;
+        if (!(amount > 0)) {
+          errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: zero amount on party ledger` });
+          continue;
+        }
+        await PaymentReceipt.create({
+          transaction_number: key,
+          transaction_type: txnType,
+          transaction_date: billDate,
+          party_id: party.party_id,
+          total_amount: amount,
+          remarks: narration || null,
+          created_by: userId,
+        });
+        existingTxn.add(key);
+        imported++;
+        continue;
+      }
+
+      // Unsupported voucher type (Journal / Contra / Return etc.) — surface
+      // so the user knows we saw it but didn't ingest.
+      errors.push({ type: 'voucher', reason: `Voucher ${voucherNumber}: unsupported VCHTYPE '${vchtype}' (skipped)` });
+    } catch (e) {
+      errors.push({ type: 'voucher', reason: e.message });
+    }
+  }
+
+  return { imported, errors, seen: vouchers.length };
+}
+
 exports.importXML = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const fs = require('fs');
-    const xml = fs.readFileSync(req.file.path, 'utf-8');
+    const xml = decodeXmlBuffer(fs.readFileSync(req.file.path));
 
-    const ledgers = extractTag(xml, 'LEDGER');
-    const stockItems = extractTag(xml, 'STOCKITEM');
-    const vouchers = extractTagWithAttrs(xml, 'VOUCHER');
-
-    let ledgersImported = 0, stockItemsImported = 0;
-    let vouchersImported = 0;
     const errors = [];
 
-    // Ledgers → Parties
-    for (const block of ledgers) {
-      try {
-        const name = readField(block, 'NAME');
-        if (!name) continue;
-        const parent = readField(block, 'PARENT').toLowerCase();
-        if (!/debtor|creditor/.test(parent)) continue; // Skip non-party ledgers
-        const partyType = parent.includes('debtor') ? 'Customer' : 'Supplier';
-        const gstin = readField(block, 'GSTIN');
-        const openBal = parseFloat(readField(block, 'OPENINGBALANCE') || 0);
-        const state = readField(block, 'LEDSTATENAME');
-        const mobile = readField(block, 'LEDGERMOBILE') || readField(block, 'LEDGERCONTACT') || '0000000000';
-        const email = readField(block, 'LEDGEREMAIL');
+    const ledgerRes = await ingestLedgersFromXml(xml, req.user?.user_id || null);
+    errors.push(...ledgerRes.errors);
 
-        await Party.findOrCreate({
-          where: { party_name: name },
-          defaults: {
-            party_type: partyType,
-            party_name: name,
-            mobile_1: mobile,
-            email: email || null,
-            gstin: gstin || null,
-            state: state || null,
-            opening_balance: Math.abs(openBal),
-            opening_balance_type: openBal < 0 ? 'Payable' : 'Receivable',
-            created_by: req.user?.user_id || null,
-          },
-        });
-        ledgersImported++;
-      } catch (e) {
-        errors.push({ type: 'ledger', reason: e.message });
+    let stockRes = await ingestStockItemsFromXml(xml);
+    errors.push(...stockRes.errors);
+    // Fallback: if the file is a Stock Summary report (StkSum.xml) instead
+    // of a masters export, the STOCKITEM parser finds nothing. Re-parse
+    // the display-tag format so rates + on-hand qty still ingest.
+    if (stockRes.seen === 0) {
+      const summaryRes = await ingestStockSummaryFromXml(xml);
+      if (summaryRes.seen > 0) {
+        stockRes = summaryRes;
+        errors.push(...summaryRes.errors);
       }
     }
 
-    // Stock Items → Products
-    const { generateBarcode } = require('../utils/barcode');
-    const { Category } = require('../models');
-    const [defaultCat] = await Category.findOrCreate({
-      where: { category_name: 'Imported from Tally' },
-      defaults: { category_name: 'Imported from Tally' },
-    });
-
-    for (const block of stockItems) {
-      try {
-        const name = readField(block, 'NAME');
-        if (!name) continue;
-        const hsn = readField(block, 'HSNCODE');
-        const gstRate = parseFloat(readField(block, 'GSTRATE') || 0);
-        const barcode = readField(block, 'BARCODE') || await generateBarcode();
-        const unit = readField(block, 'BASEUNITS').toUpperCase();
-        const mapUnit = { NOS: 'PCS', KGS: 'KG', MTRS: 'METER', LTRS: 'LITER', BOX: 'BOX', DOZ: 'DOZEN' };
-        const uom = mapUnit[unit] || 'PCS';
-
-        await Product.findOrCreate({
-          where: { product_name: name },
-          defaults: {
-            barcode,
-            category_id: defaultCat.category_id,
-            product_name: name,
-            hsn_code: hsn || null,
-            gst_rate: gstRate,
-            unit_of_measurement: uom,
-          },
-        });
-        stockItemsImported++;
-      } catch (e) {
-        errors.push({ type: 'stockitem', reason: e.message });
-      }
-    }
-
-    // Vouchers → Sales Bills / Purchase Bills / Receipts / Payments.
-    // Masters must already be in place, so we run this AFTER ledgers +
-    // stock items above. Each voucher is inserted under its own
-    // transaction so a half-parsed inventory block never leaves a
-    // partial bill in the DB.
-    //
-    // Idempotency: bill_number / transaction_number are unique. Pre-fetch
-    // the existing keys in one query per voucher-type for O(1) "skip
-    // duplicate" checks inside the loop.
-    const existingSales    = new Set((await SalesBill.findAll({ attributes: ['bill_number'], raw: true })).map(b => b.bill_number));
-    const existingPurchase = new Set((await PurchaseBill.findAll({ attributes: ['bill_number'], raw: true })).map(b => b.bill_number));
-    const existingTxn      = new Set((await PaymentReceipt.findAll({ attributes: ['transaction_number'], raw: true })).map(r => r.transaction_number));
-
-    for (const { attrs, body } of vouchers) {
-      try {
-        const vchtype = (attrs.VCHTYPE || readField(body, 'VOUCHERTYPENAME') || '').toLowerCase();
-        const voucherNumber = readField(body, 'VOUCHERNUMBER');
-        if (!voucherNumber) {
-          errors.push({ type: 'voucher', reason: 'Missing VOUCHERNUMBER' });
-          continue;
-        }
-
-        const billDate = parseTallyDate(readField(body, 'DATE'));
-        if (!billDate) {
-          errors.push({ type: 'voucher', reason: `Voucher ${voucherNumber}: unparseable <DATE>` });
-          continue;
-        }
-
-        const partyName = readField(body, 'PARTYLEDGERNAME') || readField(body, 'PARTYNAME');
-        const narration = readField(body, 'NARRATION');
-
-        // Parse LEDGERENTRIES so we can compute GST / sales-account / party
-        // amounts regardless of which voucher type we're handling.
-        const ledgerEntries = extractTag(body, 'LEDGERENTRIES.LIST').map(block => ({
-          name:   readField(block, 'LEDGERNAME'),
-          amount: parseTallyAmount(readField(block, 'AMOUNT')),
-          isDeemedPositive: /yes/i.test(readField(block, 'ISDEEMEDPOSITIVE')),
-        }));
-
-        // Parse ALLINVENTORYENTRIES for sales/purchase bills.
-        const inventoryEntries = extractTag(body, 'ALLINVENTORYENTRIES.LIST').map(block => ({
-          stockItem: readField(block, 'STOCKITEMNAME'),
-          qty:       parseFloat(String(readField(block, 'ACTUALQTY') || readField(block, 'BILLEDQTY') || '0').replace(/[^\d.-]/g, '')) || 0,
-          rate:      parseFloat(String(readField(block, 'RATE') || '0').replace(/[^\d.-]/g, '')) || 0,
-          amount:    parseTallyAmount(readField(block, 'AMOUNT')),
-        }));
-
-        // Helper: aggregate signed amounts from classified ledgers. We use
-        // abs() because downstream bills store positive tax amounts and the
-        // sign is conveyed by the voucher type + accounting direction.
-        const totalFor = (bucket) => ledgerEntries
-          .filter(e => classifyLedger(e.name) === bucket)
-          .reduce((s, e) => s + Math.abs(e.amount), 0);
-
-        const cgstAmt = totalFor('cgst');
-        const sgstAmt = totalFor('sgst');
-        const igstAmt = totalFor('igst');
-        const roundOff = ledgerEntries
-          .filter(e => classifyLedger(e.name) === 'roundoff')
-          .reduce((s, e) => s + e.amount, 0); // sign matters on round-off
-
-        /* ── Sales voucher ─────────────────────────────────────────────── */
-        if (vchtype.includes('sales') && !vchtype.includes('return')) {
-          if (existingSales.has(voucherNumber)) {
-            errors.push({ type: 'voucher', reason: `Sales voucher ${voucherNumber}: duplicate bill number, skipped` });
-            continue;
-          }
-          const customer = partyName ? await Party.findOne({ where: { party_name: partyName, party_type: { [Op.in]: ['Customer', 'Both'] } } }) : null;
-          if (!customer) {
-            errors.push({ type: 'voucher', reason: `Sales voucher ${voucherNumber}: customer '${partyName}' not found — import its Ledger first` });
-            continue;
-          }
-
-          // Resolve every inventory line to a local product — abort the
-          // whole voucher if any one is missing, rather than inserting a
-          // half-represented bill.
-          const resolved = [];
-          let missingItem = null;
-          for (const inv of inventoryEntries) {
-            const product = await Product.findOne({ where: { product_name: inv.stockItem } });
-            if (!product) { missingItem = inv.stockItem; break; }
-            resolved.push({ product, ...inv });
-          }
-          if (missingItem) {
-            errors.push({ type: 'voucher', reason: `Sales voucher ${voucherNumber}: product '${missingItem}' not found — import Stock Items first` });
-            continue;
-          }
-
-          const subTotal = resolved.reduce((s, it) => s + it.qty * it.rate, 0);
-          const totalAmt = subTotal + cgstAmt + sgstAmt + igstAmt + roundOff;
-
-          await sequelize.transaction(async (t) => {
-            const bill = await SalesBill.create({
-              bill_number: voucherNumber,
-              customer_id: customer.party_id,
-              bill_date: billDate,
-              total_items: resolved.length,
-              total_quantity: resolved.reduce((s, it) => s + it.qty, 0),
-              sub_total: subTotal,
-              cgst_amount: cgstAmt, sgst_amount: sgstAmt, igst_amount: igstAmt,
-              round_off: roundOff,
-              total_amount: totalAmt,
-              balance_amount: totalAmt,
-              payment_status: 'Unpaid',
-              remarks: narration || null,
-              created_by: req.user?.user_id || null,
-            }, { transaction: t });
-            await SalesBillItem.bulkCreate(resolved.map(r => ({
-              sales_bill_id: bill.sales_bill_id,
-              product_id: r.product.product_id,
-              barcode: r.product.barcode,
-              product_name: r.product.product_name,
-              category_id: r.product.category_id,
-              hsn_code: r.product.hsn_code,
-              quantity: r.qty,
-              rate: r.rate,
-              cost_rate: r.product.purchase_rate || 0,
-              gst_rate: r.product.gst_rate || 0,
-              taxable_amount: r.qty * r.rate,
-              total_amount: r.qty * r.rate,
-              quantity_per_box: r.product.quantity_per_box || 1,
-            })), { transaction: t });
-          });
-          existingSales.add(voucherNumber);
-          vouchersImported++;
-          continue;
-        }
-
-        /* ── Purchase voucher ──────────────────────────────────────────── */
-        if (vchtype.includes('purchase') && !vchtype.includes('return')) {
-          if (existingPurchase.has(voucherNumber)) {
-            errors.push({ type: 'voucher', reason: `Purchase voucher ${voucherNumber}: duplicate bill number, skipped` });
-            continue;
-          }
-          const supplier = partyName ? await Party.findOne({ where: { party_name: partyName, party_type: { [Op.in]: ['Supplier', 'Both'] } } }) : null;
-          if (!supplier) {
-            errors.push({ type: 'voucher', reason: `Purchase voucher ${voucherNumber}: supplier '${partyName}' not found` });
-            continue;
-          }
-
-          const resolved = [];
-          let missingItem = null;
-          for (const inv of inventoryEntries) {
-            const product = await Product.findOne({ where: { product_name: inv.stockItem } });
-            if (!product) { missingItem = inv.stockItem; break; }
-            resolved.push({ product, ...inv });
-          }
-          if (missingItem) {
-            errors.push({ type: 'voucher', reason: `Purchase voucher ${voucherNumber}: product '${missingItem}' not found` });
-            continue;
-          }
-
-          const subTotal = resolved.reduce((s, it) => s + it.qty * it.rate, 0);
-          const totalAmt = subTotal + cgstAmt + sgstAmt + igstAmt + roundOff;
-
-          await sequelize.transaction(async (t) => {
-            const bill = await PurchaseBill.create({
-              bill_number: voucherNumber,
-              supplier_id: supplier.party_id,
-              bill_date: billDate,
-              total_items: resolved.length,
-              total_quantity: resolved.reduce((s, it) => s + it.qty, 0),
-              sub_total: subTotal,
-              cgst_amount: cgstAmt, sgst_amount: sgstAmt, igst_amount: igstAmt,
-              round_off: roundOff,
-              total_amount: totalAmt,
-              balance_amount: totalAmt,
-              payment_status: 'Unpaid',
-              remarks: narration || null,
-              created_by: req.user?.user_id || null,
-            }, { transaction: t });
-            await PurchaseBillItem.bulkCreate(resolved.map(r => ({
-              purchase_bill_id: bill.purchase_bill_id,
-              product_id: r.product.product_id,
-              barcode: r.product.barcode,
-              product_name: r.product.product_name,
-              hsn_code: r.product.hsn_code,
-              quantity: r.qty,
-              purchase_rate: r.rate,
-              gst_rate: r.product.gst_rate || 0,
-              taxable_amount: r.qty * r.rate,
-              total_amount: r.qty * r.rate,
-              quantity_per_box: r.product.quantity_per_box || 1,
-            })), { transaction: t });
-          });
-          existingPurchase.add(voucherNumber);
-          vouchersImported++;
-          continue;
-        }
-
-        /* ── Receipt / Payment voucher ─────────────────────────────────── */
-        if (vchtype.includes('receipt') || vchtype.includes('payment')) {
-          const txnType = vchtype.includes('receipt') ? 'Receipt' : 'Payment';
-          if (existingTxn.has(voucherNumber)) {
-            errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: duplicate transaction number, skipped` });
-            continue;
-          }
-          const party = partyName ? await Party.findOne({
-            where: { party_name: partyName,
-              party_type: { [Op.in]: txnType === 'Receipt' ? ['Customer', 'Both'] : ['Supplier', 'Both'] } },
-          }) : null;
-          if (!party) {
-            errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: party '${partyName}' not found` });
-            continue;
-          }
-          // Amount = absolute value of the party ledger entry, which is
-          // what Tally credits (for Receipt) or debits (for Payment).
-          const partyEntry = ledgerEntries.find(e => e.name === partyName);
-          const amount = partyEntry ? Math.abs(partyEntry.amount) : 0;
-          if (!(amount > 0)) {
-            errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: zero amount on party ledger` });
-            continue;
-          }
-          await PaymentReceipt.create({
-            transaction_number: voucherNumber,
-            transaction_type: txnType,
-            transaction_date: billDate,
-            party_id: party.party_id,
-            total_amount: amount,
-            remarks: narration || null,
-            created_by: req.user?.user_id || null,
-          });
-          existingTxn.add(voucherNumber);
-          vouchersImported++;
-          continue;
-        }
-
-        // Voucher type we don't handle (Journal / Contra / Return etc.) —
-        // surface it so the user knows we saw it but didn't ingest.
-        errors.push({ type: 'voucher', reason: `Voucher ${voucherNumber}: unsupported VCHTYPE '${vchtype}' (skipped)` });
-      } catch (e) {
-        errors.push({ type: 'voucher', reason: e.message });
-      }
-    }
+    const voucherRes = await ingestVouchersFromXml(xml, req.user?.user_id || null);
+    errors.push(...voucherRes.errors);
 
     // Delete the temp upload
     try { fs.unlinkSync(req.file.path); } catch {}
 
     res.json({
-      ledgers_imported: ledgersImported,
-      stockitems_imported: stockItemsImported,
-      vouchers_imported: vouchersImported,
-      vouchers_previewed: vouchers.length,
+      ledgers_imported: ledgerRes.imported,
+      stockitems_imported: stockRes.imported,
+      vouchers_imported: voucherRes.imported,
+      vouchers_previewed: voucherRes.seen,
       errors,
     });
   } catch (e) {
@@ -883,35 +1129,152 @@ exports.livePull = async (req, res) => {
     const cfg = await getTallyConfig();
     const { from_date, to_date } = req.body || {};
 
-    const fetch = async (id) => {
+    // Full Tally Prime port-9000 sync — same approach integrations like
+    // LiveKeeping use:
+    //   1. Ledgers  → custom TDL Collection, TYPE=Ledger, FETCH of scalar
+    //      fields Tally Prime is known to expose.
+    //   2. Stock    → custom TDL Collection, TYPE=StockItem, same.
+    //   3. Vouchers → "Day Book" report with SVFROMDATE/SVTODATE pinned to
+    //      the user's date range. Tally streams every voucher in that
+    //      range with full LEDGERENTRIES and ALLINVENTORYENTRIES.
+    // Earlier TDLs crashed Tally because they named fields that don't
+    // exist on that object type (e.g. PartyGSTIN is a voucher field, not a
+    // Ledger field; MaximumRetailPrice is not a StockItem scalar). The
+    // lists below stick to documented Tally Prime native fields and are
+    // the exact same ones widely used in the community Tally-XML tooling.
+    const fetchCollection = async (collName, objectType, fetchFields, timeoutMs = 120000) => {
       const xml =
         `<?xml version="1.0" encoding="UTF-8"?>\n` +
-        `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>${esc(id)}</ID></HEADER>` +
-        `<BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>` +
+        `<ENVELOPE>` +
+        `<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>${esc(collName)}</ID></HEADER>` +
+        `<BODY><DESC>` +
+        `<STATICVARIABLES>` +
+        `<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>` +
         (cfg.company ? `<SVCURRENTCOMPANY>${esc(cfg.company)}</SVCURRENTCOMPANY>` : '') +
-        (from_date ? `<SVFROMDATE>${formatDate(from_date)}</SVFROMDATE>` : '') +
-        (to_date ? `<SVTODATE>${formatDate(to_date)}</SVTODATE>` : '') +
-        `</STATICVARIABLES></DESC></BODY></ENVELOPE>`;
-      const { status, body } = await postTallyXML({ host: cfg.host, port: cfg.port, xml });
+        `</STATICVARIABLES>` +
+        `<TDL><TDLMESSAGE>` +
+        `<COLLECTION NAME="${esc(collName)}" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">` +
+        `<TYPE>${esc(objectType)}</TYPE>` +
+        `<FETCH>${fetchFields.join(', ')}</FETCH>` +
+        `</COLLECTION>` +
+        `</TDLMESSAGE></TDL>` +
+        `</DESC></BODY></ENVELOPE>`;
+      const { status, body } = await postTallyXML({ host: cfg.host, port: cfg.port, xml, timeoutMs });
       if (status !== 200) throw new Error(`Tally returned HTTP ${status}`);
       return body;
     };
 
-    const ledgersXML = await fetch('List of Ledgers');
-    const stockXML = await fetch('List of Stock Items');
+    // Safe, widely-supported Tally Prime scalar fields. Keep `Address` and
+    // `LedgerPhone` out of the FETCH — those are list-type fields that
+    // multiply response time on larger ledgers. The address + phone data
+    // we need is already captured in the MailingName / LedStateName /
+    // Pincode / LedgerMobile / Email scalars.
+    const ledgersXML = await fetchCollection('AllLedgerEntries', 'Ledger', [
+      'Name', 'Parent', 'Alias', 'MailingName',
+      'OpeningBalance', 'ClosingBalance',
+      'LedStateName', 'Pincode', 'CountryName',
+      'LedgerMobile', 'LedgerContact', 'Email',
+      'GSTIN', 'IncomeTaxNumber',
+      'CreditLimit', 'BillCreditPeriod',
+    ]);
+    const stockXML = await fetchCollection('AllStockEntries', 'StockItem', [
+      'Name', 'Parent', 'Alias', 'Description',
+      'BaseUnits', 'AdditionalUnits',
+      'OpeningBalance', 'OpeningRate', 'OpeningValue',
+      'ClosingBalance', 'ClosingRate', 'ClosingValue',
+      'HSNCode', 'GSTApplicable',
+    ]);
 
-    // Count masters via the same regex we use for file imports.
-    const ledgers = extractTag(ledgersXML, 'LEDGER');
-    const stockItems = extractTag(stockXML, 'STOCKITEM');
+    // Vouchers via a TDL Voucher Collection with a SYSTEM Formula filter.
+    // Day Book (TYPE=Data ID="Day Book") is clipped by Tally's active
+    // period (F2) even when we send SVFROMDATE/SVTODATE, so backdated
+    // pulls returned only current-year data no matter how wide the user
+    // opened the range.
+    //
+    // A TDL COLLECTION over TYPE=Voucher walks the company's voucher
+    // table directly (no active-period gate) and accepts a FILTER that we
+    // define inline via <SYSTEM TYPE="Formulae">. The formula references
+    // the static vars SVFROMDATE/SVTODATE which we bind per-request.
+    let vouchersXML = '';
+    try {
+      const hasRange = Boolean(from_date && to_date);
+      const vx =
+        `<?xml version="1.0" encoding="UTF-8"?>\n` +
+        `<ENVELOPE>` +
+        `<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>ERPAllVouchers</ID></HEADER>` +
+        `<BODY><DESC>` +
+        `<STATICVARIABLES>` +
+        `<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>` +
+        (cfg.company ? `<SVCURRENTCOMPANY>${esc(cfg.company)}</SVCURRENTCOMPANY>` : '') +
+        (from_date ? `<SVFROMDATE TYPE="Date">${formatDate(from_date)}</SVFROMDATE>` : '') +
+        (to_date ? `<SVTODATE TYPE="Date">${formatDate(to_date)}</SVTODATE>` : '') +
+        `</STATICVARIABLES>` +
+        `<TDL><TDLMESSAGE>` +
+        `<COLLECTION NAME="ERPAllVouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">` +
+        `<TYPE>Voucher</TYPE>` +
+        // FETCH list combines:
+        //   *                      — all scalar fields (Date, VoucherTypeName,
+        //                             VoucherNumber, PartyLedgerName, Narration…)
+        //   AllInventoryEntries,   — nested repeating collections. `*` alone
+        //   AllLedgerEntries,        does NOT pull these; you must name each
+        //   LedgerEntries,           nested list explicitly or Tally returns
+        //   InventoryEntries         the voucher shell only, which is how our
+        //                            first live pull came back with 2370
+        //                            vouchers but all 182 Purchase bills had
+        //                            zero items and zero amount.
+        `<FETCH>*, AllInventoryEntries, AllLedgerEntries, LedgerEntries, InventoryEntries</FETCH>` +
+        (hasRange ? `<FILTER>ERPDateRange</FILTER>` : '') +
+        `</COLLECTION>` +
+        (hasRange ?
+          `<SYSTEM TYPE="Formulae" NAME="ERPDateRange">$Date &gt;= $$Date:"${formatDate(from_date)}" AND $Date &lt;= $$Date:"${formatDate(to_date)}"</SYSTEM>`
+          : '') +
+        `</TDLMESSAGE></TDL>` +
+        `</DESC></BODY></ENVELOPE>`;
+      const r = await postTallyXML({ host: cfg.host, port: cfg.port, xml: vx, timeoutMs: 240000 });
+      if (r.status === 200) vouchersXML = r.body;
+      if (process.env.TALLY_DEBUG) {
+        const voucherCount = (vouchersXML.match(/<VOUCHER\s/g) || []).length;
+        const dateCount = (vouchersXML.match(/<DATE>/g) || []).length;
+        const invCount = (vouchersXML.match(/<ALLINVENTORYENTRIES\.LIST/g) || []).length;
+        const allLedCount = (vouchersXML.match(/<ALLLEDGERENTRIES\.LIST/g) || []).length;
+        const ledCount = (vouchersXML.match(/<LEDGERENTRIES\.LIST/g) || []).length;
+        console.log('[tally] voucher fetch status=' + r.status + ' bodyLen=' + vouchersXML.length
+          + ' vouchers=' + voucherCount + ' dates=' + dateCount
+          + ' inv=' + invCount + ' allLed=' + allLedCount + ' led=' + ledCount);
+        const firstV = (vouchersXML.match(/<VOUCHER[\s\S]*?<\/VOUCHER>/) || [])[0] || '';
+        console.log('[tally] first voucher (first 1200 chars):', firstV.slice(0, 1200));
+      }
+    } catch (e) {
+      // Masters still make the pull useful — surface Day Book failures
+      // in the errors array rather than aborting the whole live pull.
+      if (process.env.TALLY_DEBUG) console.log('[tally] voucher fetch ERROR:', e.message);
+    }
+
+    // Persist — not just count. Same ingestion helpers as File Mode so
+    // Live and File modes produce identical DB state from the same Tally
+    // company.
+    const userId = req.user?.user_id || null;
+    const ledgerRes  = await ingestLedgersFromXml(ledgersXML, userId);
+    const stockRes   = await ingestStockItemsFromXml(stockXML);
+    const voucherRes = vouchersXML
+      ? await ingestVouchersFromXml(vouchersXML, userId)
+      : { imported: 0, errors: [], seen: 0 };
 
     // Update last-sync on success
     await SystemSettings.update({ tally_last_sync: new Date() }, { where: { setting_id: 1 } });
 
     res.json({
-      ledgers: ledgers.length,
-      stockitems: stockItems.length,
-      vouchers: 0,      // Day Book parsing is follow-up work
-      conflicts: 0,     // Conflict detection is follow-up work
+      // `ledgers` / `stockitems` reflect rows actually written. Non-party
+      // ledgers (income/expense/tax) are counted under `ledgers_seen`
+      // so the raw fetch total is still visible.
+      ledgers:         ledgerRes.imported,
+      ledgers_seen:    ledgerRes.seen,
+      stockitems:      stockRes.imported,
+      stockitems_seen: stockRes.seen,
+      vouchers:        voucherRes.imported,
+      vouchers_seen:   voucherRes.seen,
+      conflicts: 0,
+      errors:    [...ledgerRes.errors, ...stockRes.errors, ...voucherRes.errors],
     });
   } catch (e) {
     res.status(502).json({ error: e.message });
