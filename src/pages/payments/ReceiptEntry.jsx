@@ -51,6 +51,7 @@ export default function ReceiptEntry() {
   const confirmLeave = useUnsavedChangesWarning(dirty);
 
   const payAmtRef        = useRef(null);
+  const partyRef         = useRef(null);
   const handleSaveRef    = useRef(null);
   const submittingRef    = useRef(false);
 
@@ -65,6 +66,9 @@ export default function ReceiptEntry() {
     loadParties();
     refreshNextNumber();
     setDueDaysMode(localStorage.getItem('sale_due_days_mode') || 'bill_date');
+    // Open with the customer search focused. Amount focus is moved later
+    // inside handlePartyChange once a party is picked.
+    setTimeout(() => partyRef.current?.focus(), 100);
     const onKey = (e) => {
       // Ignore F-keys while focus is inside an AntD modal / picker / select
       // dropdown — otherwise F1 would submit while the user is interacting
@@ -305,6 +309,7 @@ export default function ReceiptEntry() {
           <div className="be-fld">
             <label className="be-lbl">Customer <span className="hint">F4 to search</span></label>
             <Select
+              ref={partyRef}
               showSearch
               placeholder="Search customer..."
               optionFilterProp="children"

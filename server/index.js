@@ -33,6 +33,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/data', require('./routes/importExport'));
 app.use('/api/tally', require('./routes/tally'));
 app.use('/api/backup', require('./routes/backup'));
+app.use('/api/print', require('./routes/print'));
 
 // Health check
 app.get('/api/health', (req, res) => {

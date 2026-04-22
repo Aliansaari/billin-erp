@@ -51,25 +51,30 @@ export default function AppLayout() {
         <TopNav />
         <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Content style={{
-            margin:     isFullPage ? 0 : 'clamp(8px, 2vw, 20px)',
-            padding:    isFullPage ? 0 : 'clamp(12px, 2vw, 24px)',
-            background: 'transparent',
-            overflow:   isFullPage ? 'hidden' : 'auto',
-            flex:       1,
-            minWidth:   0,
+            margin:        isFullPage ? 0 : 'clamp(8px, 2vw, 20px)',
+            padding:       isFullPage ? 0 : 'clamp(12px, 2vw, 24px)',
+            background:    'transparent',
+            overflow:      isFullPage ? 'hidden' : 'auto',
+            flex:          1,
+            minWidth:      0,
             // maxHeight pins Content to the viewport so flex children (like
             // bill lists / party ledger) can't push the body to overflow.
-            // Without this, `height: 100vh` acts only as a flex basis and
-            // tall internal content grows the column past the window, making
-            // the outer page scrollable.
-            height:     isFullPage ? fullPageH : undefined,
-            maxHeight:  isFullPage ? fullPageH : undefined,
-            minHeight:  isFullPage ? 0 : `calc(100vh - ${TOP_NAV_H + 40}px)`,
+            height:        isFullPage ? fullPageH : undefined,
+            maxHeight:     isFullPage ? fullPageH : undefined,
+            minHeight:     isFullPage ? 0 : `calc(100vh - ${TOP_NAV_H + 40}px)`,
           }}>
             <div
               key={location.pathname}
               className="erp-page-content"
-              style={isFullPage ? { height: '100%', overflow: 'hidden' } : undefined}
+              data-fullpage={isFullPage ? '' : undefined}
+              // Use the same explicit pixel-resolvable height as Content rather
+              // than `height: 100%`. AntD's `<main>` sits in a flex column with
+              // flex-basis 0%, and descendants using percentage heights inside
+              // that chain (`.erp-page-content` → `.sbf-page` → …) fall back to
+              // intrinsic content height instead of the computed box. That made
+              // bill forms paint shorter than the viewport in horizontal mode
+              // ("shrinking" artifact). An explicit height breaks the chain.
+              style={isFullPage ? { height: fullPageH, overflow: 'hidden' } : undefined}
             >
               <Outlet />
             </div>
@@ -85,25 +90,25 @@ export default function AppLayout() {
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
       <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <Content style={{
-          margin:     isFullPage ? 0 : 'clamp(8px, 2vw, 20px)',
-          padding:    isFullPage ? 0 : 'clamp(12px, 2vw, 24px)',
-          background: 'transparent',
-          overflow:   isFullPage ? 'hidden' : 'auto',
-          flex:       1,
-          minWidth:   0,
+          margin:        isFullPage ? 0 : 'clamp(8px, 2vw, 20px)',
+          padding:       isFullPage ? 0 : 'clamp(12px, 2vw, 24px)',
+          background:    'transparent',
+          overflow:      isFullPage ? 'hidden' : 'auto',
+          flex:          1,
+          minWidth:      0,
           // maxHeight pins Content to the viewport so flex children (like
           // bill lists / party ledger) can't push the body to overflow.
-          // Without this, `height: 100vh` acts only as a flex basis and
-          // tall internal content grows the column past the window, making
-          // the outer page scrollable.
-          height:     isFullPage ? '100vh' : undefined,
-          maxHeight:  isFullPage ? '100vh' : undefined,
-          minHeight:  isFullPage ? 0 : 'calc(100vh - 40px)',
+          height:        isFullPage ? '100vh' : undefined,
+          maxHeight:     isFullPage ? '100vh' : undefined,
+          minHeight:     isFullPage ? 0 : 'calc(100vh - 40px)',
         }}>
           <div
             key={location.pathname}
             className="erp-page-content"
-            style={isFullPage ? { height:'100%', overflow:'hidden' } : undefined}
+            data-fullpage={isFullPage ? '' : undefined}
+            // Explicit height (not 100%) — see the horizontal branch for why:
+            // percentage heights collapse inside AntD's flex-basis-0 main column.
+            style={isFullPage ? { height: '100vh', overflow: 'hidden' } : undefined}
           >
             <Outlet />
           </div>

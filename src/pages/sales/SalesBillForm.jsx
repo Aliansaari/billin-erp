@@ -3,6 +3,7 @@ import { Form, Input, DatePicker, Select, InputNumber, Table, message } from 'an
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
+import { printDocument } from '../../services/printer';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import './sales-bill-form.css';
@@ -968,6 +969,11 @@ export default function SalesBillForm() {
             <button className="sbf-act" onClick={handleReset}>
               <span className="sbf-kbd">F5</span> Reset
             </button>
+            {isEdit && (
+              <button className="sbf-act" onClick={() => printDocument({ docType: 'sales', id })}>
+                <span className="sbf-kbd">Ctrl+P</span> Print
+              </button>
+            )}
             <button className="sbf-act credit" onClick={()=>handleSave(false)} disabled={loading}>
               <span className="sbf-kbd">F8</span> Save Credit
             </button>

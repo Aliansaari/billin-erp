@@ -1026,20 +1026,22 @@ export default function PartyLedger() {
                     </td>
                   </tr>
                 </tbody>
-
-                <tfoot>
-                  <tr>
-                    <td colSpan={3} className="label">Period Total</td>
-                    <td className="num dr">{fmt(totals.debit)}</td>
-                    <td className="num cr">{fmt(totals.credit)}</td>
-                    <td className={`bal ${closingBalance > 0 ? 'dr' : closingBalance < 0 ? 'cr' : ''}`}>
-                      {closingBalance === 0
-                        ? '—'
-                        : <>{fmt(Math.abs(closingBalance))}{cols.drcr && <span className="tag">{closingBalance > 0 ? 'Dr' : 'Cr'}</span>}</>}
-                    </td>
-                  </tr>
-                </tfoot>
               </table>
+            </div>
+          )}
+          {/* Period-total bar lives OUTSIDE .pl-scroll so it's pinned to the
+              bottom of the card regardless of list length — neither sticky
+              over content nor floating with the last row. */}
+          {selected && !ledgerLoading && ledger && (
+            <div className="pl-totbar">
+              <span className="label">Period Total</span>
+              <span className="num dr">{fmt(totals.debit)}</span>
+              <span className="num cr">{fmt(totals.credit)}</span>
+              <span className={`bal ${closingBalance > 0 ? 'dr' : closingBalance < 0 ? 'cr' : ''}`}>
+                {closingBalance === 0
+                  ? '—'
+                  : <>{fmt(Math.abs(closingBalance))}{cols.drcr && <span className="tag">{closingBalance > 0 ? 'Dr' : 'Cr'}</span>}</>}
+              </span>
             </div>
           )}
         </div>

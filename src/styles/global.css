@@ -57,8 +57,14 @@ body {
   50% { opacity: 0.7; }
 }
 
-/* ===== PAGE CONTENT ANIMATION ===== */
-.erp-page-content {
+/* ===== PAGE CONTENT ANIMATION =====
+ * Full-page routes (bill forms, lists, full-viewport reports) opt out —
+ * their Content wrapper is height: calc(100vh - nav) with overflow:hidden,
+ * so the 8px translateY of fadeIn gets briefly clipped at the bottom edge
+ * on mount, which reads as the page "shrinking into place" (most visible
+ * in horizontal/top-nav mode). Those pages render at final size instantly.
+ */
+.erp-page-content:not([data-fullpage]) {
   animation: fadeIn 0.3s ease-out;
 }
 

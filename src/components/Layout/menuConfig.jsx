@@ -20,7 +20,7 @@ import {
   FundOutlined, AppstoreOutlined, StockOutlined, PlusCircleOutlined,
   UnorderedListOutlined, RollbackOutlined, BankOutlined, ThunderboltOutlined,
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
-  SwapOutlined, ApiOutlined,
+  SwapOutlined, ApiOutlined, PrinterOutlined,
 } from '@ant-design/icons';
 
 export const menuItems = [
@@ -99,6 +99,7 @@ export const menuItems = [
       { key: '/settings/users',          icon: <UserOutlined />,        label: 'Users' },
       { key: '/settings/theme',          icon: <BgColorsOutlined />,    label: 'Theme' },
       { key: '/settings/barcode',        icon: <TagsOutlined />,        label: 'Barcode' },
+      { key: '/settings/print',          icon: <PrinterOutlined />,     label: 'Print Settings' },
       { key: '/settings/modules',        icon: <ThunderboltOutlined />, label: 'Modules' },
       { key: '/settings/import-export',  icon: <SwapOutlined />,        label: 'Import & Export' },
       { key: '/settings/tally',          icon: <ApiOutlined />,         label: 'TallyPrime Sync' },

@@ -38,6 +38,7 @@ import BackupRestore from './pages/settings/BackupRestore';
 import ThemeSettings from './pages/settings/ThemeSettings';
 import ImportExport from './pages/settings/ImportExport';
 import TallySync from './pages/settings/TallySync';
+import PrintSettings from './pages/settings/PrintSettings';
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -141,6 +142,7 @@ export default function App() {
           <Route path="settings/theme" element={<ThemeSettings />} />
           <Route path="settings/import-export" element={<ImportExport />} />
           <Route path="settings/tally" element={<TallySync />} />
+          <Route path="settings/print" element={<PrintSettings />} />
         </Route>
       </Routes>
     </>

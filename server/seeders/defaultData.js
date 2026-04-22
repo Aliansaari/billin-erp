@@ -1,5 +1,5 @@
 const bcrypt = require('bcryptjs');
-const { Role, User, BarcodeSettings, SystemSettings, LedgerAccount } = require('../models');
+const { Role, User, BarcodeSettings, SystemSettings, LedgerAccount, PrintProfile } = require('../models');
 
 async function seedDefaultData() {
   // ── Roles ──
@@ -120,6 +120,27 @@ async function seedDefaultData() {
 
   for (const ledger of defaultLedgers) {
     await LedgerAccount.findOrCreate({ where: { ledger_name: ledger.ledger_name }, defaults: ledger });
+  }
+
+  // ── Default Print Profiles ──
+  // One A4 default per major doc type, plus a thermal profile for Sales so
+  // the POS flow has a sensible starter. Users can duplicate/edit these.
+  const defaultPrintProfiles = [
+    { name: 'A4 Tax Invoice (default)',  doc_type: 'sales',           format: 'a4',      is_default: true },
+    { name: 'Thermal 80mm',              doc_type: 'sales',           format: 'thermal', is_default: false,
+      paper_width_mm: 80, paper_height_mm: 0, margin_top_mm: 3, margin_right_mm: 3, margin_bottom_mm: 3, margin_left_mm: 3,
+      font_size_pt: 9, show_hsn: false, show_mrp: false, show_tax_breakdown: false,
+      tax_summary_mode: 'consolidated', copies: 1, copy_labels: 'Customer Copy' },
+    { name: 'A4 Purchase Bill',          doc_type: 'purchase',        format: 'a4',      is_default: true },
+    { name: 'A4 Credit Note',            doc_type: 'sales_return',    format: 'a4',      is_default: true },
+    { name: 'A4 Debit Note',             doc_type: 'purchase_return', format: 'a4',      is_default: true },
+    { name: 'A5 Receipt',                doc_type: 'receipt',         format: 'a5',      is_default: true,
+      paper_width_mm: 148, paper_height_mm: 210, margin_top_mm: 8, margin_right_mm: 8, margin_bottom_mm: 8, margin_left_mm: 8 },
+    { name: 'A5 Payment Voucher',        doc_type: 'payment',         format: 'a5',      is_default: true,
+      paper_width_mm: 148, paper_height_mm: 210, margin_top_mm: 8, margin_right_mm: 8, margin_bottom_mm: 8, margin_left_mm: 8 },
+  ];
+  for (const p of defaultPrintProfiles) {
+    await PrintProfile.findOrCreate({ where: { name: p.name, doc_type: p.doc_type }, defaults: p });
   }
 
   console.log('Default data seeded successfully');

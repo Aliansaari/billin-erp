@@ -11,6 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, settingsAPI } from '../../api';
+import { printDocument } from '../../services/printer';
 import '../../styles/bill-list.css';
 
 // Optional columns the user can toggle via the Columns picker. Keys match
@@ -293,7 +294,10 @@ export default function SalesList() {
   }, []);
 
   const handleView  = async (id) => { const b = await fetchBill(id); if (b) setViewBill(b); };
-  const handlePrint = async (id) => { const b = await fetchBill(id); if (b) printBill(b, companyName); };
+  // Route through the new unified printer service so the user-configured
+  // default profile for Sales Invoice (Settings → Print Settings) is used.
+  // Falls back to a built-in A4 template on a fresh install.
+  const handlePrint = (id) => printDocument({ docType: 'sales', id });
   const handleEdit  = (id) => navigate(`/sale/edit/${id}`);
   const handleRecordReceipt = (bill) => {
     // Pre-select this customer + bill when opening receipt entry. ReceiptEntry
