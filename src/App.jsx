@@ -13,6 +13,7 @@ import ProductList from './pages/inventory/ProductList';
 import CategoryList from './pages/inventory/CategoryList';
 import StockReport from './pages/inventory/StockReport';
 import StockReportPro from './pages/inventory/StockReportPro';
+import StockMovement from './pages/inventory/StockMovement';
 import PurchaseBillForm from './pages/purchase/PurchaseBillForm';
 import PurchaseList from './pages/purchase/PurchaseList';
 import SalesBillForm from './pages/sales/SalesBillForm';
@@ -110,6 +111,8 @@ export default function App() {
           <Route path="categories" element={<CategoryList />} />
           <Route path="stock-report" element={<StockReport />} />
           <Route path="stock-report-pro" element={<StockReportPro />} />
+          <Route path="stock-movement" element={<StockMovement />} />
+          <Route path="stock-movement/:productId" element={<StockMovement />} />
           <Route path="purchase/new" element={<PurchaseBillForm />} />
           <Route path="purchase/edit/:id" element={<PurchaseBillForm />} />
           <Route path="purchases" element={<PurchaseList />} />

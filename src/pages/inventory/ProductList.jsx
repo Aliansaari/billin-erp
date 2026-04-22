@@ -1,85 +1,185 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Input, Button, Modal, Form, InputNumber, Select,
-  Row, Col, Divider, message, Tag, Tooltip, Spin, Empty, DatePicker,
+  Row, Col, Divider, message, DatePicker, Spin,
 } from 'antd';
-import {
-  SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
-  BarcodeOutlined, ExportOutlined, MoreOutlined, ShareAltOutlined,
-  FilterOutlined, DownOutlined,
-} from '@ant-design/icons';
+import { BarcodeOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import { productAPI, categoryAPI, dataAPI } from '../../api';
 
-const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-const fmtN = (v) =>    parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+dayjs.extend(relativeTime);
+import '../../styles/editorial-product-list.css';
 
-const TYPE_COLOR = {
-  Purchase: '#3b82f6',
-  Sales: '#10b981',
-  'Purchase Return': '#f59e0b',
-  'Sales Return': '#ef4444',
-  'Stock Adjustment': '#8b5cf6',
-  'Opening Stock': '#6366f1',
-};
+/*
+ * ProductList — editorial redesign.
+ *
+ * Single full-width table (no split-view). Fifteen available columns in the
+ * order the operator asked for — #, Category, Product, HSN, GST%, Barcode,
+ * Stock, Total Purchased, Total Sold, Purchase, Sale, Margin, Health,
+ * Runway, Value — plus Actions. Show/hide any column (except Product and
+ * Actions) from the ☰ Columns menu; the menu also hides the KPI hero and
+ * the filter chip bar. User choice persists in localStorage.
+ *
+ * "Total Purchased" / "Total Sold" / "Runway / Last Sold" show placeholders
+ * until the product API exposes the underlying lifetime stats; the columns
+ * exist so the UI is ready without a schema migration.
+ *
+ * Add/Edit keeps the existing AntD Modal with the full pricing + opening-
+ * stock form — only the list chrome was redesigned.
+ */
+
+const PROD_LIMIT = 200;
+
+const LS_COLS = 'ed-products-cols-v1';
+const LS_SECS = 'ed-products-secs-v1';
+
+// Columns the user can toggle. `fixed: true` means always visible (Product & Actions).
+const COL_DEFS = [
+  { key: 'sr',    label: 'Number',               default: true  },
+  { key: 'cat',   label: 'Category',             default: true  },
+  { key: 'prod',  label: 'Product',              default: true,  fixed: true },
+  { key: 'hsn',   label: 'HSN Code',             default: false },
+  { key: 'gst',   label: 'GST %',                default: false },
+  { key: 'bc',    label: 'Barcode',              default: false },
+  { key: 'stk',   label: 'Stock (On Hand)',      default: true  },
+  { key: 'tpur',  label: 'Total Stock Purchased',default: false },
+  { key: 'tsale', label: 'Total Stock Sold',     default: false },
+  { key: 'pur',   label: 'Purchase Rate',        default: false },
+  { key: 'sale',  label: 'Sale Rate',            default: true  },
+  { key: 'mgn',   label: 'Margin',               default: true  },
+  { key: 'hlt',   label: 'Health',               default: true  },
+  { key: 'run',   label: 'Runway',               default: true  },
+  { key: 'val',   label: 'Stock Value',          default: true  },
+  { key: 'act',   label: 'Actions',              default: true,  fixed: true },
+];
+const SEC_DEFS = [
+  { key: 'hero',   label: 'KPI Cards',  default: true },
+  { key: 'filter', label: 'Filter Bar', default: true },
+];
+const DEFAULT_COLS = Object.fromEntries(COL_DEFS.map(c => [c.key, c.default]));
+const DEFAULT_SECS = Object.fromEntries(SEC_DEFS.map(s => [s.key, s.default]));
+
+function loadPrefs(key, defaults) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return { ...defaults };
+    const parsed = JSON.parse(raw);
+    return { ...defaults, ...parsed };
+  } catch { return { ...defaults }; }
+}
+
+const fmtMoney = (v) => parseFloat(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const fmtQty   = (v) => parseFloat(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+function healthOf(product) {
+  const stock = parseFloat(product.current_stock || 0);
+  const min   = parseFloat(product.minimum_stock_level || 0);
+  if (stock === 0) return { kind: 'out',  label: 'Out of stock' };
+  if (stock < 0)   return { kind: 'out',  label: 'Negative' };
+  if (min > 0 && stock <= min) return { kind: 'low', label: 'Low' };
+  return { kind: 'ok', label: 'Healthy' };
+}
+
+function marginPct(p) {
+  const pur = parseFloat(p.purchase_rate || 0);
+  const sale = parseFloat(p.sale_rate || 0);
+  if (!pur) return null;
+  return ((sale - pur) / pur) * 100;
+}
+
+// Category dots — stable colour mapping by category name so the same
+// category shows the same dot across reloads without a backend colour.
+const CAT_PALETTE = [
+  '#7A9660', '#B1472F', '#4F6A7A', '#B8923C', '#7F5AA3',
+  '#6D5F4E', '#3F5A4A', '#CA7537', '#8E4F2E', '#55503F',
+];
+function catColor(name) {
+  if (!name) return 'var(--ed-fg-3)';
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return CAT_PALETTE[h % CAT_PALETTE.length];
+}
 
 export default function ProductList() {
-  /* ── product list ── */
-  const [products, setProducts]     = useState([]);
-  const [productTotal, setProductTotal] = useState(0);
-  const [productPage, setProductPage]   = useState(1);
-  const [loadingMore, setLoadingMore]   = useState(false);
-  const [loading, setLoading]       = useState(false);
-  const [search, setSearch]         = useState('');
-  const [showSearch, setShowSearch] = useState(false);
+  const navigate = useNavigate();
+
+  /* ── list state ── */
+  const [products, setProducts] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // all | in | low | out | top | dead
+  const [catFilters, setCatFilters] = useState(() => new Set()); // empty Set = all categories
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState('asc');
   const listEndRef = useRef(null);
 
-  /* ── selected product ── */
-  const [selected, setSelected]         = useState(null);
-  const [txLoading, setTxLoading]       = useState(false);
-  const [transactions, setTransactions] = useState([]);
-  const [txSearch, setTxSearch]         = useState('');
-  const [txTypeFilter, setTxTypeFilter] = useState('All');
+  /* ── categories ── */
+  const [categories, setCategories] = useState([]);
+
+  /* ── columns / sections / category menu ── */
+  const [cols, setCols] = useState(() => loadPrefs(LS_COLS, DEFAULT_COLS));
+  const [secs, setSecs] = useState(() => loadPrefs(LS_SECS, DEFAULT_SECS));
+  const [colsOpen, setColsOpen] = useState(false);
+  const [catOpen, setCatOpen] = useState(false);
+  const colsWrapRef = useRef(null);
+  const catWrapRef = useRef(null);
 
   /* ── form modal ── */
-  const [categories, setCategories]     = useState([]);
-  const [formVisible, setFormVisible]   = useState(false);
-  const [editingProduct, setEditingProduct] = useState(null);
-  const [formLoading, setFormLoading]   = useState(false);
+  const [formVisible, setFormVisible] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
+
+  useEffect(() => { localStorage.setItem(LS_COLS, JSON.stringify(cols)); }, [cols]);
+  useEffect(() => { localStorage.setItem(LS_SECS, JSON.stringify(secs)); }, [secs]);
 
   /* ── load ── */
   useEffect(() => { loadCategories(); }, []);
-  useEffect(() => { loadProducts(1, true); }, [search]);
-  useEffect(() => { if (selected) loadTransactions(selected.product_id); }, [selected]);
+  useEffect(() => {
+    // Debounce the search input so every keystroke doesn't hit the API.
+    // Status / category / sort filters are applied client-side over the
+    // fetched page — no extra round trip needed when the user toggles them.
+    const handle = setTimeout(() => loadProducts(1, true), search ? 220 : 0);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
-  const PROD_LIMIT = 200;
-
-  const loadProducts = async (page = 1, reset = false) => {
-    if (page === 1) setLoading(true); else setLoadingMore(true);
-    try {
-      const { data } = await productAPI.getAll({ search, page, limit: PROD_LIMIT });
-      const list = data.data || [];
-      const total = data.total || 0;
-      if (reset || page === 1) {
-        setProducts(list);
-        setProductPage(1);
-        if (list.length > 0) setSelected(list[0]);
-      } else {
-        setProducts(prev => [...prev, ...list]);
-        setProductPage(page);
-      }
-      setProductTotal(total);
-    } catch { message.error('Failed to load products'); }
-    if (page === 1) setLoading(false); else setLoadingMore(false);
+  const loadCategories = async () => {
+    try { const { data } = await categoryAPI.getAllFlat(); setCategories(data || []); }
+    catch { /* ignore */ }
   };
 
-  /* ── infinite scroll for product list panel ── */
+  const loadProducts = async (pageArg = 1, reset = false) => {
+    if (pageArg === 1) setLoading(true); else setLoadingMore(true);
+    try {
+      const params = { search, page: pageArg, limit: PROD_LIMIT, include_stats: 'true' };
+      const { data } = await productAPI.getAll(params);
+      const list = data.data || [];
+      const tot  = data.total || 0;
+      if (reset || pageArg === 1) {
+        setProducts(list);
+        setPage(1);
+      } else {
+        setProducts(prev => [...prev, ...list]);
+        setPage(pageArg);
+      }
+      setTotal(tot);
+    } catch { message.error('Failed to load products'); }
+    if (pageArg === 1) setLoading(false); else setLoadingMore(false);
+  };
+
+  /* ── infinite scroll ── */
   const handleLoadMore = useCallback(() => {
     if (loadingMore || loading) return;
-    if (products.length >= productTotal) return;
-    loadProducts(productPage + 1, false);
-  }, [loadingMore, loading, products.length, productTotal, productPage, search]);
+    if (products.length >= total) return;
+    loadProducts(page + 1, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingMore, loading, products.length, total, page]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -90,34 +190,48 @@ export default function ProductList() {
     return () => observer.disconnect();
   }, [handleLoadMore]);
 
-  const loadCategories = async () => {
-    try { const { data } = await categoryAPI.getAllFlat(); setCategories(data); } catch {}
-  };
+  /* ── close dropdowns on outside click / Escape ── */
+  useEffect(() => {
+    if (!colsOpen && !catOpen) return;
+    const close = (e) => {
+      if (colsOpen && colsWrapRef.current && !colsWrapRef.current.contains(e.target)) setColsOpen(false);
+      if (catOpen  && catWrapRef.current  && !catWrapRef.current.contains(e.target))  setCatOpen(false);
+    };
+    const esc = (e) => { if (e.key === 'Escape') { setColsOpen(false); setCatOpen(false); } };
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [colsOpen, catOpen]);
 
-  const loadTransactions = async (productId) => {
-    setTxLoading(true);
-    try {
-      const { data } = await productAPI.getStockMovement(productId);
-      setTransactions(data || []);
-    } catch { setTransactions([]); }
-    setTxLoading(false);
-  };
+  /* Sort toggle — first click sets ASC, second flips to DESC, third clears */
+  const toggleSort = useCallback((key) => {
+    setSortKey(prev => (prev === key && sortDir === 'desc') ? null : key);
+    setSortDir(prev => (sortKey === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
+  }, [sortKey, sortDir]);
 
   /* ── form helpers ── */
+  const marginChanged = () => {
+    const pr = form.getFieldValue('purchase_rate') || 0;
+    const mg = form.getFieldValue('margin_percentage') || 0;
+    form.setFieldsValue({ sale_rate: +(pr * (1 + mg / 100)).toFixed(2) });
+  };
+
   const openForm = async (product = null) => {
-    setEditingProduct(product);
+    setEditing(product);
     if (product) {
-      // Load existing opening stock entry if any
       let openingQty = 0, openingRate = product.purchase_rate, openingDate = dayjs();
       try {
         const { data: movements } = await productAPI.getStockMovement(product.product_id);
-        const openingEntry = movements.find(m => m.transaction_type === 'Opening Stock');
-        if (openingEntry) {
-          openingQty  = parseFloat(openingEntry.quantity_in || 0);
-          openingRate = parseFloat(openingEntry.rate || product.purchase_rate || 0);
-          openingDate = dayjs(openingEntry.transaction_date);
+        const opening = (movements || []).find(m => m.transaction_type === 'Opening Stock');
+        if (opening) {
+          openingQty  = parseFloat(opening.quantity_in || 0);
+          openingRate = parseFloat(opening.rate || product.purchase_rate || 0);
+          openingDate = dayjs(opening.transaction_date);
         }
-      } catch {}
+      } catch { /* best effort */ }
       form.setFieldsValue({
         ...product,
         category_id: product.category_id,
@@ -136,51 +250,33 @@ export default function ProductList() {
     setFormLoading(true);
     try {
       const values = await form.validateFields();
-      // Convert dayjs date to string
       if (values.opening_stock_date) {
         values.opening_stock_date = dayjs(values.opening_stock_date).format('YYYY-MM-DD');
       }
-      if (editingProduct) {
-        await productAPI.update(editingProduct.product_id, values);
+      if (editing) {
+        await productAPI.update(editing.product_id, values);
         message.success('Product updated');
       } else {
         const { data } = await productAPI.create(values);
         message.success(`Product added — Barcode: ${data.barcode || data.product?.barcode}`);
       }
       setFormVisible(false);
-      await loadProducts();
-      if (selected?.product_id === editingProduct?.product_id) {
-        loadTransactions(editingProduct.product_id);
-      }
+      loadProducts(1, true);
     } catch (e) { message.error(e.response?.data?.error || 'Failed to save'); }
     setFormLoading(false);
   };
 
-  const handleDelete = async (product) => {
-    Modal.confirm({
-      title: `Deactivate "${product.product_name}"?`,
-      okText: 'Deactivate', okType: 'danger',
-      onOk: async () => {
-        try { await productAPI.delete(product.product_id); message.success('Product deactivated'); loadProducts(); }
-        catch (e) { message.error({ content: e.response?.data?.error || 'Failed to deactivate', duration: 6 }); }
-      },
-    });
-  };
-
-  const marginChanged = () => {
-    const pr = form.getFieldValue('purchase_rate') || 0;
-    const mg = form.getFieldValue('margin_percentage') || 0;
-    form.setFieldsValue({ sale_rate: +(pr * (1 + mg / 100)).toFixed(2) });
-  };
-
   const handleExport = async () => {
     try {
-      // Honor the search filter visible on-screen so the exported workbook
-      // matches the list the user is actually looking at.
-      const { data } = await dataAPI.exportExcel('products', search ? { search } : {});
+      const params = {};
+      if (search) params.search = search;
+      // Only the first selected category is forwarded — the server export
+      // endpoint takes a single category_id. Users who want a multi-cat export
+      // can broaden with no filter and slice locally in Excel.
+      if (catFilters.size > 0) params.category_id = [...catFilters][0];
+      if (statusFilter === 'low' || statusFilter === 'out') params.stock_status = statusFilter;
+      const { data } = await dataAPI.exportExcel('products', params);
       const url = window.URL.createObjectURL(new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-      // Date-stamp the filename (local date, not UTC) so daily exports don't
-      // overwrite each other in Downloads/ and "which file is newer" is obvious.
       const d = new Date();
       const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const a = document.createElement('a');
@@ -191,476 +287,565 @@ export default function ProductList() {
     } catch { message.error('Export failed'); }
   };
 
-  /* ── group rows by bill then recalculate running balance ── */
-  const groupedTx = React.useMemo(() => {
-    // 1. Filter out old internal reversal entries (-REV)
-    const filtered = transactions.filter(tx => !(tx.reference_number || '').endsWith('-REV'));
+  /* ── derived: status counts + filtered+sorted list ── */
+  const statusCounts = useMemo(() => {
+    let inStock = 0, low = 0, out = 0, top = 0, dead = 0;
+    const today = dayjs();
+    for (const p of products) {
+      const h = healthOf(p);
+      if (h.kind === 'out') out++;
+      else if (h.kind === 'low') low++;
+      else inStock++;
+      if (parseFloat(p.total_sold || 0) > 0) top++;
+      const stale = !p.last_sold_at || today.diff(dayjs(p.last_sold_at), 'day') > 60;
+      if (stale && parseFloat(p.current_stock || 0) > 0) dead++;
+    }
+    return { all: products.length, in: inStock, low, out, top, dead };
+  }, [products]);
 
-    // 2. Group by transaction_type + reference_number (collapses multiple product lines per bill).
-    //    Weighted-average rate math: keep separate `_qtySum` (denominator) and
-    //    `_rateSum` (numerator = Σ rate × qty). The previous version divided
-    //    by `quantity_in + quantity_out` but seeded `_rateSum` with `rate × 1`
-    //    when both directions were zero — inflating the numerator by one
-    //    un-weighted unit that had no matching unit in the denominator. The
-    //    bug only surfaced on zero-qty ledger rows (rare but possible for
-    //    historical adjustments), where it produced a non-deterministic rate.
-    const map = new Map();
-    filtered.forEach(tx => {
-      // Stock Adjustments are individual events — never group them
-      const key = tx.transaction_type === 'Stock Adjustment'
-        ? `Stock Adjustment||${tx.ledger_id}`
-        : `${tx.transaction_type}||${tx.reference_number || tx.ledger_id}`;
-      const txIn   = parseFloat(tx.quantity_in  || 0);
-      const txOut  = parseFloat(tx.quantity_out || 0);
-      const txQty  = txIn + txOut;            // one direction per line → safe sum
-      const txRate = parseFloat(tx.rate || 0);
-      if (map.has(key)) {
-        const g = map.get(key);
-        g.quantity_in  = +(parseFloat(g.quantity_in  || 0) + txIn ).toFixed(2);
-        g.quantity_out = +(parseFloat(g.quantity_out || 0) + txOut).toFixed(2);
-        g._rateSum    += txRate * txQty;
-        g._qtySum     += txQty;
-        // Fall back to previous rate when the new line is qty-zero so we
-        // don't divide by zero — preserves the earlier weighted average.
-        g.rate = g._qtySum > 0 ? +(g._rateSum / g._qtySum).toFixed(2) : g.rate;
-        g._count += 1;
-      } else {
-        map.set(key, {
-          ...tx,
-          quantity_in:  txIn,
-          quantity_out: txOut,
-          _count: 1,
-          _rateSum: txRate * txQty,
-          _qtySum:  txQty,
-          rate: txRate,
-        });
+  const filtered = useMemo(() => {
+    const today = dayjs();
+
+    // 1. Filter
+    let result = products.filter(p => {
+      if (catFilters.size > 0 && !catFilters.has(p.category_id)) return false;
+      if (statusFilter === 'all') return true;
+      const h = healthOf(p);
+      if (statusFilter === 'in')   return h.kind === 'ok';
+      if (statusFilter === 'low')  return h.kind === 'low';
+      if (statusFilter === 'out')  return h.kind === 'out';
+      if (statusFilter === 'top')  return parseFloat(p.total_sold || 0) > 0;
+      if (statusFilter === 'dead') {
+        const stale = !p.last_sold_at || today.diff(dayjs(p.last_sold_at), 'day') > 60;
+        return stale && parseFloat(p.current_stock || 0) > 0;
       }
-    });
-    const groups = Array.from(map.values());
-
-    // 3. Sort groups chronologically (ASC by date, then by ledger_id as tiebreaker)
-    groups.sort((a, b) => {
-      const da = new Date(a.transaction_date);
-      const db = new Date(b.transaction_date);
-      if (da - db !== 0) return da - db;
-      return (a.ledger_id || 0) - (b.ledger_id || 0);
+      return true;
     });
 
-    // 4. Recalculate running balance dynamically (do NOT trust stored balance_quantity)
-    let running = 0;
-    groups.forEach(g => {
-      running = +(running + parseFloat(g.quantity_in || 0) - parseFloat(g.quantity_out || 0)).toFixed(2);
-      g.running_balance = running;
-    });
+    // 2. Sort — explicit user sort takes precedence; otherwise Top Selling
+    //    implies "by total_sold desc" so the chip shows its name-sake order.
+    const getters = {
+      cat:   p => (p.Category?.category_name || categories.find(c => c.category_id === p.category_id)?.category_name || '').toLowerCase(),
+      prod:  p => (p.product_name || '').toLowerCase(),
+      hsn:   p => (p.hsn_code || '').toString().toLowerCase(),
+      gst:   p => parseFloat(p.gst_rate || 0),
+      stk:   p => parseFloat(p.current_stock || 0),
+      tpur:  p => parseFloat(p.total_purchased || 0),
+      tsale: p => parseFloat(p.total_sold || 0),
+      pur:   p => parseFloat(p.purchase_rate || 0),
+      sale:  p => parseFloat(p.sale_rate || 0),
+      mgn:   p => marginPct(p) ?? -Infinity,
+      hlt:   p => ({ out: 0, low: 1, ok: 2 }[healthOf(p).kind] ?? 3),
+      run:   p => p.last_sold_at ? new Date(p.last_sold_at).getTime() : 0,
+      val:   p => parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0),
+    };
+    if (sortKey && getters[sortKey]) {
+      const g = getters[sortKey];
+      result = [...result].sort((a, b) => {
+        const va = g(a), vb = g(b);
+        if (va < vb) return sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+    } else if (statusFilter === 'top') {
+      result = [...result].sort((a, b) => parseFloat(b.total_sold || 0) - parseFloat(a.total_sold || 0));
+    }
 
-    return groups;
-  }, [transactions]);
+    return result;
+  }, [products, statusFilter, catFilters, sortKey, sortDir, categories]);
 
-  /* ── filtered transactions ── */
-  const filteredTx = groupedTx.filter(tx => {
-    if (txTypeFilter !== 'All' && tx.transaction_type !== txTypeFilter) return false;
-    if (!txSearch) return true;
-    const q = txSearch.toLowerCase();
+  /* ── totals for hero cards ── */
+  const heroStats = useMemo(() => {
+    let value = 0, low = 0, out = 0;
+    for (const p of products) {
+      const stk = parseFloat(p.current_stock || 0);
+      const pur = parseFloat(p.purchase_rate || 0);
+      value += stk * pur;
+      const h = healthOf(p);
+      if (h.kind === 'low') low++;
+      if (h.kind === 'out') out++;
+    }
+    return { value, low, out };
+  }, [products]);
+
+  /* ── page totals ── */
+  const pageValue = useMemo(
+    () => filtered.reduce((a, p) => a + parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0), 0),
+    [filtered]
+  );
+
+  const visibleColCount = useMemo(
+    () => COL_DEFS.filter(c => cols[c.key] || c.fixed).length,
+    [cols]
+  );
+
+  /* ── render helpers ── */
+  const colClass = (key) => `ed-c-${key}${cols[key] || COL_DEFS.find(c => c.key === key)?.fixed ? '' : ' col-off'}`;
+
+  const sortHeader = (key, label) => {
+    const active = sortKey === key;
     return (
-      (tx.transaction_type || '').toLowerCase().includes(q) ||
-      (tx.reference_number || '').toLowerCase().includes(q) ||
-      (tx.remarks || '').toLowerCase().includes(q) ||
-      (tx.party_name || '').toLowerCase().includes(q)
+      <span
+        data-sortable={key}
+        className={active ? 'active' : ''}
+        onClick={(e) => { e.stopPropagation(); toggleSort(key); }}
+      >
+        {label}
+        <span className="sort-arrow">{active ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
+      </span>
     );
-  });
-
-  /* ── statement closing balance (from dynamically recalculated running balance) ── */
-  const closingBalance = groupedTx.length > 0 ? groupedTx[groupedTx.length - 1].running_balance : null;
-
-  /* ── stock value for selected ── */
-  // Always use product.current_stock as authoritative; ledger closingBalance may lag if a
-  // previous transaction failed to create its ledger entry (getStockMovement auto-reconciles).
-  const effectiveStock = parseFloat(selected?.current_stock || 0);
-  const stockValue = selected
-    ? (effectiveStock * parseFloat(selected.purchase_rate || 0))
-    : 0;
+  };
 
   return (
-    <div style={{ display:'flex', height:'calc(100vh - 64px)', background:'#f8fafc', overflow:'hidden' }}>
+    <div className="ed-prod">
 
-      {/* ════════════════ LEFT PANEL ════════════════ */}
-      <div style={{ width:300, flexShrink:0, borderRight:'1px solid #e5e7eb', display:'flex', flexDirection:'column', background:'#fff', overflow:'hidden' }}>
-
-        {/* Header */}
-        <div style={{ padding:'12px 16px', borderBottom:'1px solid #f3f4f6', display:'flex', alignItems:'center', gap:8 }}>
-          <Tooltip title="Search">
-            <button onClick={()=>setShowSearch(s=>!s)} style={{ background:'none', border:'none', cursor:'pointer', color:'#6b7280', fontSize:16, padding:'4px', borderRadius:6, display:'flex', alignItems:'center' }}>
-              <SearchOutlined/>
-            </button>
-          </Tooltip>
-          <div style={{ flex:1 }}/>
-          <button
-            onClick={() => openForm()}
-            style={{ display:'flex', alignItems:'center', gap:6, background:'#f59e0b', border:'none', borderRadius:7, color:'#fff', fontWeight:700, fontSize:13, padding:'6px 14px', cursor:'pointer' }}>
-            <PlusOutlined/> Add Item
-          </button>
-          <Tooltip title="Export Excel">
-            <button onClick={handleExport} style={{ background:'none', border:'1px solid #e5e7eb', borderRadius:6, cursor:'pointer', padding:'5px 8px', color:'#6b7280', display:'flex', alignItems:'center' }}>
-              <ExportOutlined/>
-            </button>
-          </Tooltip>
+      {/* ── Top bar ── */}
+      <div className="ed-hd">
+        <div className="ed-title">
+          <h1>Products</h1>
+          <div className="sub"><b>{total}</b> items · {categories.length} categor{categories.length === 1 ? 'y' : 'ies'}</div>
         </div>
-
-        {/* Search box */}
-        {showSearch && (
-          <div style={{ padding:'8px 12px', borderBottom:'1px solid #f3f4f6' }}>
-            <Input
-              autoFocus
-              prefix={<SearchOutlined style={{ color:'#9ca3af' }}/>}
-              placeholder="Search products…"
+        <div className="ed-ctrl">
+          <div className="ed-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input
+              type="text"
+              placeholder="Search name, barcode, HSN"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              allowClear
-              size="small"
             />
           </div>
-        )}
 
-        {/* Column headers */}
-        <div style={{ display:'flex', alignItems:'center', padding:'6px 16px', borderBottom:'1px solid #f3f4f6', background:'#fafafa' }}>
-          <span style={{ flex:1, fontSize:11, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:.6 }}>Item</span>
-          <FilterOutlined style={{ fontSize:10, color:'#d1d5db', marginRight:8 }}/>
-          <span style={{ fontSize:11, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:.6 }}>Quantity</span>
-        </div>
-
-        {/* Product list */}
-        <div style={{ flex:1, overflowY:'auto' }}>
-          {loading ? (
-            <div style={{ display:'flex', justifyContent:'center', padding:32 }}><Spin/></div>
-          ) : products.length === 0 ? (
-            <Empty description="No products" style={{ marginTop:40 }}/>
-          ) : (
-            <>
-            {products.map(p => {
-              const isActive = selected?.product_id === p.product_id;
-              const stock    = parseFloat(p.current_stock || 0);
-              const stockColor = stock < 0 ? '#ef4444' : stock === 0 ? '#ef4444' : '#10b981';
-              return (
-                <div key={p.product_id}
-                  onClick={() => setSelected(p)}
-                  style={{
-                    display:'flex', alignItems:'center', padding:'9px 12px 9px 16px',
-                    cursor:'pointer', borderBottom:'1px solid #f9fafb',
-                    background: isActive ? '#eff6ff' : 'transparent',
-                    borderLeft: isActive ? '3px solid #3b82f6' : '3px solid transparent',
-                    transition:'background .12s',
-                  }}
-                >
-                  <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
-                    <span style={{ fontSize:13, fontWeight: isActive ? 600 : 400, color: isActive ? '#1d4ed8' : '#374151', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                      {p.product_name}
-                      {p.size_value && <span style={{ fontSize:11, color:'#9ca3af', marginLeft:4 }}>{p.size_value}</span>}
-                    </span>
-                    {p.barcode && (
-                      <span style={{ fontSize:10, color:'#9ca3af', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                        {p.barcode}
-                      </span>
-                    )}
+          <div className="ed-cols-wrap" ref={colsWrapRef}>
+            <button
+              className={`ed-cols-btn${colsOpen ? ' open' : ''}`}
+              onClick={(e) => { e.stopPropagation(); setColsOpen(v => !v); }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+              Columns <span className="badge">{visibleColCount} / {COL_DEFS.length}</span>
+            </button>
+            {colsOpen && (
+              <div className="ed-cols-menu open" role="menu">
+                <div className="grp">
+                  <div className="gh">
+                    <span>Columns</span>
+                    <button className="gh-reset" type="button"
+                      onClick={() => { setCols({ ...DEFAULT_COLS }); setSecs({ ...DEFAULT_SECS }); }}>Reset</button>
                   </div>
-                  <span style={{ fontSize:13, fontWeight:700, color:stockColor, minWidth:36, textAlign:'right' }}>{stock}</span>
-                  <Tooltip title="Options">
-                    <button
-                      onClick={e => { e.stopPropagation(); }}
-                      style={{ background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:15, padding:'0 4px', marginLeft:6 }}
-                    >
-                      <MoreOutlined/>
-                    </button>
-                  </Tooltip>
+                  {COL_DEFS.map(c => (
+                    <label key={c.key} className={`opt${c.fixed ? ' fixed' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={!!cols[c.key] || !!c.fixed}
+                        disabled={!!c.fixed}
+                        onChange={(e) => setCols(prev => ({ ...prev, [c.key]: e.target.checked }))}
+                      />
+                      <span>{c.label}</span>
+                      {c.fixed && <span className="pin">Fixed</span>}
+                    </label>
+                  ))}
                 </div>
-              );
-            })}
-            <div ref={listEndRef} style={{ padding:8, textAlign:'center' }}>
-              {loadingMore
-                ? <Spin size="small"/>
-                : products.length < productTotal
-                  ? <span style={{ fontSize:12, color:'#9ca3af' }}>Scroll for more…</span>
-                  : null}
+                <div className="grp">
+                  <div className="gh"><span>Page Sections</span></div>
+                  {SEC_DEFS.map(s => (
+                    <label key={s.key} className="opt">
+                      <input
+                        type="checkbox"
+                        checked={!!secs[s.key]}
+                        onChange={(e) => setSecs(prev => ({ ...prev, [s.key]: e.target.checked }))}
+                      />
+                      <span>{s.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <span className="ed-divider" />
+          <button className="ed-cta ghost" onClick={() => navigate('/stock-movement')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12H3M10 5l-7 7 7 7M14 19l7-7-7-7"/></svg>
+            Stock Movement
+          </button>
+          <button className="ed-cta" onClick={() => openForm()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+            New Item
+          </button>
+          <button className="ed-cta ghost" onClick={handleExport}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export
+          </button>
+        </div>
+      </div>
+
+      {/* ── KPI cards ── */}
+      {secs.hero && (
+        <div className="ed-hero">
+          <div className="ed-hero-row">
+            <div className="ed-kpi value">
+              <div className="txt">
+                <div className="k">Stock Value · On Hand</div>
+                <div className="v">₹ {fmtMoney(heroStats.value)}</div>
+                <div className="s">at purchase cost · {total} SKUs</div>
+              </div>
             </div>
-            </>
+            <div className="ed-kpi low">
+              <div className="txt">
+                <div className="k">Low Stock</div>
+                <div className="v">{heroStats.low} items</div>
+                <div className="s">at or below reorder level</div>
+              </div>
+            </div>
+            <div className="ed-kpi out">
+              <div className="txt">
+                <div className="k">Out of Stock</div>
+                <div className="v">{heroStats.out} items</div>
+                <div className="s">zero on hand · reorder urgent</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Filter chips + Categories dropdown ── */}
+      {secs.filter && (
+        <div className="ed-filter">
+          <span className="ed-filter-lbl">Filter</span>
+          <button className={`ed-lens${statusFilter === 'all' ? ' on' : ''}`} onClick={() => setStatusFilter('all')}>
+            All <span className="n">{statusCounts.all}</span>
+          </button>
+          <button className={`ed-lens${statusFilter === 'in' ? ' on' : ''}`} onClick={() => setStatusFilter('in')}>
+            In Stock <span className="n">{statusCounts.in}</span>
+          </button>
+          <button className={`ed-lens warn${statusFilter === 'low' ? ' on' : ''}`} onClick={() => setStatusFilter('low')}>
+            Low <span className="n">{statusCounts.low}</span>
+          </button>
+          <button className={`ed-lens danger${statusFilter === 'out' ? ' on' : ''}`} onClick={() => setStatusFilter('out')}>
+            Out <span className="n">{statusCounts.out}</span>
+          </button>
+          <button className={`ed-lens${statusFilter === 'top' ? ' on' : ''}`} onClick={() => setStatusFilter('top')}>
+            Top Selling <span className="n">{statusCounts.top}</span>
+          </button>
+          <button className={`ed-lens danger${statusFilter === 'dead' ? ' on' : ''}`} onClick={() => setStatusFilter('dead')}>
+            Dead Stock <span className="n">{statusCounts.dead}</span>
+          </button>
+
+          <span className="ed-divider" />
+
+          {/* Categories: multi-select dropdown */}
+          <div className="ed-cols-wrap" ref={catWrapRef}>
+            <button
+              className={`ed-cols-btn${catOpen ? ' open' : ''}${catFilters.size > 0 ? ' on' : ''}`}
+              onClick={(e) => { e.stopPropagation(); setCatOpen(v => !v); }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 7h-4l-2-2H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg>
+              {catFilters.size === 0 ? 'Categories' : `${catFilters.size} categor${catFilters.size === 1 ? 'y' : 'ies'}`}
+              {catFilters.size > 0 && <span className="badge">{catFilters.size}</span>}
+            </button>
+            {catOpen && (
+              <div className="ed-cols-menu open" role="menu">
+                <div className="grp">
+                  <div className="gh">
+                    <span>Show categories</span>
+                    <button className="gh-reset" type="button" onClick={() => setCatFilters(new Set())}>Clear</button>
+                  </div>
+                  <label className="opt">
+                    <input
+                      type="checkbox"
+                      checked={catFilters.size === 0}
+                      onChange={() => setCatFilters(new Set())}
+                    />
+                    <span>All categories</span>
+                    <span className="pin">{categories.length}</span>
+                  </label>
+                  {categories.map(c => (
+                    <label key={c.category_id} className="opt">
+                      <input
+                        type="checkbox"
+                        checked={catFilters.has(c.category_id)}
+                        onChange={(e) => {
+                          setCatFilters(prev => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(c.category_id); else next.delete(c.category_id);
+                            return next;
+                          });
+                        }}
+                      />
+                      <span>{c.category_name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Active sort indicator + clear */}
+          {sortKey && (
+            <button
+              className="ed-lens"
+              onClick={() => { setSortKey(null); setSortDir('asc'); }}
+              title="Clear sort"
+            >
+              Sort: {COL_DEFS.find(c => c.key === sortKey)?.label || sortKey} {sortDir === 'asc' ? '↑' : '↓'} ✕
+            </button>
           )}
         </div>
-      </div>
+      )}
 
-      {/* ════════════════ RIGHT PANEL ════════════════ */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#fff', borderLeft:'1px solid #e5e7eb' }}>
-        {!selected ? (
-          <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <Empty description="Select a product to view details"/>
+      {/* ── Table ── */}
+      <div className="ed-list-wrap">
+        <div className="ed-list">
+
+          <div className="ed-row head">
+            <div className={colClass('sr')}>#</div>
+            <div className={colClass('cat')}>{sortHeader('cat', 'Category')}</div>
+            <div className={colClass('prod')}>{sortHeader('prod', 'Product')}</div>
+            <div className={colClass('hsn')}>{sortHeader('hsn', 'HSN')}</div>
+            <div className={colClass('gst')}>{sortHeader('gst', 'GST %')}</div>
+            <div className={colClass('bc')}>Barcode</div>
+            <div className={colClass('stk')}>{sortHeader('stk', 'Stock')}</div>
+            <div className={colClass('tpur')}>{sortHeader('tpur', 'Total Pur.')}</div>
+            <div className={colClass('tsale')}>{sortHeader('tsale', 'Total Sold')}</div>
+            <div className={colClass('pur')}>{sortHeader('pur', 'Purchase')}</div>
+            <div className={colClass('sale')}>{sortHeader('sale', 'Sale')}</div>
+            <div className={colClass('mgn')}>{sortHeader('mgn', 'Margin')}</div>
+            <div className={colClass('hlt')}>{sortHeader('hlt', 'Health')}</div>
+            <div className={colClass('run')}>{sortHeader('run', 'Last Sold')}</div>
+            <div className={colClass('val')}>{sortHeader('val', 'Value')}</div>
+            <div className={colClass('act')} />
           </div>
-        ) : (
-          <>
-            {/* Product header */}
-            <div style={{ padding:'14px 24px', borderBottom:'1px solid #e5e7eb', background:'#fff' }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <span style={{ fontSize:16, fontWeight:700, color:'#111827' }}>{selected.product_name}</span>
-                  {selected.size_value && <Tag style={{ fontSize:11 }}>{selected.size_value}</Tag>}
-                  {selected.barcode && <Tag icon={<BarcodeOutlined/>} color="blue" style={{ fontSize:11, }}>{selected.barcode}</Tag>}
-                  <ShareAltOutlined style={{ color:'#9ca3af', cursor:'pointer' }}/>
-                </div>
-                <button
-                  onClick={() => openForm(selected)}
-                  style={{ display:'flex', alignItems:'center', gap:6, background:'#3b82f6', border:'none', borderRadius:7, color:'#fff', fontWeight:700, fontSize:13, padding:'7px 16px', cursor:'pointer' }}>
-                  ⊞ ADJUST ITEM
-                </button>
+
+          <div className="ed-scroll">
+            {loading ? (
+              <div className="ed-empty"><Spin /></div>
+            ) : filtered.length === 0 ? (
+              <div className="ed-empty">
+                {search ? `No products match "${search}"` : 'No products yet — click New Item to add one.'}
               </div>
-
-              {/* Stats row */}
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                <div style={{ display:'flex', gap:32 }}>
-                  <div>
-                    <span style={{ fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:.5 }}>Sale Price: </span>
-                    <span style={{ fontSize:13, fontWeight:700, color:'#10b981' }}>{fmt(selected.sale_rate)}</span>
-                    <span style={{ fontSize:11, color:'#9ca3af' }}> (excl.)</span>
-                  </div>
-                  <div>
-                    <span style={{ fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:.5 }}>Purchase Price: </span>
-                    <span style={{ fontSize:13, fontWeight:700, color:'#3b82f6' }}>{fmt(selected.purchase_rate)}</span>
-                    <span style={{ fontSize:11, color:'#9ca3af' }}> (excl.)</span>
-                  </div>
-                </div>
-                <div style={{ display:'flex', gap:32 }}>
-                  <div style={{ textAlign:'right' }}>
-                    <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:.5 }}>Stock Quantity</div>
-                    <div style={{ fontSize:14, fontWeight:800, color: parseFloat(selected.current_stock||0) >= 0 ? '#10b981' : '#ef4444' }}>
-                      {fmtN(selected.current_stock)}
-                    </div>
-                  </div>
-                  <div style={{ textAlign:'right' }}>
-                    <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:.5 }}>Stock Value</div>
-                    <div style={{ fontSize:14, fontWeight:800, color:'#3b82f6' }}>{fmt(stockValue)}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Transactions section */}
-            <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', padding:'0' }}>
-              {/* Transactions header */}
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 24px', borderBottom:'1px solid #f3f4f6', gap:12, flexWrap:'wrap' }}>
-                {/* Left: label + type filter chips */}
-                <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                  <span style={{ fontSize:13, fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:.8 }}>Transactions</span>
-                  <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                    {['All','Purchase','Sales','Purchase Return','Sales Return','Stock Adjustment','Opening Stock'].map(type => {
-                      const active = txTypeFilter === type;
-                      const colors = {
-                        'All':               { bg: active ? '#4f46e5' : '#f3f4f6', color: active ? '#fff' : '#6b7280', dot: null },
-                        'Purchase':          { bg: active ? '#dbeafe' : '#f3f4f6', color: active ? '#1d4ed8' : '#6b7280', dot: '#3b82f6' },
-                        'Sales':             { bg: active ? '#dcfce7' : '#f3f4f6', color: active ? '#15803d' : '#6b7280', dot: '#10b981' },
-                        'Purchase Return':   { bg: active ? '#fef3c7' : '#f3f4f6', color: active ? '#b45309' : '#6b7280', dot: '#f59e0b' },
-                        'Sales Return':      { bg: active ? '#fee2e2' : '#f3f4f6', color: active ? '#b91c1c' : '#6b7280', dot: '#ef4444' },
-                        'Stock Adjustment':  { bg: active ? '#ede9fe' : '#f3f4f6', color: active ? '#6d28d9' : '#6b7280', dot: '#8b5cf6' },
-                        'Opening Stock':     { bg: active ? '#e0e7ff' : '#f3f4f6', color: active ? '#4338ca' : '#6b7280', dot: '#6366f1' },
-                      };
-                      const c = colors[type];
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => setTxTypeFilter(type)}
-                          style={{
-                            display:'flex', alignItems:'center', gap:6,
-                            background: c.bg, color: c.color,
-                            border: active ? 'none' : '1px solid #e5e7eb',
-                            borderRadius:20, padding:'6px 16px',
-                            fontSize:13, fontWeight: active ? 700 : 500,
-                            cursor:'pointer', transition:'all .15s',
-                            whiteSpace:'nowrap', lineHeight:1,
-                          }}
-                        >
-                          {c.dot && <span style={{ width:8, height:8, borderRadius:'50%', background:c.dot, display:'inline-block', flexShrink:0 }}/>}
-                          {type}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                {/* Right: search + export */}
-                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                  <Input
-                    prefix={<SearchOutlined style={{ color:'#9ca3af' }}/>}
-                    placeholder="Search…"
-                    value={txSearch}
-                    onChange={e => setTxSearch(e.target.value)}
-                    allowClear
-                    size="small"
-                    style={{ width:180 }}
-                  />
-                  <Tooltip title="Export Excel">
-                    <button onClick={handleExport} style={{ background:'#16a34a', border:'none', borderRadius:6, cursor:'pointer', padding:'5px 10px', color:'#fff', display:'flex', alignItems:'center', fontSize:13 }}>
-                      ⬇ XLS
-                    </button>
-                  </Tooltip>
-                </div>
-              </div>
-
-              {/* Table header */}
-              <div style={{ display:'grid', gridTemplateColumns:'140px 110px 110px 1fr 100px 110px 90px', padding:'8px 24px', borderBottom:'2px solid #f3f4f6', background:'#fafafa' }}>
-                {['Type','Invoice/Ref. No','Date','Party / Remarks','Quantity','Price/Unit','Balance Qty'].map(h => (
-                  <div key={h} style={{ fontSize:11, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:.5, display:'flex', alignItems:'center', gap:4 }}>
-                    {h} <FilterOutlined style={{ fontSize:9, color:'#d1d5db' }}/>
-                  </div>
-                ))}
-              </div>
-
-              {/* Table body */}
-              <div style={{ flex:1, overflowY:'auto' }}>
-                {txLoading ? (
-                  <div style={{ display:'flex', justifyContent:'center', padding:40 }}><Spin/></div>
-                ) : filteredTx.length === 0 ? (
-                  <Empty description="No transactions" style={{ marginTop:40 }}/>
-                ) : (
-                  [...filteredTx].reverse().map((tx, i) => {
-                    const qtyIn  = parseFloat(tx.quantity_in  || 0);
-                    const qtyOut = parseFloat(tx.quantity_out || 0);
-                    const qty = qtyIn > 0 ? `+${fmtN(qtyIn)}` : `-${fmtN(qtyOut)}`;
-                    const dotColor = TYPE_COLOR[tx.transaction_type] || '#6b7280';
-                    return (
-                      <div key={tx.ledger_id}
-                        style={{
-                          display:'grid', gridTemplateColumns:'140px 110px 110px 1fr 100px 110px 90px',
-                          padding:'10px 24px', borderBottom:'1px solid #f9fafb',
-                          background: i % 2 === 0 ? '#fff' : '#fafafa',
-                          alignItems:'center',
-                          transition:'background .1s',
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.background='#eff6ff'}
-                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafafa'}
-                      >
-                        {/* Type */}
-                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                          <span style={{ width:8, height:8, borderRadius:'50%', background:dotColor, flexShrink:0, display:'inline-block' }}/>
-                          <span style={{ fontSize:13, fontWeight:500, color:'#374151' }}>{tx.transaction_type}</span>
-                        </div>
-
-                        {/* Invoice/Ref */}
-                        <div style={{ fontSize:13, color:'#374151', fontWeight:500 }}>{tx.reference_number || '—'}</div>
-
-                        {/* Date */}
-                        <div style={{ fontSize:13, color:'#374151' }}>
-                          {tx.transaction_date ? dayjs(tx.transaction_date).format('DD/MM/YYYY') : '—'}
-                        </div>
-
-                        {/* Party Name */}
-                        <div style={{ fontSize:13, color:'#374151', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          {tx.party_name || tx.remarks || '—'}
-                        </div>
-
-                        {/* Quantity */}
-                        <div style={{ display:'flex', flexDirection:'column', gap:1 }}>
-                          <span style={{ fontSize:13, fontWeight:700, color: parseFloat(tx.quantity_in||0)>0 ? '#374151' : '#ef4444' }}>
-                            {qty}
-                          </span>
-                          {tx._count > 1 && (
-                            <span style={{ fontSize:10, color:'#9ca3af', fontWeight:500 }}>
-                              {tx._count} items
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Price/Unit */}
-                        <div style={{ fontSize:13, color:'#374151', textAlign:'right', paddingRight:8 }}>
-                          {parseFloat(tx.rate || 0) > 0 ? `₹ ${fmtN(tx.rate)}` : '—'}
-                        </div>
-
-                        {/* Balance Qty */}
-                        <div style={{ fontSize:13, fontWeight:700, color: tx.running_balance >= 0 ? '#374151' : '#ef4444' }}>
-                          {fmtN(tx.running_balance)}
+            ) : (
+              <>
+                {filtered.map((p, idx) => {
+                  const h = healthOf(p);
+                  const m = marginPct(p);
+                  const stockVal = parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0);
+                  const catName = p.Category?.category_name || categories.find(c => c.category_id === p.category_id)?.category_name || '—';
+                  return (
+                    <div
+                      key={p.product_id}
+                      className="ed-row data"
+                      onClick={() => navigate(`/stock-movement/${p.product_id}`)}
+                    >
+                      <div className={colClass('sr')}>
+                        <span className="sr-n">{String(idx + 1).padStart(2, '0')}</span>
+                      </div>
+                      <div className={colClass('cat')}>
+                        <span className="cat-pill">
+                          <span className="cat-dot" style={{ background: catColor(catName) }} />
+                          {catName}
+                        </span>
+                      </div>
+                      <div className={colClass('prod')}>
+                        <span className="p-name">{p.product_name}</span>
+                        {p.size_value && <span className="p-var">{p.size_value}</span>}
+                      </div>
+                      <div className={colClass('hsn')}>
+                        <span className="mono">{p.hsn_code || '—'}</span>
+                      </div>
+                      <div className={colClass('gst')}>
+                        <span className="gst-pct">{p.gst_rate != null ? `${p.gst_rate}%` : '—'}</span>
+                      </div>
+                      <div className={colClass('bc')}>
+                        <span className="bc">{p.barcode || '—'}</span>
+                      </div>
+                      <div className={colClass('stk')}>
+                        <span className={`qty-m${parseFloat(p.current_stock || 0) === 0 ? ' zero' : ''}`}>
+                          {fmtQty(p.current_stock)}
+                        </span>
+                        <span className="qty-u">{p.unit_of_measurement || 'pcs'}</span>
+                      </div>
+                      <div className={colClass('tpur')}>
+                        <span className="qty-m">{p.total_purchased != null ? fmtQty(p.total_purchased) : '—'}</span>
+                        {p.total_purchased != null && <span className="qty-u">{p.unit_of_measurement || 'pcs'}</span>}
+                      </div>
+                      <div className={colClass('tsale')}>
+                        <span className="qty-m">{p.total_sold != null ? fmtQty(p.total_sold) : '—'}</span>
+                        {p.total_sold != null && <span className="qty-u">{p.unit_of_measurement || 'pcs'}</span>}
+                      </div>
+                      <div className={colClass('pur')}>
+                        <span className="mon-m"><span className="rs">₹</span>{fmtMoney(p.purchase_rate)}</span>
+                      </div>
+                      <div className={colClass('sale')}>
+                        <span className="mon-m"><span className="rs">₹</span>{fmtMoney(p.sale_rate)}</span>
+                      </div>
+                      <div className={colClass('mgn')}>
+                        {m != null
+                          ? <span className="mg-chip">{m >= 0 ? '+' : ''}{m.toFixed(0)}%</span>
+                          : <span className="mg-chip muted">—</span>}
+                      </div>
+                      <div className={colClass('hlt')}>
+                        <span className={`health ${h.kind}`}><span className="dot" />{h.label}</span>
+                      </div>
+                      <div className={colClass('run')}>
+                        {p.last_sold_at ? (() => {
+                          const days = dayjs().diff(dayjs(p.last_sold_at), 'day');
+                          const cls = days > 60 ? 'urgent' : days > 14 ? 'soon' : 'calm';
+                          const label = days === 0 ? 'today'
+                                      : days === 1 ? 'yesterday'
+                                      : days < 30  ? `${days}d ago`
+                                      : days < 365 ? `${Math.round(days/30)}mo ago`
+                                      :              `${Math.round(days/365)}y ago`;
+                          return (
+                            <>
+                              <span className={`rw-m ${cls}`}>{label}</span>
+                              <span className="rw-s">on {dayjs(p.last_sold_at).format('DD MMM YYYY')}</span>
+                            </>
+                          );
+                        })() : (
+                          <>
+                            <span className="rw-m none">never sold</span>
+                            <span className="rw-s">no sales yet</span>
+                          </>
+                        )}
+                      </div>
+                      <div className={colClass('val')}>
+                        {stockVal > 0
+                          ? <span className="mon-m"><span className="rs">₹</span>{fmtMoney(stockVal)}</span>
+                          : <span className="mon-m zero">—</span>}
+                      </div>
+                      <div className={colClass('act')}>
+                        <div className="act-box">
+                          <div className="act-group">
+                            <button
+                              className="abtn primary"
+                              data-tip="Stock movement"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/stock-movement/${p.product_id}`); }}
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M13 5l7 7-7 7"/></svg>
+                            </button>
+                            <button
+                              className="abtn"
+                              data-tip="Edit"
+                              onClick={(e) => { e.stopPropagation(); openForm(p); }}
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </>
-        )}
+                    </div>
+                  );
+                })}
+                <div ref={listEndRef} style={{ padding: 8, textAlign: 'center' }}>
+                  {loadingMore
+                    ? <Spin size="small" />
+                    : products.length < total
+                      ? <span style={{ fontSize: 12, color: 'var(--ed-fg-3)' }}>Scroll for more…</span>
+                      : null}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="ed-foot">
+            <span>Shown: <b>{filtered.length}{products.length < total ? ` of ${total}` : ''}</b></span>
+            <span>Page value: <b>₹ {fmtMoney(pageValue)}</b></span>
+            <span>Low: <b style={{ color: 'var(--ed-warn)' }}>{statusCounts.low}</b></span>
+            <span>Out: <b style={{ color: 'var(--ed-danger)' }}>{statusCounts.out}</b></span>
+          </div>
+        </div>
       </div>
 
-      {/* ════════ Add / Edit Modal ════════ */}
+      {/* ── Add / Edit modal (unchanged AntD form) ── */}
       <Modal
-        title={editingProduct ? `Edit — ${editingProduct.product_name}` : 'Add New Product'}
+        title={editing ? `Edit — ${editing.product_name}` : 'Add New Product'}
         open={formVisible}
         onCancel={() => setFormVisible(false)}
         onOk={handleSubmit}
         confirmLoading={formLoading}
         width={680}
         destroyOnClose
-        okText={editingProduct ? 'Update' : 'Add Product'}
+        okText={editing ? 'Update' : 'Add Product'}
       >
         <Form form={form} layout="vertical" size="middle">
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item name="barcode" label="Barcode" help="Leave blank to auto-generate">
-                <Input placeholder="Auto-generate" prefix={<BarcodeOutlined/>}/>
+                <Input placeholder="Auto-generate" prefix={<BarcodeOutlined />} />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="category_id" label="Category" rules={[{ required:true, message:'Required' }]}>
+              <Form.Item name="category_id" label="Category" rules={[{ required: true, message: 'Required' }]}>
                 <Select placeholder="Select category" showSearch optionFilterProp="children">
                   {categories.map(c => <Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
                 </Select>
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="product_name" label="Product Name" rules={[{ required:true, message:'Required' }]}>
-                <Input placeholder="Product name"/>
+              <Form.Item name="product_name" label="Product Name" rules={[{ required: true, message: 'Required' }]}>
+                <Input placeholder="Product name" />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={16}>
-            <Col span={6}><Form.Item name="size_value" label="Size"><Input placeholder="S/M/L/XL"/></Form.Item></Col>
-            <Col span={6}><Form.Item name="article_number" label="Article No"><Input/></Form.Item></Col>
-            <Col span={6}><Form.Item name="hsn_code" label="HSN Code"><Input/></Form.Item></Col>
-            <Col span={6}><Form.Item name="gst_rate" label="GST %"><InputNumber style={{ width:'100%' }} min={0}/></Form.Item></Col>
+            <Col span={6}><Form.Item name="size_value" label="Size"><Input placeholder="S/M/L/XL" /></Form.Item></Col>
+            <Col span={6}><Form.Item name="article_number" label="Article No"><Input /></Form.Item></Col>
+            <Col span={6}><Form.Item name="hsn_code" label="HSN Code"><Input /></Form.Item></Col>
+            <Col span={6}><Form.Item name="gst_rate" label="GST %"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
           </Row>
           <Row gutter={16}>
-            <Col span={6}><Form.Item name="unit_of_measurement" label="Unit" initialValue="PCS">
-              <Select>{['PCS','KG','METER','LITER','BOX','DOZEN'].map(u=><Select.Option key={u}>{u}</Select.Option>)}</Select>
-            </Form.Item></Col>
-            <Col span={6}><Form.Item name="quantity_per_box" label="Qty/Box"><InputNumber style={{ width:'100%' }} min={1}/></Form.Item></Col>
-            <Col span={6}><Form.Item name="minimum_stock_level" label="Min Stock"><InputNumber style={{ width:'100%' }} min={0}/></Form.Item></Col>
-            <Col span={6}><Form.Item name="reorder_level" label="Reorder Level"><InputNumber style={{ width:'100%' }} min={0}/></Form.Item></Col>
+            <Col span={6}>
+              <Form.Item name="unit_of_measurement" label="Unit" initialValue="PCS">
+                <Select>{['PCS','KG','METER','LITER','BOX','DOZEN'].map(u => <Select.Option key={u}>{u}</Select.Option>)}</Select>
+              </Form.Item>
+            </Col>
+            <Col span={6}><Form.Item name="quantity_per_box" label="Qty/Box"><InputNumber style={{ width: '100%' }} min={1} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="minimum_stock_level" label="Min Stock"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="reorder_level" label="Reorder Level"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
           </Row>
           <Divider plain>Pricing</Divider>
           <Row gutter={16}>
-            <Col span={6}><Form.Item name="purchase_rate" label="Purchase Rate" rules={[{ required:true }]}>
-              <InputNumber style={{ width:'100%' }} min={0} prefix="₹" onChange={marginChanged}/></Form.Item></Col>
-            <Col span={6}><Form.Item name="margin_percentage" label="Margin %">
-              <InputNumber style={{ width:'100%' }} min={0} suffix="%" onChange={marginChanged}/></Form.Item></Col>
-            <Col span={6}><Form.Item name="sale_rate" label="Sale Rate" rules={[{ required:true }]}>
-              <InputNumber style={{ width:'100%' }} min={0} prefix="₹"/></Form.Item></Col>
-            <Col span={6}><Form.Item name="mrp" label="MRP">
-              <InputNumber style={{ width:'100%' }} min={0} prefix="₹"/></Form.Item></Col>
+            <Col span={6}>
+              <Form.Item name="purchase_rate" label="Purchase Rate" rules={[{ required: true }]}>
+                <InputNumber style={{ width: '100%' }} min={0} prefix="₹" onChange={marginChanged} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="margin_percentage" label="Margin %">
+                <InputNumber style={{ width: '100%' }} min={0} suffix="%" onChange={marginChanged} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="sale_rate" label="Sale Rate" rules={[{ required: true }]}>
+                <InputNumber style={{ width: '100%' }} min={0} prefix="₹" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="mrp" label="MRP">
+                <InputNumber style={{ width: '100%' }} min={0} prefix="₹" />
+              </Form.Item>
+            </Col>
           </Row>
 
-          <Divider plain>
-            <span style={{ color:'#6366f1', fontWeight:600 }}>Opening Stock</span>
-          </Divider>
-          <div style={{ background:'#f5f3ff', border:'1px solid #e0e7ff', borderRadius:8, padding:'12px 16px' }}>
+          <Divider plain><span style={{ color: 'var(--ed-accent)', fontWeight: 600 }}>Opening Stock</span></Divider>
+          <div style={{ background: 'var(--ed-accent-s)', border: '1px solid var(--ed-accent-b)', borderRadius: 8, padding: '12px 16px' }}>
             <Row gutter={16}>
               <Col span={8}>
-                <Form.Item name="opening_stock" label="Opening Qty" style={{ marginBottom:0 }}>
-                  <InputNumber style={{ width:'100%' }} min={0} placeholder="0" precision={2}/>
+                <Form.Item name="opening_stock" label="Opening Qty" style={{ marginBottom: 0 }}>
+                  <InputNumber style={{ width: '100%' }} min={0} placeholder="0" precision={2} />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="opening_stock_rate" label="Rate / Unit" style={{ marginBottom:0 }}>
-                  <InputNumber style={{ width:'100%' }} min={0} prefix="₹" placeholder="Purchase rate" precision={2}/>
+                <Form.Item name="opening_stock_rate" label="Rate / Unit" style={{ marginBottom: 0 }}>
+                  <InputNumber style={{ width: '100%' }} min={0} prefix="₹" placeholder="Purchase rate" precision={2} />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="opening_stock_date" label="As of Date" style={{ marginBottom:0 }}>
-                  <DatePicker style={{ width:'100%' }} format="DD/MM/YYYY"/>
+                <Form.Item name="opening_stock_date" label="As of Date" style={{ marginBottom: 0 }}>
+                  <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                 </Form.Item>
               </Col>
             </Row>
-            <div style={{ marginTop:8, fontSize:12, color:'#6b7280' }}>
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ed-fg-3)' }}>
               Leave Opening Qty blank or 0 if no opening stock.
             </div>
           </div>

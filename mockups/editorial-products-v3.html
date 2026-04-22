@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>Products v3 — Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Products v3 — Full column set, user-controlled visibility.
+ *
+ * What's new here:
+ *   • Category and Product are their own columns (no more mashing
+ *     category into the product sub-line).
+ *   • 15 data columns available: #, Category, Product, HSN, GST%,
+ *     Barcode, Stock, Total Purchased, Total Sold, Purchase Rate,
+ *     Sale Rate, Margin, Health, Runway, Stock Value — plus Actions.
+ *   • "☰ Columns N/15" button in the top bar opens a menu where every
+ *     column can be toggled. Same menu also hides the KPI hero and
+ *     the filter chip bar — for a full "just the table" view.
+ *   • Default set is a legible subset (~10 cols). Turning on everything
+ *     triggers horizontal scroll inside the table card, not the page.
+ *
+ * JS is tiny and self-contained at the bottom — no libs.
+ */
+
+:root {
+  --bg: #F5EFE3; --bg-panel: #FDFAF2; --bg-muted: #F8F2E4;
+  --ink: #1D1A15; --ink-2: #6D5F4E; --ink-3: #9B8F7E; --ink-4: #C9BFA8;
+  --rule: #E3D9C5; --rule-soft: #ECE2CD;
+  --accent: #B1472F; --accent-hover: #8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10); --accent-border: rgba(177,71,47,0.24);
+  --ok:     #7A9660; --ok-soft:     rgba(122,150,96,0.14); --ok-border:     rgba(122,150,96,0.30);
+  --warn:   #B8923C; --warn-soft:   rgba(184,146,60,0.14); --warn-border:   rgba(184,146,60,0.30);
+  --danger: #B1472F; --danger-soft: rgba(177,71,47,0.10); --danger-border: rgba(177,71,47,0.28);
+  --dead:   #9B8F7E; --dead-soft:   rgba(155,143,126,0.14);
+  --neutral: #3F3526; --neutral-soft: rgba(63,53,38,0.06); --neutral-border: rgba(63,53,38,0.14);
+  --sb-bg: #1D1814; --sb-border: #2C2821;
+  --sb-ink: #E8DFC9; --sb-ink-3: #8A7F6C;
+  --sb-hover: rgba(245,238,226,0.06);
+  --sb-active-bg: #B1472F; --sb-active-ink: #FDFAF2;
+  --sb-w: 232px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh; overflow: hidden;
+}
+
+/* Column visibility helpers — controlled by the Columns menu */
+.col-off, .section-off { display: none !important; }
+
+/* Sidebar */
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sb-w);
+  background: var(--sb-bg); border-right: 1px solid var(--sb-border);
+  padding: 16px 12px 20px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  overflow-y: auto; z-index: 20;
+}
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: all .15s; }
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* Top bar */
+.page-hd {
+  flex-shrink: 0;
+  background: var(--bg);
+  padding: 18px 28px 14px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.page-title h1 { font-family: 'Fraunces', Georgia, serif; font-size: 28px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1; margin-bottom: 4px; }
+.page-title .sub-hd { font-size: 12.5px; color: var(--ink-3); font-weight: 500; }
+.page-title .sub-hd b { color: var(--ink-2); font-weight: 600; }
+.hd-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.search-box { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; width: 240px; }
+.search-box input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.search-box svg { width: 13px; height: 13px; color: var(--ink-3); }
+.search-box input::placeholder { color: var(--ink-3); }
+.chip-btn { height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .15s; }
+.chip-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.chip-btn svg { width: 13px; height: 13px; }
+.divider { width: 1px; height: 22px; background: var(--rule); margin: 0 4px; }
+.cta { height: 34px; padding: 0 14px; background: var(--accent); color: #FDFAF2; border: 1px solid var(--accent); border-radius: 7px; font: inherit; font-weight: 600; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px var(--accent-soft); transition: all .18s; }
+.cta:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.cta.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); box-shadow: none; }
+.cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+.cta svg { width: 13px; height: 13px; }
+
+/* Columns button + dropdown */
+.cols-wrap { position: relative; }
+.cols-btn { height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .15s; }
+.cols-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.cols-btn.on { border-color: var(--accent); color: var(--accent); background: var(--bg-panel); }
+.cols-btn svg { width: 14px; height: 14px; }
+.cols-btn .badge { font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: var(--bg-muted); color: var(--ink-2); font-variant-numeric: tabular-nums; letter-spacing: 0.2px; }
+.cols-btn:hover .badge, .cols-btn.on .badge { background: var(--accent-soft); color: var(--accent); }
+
+.cols-menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 280px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 10px; box-shadow: 0 16px 40px rgba(29,26,21,0.18); padding: 6px 0; z-index: 40; display: none; max-height: 80vh; overflow-y: auto; }
+.cols-menu.open { display: block; }
+.cols-menu .mh { padding: 12px 14px 8px; display: flex; justify-content: space-between; align-items: center; }
+.cols-menu .mh + .opt, .cols-menu .mh + .mh { border-top: 1px solid var(--rule-soft); }
+.cols-menu .grp { padding: 4px 0 6px; border-top: 1px solid var(--rule-soft); }
+.cols-menu .grp:first-of-type { border-top: none; }
+.cols-menu .gh { padding: 10px 14px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--ink-3); display: flex; justify-content: space-between; align-items: center; }
+.cols-menu .gh-reset { background: transparent; border: none; color: var(--accent); font: inherit; font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; cursor: pointer; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+.cols-menu .gh-reset:hover { background: var(--accent-soft); }
+.cols-menu .opt { padding: 6px 14px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink); cursor: pointer; transition: background .1s; }
+.cols-menu .opt:hover { background: var(--bg-muted); }
+.cols-menu .opt input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+.cols-menu .opt.fixed { opacity: 0.55; cursor: not-allowed; }
+.cols-menu .opt.fixed input { cursor: not-allowed; }
+.cols-menu .opt .pin { margin-left: auto; font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.6px; text-transform: uppercase; font-weight: 700; background: var(--bg-muted); padding: 2px 6px; border-radius: 3px; }
+.cols-menu .opt .kbd { margin-left: auto; font-size: 10px; color: var(--ink-3); font-weight: 500; letter-spacing: 0.2px; font-variant-numeric: tabular-nums; }
+
+/* KPI hero */
+.hero-wrap { flex-shrink: 0; padding: 10px 28px 14px; }
+.kpi-hero { display: flex; gap: 14px; flex-wrap: wrap; }
+.kpi-card { width: 300px; flex: 0 0 300px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 12px; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.kpi-card .kpi-text { flex: 1; min-width: 0; }
+.kpi-card .k { font-size: 10.5px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.kpi-card .v { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600; color: var(--ink); line-height: 1.05; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.kpi-card .sub-k { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+.kpi-card.value { background: linear-gradient(135deg, var(--neutral-soft), transparent 70%); border-color: var(--neutral-border); }
+.kpi-card.value .v { color: var(--neutral); }
+.kpi-card.low { background: linear-gradient(135deg, var(--warn-soft), transparent 70%); border-color: var(--warn-border); }
+.kpi-card.low .v { color: var(--warn); }
+.kpi-card.out { background: linear-gradient(135deg, var(--danger-soft), transparent 70%); border-color: var(--danger-border); }
+.kpi-card.out .v { color: var(--danger); }
+.ring { position: relative; width: 52px; height: 52px; flex-shrink: 0; }
+.ring svg { width: 100%; height: 100%; display: block; }
+.ring .track { stroke: var(--bg-muted); }
+.ring .fill.warn   { stroke: var(--warn); }
+.ring .fill.danger { stroke: var(--danger); }
+.ring .label { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); letter-spacing: -0.02em; }
+
+/* Filter row */
+.lens-wrap { flex-shrink: 0; padding: 0 28px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lens-lbl { font-size: 10.5px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); margin-right: 4px; }
+.lens-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--rule); background: var(--bg-panel); color: var(--ink-2); border-radius: 99px; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; transition: all .15s; }
+.lens-chip:hover { border-color: var(--accent-border); color: var(--accent); }
+.lens-chip.on { background: var(--ink); color: var(--bg-panel); border-color: var(--ink); }
+.lens-chip .n { font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: var(--bg-muted); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.lens-chip.on .n { background: rgba(255,255,255,0.18); color: inherit; }
+.lens-chip.warn   { border-color: var(--warn-border);   color: var(--warn); }
+.lens-chip.warn .n   { background: var(--warn-soft);   color: var(--warn); }
+.lens-chip.danger { border-color: var(--danger-border); color: var(--danger); }
+.lens-chip.danger .n { background: var(--danger-soft); color: var(--danger); }
+
+/* ═════════════════════════════════════════════════════════════════════
+   Product list — flexbox rows, fixed widths, many columns.
+   The .plist card clips horizontal overflow; .pscroll scrolls sideways
+   when the union of visible columns is wider than the card.
+   ═════════════════════════════════════════════════════════════════════ */
+.plist-wrap { flex: 1 1 auto; min-height: 0; padding: 0 28px 20px; display: flex; }
+.plist {
+  flex: 1 1 auto; min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.pscroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+.prow {
+  display: flex;
+  align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 13px; color: var(--ink);
+  gap: 14px;
+  min-width: max-content;      /* rows grow with the table so cells don't compress under horizontal scroll */
+}
+.prow:last-of-type { border-bottom: none; }
+.prow.head {
+  flex-shrink: 0;
+  background: var(--bg-muted);
+  padding: 11px 18px;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule);
+  position: sticky; top: 0; z-index: 3;
+}
+.prow.data { cursor: pointer; transition: background .1s; }
+.prow.data:hover { background: var(--bg-muted); }
+.prow.data.inactive { opacity: 0.62; }
+
+/* Column widths — fixed per cell, order matches the user's list */
+.c-sr     { width: 30px;  flex: 0 0 30px;  text-align: center; }
+.c-cat    { width: 120px; flex: 0 0 120px; }
+.c-prod   { width: 240px; flex: 0 0 240px; }
+.c-hsn    { width: 72px;  flex: 0 0 72px;  }
+.c-gst    { width: 60px;  flex: 0 0 60px;  text-align: right; }
+.c-bc     { width: 130px; flex: 0 0 130px; }
+.c-stk    { width: 72px;  flex: 0 0 72px;  text-align: right; }
+.c-tpur   { width: 88px;  flex: 0 0 88px;  text-align: right; }
+.c-tsale  { width: 88px;  flex: 0 0 88px;  text-align: right; }
+.c-pur    { width: 90px;  flex: 0 0 90px;  text-align: right; }
+.c-sale   { width: 90px;  flex: 0 0 90px;  text-align: right; }
+.c-mgn    { width: 74px;  flex: 0 0 74px;  text-align: right; }
+.c-hlt    { width: 118px; flex: 0 0 118px; }
+.c-run    { width: 144px; flex: 0 0 144px; }
+.c-val    { width: 110px; flex: 0 0 110px; text-align: right; }
+.c-act    { width: 100px; flex: 0 0 100px; }
+
+/* Header alignment */
+.prow.head .c-sr   { text-align: center; }
+.prow.head .c-cat,
+.prow.head .c-prod,
+.prow.head .c-hsn,
+.prow.head .c-bc,
+.prow.head .c-hlt,
+.prow.head .c-run  { text-align: left; }
+.prow.head .c-gst,
+.prow.head .c-stk,
+.prow.head .c-tpur,
+.prow.head .c-tsale,
+.prow.head .c-pur,
+.prow.head .c-sale,
+.prow.head .c-mgn,
+.prow.head .c-val  { text-align: right; }
+.prow.head .c-act  { text-align: right; }
+
+/* SR cell */
+.sr-n { font-size: 11.5px; color: var(--ink-3); font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.3; }
+
+/* Category cell — coloured dot + name */
+.cat-pill { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
+.cat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cd-shirts   { background: #7A9660; }
+.cd-sarees   { background: #B1472F; }
+.cd-jeans    { background: #4F6A7A; }
+.cd-kurtis   { background: #B8923C; }
+.cd-home     { background: #7F5AA3; }
+.cd-tees     { background: #6D5F4E; }
+.cd-trousers { background: #3F5A4A; }
+.cd-access   { background: #CA7537; }
+.cd-ethnic   { background: #8E4F2E; }
+.cd-outer    { background: #55503F; }
+
+/* Product cell — name + optional size chip, wraps to 2 lines if needed */
+.p-name { display: inline; font-size: 13.5px; font-weight: 600; color: var(--ink); letter-spacing: -0.005em; line-height: 1.35; word-break: break-word; }
+.p-var  { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 10.5px; color: var(--ink-2); background: var(--bg-muted); border: 1px solid var(--rule); border-radius: 4px; font-weight: 500; letter-spacing: 0.2px; vertical-align: 1px; white-space: nowrap; }
+
+/* HSN / GST / Barcode — mono look, muted */
+.mono { font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--ink-2); font-weight: 500; letter-spacing: 0.2px; }
+.gst-pct { font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
+.bc { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink-2); font-weight: 500; letter-spacing: 0.5px; font-feature-settings: 'tnum'; white-space: nowrap; }
+
+/* Qty-style cells (stock, totals) — Fraunces number + small unit label */
+.qty-m { display: block; font-family: 'Fraunces', serif; font-weight: 600; font-size: 14.5px; line-height: 1.25; font-variant-numeric: tabular-nums; color: var(--ink); }
+.qty-m.zero { color: var(--danger); }
+.qty-u { display: block; font-size: 10.5px; color: var(--ink-3); margin-top: 2px; font-variant-numeric: tabular-nums; letter-spacing: 0.3px; text-transform: uppercase; }
+
+/* Money cells */
+.mon-m { display: block; font-family: 'Fraunces', serif; font-weight: 600; font-size: 14.5px; color: var(--ink); line-height: 1.25; font-variant-numeric: tabular-nums; }
+.mon-m .rs { color: var(--ink-3); margin-right: 2px; font-weight: 500; }
+.mon-m.zero { color: var(--ink-3); font-family: 'Inter', sans-serif; font-size: 12.5px; font-style: italic; font-weight: 500; }
+.mon-m.muted { color: var(--ink-4); font-weight: 500; }
+
+/* Margin chip — small positive indicator */
+.mg-chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 99px; font-size: 11.5px; font-weight: 700; background: var(--ok-soft); color: var(--ok); font-variant-numeric: tabular-nums; letter-spacing: 0.1px; }
+.mg-chip.muted { background: var(--bg-muted); color: var(--ink-3); }
+
+/* Health pill */
+.health { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.1px; white-space: nowrap; }
+.health .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.health.ok     { background: var(--ok-soft);     color: var(--ok); }     .health.ok .dot   { background: var(--ok); }
+.health.low    { background: var(--warn-soft);   color: var(--warn); }   .health.low .dot  { background: var(--warn); }
+.health.out    { background: var(--danger-soft); color: var(--danger); } .health.out .dot  { background: var(--danger); }
+.health.dead   { background: var(--dead-soft);   color: var(--dead); }   .health.dead .dot { background: var(--dead); }
+
+/* Runway cell */
+.rw-m { display: block; font-size: 13px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.rw-m.urgent { color: var(--danger); }
+.rw-m.soon   { color: var(--warn); }
+.rw-m.calm   { color: var(--ink); }
+.rw-m.none   { color: var(--ink-4); font-weight: 500; font-style: italic; }
+.rw-s { display: block; font-size: 10.5px; color: var(--ink-3); margin-top: 3px; font-variant-numeric: tabular-nums; line-height: 1.3; }
+
+/* Actions */
+.act-box { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
+.act-box .group { display: inline-flex; gap: 4px; align-items: center; opacity: 0; transform: translateX(6px); transition: opacity .15s, transform .15s; pointer-events: none; }
+.prow.data:hover .act-box .group { opacity: 1; transform: translateX(0); pointer-events: auto; }
+.abtn { width: 30px; height: 30px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink-2); cursor: pointer; display: inline-grid; place-items: center; transition: all .12s; position: relative; }
+.abtn:hover { border-color: var(--accent-border); color: var(--accent); }
+.abtn.primary { background: var(--accent); border-color: var(--accent); color: #FDFAF2; box-shadow: 0 2px 6px var(--accent-soft); }
+.abtn.primary:hover { background: var(--accent-hover); color: #FDFAF2; }
+.abtn svg { width: 14px; height: 14px; }
+.abtn::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg-panel); font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 5px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 10; }
+.abtn:hover::after { opacity: 1; }
+
+/* Footer */
+.pfoot { flex-shrink: 0; display: flex; justify-content: flex-end; gap: 24px; padding: 12px 18px; border-top: 1px solid var(--rule); background: var(--bg-muted); font-size: 12px; color: var(--ink-3); }
+.pfoot b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+  <aside class="sidebar">
+    <div class="sb-brand"><div class="sb-brand-icon">B</div><div class="sb-brand-name">Billin ERP</div></div>
+    <div class="sb-section">Workspace</div>
+    <div class="sb-item"><span class="ic">◎</span> Dashboard</div>
+    <div class="sb-item"><span class="ic">◧</span> Sales</div>
+    <div class="sb-item"><span class="ic">◨</span> Purchases</div>
+    <div class="sb-item"><span class="ic">◐</span> Customers</div>
+    <div class="sb-item"><span class="ic">◑</span> Suppliers</div>
+    <div class="sb-item active"><span class="ic">⊡</span> Inventory</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments &amp; Receipts</div>
+    <div class="sb-item"><span class="ic">◫</span> Reports</div>
+  </aside>
+
+  <main class="main">
+
+    <div class="page-hd">
+      <div class="page-title">
+        <h1>Products</h1>
+        <div class="sub-hd"><b>284</b> items · 12 categories · FY 2025-26</div>
+      </div>
+      <div class="hd-ctrl">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search name, barcode, HSN">
+        </div>
+        <button class="chip-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg> Sort: Name</button>
+
+        <div class="cols-wrap">
+          <button class="cols-btn" id="colsBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+            Columns <span class="badge" id="colsBadge">10 / 15</span>
+          </button>
+          <div class="cols-menu" id="colsMenu" role="menu">
+
+            <div class="grp">
+              <div class="gh">
+                <span>Columns</span>
+                <button class="gh-reset" type="button" data-reset="cols">Reset</button>
+              </div>
+              <label class="opt"><input type="checkbox" checked data-col="sr"><span>Number</span></label>
+              <label class="opt"><input type="checkbox" checked data-col="cat"><span>Category</span></label>
+              <label class="opt fixed"><input type="checkbox" checked disabled><span>Product</span><span class="pin">Fixed</span></label>
+              <label class="opt"><input type="checkbox" data-col="hsn"><span>HSN Code</span></label>
+              <label class="opt"><input type="checkbox" data-col="gst"><span>GST %</span></label>
+              <label class="opt"><input type="checkbox" data-col="bc"><span>Barcode</span></label>
+              <label class="opt"><input type="checkbox" checked data-col="stk"><span>Stock (On Hand)</span></label>
+              <label class="opt"><input type="checkbox" data-col="tpur"><span>Total Stock Purchased</span></label>
+              <label class="opt"><input type="checkbox" data-col="tsale"><span>Total Stock Sold</span></label>
+              <label class="opt"><input type="checkbox" data-col="pur"><span>Purchase Rate</span></label>
+              <label class="opt"><input type="checkbox" checked data-col="sale"><span>Sale Rate</span></label>
+              <label class="opt"><input type="checkbox" checked data-col="mgn"><span>Margin</span></label>
+              <label class="opt"><input type="checkbox" checked data-col="hlt"><span>Health</span></label>
+              <label class="opt"><input type="checkbox" checked data-col="run"><span>Runway</span></label>
+              <label class="opt"><input type="checkbox" checked data-col="val"><span>Stock Value</span></label>
+              <label class="opt fixed"><input type="checkbox" checked disabled><span>Actions</span><span class="pin">Fixed</span></label>
+            </div>
+
+            <div class="grp">
+              <div class="gh"><span>Page Sections</span></div>
+              <label class="opt"><input type="checkbox" checked data-section="hero"><span>KPI Cards</span></label>
+              <label class="opt"><input type="checkbox" checked data-section="filter"><span>Filter Bar</span></label>
+            </div>
+
+          </div>
+        </div>
+
+        <span class="divider"></span>
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M7 4v4M17 4v4"/></svg> Print Barcodes</button>
+        <button class="cta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> New Item</button>
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export</button>
+      </div>
+    </div>
+
+    <div class="hero-wrap section-hero">
+      <div class="kpi-hero">
+        <div class="kpi-card value">
+          <div class="kpi-text">
+            <div class="k">Stock Value · On Hand</div>
+            <div class="v">₹ 14,82,640</div>
+            <div class="sub-k">at purchase cost · 284 SKUs</div>
+          </div>
+        </div>
+        <div class="kpi-card low">
+          <div class="kpi-text">
+            <div class="k">Low Stock</div>
+            <div class="v">12 items</div>
+            <div class="sub-k">below reorder level</div>
+          </div>
+          <div class="ring"><svg viewBox="0 0 56 56"><circle class="track" cx="28" cy="28" r="22" fill="none" stroke-width="3.5"/><circle class="fill warn" cx="28" cy="28" r="22" fill="none" stroke-width="3.5" stroke-dasharray="138.23" stroke-dashoffset="132.4" stroke-linecap="round" transform="rotate(-90 28 28)"/></svg><span class="label">4%</span></div>
+        </div>
+        <div class="kpi-card out">
+          <div class="kpi-text">
+            <div class="k">Out of Stock</div>
+            <div class="v">3 items</div>
+            <div class="sub-k">zero on hand · reorder urgent</div>
+          </div>
+          <div class="ring"><svg viewBox="0 0 56 56"><circle class="track" cx="28" cy="28" r="22" fill="none" stroke-width="3.5"/><circle class="fill danger" cx="28" cy="28" r="22" fill="none" stroke-width="3.5" stroke-dasharray="138.23" stroke-dashoffset="136.77" stroke-linecap="round" transform="rotate(-90 28 28)"/></svg><span class="label">1%</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lens-wrap section-filter">
+      <span class="lens-lbl">Filter</span>
+      <button class="lens-chip on">All <span class="n">284</span></button>
+      <button class="lens-chip">In Stock <span class="n">269</span></button>
+      <button class="lens-chip warn">Low <span class="n">12</span></button>
+      <button class="lens-chip danger">Out <span class="n">3</span></button>
+      <span class="divider"></span>
+      <button class="lens-chip">Shirts <span class="n">42</span></button>
+      <button class="lens-chip">Sarees <span class="n">38</span></button>
+      <button class="lens-chip">Jeans <span class="n">27</span></button>
+      <button class="lens-chip">Kurtis <span class="n">34</span></button>
+      <button class="lens-chip">Home Linen <span class="n">19</span></button>
+      <button class="lens-chip">T-Shirts <span class="n">31</span></button>
+      <button class="lens-chip">More ▾</button>
+    </div>
+
+    <div class="plist-wrap">
+      <div class="plist">
+
+        <div class="prow head">
+          <div class="c-sr">#</div>
+          <div class="c-cat">Category</div>
+          <div class="c-prod">Product</div>
+          <div class="c-hsn">HSN</div>
+          <div class="c-gst">GST %</div>
+          <div class="c-bc">Barcode</div>
+          <div class="c-stk">Stock</div>
+          <div class="c-tpur">Total Pur.</div>
+          <div class="c-tsale">Total Sold</div>
+          <div class="c-pur">Purchase</div>
+          <div class="c-sale">Sale</div>
+          <div class="c-mgn">Margin</div>
+          <div class="c-hlt">Health</div>
+          <div class="c-run">Runway · Last Sold</div>
+          <div class="c-val">Value</div>
+          <div class="c-act"></div>
+        </div>
+
+        <div class="pscroll">
+
+        <!-- 01 -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">01</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-shirts"></span>Shirts</span></div>
+          <div class="c-prod"><span class="p-name">Cotton Shirt — Blue Oxford</span><span class="p-var">L</span></div>
+          <div class="c-hsn"><span class="mono">6109</span></div>
+          <div class="c-gst"><span class="gst-pct">5%</span></div>
+          <div class="c-bc"><span class="bc">8901 2345 67012</span></div>
+          <div class="c-stk"><span class="qty-m">48</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">240</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">192</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>450</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>720</span></div>
+          <div class="c-mgn"><span class="mg-chip">+60%</span></div>
+          <div class="c-hlt"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-run"><span class="rw-m calm">32 days left</span><span class="rw-s">sold 2h ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>21,600</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 02 -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">02</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-sarees"></span>Sarees</span></div>
+          <div class="c-prod"><span class="p-name">Silk Saree — Kanchipuram Red</span></div>
+          <div class="c-hsn"><span class="mono">5007</span></div>
+          <div class="c-gst"><span class="gst-pct">12%</span></div>
+          <div class="c-bc"><span class="bc">8901 2400 12008</span></div>
+          <div class="c-stk"><span class="qty-m">12</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">60</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">48</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>1,200</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>2,400</span></div>
+          <div class="c-mgn"><span class="mg-chip">+100%</span></div>
+          <div class="c-hlt"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-run"><span class="rw-m calm">45 days left</span><span class="rw-s">sold 1d ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>14,400</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 03 LOW -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">03</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-jeans"></span>Jeans</span></div>
+          <div class="c-prod"><span class="p-name">Denim Jeans — Slim Fit</span><span class="p-var">32</span></div>
+          <div class="c-hsn"><span class="mono">6203</span></div>
+          <div class="c-gst"><span class="gst-pct">12%</span></div>
+          <div class="c-bc"><span class="bc">8901 2577 18004</span></div>
+          <div class="c-stk"><span class="qty-m">8</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">180</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">172</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>650</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>1,100</span></div>
+          <div class="c-mgn"><span class="mg-chip">+69%</span></div>
+          <div class="c-hlt"><span class="health low"><span class="dot"></span>Low</span></div>
+          <div class="c-run"><span class="rw-m urgent">6 days left</span><span class="rw-s">sold 4h ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>5,200</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Reorder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 04 OUT -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">04</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-kurtis"></span>Kurtis</span></div>
+          <div class="c-prod"><span class="p-name">Polyester Kurti — Printed</span><span class="p-var">M</span></div>
+          <div class="c-hsn"><span class="mono">6211</span></div>
+          <div class="c-gst"><span class="gst-pct">5%</span></div>
+          <div class="c-bc"><span class="bc">8901 2634 01005</span></div>
+          <div class="c-stk"><span class="qty-m zero">0</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">144</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">144</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>280</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>480</span></div>
+          <div class="c-mgn"><span class="mg-chip">+71%</span></div>
+          <div class="c-hlt"><span class="health out"><span class="dot"></span>Out of stock</span></div>
+          <div class="c-run"><span class="rw-m none">—</span><span class="rw-s">stockout 3d ago</span></div>
+          <div class="c-val"><span class="mon-m zero">—</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Reorder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 05 -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">05</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-home"></span>Home Linen</span></div>
+          <div class="c-prod"><span class="p-name">Bedsheet — Double Cotton 210 TC</span></div>
+          <div class="c-hsn"><span class="mono">6302</span></div>
+          <div class="c-gst"><span class="gst-pct">5%</span></div>
+          <div class="c-bc"><span class="bc">8901 2700 99003</span></div>
+          <div class="c-stk"><span class="qty-m">34</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">120</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">86</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>520</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>850</span></div>
+          <div class="c-mgn"><span class="mg-chip">+63%</span></div>
+          <div class="c-hlt"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-run"><span class="rw-m calm">28 days left</span><span class="rw-s">sold 5h ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>17,680</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 06 -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">06</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-home"></span>Home Linen</span></div>
+          <div class="c-prod"><span class="p-name">Bath Towel — 500 GSM</span></div>
+          <div class="c-hsn"><span class="mono">6302</span></div>
+          <div class="c-gst"><span class="gst-pct">5%</span></div>
+          <div class="c-bc"><span class="bc">8901 2722 30009</span></div>
+          <div class="c-stk"><span class="qty-m">156</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">600</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">444</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>90</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>180</span></div>
+          <div class="c-mgn"><span class="mg-chip">+100%</span></div>
+          <div class="c-hlt"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-run"><span class="rw-m calm">62 days left</span><span class="rw-s">sold 1h ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>14,040</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 07 -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">07</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-trousers"></span>Trousers</span></div>
+          <div class="c-prod"><span class="p-name">Linen Trouser — Natural Beige</span><span class="p-var">34</span></div>
+          <div class="c-hsn"><span class="mono">6203</span></div>
+          <div class="c-gst"><span class="gst-pct">5%</span></div>
+          <div class="c-bc"><span class="bc">8901 2811 45003</span></div>
+          <div class="c-stk"><span class="qty-m">22</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">96</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">74</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>520</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>880</span></div>
+          <div class="c-mgn"><span class="mg-chip">+69%</span></div>
+          <div class="c-hlt"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-run"><span class="rw-m calm">40 days left</span><span class="rw-s">sold 2d ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>11,440</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 08 LOW -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">08</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-access"></span>Accessories</span></div>
+          <div class="c-prod"><span class="p-name">Pashmina Scarf — Hand Woven</span></div>
+          <div class="c-hsn"><span class="mono">6214</span></div>
+          <div class="c-gst"><span class="gst-pct">5%</span></div>
+          <div class="c-bc"><span class="bc">8901 2944 21002</span></div>
+          <div class="c-stk"><span class="qty-m">5</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">30</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">25</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>340</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>720</span></div>
+          <div class="c-mgn"><span class="mg-chip">+112%</span></div>
+          <div class="c-hlt"><span class="health low"><span class="dot"></span>Low</span></div>
+          <div class="c-run"><span class="rw-m soon">9 days left</span><span class="rw-s">sold 6d ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>1,700</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Reorder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 09 -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">09</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-tees"></span>T-Shirts</span></div>
+          <div class="c-prod"><span class="p-name">Printed T-Shirt — Round Neck</span><span class="p-var">M</span></div>
+          <div class="c-hsn"><span class="mono">6109</span></div>
+          <div class="c-gst"><span class="gst-pct">5%</span></div>
+          <div class="c-bc"><span class="bc">8901 3010 07004</span></div>
+          <div class="c-stk"><span class="qty-m">88</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">360</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">272</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>180</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>350</span></div>
+          <div class="c-mgn"><span class="mg-chip">+94%</span></div>
+          <div class="c-hlt"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-run"><span class="rw-m calm">24 days left</span><span class="rw-s">sold 1h ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>15,840</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 10 -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">10</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-shirts"></span>Shirts</span></div>
+          <div class="c-prod"><span class="p-name">Formal Shirt — White Poplin</span><span class="p-var">M</span></div>
+          <div class="c-hsn"><span class="mono">6205</span></div>
+          <div class="c-gst"><span class="gst-pct">5%</span></div>
+          <div class="c-bc"><span class="bc">8901 3155 82008</span></div>
+          <div class="c-stk"><span class="qty-m">65</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">240</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">175</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>380</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>650</span></div>
+          <div class="c-mgn"><span class="mg-chip">+71%</span></div>
+          <div class="c-hlt"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-run"><span class="rw-m calm">36 days left</span><span class="rw-s">sold 3h ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>24,700</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 11 -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">11</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-ethnic"></span>Ethnic</span></div>
+          <div class="c-prod"><span class="p-name">Kurta Pajama Set — Cream Handloom</span><span class="p-var">L</span></div>
+          <div class="c-hsn"><span class="mono">6203</span></div>
+          <div class="c-gst"><span class="gst-pct">12%</span></div>
+          <div class="c-bc"><span class="bc">8901 3299 10003</span></div>
+          <div class="c-stk"><span class="qty-m">18</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">72</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">54</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>760</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>1,300</span></div>
+          <div class="c-mgn"><span class="mg-chip">+71%</span></div>
+          <div class="c-hlt"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-run"><span class="rw-m calm">52 days left</span><span class="rw-s">sold 2d ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>13,680</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 12 -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">12</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-access"></span>Accessories</span></div>
+          <div class="c-prod"><span class="p-name">Fancy Dupatta — Zari Embroidered</span></div>
+          <div class="c-hsn"><span class="mono">6214</span></div>
+          <div class="c-gst"><span class="gst-pct">5%</span></div>
+          <div class="c-bc"><span class="bc">8901 3366 01007</span></div>
+          <div class="c-stk"><span class="qty-m">42</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">120</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">78</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m"><span class="rs">₹</span>220</span></div>
+          <div class="c-sale"><span class="mon-m"><span class="rs">₹</span>450</span></div>
+          <div class="c-mgn"><span class="mg-chip">+105%</span></div>
+          <div class="c-hlt"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-run"><span class="rw-m calm">38 days left</span><span class="rw-s">sold 1d ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>9,240</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        <!-- 13 DEAD -->
+        <div class="prow data inactive">
+          <div class="c-sr"><span class="sr-n">13</span></div>
+          <div class="c-cat"><span class="cat-pill"><span class="cat-dot cd-outer"></span>Outerwear</span></div>
+          <div class="c-prod"><span class="p-name">Winter Jacket — Navy Quilted</span><span class="p-var">XL</span></div>
+          <div class="c-hsn"><span class="mono">6201</span></div>
+          <div class="c-gst"><span class="gst-pct">12%</span></div>
+          <div class="c-bc"><span class="bc">8901 3422 01004</span></div>
+          <div class="c-stk"><span class="qty-m">14</span><span class="qty-u">pcs</span></div>
+          <div class="c-tpur"><span class="qty-m">24</span><span class="qty-u">pcs</span></div>
+          <div class="c-tsale"><span class="qty-m">10</span><span class="qty-u">pcs</span></div>
+          <div class="c-pur"><span class="mon-m muted"><span class="rs">₹</span>1,450</span></div>
+          <div class="c-sale"><span class="mon-m muted"><span class="rs">₹</span>2,400</span></div>
+          <div class="c-mgn"><span class="mg-chip muted">+65%</span></div>
+          <div class="c-hlt"><span class="health dead"><span class="dot"></span>Dead stock</span></div>
+          <div class="c-run"><span class="rw-m none">no recent sales</span><span class="rw-s">sold 94d ago</span></div>
+          <div class="c-val"><span class="mon-m"><span class="rs">₹</span>20,300</span></div>
+          <div class="c-act"><div class="act-box"><div class="group">
+            <button class="abtn" data-tip="Discount"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg></button>
+            <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          </div></div></div>
+        </div>
+
+        </div><!-- /.pscroll -->
+
+        <div class="pfoot">
+          <span>Shown: <b>13 of 284</b></span>
+          <span>Page value: <b>₹ 1,69,820</b></span>
+          <span>Low: <b style="color: var(--warn);">2</b></span>
+          <span>Out: <b style="color: var(--danger);">1</b></span>
+          <span>Dead: <b style="color: var(--dead);">1</b></span>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+<script>
+/*
+ * Minimal vanilla JS — just enough to wire the Columns menu.
+ *
+ * Each checkbox has a data-col (column key) or data-section (hero|filter)
+ * attribute. Toggling it adds/removes `col-off` on all `.c-<key>` cells
+ * or `section-off` on the wrapper. The badge in the button stays in
+ * sync with the count. Reset restores checkboxes to their defaultChecked
+ * state (the initial HTML), which is the source of truth for "default".
+ */
+(function () {
+  const btn   = document.getElementById('colsBtn');
+  const menu  = document.getElementById('colsMenu');
+  const badge = document.getElementById('colsBadge');
+
+  const colBoxes = menu.querySelectorAll('input[data-col]');
+  const secBoxes = menu.querySelectorAll('input[data-section]');
+  const fixedOn  = menu.querySelectorAll('.opt.fixed input:checked').length;   // Product + Actions
+
+  function applyCol(key, on) {
+    document.querySelectorAll('.c-' + key).forEach(el => el.classList.toggle('col-off', !on));
+  }
+  function applySec(key, on) {
+    const el = document.querySelector('.section-' + key);
+    if (el) el.classList.toggle('section-off', !on);
+  }
+  function refreshBadge() {
+    const on = Array.from(colBoxes).filter(cb => cb.checked).length + fixedOn;
+    const total = colBoxes.length + fixedOn;
+    badge.textContent = on + ' / ' + total;
+  }
+
+  // Prime the DOM from the initial checkbox state.
+  colBoxes.forEach(cb => {
+    applyCol(cb.dataset.col, cb.checked);
+    cb.addEventListener('change', () => { applyCol(cb.dataset.col, cb.checked); refreshBadge(); });
+  });
+  secBoxes.forEach(cb => {
+    applySec(cb.dataset.section, cb.checked);
+    cb.addEventListener('change', () => applySec(cb.dataset.section, cb.checked));
+  });
+  refreshBadge();
+
+  // Open / close menu
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const open = menu.classList.toggle('open');
+    btn.classList.toggle('on', open);
+  });
+  document.addEventListener('click', e => {
+    if (menu.classList.contains('open') && !menu.contains(e.target) && !btn.contains(e.target)) {
+      menu.classList.remove('open');
+      btn.classList.remove('on');
+    }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && menu.classList.contains('open')) {
+      menu.classList.remove('open');
+      btn.classList.remove('on');
+    }
+  });
+
+  // Reset to defaults (uses defaultChecked from the HTML)
+  const resetBtn = menu.querySelector('[data-reset="cols"]');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      [...colBoxes, ...secBoxes].forEach(cb => {
+        if (cb.disabled) return;
+        cb.checked = cb.defaultChecked;
+        if (cb.dataset.col)     applyCol(cb.dataset.col, cb.checked);
+        if (cb.dataset.section) applySec(cb.dataset.section, cb.checked);
+      });
+      refreshBadge();
+    });
+  }
+})();
+</script>
+</body>
+</html>

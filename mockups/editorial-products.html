@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>Products — Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Products — Editorial (rev. fixes)
+ *
+ * Fixes from the first pass:
+ *   • Product names no longer truncate — they wrap to a second line and
+ *     the row grows to fit. Width freed up by dropping the separate
+ *     Category + Purchase columns (category moves to the sub-line, buy
+ *     price collapses into a single Price cell).
+ *   • Health is its own column — a pill (Healthy / Low / Out / Dead)
+ *     reading straight down the page, no longer tangled with the qty.
+ *   • Runway column added: "28 days left" as the headline, "sold 3d ago"
+ *     as the sub. That's the "days left" + "last move" the eye was
+ *     looking for.
+ *   • Row aligns to top so stacked cells never shift when product wraps.
+ */
+
+:root {
+  --bg: #F5EFE3; --bg-panel: #FDFAF2; --bg-muted: #F8F2E4;
+  --ink: #1D1A15; --ink-2: #6D5F4E; --ink-3: #9B8F7E; --ink-4: #C9BFA8;
+  --rule: #E3D9C5; --rule-soft: #ECE2CD;
+  --accent: #B1472F; --accent-hover: #8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10); --accent-border: rgba(177,71,47,0.24);
+  --ok:     #7A9660; --ok-soft:     rgba(122,150,96,0.14); --ok-border:     rgba(122,150,96,0.30);
+  --warn:   #B8923C; --warn-soft:   rgba(184,146,60,0.14); --warn-border:   rgba(184,146,60,0.30);
+  --danger: #B1472F; --danger-soft: rgba(177,71,47,0.10); --danger-border: rgba(177,71,47,0.28);
+  --dead:   #9B8F7E; --dead-soft:   rgba(155,143,126,0.14);
+  --neutral: #3F3526; --neutral-soft: rgba(63,53,38,0.06); --neutral-border: rgba(63,53,38,0.14);
+  --sb-bg: #1D1814; --sb-border: #2C2821;
+  --sb-ink: #E8DFC9; --sb-ink-3: #8A7F6C;
+  --sb-hover: rgba(245,238,226,0.06);
+  --sb-active-bg: #B1472F; --sb-active-ink: #FDFAF2;
+  --sb-w: 232px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh; overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sb-w);
+  background: var(--sb-bg); border-right: 1px solid var(--sb-border);
+  padding: 16px 12px 20px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  overflow-y: auto; z-index: 20;
+}
+.sb-brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px 18px; border-bottom: 1px solid var(--sb-border); margin-bottom: 12px; }
+.sb-brand-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: #FDFAF2; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; }
+.sb-section { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--sb-ink-3); padding: 14px 12px 6px; }
+.sb-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--sb-ink); font-size: 13.5px; cursor: pointer; margin-bottom: 1px; transition: all .15s; }
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--sb-active-bg); color: var(--sb-active-ink); font-weight: 500; }
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+.main {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* Top bar */
+.page-hd {
+  flex-shrink: 0;
+  background: var(--bg);
+  padding: 18px 28px 14px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.page-title h1 { font-family: 'Fraunces', Georgia, serif; font-size: 28px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1; margin-bottom: 4px; }
+.page-title .sub-hd { font-size: 12.5px; color: var(--ink-3); font-weight: 500; }
+.page-title .sub-hd b { color: var(--ink-2); font-weight: 600; }
+.hd-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.search-box { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; width: 260px; }
+.search-box input { flex: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.search-box svg { width: 13px; height: 13px; color: var(--ink-3); }
+.search-box input::placeholder { color: var(--ink-3); }
+.chip-btn { height: 34px; padding: 0 12px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.chip-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.chip-btn svg { width: 13px; height: 13px; }
+.divider { width: 1px; height: 22px; background: var(--rule); margin: 0 4px; }
+.cta { height: 34px; padding: 0 14px; background: var(--accent); color: #FDFAF2; border: 1px solid var(--accent); border-radius: 7px; font: inherit; font-weight: 600; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px var(--accent-soft); transition: all .18s; }
+.cta:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.cta.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--rule); box-shadow: none; }
+.cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
+.cta svg { width: 13px; height: 13px; }
+
+/* KPI hero */
+.hero-wrap { flex-shrink: 0; padding: 6px 28px 16px; }
+.kpi-hero { display: flex; gap: 14px; flex-wrap: wrap; }
+.kpi-card { width: 300px; flex: 0 0 300px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 12px; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.kpi-card .kpi-text { flex: 1; min-width: 0; }
+.kpi-card .k { font-size: 10.5px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.kpi-card .v { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600; color: var(--ink); line-height: 1.05; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.kpi-card .sub-k { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+.kpi-card.value { background: linear-gradient(135deg, var(--neutral-soft), transparent 70%); border-color: var(--neutral-border); }
+.kpi-card.value .v { color: var(--neutral); }
+.kpi-card.low { background: linear-gradient(135deg, var(--warn-soft), transparent 70%); border-color: var(--warn-border); }
+.kpi-card.low .v { color: var(--warn); }
+.kpi-card.out { background: linear-gradient(135deg, var(--danger-soft), transparent 70%); border-color: var(--danger-border); }
+.kpi-card.out .v { color: var(--danger); }
+.ring { position: relative; width: 52px; height: 52px; flex-shrink: 0; }
+.ring svg { width: 100%; height: 100%; display: block; }
+.ring .track { stroke: var(--bg-muted); }
+.ring .fill.warn   { stroke: var(--warn); }
+.ring .fill.danger { stroke: var(--danger); }
+.ring .label { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); letter-spacing: -0.02em; }
+
+/* Filter row */
+.lens-wrap { flex-shrink: 0; padding: 0 28px 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lens-lbl { font-size: 10.5px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); margin-right: 4px; }
+.lens-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--rule); background: var(--bg-panel); color: var(--ink-2); border-radius: 99px; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; transition: all .15s; }
+.lens-chip:hover { border-color: var(--accent-border); color: var(--accent); }
+.lens-chip.on { background: var(--ink); color: var(--bg-panel); border-color: var(--ink); }
+.lens-chip .n { font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: var(--bg-muted); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.lens-chip.on .n { background: rgba(255,255,255,0.18); color: inherit; }
+.lens-chip.warn   { border-color: var(--warn-border);   color: var(--warn); }
+.lens-chip.warn .n   { background: var(--warn-soft);   color: var(--warn); }
+.lens-chip.danger { border-color: var(--danger-border); color: var(--danger); }
+.lens-chip.danger .n { background: var(--danger-soft); color: var(--danger); }
+
+/* ═════════════════════════════════════════════════════════════════════
+   Product list
+   ═════════════════════════════════════════════════════════════════════ */
+.plist-wrap {
+  flex: 1 1 auto; min-height: 0;
+  padding: 0 28px 20px;
+  display: flex;
+}
+.plist {
+  flex: 1 1 auto; min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.pscroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+.prow {
+  display: flex;
+  align-items: flex-start;         /* top-align: row grows if product wraps */
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 13px; color: var(--ink);
+  gap: 16px;                       /* spacing between cells instead of per-cell padding */
+}
+.prow:last-of-type { border-bottom: none; }
+.prow.head {
+  flex-shrink: 0;
+  background: var(--bg-muted);
+  padding: 11px 18px;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule);
+}
+.prow.data { cursor: pointer; transition: background .1s; }
+.prow.data:hover { background: var(--bg-muted); }
+.prow.data.inactive { opacity: 0.62; }
+
+/* Column widths — generous product column, focused right-side cells */
+.c-sr      { width: 32px;  flex: 0 0 32px;  text-align: center; }
+.c-prod    { flex: 1 1 auto; min-width: 260px; }
+.c-price   { width: 120px; flex: 0 0 120px; text-align: right; }
+.c-stk     { width: 84px;  flex: 0 0 84px;  text-align: right; }
+.c-health  { width: 112px; flex: 0 0 112px; }
+.c-runway  { width: 144px; flex: 0 0 144px; }
+.c-val     { width: 116px; flex: 0 0 116px; text-align: right; }
+.c-act     { width: 112px; flex: 0 0 112px; }
+
+.prow.head .c-sr      { text-align: center; }
+.prow.head .c-prod    { text-align: left; }
+.prow.head .c-price   { text-align: right; }
+.prow.head .c-stk     { text-align: right; }
+.prow.head .c-health  { text-align: left; }
+.prow.head .c-runway  { text-align: left; }
+.prow.head .c-val     { text-align: right; }
+.prow.head .c-act     { text-align: right; }
+
+/* Product cell — name wraps freely, sub is a single line */
+.sr-n { font-size: 11.5px; color: var(--ink-3); font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.3; padding-top: 2px; display: block; }
+.p-name {
+  display: inline;
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  letter-spacing: -0.005em; line-height: 1.35;
+  word-break: break-word;
+}
+.p-var {
+  display: inline-block; margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10.5px; color: var(--ink-2);
+  background: var(--bg-muted); border: 1px solid var(--rule);
+  border-radius: 4px; font-weight: 500; letter-spacing: 0.2px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.p-sub {
+  display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;
+  font-size: 11.25px; color: var(--ink-3);
+  line-height: 1.3; margin-top: 4px;
+  overflow: hidden;
+}
+.p-sub .cat-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.p-sub .cat-name { color: var(--ink-2); font-weight: 500; white-space: nowrap; }
+.p-sub .sep { color: var(--ink-4); }
+.p-sub .mono { font-variant-numeric: tabular-nums; }
+
+.cd-shirts   { background: #7A9660; }
+.cd-sarees   { background: #B1472F; }
+.cd-jeans    { background: #4F6A7A; }
+.cd-kurtis   { background: #B8923C; }
+.cd-home     { background: #7F5AA3; }
+.cd-tees     { background: #6D5F4E; }
+.cd-trousers { background: #3F5A4A; }
+.cd-access   { background: #CA7537; }
+.cd-ethnic   { background: #8E4F2E; }
+.cd-outer    { background: #55503F; }
+
+/* Price cell — sale is the headline, buy + margin is the whisper */
+.price-m { display: block; font-family: 'Fraunces', serif; font-weight: 600; font-size: 15px; color: var(--ink); line-height: 1.25; font-variant-numeric: tabular-nums; }
+.price-m .rs { color: var(--ink-3); margin-right: 2px; font-weight: 500; }
+.price-s { display: block; font-size: 11px; color: var(--ink-3); margin-top: 3px; font-variant-numeric: tabular-nums; line-height: 1.3; white-space: nowrap; }
+.price-s .buy { color: var(--ink-2); font-weight: 500; }
+.price-s .mg { color: var(--ok); font-weight: 600; margin-left: 5px; }
+.price-s .sep { color: var(--ink-4); margin: 0 2px; }
+.price-m.muted { color: var(--ink-4); font-weight: 500; }
+
+/* Stock cell — just the number, nothing else */
+.stk-qty { display: block; font-family: 'Fraunces', serif; font-weight: 600; font-size: 15px; line-height: 1.25; font-variant-numeric: tabular-nums; color: var(--ink); }
+.stk-qty.zero { color: var(--danger); }
+.stk-unit { display: block; font-size: 11px; color: var(--ink-3); margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+/* Health pill — the status column, isolated */
+.health {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 11.5px; font-weight: 600;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+}
+.health .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.health.ok     { background: var(--ok-soft);     color: var(--ok); }
+.health.ok     .dot { background: var(--ok); }
+.health.low    { background: var(--warn-soft);   color: var(--warn); }
+.health.low    .dot { background: var(--warn); }
+.health.out    { background: var(--danger-soft); color: var(--danger); }
+.health.out    .dot { background: var(--danger); }
+.health.dead   { background: var(--dead-soft);   color: var(--dead); }
+.health.dead   .dot { background: var(--dead); }
+
+/* Runway cell — "X days left" main + "sold Yd ago" sub */
+.rw-m { display: block; font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.25; font-variant-numeric: tabular-nums; }
+.rw-m.urgent { color: var(--danger); }
+.rw-m.soon   { color: var(--warn); }
+.rw-m.calm   { color: var(--ink); }
+.rw-m.none   { color: var(--ink-4); font-weight: 500; font-style: italic; }
+.rw-s { display: block; font-size: 11px; color: var(--ink-3); margin-top: 3px; font-variant-numeric: tabular-nums; line-height: 1.3; }
+
+/* Value cell */
+.val-m { display: block; font-family: 'Fraunces', serif; font-weight: 600; font-size: 14.5px; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.25; }
+.val-m .rs { color: var(--ink-3); margin-right: 2px; font-weight: 500; }
+.val-m.zero { color: var(--ink-3); font-family: 'Inter', sans-serif; font-size: 12.5px; font-style: italic; font-weight: 500; }
+
+/* Actions */
+.act-box { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
+.act-box .group {
+  display: inline-flex; gap: 4px; align-items: center;
+  opacity: 0; transform: translateX(6px);
+  transition: opacity .15s, transform .15s;
+  pointer-events: none;
+}
+.prow.data:hover .act-box .group { opacity: 1; transform: translateX(0); pointer-events: auto; }
+.abtn { width: 30px; height: 30px; background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px; color: var(--ink-2); cursor: pointer; display: inline-grid; place-items: center; transition: all .12s; position: relative; }
+.abtn:hover { border-color: var(--accent-border); color: var(--accent); }
+.abtn.primary { background: var(--accent); border-color: var(--accent); color: #FDFAF2; box-shadow: 0 2px 6px var(--accent-soft); }
+.abtn.primary:hover { background: var(--accent-hover); color: #FDFAF2; }
+.abtn svg { width: 14px; height: 14px; }
+.abtn::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg-panel); font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 5px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 10; }
+.abtn:hover::after { opacity: 1; }
+
+/* Footer */
+.pfoot {
+  flex-shrink: 0;
+  display: flex; justify-content: flex-end; gap: 24px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--rule);
+  background: var(--bg-muted);
+  font-size: 12px; color: var(--ink-3);
+}
+.pfoot b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+  <aside class="sidebar">
+    <div class="sb-brand"><div class="sb-brand-icon">B</div><div class="sb-brand-name">Billin ERP</div></div>
+    <div class="sb-section">Workspace</div>
+    <div class="sb-item"><span class="ic">◎</span> Dashboard</div>
+    <div class="sb-item"><span class="ic">◧</span> Sales</div>
+    <div class="sb-item"><span class="ic">◨</span> Purchases</div>
+    <div class="sb-item"><span class="ic">◐</span> Customers</div>
+    <div class="sb-item"><span class="ic">◑</span> Suppliers</div>
+    <div class="sb-item active"><span class="ic">⊡</span> Inventory</div>
+    <div class="sb-item"><span class="ic">₹</span> Payments &amp; Receipts</div>
+    <div class="sb-item"><span class="ic">◫</span> Reports</div>
+  </aside>
+
+  <main class="main">
+
+    <div class="page-hd">
+      <div class="page-title">
+        <h1>Products</h1>
+        <div class="sub-hd"><b>284</b> items · 12 categories · FY 2025-26</div>
+      </div>
+      <div class="hd-ctrl">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search by name, barcode, HSN">
+        </div>
+        <button class="chip-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg> Name A–Z</button>
+        <span class="divider"></span>
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M7 4v4M17 4v4"/></svg> Print Barcodes</button>
+        <button class="cta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> New Item</button>
+        <button class="cta ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export</button>
+      </div>
+    </div>
+
+    <div class="hero-wrap">
+      <div class="kpi-hero">
+        <div class="kpi-card value">
+          <div class="kpi-text">
+            <div class="k">Stock Value · On Hand</div>
+            <div class="v">₹ 14,82,640</div>
+            <div class="sub-k">at purchase cost · 284 SKUs</div>
+          </div>
+        </div>
+        <div class="kpi-card low">
+          <div class="kpi-text">
+            <div class="k">Low Stock</div>
+            <div class="v">12 items</div>
+            <div class="sub-k">below reorder level</div>
+          </div>
+          <div class="ring"><svg viewBox="0 0 56 56"><circle class="track" cx="28" cy="28" r="22" fill="none" stroke-width="3.5"/><circle class="fill warn" cx="28" cy="28" r="22" fill="none" stroke-width="3.5" stroke-dasharray="138.23" stroke-dashoffset="132.4" stroke-linecap="round" transform="rotate(-90 28 28)"/></svg><span class="label">4%</span></div>
+        </div>
+        <div class="kpi-card out">
+          <div class="kpi-text">
+            <div class="k">Out of Stock</div>
+            <div class="v">3 items</div>
+            <div class="sub-k">zero on hand · reorder urgent</div>
+          </div>
+          <div class="ring"><svg viewBox="0 0 56 56"><circle class="track" cx="28" cy="28" r="22" fill="none" stroke-width="3.5"/><circle class="fill danger" cx="28" cy="28" r="22" fill="none" stroke-width="3.5" stroke-dasharray="138.23" stroke-dashoffset="136.77" stroke-linecap="round" transform="rotate(-90 28 28)"/></svg><span class="label">1%</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lens-wrap">
+      <span class="lens-lbl">Filter</span>
+      <button class="lens-chip on">All <span class="n">284</span></button>
+      <button class="lens-chip">In Stock <span class="n">269</span></button>
+      <button class="lens-chip warn">Low Stock <span class="n">12</span></button>
+      <button class="lens-chip danger">Out of Stock <span class="n">3</span></button>
+      <span class="divider"></span>
+      <button class="lens-chip">Shirts <span class="n">42</span></button>
+      <button class="lens-chip">Sarees <span class="n">38</span></button>
+      <button class="lens-chip">Jeans <span class="n">27</span></button>
+      <button class="lens-chip">Kurtis <span class="n">34</span></button>
+      <button class="lens-chip">Home Linen <span class="n">19</span></button>
+      <button class="lens-chip">More ▾</button>
+    </div>
+
+    <div class="plist-wrap">
+      <div class="plist">
+
+        <div class="prow head">
+          <div class="c-sr">#</div>
+          <div class="c-prod">Product</div>
+          <div class="c-price">Sale · Buy</div>
+          <div class="c-stk">Stock</div>
+          <div class="c-health">Health</div>
+          <div class="c-runway">Runway · Last Sold</div>
+          <div class="c-val">Value</div>
+          <div class="c-act"></div>
+        </div>
+
+        <div class="pscroll">
+
+        <!-- 01 — healthy, strong mover -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">01</span></div>
+          <div class="c-prod">
+            <span class="p-name">Cotton Shirt — Blue Oxford</span><span class="p-var">L</span>
+            <span class="p-sub"><span class="cat-dot cd-shirts"></span><span class="cat-name">Shirts</span><span class="sep">·</span><span class="mono">HSN 6109</span><span class="sep">·</span><span class="mono">890 123 4567</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>720</span>
+            <span class="price-s"><span class="buy">buy ₹450</span><span class="mg">+60%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">48</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-runway">
+            <span class="rw-m calm">32 days left</span>
+            <span class="rw-s">sold 2h ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>21,600</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 02 — healthy, slow mover -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">02</span></div>
+          <div class="c-prod">
+            <span class="p-name">Silk Saree — Kanchipuram Temple Border Red</span>
+            <span class="p-sub"><span class="cat-dot cd-sarees"></span><span class="cat-name">Sarees</span><span class="sep">·</span><span class="mono">HSN 5007</span><span class="sep">·</span><span class="mono">890 124 0012</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>2,400</span>
+            <span class="price-s"><span class="buy">buy ₹1,200</span><span class="mg">+100%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">12</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-runway">
+            <span class="rw-m calm">45 days left</span>
+            <span class="rw-s">sold 1d ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>14,400</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 03 — LOW stock -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">03</span></div>
+          <div class="c-prod">
+            <span class="p-name">Denim Jeans — Slim Fit Indigo</span><span class="p-var">32</span>
+            <span class="p-sub"><span class="cat-dot cd-jeans"></span><span class="cat-name">Jeans</span><span class="sep">·</span><span class="mono">HSN 6203</span><span class="sep">·</span><span class="mono">890 125 7718</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>1,100</span>
+            <span class="price-s"><span class="buy">buy ₹650</span><span class="mg">+69%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">8</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health low"><span class="dot"></span>Low</span></div>
+          <div class="c-runway">
+            <span class="rw-m urgent">6 days left</span>
+            <span class="rw-s">sold 4h ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>5,200</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Reorder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 04 — OUT of stock -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">04</span></div>
+          <div class="c-prod">
+            <span class="p-name">Polyester Kurti — Digital Printed Floral</span><span class="p-var">M</span>
+            <span class="p-sub"><span class="cat-dot cd-kurtis"></span><span class="cat-name">Kurtis</span><span class="sep">·</span><span class="mono">HSN 6211</span><span class="sep">·</span><span class="mono">890 126 3401</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>480</span>
+            <span class="price-s"><span class="buy">buy ₹280</span><span class="mg">+71%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty zero">0</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health out"><span class="dot"></span>Out of stock</span></div>
+          <div class="c-runway">
+            <span class="rw-m none">—</span>
+            <span class="rw-s">stockout 3d ago</span>
+          </div>
+          <div class="c-val"><span class="val-m zero">—</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Reorder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 05 — healthy -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">05</span></div>
+          <div class="c-prod">
+            <span class="p-name">Bedsheet — Double Cotton 210 TC</span>
+            <span class="p-sub"><span class="cat-dot cd-home"></span><span class="cat-name">Home Linen</span><span class="sep">·</span><span class="mono">HSN 6302</span><span class="sep">·</span><span class="mono">890 127 0099</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>850</span>
+            <span class="price-s"><span class="buy">buy ₹520</span><span class="mg">+63%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">34</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-runway">
+            <span class="rw-m calm">28 days left</span>
+            <span class="rw-s">sold 5h ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>17,680</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 06 — best seller, deep stock -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">06</span></div>
+          <div class="c-prod">
+            <span class="p-name">Bath Towel — 500 GSM Ring Spun</span>
+            <span class="p-sub"><span class="cat-dot cd-home"></span><span class="cat-name">Home Linen</span><span class="sep">·</span><span class="mono">HSN 6302</span><span class="sep">·</span><span class="mono">890 127 2230</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>180</span>
+            <span class="price-s"><span class="buy">buy ₹90</span><span class="mg">+100%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">156</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-runway">
+            <span class="rw-m calm">62 days left</span>
+            <span class="rw-s">sold 1h ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>14,040</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 07 — healthy -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">07</span></div>
+          <div class="c-prod">
+            <span class="p-name">Linen Trouser — Natural Beige</span><span class="p-var">34</span>
+            <span class="p-sub"><span class="cat-dot cd-trousers"></span><span class="cat-name">Trousers</span><span class="sep">·</span><span class="mono">HSN 6203</span><span class="sep">·</span><span class="mono">890 128 1145</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>880</span>
+            <span class="price-s"><span class="buy">buy ₹520</span><span class="mg">+69%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">22</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-runway">
+            <span class="rw-m calm">40 days left</span>
+            <span class="rw-s">sold 2d ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>11,440</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 08 — LOW stock -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">08</span></div>
+          <div class="c-prod">
+            <span class="p-name">Pashmina Scarf — Hand Woven</span>
+            <span class="p-sub"><span class="cat-dot cd-access"></span><span class="cat-name">Accessories</span><span class="sep">·</span><span class="mono">HSN 6214</span><span class="sep">·</span><span class="mono">890 129 4421</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>720</span>
+            <span class="price-s"><span class="buy">buy ₹340</span><span class="mg">+112%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">5</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health low"><span class="dot"></span>Low</span></div>
+          <div class="c-runway">
+            <span class="rw-m soon">9 days left</span>
+            <span class="rw-s">sold 6d ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>1,700</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Reorder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 09 — healthy -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">09</span></div>
+          <div class="c-prod">
+            <span class="p-name">Printed T-Shirt — Round Neck Cotton</span><span class="p-var">M</span>
+            <span class="p-sub"><span class="cat-dot cd-tees"></span><span class="cat-name">T-Shirts</span><span class="sep">·</span><span class="mono">HSN 6109</span><span class="sep">·</span><span class="mono">890 130 1007</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>350</span>
+            <span class="price-s"><span class="buy">buy ₹180</span><span class="mg">+94%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">88</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-runway">
+            <span class="rw-m calm">24 days left</span>
+            <span class="rw-s">sold 1h ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>15,840</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 10 — healthy -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">10</span></div>
+          <div class="c-prod">
+            <span class="p-name">Formal Shirt — White Poplin</span><span class="p-var">M</span>
+            <span class="p-sub"><span class="cat-dot cd-shirts"></span><span class="cat-name">Shirts</span><span class="sep">·</span><span class="mono">HSN 6205</span><span class="sep">·</span><span class="mono">890 131 5582</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>650</span>
+            <span class="price-s"><span class="buy">buy ₹380</span><span class="mg">+71%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">65</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-runway">
+            <span class="rw-m calm">36 days left</span>
+            <span class="rw-s">sold 3h ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>24,700</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 11 — healthy -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">11</span></div>
+          <div class="c-prod">
+            <span class="p-name">Kurta Pajama Set — Cream Handloom</span><span class="p-var">L</span>
+            <span class="p-sub"><span class="cat-dot cd-ethnic"></span><span class="cat-name">Ethnic</span><span class="sep">·</span><span class="mono">HSN 6203</span><span class="sep">·</span><span class="mono">890 132 9910</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>1,300</span>
+            <span class="price-s"><span class="buy">buy ₹760</span><span class="mg">+71%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">18</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-runway">
+            <span class="rw-m calm">52 days left</span>
+            <span class="rw-s">sold 2d ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>13,680</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 12 — healthy -->
+        <div class="prow data">
+          <div class="c-sr"><span class="sr-n">12</span></div>
+          <div class="c-prod">
+            <span class="p-name">Fancy Dupatta — Zari Embroidered</span>
+            <span class="p-sub"><span class="cat-dot cd-access"></span><span class="cat-name">Accessories</span><span class="sep">·</span><span class="mono">HSN 6214</span><span class="sep">·</span><span class="mono">890 133 6601</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m"><span class="rs">₹</span>450</span>
+            <span class="price-s"><span class="buy">buy ₹220</span><span class="mg">+105%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">42</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health ok"><span class="dot"></span>Healthy</span></div>
+          <div class="c-runway">
+            <span class="rw-m calm">38 days left</span>
+            <span class="rw-s">sold 1d ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>9,240</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn primary" data-tip="Record sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        <!-- 13 — DEAD STOCK: sits on shelf, hasn't moved -->
+        <div class="prow data inactive">
+          <div class="c-sr"><span class="sr-n">13</span></div>
+          <div class="c-prod">
+            <span class="p-name">Winter Jacket — Navy Quilted</span><span class="p-var">XL</span>
+            <span class="p-sub"><span class="cat-dot cd-outer"></span><span class="cat-name">Outerwear</span><span class="sep">·</span><span class="mono">HSN 6201</span><span class="sep">·</span><span class="mono">890 134 2201</span></span>
+          </div>
+          <div class="c-price">
+            <span class="price-m muted"><span class="rs">₹</span>2,400</span>
+            <span class="price-s"><span class="buy">buy ₹1,450</span><span class="mg" style="color: var(--ink-3);">+65%</span></span>
+          </div>
+          <div class="c-stk"><span class="stk-qty">14</span><span class="stk-unit">PCS</span></div>
+          <div class="c-health"><span class="health dead"><span class="dot"></span>Dead stock</span></div>
+          <div class="c-runway">
+            <span class="rw-m none">no recent sales</span>
+            <span class="rw-s">sold 94d ago</span>
+          </div>
+          <div class="c-val"><span class="val-m"><span class="rs">₹</span>20,300</span></div>
+          <div class="c-act">
+            <div class="act-box"><div class="group">
+              <button class="abtn" data-tip="Discount"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg></button>
+              <button class="abtn" data-tip="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="abtn" data-tip="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div></div>
+          </div>
+        </div>
+
+        </div><!-- /.pscroll -->
+
+        <div class="pfoot">
+          <span>Shown: <b>13 of 284</b></span>
+          <span>Page value: <b>₹ 1,69,820</b></span>
+          <span>Low: <b style="color: var(--warn);">2</b></span>
+          <span>Out: <b style="color: var(--danger);">1</b></span>
+          <span>Dead: <b style="color: var(--dead);">1</b></span>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+</body>
+</html>

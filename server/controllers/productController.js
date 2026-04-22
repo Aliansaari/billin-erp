@@ -1,7 +1,39 @@
-const { Op, col } = require('sequelize');
+const { Op, col, fn, literal } = require('sequelize');
 const { Product, Category, StockLedger } = require('../models');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { sanitizePagination } = require('../utils/helpers');
+
+// Bulk-fetch lifetime aggregates (total purchased / total sold / last sold)
+// for the given product_ids. Used by getAll when the client opts in via
+// `include_stats=true` — most list callers (sales/purchase autocomplete,
+// variant picker) don't need it, so we avoid the extra round trip there.
+//
+// All three columns come from stock_ledger in a single indexed GROUP BY —
+// cheap for the 200-row default page. Opening Stock rolls into
+// total_purchased since that's still goods landing on the shelf.
+async function fetchLifetimeStats(productIds) {
+  if (!productIds.length) return {};
+  const rows = await StockLedger.findAll({
+    attributes: [
+      'product_id',
+      [fn('SUM', literal(`CASE WHEN transaction_type IN ('Purchase', 'Opening Stock') THEN quantity_in ELSE 0 END`)), 'total_purchased'],
+      [fn('SUM', literal(`CASE WHEN transaction_type = 'Sales' THEN quantity_out ELSE 0 END`)), 'total_sold'],
+      [fn('MAX', literal(`CASE WHEN transaction_type = 'Sales' THEN transaction_date END`)), 'last_sold_at'],
+    ],
+    where: { product_id: productIds },
+    group: ['product_id'],
+    raw: true,
+  });
+  const map = {};
+  for (const r of rows) {
+    map[r.product_id] = {
+      total_purchased: parseFloat(r.total_purchased || 0),
+      total_sold:      parseFloat(r.total_sold      || 0),
+      last_sold_at:    r.last_sold_at || null,
+    };
+  }
+  return map;
+}
 
 // Whitelist of fields clients may send via POST/PUT to Product.create/update.
 // Excludes product_id (PK), created_date, modified_date — server-owned columns.
@@ -70,7 +102,19 @@ exports.getAll = async (req, res) => {
       offset,
     });
 
-    res.json({ total: count, page, limit, data: rows });
+    // Opt-in lifetime aggregates for the product management UI. Other
+    // callers (autocomplete, variant picker) omit the flag and pay no
+    // extra cost.
+    let data = rows;
+    if (req.query.include_stats === 'true' && rows.length) {
+      const statsMap = await fetchLifetimeStats(rows.map(r => r.product_id));
+      data = rows.map(r => {
+        const s = statsMap[r.product_id] || { total_purchased: 0, total_sold: 0, last_sold_at: null };
+        return { ...r.toJSON(), ...s };
+      });
+    }
+
+    res.json({ total: count, page, limit, data });
   } catch (error) {
     console.error('Get products error:', error);
     res.status(500).json({ error: 'Server error' });

@@ -33,8 +33,8 @@ export default function AppLayout() {
   // partial-match `sale` and then fail the trailing \/, falling through to
   // the padded layout. That made the return forms visibly shrink to content
   // height instead of filling the screen.
-  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt)\//.test(location.pathname) || [
-    '/products', '/stock-report', '/stock-report-pro', '/categories', '/customers', '/suppliers',
+  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|stock-movement)\//.test(location.pathname) || [
+    '/products', '/stock-report', '/stock-report-pro', '/stock-movement', '/categories', '/customers', '/suppliers',
     '/sales', '/purchases', '/payments',
     '/sales-returns', '/purchase-returns',
     '/reports/sales', '/reports/purchases', '/reports/stock',
