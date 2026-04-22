@@ -59,12 +59,30 @@ const ENTITIES = [
     desc: 'Products — HSN, GST %, unit, rates, opening stock. Blank Barcode auto-generated; regenerate prompt after import.',
     ready: true,
   },
-  // Transactions: controller doesn't handle header + line-item linkage yet.
-  // We surface them as disabled chips so the user knows the surface exists
-  // but won't silently drop lines if they attempt an import today.
-  { key: 'sales_bills',      label: 'Sales Bills',     icon: <FileExcelOutlined />, color: '#9CA3AF', desc: 'Header + line items — coming in Milestone 2.',     ready: false },
-  { key: 'purchase_bills',   label: 'Purchase Bills',  icon: <FileExcelOutlined />, color: '#9CA3AF', desc: 'Header + line items — coming in Milestone 2.',     ready: false },
-  { key: 'payment_receipts', label: 'Payments & Receipts', icon: <FileExcelOutlined />, color: '#9CA3AF', desc: 'Payments / receipts with bill allocations — coming in Milestone 2.', ready: false },
+  {
+    key: 'sales_bills',
+    label: 'Sales Bills',
+    icon: <FileExcelOutlined />,
+    color: '#EC4899',
+    desc: 'Two-sheet: Bills + Items (linked by Bill Number). Customers + Products must exist first.',
+    ready: true,
+  },
+  {
+    key: 'purchase_bills',
+    label: 'Purchase Bills',
+    icon: <FileExcelOutlined />,
+    color: '#F59E0B',
+    desc: 'Two-sheet: Bills + Items (linked by Bill Number). Suppliers + Products must exist first.',
+    ready: true,
+  },
+  {
+    key: 'payment_receipts',
+    label: 'Payments & Receipts',
+    icon: <FileExcelOutlined />,
+    color: '#8B5CF6',
+    desc: 'Single sheet. Type = Payment (money out) or Receipt (money in). Party must exist.',
+    ready: true,
+  },
 ];
 
 function saveBlob(blob, filename) {
