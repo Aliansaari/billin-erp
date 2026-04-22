@@ -366,8 +366,20 @@ export default function TallySync() {
                         message={pullResult.error || `Pulled successfully`}
                         description={!pullResult.error && (
                           <Descriptions size="small" column={2}>
-                            <Descriptions.Item label="Ledgers">{pullResult.ledgers || 0}</Descriptions.Item>
-                            <Descriptions.Item label="Stock Items">{pullResult.stockitems || 0}</Descriptions.Item>
+                            <Descriptions.Item label="Ledgers">
+                              {pullResult.ledgers || 0}
+                              {pullResult.ledgers_seen != null && pullResult.ledgers_seen !== (pullResult.ledgers || 0) &&
+                                <span style={{ color: 'var(--fg-tertiary)', marginLeft: 6 }}>
+                                  of {pullResult.ledgers_seen} fetched
+                                </span>}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Stock Items">
+                              {pullResult.stockitems || 0}
+                              {pullResult.stockitems_seen != null && pullResult.stockitems_seen !== (pullResult.stockitems || 0) &&
+                                <span style={{ color: 'var(--fg-tertiary)', marginLeft: 6 }}>
+                                  of {pullResult.stockitems_seen} fetched
+                                </span>}
+                            </Descriptions.Item>
                             <Descriptions.Item label="Vouchers">{pullResult.vouchers || 0}</Descriptions.Item>
                             <Descriptions.Item label="Conflicts">{pullResult.conflicts || 0}</Descriptions.Item>
                           </Descriptions>
