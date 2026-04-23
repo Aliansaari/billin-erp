@@ -12,14 +12,38 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle auth errors
+// Handle auth errors.
+//
+//   401 = token missing / invalid / expired → log the user out so they can
+//         get a fresh one. Keeps the app out of half-authenticated states.
+//
+//   403 = authenticated BUT lacks permission for this specific action.
+//         Do NOT log them out — destroying the session any time a sub-request
+//         hit a permission boundary was awful UX: clicking Sales List as a
+//         restricted user would log them right back out because the page
+//         fetched customers/products (which they lacked view on) as a side
+//         effect. Instead we surface a toast and let the caller decide
+//         whether to show an empty state, a banner, or swallow it silently.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
+    const status = error.response?.status;
+    if (status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('must_change_password');
       window.location.href = '/login';
+      return Promise.reject(error);
+    }
+    if (status === 403) {
+      try {
+        // Lazily require AntD message so this module stays usable in non-UI
+        // contexts (e.g. tests) and doesn't fail if AntD isn't mounted yet.
+        const { message } = require('antd');
+        const detail = error.response?.data?.error || 'You do not have permission for that action.';
+        const required = error.response?.data?.required;
+        message.error(required ? `${detail} (needs ${required})` : detail, 4);
+      } catch { /* no toast available; caller handles */ }
     }
     return Promise.reject(error);
   }

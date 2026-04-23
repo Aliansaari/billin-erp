@@ -4,6 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const tallyController = require('../controllers/tallyController');
 const { authenticateToken } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 
 const upload = multer({
   dest: path.join(__dirname, '..', 'uploads'),
@@ -20,6 +21,10 @@ const upload = multer({
 });
 
 router.use(authenticateToken);
+
+// Entire Tally surface gated on settings.tally — importing vouchers can
+// mutate ledgers, stock, and bills in bulk; config is firm-wide.
+router.use(requirePermission('settings.tally'));
 
 router.get('/config', tallyController.getConfig);
 router.put('/config', tallyController.updateConfig);

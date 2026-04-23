@@ -6,7 +6,7 @@ import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
-import { menuItems, getOpenKeys } from './menuConfig';
+import { menuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
 import {
   SettingOutlined,
   UserOutlined,
@@ -26,11 +26,13 @@ const { Sider } = Layout;
 // route only needs one edit.
 
 const roleColors = {
+  'Super Admin':     '#B1472F',
   'Admin':           '#4F46E5',
   'Manager':         '#7C3AED',
+  'Accountant':      '#3B82F6',
+  'Salesman':        '#10B981',
   'Cashier':         '#10B981',
   'Inventory Staff': '#F59E0B',
-  'Accountant':      '#3B82F6',
 };
 
 /* ── Collapsed sidebar item with hover popup ── */
@@ -107,6 +109,10 @@ export default function Sidebar({ collapsed, setCollapsed }) {
   const location = useLocation();
   const { user, logout } = useAuthStore();
   const [openKeys, setOpenKeys] = useState(() => getOpenKeys(location.pathname));
+
+  // Prune the menu to items this user can reach. Re-filters when the
+  // user changes (login/logout/role reassignment).
+  const visibleItems = React.useMemo(() => filterMenuByPermissions(menuItems, user), [user]);
 
   // Guarded navigate — asks for confirmation when the current form has unsaved work.
   // confirmLeave takes an onConfirm callback; when the form is clean it calls
@@ -191,7 +197,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
         <div className="erp-sidebar-scroll">
           {collapsed ? (
             <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {menuItems.map(item => (
+              {visibleItems.map(item => (
                 <CollapsedItem
                   key={item.key}
                   item={item}
@@ -207,7 +213,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
               selectedKeys={[location.pathname]}
               openKeys={openKeys}
               onOpenChange={handleOpenChange}
-              items={menuItems}
+              items={visibleItems}
               onClick={({ key }) => { if (!key.endsWith('-menu')) navigate(key); }}
               style={{ borderRight: 0, padding: '8px 4px', background: 'transparent' }}
             />

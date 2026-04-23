@@ -1,74 +1,58 @@
 const bcrypt = require('bcryptjs');
 const { Role, User, BarcodeSettings, SystemSettings, LedgerAccount, PrintProfile } = require('../models');
+const { ROLES } = require('../utils/rolePerms');
 
 async function seedDefaultData() {
   // ── Roles ──
-  const roles = [
-    {
-      role_name: 'Admin',
-      permissions_json: { all: true },
-      can_view_reports: true,
-      can_delete_bills: true,
-      can_edit_rates: true,
-      can_access_accounts: true,
-      can_manage_users: true,
-    },
-    {
-      role_name: 'Manager',
-      permissions_json: { sales: true, purchase: true, inventory: true, reports: true, parties: true, payments: true },
-      can_view_reports: true,
-      can_delete_bills: true,
-      can_edit_rates: true,
-      can_access_accounts: true,
-      can_manage_users: false,
-    },
-    {
-      role_name: 'Cashier',
-      permissions_json: { sales: true, payments: true, parties: { view: true, add: true } },
-      can_view_reports: false,
-      can_delete_bills: false,
-      can_edit_rates: false,
-      can_access_accounts: false,
-      can_manage_users: false,
-    },
-    {
-      role_name: 'Inventory Staff',
-      permissions_json: { purchase: true, inventory: true },
-      can_view_reports: false,
-      can_delete_bills: false,
-      can_edit_rates: false,
-      can_access_accounts: false,
-      can_manage_users: false,
-    },
-    {
-      role_name: 'Accountant',
-      permissions_json: { reports: true, accounts: true, payments: true },
-      can_view_reports: true,
-      can_delete_bills: false,
-      can_edit_rates: false,
-      can_access_accounts: true,
-      can_manage_users: false,
-    },
-  ];
-
-  for (const role of roles) {
-    await Role.findOrCreate({ where: { role_name: role.role_name }, defaults: role });
+  // Upsert: create missing roles and refresh permissions_json on existing
+  // ones so schema changes in rolePerms.js propagate to already-installed
+  // databases. We intentionally do NOT touch role_name → role_id mappings,
+  // so user rows keep their existing role_id values across upgrades.
+  for (const role of ROLES) {
+    const [row, created] = await Role.findOrCreate({
+      where: { role_name: role.role_name },
+      defaults: role,
+    });
+    if (!created) {
+      await row.update({
+        permissions_json:    role.permissions_json,
+        can_view_reports:    role.can_view_reports,
+        can_delete_bills:    role.can_delete_bills,
+        can_edit_rates:      role.can_edit_rates,
+        can_access_accounts: role.can_access_accounts,
+        can_manage_users:    role.can_manage_users,
+      });
+    }
   }
 
-  // ── Default Admin User ──
-  const adminRole = await Role.findOne({ where: { role_name: 'Admin' } });
+  // ── Default Super Admin User ──
+  // The seeded account used for first-run setup. Role = Super Admin so the
+  // initial user can create other users and configure the system. The
+  // "admin/admin123" default triggers a forced password change on login
+  // (see authController.js) — we do NOT want a super-admin account with a
+  // public default password in the wild.
+  const superAdminRole = await Role.findOne({ where: { role_name: 'Super Admin' } });
+  const adminRole      = await Role.findOne({ where: { role_name: 'Admin' } });
   const hashedPassword = await bcrypt.hash('admin123', 10);
-  await User.findOrCreate({
+  const [adminUser, adminCreated] = await User.findOrCreate({
     where: { username: 'admin' },
     defaults: {
       username: 'admin',
       password_hash: hashedPassword,
       full_name: 'System Administrator',
       email: 'admin@company.com',
-      role_id: adminRole.role_id,
+      role_id: superAdminRole.role_id,
       is_active: true,
     },
   });
+
+  // If the admin exists from a previous seed where Super Admin didn't yet
+  // exist, upgrade them now so they can actually manage users. Only auto-
+  // upgrade if they're currently on the 'Admin' role — don't downgrade a
+  // deliberately-weakened admin account.
+  if (!adminCreated && adminUser.role_id === adminRole?.role_id) {
+    await adminUser.update({ role_id: superAdminRole.role_id });
+  }
 
   // ── Barcode Settings ──
   await BarcodeSettings.findOrCreate({

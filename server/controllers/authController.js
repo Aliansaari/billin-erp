@@ -61,6 +61,12 @@ exports.login = async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    // Effective permissions = user override if present, else role template.
+    // The frontend receives just `permissions` as the single thing to consult
+    // — it doesn't need to know whether the value came from the role or a
+    // per-user customisation.
+    const effectivePerms = user.custom_permissions || user.Role.permissions_json;
+
     res.json({
       token,
       must_change_password: mustChangePassword,
@@ -71,7 +77,8 @@ exports.login = async (req, res) => {
         email: user.email,
         role: user.Role.role_name,
         role_id: user.role_id,
-        permissions: user.Role.permissions_json,
+        permissions: effectivePerms,
+        custom_permissions: user.custom_permissions,   // so the edit form can show "customised" vs "inheriting"
         can_view_reports: user.Role.can_view_reports,
         can_delete_bills: user.Role.can_delete_bills,
         can_edit_rates: user.Role.can_edit_rates,

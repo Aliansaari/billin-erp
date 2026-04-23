@@ -4,6 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const importExportController = require('../controllers/importExportController');
 const { authenticateToken } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 
 const upload = multer({
   dest: path.join(__dirname, '..', 'uploads'),
@@ -20,10 +21,13 @@ const upload = multer({
 
 router.use(authenticateToken);
 
-router.get('/export/:module', importExportController.exportToExcel);
-router.get('/template/:module', importExportController.downloadTemplate);
-router.post('/import/:module', upload.single('file'), importExportController.importFromExcel);
-router.post('/failed-report', importExportController.generateFailedReport);
-router.post('/regenerate-barcodes', importExportController.regenerateBarcodes);
+// Export reads all data for a module — treat as a report. Import can
+// bulk-mutate; gated to settings.import_export which Super Admin + Admin
+// have. Template downloads are harmless static files.
+router.get('/export/:module',       requirePermission('reports.view'),          importExportController.exportToExcel);
+router.get('/template/:module',     importExportController.downloadTemplate);
+router.post('/import/:module',      requirePermission('settings.import_export'), upload.single('file'), importExportController.importFromExcel);
+router.post('/failed-report',       requirePermission('settings.import_export'), importExportController.generateFailedReport);
+router.post('/regenerate-barcodes', requirePermission('settings.import_export'), importExportController.regenerateBarcodes);
 
 module.exports = router;

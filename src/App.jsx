@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import { useGlobalShortcuts, SHORTCUTS_LIST } from './hooks/useKeyboardShortcuts';
 import AppLayout from './components/Layout/AppLayout';
+import RoleRoute from './components/RoleRoute';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import Dashboard from './pages/Dashboard';
@@ -104,45 +105,66 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
+          {/*
+            Dashboard is always reachable — it's the redirect target for
+            users whose starting route is gated off.
+          */}
           <Route index element={<Dashboard />} />
-          <Route path="customers" element={<CustomerList />} />
-          <Route path="suppliers" element={<SupplierList />} />
-          <Route path="parties/:id" element={<PartyDetail />} />
-          <Route path="products" element={<ProductList />} />
-          <Route path="categories" element={<CategoryList />} />
-          <Route path="stock-report" element={<StockReport />} />
-          <Route path="stock-report-pro" element={<StockReportPro />} />
-          <Route path="stock-movement" element={<StockMovement />} />
-          <Route path="stock-movement/:productId" element={<StockMovement />} />
-          <Route path="purchase/new" element={<PurchaseBillForm />} />
-          <Route path="purchase/edit/:id" element={<PurchaseBillForm />} />
-          <Route path="purchases" element={<PurchaseList />} />
-          <Route path="sale/new" element={<SalesBillForm />} />
-          <Route path="sale/edit/:id" element={<SalesBillForm />} />
-          <Route path="sales" element={<SalesList />} />
-          <Route path="sales-return/new" element={<SalesReturnForm />} />
-          <Route path="sales-return/edit/:id" element={<SalesReturnForm />} />
-          <Route path="sales-returns" element={<SalesReturnList />} />
-          <Route path="purchase-return/new" element={<PurchaseReturnForm />} />
-          <Route path="purchase-return/edit/:id" element={<PurchaseReturnForm />} />
-          <Route path="purchase-returns" element={<PurchaseReturnList />} />
-          <Route path="payment/new" element={<PaymentEntry />} />
-          <Route path="receipt/new" element={<ReceiptEntry />} />
-          <Route path="payments" element={<PaymentList />} />
-          <Route path="reports/sales" element={<SalesReport />} />
-          <Route path="reports/purchases" element={<PurchaseReport />} />
-          <Route path="reports/stock" element={<StockReportPage />} />
-          <Route path="reports/party-ledger" element={<PartyLedger />} />
-          <Route path="reports/profit-loss" element={<ProfitLoss />} />
-          <Route path="settings/company" element={<CompanyProfile />} />
-          <Route path="settings/users" element={<UserManagement />} />
-          <Route path="settings/barcode" element={<BarcodeSettingsPage />} />
-          <Route path="settings/modules" element={<ModuleSettings />} />
-          <Route path="settings/backup" element={<BackupRestore />} />
-          <Route path="settings/theme" element={<ThemeSettings />} />
-          <Route path="settings/import-export" element={<ImportExport />} />
-          <Route path="settings/tally" element={<TallySync />} />
-          <Route path="settings/print" element={<PrintSettings />} />
+
+          {/* Parties */}
+          <Route path="customers"    element={<RoleRoute perm="parties.view"><CustomerList /></RoleRoute>} />
+          <Route path="suppliers"    element={<RoleRoute perm="parties.view"><SupplierList /></RoleRoute>} />
+          <Route path="parties/:id"  element={<RoleRoute perm="parties.view"><PartyDetail /></RoleRoute>} />
+
+          {/* Inventory */}
+          <Route path="products"                       element={<RoleRoute perm="inventory.view"><ProductList /></RoleRoute>} />
+          <Route path="categories"                     element={<RoleRoute perm="inventory.view"><CategoryList /></RoleRoute>} />
+          <Route path="stock-report"                   element={<RoleRoute perm="inventory.view"><StockReport /></RoleRoute>} />
+          <Route path="stock-report-pro"               element={<RoleRoute perm="inventory.view"><StockReportPro /></RoleRoute>} />
+          <Route path="stock-movement"                 element={<RoleRoute perm="inventory.view"><StockMovement /></RoleRoute>} />
+          <Route path="stock-movement/:productId"      element={<RoleRoute perm="inventory.view"><StockMovement /></RoleRoute>} />
+
+          {/* Purchase */}
+          <Route path="purchase/new"     element={<RoleRoute perm="purchase.create"><PurchaseBillForm /></RoleRoute>} />
+          <Route path="purchase/edit/:id" element={<RoleRoute perm="purchase.edit"><PurchaseBillForm /></RoleRoute>} />
+          <Route path="purchases"        element={<RoleRoute perm="purchase.view"><PurchaseList /></RoleRoute>} />
+
+          {/* Sales */}
+          <Route path="sale/new"      element={<RoleRoute perm="sales.create"><SalesBillForm /></RoleRoute>} />
+          <Route path="sale/edit/:id" element={<RoleRoute perm="sales.edit"><SalesBillForm /></RoleRoute>} />
+          <Route path="sales"         element={<RoleRoute perm="sales.view"><SalesList /></RoleRoute>} />
+
+          {/* Returns — split by module so sales staff can't touch supplier returns */}
+          <Route path="sales-return/new"      element={<RoleRoute perm="sales_returns.create"><SalesReturnForm /></RoleRoute>} />
+          <Route path="sales-return/edit/:id" element={<RoleRoute perm="sales_returns.edit"><SalesReturnForm /></RoleRoute>} />
+          <Route path="sales-returns"         element={<RoleRoute perm="sales_returns.view"><SalesReturnList /></RoleRoute>} />
+          <Route path="purchase-return/new"      element={<RoleRoute perm="purchase_returns.create"><PurchaseReturnForm /></RoleRoute>} />
+          <Route path="purchase-return/edit/:id" element={<RoleRoute perm="purchase_returns.edit"><PurchaseReturnForm /></RoleRoute>} />
+          <Route path="purchase-returns"         element={<RoleRoute perm="purchase_returns.view"><PurchaseReturnList /></RoleRoute>} />
+
+          {/* Payments */}
+          <Route path="payment/new" element={<RoleRoute perm="payments.create"><PaymentEntry /></RoleRoute>} />
+          <Route path="receipt/new" element={<RoleRoute perm="payments.create"><ReceiptEntry /></RoleRoute>} />
+          <Route path="payments"    element={<RoleRoute perm="payments.view"><PaymentList /></RoleRoute>} />
+
+          {/* Reports */}
+          <Route path="reports/sales"         element={<RoleRoute perm="reports.view"><SalesReport /></RoleRoute>} />
+          <Route path="reports/purchases"     element={<RoleRoute perm="reports.view"><PurchaseReport /></RoleRoute>} />
+          <Route path="reports/stock"         element={<RoleRoute perm="reports.view"><StockReportPage /></RoleRoute>} />
+          <Route path="reports/party-ledger"  element={<RoleRoute perm="accounts.view"><PartyLedger /></RoleRoute>} />
+          <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
+
+          {/* Settings */}
+          <Route path="settings/company"        element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />
+          <Route path="settings/users"          element={<RoleRoute perm="settings.manage_users"><UserManagement /></RoleRoute>} />
+          <Route path="settings/barcode"        element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
+          <Route path="settings/modules"        element={<RoleRoute perm="settings.manage_company"><ModuleSettings /></RoleRoute>} />
+          <Route path="settings/backup"         element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
+          {/* Theme is per-user UX — anyone can pick light/dark. */}
+          <Route path="settings/theme"          element={<ThemeSettings />} />
+          <Route path="settings/import-export"  element={<RoleRoute perm="settings.import_export"><ImportExport /></RoleRoute>} />
+          <Route path="settings/tally"          element={<RoleRoute perm="settings.tally"><TallySync /></RoleRoute>} />
+          <Route path="settings/print"          element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
         </Route>
       </Routes>
     </>

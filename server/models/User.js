@@ -35,6 +35,18 @@ const User = sequelize.define('User', {
     type: DataTypes.BOOLEAN,
     defaultValue: true,
   },
+  // Per-user permission override. NULL means "inherit from role" — the
+  // default for freshly-created users. When populated (via the user-management
+  // form's "customize" tick-grid), this object follows the same shape as
+  // Role.permissions_json and takes precedence over the role at
+  // authorisation time. Clearing a customisation is done by setting this
+  // back to NULL, not an empty object — an empty object is a valid
+  // "no permissions" override and used to lock a user out of everything.
+  custom_permissions: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: null,
+  },
   last_login: {
     type: DataTypes.DATE,
   },

@@ -7,8 +7,19 @@ import { create } from 'zustand';
 // for production readiness.
 const readFlag = () => localStorage.getItem('must_change_password') === '1';
 
+// Defensive JSON read — an earlier bug (or manual devtools tampering) could
+// leave the literal string "undefined" under this key; JSON.parse('undefined')
+// throws and would blank the entire app on boot. Swallowing the error and
+// returning null is the right call: worst case the user has to log in again.
+function readUser() {
+  const raw = localStorage.getItem('user');
+  if (!raw || raw === 'undefined' || raw === 'null') return null;
+  try { return JSON.parse(raw); }
+  catch { localStorage.removeItem('user'); return null; }
+}
+
 const useAuthStore = create((set) => ({
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
+  user: readUser(),
   token: localStorage.getItem('token') || null,
   isAuthenticated: !!localStorage.getItem('token'),
   mustChangePassword: readFlag(),

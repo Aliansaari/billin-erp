@@ -2,21 +2,24 @@ const express = require('express');
 const router = express.Router();
 const reportController = require('../controllers/reportController');
 const { authenticateToken } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 
 router.use(authenticateToken);
 
+// Dashboard is informational and visible to anyone who can log in — it
+// doesn't expose bill-level data, just the stats already derivable from
+// their module perms. Gate the specific reports themselves.
 router.get('/dashboard', reportController.dashboardStats);
-router.get('/sales', reportController.salesReport);
-router.get('/purchases', reportController.purchaseReport);
-router.get('/stock', reportController.stockReport);
-router.get('/profit-loss', reportController.profitLoss);
-router.get('/party-outstanding', reportController.partyOutstanding);
 
-// Filter-aware XLSX exports — accept the same query params as the JSON endpoint
-// above and stream a workbook covering the entire filtered dataset.
-router.get('/sales/export',             reportController.exportSalesReport);
-router.get('/purchases/export',         reportController.exportPurchaseReport);
-router.get('/stock/export',             reportController.exportStockReport);
-router.get('/party-outstanding/export', reportController.exportPartyOutstanding);
+router.get('/sales',             requirePermission('reports.view'),  reportController.salesReport);
+router.get('/purchases',         requirePermission('reports.view'),  reportController.purchaseReport);
+router.get('/stock',             requirePermission('reports.view'),  reportController.stockReport);
+router.get('/profit-loss',       requirePermission('accounts.view'), reportController.profitLoss);
+router.get('/party-outstanding', requirePermission('reports.view'),  reportController.partyOutstanding);
+
+router.get('/sales/export',             requirePermission('reports.view'),  reportController.exportSalesReport);
+router.get('/purchases/export',         requirePermission('reports.view'),  reportController.exportPurchaseReport);
+router.get('/stock/export',             requirePermission('reports.view'),  reportController.exportStockReport);
+router.get('/party-outstanding/export', requirePermission('reports.view'),  reportController.exportPartyOutstanding);
 
 module.exports = router;

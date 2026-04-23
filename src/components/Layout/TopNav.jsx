@@ -9,7 +9,7 @@ import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
-import { menuItems, getOpenKeys } from './menuConfig';
+import { menuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
 import './top-nav.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -31,11 +31,13 @@ import './top-nav.css';
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 const roleColors = {
+  'Super Admin':     '#B1472F',
   'Admin':           '#4F46E5',
   'Manager':         '#7C3AED',
+  'Accountant':      '#3B82F6',
+  'Salesman':        '#10B981',
   'Cashier':         '#10B981',
   'Inventory Staff': '#F59E0B',
-  'Accountant':      '#3B82F6',
 };
 
 export default function TopNav() {
@@ -75,6 +77,9 @@ export default function TopNav() {
     const opens = getOpenKeys(location.pathname);
     return opens[0] || null;
   }, [location.pathname]);
+
+  // Prune the menu to items this user can reach.
+  const visibleItems = useMemo(() => filterMenuByPermissions(menuItems, user), [user]);
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -178,7 +183,7 @@ export default function TopNav() {
 
       {/* Main menu — hugs its content, doesn't stretch the bar. */}
       <nav className="erp-topnav-menu" aria-label="Primary">
-        {menuItems.map(renderItem)}
+        {visibleItems.map(renderItem)}
       </nav>
 
       {/* Right cluster — pinned to the right edge via margin-left: auto. */}
