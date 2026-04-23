@@ -300,10 +300,18 @@ export default function SalesList() {
   const handlePrint = (id) => printDocument({ docType: 'sales', id });
   const handleEdit  = (id) => navigate(`/sale/edit/${id}`);
   const handleRecordReceipt = (bill) => {
-    // Pre-select this customer + bill when opening receipt entry. ReceiptEntry
-    // reads location.state.preselect to auto-fill the party and highlight the
-    // specific bill if passed.
-    navigate('/receipt/new', { state: { preselect: { party_id: bill.customer?.party_id, bill_id: bill.sales_bill_id } } });
+    // Pre-select this customer + bill when opening receipt entry. Use the
+    // bill's own customer_id FK — the included customer object only has
+    // party_name/mobile_1 for the list view, so customer.party_id is undefined
+    // and would send a null preselect that ReceiptEntry can't act on.
+    navigate('/receipt/new', {
+      state: {
+        preselect: {
+          party_id: bill.customer_id ?? bill.customer?.party_id,
+          bill_id:  bill.sales_bill_id,
+        },
+      },
+    });
   };
 
   // ── KPI computation (excludes cancelled bills) ──

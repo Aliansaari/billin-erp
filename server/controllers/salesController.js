@@ -19,8 +19,22 @@ exports.getAll = async (req, res) => {
       where[Op.or] = [{ bill_number: { [Op.iLike]: `%${search}%` } }];
     }
 
+    // Per-row aggregates so the list UI can show "3 items · 15 pcs" without
+    // forcing the frontend to fetch each bill's items. Correlated subqueries
+    // keep this to a single DB round-trip. COALESCE on the SUM — when a bill
+    // has zero rows the subquery would otherwise return NULL.
     const { count, rows } = await SalesBill.findAndCountAll({
       where,
+      attributes: {
+        include: [
+          [sequelize.literal(
+            '(SELECT COUNT(*)::int FROM sales_bill_items WHERE sales_bill_items.sales_bill_id = "SalesBill"."sales_bill_id")'
+          ), '_item_count'],
+          [sequelize.literal(
+            '(SELECT COALESCE(SUM(quantity), 0)::float FROM sales_bill_items WHERE sales_bill_items.sales_bill_id = "SalesBill"."sales_bill_id")'
+          ), '_pcs_total'],
+        ],
+      },
       include: [{ model: Party, as: 'customer', attributes: ['party_name', 'mobile_1'] }],
       order: [['bill_date', 'DESC'], ['sales_bill_id', 'DESC']],
       limit,
