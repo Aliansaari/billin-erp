@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Button, Card, Col, Divider, Input, InputNumber, Modal, Row, Select, Space,
-  Switch, Tabs, Tag, Tooltip, Typography, message,
+  Button, Card, Col, Divider, Input, InputNumber, Modal, Radio, Row, Segmented,
+  Select, Space, Switch, Tabs, Tag, Tooltip, Typography, message,
 } from 'antd';
 import {
   PlusOutlined, CopyOutlined, DeleteOutlined, SaveOutlined,
@@ -28,6 +28,48 @@ const FORMATS = [
   { v: 'a4',      l: 'A4 · 210 × 297 mm' },
   { v: 'a5',      l: 'A5 · 148 × 210 mm' },
   { v: 'thermal', l: 'Thermal · 80 mm roll' },
+];
+
+// Visual themes. Layout stays constant; only typography, borders, colors
+// change. Each paired with a short description + a swatch of the accent
+// color default so users can eye-pick before clicking.
+const THEMES = [
+  { v: 'classic', l: 'Classic',  d: 'Traditional tax-invoice layout, bordered table, uppercase headers.', swatch: '#111111' },
+  { v: 'modern',  l: 'Modern',   d: 'Sans-serif, borderless rows, pill-shaped doc-type badge.',        swatch: '#4F46E5' },
+  { v: 'minimal', l: 'Minimal',  d: 'Zero borders, thin dividers, light ink — clean retail look.',     swatch: '#6B7280' },
+  { v: 'elegant', l: 'Elegant',  d: 'Serif display font, letterspaced dividers — boutique style.',     swatch: '#8B5CF6' },
+  { v: 'boxed',   l: 'Boxed',    d: 'Full-page border, solid header block — formal / legal feel.',     swatch: '#B1472F' },
+];
+
+// Thermal-specific styles shown when format='thermal'. These supersede the
+// A4/A5 themes for receipt render — layout/font/weights are tuned for the
+// paper width and the physical characteristics of thermal heads.
+const THERMAL_STYLES = [
+  { v: 'simple',   l: 'Simple',    d: 'Tabular Sr · Item · Qty · Rate · Amt rows, dashed separators, no frills — the clean credit-memo look.' },
+  { v: 'standard', l: 'Standard',  d: 'Two-line items (name / qty × rate), dashed rules — classic POS feel.' },
+  { v: 'compact',  l: 'Compact',   d: 'Tight spacing, smaller rows — fits long bills on short rolls.' },
+  { v: 'bold',     l: 'Bold POS',  d: 'Uppercase headers, thick rules, heavy weights — maximum legibility.' },
+  { v: 'spacious', l: 'Spacious',  d: 'Generous padding and line-height — easy to read, premium feel.' },
+  { v: 'modern',   l: 'Modern',    d: 'Sans-serif, inverted doc-type chip, black total banner.' },
+];
+
+// Font presets — a curated list that actually renders well on both screen
+// and thermal paper. Users can still type a custom stack in the text input.
+const FONT_PRESETS = [
+  { v: "'Courier New', 'Consolas', monospace",        l: 'Courier (classic receipt)' },
+  { v: "'Consolas', 'Menlo', 'Courier New', monospace", l: 'Consolas (clean mono)' },
+  { v: "'Roboto Mono', 'Courier New', monospace",     l: 'Roboto Mono' },
+  { v: "'Inter', 'Segoe UI', system-ui, sans-serif",  l: 'Inter (modern sans)' },
+  { v: "'Helvetica Neue', Arial, sans-serif",         l: 'Helvetica Neue' },
+  { v: "'Arial Black', 'Arial Bold', sans-serif",     l: 'Arial Black (thickest)' },
+  { v: "'Georgia', 'Times New Roman', serif",         l: 'Georgia (serif)' },
+];
+
+const BOLD_LEVELS = [
+  { v: 'light',  l: 'Light' },
+  { v: 'normal', l: 'Normal' },
+  { v: 'bold',   l: 'Bold' },
+  { v: 'heavy',  l: 'Heavy' },
 ];
 
 // Sample bill used for preview only — never submitted. Shape matches what
@@ -76,19 +118,29 @@ const sampleBill = (docType) => {
     freight_charges: 0,
     round_off: 0.37,
     total_amount: 4648.75,
-    paid_amount: 4648.75,
-    balance_amount: 0,
+    // Sample values so every toggleable row has data to preview:
+    // return_amount   — goods the customer returned within this sale
+    // paid_amount     — partial payment (leaves a Balance Due)
+    // previous_balance — prior outstanding the customer carries forward
+    return_amount: 386,
+    paid_amount: 2000,
+    balance_amount: 2262.75,
+    previous_balance: 1250,
   };
 };
 
 const blankProfile = (docType = 'sales') => ({
   name: 'New profile', doc_type: docType, format: 'a4', is_default: false,
+  theme: 'classic', accent_color: '#111111',
+  thermal_style: 'simple', bold_level: 'bold',
   paper_width_mm: 210, paper_height_mm: 297,
   margin_top_mm: 10, margin_right_mm: 10, margin_bottom_mm: 10, margin_left_mm: 10,
   font_family: 'Inter, system-ui, sans-serif', font_size_pt: 10, line_spacing: 1.35,
   show_logo: true, header_title: '', header_html: '', header_align: 'center',
   show_hsn: true, show_batch: false, show_mrp: true, show_discount: true,
-  show_tax_breakdown: true, show_barcode: false, show_qr_upi: false, upi_id: '',
+  show_tax_breakdown: true, show_gst: true, show_return_amount: true,
+  show_previous_balance: false,
+  show_barcode: false, show_qr_upi: false, upi_id: '',
   tax_summary_mode: 'consolidated',
   footer_html: '', show_signature: true, signature_label: 'Authorised Signatory',
   bank_details: '', terms_and_conditions: '',
@@ -103,6 +155,7 @@ export default function PrintSettings() {
   const [draft,      setDraft]      = useState(blankProfile());
   const [dirty,      setDirty]      = useState(false);
   const [printers,   setPrinters]   = useState([]);
+  const [printerErr, setPrinterErr] = useState('');
   const [company,    setCompany]    = useState({});
   const [filterDoc,  setFilterDoc]  = useState('');
 
@@ -110,9 +163,16 @@ export default function PrintSettings() {
 
   /* ── load everything on mount ────────────────────────────────── */
 
+  const refreshPrinters = () => {
+    listPrinters().then(res => {
+      setPrinters(res.printers || []);
+      setPrinterErr(res.error || '');
+    });
+  };
+
   useEffect(() => {
     loadProfiles();
-    listPrinters().then(setPrinters);
+    refreshPrinters();
     settingsAPI.getSystem().then(r => setCompany(r.data?.data || r.data || {})).catch(() => {});
   }, []);
 
@@ -186,7 +246,11 @@ export default function PrintSettings() {
       setDraft(prev => ({ ...prev, format: 'thermal',
         paper_width_mm: 80, paper_height_mm: 0,
         margin_top_mm: 3, margin_right_mm: 3, margin_bottom_mm: 3, margin_left_mm: 3,
-        font_size_pt: 9, show_hsn: false, show_mrp: false, show_tax_breakdown: false,
+        font_family: "'Courier New', 'Consolas', monospace",
+        font_size_pt: 10, line_spacing: 1.3,
+        thermal_style: prev.thermal_style || 'simple',
+        bold_level:    prev.bold_level    || 'bold',
+        show_hsn: false, show_mrp: false, show_tax_breakdown: false,
         tax_summary_mode: 'consolidated' }));
     }
     setDirty(true);
@@ -265,13 +329,26 @@ export default function PrintSettings() {
     ? profiles.filter(p => p.doc_type === filterDoc)
     : profiles;
 
+  const isThermal = draft.format === 'thermal';
+
   return (
-    <div style={{ padding: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}>Print Settings</Title>
+    <div style={{ padding: 24 }}>
+      <div style={{
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+        marginBottom: 20, gap: 20, flexWrap: 'wrap',
+      }}>
+        <div>
+          <Title level={2} style={{ margin: 0, letterSpacing: '-0.5px', lineHeight: 1.1 }}>
+            Print Settings
+          </Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Design invoice, receipt and voucher templates. Changes preview live on the right.
+          </Text>
+        </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={loadProfiles}>Reload</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => newProfile(filterDoc || 'sales')}>
+          <Button type="primary" size="middle" icon={<PlusOutlined />}
+            onClick={() => newProfile(filterDoc || 'sales')}>
             New Profile
           </Button>
         </Space>
@@ -280,7 +357,15 @@ export default function PrintSettings() {
       <Row gutter={16}>
         {/* ── LEFT: profile list ───────────────────────────── */}
         <Col span={6}>
-          <Card size="small" title="Profiles" styles={{ body: { padding: 8 } }}>
+          <Card
+            size="small"
+            title="Profiles"
+            styles={{
+              body: { padding: 8 },
+              header: { borderRadius: '10px 10px 0 0', fontWeight: 600 },
+            }}
+            style={{ borderRadius: 10, overflow: 'hidden' }}
+          >
             <div style={{ marginBottom: 8 }}>
               <Select
                 placeholder="All document types"
@@ -324,12 +409,14 @@ export default function PrintSettings() {
         {/* ── CENTER: editor tabs ───────────────────────── */}
         <Col span={10}>
           <Card size="small"
+            style={{ borderRadius: 10, overflow: 'hidden' }}
+            styles={{ header: { borderRadius: '10px 10px 0 0' } }}
             title={<Space>
               <Input
                 placeholder="Profile name"
                 value={draft.name}
                 onChange={e => set('name', e.target.value)}
-                style={{ width: 260 }}
+                style={{ width: 240, fontWeight: 600 }}
               />
               {draft.is_default && <Tag color="gold">Default for {DOC_TYPES.find(d => d.v === draft.doc_type)?.l}</Tag>}
             </Space>}
@@ -385,8 +472,14 @@ export default function PrintSettings() {
                       <Divider orientation="left" plain style={{ margin: '16px 0 8px' }}>Typography</Divider>
                       <Row gutter={12}>
                         <Col span={12}>
-                          <label>Font family</label>
-                          <Input value={draft.font_family} onChange={e => set('font_family', e.target.value)} />
+                          <label>Font preset</label>
+                          <Select
+                            value={FONT_PRESETS.find(f => f.v === draft.font_family)?.v}
+                            onChange={v => set('font_family', v)}
+                            style={{ width: '100%' }}
+                            placeholder="Pick a preset — or type a custom stack below"
+                            options={FONT_PRESETS.map(f => ({ value: f.v, label: f.l }))}
+                          />
                         </Col>
                         <Col span={6}>
                           <label>Size (pt)</label>
@@ -396,6 +489,32 @@ export default function PrintSettings() {
                           <label>Line height</label>
                           <InputNumber value={draft.line_spacing} onChange={v => set('line_spacing', v)} min={1} max={2} step={0.05} style={{ width: '100%' }} />
                         </Col>
+                      </Row>
+                      <Row gutter={12} style={{ marginTop: 8 }}>
+                        <Col span={isThermal ? 12 : 24}>
+                          <label>Custom font stack (overrides preset)</label>
+                          <Input
+                            value={draft.font_family}
+                            onChange={e => set('font_family', e.target.value)}
+                            placeholder="e.g. 'Inter', system-ui, sans-serif"
+                          />
+                        </Col>
+                        {isThermal && (
+                          <Col span={12}>
+                            <label>
+                              Bold level{' '}
+                              <Tooltip title="Thermal paper prints light unless text is genuinely heavy. Bump up if your receipts are hard to read.">
+                                <Text type="secondary" style={{ cursor: 'help' }}>(?)</Text>
+                              </Tooltip>
+                            </label>
+                            <Segmented
+                              block
+                              value={draft.bold_level || 'bold'}
+                              onChange={v => set('bold_level', v)}
+                              options={BOLD_LEVELS.map(b => ({ value: b.v, label: b.l }))}
+                            />
+                          </Col>
+                        )}
                       </Row>
 
                       <Divider orientation="left" plain style={{ margin: '16px 0 8px' }}>Copies</Divider>
@@ -445,8 +564,18 @@ export default function PrintSettings() {
                         placeholder="Bank: HDFC\nA/C: 12345\nIFSC: HDFC0001234" />
                       <label style={{ marginTop: 10, display: 'block' }}>Terms &amp; Conditions</label>
                       <Input.TextArea rows={3} value={draft.terms_and_conditions} onChange={e => set('terms_and_conditions', e.target.value)} />
-                      <label style={{ marginTop: 10, display: 'block' }}>Custom footer HTML</label>
-                      <Input.TextArea rows={2} value={draft.footer_html} onChange={e => set('footer_html', e.target.value)} />
+                      <label style={{ marginTop: 10, display: 'block' }}>
+                        Footer message
+                        <Text type="secondary" style={{ fontSize: 11, fontWeight: 'normal', marginLeft: 6 }}>
+                          (shown at the bottom of every receipt — blank = default <code>Thank You !!! Come Again. :)</code>)
+                        </Text>
+                      </label>
+                      <Input.TextArea
+                        rows={2}
+                        value={draft.footer_html}
+                        onChange={e => set('footer_html', e.target.value)}
+                        placeholder="Thank You !!!  Come Again. :)"
+                      />
                       <Row gutter={12} style={{ marginTop: 10 }}>
                         <Col span={8}>
                           <label>Signature line</label><br/>
@@ -464,14 +593,36 @@ export default function PrintSettings() {
                   key: 'fields', label: 'Fields / Columns',
                   children: (
                     <div>
+                      <Divider orientation="left" plain style={{ margin: '0 0 10px' }}>Item table columns (A4 / A5)</Divider>
                       <Row gutter={[12, 10]}>
                         <Col span={8}><Switch checked={draft.show_hsn}           onChange={v => set('show_hsn', v)} /> Show HSN</Col>
                         <Col span={8}><Switch checked={draft.show_mrp}           onChange={v => set('show_mrp', v)} /> Show MRP</Col>
                         <Col span={8}><Switch checked={draft.show_batch}         onChange={v => set('show_batch', v)} /> Show Batch</Col>
-                        <Col span={8}><Switch checked={draft.show_discount}      onChange={v => set('show_discount', v)} /> Show Discount%</Col>
-                        <Col span={8}><Switch checked={draft.show_tax_breakdown} onChange={v => set('show_tax_breakdown', v)} /> Show Tax cols</Col>
+                        <Col span={8}><Switch checked={draft.show_tax_breakdown} onChange={v => set('show_tax_breakdown', v)} /> Per-item tax cols</Col>
                         <Col span={8}><Switch checked={draft.show_barcode}       onChange={v => set('show_barcode', v)} /> Show Barcode</Col>
                         <Col span={8}><Switch checked={draft.show_qr_upi}        onChange={v => set('show_qr_upi', v)} /> Show UPI QR</Col>
+                      </Row>
+
+                      <Divider orientation="left" plain style={{ margin: '20px 0 10px' }}>
+                        Totals section (all formats, incl. thermal)
+                      </Divider>
+                      <Row gutter={[12, 10]}>
+                        <Col span={8}>
+                          <Switch checked={draft.show_discount !== false} onChange={v => set('show_discount', v)} /> Show Discount
+                        </Col>
+                        <Col span={8}>
+                          <Switch checked={draft.show_gst !== false} onChange={v => set('show_gst', v)} /> Show GST
+                        </Col>
+                        <Col span={8}>
+                          <Tooltip title="Goods the customer returned within this sale — a credit against the bill. Auto-hidden when return amount is zero.">
+                            <Switch checked={draft.show_return_amount !== false} onChange={v => set('show_return_amount', v)} /> Show Return Amount
+                          </Tooltip>
+                        </Col>
+                        <Col span={8}>
+                          <Tooltip title="Customer's prior outstanding dues carried over from earlier bills. Off by default.">
+                            <Switch checked={draft.show_previous_balance === true} onChange={v => set('show_previous_balance', v)} /> Show Previous Balance
+                          </Tooltip>
+                        </Col>
                       </Row>
 
                       {draft.show_qr_upi && (
@@ -508,28 +659,145 @@ export default function PrintSettings() {
                   ),
                 },
                 {
+                  key: 'theme', label: isThermal ? 'Style' : 'Theme',
+                  children: (
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 10, fontSize: 13, fontWeight: 600 }}>
+                        {isThermal ? 'Thermal receipt style' : 'Visual theme'}
+                      </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        {(isThermal ? THERMAL_STYLES : THEMES).map(t => {
+                          const key = isThermal ? 'thermal_style' : 'theme';
+                          const active = draft[key] === t.v;
+                          return (
+                            <div
+                              key={t.v}
+                              onClick={() => {
+                                set(key, t.v);
+                                if (!isThermal && (!draft.accent_color || draft.accent_color === '#111111' || THEMES.some(th => th.swatch === draft.accent_color))) {
+                                  set('accent_color', t.swatch);
+                                }
+                              }}
+                              style={{
+                                padding: 14, borderRadius: 10, cursor: 'pointer',
+                                border: active ? '2px solid var(--accent, #4F46E5)' : '1px solid var(--border, #e5e7eb)',
+                                background: active ? 'var(--accent-bg, rgba(79,70,229,0.06))' : 'transparent',
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                {t.swatch && (
+                                  <span style={{ width: 16, height: 16, borderRadius: 4, background: t.swatch, display: 'inline-block' }} />
+                                )}
+                                <b style={{ fontSize: 14 }}>{t.l}</b>
+                              </div>
+                              <div style={{ fontSize: 12, color: 'var(--fg-secondary, #666)', lineHeight: 1.4 }}>
+                                {t.d}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {isThermal && (
+                        <>
+                          <Divider orientation="left" plain style={{ margin: '20px 0 10px' }}>Darkness / weight</Divider>
+                          <Segmented
+                            block
+                            value={draft.bold_level || 'bold'}
+                            onChange={v => set('bold_level', v)}
+                            options={BOLD_LEVELS.map(b => ({ value: b.v, label: b.l }))}
+                          />
+                          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--fg-tertiary, #999)' }}>
+                            Thermal paper reproduces black in proportion to the font weight. If prints are too faint, try <b>Heavy</b>. If letters smudge together, drop to <b>Normal</b>.
+                          </div>
+                        </>
+                      )}
+
+                      <Divider orientation="left" plain style={{ margin: '20px 0 10px' }}>Accent color</Divider>
+                      <Row gutter={12} align="middle">
+                        <Col>
+                          <input
+                            type="color"
+                            value={draft.accent_color || '#111111'}
+                            onChange={e => set('accent_color', e.target.value)}
+                            style={{ width: 54, height: 36, border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}
+                          />
+                        </Col>
+                        <Col flex="auto">
+                          <Input
+                            value={draft.accent_color || ''}
+                            onChange={e => set('accent_color', e.target.value)}
+                            placeholder="#111111"
+                          />
+                        </Col>
+                        <Col>
+                          <Button size="small" onClick={() => {
+                            const def = THEMES.find(t => t.v === draft.theme)?.swatch || '#111111';
+                            set('accent_color', def);
+                          }}>Theme default</Button>
+                        </Col>
+                      </Row>
+                      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--fg-tertiary, #999)' }}>
+                        {isThermal
+                          ? 'On thermal prints, body text is always pure black for readability. Accent color affects only the "Modern" style chip and total banner.'
+                          : 'The accent color drives headline text on Modern/Elegant/Minimal themes and the full header block on Boxed.'}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
                   key: 'printer', label: 'Printer',
                   children: (
                     <div>
-                      <label>Default printer</label>
-                      <Select
-                        value={draft.printer_name || undefined}
-                        onChange={v => set('printer_name', v || '')}
-                        style={{ width: '100%' }}
-                        allowClear
-                        placeholder={printers.length ? 'Pick a printer' : 'No printers detected (Electron only)'}
-                        options={printers.map(p => ({
-                          value: p.name,
-                          label: `${p.displayName || p.name}${p.isDefault ? '  (system default)' : ''}`,
-                        }))}
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <label>Default printer</label>
+                          <Select
+                            value={draft.printer_name || undefined}
+                            onChange={v => set('printer_name', v || '')}
+                            style={{ width: '100%' }}
+                            allowClear
+                            showSearch
+                            placeholder={printers.length ? 'Pick a printer' : 'No printers detected — type a name below'}
+                            options={printers.map(p => ({
+                              value: p.name,
+                              label: `${p.displayName || p.name}${p.isDefault ? '  (system default)' : ''}`,
+                            }))}
+                          />
+                        </div>
+                        <Button icon={<ReloadOutlined />} onClick={refreshPrinters}>Refresh</Button>
+                      </div>
+                      {/* Manual fallback: if Electron isn't exposing printers (running in
+                          a web browser) or enumeration failed, let the user type the
+                          exact Windows/mac driver name — the silent-print IPC will
+                          still match on it. */}
+                      <label style={{ marginTop: 8, display: 'block' }}>Or type printer name manually</label>
+                      <Input
+                        value={draft.printer_name || ''}
+                        onChange={e => set('printer_name', e.target.value)}
+                        placeholder="e.g. POS-80C  or  HP LaserJet Pro M404  or  leave blank for system default"
                       />
-                      <div style={{ marginTop: 12 }}>
+                      {printerErr && (
+                        <div style={{ marginTop: 8, padding: 8, background: 'rgba(239,68,68,0.08)', color: '#b91c1c', borderRadius: 6, fontSize: 12 }}>
+                          Printer list error: {printerErr}
+                        </div>
+                      )}
+                      {!printerErr && !printers.length && (
+                        <div style={{ marginTop: 8, padding: 8, background: 'rgba(245,158,11,0.08)', color: '#92400e', borderRadius: 6, fontSize: 12 }}>
+                          No printers returned by the OS. Run the desktop build (<code>npm run electron:dev</code>) so we can enumerate them,
+                          or install your printer's Windows driver and click Refresh. In the web-only preview the name field is still used —
+                          type it exactly as it appears in Windows &rarr; Devices and Printers.
+                        </div>
+                      )}
+                      <div style={{ marginTop: 14 }}>
                         <Switch checked={draft.silent_print} onChange={v => set('silent_print', v)} />
                         <Text style={{ marginLeft: 8 }}>Silent direct print (no system dialog)</Text>
                       </div>
                       <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-muted, #f5f5f5)', borderRadius: 6, fontSize: 12, color: '#666' }}>
-                        Silent printing requires running inside Electron. In the web-only build the app will fall back to the browser print dialog.
-                        If your thermal printer driver doesn't accept HTML, install its "Generic / Text Only" Windows driver for best results, or switch to a dedicated ESC/POS library.
+                        Silent printing requires the Electron build. On the web-only preview the button falls back to the browser print dialog.
+                        For USB thermal printers: install the vendor's Windows driver (or the "Generic / Text Only" driver as a fallback) —
+                        Electron then sends the HTML through that driver silently.
                       </div>
                       <div style={{ marginTop: 16 }}>
                         <Button icon={<PrinterOutlined />} onClick={handleTestPrint}>Test print sample</Button>
@@ -544,13 +812,41 @@ export default function PrintSettings() {
 
         {/* ── RIGHT: live preview ─────────────────────── */}
         <Col span={8}>
-          <Card size="small" title="Live preview" extra={
-            <Tag color={draft.format === 'thermal' ? 'green' : draft.format === 'a5' ? 'blue' : 'purple'}>{draft.format.toUpperCase()}</Tag>
-          } styles={{ body: { padding: 0, height: 820, background: '#2a2a2a' } }}>
+          <Card
+            size="small"
+            title={<span style={{ fontWeight: 600 }}>Live preview</span>}
+            extra={
+              <Space>
+                <Tag color={draft.format === 'thermal' ? 'green' : draft.format === 'a5' ? 'blue' : 'purple'}>
+                  {draft.format.toUpperCase()}
+                </Tag>
+                {isThermal && draft.thermal_style && (
+                  <Tag color="geekblue">
+                    {THERMAL_STYLES.find(t => t.v === draft.thermal_style)?.l || draft.thermal_style}
+                  </Tag>
+                )}
+              </Space>
+            }
+            style={{ borderRadius: 10, overflow: 'hidden' }}
+            styles={{
+              header: { borderRadius: '10px 10px 0 0' },
+              body: {
+                padding: isThermal ? 12 : 0,
+                height: 820,
+                background: '#2a2a2a',
+                display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+              },
+            }}
+          >
             <iframe
               ref={iframeRef}
               title="print-preview"
-              style={{ width: '100%', height: '100%', border: 0, background: '#fff' }}
+              style={{
+                width: isThermal ? 'min(340px, 100%)' : '100%',
+                height: '100%', border: 0, background: '#fff',
+                boxShadow: isThermal ? '0 8px 24px rgba(0,0,0,0.4)' : 'none',
+                borderRadius: isThermal ? 2 : 0,
+              }}
             />
           </Card>
         </Col>

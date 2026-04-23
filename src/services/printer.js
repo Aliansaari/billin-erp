@@ -158,15 +158,162 @@ function openPreview(html) {
   w.document.close();
 }
 
+/* ── PDF export + WhatsApp share ───────────────────────────────────── */
+
+// Sanitize a free-text customer / party name for use as a filesystem name.
+// Strips path separators, control chars, and trims trailing dots/spaces —
+// Windows rejects names ending in '.', and both OSes choke on '/ \\ : * ? " < > |'.
+function sanitizeFileName(s) {
+  return String(s || '')
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/, '');
+}
+
+// Build "{Customer}-{BillNo}.pdf" with both parts sanitized. Falls back to
+// "Bill-{id}.pdf" when the customer is a walk-in (no name).
+function pdfFileName(bill) {
+  const party = bill.customer || bill.supplier || bill.party;
+  const name  = sanitizeFileName(party?.party_name) || 'Cash';
+  const num   = sanitizeFileName(bill.bill_number || bill.transaction_number) || bill.id || 'bill';
+  return `${name}-${num}.pdf`;
+}
+
+// Normalize an Indian phone number to wa.me's expected format (country code
+// + digits, no +, no spaces). Accepts: "9876543210", "+91 98765 43210",
+// "091-98765-43210". Rejects empty input so the caller can show an error.
+function waNormalize(phone) {
+  const digits = String(phone || '').replace(/\D+/g, '');
+  if (!digits) return null;
+  // If user typed a 10-digit Indian mobile, prepend 91. Longer numbers
+  // already include a country code.
+  if (digits.length === 10) return '91' + digits;
+  return digits;
+}
+
+/**
+ * Generate a PDF for `{ docType, id }` or a preloaded `bill`.
+ *
+ * In Electron: the PDF is written to the user's Downloads folder in main
+ * (see electron/main.js `pdf:save`) and the returned `filePath` is used
+ * for subsequent actions (open / show-in-folder). Writing in main
+ * eliminated an IPC round-trip that was producing corrupted bytes
+ * ("cannot render" in Acrobat).
+ *
+ * In a plain browser: we fall back to the print dialog — there's no
+ * reliable offscreen HTML→PDF path without a native helper.
+ *
+ * Options:
+ *   openAfterSave   — true by default: opens the saved PDF in the default
+ *                     PDF viewer so the user can visually confirm it.
+ */
+export async function exportBillPDF({ docType, id, bill: presetBill, profileId, openAfterSave = true }) {
+  try {
+    const bill = presetBill || (LOADERS[docType] ? await LOADERS[docType](id) : null);
+    if (!bill) { message.error('Could not load document'); return null; }
+
+    const profile = (await resolveProfile(docType, profileId)) || fallbackProfile(docType);
+    const company = await loadCompany();
+    const html    = renderBillHTML({ bill, profile, company, docType });
+    const fileName = pdfFileName(bill);
+
+    if (window.electronAPI?.savePDF) {
+      const res = await window.electronAPI.savePDF({
+        html,
+        fileName,
+        paperWidthMm:  profile.paper_width_mm,
+        paperHeightMm: profile.paper_height_mm,
+        marginsMm: {
+          top:    profile.margin_top_mm,
+          right:  profile.margin_right_mm,
+          bottom: profile.margin_bottom_mm,
+          left:   profile.margin_left_mm,
+        },
+      });
+      if (res?.error) { message.error('PDF export failed: ' + res.error); return null; }
+      const filePath = res.filePath;
+      if (openAfterSave) {
+        // Fire-and-forget: opening shouldn't block the caller. Errors here
+        // are non-fatal — the file is saved regardless.
+        window.electronAPI.openPath?.(filePath).catch(() => {});
+      }
+      message.success('Saved to Downloads: ' + fileName);
+      return { filePath, fileName };
+    }
+
+    // Web-only fallback — browser print dialog with Save-as-PDF destination.
+    message.info('Use Save as PDF in the print dialog (suggested: ' + fileName + ')');
+    printViaIframe(html);
+    return { fileName };
+  } catch (e) {
+    console.error('exportBillPDF error', e);
+    message.error('PDF export error: ' + (e?.response?.data?.error || e.message));
+    return null;
+  }
+}
+
+/**
+ * Generate the bill PDF and open a WhatsApp chat with the customer.
+ *
+ * WhatsApp's share URL (wa.me) and Desktop URL scheme (whatsapp://send) both
+ * accept only a text parameter — no file-attach parameter exists in any
+ * public API. Auto-attaching only works through the WhatsApp Business API,
+ * which requires Meta approval and a hosted messaging account.
+ *
+ * Workflow for self-serve: save the PDF to Downloads, open a File Explorer
+ * window with the PDF selected, and open the chat in WhatsApp. The user
+ * drags the highlighted PDF into the chat — one drag-and-drop.
+ */
+export async function shareBillViaWhatsApp({ docType, id, bill: presetBill, profileId }) {
+  try {
+    const bill = presetBill || (LOADERS[docType] ? await LOADERS[docType](id) : null);
+    if (!bill) { message.error('Could not load document'); return; }
+
+    const party = bill.customer || bill.supplier || bill.party;
+    const phone = waNormalize(party?.mobile_1 || party?.phone);
+    if (!phone) {
+      message.warning('No phone number on the customer record');
+      return;
+    }
+
+    // Save PDF to Downloads (skip the auto-open so the viewer doesn't steal
+    // focus from the about-to-be-opened WhatsApp chat).
+    const saved = await exportBillPDF({ docType, bill, profileId, openAfterSave: false });
+    if (!saved?.filePath && window.electronAPI?.savePDF) return;  // hard failure in Electron
+
+    // Pop Explorer at the file so the drag-source is one click away.
+    if (saved?.filePath && window.electronAPI?.showItemInFolder) {
+      window.electronAPI.showItemInFolder(saved.filePath).catch(() => {});
+    }
+
+    const total = Number(bill.total_amount || 0).toLocaleString('en-IN',
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const billNo = bill.bill_number || bill.transaction_number || '';
+    const text = encodeURIComponent(
+      `Hello ${party?.party_name || 'Customer'},\n\n` +
+      `Please find your bill ${billNo} for ₹ ${total}. PDF attached.\n\nThank you.`
+    );
+    window.open(`https://wa.me/${phone}?text=${text}`, '_blank', 'noopener');
+    message.success('Chat opened — drag the highlighted PDF from Explorer into the chat');
+  } catch (e) {
+    console.error('shareBillViaWhatsApp error', e);
+    message.error('WhatsApp share failed: ' + (e?.response?.data?.error || e.message));
+  }
+}
+
 /* ── printer enumeration (Electron only) ───────────────────────────── */
 
 export async function listPrinters() {
-  if (!window.electronAPI?.listPrinters) return [];
+  if (!window.electronAPI?.listPrinters) {
+    return { printers: [], error: 'not running in Electron — printer enumeration requires the desktop build (npm run electron:dev)' };
+  }
   try {
     const res = await window.electronAPI.listPrinters();
-    if (Array.isArray(res)) return res;
-    return [];
-  } catch {
-    return [];
+    // New shape: { printers, error? }. Legacy shape: bare array. Handle both.
+    if (Array.isArray(res)) return { printers: res };
+    return res || { printers: [] };
+  } catch (e) {
+    return { printers: [], error: e.message };
   }
 }

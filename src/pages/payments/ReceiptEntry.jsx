@@ -4,7 +4,7 @@ import {
   ArrowLeftOutlined, ReloadOutlined, CheckCircleOutlined,
   CheckOutlined, MinusOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
@@ -31,6 +31,11 @@ const parseDateInput = (str) => {
 
 export default function ReceiptEntry() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Preselect payload from the Sales List "Record receipt" menu — arrives as
+  // { party_id, bill_id }. We auto-pick the party once the parties list loads
+  // and scroll/highlight the specific bill if present.
+  const preselect = location.state?.preselect;
   const [parties, setParties]             = useState([]);
   const [selectedParty, setSelectedParty] = useState(null);
   const [bills, setBills]                 = useState([]);
@@ -91,6 +96,21 @@ export default function ReceiptEntry() {
       setParties((data.data || []).filter(p => p.is_active !== false));
     } catch (_) {}
   };
+
+  // Once parties load, apply the preselect from the Sales List "Record receipt"
+  // action. handlePartyChange needs the parties array populated because it
+  // does a .find() on it — so this effect runs after setParties resolves.
+  // Guarded by a ref so a stale re-render can't re-trigger after the user
+  // has manually changed the party.
+  const preselectApplied = useRef(false);
+  useEffect(() => {
+    if (preselectApplied.current) return;
+    if (!preselect?.party_id) return;
+    if (!parties.length) return;
+    preselectApplied.current = true;
+    handlePartyChange(preselect.party_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parties, preselect]);
 
   const handlePartyChange = async (partyId) => {
     const party = parties.find(p => p.party_id === partyId);

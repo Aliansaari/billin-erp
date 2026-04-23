@@ -6,12 +6,12 @@ import {
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, StopOutlined,
   PrinterOutlined, EditOutlined, MoreOutlined,
-  DollarOutlined, CopyOutlined, AppstoreOutlined,
+  DollarOutlined, AppstoreOutlined, FilePdfOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, settingsAPI } from '../../api';
-import { printDocument } from '../../services/printer';
+import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
 import '../../styles/bill-list.css';
 
 // Optional columns the user can toggle via the Columns picker. Keys match
@@ -297,13 +297,23 @@ export default function SalesList() {
   // Route through the new unified printer service so the user-configured
   // default profile for Sales Invoice (Settings → Print Settings) is used.
   // Falls back to a built-in A4 template on a fresh install.
-  const handlePrint = (id) => printDocument({ docType: 'sales', id });
-  const handleEdit  = (id) => navigate(`/sale/edit/${id}`);
+  const handlePrint    = (id)   => printDocument({ docType: 'sales', id });
+  const handleEdit     = (id)   => navigate(`/sale/edit/${id}`);
+  const handleExportPDF = (bill) => exportBillPDF({ docType: 'sales', bill });
+  const handleWhatsApp  = (bill) => shareBillViaWhatsApp({ docType: 'sales', bill });
   const handleRecordReceipt = (bill) => {
-    // Pre-select this customer + bill when opening receipt entry. ReceiptEntry
-    // reads location.state.preselect to auto-fill the party and highlight the
-    // specific bill if passed.
-    navigate('/receipt/new', { state: { preselect: { party_id: bill.customer?.party_id, bill_id: bill.sales_bill_id } } });
+    // Pre-select this customer + bill when opening receipt entry. Use the
+    // bill's own customer_id FK — the included customer object only has
+    // party_name/mobile_1 for the list view, so customer.party_id is undefined
+    // and would send a null preselect that ReceiptEntry can't act on.
+    navigate('/receipt/new', {
+      state: {
+        preselect: {
+          party_id: bill.customer_id ?? bill.customer?.party_id,
+          bill_id:  bill.sales_bill_id,
+        },
+      },
+    });
   };
 
   // ── KPI computation (excludes cancelled bills) ──
@@ -471,6 +481,8 @@ export default function SalesList() {
                   onEdit={() => handleEdit(bill.sales_bill_id)}
                   onCancel={() => handleCancel(bill.sales_bill_id)}
                   onReceipt={() => handleRecordReceipt(bill)}
+                  onExportPDF={() => handleExportPDF(bill)}
+                  onWhatsApp={() => handleWhatsApp(bill)}
                 />
               ))
             )}
@@ -491,7 +503,7 @@ export default function SalesList() {
 }
 
 // ── Row component ─────────────────────────────────────────────────────────────
-function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, onCancel, onReceipt }) {
+function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, onCancel, onReceipt, onExportPDF, onWhatsApp }) {
   const cancelled = !!bill.is_cancelled;
   const total = parseFloat(bill.total_amount || 0);
   const paid = parseFloat(bill.paid_amount || 0);
@@ -531,8 +543,17 @@ function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, on
         key: 'receipt', icon: <DollarOutlined />, label: 'Record receipt',
         onClick: onReceipt,
       }, { type: 'divider' }] : []),
-      { key: 'edit',  icon: <EditOutlined />,    label: 'Edit',   onClick: onEdit, disabled: cancelled },
-      { key: 'dup',   icon: <CopyOutlined />,    label: 'Duplicate to new sale', onClick: onEdit, disabled: cancelled },
+      { key: 'edit',    icon: <EditOutlined />,   label: 'Edit',           onClick: onEdit,      disabled: cancelled },
+      { key: 'pdf',     icon: <FilePdfOutlined />, label: 'Export PDF',     onClick: onExportPDF, disabled: cancelled },
+      {
+        key: 'wa',
+        icon: <WhatsAppOutlined />,
+        // Disabled for Cash Sales (no phone) — tooltip explains why via the
+        // dropdown's native hover behavior on the label text.
+        label: customerPhone ? 'Send via WhatsApp' : 'Send via WhatsApp (no phone)',
+        onClick: onWhatsApp,
+        disabled: cancelled || !customerPhone,
+      },
       { type: 'divider' },
       {
         key: 'cancel',
