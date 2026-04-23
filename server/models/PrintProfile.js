@@ -29,6 +29,15 @@ const PrintProfile = sequelize.define('PrintProfile', {
   // change which fields print — only fonts, borders, spacing, colors.
   theme:        { type: DataTypes.ENUM('classic', 'modern', 'minimal', 'elegant', 'boxed'), defaultValue: 'classic' },
   accent_color: { type: DataTypes.STRING(9), defaultValue: '#111111' },
+  // Thermal-only visual style. Applies when format='thermal' and supersedes
+  // `theme` for the receipt render. String (not ENUM) so adding a new option
+  // later is just a code change — no ALTER TYPE dance in PostgreSQL.
+  // Valid: 'simple' | 'standard' | 'compact' | 'bold' | 'spacious' | 'modern'
+  thermal_style: { type: DataTypes.STRING(20), defaultValue: 'simple' },
+  // Darkness / weight level — thermal paper prints faintly unless text is
+  // genuinely bold. 'heavy' renders everything at 800 + stroke; 'light' is
+  // the old default. Valid: 'light' | 'normal' | 'bold' | 'heavy'.
+  bold_level:   { type: DataTypes.STRING(20), defaultValue: 'bold' },
   is_default:   { type: DataTypes.BOOLEAN, defaultValue: false },
 
   // Paper + margins (all in mm; thermal uses widthMm and a 0 bottom margin).
@@ -55,7 +64,21 @@ const PrintProfile = sequelize.define('PrintProfile', {
   show_batch:          { type: DataTypes.BOOLEAN, defaultValue: false },
   show_mrp:            { type: DataTypes.BOOLEAN, defaultValue: true },
   show_discount:       { type: DataTypes.BOOLEAN, defaultValue: true },
-  show_tax_breakdown:  { type: DataTypes.BOOLEAN, defaultValue: true },   // per-line CGST/SGST/IGST columns
+  show_tax_breakdown:  { type: DataTypes.BOOLEAN, defaultValue: true },   // per-line CGST/SGST/IGST columns (A4 items table)
+  // Totals-section toggles. Independent of show_tax_breakdown — a user can
+  // hide per-line tax columns but still keep the summary GST line at the
+  // bottom, or vice-versa. When a toggle is OFF the corresponding row is
+  // omitted from A4, A5, thermal-standard, and thermal-simple.
+  show_gst:            { type: DataTypes.BOOLEAN, defaultValue: true },
+  // Return amount = goods customer returned within THIS bill (credit against the
+  // sale). Stored on SalesBill.return_amount. This is NOT change due to the
+  // customer when they overpay — that's a different concept and isn't printed.
+  show_return_amount:  { type: DataTypes.BOOLEAN, defaultValue: true },
+  // Previous balance = party's outstanding dues carried forward from prior
+  // bills. When ON we print it above Sub Total so the customer sees their
+  // running total. Taken from bill.previous_balance if set by the API,
+  // otherwise derived from party.current_balance - balance_amount.
+  show_previous_balance: { type: DataTypes.BOOLEAN, defaultValue: false },
   show_barcode:        { type: DataTypes.BOOLEAN, defaultValue: false },
   show_qr_upi:         { type: DataTypes.BOOLEAN, defaultValue: false },
   upi_id:              { type: DataTypes.STRING(120), defaultValue: '' },
