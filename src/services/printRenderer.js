@@ -206,7 +206,7 @@ const themeCSS = (profile) => {
   const t = profile?.theme || 'classic';
   const accent = profile?.accent_color || '#111111';
   if (t === 'modern') return `
-    body { font-family: ${profile?.font_family || "'Inter', 'Segoe UI', system-ui, sans-serif"}; }
+    body { font-family: ${profile?.font_family || "'Source Sans 3', 'Segoe UI', system-ui, sans-serif"}; }
     .hdr-name { font-weight: 800; color: ${accent}; letter-spacing: -0.5px; }
     .doc-type { border: none; background: ${accent}; color: #fff; padding: 5px 14px; border-radius: 4px; display: inline-block; letter-spacing: 3px; }
     table.items th, table.items td { border: none; border-bottom: 1px solid #e5e7eb; }
@@ -214,7 +214,7 @@ const themeCSS = (profile) => {
     .tot-grand { border-top: 2px solid ${accent}; border-bottom: none; color: ${accent}; }
   `;
   if (t === 'minimal') return `
-    body { font-family: ${profile?.font_family || "'Inter', system-ui, sans-serif"}; color: #1f2937; }
+    body { font-family: ${profile?.font_family || "'Source Sans 3', system-ui, sans-serif"}; color: #1f2937; }
     .hdr-name { font-weight: 600; font-size: 1.3em; }
     .doc-type { border: none; color: ${accent}; font-size: .85em; letter-spacing: 4px; margin-top: 4mm; }
     table.items th, table.items td { border: none; padding: 6px 8px; }
@@ -224,17 +224,17 @@ const themeCSS = (profile) => {
     .sig-line { border-color: #d1d5db; }
   `;
   if (t === 'elegant') return `
-    body { font-family: ${profile?.font_family || "'Fraunces', 'Georgia', serif"}; }
-    .hdr-name { font-family: 'Fraunces', 'Georgia', serif; font-weight: 600; font-style: italic; font-size: 1.9em; color: ${accent}; }
+    body { font-family: ${profile?.font_family || "'Source Sans 3', sans-serif"}; }
+    .hdr-name { font-family: 'Source Sans 3', sans-serif; font-weight: 600; font-style: italic; font-size: 1.9em; color: ${accent}; }
     .hdr-sub { font-style: italic; letter-spacing: .5px; }
-    .doc-type { font-family: 'Inter', sans-serif; font-size: .8em; letter-spacing: 4px; border: none; color: ${accent};
+    .doc-type { font-family: 'Source Sans 3', sans-serif; font-size: .8em; letter-spacing: 4px; border: none; color: ${accent};
       border-top: 1px solid ${accent}; border-bottom: 1px solid ${accent}; padding: 4px 0; margin: 4mm auto; max-width: 40%; }
-    table.items th { background: transparent; font-family: 'Inter', sans-serif; font-size: .75em; letter-spacing: 1.5px; text-transform: uppercase; border: none; border-bottom: 1.5px solid ${accent}; color: ${accent}; }
+    table.items th { background: transparent; font-family: 'Source Sans 3', sans-serif; font-size: .75em; letter-spacing: 1.5px; text-transform: uppercase; border: none; border-bottom: 1.5px solid ${accent}; color: ${accent}; }
     table.items td { border: none; border-bottom: 1px solid #e5e7eb; padding: 8px 6px; }
-    .tot-grand { font-family: 'Fraunces', 'Georgia', serif; font-size: 1.3em; border-top: 1.5px solid ${accent}; border-bottom: 1.5px solid ${accent}; color: ${accent}; }
+    .tot-grand { font-family: 'Source Sans 3', sans-serif; font-size: 1.3em; border-top: 1.5px solid ${accent}; border-bottom: 1.5px solid ${accent}; color: ${accent}; }
   `;
   if (t === 'boxed') return `
-    body { font-family: ${profile?.font_family || "'Inter', system-ui, sans-serif"}; }
+    body { font-family: ${profile?.font_family || "'Source Sans 3', system-ui, sans-serif"}; }
     .page { border: 2px solid ${accent}; padding: 6mm; }
     .hdr { background: ${accent}; color: #fff; padding: 5mm; margin: -6mm -6mm 6mm; }
     .hdr-name, .hdr-sub, .doc-type { color: #fff; }
@@ -253,7 +253,7 @@ const baseCSS = (profile) => `
   html, body { background: #fff; color: #111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body {
     margin: 0;
-    font-family: ${profile?.font_family || 'Inter, system-ui, sans-serif'};
+    font-family: ${profile?.font_family || "'Source Sans 3', system-ui, sans-serif"};
     font-size: ${profile?.font_size_pt || 10}pt;
     line-height: ${profile?.line_spacing || 1.35};
   }
@@ -368,7 +368,7 @@ const thermalStyleCSS = (style, accent) => {
       .fb { margin-top: 5mm; }
     `;
     case 'modern': return `
-      body { font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; }
+      body { font-family: 'Source Sans 3', 'Helvetica Neue', Arial, sans-serif; }
       .hdr { margin-bottom: 3mm; }
       .hdr-name { font-size: 1.2em; letter-spacing: -0.3px; color: ${accent}; }
       .doc-type { background: ${accent}; color: #fff; border: none; padding: 1mm 3mm; border-radius: 2px;

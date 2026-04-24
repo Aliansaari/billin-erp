@@ -16,7 +16,15 @@ exports.getAll = async (req, res) => {
     if (customer_id) where.customer_id = customer_id;
     if (payment_status) where.payment_status = payment_status;
     if (search) {
-      where[Op.or] = [{ bill_number: { [Op.iLike]: `%${search}%` } }];
+      // Search across bill number AND the joined customer's name / mobile
+      // so "ansari" or "98765" in the search box matches the bills the user
+      // expects. The $customer.field$ syntax tells Sequelize to reference
+      // the included Party association rather than the SalesBill column.
+      where[Op.or] = [
+        { bill_number: { [Op.iLike]: `%${search}%` } },
+        { '$customer.party_name$': { [Op.iLike]: `%${search}%` } },
+        { '$customer.mobile_1$':  { [Op.iLike]: `%${search}%` } },
+      ];
     }
 
     // Per-row aggregates so the list UI can show "3 items · 15 pcs" without
@@ -39,6 +47,16 @@ exports.getAll = async (req, res) => {
       order: [['bill_date', 'DESC'], ['sales_bill_id', 'DESC']],
       limit,
       offset,
+      // subQuery:false is required because the WHERE clause can reference
+      // the joined customer via $customer.*$ (when search is non-empty).
+      // Keeping it unconditional also sidesteps a Sequelize bug where
+      // findAndCountAll generates a malformed count(...) + ungrouped
+      // column query when the attributes list contains correlated
+      // sequelize.literal subqueries (the _item_count / _pcs_total ones
+      // above). distinct:true is needed alongside so the count uses
+      // DISTINCT sales_bill_id rather than counting joined rows.
+      subQuery: false,
+      distinct: true,
     });
 
     res.json({ total: count, page, limit, data: rows });

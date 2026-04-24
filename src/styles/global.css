@@ -1,7 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-/* Fraunces + JetBrains Mono — used by the Modern theme for display headlines
- * and numeric tabular columns. Classic continues to use Inter everywhere. */
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ===== HIDE INPUTNUMBER SPINNER ARROWS ===== */
 .ant-input-number-handler-wrap {
@@ -50,6 +47,13 @@ body {
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
+}
+
+/* Top-strip progress bar — used by StockMovement ledger when swapping
+ * products, so the area doesn't unmount+remount (which reads as a blink). */
+@keyframes sm-loading-bar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
 }
 
 @keyframes pulse-soft {
@@ -631,7 +635,7 @@ body {
   display: inline-block;
   padding: 2px 6px;
   font-size: 11px;
-  font-family: 'Inter', monospace;
+  font-family: 'Source Sans 3', monospace;
   color: var(--fg-secondary);
   background: var(--bg-muted);
   border: 1px solid var(--border);
@@ -893,7 +897,7 @@ body {
 }
 .erp-confirm-modal .ant-modal-confirm-title {
   color: var(--fg-primary) !important;
-  font-family: 'Fraunces', 'Georgia', serif !important;
+  font-family: 'Source Sans 3', sans-serif !important;
   font-weight: 600 !important;
   font-size: 20px !important;
   letter-spacing: -0.01em !important;

@@ -40,7 +40,7 @@
   flex-direction: column;
   background: var(--ed-bg);
   color: var(--ed-fg);
-  font-family: 'Inter', sans-serif;
+  font-family: 'Source Sans 3', sans-serif;
   overflow: hidden;
 }
 
@@ -53,7 +53,7 @@
   border-bottom: 1px solid var(--ed-rule-sub);
 }
 .ed-prod .ed-title h1 {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-size: 26px; font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--ed-fg);
@@ -227,7 +227,7 @@
   color: var(--ed-fg-3); font-weight: 700;
 }
 .ed-prod .ed-kpi .v {
-  font-family: 'Fraunces', serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-size: 24px; font-weight: 600;
   color: var(--ed-fg);
   line-height: 1.05; margin-top: 6px;
@@ -442,7 +442,7 @@
 
 .ed-prod .qty-m {
   display: block;
-  font-family: 'Fraunces', serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-weight: 600; font-size: 14.5px;
   line-height: 1.25;
   font-variant-numeric: tabular-nums;
@@ -461,7 +461,7 @@
 
 .ed-prod .mon-m {
   display: block;
-  font-family: 'Fraunces', serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-weight: 600; font-size: 14.5px;
   color: var(--ed-fg);
   line-height: 1.25;
@@ -470,7 +470,7 @@
 .ed-prod .mon-m .rs { color: var(--ed-fg-3); margin-right: 2px; font-weight: 500; }
 .ed-prod .mon-m.zero {
   color: var(--ed-fg-3);
-  font-family: 'Inter', sans-serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-size: 12.5px; font-style: italic; font-weight: 500;
 }
 .ed-prod .mon-m.muted { color: var(--ed-fg-4); font-weight: 500; }
@@ -593,7 +593,7 @@
   flex-shrink: 0;
 }
 .ed-prod .sm-pick-hd h2 {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-size: 18px; font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--ed-fg);
@@ -650,7 +650,7 @@
 }
 .ed-prod .sm-hd-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .ed-prod .sm-hd h1 {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-size: 22px; font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--ed-fg);
@@ -683,7 +683,7 @@
   font-weight: 700;
 }
 .ed-prod .sm-stat .v {
-  font-family: 'Fraunces', serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-weight: 600; font-size: 17px;
   color: var(--ed-fg);
   margin-top: 3px;
@@ -796,11 +796,11 @@
 .ed-prod .sm-ref    { font-size: 12.5px; color: var(--ed-fg-2); font-weight: 500; font-variant-numeric: tabular-nums; }
 .ed-prod .sm-party  { font-size: 13px; color: var(--ed-fg); font-weight: 500; }
 .ed-prod .sm-party .r { display: block; font-size: 11px; color: var(--ed-fg-3); margin-top: 2px; font-weight: 400; }
-.ed-prod .sm-qty    { font-family: 'Fraunces', serif; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ed-prod .sm-qty    { font-family: 'Source Sans 3', sans-serif; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .ed-prod .sm-qty.in  { color: var(--ed-ok); }
 .ed-prod .sm-qty.out { color: var(--ed-danger); }
 .ed-prod .sm-rate   { font-size: 12.5px; color: var(--ed-fg); font-variant-numeric: tabular-nums; }
-.ed-prod .sm-bal    { font-family: 'Fraunces', serif; font-size: 14px; font-weight: 600; color: var(--ed-fg); font-variant-numeric: tabular-nums; }
+.ed-prod .sm-bal    { font-family: 'Source Sans 3', sans-serif; font-size: 14px; font-weight: 600; color: var(--ed-fg); font-variant-numeric: tabular-nums; }
 
 .ed-prod .sm-pick-empty,
 .ed-prod .sm-main-empty {
@@ -810,7 +810,7 @@
   font-size: 13px;
 }
 .ed-prod .sm-main-empty .big {
-  font-family: 'Fraunces', serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-size: 22px; font-weight: 600;
   color: var(--ed-fg-2);
   margin-bottom: 6px;

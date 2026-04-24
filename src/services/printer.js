@@ -60,7 +60,7 @@ function fallbackProfile(docType) {
     name: 'Built-in A4', doc_type: docType, format: 'a4',
     paper_width_mm: 210, paper_height_mm: 297,
     margin_top_mm: 10, margin_right_mm: 10, margin_bottom_mm: 10, margin_left_mm: 10,
-    font_family: 'Inter, system-ui, sans-serif', font_size_pt: 10, line_spacing: 1.35,
+    font_family: "'Source Sans 3', system-ui, sans-serif", font_size_pt: 10, line_spacing: 1.35,
     show_logo: true, header_align: 'center',
     show_hsn: true, show_batch: false, show_mrp: true, show_discount: true,
     show_tax_breakdown: true, show_barcode: false, show_qr_upi: false,

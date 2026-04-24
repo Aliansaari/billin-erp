@@ -44,7 +44,11 @@ const SalesBill = sequelize.define('SalesBill', {
     defaultValue: 0,
   },
   discount_percentage: {
-    type: DataTypes.DECIMAL(5, 2),
+    // 4-decimal precision so amount→pct→amount round-trips exactly (a
+    // 2-decimal column truncates 4.7619% to 4.76% and drifts every
+    // imported bill by ~₹1). The DB column is ALTERed to DECIMAL(9, 4)
+    // in the startup migrations; keep this in sync.
+    type: DataTypes.DECIMAL(9, 4),
     defaultValue: 0,
   },
   cgst_pct: {

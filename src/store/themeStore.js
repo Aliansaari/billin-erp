@@ -29,7 +29,7 @@ const defaults = {
   colorError:   '#EF4444',
   borderRadius: 10,
   fontSize:     14,
-  fontFamily:   "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  fontFamily:   "'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   sidebarStyle: 'dark',
   compactMode:  false,
   colorBgLayout:'#F0F2F5',

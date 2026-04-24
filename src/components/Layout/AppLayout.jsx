@@ -38,11 +38,21 @@ export default function AppLayout() {
     '/sales', '/purchases', '/payments',
     '/sales-returns', '/purchase-returns',
     '/reports/sales', '/reports/purchases', '/reports/stock',
-    '/reports/party-ledger', '/reports/profit-loss',
+    '/reports/party-ledger', '/reports/profit-loss', '/reports/aging',
+    '/reports/gstr1',
   ].includes(location.pathname);
 
   // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.
   const fullPageH = isHorizontal ? `calc(100vh - ${TOP_NAV_H}px)` : '100vh';
+
+  // Page wrapper key. Keyed on the top-level route segment — NOT the full
+  // pathname — so in-page navigation (e.g. /stock-movement → /stock-movement/42
+  // or /sale/edit/1 → /sale/edit/2) does NOT unmount and remount the page,
+  // which previously re-ran every useEffect (most visibly, the product list
+  // fetch in StockMovement) and showed as a whole-page "blink" on every
+  // product click. Cross-section navigation (/products → /sales) still
+  // changes the key, giving route transitions a clean state reset.
+  const pageKey = '/' + (location.pathname.split('/')[1] || '');
 
   // Horizontal mode: stack TopNav + Content vertically.
   if (isHorizontal) {
@@ -64,7 +74,7 @@ export default function AppLayout() {
             minHeight:     isFullPage ? 0 : `calc(100vh - ${TOP_NAV_H + 40}px)`,
           }}>
             <div
-              key={location.pathname}
+              key={pageKey}
               className="erp-page-content"
               data-fullpage={isFullPage ? '' : undefined}
               // Use the same explicit pixel-resolvable height as Content rather

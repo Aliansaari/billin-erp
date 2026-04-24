@@ -1,0 +1,453 @@
+/*
+ * GSTR-1 page styling — mirrors the Aging Report layout so the two
+ * statutory pages read as siblings. Full-height page, pinned header +
+ * KPI strip + section tabs, only the table scrolls.
+ */
+
+.g1-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── header ──────────────────────────────────────────────────────── */
+
+.g1-hd {
+  flex-shrink: 0;
+  padding: 16px 28px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.g1-title h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+}
+.g1-hd-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.g1-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color .12s;
+}
+.g1-btn:hover { border-color: var(--accent); }
+.g1-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.g1-btn.primary:hover { filter: brightness(1.05); }
+
+/* ─── Period picker — a segmented control: [<] Period [>] ─────── */
+
+.g1-period {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.g1-period-nav,
+.g1-period-label {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--fg-secondary);
+  font: inherit;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color .12s, color .12s;
+}
+.g1-period-nav {
+  padding: 0 10px;
+  color: var(--fg-tertiary);
+}
+.g1-period-nav:hover:not(:disabled) { color: var(--fg-primary); background: var(--bg-hover, rgba(0,0,0,0.03)); }
+.g1-period-nav:disabled { opacity: 0.35; cursor: not-allowed; }
+.g1-period-label {
+  min-height: 34px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--fg-primary);
+  padding: 0 14px;
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  min-width: 124px;
+  justify-content: center;
+}
+.g1-period-label:hover { background: var(--bg-hover, rgba(0,0,0,0.03)); }
+
+/* Month-picker popover (3×4 FY grid) */
+.g1-mp-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.12);
+  padding: 10px;
+  width: 280px;
+}
+.g1-mp-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 8px;
+}
+.g1-mp-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+.g1-mp-nav {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 5px;
+  color: var(--fg-tertiary);
+}
+.g1-mp-nav:hover { background: var(--bg-hover, rgba(0,0,0,0.04)); color: var(--fg-primary); }
+
+.g1-mp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.g1-mp-cell {
+  padding: 8px 0;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  font: inherit;
+  color: var(--fg-primary);
+  transition: background-color .1s, border-color .1s;
+}
+.g1-mp-cell .mon { font-size: 12.5px; font-weight: 600; }
+.g1-mp-cell .yr { font-size: 10.5px; color: var(--fg-tertiary); }
+.g1-mp-cell:hover:not(:disabled) { background: var(--bg-hover, rgba(0,0,0,0.04)); }
+.g1-mp-cell.now { border-color: var(--border); }
+.g1-mp-cell.sel {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.g1-mp-cell.sel .yr { color: rgba(255,255,255,0.75); }
+.g1-mp-cell:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Quick-jump buttons: Last Month, This Month */
+.g1-quick {
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color .12s, color .12s;
+}
+.g1-quick:hover { color: var(--accent); border-color: var(--accent); }
+
+/* Filing-due hint pill — colored by urgency */
+.g1-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--fg-secondary);
+}
+.g1-due .lbl {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.g1-due .val {
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+.g1-due .rel {
+  color: var(--fg-tertiary);
+  font-size: 11.5px;
+}
+.g1-due.g1-due-due,
+.g1-due.g1-due-soon {
+  background: rgba(245,158,11,0.10);
+  border-color: rgba(245,158,11,0.3);
+}
+.g1-due.g1-due-due .rel,
+.g1-due.g1-due-soon .rel { color: #b45309; font-weight: 600; }
+.g1-due.g1-due-overdue {
+  background: rgba(220,38,38,0.10);
+  border-color: rgba(220,38,38,0.35);
+}
+.g1-due.g1-due-overdue .rel { color: #b91c1c; font-weight: 700; }
+.g1-due.g1-due-upcoming {
+  background: rgba(16,185,129,0.08);
+  border-color: rgba(16,185,129,0.25);
+}
+.g1-due.g1-due-upcoming .rel { color: #059669; }
+
+/* ─── KPI strip ──────────────────────────────────────────────────── */
+
+.g1-kpis {
+  flex-shrink: 0;
+  padding: 12px 28px 4px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.g1-kpi {
+  flex: 0 0 320px;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.g1-kpi .k {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-tertiary);
+  line-height: 1.4;
+}
+.g1-kpi .v {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  line-height: 1.15;
+}
+.g1-kpi .sub { font-size: 11.5px; color: var(--fg-tertiary); }
+.g1-kpi .sub b { color: var(--fg-secondary); font-weight: 600; }
+
+/* Subtle colour tints matching the aging palette */
+.g1-kpi.tot {
+  background: linear-gradient(135deg, rgba(160, 130, 80, 0.08) 0%, var(--bg-panel) 60%);
+  border-color: rgba(160, 130, 80, 0.18);
+}
+.g1-kpi.tax {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.10) 0%, var(--bg-panel) 60%);
+  border-color: rgba(79, 70, 229, 0.24);
+}
+.g1-kpi.tax .v { color: #4F46E5; }
+.g1-kpi.sum {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.10) 0%, var(--bg-panel) 60%);
+  border-color: rgba(16, 185, 129, 0.24);
+}
+.g1-kpi.sum .v { color: #059669; }
+
+/* ─── view bar / section tabs ────────────────────────────────────── */
+
+.g1-viewbar {
+  flex-shrink: 0;
+  padding: 10px 28px 8px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.g1-tabs {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  gap: 2px;
+}
+.g1-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.g1-tab:hover { color: var(--fg-primary); }
+.g1-tab.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ─── table shell ────────────────────────────────────────────────── */
+
+.g1-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 28px 20px;
+  display: flex;
+  flex-direction: column;
+}
+.g1-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.g1-tbl {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  min-width: 1100px;
+}
+.g1-tbl thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-panel);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-tertiary);
+  padding: 11px 14px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.g1-tbl thead th:first-child,
+.g1-tbl thead th:nth-child(2),
+.g1-tbl thead th:nth-child(3) { text-align: left; }
+.g1-tbl tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+  text-align: right;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.g1-tbl tbody td:first-child,
+.g1-tbl tbody td:nth-child(2),
+.g1-tbl tbody td:nth-child(3) { text-align: left; }
+
+.g1-rownum {
+  color: var(--fg-tertiary) !important;
+  font-size: 12px;
+  text-align: center !important;
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+}
+.g1-gstin {
+  font-family: 'Source Sans 3', sans-serif;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--fg-primary);
+}
+.g1-zero { color: var(--fg-tertiary); opacity: 0.5; }
+.g1-total { font-weight: 600; color: var(--fg-primary); }
+
+/* Group rows (B2B view) with expandable invoice drill */
+.g1-grp { cursor: pointer; transition: background-color .1s; }
+.g1-grp:hover { background: var(--bg-hover, rgba(0,0,0,0.02)); }
+.g1-grp.expanded { background: var(--bg-hover, rgba(0,0,0,0.03)); }
+.g1-grp.expanded td { border-bottom-color: transparent; }
+.g1-expand {
+  display: inline-block;
+  width: 14px;
+  color: var(--fg-tertiary);
+  margin-right: 6px;
+  transition: transform .15s;
+}
+.g1-grp.expanded .g1-expand { transform: rotate(90deg); }
+
+/* Nested invoice rows under a B2B group */
+.g1-inv td {
+  background: rgba(0,0,0,0.015);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+[data-theme^="modern-dark"] .g1-inv td,
+[data-theme="classic-dark"] .g1-inv td {
+  background: rgba(255,255,255,0.02);
+}
+.g1-bill-no {
+  font-family: 'Source Sans 3', sans-serif;
+  color: var(--fg-primary);
+  font-weight: 600;
+}
+
+/* Sticky tfoot — totals stay visible as you scroll */
+.g1-tbl tfoot .g1-tot-row td {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--bg-panel);
+  font-weight: 600;
+  padding: 10px 14px;
+  border-top: 2px solid var(--border);
+  border-bottom: 0;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── empty state ────────────────────────────────────────────────── */
+
+.g1-empty {
+  padding: 60px 28px;
+  text-align: center;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+}
+.g1-empty .big {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+  margin-bottom: 6px;
+}

@@ -63,7 +63,11 @@ function healthOf(p) {
 }
 
 export default function StockMovement() {
-  const { productId } = useParams();
+  // Route is declared as `stock-movement/*` (splat) so the component stays
+  // mounted when navigating between the empty and populated forms — the
+  // old `:productId` param name no longer exists, it's now the `*` splat.
+  const params = useParams();
+  const productId = params['*'] || undefined;
   const navigate = useNavigate();
 
   /* ── product picker ── */
@@ -98,14 +102,32 @@ export default function StockMovement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
-  /* Load transactions whenever selected product changes */
+  /* Load transactions whenever selected product changes.
+   * We deliberately do NOT clear `transactions` synchronously — that causes a
+   * visible "blink" where the header stats snap to zero and the ledger
+   * unmounts before the new data arrives. Instead we keep the previous
+   * product's rows rendered behind a loading overlay (`txLoading`) and only
+   * swap them in when the fetch resolves. The cancel flag prevents an
+   * in-flight response from overwriting a newer selection. */
   useEffect(() => {
     if (!selected) { setTransactions([]); return; }
     setTxLoading(true);
+    let cancelled = false;
     productAPI.getStockMovement(selected.product_id)
-      .then(({ data }) => setTransactions(data || []))
-      .catch(() => { setTransactions([]); message.error('Failed to load movement'); })
-      .finally(() => setTxLoading(false));
+      .then(({ data }) => {
+        if (cancelled) return;
+        setTransactions(data || []);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTransactions([]);
+        message.error('Failed to load movement');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setTxLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [selected]);
 
   const loadProducts = async () => {
@@ -397,10 +419,21 @@ export default function StockMovement() {
                   <div className="sm-c-rate">Rate</div>
                   <div className="sm-c-bal">Balance</div>
                 </div>
-                <div className="sm-ledger-scroll">
-                  {txLoading ? (
-                    <div className="ed-empty"><Spin /></div>
-                  ) : filteredTx.length === 0 ? (
+                <div className="sm-ledger-scroll" style={{ position: 'relative' }}>
+                  {txLoading && (
+                    <div style={{
+                      position: 'absolute', top: 0, left: 0, right: 0,
+                      height: 2, overflow: 'hidden', zIndex: 3,
+                      background: 'transparent',
+                    }}>
+                      <div style={{
+                        width: '40%', height: '100%',
+                        background: 'var(--accent, #4F46E5)',
+                        animation: 'sm-loading-bar 1.1s ease-in-out infinite',
+                      }} />
+                    </div>
+                  )}
+                  {filteredTx.length === 0 && !txLoading ? (
                     <div className="ed-empty">
                       {txSearch || txType !== 'All'
                         ? 'No matching transactions.'

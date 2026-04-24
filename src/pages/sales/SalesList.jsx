@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   Table, Tag, Typography, message, DatePicker, Select, Tooltip,
   Modal, Descriptions, Divider, Dropdown,
@@ -23,6 +23,7 @@ const SALES_OPTIONAL_COLS = [
   { key: 'return',   label: 'Return amount' },
 ];
 const COLS_STORAGE_KEY = 'salesList_cols_v1';
+const BILLS_PAGE_SIZE = 100;
 const DEFAULT_COLS = { items: true, gst: false, discount: false, return: false };
 
 const { Text } = Typography;
@@ -221,8 +222,23 @@ function Ring({ pct, tone = 'ok' }) {
 export default function SalesList() {
   const [bills, setBills]           = useState([]);
   const [loading, setLoading]       = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage]             = useState(1);
   const [total, setTotal]           = useState(0);
+  // `searchInput` is the raw value in the box — updates on every keystroke
+  // so the caret doesn't lag. `filters.search` is the debounced value that
+  // actually hits the API. Debouncing cuts 6 network calls for "balaji"
+  // down to 1 and keeps the list stable while the user is typing.
+  const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters]       = useState({ search: '', payment_status: null, from_date: null, to_date: null });
+  const listEndRef = useRef(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [viewBill, setViewBill]     = useState(null);
   const [actionLoading, setActionLoading] = useState({});
   const [companyName, setCompanyName] = useState('');
@@ -241,20 +257,38 @@ export default function SalesList() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadBills();
+    loadBills(1);
     settingsAPI.getSystem().then(({ data }) => setCompanyName(data?.data?.company_name || '')).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
-  const loadBills = async () => {
-    setLoading(true);
+  const loadBills = async (pageArg = 1) => {
+    if (pageArg === 1) setLoading(true); else setLoadingMore(true);
     try {
-      const { data } = await salesAPI.getAll({ ...filters, page: 1, limit: 10000 });
-      setBills(data.data);
-      setTotal(data.total);
+      const { data } = await salesAPI.getAll({ ...filters, page: pageArg, limit: BILLS_PAGE_SIZE });
+      const list = data.data || [];
+      if (pageArg === 1) setBills(list); else setBills(prev => [...prev, ...list]);
+      setPage(pageArg);
+      setTotal(data.total || 0);
     } catch (e) { message.error('Failed to load'); }
-    setLoading(false);
+    if (pageArg === 1) setLoading(false); else setLoadingMore(false);
   };
+
+  const handleLoadMore = useCallback(() => {
+    if (loadingMore || loading) return;
+    if (bills.length >= total) return;
+    loadBills(page + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingMore, loading, bills.length, total, page]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) handleLoadMore(); },
+      { threshold: 0.1 }
+    );
+    if (listEndRef.current) observer.observe(listEndRef.current);
+    return () => observer.disconnect();
+  }, [handleLoadMore]);
 
   const handleCancel = async (id) => {
     try {
@@ -355,8 +389,8 @@ export default function SalesList() {
             <input
               type="text"
               placeholder="Search bill no or customer"
-              value={filters.search}
-              onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <DatePicker.RangePicker
@@ -463,28 +497,54 @@ export default function SalesList() {
             <div className="c-act"></div>
           </div>
 
-          <div className="bscroll">
-            {loading ? (
+          <div className="bscroll" style={{ position: 'relative' }}>
+            {/* Top progress strip — stays while the list refetches (search or
+                filter change) so the rows underneath don't unmount. Without
+                this the list would blink to "Loading…" on every keystroke
+                and feel laggy even when the network was fast. */}
+            {loading && bills.length > 0 && (
+              <div style={{
+                position: 'sticky', top: 0, left: 0, right: 0,
+                height: 2, overflow: 'hidden', zIndex: 3,
+                background: 'transparent',
+              }}>
+                <div style={{
+                  width: '40%', height: '100%',
+                  background: 'var(--accent, #4F46E5)',
+                  animation: 'sm-loading-bar 1.1s ease-in-out infinite',
+                }} />
+              </div>
+            )}
+            {loading && bills.length === 0 ? (
               <div className="brow empty">Loading bills…</div>
-            ) : bills.length === 0 ? (
+            ) : !loading && bills.length === 0 ? (
               <div className="brow empty">No bills match the current filters.</div>
             ) : (
-              bills.map((bill, i) => (
-                <BillRow
-                  key={bill.sales_bill_id}
-                  bill={bill}
-                  index={i}
-                  cols={cols}
-                  actionLoading={!!actionLoading[bill.sales_bill_id]}
-                  onView={() => handleView(bill.sales_bill_id)}
-                  onPrint={() => handlePrint(bill.sales_bill_id)}
-                  onEdit={() => handleEdit(bill.sales_bill_id)}
-                  onCancel={() => handleCancel(bill.sales_bill_id)}
-                  onReceipt={() => handleRecordReceipt(bill)}
-                  onExportPDF={() => handleExportPDF(bill)}
-                  onWhatsApp={() => handleWhatsApp(bill)}
-                />
-              ))
+              <>
+                {bills.map((bill, i) => (
+                  <BillRow
+                    key={bill.sales_bill_id}
+                    bill={bill}
+                    index={i}
+                    cols={cols}
+                    actionLoading={!!actionLoading[bill.sales_bill_id]}
+                    onView={() => handleView(bill.sales_bill_id)}
+                    onPrint={() => handlePrint(bill.sales_bill_id)}
+                    onEdit={() => handleEdit(bill.sales_bill_id)}
+                    onCancel={() => handleCancel(bill.sales_bill_id)}
+                    onReceipt={() => handleRecordReceipt(bill)}
+                    onExportPDF={() => handleExportPDF(bill)}
+                    onWhatsApp={() => handleWhatsApp(bill)}
+                  />
+                ))}
+                <div ref={listEndRef} style={{ padding: 12, textAlign: 'center', color: 'var(--fg-tertiary)', fontSize: 12 }}>
+                  {loadingMore
+                    ? 'Loading more…'
+                    : bills.length >= total
+                      ? (total > 0 ? `All ${total} bills loaded` : '')
+                      : 'Scroll to load more'}
+                </div>
+              </>
             )}
           </div>
 

@@ -112,7 +112,7 @@ const loginCss = `
   position: fixed; inset: 0;
   background: #0B0807;
   color: #F5EEE2;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
   overflow: hidden;
 }
 .erp-login-mesh {
@@ -169,7 +169,7 @@ const loginCss = `
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .erp-login-h {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-optical-sizing: auto;
   font-size: 32px;
   font-weight: 500;
@@ -178,7 +178,7 @@ const loginCss = `
   margin: 0 0 6px;
 }
 .erp-login-sub {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-style: italic;
   font-size: 14.5px;
   color: #8F8372;
@@ -260,7 +260,7 @@ const loginCss = `
   flex-shrink: 0;
 }
 .erp-login-hint-text {
-  font-family: 'Fraunces', serif; font-style: italic;
+  font-family: 'Source Sans 3', sans-serif; font-style: italic;
   font-size: 13px; color: #B2A791;
   line-height: 1.5;
 }

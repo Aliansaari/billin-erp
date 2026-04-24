@@ -53,7 +53,8 @@ const PurchaseBill = sequelize.define('PurchaseBill', {
     defaultValue: 0,
   },
   discount_percentage: {
-    type: DataTypes.DECIMAL(5, 2),
+    // See SalesBill for the DECIMAL(9, 4) rationale.
+    type: DataTypes.DECIMAL(9, 4),
     defaultValue: 0,
   },
   cgst_pct: {

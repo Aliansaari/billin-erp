@@ -59,7 +59,7 @@ const FONT_PRESETS = [
   { v: "'Courier New', 'Consolas', monospace",        l: 'Courier (classic receipt)' },
   { v: "'Consolas', 'Menlo', 'Courier New', monospace", l: 'Consolas (clean mono)' },
   { v: "'Roboto Mono', 'Courier New', monospace",     l: 'Roboto Mono' },
-  { v: "'Inter', 'Segoe UI', system-ui, sans-serif",  l: 'Inter (modern sans)' },
+  { v: "'Source Sans 3', 'Segoe UI', system-ui, sans-serif",  l: 'Source Sans 3 (modern sans)' },
   { v: "'Helvetica Neue', Arial, sans-serif",         l: 'Helvetica Neue' },
   { v: "'Arial Black', 'Arial Bold', sans-serif",     l: 'Arial Black (thickest)' },
   { v: "'Georgia', 'Times New Roman', serif",         l: 'Georgia (serif)' },
@@ -135,7 +135,7 @@ const blankProfile = (docType = 'sales') => ({
   thermal_style: 'simple', bold_level: 'bold',
   paper_width_mm: 210, paper_height_mm: 297,
   margin_top_mm: 10, margin_right_mm: 10, margin_bottom_mm: 10, margin_left_mm: 10,
-  font_family: 'Inter, system-ui, sans-serif', font_size_pt: 10, line_spacing: 1.35,
+  font_family: "'Source Sans 3', system-ui, sans-serif", font_size_pt: 10, line_spacing: 1.35,
   show_logo: true, header_title: '', header_html: '', header_align: 'center',
   show_hsn: true, show_batch: false, show_mrp: true, show_discount: true,
   show_tax_breakdown: true, show_gst: true, show_return_amount: true,
@@ -496,7 +496,7 @@ export default function PrintSettings() {
                           <Input
                             value={draft.font_family}
                             onChange={e => set('font_family', e.target.value)}
-                            placeholder="e.g. 'Inter', system-ui, sans-serif"
+                            placeholder="e.g. 'Source Sans 3', system-ui, sans-serif"
                           />
                         </Col>
                         {isThermal && (

@@ -23,6 +23,7 @@ import {
   UserOutlined, TagsOutlined, FileTextOutlined, WalletOutlined,
   FundOutlined, AppstoreOutlined, StockOutlined, PlusCircleOutlined,
   UnorderedListOutlined, RollbackOutlined, BankOutlined, ThunderboltOutlined,
+  FieldTimeOutlined,
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
   SwapOutlined, ApiOutlined, PrinterOutlined,
 } from '@ant-design/icons';
@@ -92,6 +93,8 @@ export const menuItems = [
       { key: '/reports/purchases',    icon: <FileTextOutlined />, label: 'Purchase Report', perm: 'reports.view' },
       { key: '/reports/stock',        icon: <StockOutlined />,    label: 'Stock Report',    perm: 'reports.view' },
       { key: '/reports/party-ledger', icon: <WalletOutlined />,   label: 'Party Ledger',    perm: 'accounts.view' },
+      { key: '/reports/aging',        icon: <FieldTimeOutlined />,label: 'Aging Report',    perm: 'reports.view' },
+      { key: '/reports/gstr1',        icon: <FileTextOutlined />, label: 'GSTR-1',          perm: 'reports.view' },
       { key: '/reports/profit-loss',  icon: <FundOutlined />,     label: 'Profit & Loss',   perm: 'accounts.view' },
     ],
   },

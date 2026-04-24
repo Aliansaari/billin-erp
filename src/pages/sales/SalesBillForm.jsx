@@ -56,7 +56,13 @@ export default function SalesBillForm() {
   const [prodOpts, setProdOpts] = useState([]);
   const [company, setCompany]   = useState('');
   const [billNo, setBillNo]     = useState('');
-  const [gstMode]               = useState(()=>localStorage.getItem('gst_mode')||'product');
+  // gstMode defaults to the user's last choice (saved in localStorage) for
+  // new bills, but flips to 'bill' when we load an existing bill that was
+  // clearly stored as bill-wise — i.e. it has non-zero bill-level GST
+  // percentages or amounts. Without this, Tally-imported bills (which are
+  // always bill-wise and whose line items have gst_rate=0) would render
+  // with zero tax in the edit form and disagree with the sales-list total.
+  const [gstMode, setGstMode]   = useState(()=>localStorage.getItem('gst_mode')||'product');
   const [cgstPct, setCgstPct]   = useState(0);
   const [sgstPct, setSgstPct]   = useState(0);
   const [igstPct, setIgstPct]   = useState(0);
@@ -139,7 +145,16 @@ export default function SalesBillForm() {
         customer_id:data.customer_id,
         bill_date:data.bill_date?dayjs(data.bill_date):dayjs(),
         due_date:data.due_date?dayjs(data.due_date):null,
-        discount_percentage:parseFloat(data.discount_percentage)||0,
+        // If the stored bill has a discount_amount but pct=0 (old Tally
+        // imports), derive pct from amount/sub_total so the total calc
+        // actually subtracts the discount. Safety net for legacy data.
+        discount_percentage: (() => {
+          const pct = parseFloat(data.discount_percentage)||0;
+          if (pct > 0) return pct;
+          const amt = parseFloat(data.discount_amount)||0;
+          const sub = parseFloat(data.sub_total)||0;
+          return (amt > 0 && sub > 0) ? +(amt / sub * 100).toFixed(4) : 0;
+        })(),
         paid_amount:parseFloat(data.paid_amount)||0,
         return_amount:parseFloat(data.return_amount)||0,
         sale_type:data.sale_type||'Retail',
@@ -150,9 +165,24 @@ export default function SalesBillForm() {
         payment_method:data.payment_method||'Cash',
         remarks:data.remarks||'',
       });
-      setCgstPct(parseFloat(data.cgst_pct)||0);
-      setSgstPct(parseFloat(data.sgst_pct)||0);
-      setIgstPct(parseFloat(data.igst_pct)||0);
+      const loadedCgstPct = parseFloat(data.cgst_pct)||0;
+      const loadedSgstPct = parseFloat(data.sgst_pct)||0;
+      const loadedIgstPct = parseFloat(data.igst_pct)||0;
+      const loadedCgstAmt = parseFloat(data.cgst_amount)||0;
+      const loadedSgstAmt = parseFloat(data.sgst_amount)||0;
+      const loadedIgstAmt = parseFloat(data.igst_amount)||0;
+      setCgstPct(loadedCgstPct);
+      setSgstPct(loadedSgstPct);
+      setIgstPct(loadedIgstPct);
+      // Heuristic: if the bill has any bill-level GST (pct or amount), it
+      // was stored bill-wise — flip the form's mode so the edit view
+      // recomputes the total the same way the bill was originally saved.
+      // Native product-wise bills leave all of these at 0 and keep the
+      // user's localStorage preference.
+      if (loadedCgstPct > 0 || loadedSgstPct > 0 || loadedIgstPct > 0
+          || loadedCgstAmt > 0 || loadedSgstAmt > 0 || loadedIgstAmt > 0) {
+        setGstMode('bill');
+      }
       setDiscAmtVal(parseFloat(data.discount_amount)||0);
       const loaded=(data.items||[]).map((it,i)=>({
         key:it.item_id||i, item_id:it.item_id,
@@ -337,8 +367,13 @@ export default function SalesBillForm() {
   const rawTotal    = taxableAmt+totalGST
     +parseFloat(otherChr||0)
     +parseFloat(freightChr||0);
+  // Tally rounds every voucher to the nearest rupee and records the
+  // residue as a round_off ledger. We mirror that: the displayed net
+  // total is always an integer, and the fractional difference lands in
+  // round_off automatically. This keeps the edit form total in lock-step
+  // with the list total (which also shows the rounded value).
   const roundedTotal = Math.round(rawTotal);
-  const roundOff    = +(roundedTotal-rawTotal).toFixed(2);
+  const roundOff     = +(roundedTotal - rawTotal).toFixed(2);
   const maxPaid     = Math.max(0, roundedTotal - parseFloat(returnAmt || 0));
   const balance     = +(roundedTotal - parseFloat(returnAmt||0) - Math.min(paidAmt, maxPaid)).toFixed(2);
   const changeDue   = paymentMethod === 'Cash' ? Math.max(0, +((cashReceived || 0) - roundedTotal).toFixed(2)) : 0;
@@ -838,11 +873,15 @@ export default function SalesBillForm() {
                     <span className="sbf-val-box">{fmtN(taxableAmt)}</span>
                   </div>
                   <div className="sbf-tot-line with-pct">
-                    <span className="k" title="CGST + SGST — shared % applies to both halves">GST (C+S)</span>
+                    <span className="k" title="Combined CGST + SGST rate. Typed value is split half/half into the two columns on save.">GST (C+S)</span>
                     <InputNumber keyboard={false} size="small" min={0} max={100}
                       className="sbf-pct-in" style={{width:'100%'}}
-                      value={effCgstPct||undefined} disabled={gstMode==='product'}
-                      onChange={v=>{ const n=v||0; setCgstPct(n); setSgstPct(n); }}
+                      // Show the COMBINED rate (5%) not just the CGST half (2.5%)
+                      // so the label and the amount column agree. The input is
+                      // the user's mental "GST rate" — the split into equal
+                      // CGST/SGST halves happens on save, transparently.
+                      value={(effCgstPct + effSgstPct)||undefined} disabled={gstMode==='product'}
+                      onChange={v=>{ const half = (v||0) / 2; setCgstPct(half); setSgstPct(half); }}
                       formatter={v=>v?`${v}%`:''} parser={v=>v?.replace('%','')||''}
                       placeholder="%"/>
                     <span className="sbf-val-box">{fmtN(cgst + sgst)}</span>
@@ -891,8 +930,13 @@ export default function SalesBillForm() {
                       onChange={amt=>{
                         discAmtEditingRef.current=true;
                         setDiscAmtVal(amt||0);
+                        // Keep 4-decimal precision so the derived pct can
+                        // round-trip back to the same amount. Truncating
+                        // to 2dp turns 4.7619% into 4.76%, which re-derives
+                        // the amount as 2239.10 instead of 2240 — the ~₹1
+                        // drift you'd otherwise see on every imported bill.
                         const pct = subTotal>0 ? +((amt||0)/subTotal*100).toFixed(4) : 0;
-                        form.setFieldValue('discount_percentage', +pct.toFixed(2));
+                        form.setFieldValue('discount_percentage', pct);
                       }}/>
                   </div>
                 </div>

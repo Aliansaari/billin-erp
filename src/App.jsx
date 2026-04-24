@@ -31,6 +31,8 @@ import PurchaseReport from './pages/reports/PurchaseReport';
 import StockReportPage from './pages/reports/StockReportPage';
 import PartyLedger from './pages/reports/PartyLedger';
 import ProfitLoss from './pages/reports/ProfitLoss';
+import AgingReport from './pages/reports/AgingReport';
+import GSTR1Report from './pages/reports/GSTR1Report';
 import CompanyProfile from './pages/settings/CompanyProfile';
 import UserManagement from './pages/settings/UserManagement';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
@@ -121,8 +123,11 @@ export default function App() {
           <Route path="categories"                     element={<RoleRoute perm="inventory.view"><CategoryList /></RoleRoute>} />
           <Route path="stock-report"                   element={<RoleRoute perm="inventory.view"><StockReport /></RoleRoute>} />
           <Route path="stock-report-pro"               element={<RoleRoute perm="inventory.view"><StockReportPro /></RoleRoute>} />
-          <Route path="stock-movement"                 element={<RoleRoute perm="inventory.view"><StockMovement /></RoleRoute>} />
-          <Route path="stock-movement/:productId"      element={<RoleRoute perm="inventory.view"><StockMovement /></RoleRoute>} />
+          {/* Splat route — keeps StockMovement mounted when navigating
+               from /stock-movement to /stock-movement/:productId, so
+               clicking a product doesn't remount the whole page (which
+               previously re-ran loadProducts and caused a visible blink). */}
+          <Route path="stock-movement/*"               element={<RoleRoute perm="inventory.view"><StockMovement /></RoleRoute>} />
 
           {/* Purchase */}
           <Route path="purchase/new"     element={<RoleRoute perm="purchase.create"><PurchaseBillForm /></RoleRoute>} />
@@ -153,6 +158,8 @@ export default function App() {
           <Route path="reports/stock"         element={<RoleRoute perm="reports.view"><StockReportPage /></RoleRoute>} />
           <Route path="reports/party-ledger"  element={<RoleRoute perm="accounts.view"><PartyLedger /></RoleRoute>} />
           <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
+          <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
+          <Route path="reports/gstr1"         element={<RoleRoute perm="reports.view"><GSTR1Report /></RoleRoute>} />
 
           {/* Settings */}
           <Route path="settings/company"        element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />

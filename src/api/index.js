@@ -157,6 +157,8 @@ export const reportAPI = {
   getStockReport: (params) => api.get('/reports/stock', { params }),
   getProfitLoss: (params) => api.get('/reports/profit-loss', { params }),
   getPartyOutstanding: (params) => api.get('/reports/party-outstanding', { params }),
+  getAging: (params) => api.get('/reports/aging', { params }),
+  getGstr1: (params) => api.get('/reports/gstr1', { params }),
 
   // Filter-aware XLSX exports — SAME filter shape as the JSON endpoints above.
   // The server applies the filters, fetches ALL matching rows (no page limit),
@@ -165,6 +167,8 @@ export const reportAPI = {
   exportPurchaseReport: (params) => api.get('/reports/purchases/export', { params, responseType: 'blob', timeout: 300000 }),
   exportStockReport: (params) => api.get('/reports/stock/export', { params, responseType: 'blob', timeout: 300000 }),
   exportPartyOutstanding: (params) => api.get('/reports/party-outstanding/export', { params, responseType: 'blob', timeout: 300000 }),
+  exportAging: (params) => api.get('/reports/aging/export', { params, responseType: 'blob', timeout: 300000 }),
+  exportGstr1: (params) => api.get('/reports/gstr1/export', { params, responseType: 'blob', timeout: 300000 }),
 };
 
 // Settings
