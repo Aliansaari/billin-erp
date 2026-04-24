@@ -166,7 +166,7 @@
 /* Big receive-amount input */
 .be-fld .be-big .ant-input-number-input {
   height: 52px !important;
-  font-family: 'Fraunces', 'Georgia', serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-size: 22px; font-weight: 600;
   color: var(--be-accent);
   font-variant-numeric: tabular-nums;
@@ -192,12 +192,12 @@
 }
 .be-bal-card .amt {
   text-align: right; flex-shrink: 0;
-  font-family: 'Fraunces', 'Georgia', serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-weight: 700; font-size: 17px;
   color: var(--be-accent); font-variant-numeric: tabular-nums;
 }
 .be-bal-card .amt .s {
-  display: block; font-family: 'Inter', sans-serif;
+  display: block; font-family: 'Source Sans 3', sans-serif;
   font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
   text-transform: uppercase; color: var(--be-accent); opacity: 0.8;
   margin-top: 2px;
@@ -273,7 +273,7 @@
 
 .be-row .bn {
   font-weight: 600; font-size: 14px; color: var(--fg-primary);
-  font-family: 'Fraunces', 'Georgia', serif;
+  font-family: 'Source Sans 3', sans-serif;
   letter-spacing: -0.01em;
 }
 .be-row.opening .bn { color: #4338ca; font-style: italic; }
@@ -283,17 +283,17 @@
   text-align: right;
   font-size: 13px; color: var(--fg-secondary);
   font-variant-numeric: tabular-nums;
-  font-family: 'Fraunces', 'Georgia', serif; font-weight: 500;
+  font-family: 'Source Sans 3', sans-serif; font-weight: 500;
 }
 .be-row .amt.bal { font-weight: 700; color: var(--danger, #B1472F); }
 .be-row .amt.bal.partial { color: var(--warning, #B8923C); }
 .be-row .amt.bal .sub {
-  display: block; font-family: 'Inter', sans-serif;
+  display: block; font-family: 'Source Sans 3', sans-serif;
   font-size: 10px; color: var(--fg-tertiary); font-weight: 500;
 }
 .be-row .amt.paid { font-weight: 700; color: var(--be-accent); }
 .be-row .amt.partial { color: var(--warning, #B8923C); }
-.be-row .amt .dash { color: var(--fg-tertiary); font-family: 'Inter', sans-serif; }
+.be-row .amt .dash { color: var(--fg-tertiary); font-family: 'Source Sans 3', sans-serif; }
 
 .be-row .ant-checkbox-inner {
   width: 18px; height: 18px; border-radius: 4px;
@@ -337,7 +337,7 @@
   color: var(--fg-tertiary); margin-right: 6px;
 }
 .be-action-bar .totals b {
-  font-family: 'Fraunces', 'Georgia', serif; font-weight: 700;
+  font-family: 'Source Sans 3', sans-serif; font-weight: 700;
   font-variant-numeric: tabular-nums;
   font-size: 16px; color: var(--fg-primary);
 }

@@ -106,15 +106,33 @@ exports.getAll = async (req, res) => {
       where[Op.or] = [
         { bill_number: { [Op.iLike]: `%${search}%` } },
         { supplier_bill_number: { [Op.iLike]: `%${search}%` } },
+        { '$supplier.party_name$': { [Op.iLike]: `%${search}%` } },
+        { '$supplier.mobile_1$':   { [Op.iLike]: `%${search}%` } },
       ];
     }
 
+    // Mirror the sales list: per-row aggregates so the UI can render
+    // "N items · P pcs" without fetching each bill's items. Correlated
+    // subqueries keep the whole listing on a single round-trip.
     const { count, rows } = await PurchaseBill.findAndCountAll({
       where,
+      attributes: {
+        include: [
+          [sequelize.literal(
+            '(SELECT COUNT(*)::int FROM purchase_bill_items WHERE purchase_bill_items.purchase_bill_id = "PurchaseBill"."purchase_bill_id")'
+          ), '_item_count'],
+          [sequelize.literal(
+            '(SELECT COALESCE(SUM(quantity), 0)::float FROM purchase_bill_items WHERE purchase_bill_items.purchase_bill_id = "PurchaseBill"."purchase_bill_id")'
+          ), '_pcs_total'],
+        ],
+      },
       include: [{ model: Party, as: 'supplier', attributes: ['party_name', 'mobile_1'] }],
       order: [['bill_date', 'DESC'], ['purchase_bill_id', 'DESC']],
       limit,
       offset,
+      // See salesController for the subQuery:false + distinct:true rationale.
+      subQuery: false,
+      distinct: true,
     });
 
     res.json({ total: count, page, limit, data: rows });

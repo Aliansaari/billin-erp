@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aging Report — Collections Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Aging Report — Collections Command Center
+ *
+ * This mockup is a re-imagined aging report. It rejects the idea that an
+ * aging report is a static table you print monthly. Instead it's a *daily*
+ * collections tool answering the question the business owner actually has:
+ * "who do I call TODAY, and how much will I collect this week?"
+ *
+ * The design has four views stacked into one page:
+ *
+ *   1. Priority Queue — rows sorted by a priority score combining overdue
+ *      days, balance size, and payment-history risk. Inline Call / WhatsApp
+ *      / Record Payment actions so the user can work down the list without
+ *      switching pages.
+ *
+ *   2. Party-wise summary — the familiar bucket table, one row per party.
+ *
+ *   3. Bill-wise (Tally-style) — one row per bill, balance placed in the
+ *      bucket column it falls into. Flat, sortable, print-friendly.
+ *
+ *   4. Aging Heat Map — visual density chart showing outstanding amounts
+ *      by overdue-week × party. Reveals concentration risk at a glance.
+ *
+ * Palette mirrors the live app's editorial theme (cream background, warm
+ * terracotta accent, indigo highlight for the action queue) so this can be
+ * pulled straight into the React codebase without re-styling. Inter only.
+ */
+
+:root {
+  /* Surface */
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+  --bg-chip:     #F0E8D4;
+
+  /* Ink */
+  --ink:         #1D1A15;
+  --ink-2:       #4F4434;
+  --ink-3:       #7A6E5A;
+  --ink-4:       #A79C88;
+  --ink-5:       #CABFA8;
+
+  /* Rules */
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  /* Accents */
+  --accent:      #B1472F;   /* primary — terra cotta */
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10);
+  --accent-border: rgba(177,71,47,0.24);
+
+  --indigo:      #4F46E5;   /* action queue highlight */
+  --indigo-soft: rgba(79,70,229,0.10);
+
+  /* Semantic */
+  --ok:          #5A7C4A;
+  --ok-soft:     rgba(90,124,74,0.14);
+  --warn:        #B5872B;
+  --warn-soft:   rgba(181,135,43,0.14);
+  --danger:      #B1472F;
+  --danger-soft: rgba(177,71,47,0.12);
+
+  /* Aging buckets — gradient from green (good) → red (bad) */
+  --b-current:   #5A7C4A;
+  --b-b1:        #8AA04B;
+  --b-b2:        #C8A43C;
+  --b-b3:        #D47F2A;
+  --b-b4:        #B1472F;
+
+  /* Sidebar */
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-w:        228px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh; overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══════════════════════════ SIDEBAR ═══════════════════════════════ */
+
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  padding: 16px 12px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  z-index: 20;
+}
+.sb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px 14px;
+  border-bottom: 1px solid var(--sb-border); margin-bottom: 10px;
+}
+.sb-logo {
+  width: 30px; height: 30px; border-radius: 7px;
+  background: var(--accent);
+  display: grid; place-items: center;
+  color: #FDFAF2; font-weight: 700; font-size: 14px;
+}
+.sb-logo-text { font-weight: 600; font-size: 14.5px; color: #F5EEE2; }
+.sb-sec { font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--sb-ink-3);
+  padding: 12px 12px 4px; }
+.sb-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; border-radius: 6px;
+  color: var(--sb-ink); font-size: 13px;
+  cursor: pointer; margin-bottom: 1px;
+}
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--accent); color: #FDFAF2; font-weight: 500; }
+.sb-item .ic { width: 14px; color: var(--sb-ink-3); }
+.sb-item.active .ic { color: #FDFAF2; }
+
+/* ═══════════════════════════ MAIN ══════════════════════════════════ */
+
+.main {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* ─── Page header ─── */
+.page-hd {
+  flex-shrink: 0;
+  padding: 16px 28px 12px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.page-title h1 {
+  font-size: 26px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--ink); line-height: 1; margin-bottom: 5px;
+}
+.page-title .sub {
+  font-size: 12.5px; color: var(--ink-3); font-weight: 500;
+}
+.page-title .sub b { color: var(--ink); font-weight: 600; }
+.page-title .sub .sep { color: var(--ink-5); margin: 0 6px; }
+
+.hd-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Segmented toggle (Receivables / Payables) */
+.seg {
+  display: inline-flex; padding: 3px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 9px;
+}
+.seg button {
+  border: 0; background: transparent;
+  padding: 6px 14px; font: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--ink-2); border-radius: 7px; cursor: pointer;
+  transition: background-color .15s, color .15s;
+}
+.seg button:hover { color: var(--ink); }
+.seg button.on { background: var(--accent); color: #FDFAF2; font-weight: 600; }
+
+.btn {
+  height: 34px; padding: 0 14px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px;
+  color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 500;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.btn svg { width: 13px; height: 13px; }
+.btn.primary { background: var(--accent); color: #FDFAF2; border-color: var(--accent); }
+.btn.primary:hover { background: var(--accent-hover); color: #FDFAF2; }
+
+/* ─── KPI strip (4 cards) ─── */
+.kpis {
+  flex-shrink: 0;
+  padding: 14px 28px 0;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+}
+.kpi {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 14px 16px;
+  position: relative; overflow: hidden;
+}
+.kpi .kpi-k {
+  font-size: 10.5px; letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 700;
+}
+.kpi .kpi-v {
+  font-size: 24px; font-weight: 700; color: var(--ink);
+  line-height: 1.1; margin-top: 5px; letter-spacing: -0.01em;
+}
+.kpi .kpi-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 3px; }
+.kpi .kpi-sub b { color: var(--ink-2); font-weight: 600; }
+
+.kpi.tot   { background: linear-gradient(135deg, #F3EAD3 0%, var(--bg-panel) 60%); }
+.kpi.due   { border-color: var(--danger-soft); background: linear-gradient(135deg, var(--danger-soft) 0%, var(--bg-panel) 60%); }
+.kpi.due .kpi-v { color: var(--danger); }
+.kpi.oldest { border-color: var(--warn-soft); background: linear-gradient(135deg, var(--warn-soft) 0%, var(--bg-panel) 60%); }
+.kpi.oldest .kpi-v { color: var(--warn); }
+.kpi.today { border-color: var(--indigo-soft); background: linear-gradient(135deg, var(--indigo-soft) 0%, var(--bg-panel) 60%); }
+.kpi.today .kpi-v { color: var(--indigo); }
+.kpi.today .kpi-cta {
+  margin-top: 8px; font-size: 11.5px; font-weight: 600; color: var(--indigo);
+  display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+}
+.kpi.today .kpi-cta:hover { text-decoration: underline; }
+
+/* Bucket distribution chart inside the Total card */
+.kpi-bar {
+  margin-top: 10px;
+  height: 7px; border-radius: 4px; overflow: hidden;
+  display: flex;
+  background: var(--bg-muted);
+}
+.kpi-bar span { display: block; height: 100%; }
+.kpi-bar-legend { margin-top: 6px; display: flex; gap: 10px; font-size: 10.5px; color: var(--ink-3); }
+.kpi-bar-legend i {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  margin-right: 4px; vertical-align: middle;
+}
+
+/* ─── View tabs + filters ─── */
+.view-bar {
+  flex-shrink: 0;
+  padding: 14px 28px 10px;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.tabs {
+  display: inline-flex; gap: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule); border-radius: 10px; padding: 3px;
+}
+.tabs button {
+  border: 0; background: transparent; padding: 7px 14px;
+  font: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--ink-2); border-radius: 7px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.tabs button:hover { color: var(--ink); }
+.tabs button.on { background: var(--ink); color: #FDFAF2; font-weight: 600; }
+.tabs svg { width: 12px; height: 12px; }
+
+.filter-bar {
+  flex-shrink: 0;
+  padding: 0 28px 14px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.search {
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 12px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px;
+  width: 280px;
+}
+.search input {
+  flex: 1; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 12.5px; color: var(--ink);
+}
+.search svg { width: 13px; height: 13px; color: var(--ink-3); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 999px;
+  font-size: 12px; font-weight: 500; color: var(--ink-2);
+  cursor: pointer; transition: all .12s;
+}
+.chip:hover { border-color: var(--accent-border); }
+.chip.on { background: var(--ink); color: #FDFAF2; border-color: var(--ink); }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+.chip .n {
+  font-size: 11px; font-weight: 700;
+  background: rgba(0,0,0,0.08); padding: 1px 7px; border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.chip.on .n { background: rgba(255,255,255,0.2); }
+
+.dot.c-current { background: var(--b-current); }
+.dot.c-b1      { background: var(--b-b1); }
+.dot.c-b2      { background: var(--b-b2); }
+.dot.c-b3      { background: var(--b-b3); }
+.dot.c-b4      { background: var(--b-b4); }
+
+/* ─── Content area ─── */
+.content {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 28px 20px;
+  display: flex; flex-direction: column;
+}
+
+.panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+/* ═══════════════════════════ PRIORITY QUEUE ═══════════════════════ */
+
+.pq-hd {
+  flex-shrink: 0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-muted);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.pq-title {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.3px;
+  text-transform: uppercase; color: var(--ink-2);
+}
+.pq-title .pill {
+  margin-left: 8px;
+  padding: 2px 9px; font-size: 11px; font-weight: 600;
+  background: var(--indigo-soft); color: var(--indigo);
+  border-radius: 999px;
+}
+.pq-hd-r { display: flex; gap: 8px; align-items: center; }
+.pq-hd-r .s-help {
+  font-size: 11.5px; color: var(--ink-3);
+}
+.pq-hd-r .bulk {
+  padding: 6px 12px;
+  background: var(--indigo); color: #fff; border: 0;
+  border-radius: 7px; font: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+}
+.pq-hd-r .bulk svg { width: 12px; height: 12px; }
+
+.pq-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+.pq-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 180px 240px 260px;
+  gap: 20px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+  align-items: center;
+  cursor: pointer;
+  transition: background-color .12s;
+}
+.pq-row:hover { background: var(--bg-muted); }
+
+/* Rank column */
+.pq-rank {
+  width: 46px; height: 46px; border-radius: 10px;
+  display: grid; place-items: center;
+  font-size: 17px; font-weight: 700; color: #FDFAF2;
+  position: relative;
+  font-variant-numeric: tabular-nums;
+}
+.pq-rank.p1 { background: var(--danger); }     /* hottest */
+.pq-rank.p2 { background: #C95628; }
+.pq-rank.p3 { background: var(--warn); }
+.pq-rank.p4 { background: var(--ink-2); }
+.pq-rank .hot-tag {
+  position: absolute; top: -5px; right: -5px;
+  font-size: 8.5px; font-weight: 700; letter-spacing: 0.5px;
+  background: #fff; color: var(--danger);
+  padding: 1px 4px; border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+/* Party column */
+.pq-party-name {
+  font-size: 15px; font-weight: 600; color: var(--ink);
+  margin-bottom: 3px; letter-spacing: -0.01em;
+}
+.pq-party-meta {
+  display: flex; gap: 10px; font-size: 12px; color: var(--ink-3);
+  flex-wrap: wrap;
+}
+.pq-party-meta .sep { color: var(--ink-5); }
+
+/* Aging strip — horizontal bar where segments show bucket distribution */
+.pq-strip-box { padding-right: 14px; }
+.pq-strip-box .lbl {
+  font-size: 10.5px; letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 700; margin-bottom: 6px;
+}
+.pq-strip {
+  height: 22px;
+  background: var(--bg-muted);
+  border-radius: 5px;
+  overflow: hidden;
+  display: flex;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.04);
+}
+.pq-strip span {
+  display: grid; place-items: center;
+  height: 100%;
+  font-size: 10px; font-weight: 700; color: #fff;
+  letter-spacing: 0.3px;
+  padding: 0 3px; min-width: 0;
+}
+.pq-strip .seg-current { background: var(--b-current); }
+.pq-strip .seg-b1      { background: var(--b-b1); }
+.pq-strip .seg-b2      { background: var(--b-b2); }
+.pq-strip .seg-b3      { background: var(--b-b3); }
+.pq-strip .seg-b4      { background: var(--b-b4); }
+
+/* Context column */
+.pq-ctx .ctx-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 12px; margin-bottom: 4px;
+}
+.pq-ctx .ctx-row:last-child { margin-bottom: 0; }
+.pq-ctx .ctx-k { color: var(--ink-3); font-size: 11px; }
+.pq-ctx .ctx-v { color: var(--ink); font-weight: 600; }
+.pq-ctx .score {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; font-weight: 600;
+  padding: 1px 8px; border-radius: 999px;
+}
+.pq-ctx .score.good { background: var(--ok-soft); color: var(--ok); }
+.pq-ctx .score.fair { background: var(--warn-soft); color: var(--warn); }
+.pq-ctx .score.poor { background: var(--danger-soft); color: var(--danger); }
+
+/* Amount + actions column */
+.pq-right {
+  display: flex; flex-direction: column; align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.pq-total {
+  font-size: 20px; font-weight: 700; color: var(--ink);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.pq-total .cur { font-size: 13px; color: var(--ink-3); font-weight: 500; margin-right: 4px; }
+.pq-total-sub {
+  font-size: 11px; color: var(--ink-3);
+}
+.pq-total-sub b { color: var(--danger); font-weight: 600; }
+
+.pq-actions { display: flex; gap: 4px; }
+.pq-action {
+  width: 32px; height: 32px;
+  border: 1px solid var(--rule);
+  background: var(--bg-panel);
+  border-radius: 7px;
+  display: grid; place-items: center;
+  cursor: pointer; transition: all .12s;
+  color: var(--ink-2);
+}
+.pq-action:hover { border-color: var(--accent-border); color: var(--accent); }
+.pq-action.wa:hover { color: #25D366; border-color: rgba(37,211,102,0.35); }
+.pq-action.call:hover { color: var(--indigo); border-color: rgba(79,70,229,0.35); }
+.pq-action.record:hover { color: var(--ok); border-color: rgba(90,124,74,0.35); }
+.pq-action svg { width: 14px; height: 14px; }
+
+/* Status badge (last contact / note) */
+.pq-note {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 500;
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--bg-muted); color: var(--ink-3);
+}
+.pq-note.fresh { background: var(--ok-soft); color: var(--ok); }
+.pq-note.stale { background: var(--danger-soft); color: var(--danger); }
+.pq-note.warn  { background: var(--warn-soft); color: var(--warn); }
+
+/* ═══════════════════════════ FOOTER ═══════════════════════════════ */
+
+.foot {
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border-top: 1px solid var(--rule);
+  background: var(--bg-muted);
+  display: flex; align-items: center; gap: 20px;
+  font-size: 12px; color: var(--ink-3);
+}
+.foot b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.foot .grand {
+  margin-left: auto;
+  font-size: 13px;
+}
+.foot .grand b { font-size: 16px; color: var(--accent); font-weight: 700; }
+
+/* ═══════════════════════════ BILL-WISE & PARTY-WISE (preview) ════ */
+
+.preview-wrap {
+  padding: 0 28px 20px;
+  display: none; /* show only when the respective tab is active; demo toggles */
+}
+
+/* Party-wise table */
+.tbl {
+  width: 100%;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  overflow: hidden;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.tbl th {
+  text-align: right;
+  padding: 11px 14px;
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--ink-3);
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.tbl th:first-child, .tbl th:nth-child(2) { text-align: left; }
+.tbl td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tbl td:first-child, .tbl td:nth-child(2) { text-align: left; }
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl .zero { color: var(--ink-5); }
+.tbl .total { font-weight: 700; color: var(--ink); }
+.tbl .tot-row td {
+  background: var(--bg-muted);
+  font-weight: 700;
+  border-top: 2px solid var(--rule);
+}
+
+/* Heat map (conceptual) */
+.heatmap {
+  display: grid;
+  grid-template-columns: 180px repeat(8, 1fr);
+  gap: 3px;
+  padding: 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+}
+.heatmap .h-hd {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--ink-3);
+  padding: 8px 4px; text-align: center;
+}
+.heatmap .h-pn {
+  font-size: 12.5px; font-weight: 500; color: var(--ink);
+  padding: 8px 10px;
+  display: flex; align-items: center;
+}
+.heatmap .h-cell {
+  aspect-ratio: 2.3 / 1;
+  border-radius: 5px;
+  display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 700;
+  cursor: pointer;
+}
+.heatmap .h-cell.h-0 { background: var(--bg-muted); color: var(--ink-5); }
+.heatmap .h-cell.h-1 { background: #F2E6D5; color: var(--ink); }
+.heatmap .h-cell.h-2 { background: #EBC98F; color: #664920; }
+.heatmap .h-cell.h-3 { background: #D47F2A; color: #fff; }
+.heatmap .h-cell.h-4 { background: #B1472F; color: #fff; }
+
+/* Toggleable preview sections */
+#view-priority { display: flex; }
+#view-party, #view-bill, #view-heat { display: none; }
+
+.is-party  #view-priority, .is-party  .panel { display: none !important; }
+.is-party  #view-party     { display: block; }
+.is-bill   #view-priority, .is-bill   .panel { display: none !important; }
+.is-bill   #view-bill      { display: block; }
+.is-heat   #view-priority, .is-heat   .panel { display: none !important; }
+.is-heat   #view-heat      { display: block; }
+
+/* Util */
+.sp { flex: 1; }
+
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ SIDEBAR ═══════════════════════════════ -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-logo">⚡</div>
+    <div class="sb-logo-text">Billing ERP</div>
+  </div>
+
+  <div class="sb-sec">Core</div>
+  <div class="sb-item"><span class="ic">▣</span> Dashboard</div>
+  <div class="sb-item"><span class="ic">◈</span> Sales</div>
+  <div class="sb-item"><span class="ic">◉</span> Purchase</div>
+  <div class="sb-item"><span class="ic">◇</span> Parties</div>
+  <div class="sb-item"><span class="ic">◆</span> Inventory</div>
+  <div class="sb-item"><span class="ic">₹</span> Payments</div>
+
+  <div class="sb-sec">Reports</div>
+  <div class="sb-item"><span class="ic">▤</span> Sales Report</div>
+  <div class="sb-item"><span class="ic">▦</span> Stock Report</div>
+  <div class="sb-item"><span class="ic">▥</span> Party Ledger</div>
+  <div class="sb-item active"><span class="ic">⏱</span> Aging Report</div>
+  <div class="sb-item"><span class="ic">◐</span> Profit &amp; Loss</div>
+
+  <div class="sb-sec">Setup</div>
+  <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+</aside>
+
+<!-- ═══════════════════════════ MAIN ══════════════════════════════════ -->
+<main class="main" id="main">
+
+  <!-- Page header -->
+  <header class="page-hd">
+    <div class="page-title">
+      <h1>Aging — Receivables</h1>
+      <div class="sub">
+        As of <b>24 Apr 2026</b>
+        <span class="sep">·</span> <b>50</b> open accounts
+        <span class="sep">·</span> <b>1,290</b> outstanding bills
+        <span class="sep">·</span> Total <b>₹ 1.67 Cr</b> pending
+      </div>
+    </div>
+    <div class="hd-ctrl">
+      <div class="seg">
+        <button class="on">Receivables</button>
+        <button>Payables</button>
+      </div>
+      <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Refresh</button>
+      <button class="btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Excel</button>
+    </div>
+  </header>
+
+  <!-- KPI strip -->
+  <section class="kpis">
+    <div class="kpi tot">
+      <div class="kpi-k">Total Outstanding</div>
+      <div class="kpi-v">₹ 1,67,81,014</div>
+      <div class="kpi-sub"><b>50</b> parties · <b>1,290</b> bills</div>
+      <div class="kpi-bar" title="Distribution across buckets">
+        <span style="width: 0%;  background: var(--b-current);"></span>
+        <span style="width: 1%;  background: var(--b-b1);"></span>
+        <span style="width: 8%;  background: var(--b-b2);"></span>
+        <span style="width: 9%;  background: var(--b-b3);"></span>
+        <span style="width: 82%; background: var(--b-b4);"></span>
+      </div>
+      <div class="kpi-bar-legend">
+        <span><i style="background: var(--b-current)"></i>0</span>
+        <span><i style="background: var(--b-b1)"></i>1.2%</span>
+        <span><i style="background: var(--b-b2)"></i>8.4%</span>
+        <span><i style="background: var(--b-b3)"></i>9.2%</span>
+        <span><i style="background: var(--b-b4)"></i>81.2%</span>
+      </div>
+    </div>
+
+    <div class="kpi due">
+      <div class="kpi-k">Overdue</div>
+      <div class="kpi-v">₹ 1,67,81,014</div>
+      <div class="kpi-sub">100% of total · <b>₹ 1.36 Cr</b> over 90 days</div>
+    </div>
+
+    <div class="kpi oldest">
+      <div class="kpi-k">Oldest Overdue</div>
+      <div class="kpi-v">386 days</div>
+      <div class="kpi-sub">Jain Dresses · <b>Mumbai</b></div>
+    </div>
+
+    <div class="kpi today">
+      <div class="kpi-k">Action Queue Today</div>
+      <div class="kpi-v">12 parties</div>
+      <div class="kpi-sub">Est. collectable <b>₹ 47.2L</b></div>
+      <div class="kpi-cta">Open Queue →</div>
+    </div>
+  </section>
+
+  <!-- View tabs -->
+  <nav class="view-bar">
+    <div class="tabs">
+      <button class="on" onclick="switchView('priority')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Priority Queue
+      </button>
+      <button onclick="switchView('party')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
+        Party-wise
+      </button>
+      <button onclick="switchView('bill')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Bill-wise
+      </button>
+      <button onclick="switchView('heat')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Aging Map
+      </button>
+    </div>
+
+    <div class="sp"></div>
+
+    <span style="font-size:12px;color:var(--ink-3);">Sort</span>
+    <select class="btn" style="padding-right: 8px;">
+      <option>Priority score</option>
+      <option>Amount (high → low)</option>
+      <option>Oldest first</option>
+      <option>A → Z party</option>
+    </select>
+  </nav>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input placeholder="Search party, mobile, bill number…"/>
+    </div>
+    <span class="chip"><span class="dot c-current"></span>Not Due<span class="n">0</span></span>
+    <span class="chip"><span class="dot c-b1"></span>1–30<span class="n">28</span></span>
+    <span class="chip"><span class="dot c-b2"></span>31–60<span class="n">31</span></span>
+    <span class="chip"><span class="dot c-b3"></span>61–90<span class="n">22</span></span>
+    <span class="chip on"><span class="dot c-b4" style="background:#fff"></span>90+<span class="n">25</span></span>
+    <span style="color: var(--ink-5); margin: 0 2px;">·</span>
+    <span class="chip">City: All</span>
+    <span class="chip">Salesman: All</span>
+    <span class="chip">Un-contacted ≥ 7d</span>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════
+       Content: 4 views, one visible at a time (class-toggled by demo)
+       ═════════════════════════════════════════════════════════════ -->
+  <section class="content">
+
+    <!-- ── VIEW 1: Priority Queue ─────────────────────────────────── -->
+    <div class="panel" id="view-priority">
+      <div class="pq-hd">
+        <div class="pq-title">
+          Priority Queue
+          <span class="pill">Sorted by risk score</span>
+        </div>
+        <div class="pq-hd-r">
+          <span class="s-help">5 of 50 · score = overdue × √balance × risk</span>
+          <button class="bulk">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            Send WhatsApp reminder to all
+          </button>
+        </div>
+      </div>
+
+      <div class="pq-scroll">
+
+        <!-- Row 1 -->
+        <div class="pq-row">
+          <div class="pq-rank p1">
+            1
+            <span class="hot-tag">HOT</span>
+          </div>
+          <div class="pq-party">
+            <div class="pq-party-name">JAIN DRESSES</div>
+            <div class="pq-party-meta">
+              <span>📞 9353 087 817</span>
+              <span class="sep">·</span>
+              <span>Mumbai, MH</span>
+              <span class="sep">·</span>
+              <span>44 open bills</span>
+              <span class="sep">·</span>
+              <span>Oldest <b style="color:var(--danger)">386d</b></span>
+            </div>
+            <div style="margin-top:6px">
+              <span class="pq-note stale">· Last contact 12d ago</span>
+            </div>
+          </div>
+          <div class="pq-strip-box">
+            <div class="lbl">Aging Distribution</div>
+            <div class="pq-strip">
+              <span class="seg-b2" style="width: 9%;">9%</span>
+              <span class="seg-b3" style="width: 14%;">14%</span>
+              <span class="seg-b4" style="width: 77%;">77%</span>
+            </div>
+          </div>
+          <div class="pq-ctx">
+            <div class="ctx-row"><span class="ctx-k">Avg days to pay</span><span class="ctx-v">42 d</span></div>
+            <div class="ctx-row"><span class="ctx-k">Credit limit</span><span class="ctx-v">₹ 10L</span></div>
+            <div class="ctx-row"><span class="ctx-k">Risk</span><span class="score poor">● Poor</span></div>
+          </div>
+          <div class="pq-right">
+            <div class="pq-total"><span class="cur">₹</span>97,64,411</div>
+            <div class="pq-total-sub">of which <b>₹75.2L</b> over 90d</div>
+            <div class="pq-actions">
+              <span class="pq-action call" title="Call"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+              <span class="pq-action wa" title="WhatsApp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+              <span class="pq-action record" title="Record payment"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg></span>
+              <span class="pq-action" title="View all 44 bills"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 2 -->
+        <div class="pq-row">
+          <div class="pq-rank p2">2</div>
+          <div class="pq-party">
+            <div class="pq-party-name">TEXTILES DRESSES</div>
+            <div class="pq-party-meta">
+              <span>📞 9876 543 210</span>
+              <span class="sep">·</span><span>Delhi, DL</span>
+              <span class="sep">·</span><span>46 open bills</span>
+              <span class="sep">·</span><span>Oldest <b style="color:var(--danger)">369d</b></span>
+            </div>
+            <div style="margin-top:6px">
+              <span class="pq-note warn">Promised ₹5L by 28 Apr</span>
+            </div>
+          </div>
+          <div class="pq-strip-box">
+            <div class="lbl">Aging Distribution</div>
+            <div class="pq-strip">
+              <span class="seg-b2" style="width: 12%;">12%</span>
+              <span class="seg-b3" style="width: 18%;">18%</span>
+              <span class="seg-b4" style="width: 70%;">70%</span>
+            </div>
+          </div>
+          <div class="pq-ctx">
+            <div class="ctx-row"><span class="ctx-k">Avg days to pay</span><span class="ctx-v">38 d</span></div>
+            <div class="ctx-row"><span class="ctx-k">Credit limit</span><span class="ctx-v">₹ 12L</span></div>
+            <div class="ctx-row"><span class="ctx-k">Risk</span><span class="score poor">● Poor</span></div>
+          </div>
+          <div class="pq-right">
+            <div class="pq-total"><span class="cur">₹</span>84,30,991</div>
+            <div class="pq-total-sub">of which <b>₹59L</b> over 90d</div>
+            <div class="pq-actions">
+              <span class="pq-action call"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+              <span class="pq-action wa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+              <span class="pq-action record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg></span>
+              <span class="pq-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 3 -->
+        <div class="pq-row">
+          <div class="pq-rank p2">3</div>
+          <div class="pq-party">
+            <div class="pq-party-name">ISHAAN FABRICS</div>
+            <div class="pq-party-meta">
+              <span>📞 8127 772 220</span>
+              <span class="sep">·</span><span>Pune, MH</span>
+              <span class="sep">·</span><span>45 open bills</span>
+              <span class="sep">·</span><span>Oldest <b style="color:var(--danger)">384d</b></span>
+            </div>
+            <div style="margin-top:6px">
+              <span class="pq-note">No contact in 23d</span>
+            </div>
+          </div>
+          <div class="pq-strip-box">
+            <div class="lbl">Aging Distribution</div>
+            <div class="pq-strip">
+              <span class="seg-b1" style="width: 4%;"></span>
+              <span class="seg-b2" style="width: 11%;">11%</span>
+              <span class="seg-b3" style="width: 15%;">15%</span>
+              <span class="seg-b4" style="width: 70%;">70%</span>
+            </div>
+          </div>
+          <div class="pq-ctx">
+            <div class="ctx-row"><span class="ctx-k">Avg days to pay</span><span class="ctx-v">51 d</span></div>
+            <div class="ctx-row"><span class="ctx-k">Credit limit</span><span class="ctx-v">₹ 8L</span></div>
+            <div class="ctx-row"><span class="ctx-k">Risk</span><span class="score poor">● Poor</span></div>
+          </div>
+          <div class="pq-right">
+            <div class="pq-total"><span class="cur">₹</span>84,17,870</div>
+            <div class="pq-total-sub">of which <b>₹58.9L</b> over 90d</div>
+            <div class="pq-actions">
+              <span class="pq-action call"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+              <span class="pq-action wa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+              <span class="pq-action record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg></span>
+              <span class="pq-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 4 -->
+        <div class="pq-row">
+          <div class="pq-rank p3">4</div>
+          <div class="pq-party">
+            <div class="pq-party-name">HASIBUR RAHMAN ANSARI</div>
+            <div class="pq-party-meta">
+              <span>📞 9844 103 222</span>
+              <span class="sep">·</span><span>Bengaluru, KA</span>
+              <span class="sep">·</span><span>38 open bills</span>
+              <span class="sep">·</span><span>Oldest <b>243d</b></span>
+            </div>
+            <div style="margin-top:6px">
+              <span class="pq-note fresh">✓ Paid ₹2L on 22 Apr</span>
+            </div>
+          </div>
+          <div class="pq-strip-box">
+            <div class="lbl">Aging Distribution</div>
+            <div class="pq-strip">
+              <span class="seg-current" style="width: 2%;"></span>
+              <span class="seg-b1" style="width: 8%;">8%</span>
+              <span class="seg-b2" style="width: 22%;">22%</span>
+              <span class="seg-b3" style="width: 28%;">28%</span>
+              <span class="seg-b4" style="width: 40%;">40%</span>
+            </div>
+          </div>
+          <div class="pq-ctx">
+            <div class="ctx-row"><span class="ctx-k">Avg days to pay</span><span class="ctx-v">29 d</span></div>
+            <div class="ctx-row"><span class="ctx-k">Credit limit</span><span class="ctx-v">₹ 5L</span></div>
+            <div class="ctx-row"><span class="ctx-k">Risk</span><span class="score fair">● Fair</span></div>
+          </div>
+          <div class="pq-right">
+            <div class="pq-total"><span class="cur">₹</span>58,43,120</div>
+            <div class="pq-total-sub">of which <b>₹23.4L</b> over 90d</div>
+            <div class="pq-actions">
+              <span class="pq-action call"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+              <span class="pq-action wa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+              <span class="pq-action record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg></span>
+              <span class="pq-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 5 -->
+        <div class="pq-row">
+          <div class="pq-rank p4">5</div>
+          <div class="pq-party">
+            <div class="pq-party-name">MANJUNATHA ISHWARA NAIK</div>
+            <div class="pq-party-meta">
+              <span>📞 9631 082 417</span>
+              <span class="sep">·</span><span>Hubballi, KA</span>
+              <span class="sep">·</span><span>22 open bills</span>
+              <span class="sep">·</span><span>Oldest <b>187d</b></span>
+            </div>
+            <div style="margin-top:6px">
+              <span class="pq-note fresh">✓ Called yesterday</span>
+            </div>
+          </div>
+          <div class="pq-strip-box">
+            <div class="lbl">Aging Distribution</div>
+            <div class="pq-strip">
+              <span class="seg-current" style="width: 5%;"></span>
+              <span class="seg-b1" style="width: 18%;">18%</span>
+              <span class="seg-b2" style="width: 32%;">32%</span>
+              <span class="seg-b3" style="width: 25%;">25%</span>
+              <span class="seg-b4" style="width: 20%;">20%</span>
+            </div>
+          </div>
+          <div class="pq-ctx">
+            <div class="ctx-row"><span class="ctx-k">Avg days to pay</span><span class="ctx-v">24 d</span></div>
+            <div class="ctx-row"><span class="ctx-k">Credit limit</span><span class="ctx-v">₹ 3L</span></div>
+            <div class="ctx-row"><span class="ctx-k">Risk</span><span class="score good">● Good</span></div>
+          </div>
+          <div class="pq-right">
+            <div class="pq-total"><span class="cur">₹</span>32,54,399</div>
+            <div class="pq-total-sub">of which <b>₹6.5L</b> over 90d</div>
+            <div class="pq-actions">
+              <span class="pq-action call"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+              <span class="pq-action wa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+              <span class="pq-action record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg></span>
+              <span class="pq-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /pq-scroll -->
+
+      <div class="foot">
+        <span>Parties shown<b style="margin-left:4px">5 of 50</b></span>
+        <span>Overdue bills<b style="margin-left:4px">148</b></span>
+        <span>Top-5 share<b style="margin-left:4px">20.9%</b></span>
+        <span class="grand">Priority sum<b>₹ 3.57 Cr</b></span>
+      </div>
+    </div>
+
+    <!-- ── VIEW 2: Party-wise (preview; hidden) ──────────────────── -->
+    <div id="view-party">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Party</th><th>Mobile</th><th>Bills</th><th>Oldest</th>
+            <th>Not Due</th><th>1–30</th><th>31–60</th><th>61–90</th><th>90+</th><th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>JAIN DRESSES</td><td>9353 087 817</td><td>44</td><td>386 d</td>
+            <td class="zero">—</td><td class="zero">—</td><td>8,98,106</td><td>13,59,017</td><td>75,07,288</td><td class="total">97,64,411</td></tr>
+          <tr><td>TEXTILES DRESSES</td><td>9876 543 210</td><td>46</td><td>369 d</td>
+            <td class="zero">—</td><td class="zero">—</td><td>10,11,718</td><td>15,17,578</td><td>59,01,695</td><td class="total">84,30,991</td></tr>
+          <tr><td>ISHAAN FABRICS</td><td>8127 772 220</td><td>45</td><td>384 d</td>
+            <td class="zero">—</td><td>3,36,714</td><td>9,25,964</td><td>12,62,680</td><td>58,92,512</td><td class="total">84,17,870</td></tr>
+          <tr><td>HASIBUR RAHMAN ANSARI</td><td>9844 103 222</td><td>38</td><td>243 d</td>
+            <td>1,16,862</td><td>4,67,449</td><td>12,85,486</td><td>16,36,073</td><td>23,37,250</td><td class="total">58,43,120</td></tr>
+          <tr><td>MANJUNATHA I. NAIK</td><td>9631 082 417</td><td>22</td><td>187 d</td>
+            <td>1,62,719</td><td>5,85,791</td><td>10,41,406</td><td>8,13,599</td><td>6,50,884</td><td class="total">32,54,399</td></tr>
+          <tr class="tot-row"><td colspan="4">Total</td><td>2,79,581</td><td>13,89,954</td><td>51,62,680</td><td>65,88,947</td><td>2,22,89,629</td><td>3,57,10,791</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── VIEW 3: Bill-wise (preview; hidden) ───────────────────── -->
+    <div id="view-bill">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="width:36px;">#</th>
+            <th>Date</th><th>Ref. No.</th><th>Party's Name</th><th>Mobile</th>
+            <th>Pending</th><th>Not Due</th><th>1–30</th><th>31–60</th><th>61–90</th><th>90+</th><th>Due On</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>05-04-2025</td><td>INV-25-26/0024</td><td>JAIN DRESSES</td><td>9353 087 817</td><td class="total">48,215</td><td class="zero"></td><td class="zero"></td><td class="zero"></td><td class="zero"></td><td>48,215</td><td>15-04-2025</td></tr>
+          <tr><td>2</td><td>12-04-2025</td><td>INV-25-26/0081</td><td>TEXTILES DRESSES</td><td>9876 543 210</td><td class="total">1,15,340</td><td class="zero"></td><td class="zero"></td><td class="zero"></td><td class="zero"></td><td>1,15,340</td><td>12-05-2025</td></tr>
+          <tr><td>3</td><td>18-04-2025</td><td>INV-25-26/0132</td><td>ISHAAN FABRICS</td><td>8127 772 220</td><td class="total">2,17,890</td><td class="zero"></td><td class="zero"></td><td class="zero"></td><td class="zero"></td><td>2,17,890</td><td>18-05-2025</td></tr>
+          <tr><td>4</td><td>02-02-2026</td><td>INV-25-26/0815</td><td>HASIBUR RAHMAN ANSARI</td><td>9844 103 222</td><td class="total">36,720</td><td class="zero"></td><td class="zero"></td><td>36,720</td><td class="zero"></td><td class="zero"></td><td>17-02-2026</td></tr>
+          <tr><td>5</td><td>28-03-2026</td><td>INV-25-26/1102</td><td>MANJUNATHA I. NAIK</td><td>9631 082 417</td><td class="total">19,480</td><td>19,480</td><td class="zero"></td><td class="zero"></td><td class="zero"></td><td class="zero"></td><td>27-04-2026</td></tr>
+          <tr class="tot-row">
+            <td colspan="5" style="text-align:right">5 bills</td>
+            <td>4,37,645</td><td>19,480</td><td class="zero"></td><td>36,720</td><td class="zero"></td><td>3,81,445</td><td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── VIEW 4: Aging Heat Map (preview; hidden) ──────────────── -->
+    <div id="view-heat">
+      <div class="heatmap">
+        <div class="h-hd" style="grid-column: 1;">&nbsp;</div>
+        <div class="h-hd">Not Due</div>
+        <div class="h-hd">1–15</div>
+        <div class="h-hd">16–30</div>
+        <div class="h-hd">31–45</div>
+        <div class="h-hd">46–60</div>
+        <div class="h-hd">61–90</div>
+        <div class="h-hd">91–180</div>
+        <div class="h-hd">180+</div>
+
+        <div class="h-pn">JAIN DRESSES</div>
+        <div class="h-cell h-0">—</div><div class="h-cell h-0">—</div><div class="h-cell h-0">—</div>
+        <div class="h-cell h-1">0.9</div><div class="h-cell h-2">2.4</div><div class="h-cell h-3">13.6</div>
+        <div class="h-cell h-4">35.2</div><div class="h-cell h-4">40.0</div>
+
+        <div class="h-pn">TEXTILES DRESSES</div>
+        <div class="h-cell h-0">—</div><div class="h-cell h-0">—</div><div class="h-cell h-0">—</div>
+        <div class="h-cell h-2">1.9</div><div class="h-cell h-2">3.1</div><div class="h-cell h-3">15.2</div>
+        <div class="h-cell h-4">29.8</div><div class="h-cell h-4">34.2</div>
+
+        <div class="h-pn">ISHAAN FABRICS</div>
+        <div class="h-cell h-0">—</div><div class="h-cell h-1">1.0</div><div class="h-cell h-1">2.3</div>
+        <div class="h-cell h-2">2.9</div><div class="h-cell h-2">6.4</div><div class="h-cell h-3">12.6</div>
+        <div class="h-cell h-4">28.1</div><div class="h-cell h-4">30.8</div>
+
+        <div class="h-pn">HASIBUR RAHMAN</div>
+        <div class="h-cell h-1">1.2</div><div class="h-cell h-1">2.4</div><div class="h-cell h-2">2.3</div>
+        <div class="h-cell h-2">4.9</div><div class="h-cell h-3">7.9</div><div class="h-cell h-3">16.4</div>
+        <div class="h-cell h-3">18.2</div><div class="h-cell h-2">5.2</div>
+
+        <div class="h-pn">MANJUNATHA NAIK</div>
+        <div class="h-cell h-1">1.6</div><div class="h-cell h-2">2.9</div><div class="h-cell h-2">2.9</div>
+        <div class="h-cell h-2">4.1</div><div class="h-cell h-2">6.3</div><div class="h-cell h-2">8.1</div>
+        <div class="h-cell h-2">5.1</div><div class="h-cell h-1">1.4</div>
+
+        <div class="h-pn">SY KIDS WEAR</div>
+        <div class="h-cell h-0">—</div><div class="h-cell h-1">0.8</div><div class="h-cell h-1">1.2</div>
+        <div class="h-cell h-2">2.4</div><div class="h-cell h-2">3.8</div><div class="h-cell h-3">10.4</div>
+        <div class="h-cell h-4">24.6</div><div class="h-cell h-3">12.0</div>
+
+        <div class="h-pn">RAHUL SATLE</div>
+        <div class="h-cell h-0">—</div><div class="h-cell h-0">—</div><div class="h-cell h-1">0.6</div>
+        <div class="h-cell h-1">1.1</div><div class="h-cell h-2">2.2</div><div class="h-cell h-2">5.1</div>
+        <div class="h-cell h-3">14.8</div><div class="h-cell h-2">7.3</div>
+
+        <div class="h-pn">TULJA BHAWANI CO.</div>
+        <div class="h-cell h-0">—</div><div class="h-cell h-0">—</div><div class="h-cell h-0">—</div>
+        <div class="h-cell h-1">0.9</div><div class="h-cell h-1">1.8</div><div class="h-cell h-2">4.1</div>
+        <div class="h-cell h-3">11.5</div><div class="h-cell h-2">4.9</div>
+      </div>
+      <div style="margin-top:16px; display:flex; gap:16px; font-size:12px; color: var(--ink-3); padding: 0 4px;">
+        <span>Intensity = ₹ lakhs outstanding · click any cell to drill into bills in that bracket</span>
+        <span class="sp"></span>
+        <span style="display:inline-flex; align-items:center; gap:6px;">Scale
+          <i style="width:12px;height:12px;background:var(--bg-muted);border-radius:3px;display:inline-block"></i>
+          <i style="width:12px;height:12px;background:#F2E6D5;border-radius:3px;display:inline-block"></i>
+          <i style="width:12px;height:12px;background:#EBC98F;border-radius:3px;display:inline-block"></i>
+          <i style="width:12px;height:12px;background:#D47F2A;border-radius:3px;display:inline-block"></i>
+          <i style="width:12px;height:12px;background:#B1472F;border-radius:3px;display:inline-block"></i>
+        </span>
+      </div>
+    </div>
+
+  </section><!-- /content -->
+
+</main>
+
+<script>
+  // Demo-only: switch among the four views to show each design.
+  function switchView(v) {
+    const m = document.getElementById('main');
+    m.classList.remove('is-party', 'is-bill', 'is-heat');
+    if (v === 'party') m.classList.add('is-party');
+    if (v === 'bill')  m.classList.add('is-bill');
+    if (v === 'heat')  m.classList.add('is-heat');
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('on'));
+    const idx = { priority: 0, party: 1, bill: 2, heat: 3 }[v];
+    document.querySelectorAll('.tabs button')[idx].classList.add('on');
+  }
+</script>
+
+</body>
+</html>

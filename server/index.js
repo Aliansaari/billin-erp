@@ -278,7 +278,310 @@ async function startServer() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_profiles' AND column_name='show_previous_balance') THEN
           ALTER TABLE print_profiles ADD COLUMN show_previous_balance BOOLEAN DEFAULT false;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='custom_permissions') THEN
+          ALTER TABLE users ADD COLUMN custom_permissions JSONB DEFAULT NULL;
+        END IF;
       END $$;
+
+      -- Performance indexes. CREATE INDEX IF NOT EXISTS is idempotent and
+      -- will no-op on subsequent boots. Without these, list pages do a
+      -- sequential scan that's fine on a dev DB but collapses at 50k+ rows.
+      CREATE INDEX IF NOT EXISTS idx_sales_bills_active_by_date
+        ON sales_bills (is_cancelled, bill_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_sales_bills_payment_status
+        ON sales_bills (payment_status);
+      CREATE INDEX IF NOT EXISTS idx_sales_bills_customer_date
+        ON sales_bills (customer_id, bill_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_purchase_bills_active_by_date
+        ON purchase_bills (is_cancelled, bill_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_purchase_bills_supplier_date
+        ON purchase_bills (supplier_id, bill_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_sales_bill_items_bill
+        ON sales_bill_items (sales_bill_id);
+      CREATE INDEX IF NOT EXISTS idx_purchase_bill_items_bill
+        ON purchase_bill_items (purchase_bill_id);
+      CREATE INDEX IF NOT EXISTS idx_stock_ledger_product_date
+        ON stock_ledger (product_id, transaction_date);
+      CREATE INDEX IF NOT EXISTS idx_payments_receipts_party_date
+        ON payments_receipts (party_id, transaction_date);
+
+      -- Trigram indexes for "instant" ILIKE '%foo%' search on bill numbers
+      -- and party names. A B-tree index can't help with leading wildcards,
+      -- so without pg_trgm the server falls back to a sequential scan on
+      -- every keystroke. With it, the planner uses a GIN index and the
+      -- query stays fast even at millions of rows. pg_trgm ships with
+      -- PostgreSQL contrib (no extra install needed).
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      CREATE INDEX IF NOT EXISTS idx_sales_bills_bill_number_trgm
+        ON sales_bills USING gin (bill_number gin_trgm_ops);
+      CREATE INDEX IF NOT EXISTS idx_purchase_bills_bill_number_trgm
+        ON purchase_bills USING gin (bill_number gin_trgm_ops);
+      CREATE INDEX IF NOT EXISTS idx_parties_party_name_trgm
+        ON parties USING gin (party_name gin_trgm_ops);
+      CREATE INDEX IF NOT EXISTS idx_parties_mobile_1_trgm
+        ON parties USING gin (mobile_1 gin_trgm_ops);
+      CREATE INDEX IF NOT EXISTS idx_products_product_name_trgm
+        ON products USING gin (product_name gin_trgm_ops);
+      CREATE INDEX IF NOT EXISTS idx_products_barcode_trgm
+        ON products USING gin (barcode gin_trgm_ops);
+
+      -- Historical note: an earlier startup migration used to HALVE GST
+      -- amounts on Tally-imported bills, to undo a double-counting bug in
+      -- the old importer. The importer is now correct, so halving on every
+      -- restart would damage freshly re-imported data (halve an already-
+      -- correct value). That halving SQL is removed; the marker column
+      -- tally_correction_applied is kept so we can gate the one-time
+      -- revert below, then retired.
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_bills' AND column_name='tally_correction_applied') THEN
+          ALTER TABLE sales_bills ADD COLUMN tally_correction_applied BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_bills' AND column_name='tally_correction_applied') THEN
+          ALTER TABLE purchase_bills ADD COLUMN tally_correction_applied BOOLEAN DEFAULT false;
+        END IF;
+        -- Second marker: tracks bills that have been reverted (doubled back)
+        -- because the halving was applied to already-correct re-imported
+        -- data. Running twice is a no-op once this is set.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_bills' AND column_name='tally_halving_reverted') THEN
+          ALTER TABLE sales_bills ADD COLUMN tally_halving_reverted BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_bills' AND column_name='tally_halving_reverted') THEN
+          ALTER TABLE purchase_bills ADD COLUMN tally_halving_reverted BOOLEAN DEFAULT false;
+        END IF;
+      END $$;
+
+      -- One-time revert: any bill that was touched by the old halving SQL
+      -- (tally_correction_applied=true) and has not been reverted yet gets
+      -- DOUBLED back. After the user re-imported with the fixed importer,
+      -- the values stored were already correct; halving them once more was
+      -- the bug. Idempotent via tally_halving_reverted.
+      UPDATE sales_bill_items sbi
+         SET cgst_amount = sbi.cgst_amount * 2,
+             sgst_amount = sbi.sgst_amount * 2,
+             igst_amount = sbi.igst_amount * 2
+        FROM sales_bills sb
+       WHERE sbi.sales_bill_id = sb.sales_bill_id
+         AND COALESCE(sb.tally_correction_applied, false) = true
+         AND COALESCE(sb.tally_halving_reverted,   false) = false;
+
+      UPDATE purchase_bill_items pbi
+         SET cgst_amount = pbi.cgst_amount * 2,
+             sgst_amount = pbi.sgst_amount * 2,
+             igst_amount = pbi.igst_amount * 2
+        FROM purchase_bills pb
+       WHERE pbi.purchase_bill_id = pb.purchase_bill_id
+         AND COALESCE(pb.tally_correction_applied, false) = true
+         AND COALESCE(pb.tally_halving_reverted,   false) = false;
+
+      UPDATE sales_bills SET
+        cgst_amount = cgst_amount * 2,
+        sgst_amount = sgst_amount * 2,
+        igst_amount = igst_amount * 2,
+        cgst_pct    = cgst_pct * 2,
+        sgst_pct    = sgst_pct * 2,
+        igst_pct    = igst_pct * 2,
+        total_amount   = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0))::numeric, 2),
+        balance_amount = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0) - COALESCE(paid_amount, 0))::numeric, 2),
+        tally_halving_reverted = true
+      WHERE COALESCE(tally_correction_applied, false) = true
+        AND COALESCE(tally_halving_reverted,   false) = false;
+
+      UPDATE purchase_bills SET
+        cgst_amount = cgst_amount * 2,
+        sgst_amount = sgst_amount * 2,
+        igst_amount = igst_amount * 2,
+        cgst_pct    = cgst_pct * 2,
+        sgst_pct    = sgst_pct * 2,
+        igst_pct    = igst_pct * 2,
+        total_amount   = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0))::numeric, 2),
+        balance_amount = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0) - COALESCE(paid_amount, 0))::numeric, 2),
+        tally_halving_reverted = true
+      WHERE COALESCE(tally_correction_applied, false) = true
+        AND COALESCE(tally_halving_reverted,   false) = false;
+
+      -- Widen discount_percentage so it can store 4-decimal precision.
+      -- The column was DECIMAL(5, 2), which silently truncates a computed
+      -- pct like 4.7619 down to 4.76 — which then re-derives the stored
+      -- amount as 2239.10 instead of 2240, producing the ~₹1 drift the
+      -- user saw on every imported bill. DECIMAL(9, 4) leaves room for
+      -- up to 99999.9999% (comfortable margin) while giving us the
+      -- precision needed to round-trip amount→pct→amount cleanly.
+      ALTER TABLE sales_bills    ALTER COLUMN discount_percentage TYPE DECIMAL(9, 4);
+      ALTER TABLE purchase_bills ALTER COLUMN discount_percentage TYPE DECIMAL(9, 4);
+
+      -- Back-fill discount_percentage from stored discount_amount. Runs
+      -- in two cases: (a) pct is 0 but amount > 0 (old importer didn't
+      -- store pct at all); (b) pct was stored with only 2 decimals, so
+      -- re-deriving the amount from pct drifts by up to ~₹1 on every
+      -- imported bill. We compute pct to 4 decimals so sub_total × pct / 100
+      -- round-trips back to the original discount_amount. Safe: we only
+      -- touch rows where the current pct and amount disagree by more than
+      -- a rupee — bills the user genuinely entered with a clean pct (like
+      -- 10%) are left alone.
+      UPDATE sales_bills
+         SET discount_percentage = ROUND((discount_amount * 100.0 / NULLIF(sub_total, 0))::numeric, 4)
+       WHERE COALESCE(discount_amount, 0) > 0
+         AND COALESCE(sub_total, 0) > 0
+         AND ABS(sub_total * COALESCE(discount_percentage, 0) / 100 - discount_amount) > 0.01;
+
+      UPDATE purchase_bills
+         SET discount_percentage = ROUND((discount_amount * 100.0 / NULLIF(sub_total, 0))::numeric, 4)
+       WHERE COALESCE(discount_amount, 0) > 0
+         AND COALESCE(sub_total, 0) > 0
+         AND ABS(sub_total * COALESCE(discount_percentage, 0) / 100 - discount_amount) > 0.01;
+
+      -- Opening Stock reconciliation. Stock Movement computes each product's
+      -- running balance by summing quantity_in - quantity_out from the
+      -- stock_ledger. For products brought in from Tally's stock-summary
+      -- export, products.current_stock was set directly but no "Opening
+      -- Stock" ledger entry was ever created — so the running balance in
+      -- the Stock Movement view starts at 0 and never matches the "On Hand"
+      -- card at the top. We fix that by inserting a single Opening Stock
+      -- row per product, computed so the running total ends exactly at
+      -- current_stock:  opening = current_stock - Σ(in) + Σ(out).
+      -- Dated 2000-01-01 so it always sorts before real transactions.
+      -- Idempotent: skips products that already have an Opening Stock row.
+      INSERT INTO stock_ledger
+        (product_id, barcode, transaction_type, transaction_date,
+         reference_id, reference_number, quantity_in, quantity_out,
+         rate, balance_quantity, remarks, created_date)
+      SELECT
+        p.product_id,
+        p.barcode,
+        'Opening Stock',
+        DATE '2000-01-01',
+        NULL,
+        'OPENING',
+        CASE WHEN (p.current_stock - COALESCE(s.total_in, 0) + COALESCE(s.total_out, 0)) >= 0
+             THEN      (p.current_stock - COALESCE(s.total_in, 0) + COALESCE(s.total_out, 0))
+             ELSE 0 END,
+        CASE WHEN (p.current_stock - COALESCE(s.total_in, 0) + COALESCE(s.total_out, 0)) < 0
+             THEN ABS(p.current_stock - COALESCE(s.total_in, 0) + COALESCE(s.total_out, 0))
+             ELSE 0 END,
+        COALESCE(p.opening_stock_rate, p.purchase_rate, 0),
+        (p.current_stock - COALESCE(s.total_in, 0) + COALESCE(s.total_out, 0)),
+        'Reconciled opening balance for imported data',
+        NOW()
+      FROM products p
+      LEFT JOIN (
+        SELECT product_id,
+               SUM(COALESCE(quantity_in, 0))  AS total_in,
+               SUM(COALESCE(quantity_out, 0)) AS total_out
+          FROM stock_ledger
+         GROUP BY product_id
+      ) s ON s.product_id = p.product_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM stock_ledger sl
+         WHERE sl.product_id = p.product_id
+           AND sl.transaction_type = 'Opening Stock'
+      )
+      AND (COALESCE(p.current_stock, 0) <> 0
+           OR COALESCE(s.total_in, 0)  <> 0
+           OR COALESCE(s.total_out, 0) <> 0);
+
+      -- Backfill GST percentages on bills imported from Tally. The importer
+      -- used to only store tax AMOUNTS (cgst_amount, sgst_amount, igst_amount)
+      -- and left the percentage columns at 0, which made the edit form's GST
+      -- row appear empty even though the totals were right. Here we derive
+      -- the percentage from the amounts and sub_total. Guarded on all three
+      -- pct columns being 0 so re-running this on already-fixed or
+      -- natively-created bills is a no-op.
+      UPDATE sales_bills
+         SET cgst_pct = ROUND((cgst_amount * 100.0 / NULLIF(sub_total, 0))::numeric, 2),
+             sgst_pct = ROUND((sgst_amount * 100.0 / NULLIF(sub_total, 0))::numeric, 2),
+             igst_pct = ROUND((igst_amount * 100.0 / NULLIF(sub_total, 0))::numeric, 2)
+       WHERE COALESCE(cgst_pct, 0) = 0
+         AND COALESCE(sgst_pct, 0) = 0
+         AND COALESCE(igst_pct, 0) = 0
+         AND (COALESCE(cgst_amount, 0) > 0 OR COALESCE(sgst_amount, 0) > 0 OR COALESCE(igst_amount, 0) > 0)
+         AND COALESCE(sub_total, 0) > 0;
+
+      UPDATE purchase_bills
+         SET cgst_pct = ROUND((cgst_amount * 100.0 / NULLIF(sub_total, 0))::numeric, 2),
+             sgst_pct = ROUND((sgst_amount * 100.0 / NULLIF(sub_total, 0))::numeric, 2),
+             igst_pct = ROUND((igst_amount * 100.0 / NULLIF(sub_total, 0))::numeric, 2)
+       WHERE COALESCE(cgst_pct, 0) = 0
+         AND COALESCE(sgst_pct, 0) = 0
+         AND COALESCE(igst_pct, 0) = 0
+         AND (COALESCE(cgst_amount, 0) > 0 OR COALESCE(sgst_amount, 0) > 0 OR COALESCE(igst_amount, 0) > 0)
+         AND COALESCE(sub_total, 0) > 0;
+
+      -- Distribute bill-level tax into the per-item cgst/sgst/igst columns
+      -- for any item whose tax columns are still zero on a bill that does
+      -- have tax amounts. The share is proportional to taxable_amount.
+      UPDATE sales_bill_items sbi
+         SET cgst_amount = ROUND((sb.cgst_amount * sbi.taxable_amount / NULLIF(sb.sub_total, 0))::numeric, 2),
+             sgst_amount = ROUND((sb.sgst_amount * sbi.taxable_amount / NULLIF(sb.sub_total, 0))::numeric, 2),
+             igst_amount = ROUND((sb.igst_amount * sbi.taxable_amount / NULLIF(sb.sub_total, 0))::numeric, 2)
+        FROM sales_bills sb
+       WHERE sbi.sales_bill_id = sb.sales_bill_id
+         AND COALESCE(sbi.cgst_amount, 0) = 0
+         AND COALESCE(sbi.sgst_amount, 0) = 0
+         AND COALESCE(sbi.igst_amount, 0) = 0
+         AND (COALESCE(sb.cgst_amount, 0) > 0 OR COALESCE(sb.sgst_amount, 0) > 0 OR COALESCE(sb.igst_amount, 0) > 0)
+         AND COALESCE(sb.sub_total, 0) > 0
+         AND COALESCE(sbi.taxable_amount, 0) > 0;
+
+      UPDATE purchase_bill_items pbi
+         SET cgst_amount = ROUND((pb.cgst_amount * pbi.taxable_amount / NULLIF(pb.sub_total, 0))::numeric, 2),
+             sgst_amount = ROUND((pb.sgst_amount * pbi.taxable_amount / NULLIF(pb.sub_total, 0))::numeric, 2),
+             igst_amount = ROUND((pb.igst_amount * pbi.taxable_amount / NULLIF(pb.sub_total, 0))::numeric, 2)
+        FROM purchase_bills pb
+       WHERE pbi.purchase_bill_id = pb.purchase_bill_id
+         AND COALESCE(pbi.cgst_amount, 0) = 0
+         AND COALESCE(pbi.sgst_amount, 0) = 0
+         AND COALESCE(pbi.igst_amount, 0) = 0
+         AND (COALESCE(pb.cgst_amount, 0) > 0 OR COALESCE(pb.sgst_amount, 0) > 0 OR COALESCE(pb.igst_amount, 0) > 0)
+         AND COALESCE(pb.sub_total, 0) > 0
+         AND COALESCE(pbi.taxable_amount, 0) > 0;
+
+      -- Backfill stock_ledger for sales/purchase items that don't have a
+      -- matching movement row yet. This lights up Stock Movement for all
+      -- imported bills. We deliberately do NOT touch products.current_stock —
+      -- Tally's stock-summary import already set it to today's actual count,
+      -- and decrementing now would double-subtract. balance_quantity is left
+      -- at 0 because Stock Movement recomputes running balance client-side.
+      INSERT INTO stock_ledger
+        (product_id, barcode, transaction_type, transaction_date,
+         reference_id, reference_number, quantity_in, quantity_out,
+         rate, balance_quantity, remarks, created_date)
+      SELECT sbi.product_id, sbi.barcode, 'Sales', sb.bill_date,
+             sb.sales_bill_id, sb.bill_number, 0, sbi.quantity,
+             sbi.rate, 0, 'Backfilled from imported Tally bill', NOW()
+        FROM sales_bill_items sbi
+        JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+       WHERE sbi.product_id IS NOT NULL
+         AND sb.is_cancelled = false
+         AND NOT EXISTS (
+           SELECT 1 FROM stock_ledger sl
+            WHERE sl.reference_id     = sb.sales_bill_id
+              AND sl.reference_number = sb.bill_number
+              AND sl.transaction_type = 'Sales'
+              AND sl.product_id       = sbi.product_id
+         );
+
+      INSERT INTO stock_ledger
+        (product_id, barcode, transaction_type, transaction_date,
+         reference_id, reference_number, quantity_in, quantity_out,
+         rate, balance_quantity, remarks, created_date)
+      SELECT pbi.product_id, pbi.barcode, 'Purchase', pb.bill_date,
+             pb.purchase_bill_id, pb.bill_number, pbi.quantity, 0,
+             pbi.purchase_rate, 0, 'Backfilled from imported Tally bill', NOW()
+        FROM purchase_bill_items pbi
+        JOIN purchase_bills pb ON pb.purchase_bill_id = pbi.purchase_bill_id
+       WHERE pbi.product_id IS NOT NULL
+         AND pb.is_cancelled = false
+         AND NOT EXISTS (
+           SELECT 1 FROM stock_ledger sl
+            WHERE sl.reference_id     = pb.purchase_bill_id
+              AND sl.reference_number = pb.bill_number
+              AND sl.transaction_type = 'Purchase'
+              AND sl.product_id       = pbi.product_id
+         );
     `).catch((err) => {
       // Log but don't crash on migration errors — the server should still
       // come up so an admin can investigate. Previously this was silently

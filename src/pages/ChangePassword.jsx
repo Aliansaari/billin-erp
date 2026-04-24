@@ -210,7 +210,7 @@ const chgCss = `
   position: fixed; inset: 0;
   background: #0B0807;
   color: #F5EEE2;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
   overflow: auto;
 }
 .erp-login-mesh {
@@ -265,7 +265,7 @@ const chgCss = `
 }
 @keyframes erpLoginCardIn { to { opacity: 1; transform: translateY(0) scale(1); } }
 .erp-login-h {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-optical-sizing: auto;
   font-size: 28px;
   font-weight: 500;
@@ -273,7 +273,7 @@ const chgCss = `
   color: #F5EEE2;
 }
 .erp-login-sub {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-style: italic;
   font-size: 14px;
   color: #8F8372;

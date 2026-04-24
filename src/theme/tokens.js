@@ -17,7 +17,7 @@ import { theme as antdTheme } from 'antd';
 const scale = {
   borderRadius: 10,
   fontSize: 14,
-  fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  fontFamily: "'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   controlHeight: 36,
   controlHeightTall: 38,
 };

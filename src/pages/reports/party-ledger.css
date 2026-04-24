@@ -124,7 +124,7 @@
   line-height: 1;
 }
 .pl-party-name {
-  font-family: 'Fraunces', 'Georgia', serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-weight: 600;
   font-size: 18px;
   color: var(--fg-primary);
@@ -137,7 +137,7 @@
 .pl-party-empty {
   color: var(--fg-tertiary);
   font-style: italic;
-  font-family: 'Inter', -apple-system, sans-serif;
+  font-family: 'Source Sans 3', -apple-system, sans-serif;
   font-size: 15px;
 }
 .pl-party-caret {

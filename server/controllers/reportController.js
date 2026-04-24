@@ -1,7 +1,8 @@
 const { Op, fn, col, literal } = require('sequelize');
 const sequelize = require('../config/database');
-const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, PurchaseReturnBill } = require('../models');
+const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, PurchaseReturnBill, SystemSettings } = require('../models');
 const { sanitizePagination } = require('../utils/helpers');
+const { aggregateAging } = require('../utils/aging');
 
 // Local calendar date (YYYY-MM-DD) in the server's timezone. We deliberately
 // avoid toISOString().split('T')[0] here because that returns a UTC date — for
@@ -1036,6 +1037,379 @@ exports.exportPartyOutstanding = async (req, res) => {
     return _sendWorkbook(res, wb, `outstanding_${party_type || 'all'}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   } catch (err) {
     console.error('Outstanding export error:', err);
+    res.status(500).json({ error: 'Export failed' });
+  }
+};
+
+// =========================================================================
+// AGING REPORT — per-party outstanding bills bucketed by days overdue.
+// Math lives in utils/aging.js (pure, fully unit-tested). This controller
+// is just data-plumbing: load bills + parties, hand the normalized shape
+// to aggregateAging, stream the result back.
+// =========================================================================
+
+function _agingBounds(settings) {
+  return {
+    b1: parseInt(settings?.aging_bucket_1_days ?? 30, 10),
+    b2: parseInt(settings?.aging_bucket_2_days ?? 60, 10),
+    b3: parseInt(settings?.aging_bucket_3_days ?? 90, 10),
+  };
+}
+
+// Load every non-cancelled bill with a positive balance and the associated
+// party. This is the dataset aggregateAging operates on. We normalize to a
+// shape the pure function expects so the DB layout never leaks further.
+async function _loadAgingBills(partyType) {
+  const isCustomer = partyType === 'Customer';
+  const Bill = isCustomer ? SalesBill : PurchaseBill;
+  const billIdKey = isCustomer ? 'sales_bill_id' : 'purchase_bill_id';
+  const partyAssoc = isCustomer ? 'customer' : 'supplier';
+
+  const rows = await Bill.findAll({
+    where: {
+      is_cancelled: false,
+      balance_amount: { [Op.gt]: 0 },
+    },
+    attributes: ['bill_number', 'bill_date', 'due_date', 'total_amount',
+                 'paid_amount', 'balance_amount', billIdKey],
+    include: [{
+      model: Party,
+      as: partyAssoc,
+      attributes: ['party_id', 'party_name', 'mobile_1', 'city', 'state',
+                   'credit_days', 'credit_limit'],
+    }],
+    order: [['bill_date', 'ASC']],
+  });
+
+  return rows.map(r => ({
+    bill_id: r[billIdKey],
+    bill_number: r.bill_number,
+    bill_date: r.bill_date,                  // Sequelize DATEONLY → YYYY-MM-DD
+    due_date: r.due_date || null,
+    total_amount: Number(r.total_amount)   || 0,
+    paid_amount:  Number(r.paid_amount)    || 0,
+    balance_amount: Number(r.balance_amount) || 0,
+    party: r[partyAssoc] ? {
+      party_id:     r[partyAssoc].party_id,
+      party_name:   r[partyAssoc].party_name,
+      mobile_1:     r[partyAssoc].mobile_1,
+      city:         r[partyAssoc].city,
+      state:        r[partyAssoc].state,
+      credit_days:  r[partyAssoc].credit_days,
+      credit_limit: Number(r[partyAssoc].credit_limit) || 0,
+    } : null,
+  }));
+}
+
+exports.agingReport = async (req, res) => {
+  try {
+    const partyType = req.query.party_type === 'Supplier' ? 'Supplier' : 'Customer';
+    const settings = await SystemSettings.findOne();
+    const bounds = _agingBounds(settings);
+    const asOf = localDateString();
+
+    const bills = await _loadAgingBills(partyType);
+    const result = aggregateAging(bills, asOf, bounds);
+
+    res.json({ party_type: partyType, ...result });
+  } catch (err) {
+    console.error('Aging report error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.exportAgingReport = async (req, res) => {
+  try {
+    const partyType = req.query.party_type === 'Supplier' ? 'Supplier' : 'Customer';
+    const settings = await SystemSettings.findOne();
+    const bounds = _agingBounds(settings);
+    const asOf = localDateString();
+
+    const bills = await _loadAgingBills(partyType);
+    const { rows, grand, bucket_labels } = aggregateAging(bills, asOf, bounds);
+
+    const wb = new ExcelJS.Workbook();
+    // ── Sheet 1: Party-level summary ─────────────────────────────────────
+    const ws = wb.addWorksheet('Summary');
+    ws.columns = [
+      { header: 'Party',                    key: 'party_name',    width: 30 },
+      { header: 'Mobile',                   key: 'mobile_1',      width: 14 },
+      { header: 'City',                     key: 'city',          width: 16 },
+      { header: 'Credit Days',              key: 'credit_days',   width: 11 },
+      { header: 'Bills',                    key: 'bill_count',    width: 7  },
+      { header: 'Oldest (days)',            key: 'oldest_days',   width: 12 },
+      { header: bucket_labels.current,      key: 'current',       width: 12 },
+      { header: bucket_labels.b1,           key: 'b1',            width: 12 },
+      { header: bucket_labels.b2,           key: 'b2',            width: 12 },
+      { header: bucket_labels.b3,           key: 'b3',            width: 12 },
+      { header: bucket_labels.b4,           key: 'b4',            width: 12 },
+      { header: 'Total',                    key: 'total',         width: 14 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    rows.forEach(r => ws.addRow(r));
+    // Grand-total footer row
+    const totalRow = ws.addRow({
+      party_name: 'TOTAL',
+      mobile_1: '', city: '', credit_days: '', bill_count: '', oldest_days: '',
+      current: grand.current, b1: grand.b1, b2: grand.b2, b3: grand.b3,
+      b4: grand.b4, total: grand.total,
+    });
+    totalRow.font = { bold: true };
+    totalRow.border = { top: { style: 'medium' } };
+
+    // ── Sheet 2: Bill-level drill-down ───────────────────────────────────
+    const ws2 = wb.addWorksheet('Bills');
+    ws2.columns = [
+      { header: 'Party',          key: 'party_name',     width: 30 },
+      { header: 'Bill Number',    key: 'bill_number',    width: 18 },
+      { header: 'Bill Date',      key: 'bill_date',      width: 12 },
+      { header: 'Due Date',       key: 'due_date',       width: 12 },
+      { header: 'Overdue (days)', key: 'overdue_days',   width: 13 },
+      { header: 'Bucket',         key: 'bucket_label',   width: 11 },
+      { header: 'Total',          key: 'total_amount',   width: 14 },
+      { header: 'Paid',           key: 'paid_amount',    width: 14 },
+      { header: 'Balance',        key: 'balance_amount', width: 14 },
+    ];
+    ws2.getRow(1).font = { bold: true };
+    rows.forEach(r => r.bills.forEach(b => ws2.addRow({
+      party_name: r.party_name,
+      bill_number: b.bill_number,
+      bill_date: b.bill_date,
+      due_date: b.due_date || '',
+      overdue_days: b.overdue_days,
+      bucket_label: bucket_labels[b.bucket],
+      total_amount: b.total_amount,
+      paid_amount: b.paid_amount,
+      balance_amount: b.balance_amount,
+    })));
+
+    const fname = `aging_${partyType.toLowerCase()}_${asOf}.xlsx`;
+    return _sendWorkbook(res, wb, fname);
+  } catch (err) {
+    console.error('Aging export error:', err);
+    res.status(500).json({ error: 'Export failed' });
+  }
+};
+
+// =========================================================================
+// GSTR-1 — monthly outward-supply summary (statutory).
+// Math lives in utils/gstr1.js (pure, 29 unit-tests passing). This
+// controller just loads bills+items+customer for a period and hands the
+// normalized shape off to buildGstr1.
+// =========================================================================
+
+const { buildGstr1, stateCodeFromGstin } = require('../utils/gstr1');
+
+async function _loadGstr1Bills(from, to) {
+  const rows = await SalesBill.findAll({
+    where: {
+      is_cancelled: false,
+      bill_date: { [Op.between]: [from, to] },
+    },
+    attributes: ['sales_bill_id', 'bill_number', 'bill_date',
+                 'sub_total', 'cgst_amount', 'sgst_amount', 'igst_amount',
+                 'cess_amount', 'total_amount'],
+    include: [
+      { model: Party, as: 'customer',
+        attributes: ['party_name', 'gstin', 'state', 'mobile_1'] },
+      { model: SalesBillItem, as: 'items',
+        attributes: ['hsn_code', 'gst_rate', 'quantity', 'unit_type',
+                     'taxable_amount', 'cgst_amount', 'sgst_amount',
+                     'igst_amount', 'cess_amount'] },
+    ],
+    order: [['bill_date', 'ASC'], ['sales_bill_id', 'ASC']],
+  });
+
+  return rows.map(r => ({
+    bill_id:     r.sales_bill_id,
+    bill_number: r.bill_number,
+    bill_date:   r.bill_date,
+    sub_total:   Number(r.sub_total)   || 0,
+    cgst_amount: Number(r.cgst_amount) || 0,
+    sgst_amount: Number(r.sgst_amount) || 0,
+    igst_amount: Number(r.igst_amount) || 0,
+    cess_amount: Number(r.cess_amount) || 0,
+    total_amount: Number(r.total_amount) || 0,
+    customer: r.customer ? {
+      party_name: r.customer.party_name,
+      gstin:      r.customer.gstin,
+      state:      r.customer.state,
+      mobile_1:   r.customer.mobile_1,
+    } : null,
+    items: (r.items || []).map(it => ({
+      hsn_code:       it.hsn_code,
+      gst_rate:       Number(it.gst_rate)       || 0,
+      quantity:       Number(it.quantity)       || 0,
+      unit_type:      it.unit_type,
+      taxable_amount: Number(it.taxable_amount) || 0,
+      cgst_amount:    Number(it.cgst_amount)    || 0,
+      sgst_amount:    Number(it.sgst_amount)    || 0,
+      igst_amount:    Number(it.igst_amount)    || 0,
+      cess_amount:    Number(it.cess_amount)    || 0,
+    })),
+  }));
+}
+
+// Period helpers — accept `period=YYYY-MM` or explicit `from_date`/`to_date`.
+function _gstr1Period(q) {
+  if (q.from_date && q.to_date) {
+    return { from: q.from_date, to: q.to_date, label: q.from_date + ' to ' + q.to_date };
+  }
+  const period = q.period && /^\d{4}-\d{2}$/.test(q.period)
+    ? q.period
+    : (() => {
+        const d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      })();
+  const [yyyy, mm] = period.split('-').map(Number);
+  const lastDay = new Date(yyyy, mm, 0).getDate();
+  const from = period + '-01';
+  const to   = period + '-' + String(lastDay).padStart(2, '0');
+  return { from, to, label: period };
+}
+
+exports.gstr1Report = async (req, res) => {
+  try {
+    const period = _gstr1Period(req.query);
+    const settings = await SystemSettings.findOne();
+    const companyStateCode = stateCodeFromGstin(settings?.gstin) || null;
+
+    const bills = await _loadGstr1Bills(period.from, period.to);
+    const report = buildGstr1(bills, { companyStateCode });
+
+    res.json({
+      period,
+      company: {
+        gstin: settings?.gstin || null,
+        state_code: companyStateCode,
+        name: settings?.company_name || '',
+      },
+      ...report,
+    });
+  } catch (err) {
+    console.error('GSTR-1 error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.exportGstr1Report = async (req, res) => {
+  try {
+    const period = _gstr1Period(req.query);
+    const settings = await SystemSettings.findOne();
+    const companyStateCode = stateCodeFromGstin(settings?.gstin) || null;
+    const bills = await _loadGstr1Bills(period.from, period.to);
+    const { b2b, b2cs, nil, hsn } = buildGstr1(bills, { companyStateCode });
+
+    const wb = new ExcelJS.Workbook();
+
+    /* ── Sheet: B2B (one row per rate within each invoice) ── */
+    const b2bSheet = wb.addWorksheet('4A - B2B');
+    b2bSheet.columns = [
+      { header: 'GSTIN/UIN',        key: 'gstin',         width: 18 },
+      { header: 'Receiver Name',    key: 'receiver',      width: 28 },
+      { header: 'Invoice No',       key: 'inv',           width: 16 },
+      { header: 'Invoice Date',     key: 'inv_date',      width: 12 },
+      { header: 'Invoice Value',    key: 'inv_value',     width: 14 },
+      { header: 'Place of Supply',  key: 'pos',           width: 12 },
+      { header: 'Reverse Charge',   key: 'reverse',       width: 10 },
+      { header: 'Invoice Type',     key: 'inv_type',      width: 14 },
+      { header: 'Rate (%)',         key: 'rate',          width: 8  },
+      { header: 'Taxable Value',    key: 'taxable',       width: 14 },
+      { header: 'IGST',             key: 'igst',          width: 12 },
+      { header: 'CGST',             key: 'cgst',          width: 12 },
+      { header: 'SGST',             key: 'sgst',          width: 12 },
+      { header: 'Cess',             key: 'cess',          width: 10 },
+    ];
+    b2bSheet.getRow(1).font = { bold: true };
+    for (const grp of b2b.rows) {
+      for (const inv of grp.invoices) {
+        for (const rr of inv.rate_rows) {
+          b2bSheet.addRow({
+            gstin: grp.gstin, receiver: grp.party_name,
+            inv: inv.bill_number, inv_date: inv.bill_date,
+            inv_value: inv.invoice_value, pos: inv.place_of_supply,
+            reverse: inv.reverse_charge ? 'Y' : 'N', inv_type: inv.invoice_type,
+            rate: rr.rate, taxable: rr.taxable, igst: rr.igst,
+            cgst: rr.cgst, sgst: rr.sgst, cess: rr.cess,
+          });
+        }
+      }
+    }
+
+    /* ── Sheet: B2CS ── */
+    const b2csSheet = wb.addWorksheet('7 - B2CS');
+    b2csSheet.columns = [
+      { header: 'Place of Supply', key: 'pos',     width: 14 },
+      { header: 'Supply Type',     key: 'type',    width: 12 },
+      { header: 'Rate (%)',        key: 'rate',    width: 9 },
+      { header: 'Taxable Value',   key: 'taxable', width: 14 },
+      { header: 'IGST',            key: 'igst',    width: 12 },
+      { header: 'CGST',            key: 'cgst',    width: 12 },
+      { header: 'SGST',            key: 'sgst',    width: 12 },
+      { header: 'Cess',            key: 'cess',    width: 10 },
+    ];
+    b2csSheet.getRow(1).font = { bold: true };
+    b2cs.rows.forEach(r => b2csSheet.addRow(r));
+
+    /* ── Sheet: Nil/Exempt/Non-GST (Table 8) ──
+     *
+     * Two blocks: the 4-way summary (registered/unregistered × intra/inter)
+     * that the portal actually wants, and a "Details" block listing every
+     * invoice that landed here — useful so the taxpayer can spot bills that
+     * fell in by accident (e.g. bill-wise invoice saved with tax % blank).
+     */
+    const nilSheet = wb.addWorksheet('8 - Nil & Exempt');
+    nilSheet.columns = [
+      { header: 'Supply Type',     key: 'supply_type',   width: 14 },
+      { header: 'Type',            key: 'state_type',    width: 14 },
+      { header: 'Invoices',        key: 'invoice_count', width: 10 },
+      { header: 'Taxable Value',   key: 'taxable',       width: 16 },
+    ];
+    nilSheet.getRow(1).font = { bold: true };
+    nil.rows.forEach(r => nilSheet.addRow(r));
+    if (nil.invoices.length > 0) {
+      nilSheet.addRow([]);
+      const hdr = nilSheet.addRow(['Details', '', '', '']);
+      hdr.font = { bold: true };
+      nilSheet.addRow(['Invoice No', 'Date', 'Receiver', 'Taxable']).font = { bold: true };
+      nil.invoices.forEach(inv => {
+        nilSheet.addRow([
+          inv.bill_number,
+          inv.bill_date,
+          inv.party_name + (inv.gstin ? ` (${inv.gstin})` : ''),
+          inv.taxable,
+        ]);
+      });
+    }
+
+    /* ── Sheet: HSN ── */
+    const hsnSheet = wb.addWorksheet('12 - HSN');
+    hsnSheet.columns = [
+      { header: 'HSN/SAC',         key: 'hsn_code',    width: 12 },
+      { header: 'Rate (%)',        key: 'rate',        width: 9 },
+      { header: 'UQC',             key: 'unit',        width: 8 },
+      { header: 'Quantity',        key: 'quantity',    width: 12 },
+      { header: 'Taxable Value',   key: 'taxable',     width: 14 },
+      { header: 'IGST',            key: 'igst',        width: 12 },
+      { header: 'CGST',            key: 'cgst',        width: 12 },
+      { header: 'SGST',            key: 'sgst',        width: 12 },
+      { header: 'Cess',            key: 'cess',        width: 10 },
+      { header: 'Total',           key: 'total',       width: 14 },
+    ];
+    hsnSheet.getRow(1).font = { bold: true };
+    hsn.rows.forEach(r => hsnSheet.addRow(r));
+    const hsnTot = hsnSheet.addRow({
+      hsn_code: 'TOTAL', rate: '', unit: '',
+      quantity: hsn.grand.quantity, taxable: hsn.grand.taxable,
+      igst: hsn.grand.igst, cgst: hsn.grand.cgst, sgst: hsn.grand.sgst,
+      cess: hsn.grand.cess, total: hsn.grand.total,
+    });
+    hsnTot.font = { bold: true };
+    hsnTot.border = { top: { style: 'medium' } };
+
+    return _sendWorkbook(res, wb, 'gstr1_' + period.label.replace(/\//g, '-') + '.xlsx');
+  } catch (err) {
+    console.error('GSTR-1 export error:', err);
     res.status(500).json({ error: 'Export failed' });
   }
 };

@@ -18,8 +18,14 @@
 const http = require('http');
 const sequelize = require('../config/database');
 const { SystemSettings, Party, Product, SalesBill, SalesBillItem,
-        PurchaseBill, PurchaseBillItem, PaymentReceipt } = require('../models');
+        PurchaseBill, PurchaseBillItem, PaymentReceipt, StockLedger } = require('../models');
 const { Op } = require('sequelize');
+const { recalculatePartyBalance } = require('../utils/balanceHelper');
+
+// Round "half away from zero" — matches the Indian GST convention used
+// elsewhere in this codebase. Tally stores amounts, not percentages;
+// we divide back so the edit form can render a proper GST table.
+const round2 = (n) => Math.sign(n || 0) * Math.round(Math.abs(n || 0) * 100 + 1e-10) / 100;
 
 /* ────────────────────────────────────────────────────────────────────────
  * Helpers — XML escape, envelope wrap, state code → intrastate detection
@@ -514,6 +520,11 @@ function classifyLedger(name) {
   if (u.includes('CGST')) return 'cgst';
   if (u.includes('SGST') || u.includes('UGST')) return 'sgst';
   if (u.includes('ROUND') && u.includes('OFF')) return 'roundoff';
+  // Discount ledger — Tally commonly names these "Discount On Sale",
+  // "Trade Discount", "Cash Discount" etc. These reduce the bill total
+  // before tax. Previously classified as 'party_or_other' and ignored,
+  // so imported totals were always too high by the discount amount.
+  if (u.includes('DISCOUNT')) return 'discount';
   if (u.includes('SALES ACCOUNT') || u.includes('SALES A/C') || u === 'SALES') return 'sales';
   if (u.includes('PURCHASE ACCOUNT') || u.includes('PURCHASE A/C') || u === 'PURCHASE') return 'purchase';
   if (u.includes('CASH') || u.includes('BANK')) return 'cash_bank';
@@ -832,12 +843,18 @@ async function ingestVouchersFromXml(xml, userId) {
       // voucher type:
       //   • Sales / Purchase (invoice mode)     → <LEDGERENTRIES.LIST>
       //   • Payment / Receipt / Contra / Journal → <ALLLEDGERENTRIES.LIST>
-      // Previously we read only the first — so every Payment voucher had
-      // zero ledgerEntries and bailed with "zero amount on party ledger".
-      const ledgerEntries = [
-        ...extractTag(body, 'LEDGERENTRIES.LIST'),
-        ...extractTag(body, 'ALLLEDGERENTRIES.LIST'),
-      ].map(block => ({
+      //
+      // Some Tally exports emit BOTH tags for the same sales voucher — the
+      // two lists carry identical postings (just different metadata). If we
+      // concatenated them we'd double every IGST / CGST / round-off entry,
+      // which is what was producing bills whose totals were ~subTotal + 2×tax
+      // instead of the correct subTotal + tax. Prefer the invoice-mode tag;
+      // only fall back to ALLLEDGERENTRIES.LIST when it's genuinely absent
+      // (non-invoice vouchers like Payment/Receipt).
+      const mainEntries = extractTag(body, 'LEDGERENTRIES.LIST');
+      const altEntries  = extractTag(body, 'ALLLEDGERENTRIES.LIST');
+      const rawEntries  = mainEntries.length > 0 ? mainEntries : altEntries;
+      const ledgerEntries = rawEntries.map(block => ({
         name:   readField(block, 'LEDGERNAME'),
         amount: parseTallyAmount(readField(block, 'AMOUNT')),
         isDeemedPositive: /yes/i.test(readField(block, 'ISDEEMEDPOSITIVE')),
@@ -861,6 +878,13 @@ async function ingestVouchersFromXml(xml, userId) {
       const roundOff = ledgerEntries
         .filter(e => classifyLedger(e.name) === 'roundoff')
         .reduce((s, e) => s + e.amount, 0);
+      // Discount total — always positive magnitude, subtracted from the
+      // bill's grand total below. Tally's sign convention on the ledger
+      // line varies (debit vs credit side) by voucher direction, so abs()
+      // is safer than preserving sign.
+      const discountAmt = ledgerEntries
+        .filter(e => classifyLedger(e.name) === 'discount')
+        .reduce((s, e) => s + Math.abs(e.amount), 0);
 
       /* ── Sales voucher ─────────────────────────────────────────────── */
       if (vchtype.includes('sales') && !vchtype.includes('return')) {
@@ -879,7 +903,20 @@ async function ingestVouchersFromXml(xml, userId) {
           if (product) resolved.push({ product, ...inv });
         }
         const subTotal = resolved.reduce((s, it) => s + it.qty * it.rate, 0);
-        const totalAmt = subTotal + cgstAmt + sgstAmt + igstAmt + roundOff;
+        // Discount comes OUT of the bill before tax, matching Tally's
+        // voucher layout (subTotal → (-)discount → +tax → +round-off).
+        const taxableBase = subTotal - discountAmt;
+        const totalAmt = taxableBase + cgstAmt + sgstAmt + igstAmt + roundOff;
+
+        // Derive bill-level GST percentages from Tally's amount totals —
+        // the edit form reads cgst_pct/sgst_pct/igst_pct to populate the
+        // GST row. Without this back-calc, imported bills open in edit
+        // mode with the tax table empty even though the taxed amounts
+        // are visible in the list view. Divide by taxable base (after
+        // discount), which is what Tally applied the tax rate to.
+        const cgstPct = taxableBase > 0 ? round2((cgstAmt / taxableBase) * 100) : 0;
+        const sgstPct = taxableBase > 0 ? round2((sgstAmt / taxableBase) * 100) : 0;
+        const igstPct = taxableBase > 0 ? round2((igstAmt / taxableBase) * 100) : 0;
 
         await sequelize.transaction(async (t) => {
           const bill = await SalesBill.create({
@@ -889,6 +926,17 @@ async function ingestVouchersFromXml(xml, userId) {
             total_items: resolved.length,
             total_quantity: resolved.reduce((s, it) => s + it.qty, 0),
             sub_total: subTotal,
+            discount_amount: discountAmt,
+            // Store the discount as a percentage too — the edit form's
+            // total calc reads discount_percentage via Form.useWatch; if
+            // only amount is stored, the form's derived billDiscAmt stays
+            // 0 and the discount never subtracts from the total.
+            // 4-decimal precision so round-tripping amount→pct→amount
+            // doesn't lose a rupee. `round2` was fine for GST rates
+            // (always clean 2.5%/5%/12%/18%) but discount percentages are
+            // derived from Tally amounts and can be 4.7619%, 3.3478% etc.
+            discount_percentage: subTotal > 0 ? +((discountAmt / subTotal) * 100).toFixed(4) : 0,
+            cgst_pct: cgstPct, sgst_pct: sgstPct, igst_pct: igstPct,
             cgst_amount: cgstAmt, sgst_amount: sgstAmt, igst_amount: igstAmt,
             round_off: roundOff,
             total_amount: totalAmt,
@@ -897,21 +945,59 @@ async function ingestVouchersFromXml(xml, userId) {
             remarks: narration || null,
             created_by: userId,
           }, { transaction: t });
-          await SalesBillItem.bulkCreate(resolved.map(r => ({
-            sales_bill_id: bill.sales_bill_id,
-            product_id: r.product.product_id,
-            barcode: r.product.barcode,
-            product_name: r.product.product_name,
-            category_id: r.product.category_id,
-            hsn_code: r.product.hsn_code,
-            quantity: r.qty,
-            rate: r.rate,
-            cost_rate: r.product.purchase_rate || 0,
-            gst_rate: r.product.gst_rate || 0,
-            taxable_amount: r.qty * r.rate,
-            total_amount: r.qty * r.rate,
-            quantity_per_box: r.product.quantity_per_box || 1,
-          })), { transaction: t });
+
+          // Distribute bill-level tax across items by taxable share so the
+          // per-line cgst/sgst/igst columns reflect the same totals.
+          await SalesBillItem.bulkCreate(resolved.map(r => {
+            const taxable = r.qty * r.rate;
+            const share = subTotal > 0 ? taxable / subTotal : 0;
+            return {
+              sales_bill_id: bill.sales_bill_id,
+              product_id: r.product.product_id,
+              barcode: r.product.barcode,
+              product_name: r.product.product_name,
+              category_id: r.product.category_id,
+              hsn_code: r.product.hsn_code,
+              quantity: r.qty,
+              rate: r.rate,
+              cost_rate: r.product.purchase_rate || 0,
+              gst_rate: r.product.gst_rate || 0,
+              cgst_amount: round2(cgstAmt * share),
+              sgst_amount: round2(sgstAmt * share),
+              igst_amount: round2(igstAmt * share),
+              taxable_amount: taxable,
+              total_amount: taxable,
+              quantity_per_box: r.product.quantity_per_box || 1,
+            };
+          }), { transaction: t });
+
+          // Wire imports into stock — without these, Stock Movement (which
+          // reads stock_ledger) stays empty for imported bills and the
+          // on-hand figure never reflects the outgoing stock.
+          for (const r of resolved) {
+            const product = r.product;
+            const currentStock = parseFloat(product.current_stock) || 0;
+            const newStock = +(currentStock - parseFloat(r.qty)).toFixed(2);
+            await product.update({ current_stock: newStock }, { transaction: t });
+            await StockLedger.create({
+              product_id: product.product_id,
+              barcode: product.barcode,
+              transaction_type: 'Sales',
+              transaction_date: billDate,
+              reference_id: bill.sales_bill_id,
+              reference_number: bill.bill_number,
+              quantity_in: 0,
+              quantity_out: r.qty,
+              rate: r.rate,
+              balance_quantity: newStock,
+              remarks: 'Imported from Tally',
+              created_by: userId,
+            }, { transaction: t });
+          }
+
+          // Recalculate the customer's outstanding balance so imported
+          // bills contribute to party ledgers like native ones do.
+          await recalculatePartyBalance(customer.party_id, t);
         });
         existingSales.add(voucherNumber);
         imported++;
@@ -935,7 +1021,12 @@ async function ingestVouchersFromXml(xml, userId) {
           if (product) resolved.push({ product, ...inv });
         }
         const subTotal = resolved.reduce((s, it) => s + it.qty * it.rate, 0);
-        const totalAmt = subTotal + cgstAmt + sgstAmt + igstAmt + roundOff;
+        const taxableBase = subTotal - discountAmt;
+        const totalAmt = taxableBase + cgstAmt + sgstAmt + igstAmt + roundOff;
+
+        const cgstPct = taxableBase > 0 ? round2((cgstAmt / taxableBase) * 100) : 0;
+        const sgstPct = taxableBase > 0 ? round2((sgstAmt / taxableBase) * 100) : 0;
+        const igstPct = taxableBase > 0 ? round2((igstAmt / taxableBase) * 100) : 0;
 
         await sequelize.transaction(async (t) => {
           const bill = await PurchaseBill.create({
@@ -945,6 +1036,13 @@ async function ingestVouchersFromXml(xml, userId) {
             total_items: resolved.length,
             total_quantity: resolved.reduce((s, it) => s + it.qty, 0),
             sub_total: subTotal,
+            discount_amount: discountAmt,
+            // 4-decimal precision so round-tripping amount→pct→amount
+            // doesn't lose a rupee. `round2` was fine for GST rates
+            // (always clean 2.5%/5%/12%/18%) but discount percentages are
+            // derived from Tally amounts and can be 4.7619%, 3.3478% etc.
+            discount_percentage: subTotal > 0 ? +((discountAmt / subTotal) * 100).toFixed(4) : 0,
+            cgst_pct: cgstPct, sgst_pct: sgstPct, igst_pct: igstPct,
             cgst_amount: cgstAmt, sgst_amount: sgstAmt, igst_amount: igstAmt,
             round_off: roundOff,
             total_amount: totalAmt,
@@ -953,19 +1051,58 @@ async function ingestVouchersFromXml(xml, userId) {
             remarks: narration || null,
             created_by: userId,
           }, { transaction: t });
-          await PurchaseBillItem.bulkCreate(resolved.map(r => ({
-            purchase_bill_id: bill.purchase_bill_id,
-            product_id: r.product.product_id,
-            barcode: r.product.barcode,
-            product_name: r.product.product_name,
-            hsn_code: r.product.hsn_code,
-            quantity: r.qty,
-            purchase_rate: r.rate,
-            gst_rate: r.product.gst_rate || 0,
-            taxable_amount: r.qty * r.rate,
-            total_amount: r.qty * r.rate,
-            quantity_per_box: r.product.quantity_per_box || 1,
-          })), { transaction: t });
+
+          await PurchaseBillItem.bulkCreate(resolved.map(r => {
+            const taxable = r.qty * r.rate;
+            const share = subTotal > 0 ? taxable / subTotal : 0;
+            return {
+              purchase_bill_id: bill.purchase_bill_id,
+              product_id: r.product.product_id,
+              barcode: r.product.barcode,
+              product_name: r.product.product_name,
+              hsn_code: r.product.hsn_code,
+              quantity: r.qty,
+              purchase_rate: r.rate,
+              gst_rate: r.product.gst_rate || 0,
+              cgst_amount: round2(cgstAmt * share),
+              sgst_amount: round2(sgstAmt * share),
+              igst_amount: round2(igstAmt * share),
+              taxable_amount: taxable,
+              total_amount: taxable,
+              quantity_per_box: r.product.quantity_per_box || 1,
+            };
+          }), { transaction: t });
+
+          // Stock increments + ledger rows. Purchases raise on-hand stock
+          // and also anchor the "last purchase rate" used by the sales
+          // form — without this the product master never learns what the
+          // imported purchase paid, and Stock Movement has no Purchase
+          // row for the item.
+          for (const r of resolved) {
+            const product = r.product;
+            const currentStock = parseFloat(product.current_stock) || 0;
+            const newStock = +(currentStock + parseFloat(r.qty)).toFixed(2);
+            await product.update({
+              current_stock: newStock,
+              purchase_rate: r.rate || product.purchase_rate,
+            }, { transaction: t });
+            await StockLedger.create({
+              product_id: product.product_id,
+              barcode: product.barcode,
+              transaction_type: 'Purchase',
+              transaction_date: billDate,
+              reference_id: bill.purchase_bill_id,
+              reference_number: bill.bill_number,
+              quantity_in: r.qty,
+              quantity_out: 0,
+              rate: r.rate,
+              balance_quantity: newStock,
+              remarks: 'Imported from Tally',
+              created_by: userId,
+            }, { transaction: t });
+          }
+
+          await recalculatePartyBalance(supplier.party_id, t);
         });
         existingPurchase.add(voucherNumber);
         imported++;

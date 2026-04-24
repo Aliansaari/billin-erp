@@ -34,7 +34,7 @@
   overflow: hidden;
   background: var(--bg-app);
   color: var(--fg-primary);
-  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 13.5px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
@@ -617,7 +617,7 @@
   color: rgba(255, 248, 244, 0.82);
 }
 .rtn-hero .v {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-optical-sizing: auto;
   font-weight: 600;
   font-size: 32px;
