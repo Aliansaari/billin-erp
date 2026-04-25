@@ -73,6 +73,13 @@ const SystemSettings = sequelize.define('SystemSettings', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  // When false, the Sales Bill form hides the Itemised/Amount-only mode
+  // toggle and only itemised bills are creatable. Default ON because the
+  // feature is non-disruptive (toggle defaults to Itemised).
+  enable_amount_only_billing: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+  },
   sales_bill_prefix: {
     type: DataTypes.STRING(20),
     defaultValue: '',

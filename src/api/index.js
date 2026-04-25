@@ -106,6 +106,17 @@ export const purchaseAPI = {
   cancel: (id) => api.post(`/purchases/${id}/cancel`),
 };
 
+// Purchase bill drafts — Hold/Recall flow. Same isolation as sales drafts:
+// drafts live in their own table (purchase_bill_drafts) so they NEVER
+// appear in GSTR-2/aging/supplier-ledger and never touch stock.
+export const purchaseDraftAPI = {
+  list:   ()        => api.get('/purchase-drafts'),
+  get:    (id)      => api.get(`/purchase-drafts/${id}`),
+  create: (data)    => api.post('/purchase-drafts', data),
+  update: (id, d)   => api.put(`/purchase-drafts/${id}`, d),
+  delete: (id)      => api.delete(`/purchase-drafts/${id}`),
+};
+
 // Sales
 export const salesAPI = {
   getAll: (params) => api.get('/sales', { params }),
@@ -113,6 +124,19 @@ export const salesAPI = {
   create: (data) => api.post('/sales', data),
   update: (id, data) => api.put(`/sales/${id}`, data),
   cancel: (id) => api.post(`/sales/${id}/cancel`),
+};
+
+// Sales bill drafts — Hold/Recall flow. Drafts live in their own table
+// (sales_bill_drafts), so they NEVER appear in GSTR-1/3B/ledger/reports
+// and never decrement stock. Recall = load draft → resume in form →
+// save → drafts row is deleted (consumes a real bill_number only at
+// commit time, not at hold time).
+export const salesDraftAPI = {
+  list:   ()        => api.get('/sales-drafts'),
+  get:    (id)      => api.get(`/sales-drafts/${id}`),
+  create: (data)    => api.post('/sales-drafts', data),
+  update: (id, d)   => api.put(`/sales-drafts/${id}`, d),
+  delete: (id)      => api.delete(`/sales-drafts/${id}`),
 };
 
 // Sales Returns — credit notes. getReferenceBill fetches the original sales
@@ -159,6 +183,7 @@ export const reportAPI = {
   getPartyOutstanding: (params) => api.get('/reports/party-outstanding', { params }),
   getAging: (params) => api.get('/reports/aging', { params }),
   getGstr1: (params) => api.get('/reports/gstr1', { params }),
+  getGstr3b: (params) => api.get('/reports/gstr3b', { params }),
 
   // Filter-aware XLSX exports — SAME filter shape as the JSON endpoints above.
   // The server applies the filters, fetches ALL matching rows (no page limit),
@@ -169,6 +194,7 @@ export const reportAPI = {
   exportPartyOutstanding: (params) => api.get('/reports/party-outstanding/export', { params, responseType: 'blob', timeout: 300000 }),
   exportAging: (params) => api.get('/reports/aging/export', { params, responseType: 'blob', timeout: 300000 }),
   exportGstr1: (params) => api.get('/reports/gstr1/export', { params, responseType: 'blob', timeout: 300000 }),
+  exportGstr3b: (params) => api.get('/reports/gstr3b/export', { params, responseType: 'blob', timeout: 300000 }),
 };
 
 // Settings

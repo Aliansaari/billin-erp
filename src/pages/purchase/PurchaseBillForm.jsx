@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { Form, Input, DatePicker, Select, InputNumber, Table, message } from 'antd';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal } from 'antd';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { purchaseAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
+import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
 import { printDocument } from '../../services/printer';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
@@ -169,6 +169,7 @@ function VariantPickerDropdown({ options, selectedIdx, onPick, top, left, rateFi
 
 export default function PurchaseBillForm() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id }   = useParams();
   const isEdit   = Boolean(id);
 
@@ -217,6 +218,9 @@ export default function PurchaseBillForm() {
   const [printModal, setPrintModal] = useState({ visible:false, bill:null });
   const [companyName, setCompanyName] = useState('');
   const [billNumber, setBillNumber]   = useState('');
+  // Predicted next bill number for new bills — operator sees what they'll get
+  // on save instead of "pending". Computed from latest bill + prefix.
+  const [nextBillNoPreview, setNextBillNoPreview] = useState('');
   // gstMode defaults to the user's last choice (saved in localStorage) for
   // new bills, but flips to 'bill' when we load an existing bill that was
   // clearly stored as bill-wise — i.e. it has non-zero bill-level GST
@@ -227,6 +231,27 @@ export default function PurchaseBillForm() {
   const [cgstPct, setCgstPct] = useState(0);
   const [sgstPct, setSgstPct] = useState(0);
   const [igstPct, setIgstPct] = useState(0);
+
+  // ── Amount-only billing state (mirrors SalesBillForm) ──
+  // 'item' (default itemised) | 'amount' (single synthetic line for service /
+  // freight / on-account purchases). Defaults to itemised; toggle hidden when
+  // operator disables `enable_amount_only_billing` in System Settings.
+  const [billMode,   setBillMode]   = useState('item');
+  const [amountVal,    setAmountVal]    = useState('');
+  const [amountGstRate,setAmountGstRate]= useState(0);
+  const [amountHsnCode,setAmountHsnCode]= useState('');
+  const [amountDesc,   setAmountDesc]   = useState('');
+  const [amountOnlyEnabled, setAmountOnlyEnabled] = useState(true);
+
+  // ── Hold / Recall / Drafts state ──
+  // Tracks which draft (if any) the form was recalled from so handleSave
+  // can pass the draft_id to the backend for same-txn deletion.
+  const [recalledDraftId, setRecalledDraftId] = useState(null);
+  const [holdLoading, setHoldLoading]         = useState(false);
+  const [drafts, setDrafts]                   = useState([]);
+  const [draftsModalOpen, setDraftsModalOpen] = useState(false);
+  const [selectedDraftIdx, setSelectedDraftIdx] = useState(0);
+  const draftCardRefs = useRef([]);
 
   const tableWrapRef = useRef(null);
   const [tblHeight, setTblHeight] = useState(300);
@@ -288,7 +313,29 @@ export default function PurchaseBillForm() {
 
   useEffect(() => {
     loadParties(); loadCategories();
-    settingsAPI.getSystem().then(({data})=>setCompanyName(data?.data?.company_name||'')).catch(()=>{});
+    settingsAPI.getSystem().then(({data}) => {
+      setCompanyName(data?.data?.company_name || '');
+      // Default to enabled when the column is missing (older DBs without
+      // the migration). Treat literal `false` as off; anything else is on.
+      setAmountOnlyEnabled(data?.data?.enable_amount_only_billing !== false);
+    }).catch(()=>{});
+    // Predict the next bill number on new bills so the operator sees what
+    // they'll get on save instead of "pending". Optimistic — actual
+    // allocation happens server-side under a row lock and may drift if
+    // another operator races us.
+    if (!isEdit) {
+      Promise.all([
+        purchaseAPI.getAll({ limit: 1, page: 1 }),
+        settingsAPI.getSystem(),
+      ]).then(([listRes, setRes]) => {
+        const prefix = setRes?.data?.data?.purchase_bill_prefix?.trim() || '';
+        const latest = listRes?.data?.data?.[0]?.bill_number || '';
+        const m = String(latest).match(/(\d+)(?!.*\d)/);
+        const next = (m ? parseInt(m[1], 10) + 1 : 1);
+        const padded = String(next).padStart(m ? m[1].length : 4, '0');
+        setNextBillNoPreview((prefix ? prefix + '-' : '') + padded);
+      }).catch(() => {});
+    }
     if (isEdit) loadBill(id);
     else { form.setFieldsValue({bill_date:dayjs()}); setTimeout(()=>barcodeRef.current?.focus(),100); }
   }, [id]);
@@ -342,28 +389,41 @@ export default function PurchaseBillForm() {
           || loadedCgstAmt > 0 || loadedSgstAmt > 0 || loadedIgstAmt > 0) {
         setGstMode('bill');
       }
-      const loaded=(data.items||[]).map((it,idx)=>({
-        key:it.purchase_bill_item_id||idx,
-        purchase_bill_item_id:it.purchase_bill_item_id,
-        product_id:it.product_id, barcode:it.barcode||'',
-        category_id:it.category_id, category_name:it.category_name||'',
-        product_name:it.product_name||'', size:it.size||'',
-        article_number:it.article_number||'',
-        purchase_rate:parseFloat(it.purchase_rate)||0,
-        quantity:parseFloat(it.quantity)||0,
-        // parseFloat (not parseInt) — boxes can be fractional (0.5 metre, 2.5 kg).
-        quantity_per_box:parseFloat(it.quantity_per_box)||1,
-        margin_percentage:parseFloat(it.margin_percentage)||0,
-        sale_rate:parseFloat(it.sale_rate)||0,
-        mrp:parseFloat(it.mrp)||0,
-        hsn_code:it.hsn_code||'',
-        gst_rate:parseFloat(it.gst_rate)||0,
-      }));
-      // Advance monotonic key counter above any loaded row so newly-added
-      // items in edit mode can't collide with existing keys.
-      const maxLoadedKey = loaded.reduce((m,it)=>Math.max(m, it.key||0), 0);
-      nextKeyRef.current = maxLoadedKey + 1;
-      setItems(loaded);
+      // Restore amount-mode if this bill was saved as a single synthetic line.
+      // Backend persists bill_mode='amount' + description on the header; the
+      // single item carries the rate (=amount), gst_rate, hsn_code.
+      if (data.bill_mode === 'amount') {
+        setBillMode('amount');
+        const synth = (data.items || [])[0] || {};
+        setAmountVal(parseFloat(synth.purchase_rate) || parseFloat(data.sub_total) || 0);
+        setAmountGstRate(parseFloat(synth.gst_rate) || 0);
+        setAmountHsnCode(synth.hsn_code || '');
+        setAmountDesc(data.description || synth.product_name || '');
+        setItems([]);
+      } else {
+        const loaded=(data.items||[]).map((it,idx)=>({
+          key:it.purchase_bill_item_id||idx,
+          purchase_bill_item_id:it.purchase_bill_item_id,
+          product_id:it.product_id, barcode:it.barcode||'',
+          category_id:it.category_id, category_name:it.category_name||'',
+          product_name:it.product_name||'', size:it.size||'',
+          article_number:it.article_number||'',
+          purchase_rate:parseFloat(it.purchase_rate)||0,
+          quantity:parseFloat(it.quantity)||0,
+          // parseFloat (not parseInt) — boxes can be fractional (0.5 metre, 2.5 kg).
+          quantity_per_box:parseFloat(it.quantity_per_box)||1,
+          margin_percentage:parseFloat(it.margin_percentage)||0,
+          sale_rate:parseFloat(it.sale_rate)||0,
+          mrp:parseFloat(it.mrp)||0,
+          hsn_code:it.hsn_code||'',
+          gst_rate:parseFloat(it.gst_rate)||0,
+        }));
+        // Advance monotonic key counter above any loaded row so newly-added
+        // items in edit mode can't collide with existing keys.
+        const maxLoadedKey = loaded.reduce((m,it)=>Math.max(m, it.key||0), 0);
+        nextKeyRef.current = maxLoadedKey + 1;
+        setItems(loaded);
+      }
     }catch(e){ message.error('Failed to load bill'); navigate('/purchases'); }
     finally{ setPageLoading(false); }
   };
@@ -821,24 +881,33 @@ export default function PurchaseBillForm() {
   const paidAmt      = Form.useWatch('paid_amount',form)||0;
   const otherChr     = Form.useWatch('other_charges',form)||0;
   const freightChr   = Form.useWatch('freight_charges',form)||0;
-  const subTotal     = items.reduce((s,i)=>s+(i.quantity||0)*(i.purchase_rate||0),0);
-  const discountAmt  = +(subTotal*discountPct/100).toFixed(2);
+  // In amount-mode the synthetic line has no item/bill discount — taxableTotal
+  // is just the typed amount, GST is rate% × amount on a 'product'-style path.
+  const subTotal     = billMode === 'amount'
+    ? (parseFloat(amountVal) || 0)
+    : items.reduce((s,i)=>s+(i.quantity||0)*(i.purchase_rate||0),0);
+  const discountAmt  = billMode === 'amount' ? 0 : +(subTotal*discountPct/100).toFixed(2);
   const taxableTotal = +(subTotal-discountAmt).toFixed(2);
   // Pro-rate the bill-level (trade) discount across each line so GST applies to
   // the DISCOUNTED base — that's the GST-law definition of "transaction value"
   // for trade discounts shown on the invoice. Previously GST used gross values
   // and a 5% trade discount on a 18% GST bill overstated GST by ~0.9% of total.
   const discountRatio = subTotal>0 ? discountAmt/subTotal : 0;
-  const productGST   = +items.reduce((s,i)=>{
-    const grossLine  = (i.quantity||0)*(i.purchase_rate||0);
-    const taxableLine= grossLine*(1-discountRatio);
-    return s + taxableLine*((i.gst_rate||0)/100);
-  },0).toFixed(2);
-  const effCgstPct   = gstMode==='bill' ? (cgstPct||0) : (taxableTotal>0 ? +(productGST/2/taxableTotal*100).toFixed(2) : 0);
-  const effSgstPct   = gstMode==='bill' ? (sgstPct||0) : effCgstPct;
-  const cgst         = gstMode==='bill' ? +(taxableTotal*(cgstPct||0)/100).toFixed(2) : +(productGST/2).toFixed(2);
-  const sgst         = gstMode==='bill' ? +(taxableTotal*(sgstPct||0)/100).toFixed(2) : +(productGST/2).toFixed(2);
-  const igstAmt      = +(taxableTotal*(igstPct||0)/100).toFixed(2);
+  const productGST   = billMode === 'amount'
+    ? +(taxableTotal * ((parseFloat(amountGstRate) || 0) / 100)).toFixed(2)
+    : +items.reduce((s,i)=>{
+      const grossLine  = (i.quantity||0)*(i.purchase_rate||0);
+      const taxableLine= grossLine*(1-discountRatio);
+      return s + taxableLine*((i.gst_rate||0)/100);
+    },0).toFixed(2);
+  // Force product-wise math in amount-mode so the synthetic line's per-rate
+  // GST drives the totals (matches what salesController.create does on save).
+  const effGstMode   = billMode === 'amount' ? 'product' : gstMode;
+  const effCgstPct   = effGstMode==='bill' ? (cgstPct||0) : (taxableTotal>0 ? +(productGST/2/taxableTotal*100).toFixed(2) : 0);
+  const effSgstPct   = effGstMode==='bill' ? (sgstPct||0) : effCgstPct;
+  const cgst         = effGstMode==='bill' ? +(taxableTotal*(cgstPct||0)/100).toFixed(2) : +(productGST/2).toFixed(2);
+  const sgst         = effGstMode==='bill' ? +(taxableTotal*(sgstPct||0)/100).toFixed(2) : +(productGST/2).toFixed(2);
+  const igstAmt      = effGstMode==='bill' ? +(taxableTotal*(igstPct||0)/100).toFixed(2) : 0;
   const totalGST     = +(cgst+sgst+igstAmt).toFixed(2);
   const rawTotal     = taxableTotal+totalGST+parseFloat(otherChr||0)+parseFloat(freightChr||0);
   // Always round the net total to the nearest rupee (matches Tally's
@@ -931,7 +1000,14 @@ export default function PurchaseBillForm() {
     if(submittingRef.current) return;
     try{
       const values=await form.validateFields();
-      if(items.length===0){message.warning('Add at least one item');return;}
+      if (billMode === 'item' && items.length === 0) {
+        message.warning('Add at least one item or switch to Amount mode');
+        return;
+      }
+      if (billMode === 'amount' && (!parseFloat(amountVal) || parseFloat(amountVal) <= 0)) {
+        message.warning('Enter an amount greater than 0');
+        return;
+      }
       // Block negative balance (paid_amount > total). Supplier ledger must
       // never receive an un-authorised credit from a data-entry typo.
       const paidPreview = payFull ? roundedTotal : (values.paid_amount||0);
@@ -950,17 +1026,30 @@ export default function PurchaseBillForm() {
         vehicle_number:values.vehicle_number,
         lr_number:values.lr_number,
         remarks:(values.remarks||'').trim(),
-        discount_percentage:discountPct,discount_amount:discountAmt,
+        // Amount-mode skips bill-level discount entirely (no item or bill
+        // discount on the synthetic line — mirrors salesController).
+        discount_percentage: billMode === 'amount' ? 0 : discountPct,
+        discount_amount:     billMode === 'amount' ? 0 : discountAmt,
         other_charges:parseFloat(otherChr)||0,
         freight_charges:parseFloat(freightChr)||0,
         // Explicit mode flag so backend treats 0% bill-wise GST (exempt items)
         // as bill-wise, not as accidental product-wise fallback.
-        gst_mode:gstMode,
-        cgst_pct:parseFloat(cgstPct)||0,
-        sgst_pct:parseFloat(sgstPct)||0,
-        igst_pct:parseFloat(igstPct)||0,
+        gst_mode: billMode === 'amount' ? 'product' : gstMode,
+        cgst_pct: billMode === 'amount' ? 0 : (parseFloat(cgstPct)||0),
+        sgst_pct: billMode === 'amount' ? 0 : (parseFloat(sgstPct)||0),
+        igst_pct: billMode === 'amount' ? 0 : (parseFloat(igstPct)||0),
         paid_amount:payFull?roundedTotal:(values.paid_amount||0),
-        items:items.map(i=>({
+        // Amount-only mode: backend synthesises the single line from these
+        // four fields. items[] is ignored when bill_mode='amount'.
+        bill_mode:    billMode,
+        amount:       billMode === 'amount' ? parseFloat(amountVal) || 0 : undefined,
+        gst_rate:     billMode === 'amount' ? parseFloat(amountGstRate) || 0 : undefined,
+        hsn_code:     billMode === 'amount' ? (amountHsnCode || '9999') : undefined,
+        description:  billMode === 'amount' ? amountDesc : undefined,
+        // Tells the backend to delete the recalled draft inside the same
+        // transaction as the bill insert (race-safe: rollback keeps draft alive).
+        draft_id:     recalledDraftId || undefined,
+        items: billMode === 'amount' ? [] : items.map(i=>({
           product_id:i.product_id,barcode:i.barcode,
           category_id:i.category_id,category_name:i.category_name,
           product_name:i.product_name,size:i.size,
@@ -973,30 +1062,226 @@ export default function PurchaseBillForm() {
       const{data}=isEdit?await purchaseAPI.update(id,billData):await purchaseAPI.create(billData);
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
       invalidateFamilyCache(); // newly-created variants are now live in DB — drop cached lookups
-      const printItems=(data.items||[]).map(it=>({
-        barcode:it.barcode,product_name:it.product_name,size:it.size,
-        article_number:it.article_number,mrp:it.mrp,sale_rate:it.sale_rate,
-        purchase_rate:it.purchase_rate,quantity:it.quantity,quantity_per_box:it.quantity_per_box||1,
-      }));
-      setPrintModal({visible:true,bill:{...data,printItems}});
+      // Skip barcode-print modal for amount-mode (no real products to label).
+      if (billMode === 'amount') {
+        setRecalledDraftId(null);
+        loadDrafts();
+        if (isEdit) navigate('/purchases');
+        else { handleReset(); setBillNumber(''); }
+      } else {
+        const printItems=(data.items||[]).map(it=>({
+          barcode:it.barcode,product_name:it.product_name,size:it.size,
+          article_number:it.article_number,mrp:it.mrp,sale_rate:it.sale_rate,
+          purchase_rate:it.purchase_rate,quantity:it.quantity,quantity_per_box:it.quantity_per_box||1,
+        }));
+        setRecalledDraftId(null);
+        loadDrafts();
+        setPrintModal({visible:true,bill:{...data,printItems}});
+      }
     }catch(e){ message.error(e.response?.data?.error||'Failed to save'); }
     finally{ setLoading(false); submittingRef.current=false; }
-  },[form,items,discountPct,discountAmt,otherChr,freightChr,roundedTotal,isEdit,id]);
+  },[form,items,discountPct,discountAmt,otherChr,freightChr,roundedTotal,isEdit,id,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct]);
 
   const handleReset=()=>{
     setItems([]); setEntry(EMPTY_ENTRY); setBarcodeError('');
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setPickerRateFilter(null); setPickerArticleFilter(null);
     setActiveCatId(null);
+    setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
+    setRecalledDraftId(null);
     form.resetFields(['discount_percentage','paid_amount','other_charges','freight_charges','remarks']);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   };
 
-  // Warn on tab close/refresh when there's in-progress work.
-  const dirty = items.length > 0;
+  // Warn on tab close/refresh when there's in-progress work. Declared above
+  // handleRecallDraft because the recall flow reads `dirty` for the
+  // unsaved-work confirmation. Amount-mode counts as dirty when an amount > 0.
+  const dirty = items.length > 0 || (billMode === 'amount' && parseFloat(amountVal) > 0);
   const confirmLeave = useUnsavedChangesWarning(dirty);
 
   useCtrlEnterSubmit(()=>handleSave(true));
+
+  /* ── Hold (save as draft) ──
+     Mirrors SalesBillForm.handleHold. Persists the entire form payload to
+     purchase_bill_drafts so the operator can step away mid-bill (customer
+     interruption, etc.) without consuming a bill_number. F4 keybind. */
+  const loadDrafts = useCallback(async () => {
+    try {
+      const { data } = await purchaseDraftAPI.list();
+      setDrafts(data?.data || []);
+    } catch { /* silent — drafts pill just shows 0 */ }
+  }, []);
+  useEffect(() => { loadDrafts(); }, [loadDrafts]);
+  useEffect(() => { if (draftsModalOpen) setSelectedDraftIdx(0); }, [draftsModalOpen]);
+
+  const handleHold = useCallback(async () => {
+    if (isEdit) return;                    // edit mode is a real bill, not a draft
+    if (holdLoading) return;
+    if (billMode === 'item' && items.length === 0 &&
+        (billMode === 'amount' && !parseFloat(amountVal))) {
+      message.warning('Nothing to hold — enter at least one item or an amount');
+      return;
+    }
+    setHoldLoading(true);
+    try {
+      const values = form.getFieldsValue();
+      const payload = {
+        supplier_id:        values.supplier_id || null,
+        bill_date:          values.bill_date ? values.bill_date.format('YYYY-MM-DD') : null,
+        due_date:           values.due_date  ? values.due_date.format('YYYY-MM-DD')  : null,
+        supplier_bill_number: values.supplier_bill_number || '',
+        transport_name:     values.transport_name || '',
+        vehicle_number:     values.vehicle_number || '',
+        lr_number:          values.lr_number || '',
+        remarks:            (values.remarks || '').trim(),
+        discount_percentage: parseFloat(values.discount_percentage) || 0,
+        other_charges:       parseFloat(values.other_charges) || 0,
+        freight_charges:     parseFloat(values.freight_charges) || 0,
+        paid_amount:         parseFloat(values.paid_amount) || 0,
+        gst_mode: gstMode, cgst_pct: cgstPct, sgst_pct: sgstPct, igst_pct: igstPct,
+        bill_mode: billMode,
+        amount:    billMode === 'amount' ? parseFloat(amountVal) || 0 : null,
+        gst_rate:  billMode === 'amount' ? parseFloat(amountGstRate) || 0 : null,
+        hsn_code:  billMode === 'amount' ? (amountHsnCode || '9999') : null,
+        description: billMode === 'amount' ? amountDesc : null,
+        items: billMode === 'amount' ? [] : items.map(i => ({
+          product_id: i.product_id, barcode: i.barcode,
+          category_id: i.category_id, category_name: i.category_name,
+          product_name: i.product_name, size: i.size,
+          article_number: i.article_number, hsn_code: i.hsn_code,
+          quantity: i.quantity, quantity_per_box: i.quantity_per_box || 1,
+          purchase_rate: i.purchase_rate, margin_percentage: i.margin_percentage,
+          sale_rate: i.sale_rate, mrp: i.mrp, gst_rate: i.gst_rate,
+        })),
+        _total_preview: roundedTotal,
+      };
+      // Update if recalled, else create.
+      if (recalledDraftId) {
+        await purchaseDraftAPI.update(recalledDraftId, payload);
+        message.success('Draft updated');
+      } else {
+        const { data } = await purchaseDraftAPI.create(payload);
+        message.success(`Held as ${data.draft_number}`);
+      }
+      handleReset();
+      setRecalledDraftId(null);
+      loadDrafts();
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Failed to hold');
+    } finally {
+      setHoldLoading(false);
+    }
+  }, [form, items, billMode, amountVal, amountGstRate, amountHsnCode, amountDesc, gstMode, cgstPct, sgstPct, igstPct, recalledDraftId, holdLoading, isEdit, roundedTotal, loadDrafts]);
+
+  /* ── Recall draft — restore form state from a held purchase_bill_drafts
+     row. Sets recalledDraftId so the next save deletes the draft inside
+     the same transaction. */
+  const recallDraft = useCallback(async (draftId) => {
+    try {
+      const { data: draft } = await purchaseDraftAPI.get(draftId);
+      const p = draft.payload || {};
+      const mode = p.bill_mode === 'amount' ? 'amount' : 'item';
+      setBillMode(mode);
+      setRecalledDraftId(draft.draft_id);
+      form.setFieldsValue({
+        supplier_id:        p.supplier_id || undefined,
+        bill_date:          p.bill_date ? dayjs(p.bill_date) : dayjs(),
+        due_date:           p.due_date  ? dayjs(p.due_date)  : undefined,
+        supplier_bill_number: p.supplier_bill_number || '',
+        transport_name:     p.transport_name || '',
+        vehicle_number:     p.vehicle_number || '',
+        lr_number:          p.lr_number || '',
+        remarks:            p.remarks || '',
+        paid_amount:        p.paid_amount || 0,
+        discount_percentage:p.discount_percentage || 0,
+        other_charges:      p.other_charges || 0,
+        freight_charges:    p.freight_charges || 0,
+      });
+      if (mode === 'item') {
+        setItems((p.items || []).map((it, idx) => ({ ...it, key: idx })));
+        setGstMode(p.gst_mode || 'product');
+        setCgstPct(p.cgst_pct || 0);
+        setSgstPct(p.sgst_pct || 0);
+        setIgstPct(p.igst_pct || 0);
+      } else {
+        setAmountVal(p.amount || '');
+        setAmountGstRate(p.gst_rate || 0);
+        setAmountHsnCode(p.hsn_code || '');
+        setAmountDesc(p.description || '');
+      }
+      message.success(`Recalled ${draft.draft_number}`);
+    } catch (e) {
+      message.error('Failed to recall draft: ' + (e.response?.data?.error || e.message));
+    }
+  }, [form]);
+
+  // Honour ?recallDraft state on mount (when navigated here from /purchases).
+  useEffect(() => {
+    const draftId = location.state?.recallDraft;
+    if (draftId) recallDraft(draftId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* Recall a draft after the unsaved-work prompt — shared by mouse click,
+     double-click, and the Enter-key path so behaviour is consistent. */
+  const handleRecallDraft = useCallback(async (d) => {
+    if (!d) return;
+    if (dirty) {
+      const proceed = await new Promise(res => {
+        Modal.confirm({
+          title: 'Replace current bill?',
+          content: 'You have unsaved work in the form. Recalling will replace it. Continue?',
+          okText: 'Recall', cancelText: 'Cancel',
+          onOk: () => res(true), onCancel: () => res(false),
+        });
+      });
+      if (!proceed) return;
+    }
+    setDraftsModalOpen(false);
+    await recallDraft(d.draft_id);
+  }, [dirty, recallDraft]);
+
+  /* Keyboard navigation inside the Drafts modal — Up/Down to move,
+     Enter to recall, Esc closed by AntD by default. */
+  useEffect(() => {
+    if (!draftsModalOpen || drafts.length === 0) return;
+    const onKey = (e) => {
+      if (document.querySelector('.ant-modal-confirm')) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedDraftIdx(i => Math.min(i + 1, drafts.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedDraftIdx(i => Math.max(i - 1, 0));
+      } else if (e.key === 'Home') {
+        e.preventDefault(); setSelectedDraftIdx(0);
+      } else if (e.key === 'End') {
+        e.preventDefault(); setSelectedDraftIdx(drafts.length - 1);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const d = drafts[selectedDraftIdx];
+        if (d) handleRecallDraft(d);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [draftsModalOpen, drafts, selectedDraftIdx, handleRecallDraft]);
+
+  useEffect(() => {
+    if (!draftsModalOpen) return;
+    const el = draftCardRefs.current[selectedDraftIdx];
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [selectedDraftIdx, draftsModalOpen]);
+
+  // F4 = Hold draft (only on new bills, not edits).
+  useEffect(() => {
+    if (isEdit) return;
+    const handler = (e) => {
+      if (e.key === 'F4') { e.preventDefault(); handleHold(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isEdit, handleHold]);
 
   /* ── Table columns — Excel-style cells ──
      Inputs fill the whole cell (no floating pill). numCell/txtCell no
@@ -1074,19 +1359,61 @@ export default function PurchaseBillForm() {
         <section className="pbf-top">
           <div className="pbf-top-inner">
 
-            <div className="pbf-top-head">
-              <span className="pbf-pill">
-                <span className="dot"></span>
-                {isEdit ? 'Edit Purchase Bill' : 'Purchase Bill'}
-              </span>
-              <div className="pbf-doc">
-                <span>Bill no.</span>
-                <b>{billNumber || `New · ${dayjs().format('DD MMM YYYY')}`}</b>
+            {/* Compact header strip — full-width, single row.
+                LEFT  : doc-type chip + Bill-no box + Mode toggle (inline)
+                MIDDLE: company name (chipped — visually parallel to doc chip)
+                RIGHT : bill date + due date (no labels, pinned to right edge) */}
+            <div className="pbf-top-head pbf-top-head--compact">
+              <div className="pbf-top-head-left">
+                <span className="pbf-chip">
+                  {isEdit ? 'Edit Purchase Bill' : 'Purchase Bill'}
+                </span>
+                {/* Bill number boxed pill — label and value share the SAME
+                    font size so the eye reads them as one unit. */}
+                <span className="pbf-billno-box">
+                  <span className="pbf-billno-lbl">Bill no.</span>
+                  <span className="pbf-billno-val">{billNumber || nextBillNoPreview || '…'}</span>
+                </span>
+                {/* Apple-style Items / Amount toggle. Hidden when amount-only
+                    is disabled in Settings, and on Edit (mode is locked). */}
+                {amountOnlyEnabled && !isEdit && (
+                  <div className={`pbf-mode-apple ${billMode === 'amount' ? 'is-amount' : 'is-item'}`} role="tablist">
+                    <span className="pbf-mode-apple-thumb" aria-hidden />
+                    <button type="button" role="tab" aria-selected={billMode === 'item'}
+                      className={`pbf-mode-apple-opt ${billMode === 'item' ? 'active' : ''}`}
+                      onClick={() => { setBillMode('item'); setAmountVal(''); }}>
+                      Items
+                    </button>
+                    <button type="button" role="tab" aria-selected={billMode === 'amount'}
+                      className={`pbf-mode-apple-opt ${billMode === 'amount' ? 'active' : ''}`}
+                      onClick={() => { setBillMode('amount'); setItems([]); setEntry(EMPTY_ENTRY); }}>
+                      Amount
+                    </button>
+                  </div>
+                )}
+                {recalledDraftId && (
+                  <span className="pbf-mode-recalled">Recalled draft</span>
+                )}
               </div>
-              {companyName && <span className="pbf-company">· {companyName}</span>}
+              {companyName && (
+                <div className="pbf-top-head-center">
+                  <span className="pbf-chip pbf-chip-company" title={companyName}>{companyName}</span>
+                </div>
+              )}
+              <div className="pbf-top-head-right">
+                {/* No labels — placeholders communicate the field's purpose. */}
+                <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
+                  <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Bill date *" size="small"/>
+                </Form.Item>
+                <Form.Item name="due_date" noStyle>
+                  <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Due date" size="small"/>
+                </Form.Item>
+              </div>
             </div>
 
-            {/* Supplier / bill / transport row */}
+            {/* Supplier / transport row — bill_date and due_date moved up
+                into the header strip's right cluster to match the editorial
+                sales-form layout. */}
             <div className="pbf-top-row">
               <div className="pbf-field">
                 <Form.Item name="supplier_id" noStyle rules={[{required:true,message:' '}]}>
@@ -1096,18 +1423,8 @@ export default function PurchaseBillForm() {
                 </Form.Item>
               </div>
               <div className="pbf-field">
-                <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
-                  <DatePicker format="DD-MM-YYYY" style={{width:'100%'}} placeholder="Bill date *"/>
-                </Form.Item>
-              </div>
-              <div className="pbf-field">
                 <Form.Item name="supplier_bill_number" noStyle>
                   <Input placeholder="Supp. bill #"/>
-                </Form.Item>
-              </div>
-              <div className="pbf-field">
-                <Form.Item name="due_date" noStyle>
-                  <DatePicker format="DD-MM-YYYY" style={{width:'100%'}} placeholder="Due date"/>
                 </Form.Item>
               </div>
               <div className="pbf-field">
@@ -1127,7 +1444,9 @@ export default function PurchaseBillForm() {
               </div>
             </div>
 
-            {/* Product entry row */}
+            {/* Product entry row — only in itemised mode. Amount-mode shows
+                the amount-only panel further below instead. */}
+            {billMode === 'item' && (
             <div className="pbf-top-row-2">
               <div className="pbf-field">
                 <Input ref={barcodeRef} value={entry.barcode} placeholder="Barcode / scan"
@@ -1223,9 +1542,10 @@ export default function PurchaseBillForm() {
                 ＋ ADD
               </button>
             </div>
+            )}
 
             {/* Lookup status chip — sits under the entry row */}
-            {(lookupLoading || entry.product_name) && (
+            {billMode === 'item' && (lookupLoading || entry.product_name) && (
               <div style={{marginTop:6,display:'flex',justifyContent:'flex-end'}}>
                 {lookupLoading && entry.product_name &&
                   <span className="pbf-entry-chip info">⏳ Checking variant…</span>}
@@ -1236,32 +1556,80 @@ export default function PurchaseBillForm() {
               </div>
             )}
 
+            {/* Amount-only entry panel — single synthetic line for service /
+                freight / on-account purchases. Mirrors SalesBillForm. */}
+            {billMode === 'amount' && (
+              <div className="pbf-amount-panel" style={{
+                margin: '10px 0 4px', padding: '18px 20px',
+                background: 'rgba(99, 102, 241, .06)',
+                border: '1px solid rgba(99, 102, 241, .20)',
+                borderRadius: 10,
+                display: 'grid',
+                gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                gap: 14, alignItems: 'end',
+              }}>
+                <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                  <label style={{fontSize:11,color:'var(--fg-tertiary)',letterSpacing:'.04em',textTransform:'uppercase',fontWeight:600}}>Description</label>
+                  <Input value={amountDesc}
+                    onChange={e=>setAmountDesc(e.target.value)}
+                    placeholder="Service / freight / labour charge..."
+                    autoFocus />
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                  <label style={{fontSize:11,color:'var(--fg-tertiary)',letterSpacing:'.04em',textTransform:'uppercase',fontWeight:600}}>HSN/SAC</label>
+                  <Input value={amountHsnCode}
+                    onChange={e=>setAmountHsnCode(e.target.value)}
+                    placeholder="HSN / SAC"
+                    maxLength={10} />
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                  <label style={{fontSize:11,color:'var(--fg-tertiary)',letterSpacing:'.04em',textTransform:'uppercase',fontWeight:600}}>GST %</label>
+                  <Select value={amountGstRate} onChange={setAmountGstRate} style={{width:'100%'}}>
+                    {[0, 5, 12, 18, 28].map(r => <Select.Option key={r} value={r}>{r}%</Select.Option>)}
+                  </Select>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                  <label style={{fontSize:11,color:'var(--fg-tertiary)',letterSpacing:'.04em',textTransform:'uppercase',fontWeight:600}}>Amount (Taxable)</label>
+                  <InputNumber keyboard={false} value={amountVal}
+                    onChange={v=>setAmountVal(v||'')}
+                    placeholder="0.00" min={0} style={{width:'100%'}}
+                    formatter={v => v ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                    parser={v => v ? v.replace(/[₹,\s]/g, '') : ''} />
+                </div>
+              </div>
+            )}
+
           </div>
         </section>
 
-        {/* ═══════════════════════════════ (2) MIDDLE ══════════════════════════ */}
+        {/* ═══════════════════════════════ (2) MIDDLE ══════════════════════════
+           Always render the section so the page-grid's flex row stays
+           occupied — otherwise the bottom totals/payment cards collapse
+           upward in Amount mode. The table itself is only mounted in Items mode. */}
         <section className="pbf-mid">
-          <div className="pbf-mid-card">
-            <div ref={tableWrapRef} className="pbf-tbl-wrap">
-              <Table
-                columns={itemColumns} dataSource={items} rowKey="key"
-                size="small" pagination={false} loading={pageLoading}
-                scroll={items.length?{x:1176,y:tblHeight}:{y:tblHeight}}
-                locale={{emptyText:(
-                  <div className="pbf-empty">
-                    <div className="pbf-empty-bolt">⚡</div>
-                    <div className="pbf-empty-main">Scan a barcode or search a product to add items</div>
-                    <div className="pbf-empty-sub">Use the entry row above to add products to this purchase</div>
-                    <div className="pbf-empty-hints">
-                      <span><kbd>F1</kbd> save &amp; pay</span>
-                      <span><kbd>F8</kbd> save credit</span>
-                      <span><kbd>Esc</kbd> go back</span>
+          {billMode === 'item' && (
+            <div className="pbf-mid-card">
+              <div ref={tableWrapRef} className="pbf-tbl-wrap">
+                <Table
+                  columns={itemColumns} dataSource={items} rowKey="key"
+                  size="small" pagination={false} loading={pageLoading}
+                  scroll={items.length?{x:1176,y:tblHeight}:{y:tblHeight}}
+                  locale={{emptyText:(
+                    <div className="pbf-empty">
+                      <div className="pbf-empty-bolt">⚡</div>
+                      <div className="pbf-empty-main">Scan a barcode or search a product to add items</div>
+                      <div className="pbf-empty-sub">Use the entry row above to add products to this purchase</div>
+                      <div className="pbf-empty-hints">
+                        <span><kbd>F1</kbd> save &amp; pay</span>
+                        <span><kbd>F8</kbd> save credit</span>
+                        <span><kbd>Esc</kbd> go back</span>
+                      </div>
                     </div>
-                  </div>
-                )}}
-              />
+                  )}}
+                />
+              </div>
             </div>
-          </div>
+          )}
         </section>
 
         {/* ═══════════════════════════════ (3) BOTTOM ══════════════════════════ */}
@@ -1414,6 +1782,26 @@ export default function PurchaseBillForm() {
             <button className="pbf-act" onClick={handleReset}>
               <span className="pbf-kbd">F5</span> Reset
             </button>
+            {!isEdit && (
+              <button className="pbf-act" onClick={handleHold} disabled={holdLoading}>
+                <span className="pbf-kbd">F4</span> Hold
+              </button>
+            )}
+            {!isEdit && (
+              <button
+                className="pbf-act"
+                onClick={() => { loadDrafts(); setDraftsModalOpen(true); }}
+                title="View held purchase drafts"
+              >
+                📋 Drafts
+                {drafts.length > 0 && (
+                  <span style={{
+                    background: 'var(--accent)', color: '#fff', borderRadius: 999,
+                    padding: '0 7px', fontSize: 10, fontWeight: 700, marginLeft: 6,
+                  }}>{drafts.length}</span>
+                )}
+              </button>
+            )}
             {isEdit && (
               <button className="pbf-act" onClick={() => printDocument({ docType: 'purchase', id })}>
                 <span className="pbf-kbd">Ctrl+P</span> Print
@@ -1429,6 +1817,107 @@ export default function PurchaseBillForm() {
         </section>
 
       </div>
+
+      {/* In-form Drafts modal — Recall replays into THIS form (no route
+          change) so the operator stays in their billing flow. */}
+      <Modal
+        open={draftsModalOpen}
+        onCancel={() => setDraftsModalOpen(false)}
+        title={
+          <div className="pbf-drafts-title">
+            <span className="pbf-pill"><span className="dot"></span>Drafts</span>
+            <span className="pbf-drafts-count">{drafts.length} held</span>
+          </div>
+        }
+        footer={null}
+        width="min(96vw, 1100px)"
+        zIndex={1100}
+        className="pbf-drafts-modal"
+        styles={{ body: { padding: 0 } }}
+      >
+        {drafts.length === 0 ? (
+          <div className="pbf-drafts-empty">
+            <div className="pbf-drafts-empty-icon">📋</div>
+            <div className="pbf-drafts-empty-main">No drafts held</div>
+          </div>
+        ) : (
+          <div className="pbf-drafts-table">
+            <div className="pbf-drafts-thead">
+              <span className="c-date">Date</span>
+              <span className="c-cust">Supplier</span>
+              <span className="c-qty">Qty</span>
+              <span className="c-tot">Total</span>
+              <span className="c-user">User</span>
+              <span className="c-sm">Bill #</span>
+              <span className="c-act"></span>
+            </div>
+            <div className="pbf-drafts-tbody">
+              {drafts.map((d, i) => {
+                const isAmount = d.payload?.bill_mode === 'amount';
+                const isSelected = i === selectedDraftIdx;
+                const totalQty = isAmount
+                  ? null
+                  : (d.payload?.items || []).reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0);
+                const dateObj = dayjs(d.created_date);
+                return (
+                  <div
+                    key={d.draft_id}
+                    ref={(el) => { draftCardRefs.current[i] = el; }}
+                    className={`pbf-drafts-tr ${isSelected ? 'is-selected' : ''}`}
+                    onClick={() => setSelectedDraftIdx(i)}
+                    onDoubleClick={() => handleRecallDraft(d)}
+                  >
+                    <span className="c-date">
+                      <span className="c-date-d">{dateObj.format('DD MMM YYYY')}</span>
+                      <span className="c-date-t">{dateObj.format('HH:mm')}</span>
+                    </span>
+                    <span className="c-cust">
+                      {d.supplier?.party_name || <span className="walk-in">No supplier</span>}
+                      {isAmount && <span className="pbf-drafts-mode-tag amount">Amount</span>}
+                    </span>
+                    <span className="c-qty">{isAmount ? '—' : (totalQty % 1 === 0 ? totalQty : totalQty.toFixed(1))}</span>
+                    <span className="c-tot">
+                      ₹{parseFloat(d.total_preview || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                    <span className="c-user">{d.creator?.username || '—'}</span>
+                    <span className="c-sm">{d.payload?.supplier_bill_number || '—'}</span>
+                    <span className="c-act">
+                      <button
+                        className="pbf-drafts-btn recall"
+                        onClick={(e) => { e.stopPropagation(); handleRecallDraft(d); }}>
+                        <span className="pbf-drafts-btn-ico" aria-hidden>↩</span>
+                        <span>Recall</span>
+                      </button>
+                      <button
+                        className="pbf-drafts-btn discard"
+                        title="Discard draft"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          Modal.confirm({
+                            title: `Discard ${d.draft_number}?`,
+                            content: 'This permanently deletes the draft. Cannot be undone.',
+                            okText: 'Discard', okType: 'danger',
+                            onOk: async () => {
+                              try {
+                                await purchaseDraftAPI.delete(d.draft_id);
+                                await loadDrafts();
+                                message.success(`${d.draft_number} discarded`);
+                              } catch (err) {
+                                message.error('Failed to discard: ' + (err.response?.data?.error || err.message));
+                              }
+                            },
+                          });
+                        }}>
+                        Discard
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <BarcodePrintModal
         visible={printModal.visible}

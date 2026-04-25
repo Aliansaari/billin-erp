@@ -24,7 +24,9 @@ app.use('/api/parties', require('./routes/parties'));
 app.use('/api/categories', require('./routes/categories'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/purchases', require('./routes/purchases'));
+app.use('/api/purchase-drafts', require('./routes/purchaseDrafts'));
 app.use('/api/sales', require('./routes/sales'));
+app.use('/api/sales-drafts', require('./routes/salesDrafts'));
 app.use('/api/sales-returns', require('./routes/salesReturns'));
 app.use('/api/purchase-returns', require('./routes/purchaseReturns'));
 app.use('/api/payments', require('./routes/payments'));
@@ -351,6 +353,78 @@ async function startServer() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                        WHERE table_name='purchase_bills' AND column_name='tally_halving_reverted') THEN
           ALTER TABLE purchase_bills ADD COLUMN tally_halving_reverted BOOLEAN DEFAULT false;
+        END IF;
+      END $$;
+      -- Hold-bill / Recall-draft feature: separate table so drafts are
+      -- invisible to every existing report, GSTR-1/3B aggregator, and
+      -- the bill-number sequence. JSONB blob holds the form state.
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                       WHERE table_name='sales_bill_drafts') THEN
+          CREATE TABLE sales_bill_drafts (
+            draft_id      SERIAL PRIMARY KEY,
+            draft_number  VARCHAR(20)   NOT NULL UNIQUE,
+            customer_id   INTEGER       REFERENCES parties(party_id) ON DELETE SET NULL,
+            draft_date    DATE          NOT NULL DEFAULT CURRENT_DATE,
+            payload       JSONB         NOT NULL,
+            item_count    INTEGER       DEFAULT 0,
+            total_preview NUMERIC(15,2) DEFAULT 0,
+            created_by    INTEGER       REFERENCES users(user_id),
+            created_date  TIMESTAMP     DEFAULT NOW(),
+            modified_date TIMESTAMP     DEFAULT NOW()
+          );
+          CREATE INDEX idx_drafts_created_date ON sales_bill_drafts(created_date DESC);
+        END IF;
+      END $$;
+      -- Amount-only / on-account billing feature: bill_mode flag +
+      -- description column for the synthetic line text.
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_bills' AND column_name='bill_mode') THEN
+          ALTER TABLE sales_bills ADD COLUMN bill_mode VARCHAR(10) DEFAULT 'item';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_bills' AND column_name='description') THEN
+          ALTER TABLE sales_bills ADD COLUMN description TEXT;
+        END IF;
+        -- Operator-level kill switch for amount-only billing. Default
+        -- TRUE so existing installs keep the feature available. Shared
+        -- between sales and purchases — one toggle gates both forms.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='enable_amount_only_billing') THEN
+          ALTER TABLE system_settings ADD COLUMN enable_amount_only_billing BOOLEAN DEFAULT true;
+        END IF;
+      END $$;
+      -- Mirror of the sales drafts table for purchases — same isolation
+      -- rationale (no bill_number consumed, invisible to reports/stock/
+      -- supplier balance, JSONB blob holds the form state).
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                       WHERE table_name='purchase_bill_drafts') THEN
+          CREATE TABLE purchase_bill_drafts (
+            draft_id      SERIAL PRIMARY KEY,
+            draft_number  VARCHAR(20)   NOT NULL UNIQUE,
+            supplier_id   INTEGER       REFERENCES parties(party_id) ON DELETE SET NULL,
+            draft_date    DATE          NOT NULL DEFAULT CURRENT_DATE,
+            payload       JSONB         NOT NULL,
+            item_count    INTEGER       DEFAULT 0,
+            total_preview NUMERIC(15,2) DEFAULT 0,
+            created_by    INTEGER       REFERENCES users(user_id),
+            created_date  TIMESTAMP     DEFAULT NOW(),
+            modified_date TIMESTAMP     DEFAULT NOW()
+          );
+          CREATE INDEX idx_purchase_drafts_created_date ON purchase_bill_drafts(created_date DESC);
+        END IF;
+      END $$;
+      -- Mirror amount-mode columns on purchase_bills.
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_bills' AND column_name='bill_mode') THEN
+          ALTER TABLE purchase_bills ADD COLUMN bill_mode VARCHAR(10) DEFAULT 'item';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_bills' AND column_name='description') THEN
+          ALTER TABLE purchase_bills ADD COLUMN description TEXT;
         END IF;
       END $$;
 

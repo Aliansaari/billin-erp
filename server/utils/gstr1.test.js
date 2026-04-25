@@ -10,7 +10,11 @@ const {
   round2, stateCodeFromGstin, stateCodeFromName, placeOfSupply,
   isInterState, classify, billRateBuckets,
   reconcileBillLevelTax, bucketsForBill, isNilExemptBill,
-  aggregateB2B, aggregateB2CS, aggregateNil, aggregateHSN, buildGstr1,
+  normalizeUqc,
+  aggregateB2B, aggregateB2CL, aggregateB2CS, aggregateNil,
+  aggregateCnDn, aggregateHSN, aggregateDocsIssued,
+  detectBillDataIssues,
+  buildGstr1,
 } = require('./gstr1');
 
 const KA = '29';
@@ -277,7 +281,8 @@ test('HSN: one HSN, one rate → single row', () => {
   assert.equal(out.rows.length, 1);
   assert.equal(out.rows[0].hsn_code, '6109');
   assert.equal(out.rows[0].rate, 18);
-  assert.equal(out.rows[0].unit, 'PCS');
+  // Unit is now normalised to GSTN UQC code (was 'PCS' before normalizeUqc)
+  assert.equal(out.rows[0].unit, 'PCS-PIECES');
   assert.equal(out.rows[0].quantity, 10);
   assert.equal(out.rows[0].taxable, 1000);
 });
@@ -617,4 +622,389 @@ test('buildGstr1: nil invoice excluded from B2B totals, included in nil grand', 
   assert.equal(out.b2b.grand.taxable, 1000);   // only the taxed bill's 1000
   assert.equal(out.nil.grand.taxable, 500);
   assert.equal(out.classification.find(c => c.bill_number === 'N1').bucket, 'NIL');
+});
+
+// ─── normalizeUqc ─────────────────────────────────────────────
+
+test('normalizeUqc: known units map to GSTN codes', () => {
+  assert.equal(normalizeUqc('meter'),  'MTR-METRES');
+  assert.equal(normalizeUqc('METER'),  'MTR-METRES');
+  assert.equal(normalizeUqc('  Mtr '), 'MTR-METRES');
+  assert.equal(normalizeUqc('BOX'),    'BOX-BOX');
+  assert.equal(normalizeUqc('dozen'),  'DZN-DOZENS');
+  assert.equal(normalizeUqc('pcs'),    'PCS-PIECES');
+  assert.equal(normalizeUqc('PIECES'), 'PCS-PIECES');
+  assert.equal(normalizeUqc('kg'),     'KGS-KILOGRAMS');
+  assert.equal(normalizeUqc('LITRE'),  'LTR-LITRES');
+});
+
+test('normalizeUqc: unknown unit → OTH-OTHERS', () => {
+  assert.equal(normalizeUqc('WIDGETS'), 'OTH-OTHERS');
+  assert.equal(normalizeUqc('foo'),     'OTH-OTHERS');
+});
+
+test('normalizeUqc: empty/null defaults to PCS-PIECES', () => {
+  // Preserves the pre-helper aggregateHSN default ('PCS') so existing
+  // unit-less items continue to land in the same bucket.
+  assert.equal(normalizeUqc(null),      'PCS-PIECES');
+  assert.equal(normalizeUqc(undefined), 'PCS-PIECES');
+  assert.equal(normalizeUqc(''),        'PCS-PIECES');
+  assert.equal(normalizeUqc('   '),     'PCS-PIECES');
+});
+
+test('aggregateHSN: variant unit strings collapse into one row', () => {
+  // Two items at the same HSN+rate but with different free-text units
+  // must converge to a single row keyed by the GSTN UQC code.
+  const b1 = bill({ items: [item({ unit_type: 'meter', taxable_amount: 100, cgst_amount: 9, sgst_amount: 9 })] });
+  const b2 = bill({ bill_number: 'INV-002',
+    items: [item({ unit_type: 'METER', taxable_amount: 200, cgst_amount: 18, sgst_amount: 18 })],
+  });
+  const { rows } = aggregateHSN([b1, b2]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].unit, 'MTR-METRES');
+  assert.equal(rows[0].taxable, 300);
+  assert.equal(rows[0].quantity, 20);
+});
+
+// ─── aggregateB2CL (Table 5A) ─────────────────────────────────
+
+// Helper: an unregistered customer in a different state from KA
+const uregCust = { party_name: 'Cash Sale', gstin: '', state: 'Maharashtra' };
+
+test('aggregateB2CL: includes only unregistered + inter-state + > 250000', () => {
+  // Build 4 bills, one of each disqualifier
+  const bills = [
+    // (a) registered → goes to B2B, not B2CL
+    bill({ bill_number: 'A',
+      customer: { party_name: 'X', gstin: '27ABCDE1234F1Z5', state: 'Maharashtra' },
+      items: [item({ taxable_amount: 300000, cgst_amount: 0, sgst_amount: 0, igst_amount: 54000 })],
+      cgst_amount: 0, sgst_amount: 0, igst_amount: 54000,
+    }),
+    // (b) unregistered intra-state → B2CS
+    bill({ bill_number: 'B',
+      customer: { ...uregCust, state: 'Karnataka' },
+      items: [item({ taxable_amount: 300000, cgst_amount: 27000, sgst_amount: 27000, igst_amount: 0 })],
+      cgst_amount: 27000, sgst_amount: 27000, igst_amount: 0,
+    }),
+    // (c) unregistered inter-state ≤ 2.5L → B2CS
+    bill({ bill_number: 'C',
+      customer: uregCust,
+      items: [item({ taxable_amount: 200000, cgst_amount: 0, sgst_amount: 0, igst_amount: 36000 })],
+      cgst_amount: 0, sgst_amount: 0, igst_amount: 36000,
+    }),
+    // (d) qualifies → B2CL
+    bill({ bill_number: 'D',
+      customer: uregCust,
+      items: [item({ taxable_amount: 300000, cgst_amount: 0, sgst_amount: 0, igst_amount: 54000 })],
+      cgst_amount: 0, sgst_amount: 0, igst_amount: 54000,
+    }),
+  ];
+  const { rows, invoice_count } = aggregateB2CL(bills, KA);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].bill_number, 'D');
+  assert.equal(invoice_count, 1);
+});
+
+test('aggregateB2CL: nil-tax bill > 2.5L still goes to Table 8, not B2CL', () => {
+  const nil = bill({ bill_number: 'NILBIG',
+    customer: uregCust,
+    items: [item({ taxable_amount: 300000, gst_rate: 0,
+                   cgst_amount: 0, sgst_amount: 0, igst_amount: 0 })],
+    cgst_amount: 0, sgst_amount: 0, igst_amount: 0,
+  });
+  const { rows } = aggregateB2CL([nil], KA);
+  assert.equal(rows.length, 0);
+});
+
+test('aggregateB2CL: multi-rate bill emits one row per rate', () => {
+  const mixed = bill({ bill_number: 'MIX',
+    customer: uregCust,
+    items: [
+      item({ gst_rate: 18, taxable_amount: 200000,
+             cgst_amount: 0, sgst_amount: 0, igst_amount: 36000 }),
+      item({ gst_rate: 12, taxable_amount: 100000,
+             cgst_amount: 0, sgst_amount: 0, igst_amount: 12000 }),
+    ],
+    cgst_amount: 0, sgst_amount: 0, igst_amount: 48000,
+  });
+  const { rows, invoice_count } = aggregateB2CL([mixed], KA);
+  assert.equal(rows.length, 2);
+  assert.equal(invoice_count, 1);                              // distinct bills
+  assert.deepEqual([...rows].map(r => r.rate).sort(), [12, 18]);
+  // invoice_value repeats across rate rows (portal-expected shape)
+  assert.equal(rows[0].invoice_value, rows[1].invoice_value);
+  // Sum of per-row taxable matches the bill's total taxable
+  const totTax = rows.reduce((a, r) => a + r.taxable, 0);
+  assert.equal(round2(totTax), 300000);
+});
+
+test('aggregateB2CL: grand total invariant — taxable + igst sums match rows', () => {
+  const bills = [
+    bill({ bill_number: 'D1',
+      customer: uregCust,
+      items: [item({ taxable_amount: 280000, cgst_amount: 0, sgst_amount: 0, igst_amount: 50400 })],
+      cgst_amount: 0, sgst_amount: 0, igst_amount: 50400,
+    }),
+    bill({ bill_number: 'D2',
+      customer: { ...uregCust, party_name: 'Y' },
+      items: [item({ taxable_amount: 350000, cgst_amount: 0, sgst_amount: 0, igst_amount: 63000 })],
+      cgst_amount: 0, sgst_amount: 0, igst_amount: 63000,
+    }),
+  ];
+  const { rows, grand } = aggregateB2CL(bills, KA);
+  const sumTax  = rows.reduce((a, r) => a + r.taxable, 0);
+  const sumIgst = rows.reduce((a, r) => a + r.igst,    0);
+  assert.equal(round2(sumTax),  grand.taxable);
+  assert.equal(round2(sumIgst), grand.igst);
+  assert.equal(round2(grand.taxable + grand.igst + grand.cess), grand.total);
+});
+
+// ─── aggregateDocsIssued (Table 13) ───────────────────────────
+
+test('aggregateDocsIssued: groups by series prefix, counts cancelled separately', () => {
+  const active    = [{ bill_number: 'INV-25-26-001' }, { bill_number: 'INV-25-26-002' },
+                     { bill_number: 'INV-25-26-005' }];
+  const cancelled = [{ bill_number: 'INV-25-26-003' }, { bill_number: 'INV-25-26-004' }];
+  const { rows, grand } = aggregateDocsIssued(active, cancelled);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].prefix,    'INV-25-26-');
+  assert.equal(rows[0].from_no,   '1');
+  assert.equal(rows[0].to_no,     '5');
+  assert.equal(rows[0].total,     5);
+  assert.equal(rows[0].cancelled, 2);
+  assert.equal(rows[0].net,       3);
+  assert.equal(grand.total, 5);
+  assert.equal(grand.cancelled, 2);
+  assert.equal(grand.net, 3);
+});
+
+test('aggregateDocsIssued: multiple series produce sorted rows', () => {
+  const active    = [{ bill_number: 'INV-A-1' }, { bill_number: 'INV-A-2' },
+                     { bill_number: 'INV-B-5' }];
+  const { rows } = aggregateDocsIssued(active, []);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].prefix, 'INV-A-');
+  assert.equal(rows[1].prefix, 'INV-B-');
+});
+
+test('aggregateDocsIssued: non-numeric bill numbers land in their own row', () => {
+  const { rows } = aggregateDocsIssued(
+    [{ bill_number: 'MANUAL' }],
+    []
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].prefix,  'MANUAL');
+  assert.equal(rows[0].from_no, '—');
+  assert.equal(rows[0].to_no,   '—');
+  assert.equal(rows[0].total,   1);
+});
+
+test('buildGstr1: cancelled bills feed docs-issued but not B2B/B2CS/HSN', () => {
+  const taxed = bill({ bill_number: 'A-1' });            // active, registered, taxed
+  const cnl   = bill({ bill_number: 'A-2' });            // cancelled
+  const out = buildGstr1([taxed], { companyStateCode: KA, cancelledBills: [cnl] });
+  assert.equal(out.b2b.rows.length, 1);                  // cancelled NOT in B2B
+  assert.equal(out.docs.rows.length, 1);
+  assert.equal(out.docs.rows[0].total,     2);
+  assert.equal(out.docs.rows[0].cancelled, 1);
+  assert.equal(out.docs.rows[0].net,       1);
+  assert.equal(out.period_meta.invoice_count,   1);
+  assert.equal(out.period_meta.cancelled_count, 1);
+});
+
+// ─── aggregateCnDn (Tables 9A / 9B) ───────────────────────────
+
+// A credit-note (sales return) shaped like the controller-mapped rows
+function ret(overrides = {}) {
+  const items = overrides.items || [
+    { gst_rate: 18, taxable_amount: 1000,
+      cgst_amount: 90, sgst_amount: 90, igst_amount: 0, cess_amount: 0 },
+  ];
+  const cgst = items.reduce((a, i) => a + (i.cgst_amount || 0), 0);
+  const sgst = items.reduce((a, i) => a + (i.sgst_amount || 0), 0);
+  const igst = items.reduce((a, i) => a + (i.igst_amount || 0), 0);
+  const tax  = items.reduce((a, i) => a + (i.taxable_amount || 0), 0);
+  return {
+    return_id: 1, return_number: 'CN-001', return_date: '2026-04-20',
+    reference_bill_number: 'INV-001', reference_bill_date: '2026-04-15',
+    customer: { party_name: 'ABC', gstin: '29ABCDE1234F1Z5', state: 'Karnataka' },
+    items,
+    cgst_amount: cgst, sgst_amount: sgst, igst_amount: igst, cess_amount: 0,
+    total_amount: tax + cgst + sgst + igst,
+    ...overrides,
+  };
+}
+
+test('aggregateCnDn: registered customer → CDNR (9A), unregistered → CDNUR (9B)', () => {
+  const reg = ret({ return_number: 'CN-A',
+    customer: { party_name: 'Reg Co', gstin: '27ABCDE1234F1Z5', state: 'Maharashtra' },
+    items: [{ gst_rate: 18, taxable_amount: 1000, cgst_amount: 0, sgst_amount: 0, igst_amount: 180 }],
+    cgst_amount: 0, sgst_amount: 0, igst_amount: 180,
+  });
+  const ureg = ret({ return_number: 'CN-B',
+    customer: { party_name: 'Walk-in', gstin: '', state: 'Maharashtra' },
+    items: [{ gst_rate: 18, taxable_amount: 500, cgst_amount: 0, sgst_amount: 0, igst_amount: 90 }],
+    cgst_amount: 0, sgst_amount: 0, igst_amount: 90,
+  });
+  const { cdnr, cdnur } = aggregateCnDn([reg, ureg], KA);
+  assert.equal(cdnr.rows.length,  1);
+  assert.equal(cdnur.rows.length, 1);
+  assert.equal(cdnr.rows[0].note_number,  'CN-A');
+  assert.equal(cdnur.rows[0].note_number, 'CN-B');
+  assert.equal(cdnr.rows[0].note_type,    'C');                  // Credit
+  assert.equal(cdnr.rows[0].original_invoice_number, 'INV-001');
+  assert.equal(cdnur.rows[0].ur_type,     'B2CL');               // inter-state
+});
+
+test('aggregateCnDn: intra-state unregistered marks ur_type=B2C (manual netting flag)', () => {
+  const intraUreg = ret({ return_number: 'CN-INTRA',
+    customer: { party_name: 'X', gstin: '', state: 'Karnataka' },
+    items: [{ gst_rate: 18, taxable_amount: 200, cgst_amount: 18, sgst_amount: 18, igst_amount: 0 }],
+    cgst_amount: 18, sgst_amount: 18, igst_amount: 0,
+  });
+  const { cdnur } = aggregateCnDn([intraUreg], KA);
+  assert.equal(cdnur.rows.length, 1);
+  assert.equal(cdnur.rows[0].ur_type, 'B2C');
+});
+
+test('aggregateCnDn: multi-rate note splits into one row per rate', () => {
+  const mixed = ret({ return_number: 'CN-MIX',
+    items: [
+      { gst_rate: 18, taxable_amount: 1000, cgst_amount: 90, sgst_amount: 90, igst_amount: 0 },
+      { gst_rate:  5, taxable_amount: 500,  cgst_amount: 12.5, sgst_amount: 12.5, igst_amount: 0 },
+    ],
+    cgst_amount: 102.5, sgst_amount: 102.5, igst_amount: 0,
+  });
+  const { cdnr } = aggregateCnDn([mixed], KA);
+  assert.equal(cdnr.rows.length, 2);
+  assert.deepEqual(cdnr.rows.map(r => r.rate).sort((a, b) => a - b), [5, 18]);
+  // note_value (= return total) repeats across rows
+  assert.equal(cdnr.rows[0].note_value, cdnr.rows[1].note_value);
+});
+
+test('aggregateCnDn: grand totals sum from row level', () => {
+  const reg1 = ret({ return_number: 'CN-A',
+    customer: { party_name: 'X', gstin: '27ABCDE1234F1Z5', state: 'Maharashtra' },
+    items: [{ gst_rate: 18, taxable_amount: 1000, cgst_amount: 0, sgst_amount: 0, igst_amount: 180 }],
+    cgst_amount: 0, sgst_amount: 0, igst_amount: 180,
+  });
+  const reg2 = ret({ return_number: 'CN-B',
+    customer: { party_name: 'Y', gstin: '29ABCDE1234F1Z5', state: 'Karnataka' },
+    items: [{ gst_rate: 12, taxable_amount: 500, cgst_amount: 30, sgst_amount: 30, igst_amount: 0 }],
+    cgst_amount: 30, sgst_amount: 30, igst_amount: 0,
+  });
+  const { cdnr } = aggregateCnDn([reg1, reg2], KA);
+  const sumTax  = cdnr.rows.reduce((a, r) => a + r.taxable, 0);
+  const sumIgst = cdnr.rows.reduce((a, r) => a + r.igst, 0);
+  assert.equal(round2(sumTax),  cdnr.grand.taxable);
+  assert.equal(round2(sumIgst), cdnr.grand.igst);
+  assert.equal(cdnr.note_count, 2);
+});
+
+test('aggregateCnDn: empty-items return does NOT inflate note_count', () => {
+  // Defect found in deep audit: seenCdnr.add ran before the bucket loop,
+  // so a return with no rate buckets still bumped note_count from 0 to 1.
+  const empty = ret({ return_number: 'CN-EMPTY',
+    items: [],
+    cgst_amount: 0, sgst_amount: 0, igst_amount: 0,
+  });
+  const { cdnr } = aggregateCnDn([empty], KA);
+  assert.equal(cdnr.rows.length, 0);
+  assert.equal(cdnr.note_count, 0);   // was 1 before the fix
+});
+
+test('aggregateDocsIssued: pure-numeric bill numbers get a real series label', () => {
+  // Defect found in deep audit: '001' matched the regex with empty prefix
+  // and fell through the (none) fallback. Now surfaces as '(numeric)'.
+  const { rows } = aggregateDocsIssued(
+    [{ bill_number: '001' }, { bill_number: '002' }],
+    []
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].prefix, '(numeric)');
+  assert.equal(rows[0].from_no, '1');
+  assert.equal(rows[0].to_no,   '2');
+  assert.equal(rows[0].total,   2);
+});
+
+test('detectBillDataIssues: flags bills where items+tax > total beyond ₹1', () => {
+  const cleanBill = bill({ bill_number: 'CLEAN' });
+  // Deliberately corrupt: total understates by ₹500 (operator scenario:
+  // bill-level discount applied to total but not to per-item taxable)
+  const dirtyBill = bill({ bill_number: 'DIRTY',
+    items: [item({ taxable_amount: 1000, cgst_amount: 90, sgst_amount: 90 })],
+    cgst_amount: 90, sgst_amount: 90,
+    total_amount: 680,    // should be 1180; understates by 500
+  });
+  const warnings = detectBillDataIssues([cleanBill, dirtyBill]);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].bill_number, 'DIRTY');
+  assert.equal(warnings[0].issue, 'taxable_overstated');
+  assert.equal(warnings[0].over_by, 500);
+  assert.equal(warnings[0].items_taxable_sum, 1000);
+  assert.equal(warnings[0].header_tax_sum, 180);
+  assert.equal(warnings[0].bill_total, 680);
+});
+
+test('detectBillDataIssues: ₹1 round-off slop is tolerated', () => {
+  // A bill that's off by exactly ₹1 should NOT trigger a warning — that's
+  // benign rounding. Anything > ₹1 is real.
+  const slop = bill({ bill_number: 'SLOP',
+    items: [item({ taxable_amount: 1000, cgst_amount: 90, sgst_amount: 90 })],
+    cgst_amount: 90, sgst_amount: 90,
+    total_amount: 1179,    // off by 1
+  });
+  assert.equal(detectBillDataIssues([slop]).length, 0);
+
+  const justOver = bill({ bill_number: 'OVER',
+    items: [item({ taxable_amount: 1000, cgst_amount: 90, sgst_amount: 90 })],
+    cgst_amount: 90, sgst_amount: 90,
+    total_amount: 1178,    // off by 2 — should warn
+  });
+  assert.equal(detectBillDataIssues([justOver]).length, 1);
+});
+
+test('detectBillDataIssues: warnings sorted worst-first', () => {
+  const small = bill({ bill_number: 'SMALL',
+    items: [item({ taxable_amount: 100, cgst_amount: 9, sgst_amount: 9 })],
+    cgst_amount: 9, sgst_amount: 9, total_amount: 110,   // over by 8
+  });
+  const big = bill({ bill_number: 'BIG',
+    items: [item({ taxable_amount: 10000, cgst_amount: 900, sgst_amount: 900 })],
+    cgst_amount: 900, sgst_amount: 900, total_amount: 10800,   // over by 1000
+  });
+  const warnings = detectBillDataIssues([small, big]);
+  assert.equal(warnings.length, 2);
+  assert.equal(warnings[0].bill_number, 'BIG');     // worst first
+  assert.equal(warnings[1].bill_number, 'SMALL');
+});
+
+test('buildGstr1: data_quality.bill_warnings exposed at top level', () => {
+  const cleanBill = bill({ bill_number: 'CLEAN' });
+  const dirtyBill = bill({ bill_number: 'DIRTY',
+    items: [item({ taxable_amount: 5000, cgst_amount: 450, sgst_amount: 450 })],
+    cgst_amount: 450, sgst_amount: 450,
+    total_amount: 4000,    // off by 1900
+  });
+  const out = buildGstr1([cleanBill, dirtyBill], { companyStateCode: KA });
+  assert.equal(out.data_quality.bill_warning_count, 1);
+  assert.equal(out.data_quality.bill_warnings[0].bill_number, 'DIRTY');
+});
+
+test('buildGstr1: returns flow into cdnr/cdnur and into docs-issued CN row', () => {
+  const billA = bill({ bill_number: 'INV-A' });
+  const cnReg = ret({ return_number: 'CN-A' });
+  const out = buildGstr1([billA], {
+    companyStateCode: KA,
+    activeReturns: [cnReg],
+  });
+  assert.equal(out.cdnr.rows.length, 1);
+  assert.equal(out.cdnur.rows.length, 0);
+  assert.equal(out.period_meta.credit_note_count, 1);
+  // Docs Issued now has TWO rows: invoices + credit notes
+  assert.equal(out.docs.rows.length, 2);
+  const cnRow  = out.docs.rows.find(r => r.nature === 'Credit Notes');
+  const invRow = out.docs.rows.find(r => r.nature === 'Invoices for outward supply');
+  assert.equal(cnRow.total, 1);
+  assert.equal(invRow.total, 1);
 });

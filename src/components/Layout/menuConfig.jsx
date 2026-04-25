@@ -95,6 +95,7 @@ export const menuItems = [
       { key: '/reports/party-ledger', icon: <WalletOutlined />,   label: 'Party Ledger',    perm: 'accounts.view' },
       { key: '/reports/aging',        icon: <FieldTimeOutlined />,label: 'Aging Report',    perm: 'reports.view' },
       { key: '/reports/gstr1',        icon: <FileTextOutlined />, label: 'GSTR-1',          perm: 'reports.view' },
+      { key: '/reports/gstr3b',       icon: <FileTextOutlined />, label: 'GSTR-3B',         perm: 'reports.view' },
       { key: '/reports/profit-loss',  icon: <FundOutlined />,     label: 'Profit & Loss',   perm: 'accounts.view' },
     ],
   },

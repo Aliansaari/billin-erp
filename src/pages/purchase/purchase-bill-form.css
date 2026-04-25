@@ -95,14 +95,86 @@
   padding: 14px 24px 6px;
 }
 .pbf-top-inner {
-  max-width: 1500px;
+  /* No max-width: the header strip needs to span the full viewport so the
+     dates pin to the actual right corner (matching the sales-form
+     full-width feel on wide displays). */
+  width: 100%;
   margin: 0;
 }
+/* Header bar — full-width 3-column GRID (1fr auto 1fr) so the centre
+   cluster (company chip) is anchored to the actual middle of the row.
+   Mirrors the editorial sales-form header. */
 .pbf-top-head {
-  display: flex; align-items: center; gap: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 10px;
-  flex-wrap: wrap;
+  width: 100%;
 }
+.pbf-top-head-left {
+  display: inline-flex; align-items: center; gap: 12px;
+  min-width: 0;
+  justify-self: start;
+}
+.pbf-top-head-center {
+  display: inline-flex; align-items: center; justify-content: center;
+  justify-self: center;
+  min-width: 0;
+}
+.pbf-top-head-right {
+  display: inline-flex; align-items: center; gap: 10px;
+  justify-self: end;
+}
+/* Compact variant — single dense row with smaller paddings. */
+.pbf-top-head--compact { margin-bottom: 4px; }
+.pbf-top-head--compact .pbf-chip { padding: 4px 10px; font-size: 11px; }
+
+/* Company chip — same accent fill as the doc chip so the header reads as
+   two equal-weight tokens (matches the sales-form effective render). The
+   text-transform/letter-spacing/max-width tweaks make it different from
+   the doc chip in non-color ways. NOTE: declared BEFORE .pbf-chip so the
+   cascade order matches sales — base .pbf-chip rules win for shared
+   properties (bg/color/border), .pbf-chip-company adds non-color tweaks. */
+.pbf-chip-company {
+  letter-spacing: 0.4px;
+  text-transform: none;
+  max-width: 320px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Doc-type chip — squared (matches the SALES INVOICE chip silhouette).
+   Filled accent — this is a label, not a control. */
+.pbf-chip {
+  display: inline-flex; align-items: center;
+  padding: 6px 12px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: #FDFAF2;
+  font-size: 12px; font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Bill-no boxed pill — matches the company chip's silhouette so the
+   header reads as a row of equally-weighted tokens. */
+.pbf-billno-box {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-elevated, var(--bg-panel));
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.pbf-billno-lbl { color: var(--fg-tertiary); font-weight: 500; }
+.pbf-billno-val { color: var(--fg-primary); font-weight: 700; letter-spacing: 0.02em; }
+
+/* Legacy classes kept so any other consumer doesn't break. The new layout
+   uses .pbf-chip / .pbf-billno-box / .pbf-chip-company instead. */
 .pbf-pill {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 6px 14px;
@@ -127,19 +199,20 @@
 .pbf-doc b { color: var(--fg-primary); font-weight: 600; font-size: 13px; letter-spacing: -0.01em; }
 .pbf-company { color: var(--fg-tertiary); font-size: 11px; }
 
-/* Supplier/Bill info row — 7 fields wrap naturally */
+/* Supplier/transport row — 5 fields. Bill date + Due date moved up
+   to the header strip. justify-content:start so any leftover viewport
+   width stays empty on the right rather than stretching the last cell. */
 .pbf-top-row {
   display: grid;
   grid-template-columns:
     minmax(220px, 320px)   /* Supplier */
-    minmax(130px, 160px)   /* Bill Date */
-    minmax(110px, 140px)   /* Supp. Bill # */
-    minmax(130px, 160px)   /* Due Date */
-    minmax(110px, 140px)   /* Transport */
-    minmax(110px, 140px)   /* Vehicle */
-    minmax(90px,  120px);  /* LR No */
+    minmax(130px, 170px)   /* Supp. Bill # */
+    minmax(130px, 170px)   /* Transport */
+    minmax(120px, 160px)   /* Vehicle */
+    minmax(110px, 140px);  /* LR No */
   gap: 10px;
   margin-bottom: 10px;
+  justify-content: start;
 }
 
 /* Entry row — 11 fields + ADD button */
@@ -160,6 +233,9 @@
     auto;                  /* +ADD */
   gap: 8px;
   align-items: end;
+  /* Without this, the trailing `auto` ADD column absorbs all viewport
+     leftover and the button stretches to fill the page. */
+  justify-content: start;
 }
 
 .pbf-add-btn {
@@ -708,6 +784,237 @@
   background: rgba(0, 0, 0, 0.06);
   border-color: color-mix(in srgb, var(--warning) 30%, transparent);
   color: var(--warning);
+}
+
+/* ── Apple-style mode toggle (Items / Amount) ────────────────────────
+   Squared corners (matches the Purchase Bill pill silhouette), white
+   sliding thumb on a soft gray track. */
+.pbf-mode-apple {
+  position: relative;
+  display: inline-flex;
+  padding: 2px;
+  background: color-mix(in srgb, var(--fg-primary) 8%, transparent);
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--fg-primary) 6%, transparent);
+  user-select: none;
+  margin-left: 4px;
+}
+.pbf-mode-apple-thumb {
+  position: absolute;
+  top: 2px; bottom: 2px;
+  width: calc(50% - 2px);
+  background: #fff;
+  border-radius: 4px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+  transition: transform .26s cubic-bezier(.32, .72, 0, 1);
+  pointer-events: none;
+}
+.pbf-mode-apple.is-item   .pbf-mode-apple-thumb { transform: translateX(0); }
+.pbf-mode-apple.is-amount .pbf-mode-apple-thumb { transform: translateX(100%); }
+.pbf-mode-apple-opt {
+  position: relative; z-index: 1;
+  appearance: none; background: transparent; border: 0;
+  padding: 4px 16px; min-width: 72px;
+  font-size: 12px; font-weight: 600;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color .2s ease;
+}
+.pbf-mode-apple-opt:hover { color: var(--fg-secondary); }
+.pbf-mode-apple-opt.active { color: #111; }
+
+.pbf-mode-recalled {
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.18);
+  color: #4338ca;
+  font-weight: 600;
+}
+
+/* ── Held drafts modal — table layout, scrollable body, accent header ── */
+.pbf-drafts-modal .ant-modal-content {
+  padding: 0;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+}
+.pbf-drafts-modal .ant-modal-header {
+  margin: 0;
+  padding: 14px 20px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+.pbf-drafts-modal .ant-modal-title {
+  font-size: 13px;
+  line-height: 1.2;
+}
+.pbf-drafts-modal .ant-modal-close {
+  top: 12px;
+  inset-inline-end: 14px;
+  width: 32px; height: 32px;
+  border-radius: 6px;
+  color: var(--fg-tertiary);
+  transition: background .15s, color .15s;
+}
+.pbf-drafts-modal .ant-modal-close:hover {
+  background: color-mix(in srgb, var(--fg-primary) 8%, transparent);
+  color: var(--fg-primary);
+}
+.pbf-drafts-modal .ant-modal-close-x {
+  font-size: 18px;
+  line-height: 32px;
+}
+.pbf-drafts-title {
+  display: inline-flex; align-items: center; gap: 10px;
+}
+.pbf-drafts-count {
+  font-size: 12px; font-weight: 500;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.02em;
+}
+
+.pbf-drafts-empty {
+  padding: 56px 20px;
+  text-align: center;
+}
+.pbf-drafts-empty-icon { font-size: 32px; margin-bottom: 8px; opacity: 0.7; }
+.pbf-drafts-empty-main { font-size: 14px; font-weight: 600; color: var(--fg-primary); }
+
+.pbf-drafts-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: calc(85vh - 80px);
+}
+.pbf-drafts-thead,
+.pbf-drafts-tr {
+  display: grid;
+  grid-template-columns:
+    minmax(110px, 1.1fr)   /* date     */
+    minmax(180px, 2.2fr)   /* supplier */
+    minmax(60px,  0.7fr)   /* qty      */
+    minmax(110px, 1.1fr)   /* total    */
+    minmax(80px,  0.9fr)   /* user     */
+    minmax(110px, 1.1fr)   /* bill #   */
+    minmax(190px, auto);   /* actions  */
+  align-items: center;
+  gap: 12px;
+}
+.pbf-drafts-thead {
+  flex: 0 0 auto;
+  padding: 12px 32px 10px;
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pbf-drafts-tbody {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pbf-drafts-tr {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--fg-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.pbf-drafts-tr:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+.pbf-drafts-tr.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-panel));
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.pbf-drafts-tr .c-date  { display: inline-flex; flex-direction: column; line-height: 1.2; }
+.pbf-drafts-tr .c-date-d { font-weight: 600; color: var(--fg-primary); white-space: nowrap; }
+.pbf-drafts-tr .c-date-t { font-size: 11.5px; color: var(--fg-secondary); font-variant-numeric: tabular-nums; margin-top: 1px; }
+
+.pbf-drafts-tr .c-cust  {
+  font-weight: 600; color: var(--fg-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 8px;
+  min-width: 0;
+}
+.pbf-drafts-tr .walk-in { font-style: italic; font-weight: 500; color: var(--fg-primary); }
+
+.pbf-drafts-tr .c-qty,
+.pbf-drafts-tr .c-tot   { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pbf-drafts-tr .c-qty   { font-weight: 600; }
+.pbf-drafts-tr .c-tot   { font-weight: 700; }
+
+.pbf-drafts-tr .c-user,
+.pbf-drafts-tr .c-sm    { color: var(--fg-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.pbf-drafts-tr .c-act,
+.pbf-drafts-thead .c-act { display: inline-flex; gap: 6px; justify-content: flex-end; }
+
+.pbf-drafts-mode-tag {
+  display: inline-flex; align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.pbf-drafts-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 14px;
+  border-radius: 6px;
+  font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1;
+  transition: all .15s ease;
+}
+.pbf-drafts-btn-ico { font-size: 13px; line-height: 1; }
+.pbf-drafts-btn.recall {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #FDFAF2;
+  box-shadow: 0 1px 4px var(--accent-bg);
+}
+.pbf-drafts-btn.recall:hover {
+  background: var(--accent-hover, var(--accent));
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px var(--accent-bg);
+}
+.pbf-drafts-btn.discard {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-secondary);
+}
+.pbf-drafts-btn.discard:hover {
+  border-color: color-mix(in srgb, var(--danger, #dc2626) 55%, transparent);
+  color: var(--danger, #dc2626);
+  background: color-mix(in srgb, var(--danger, #dc2626) 7%, transparent);
 }
 
 /* Responsive fallback */

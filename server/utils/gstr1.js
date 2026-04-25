@@ -232,6 +232,49 @@ function isNilExemptBill(bill) {
 }
 
 /**
+ * Explain WHY a particular bill landed in the nil/exempt bucket. Without a
+ * dedicated `nil_reason` column on the product master we can only infer from
+ * the GST rates the user actually entered. Two cases the operator cares about:
+ *
+ *   1. Every line is at 0% — a genuine nil-rated supply (salt, fresh produce,
+ *      milk, etc.). Action: none, this is correct.
+ *   2. At least one line carries a non-zero rate but no tax was charged —
+ *      almost always a data-entry slip (bill saved before tax % was filled,
+ *      or the user picked the wrong GST mode). Action: open the bill, add
+ *      tax, and it'll move out of Table 8.
+ *
+ * Returns { reason, detail } — `reason` is a short label for the column,
+ * `detail` is a longer human string the UI shows in a tooltip.
+ */
+function classifyNilReason(bill) {
+  const items = bill?.items || [];
+  if (items.length === 0) {
+    return { reason: 'No items', detail: 'Bill has no line items' };
+  }
+  const rates = items.map(it => Number(it.gst_rate) || 0);
+  const distinct = [...new Set(rates)].sort((a, b) => a - b);
+  const rateLabel = distinct.map(r => r + '%').join(', ');
+  const hasNonZero = distinct.some(r => r > 0);
+  if (!hasNonZero) {
+    return {
+      reason: 'Nil-rated',
+      detail: `All items at 0% GST — genuine nil-rated supply (rates: ${rateLabel})`,
+    };
+  }
+  const allNonZero = distinct.every(r => r > 0);
+  if (allNonZero) {
+    return {
+      reason: 'Tax not captured',
+      detail: `Items have non-zero rates (${rateLabel}) but no CGST/SGST/IGST was recorded — review the bill`,
+    };
+  }
+  return {
+    reason: 'Mixed (review)',
+    detail: `Some items at 0%, others at ${distinct.filter(r => r > 0).map(r => r + '%').join(', ')} — verify the non-zero lines`,
+  };
+}
+
+/**
  * Table 8 — Nil-rated / Exempted / Non-GST outward supplies.
  *
  * GSTR-1 reports this as four buckets distinguished by
@@ -265,7 +308,9 @@ function aggregateNil(bills, companyStateCode) {
     g.invoice_count += 1;
     grand.taxable += taxable;
 
+    const { reason, detail } = classifyNilReason(bill);
     invoices.push({
+      bill_id: bill.bill_id,
       bill_number: bill.bill_number,
       bill_date: bill.bill_date,
       party_name: cust?.party_name || '—',
@@ -273,6 +318,9 @@ function aggregateNil(bills, companyStateCode) {
       place_of_supply: pos,
       supply_type: supplyType,
       state_type: stateType,
+      reason,
+      reason_detail: detail,
+      remarks: bill.remarks || '',
       taxable: round2(taxable),
       total: round2(bill.total_amount),
     });
@@ -293,12 +341,138 @@ function aggregateNil(bills, companyStateCode) {
 /**
  * B2B aggregation: one row per invoice, grouped by recipient GSTIN.
  *
- * Input shape (per bill):
- *   { bill_number, bill_date, total_amount, sub_total,
- *     customer: { party_name, gstin, state },
- *     items: [ { hsn_code, gst_rate, taxable_amount, cgst_amount,
- *                sgst_amount, igst_amount, cess_amount } ] }
+ * Tables 9A (CDNR) + 9B (CDNUR) — Credit / Debit Notes.
+ *
+ * Sales returns are modelled as Credit Notes (note_type='C'). Each return
+ * splits into one row per rate bucket (matches portal CDNR/CDNUR shape).
+ * Routing:
+ *   - Customer has GSTIN → Table 9A (Registered)
+ *   - No GSTIN, inter-state → Table 9B with ur_type='B2CL'
+ *   - No GSTIN, intra-state → Table 9B with ur_type='B2C' (technically
+ *     these are netted into Table 7 B2CS on the portal, but we surface them
+ *     in 9B for review completeness — operators must net them manually
+ *     before portal upload)
+ *
+ * Each note carries `original_invoice_number` and `original_invoice_date`
+ * (the invoice the customer is returning against) so the recipient can
+ * match it to their input-tax-credit claim.
+ *
+ * Returns shape: `{ cdnr: { rows, grand }, cdnur: { rows, grand } }`.
+ *
+ * Input return shape:
+ *   { return_id, return_number, return_date, total_amount,
+ *     reference_bill_number, reference_bill_date,
+ *     customer: { party_name, gstin, state, mobile_1 },
+ *     items: [ { gst_rate, taxable_amount, cgst_amount, sgst_amount,
+ *                igst_amount, cess_amount } ],
+ *     cgst_amount, sgst_amount, igst_amount, cess_amount }
  */
+function aggregateCnDn(returns, companyStateCode) {
+  const cdnr  = { rows: [], grand: { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, total: 0 } };
+  const cdnur = { rows: [], grand: { taxable: 0, igst: 0, cess: 0, total: 0 } };
+  // Track distinct notes for invoice_count headers
+  const seenCdnr = new Set();
+  const seenCdnur = new Set();
+
+  for (const ret of (returns || [])) {
+    const cust = ret.customer;
+    // Reuse the bill helpers — they don't care that the input is a return
+    // because the field shape is identical (bucketsForBill reads cgst/sgst/
+    // igst/cess off items + reconciles against bill-header amounts).
+    const inter = isInterState(ret, cust, companyStateCode);
+    const pos = placeOfSupply(cust) || companyStateCode || '97';
+    const buckets = bucketsForBill(ret);
+    const isReg = !!(cust?.gstin || '').trim();
+    let pushed = false;   // becomes true if we emit at least one bucket row
+
+    for (const r of buckets) {
+      // Skip pure-zero rate buckets so 5%/12% mix doesn't pollute output
+      if (r.taxable === 0 && r.igst === 0 && r.cgst === 0 && r.sgst === 0 && r.cess === 0) continue;
+      pushed = true;
+
+      if (isReg) {
+        cdnr.rows.push({
+          return_id:        ret.return_id,
+          note_number:      ret.return_number,
+          note_date:        ret.return_date,
+          note_type:        'C',                  // Credit (only CN modelled)
+          gstin:            cust.gstin,
+          customer_name:    cust?.party_name || '—',
+          place_of_supply:  pos,
+          note_value:       round2(ret.total_amount),
+          rate:             r.rate,
+          taxable:          round2(r.taxable),
+          igst:             round2(r.igst),
+          cgst:             round2(r.cgst),
+          sgst:             round2(r.sgst),
+          cess:             round2(r.cess),
+          original_invoice_number: ret.reference_bill_number || '',
+          original_invoice_date:   ret.reference_bill_date   || null,
+          reverse_charge:   false,                // hard-coded; see audit
+        });
+        cdnr.grand.taxable += r.taxable;
+        cdnr.grand.igst    += r.igst;
+        cdnr.grand.cgst    += r.cgst;
+        cdnr.grand.sgst    += r.sgst;
+        cdnr.grand.cess    += r.cess;
+      } else {
+        cdnur.rows.push({
+          return_id:        ret.return_id,
+          note_number:      ret.return_number,
+          note_date:        ret.return_date,
+          note_type:        'C',
+          // ur_type: B2CL only legitimately applies to inter-state returns
+          // > ₹2.5L; intra-state unregistered returns are nominally outside
+          // 9B (they net into B2CS). We mark them 'B2C' so the operator can
+          // spot them and net manually before portal upload.
+          ur_type:          inter ? 'B2CL' : 'B2C',
+          customer_name:    cust?.party_name || '—',
+          mobile:           cust?.mobile_1 || null,
+          place_of_supply:  pos,
+          note_value:       round2(ret.total_amount),
+          rate:             r.rate,
+          taxable:          round2(r.taxable),
+          // CDNUR is inter-state in the strict portal sense (intra rows
+          // here are flagged for manual netting). For inter rows we report
+          // IGST; for intra we still surface CGST+SGST as informational
+          // and the user can decide.
+          igst:             round2(r.igst + (inter ? 0 : r.cgst + r.sgst)),
+          cess:             round2(r.cess),
+          original_invoice_number: ret.reference_bill_number || '',
+          original_invoice_date:   ret.reference_bill_date   || null,
+        });
+        cdnur.grand.taxable += r.taxable;
+        cdnur.grand.igst    += r.igst + (inter ? 0 : r.cgst + r.sgst);
+        cdnur.grand.cess    += r.cess;
+      }
+    }
+    // Only count notes that produced at least one row. An empty-items
+    // return otherwise inflates the count badge while the table is empty.
+    if (pushed) {
+      if (isReg) seenCdnr.add(ret.return_number);
+      else       seenCdnur.add(ret.return_number);
+    }
+  }
+
+  // Grand totals (CDNR includes intra-state CGST+SGST)
+  cdnr.grand.total  = cdnr.grand.taxable + cdnr.grand.igst + cdnr.grand.cgst + cdnr.grand.sgst + cdnr.grand.cess;
+  cdnur.grand.total = cdnur.grand.taxable + cdnur.grand.igst + cdnur.grand.cess;
+  for (const k of Object.keys(cdnr.grand))  cdnr.grand[k]  = round2(cdnr.grand[k]);
+  for (const k of Object.keys(cdnur.grand)) cdnur.grand[k] = round2(cdnur.grand[k]);
+
+  // Sort by date asc, then note number, then rate desc
+  const sorter = (a, b) =>
+    (a.note_date || '').localeCompare(b.note_date || '') ||
+    (a.note_number || '').localeCompare(b.note_number || '') ||
+    b.rate - a.rate;
+  cdnr.rows.sort(sorter);
+  cdnur.rows.sort(sorter);
+
+  cdnr.note_count  = seenCdnr.size;
+  cdnur.note_count = seenCdnur.size;
+  return { cdnr, cdnur };
+}
+
 function aggregateB2B(bills, companyStateCode) {
   const byGstin = new Map();
   let grand = { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, total: 0 };
@@ -336,6 +510,7 @@ function aggregateB2B(bills, companyStateCode) {
     }
 
     const inv = {
+      bill_id: bill.bill_id,
       bill_number: bill.bill_number,
       bill_date: bill.bill_date,
       place_of_supply: pos,
@@ -384,6 +559,74 @@ function aggregateB2B(bills, companyStateCode) {
 }
 
 /**
+ * Table 5A — B2CL (Big B2C). Inter-state supplies to UNREGISTERED customers
+ * where the invoice value exceeds ₹2,50,000. The portal wants these reported
+ * invoice-by-invoice (not aggregated) because each one moves enough tax to
+ * matter for the recipient state's revenue allocation.
+ *
+ * Without this aggregator, `aggregateB2CS` silently drops these bills via
+ * its `> 250000` guard — the very gap this function closes.
+ *
+ * Output: one row per (invoice × rate bucket) so a multi-rate invoice
+ * produces multiple rows (matches how the GSTN offline tool ingests them).
+ * `invoice_value` repeats across rows for the same invoice — that's the
+ * portal-expected shape; consumers comparing grand totals must dedupe by
+ * bill_number.
+ */
+function aggregateB2CL(bills, companyStateCode) {
+  const rows = [];
+  let grand = { taxable: 0, igst: 0, cess: 0, total: 0 };
+  // Track distinct invoices to surface a meaningful invoice_count without
+  // double-counting multi-rate bills.
+  const seenBills = new Set();
+
+  for (const bill of bills) {
+    const cust = bill.customer;
+    if (cust?.gstin) continue;                                   // → B2B
+    const inter = isInterState(bill, cust, companyStateCode);
+    if (!inter) continue;                                        // → B2CS intra
+    if (Number(bill.total_amount || 0) <= 250000) continue;       // → B2CS inter ≤2.5L
+    if (isNilExemptBill(bill)) continue;                          // → Table 8
+
+    const pos = placeOfSupply(cust) || companyStateCode || '97';
+    const buckets = bucketsForBill(bill);                         // honours bill-wise mode
+    seenBills.add(bill.bill_number);
+
+    for (const r of buckets) {
+      // Skip pure-zero rows so a 5%/12% mix doesn't produce stray empty 0% rows
+      if (r.taxable === 0 && r.igst === 0 && r.cess === 0) continue;
+      rows.push({
+        bill_id:        bill.bill_id,
+        bill_number:    bill.bill_number,
+        bill_date:      bill.bill_date,
+        customer_name:  cust?.party_name || '—',
+        mobile:         cust?.mobile_1 || null,
+        invoice_value:  round2(bill.total_amount),
+        place_of_supply: pos,
+        rate:           r.rate,
+        taxable:        round2(r.taxable),
+        igst:           round2(r.igst),
+        cess:           round2(r.cess),
+      });
+      grand.taxable += r.taxable;
+      grand.igst    += r.igst;
+      grand.cess    += r.cess;
+    }
+  }
+  // Total = taxable + tax (IGST only — these are inter-state by construction)
+  grand.total = grand.taxable + grand.igst + grand.cess;
+  for (const k of Object.keys(grand)) grand[k] = round2(grand[k]);
+
+  // Sort by date then bill_number for predictable reading order.
+  rows.sort((a, b) =>
+    (a.bill_date || '').localeCompare(b.bill_date || '') ||
+    (a.bill_number || '').localeCompare(b.bill_number || '') ||
+    b.rate - a.rate);
+
+  return { rows, grand, invoice_count: seenBills.size };
+}
+
+/**
  * B2CS aggregation: grouped by place-of-supply state + rate + type.
  * Each group row aggregates every B2CS invoice hitting that bucket.
  */
@@ -405,8 +648,12 @@ function aggregateB2CS(bills, companyStateCode) {
       const key = `${pos}|${r.rate}|${type}`;
       let g = groups.get(key);
       if (!g) {
+        // `invoices` is the per-bill drill-down. The portal upload only
+        // wants the aggregated totals (POS × Rate × Type) but operators
+        // need to see which bills contributed when something looks off.
         g = { place_of_supply: pos, rate: r.rate, type,
-              taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
+              taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0,
+              invoice_count: 0, invoices: [] };
         groups.set(key, g);
       }
       g.taxable += r.taxable;
@@ -414,6 +661,20 @@ function aggregateB2CS(bills, companyStateCode) {
       g.cgst    += r.cgst;
       g.sgst    += r.sgst;
       g.cess    += r.cess;
+      g.invoices.push({
+        bill_id:       bill.bill_id,
+        bill_number:   bill.bill_number,
+        bill_date:     bill.bill_date,
+        customer_name: cust?.party_name || '—',
+        mobile:        cust?.mobile_1 || null,
+        taxable:       round2(r.taxable),
+        igst:          round2(r.igst),
+        cgst:          round2(r.cgst),
+        sgst:          round2(r.sgst),
+        cess:          round2(r.cess),
+        total:         round2(r.taxable + r.igst + r.cgst + r.sgst + r.cess),
+      });
+      g.invoice_count = g.invoices.length;
       grand.taxable += r.taxable;
       grand.igst    += r.igst;
       grand.cgst    += r.cgst;
@@ -431,6 +692,8 @@ function aggregateB2CS(bills, companyStateCode) {
     sgst:    round2(g.sgst),
     cess:    round2(g.cess),
     total:   round2(g.taxable + g.igst + g.cgst + g.sgst + g.cess),
+    // Sort invoices by date (oldest first) for consistent reading order
+    invoices: g.invoices.sort((a, b) => (a.bill_date || '').localeCompare(b.bill_date || '')),
   }));
   rows.sort((a, b) => (a.place_of_supply || '').localeCompare(b.place_of_supply || '') || b.rate - a.rate);
   for (const k of Object.keys(grand)) grand[k] = round2(grand[k]);
@@ -438,9 +701,47 @@ function aggregateB2CS(bills, companyStateCode) {
 }
 
 /**
- * HSN aggregation: per-line, grouped by HSN code + rate + unit. UQC
- * normalisation is kept simple — upper-case trim. Uncommon units pass
- * through verbatim (portal accepts "OTH" mapping for unknowns).
+ * UQC (Unit Quantity Code) normalisation. The GSTN portal expects very
+ * specific strings (e.g. "MTR-METRES", "BOX-BOX") and rejects free-text
+ * units like "METER" or "BOX". Map the loose strings users actually type
+ * into the codes the portal accepts. Anything truly unknown becomes
+ * "OTH-OTHERS" — better than crashing the upload.
+ *
+ * The map is intentionally generous about input variants (singular/plural,
+ * abbreviations) because user-entered data is messy. Keys are upper-cased
+ * before lookup so casing doesn't matter.
+ */
+const UQC_MAP = {
+  PCS: 'PCS-PIECES', PIECE: 'PCS-PIECES', PIECES: 'PCS-PIECES',
+  NOS: 'PCS-PIECES', NO: 'PCS-PIECES', NUMBERS: 'PCS-PIECES',
+  MTR: 'MTR-METRES', METER: 'MTR-METRES', METRE: 'MTR-METRES',
+  METERS: 'MTR-METRES', METRES: 'MTR-METRES', M: 'MTR-METRES',
+  KG: 'KGS-KILOGRAMS', KGS: 'KGS-KILOGRAMS',
+  KILOGRAM: 'KGS-KILOGRAMS', KILOGRAMS: 'KGS-KILOGRAMS',
+  BOX: 'BOX-BOX', BOXES: 'BOX-BOX',
+  DZN: 'DZN-DOZENS', DOZEN: 'DZN-DOZENS', DOZENS: 'DZN-DOZENS',
+  ROL: 'ROL-ROLLS', ROLL: 'ROL-ROLLS', ROLLS: 'ROL-ROLLS',
+  PRS: 'PRS-PAIRS', PAIR: 'PRS-PAIRS', PAIRS: 'PRS-PAIRS',
+  SET: 'SET-SET', SETS: 'SET-SET',
+  GMS: 'GMS-GRAMMES', GM: 'GMS-GRAMMES', GRAM: 'GMS-GRAMMES', GRAMS: 'GMS-GRAMMES',
+  LTR: 'LTR-LITRES', L: 'LTR-LITRES', LITRE: 'LTR-LITRES', LITER: 'LTR-LITRES',
+  MLT: 'MLT-MILLILITRE', ML: 'MLT-MILLILITRE',
+};
+function normalizeUqc(unit) {
+  // Trim first, *then* default — whitespace-only strings ("   ") would
+  // otherwise pass the truthy check and become empty after trimming,
+  // misclassifying as OTH-OTHERS. Empty/null intentionally defaults to
+  // PCS-PIECES so items missing a unit land in the same bucket they
+  // landed in before this helper existed.
+  const u = String(unit || '').toUpperCase().trim();
+  if (!u) return 'PCS-PIECES';
+  return UQC_MAP[u] || 'OTH-OTHERS';
+}
+
+/**
+ * HSN aggregation: per-line, grouped by HSN code + rate + UQC. UQC values
+ * are normalised to GSTN codes via normalizeUqc — without this, free-text
+ * units like "METER" leak into the export and the portal rejects them.
  */
 function aggregateHSN(bills) {
   const groups = new Map();
@@ -451,7 +752,7 @@ function aggregateHSN(bills) {
       const hsn = (it.hsn_code || '').trim();
       if (!hsn) continue;
       const rate = Number(it.gst_rate) || 0;
-      const unit = (it.unit_type || 'PCS').toUpperCase().trim();
+      const unit = normalizeUqc(it.unit_type);
       const key = `${hsn}|${rate}|${unit}`;
       let g = groups.get(key);
       if (!g) {
@@ -497,21 +798,175 @@ function aggregateHSN(bills) {
 }
 
 /**
- * Build the complete GSTR-1 aggregate.
- * `bills` is already filtered (period, non-cancelled) by the caller.
+ * Table 13 — Documents Issued. Auditors require a sequence-number summary
+ * of every document type the taxpayer issued in the period: how many were
+ * raised, how many cancelled, the from-no/to-no range. This catches missing
+ * sequence numbers (a common red flag) and proves no parallel book exists.
+ *
+ * For this first pass we report Sales Invoices only — Credit/Debit notes
+ * and Delivery Challans need separate model wiring (see audit follow-ups).
+ *
+ * Bill numbers are split into (prefix, sequence) by trailing digits:
+ *   "INV-25-26-0001" → prefix="INV-25-26-", seq=1
+ *   "INV/A/12"       → prefix="INV/A/",     seq=12
+ *   "MANUAL"         → prefix="MANUAL",     seq=null (own row, from/to = "—")
  */
-function buildGstr1(bills, { companyStateCode } = {}) {
+function _splitDocNumber(num) {
+  const s = String(num || '').trim();
+  if (!s) return { prefix: '(blank)', seq: null };
+  const m = s.match(/^(.*?)(\d+)$/);
+  if (!m) return { prefix: s, seq: null };
+  // Pure-numeric input (e.g. "001", "42") matches with empty prefix —
+  // surface it as the literal series "(numeric)" rather than the
+  // misleading "(none)" so Table 13 says what's actually happening and
+  // the GSTN validator gets a non-empty series identifier.
+  return { prefix: m[1] || '(numeric)', seq: Number(m[2]) };
+}
+
+function aggregateDocsIssued(activeBills, cancelledBills, activeReturns = [], cancelledReturns = []) {
+  const groups = new Map();   // key = nature|prefix
+  const INVOICE_NATURE = 'Invoices for outward supply';
+  const CN_NATURE      = 'Credit Notes';
+
+  const bump = (nature, num, isCancelled) => {
+    const { prefix, seq } = _splitDocNumber(num);
+    const key = `${nature}|${prefix}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { nature, prefix,
+            from_no: null, to_no: null,
+            total: 0, cancelled: 0, net: 0,
+            _hasNumeric: false };
+      groups.set(key, g);
+    }
+    g.total += 1;
+    if (isCancelled) g.cancelled += 1;
+    g.net = g.total - g.cancelled;
+    if (seq != null) {
+      g._hasNumeric = true;
+      if (g.from_no == null || seq < g.from_no) g.from_no = seq;
+      if (g.to_no   == null || seq > g.to_no)   g.to_no   = seq;
+    }
+  };
+
+  for (const b of (activeBills      || [])) bump(INVOICE_NATURE, b.bill_number,   false);
+  for (const b of (cancelledBills   || [])) bump(INVOICE_NATURE, b.bill_number,   true);
+  for (const r of (activeReturns    || [])) bump(CN_NATURE,      r.return_number, false);
+  for (const r of (cancelledReturns || [])) bump(CN_NATURE,      r.return_number, true);
+
+  const rows = [...groups.values()].map(g => ({
+    nature:    g.nature,
+    prefix:    g.prefix,
+    // Display "—" for the unparseable case so the UI doesn't show "null"
+    from_no:   g._hasNumeric ? String(g.from_no) : '—',
+    to_no:     g._hasNumeric ? String(g.to_no)   : '—',
+    total:     g.total,
+    cancelled: g.cancelled,
+    net:       g.net,
+  }));
+  rows.sort((a, b) =>
+    a.nature.localeCompare(b.nature) ||
+    a.prefix.localeCompare(b.prefix));
+
+  const grand = rows.reduce((acc, r) => {
+    acc.total     += r.total;
+    acc.cancelled += r.cancelled;
+    acc.net       += r.net;
+    return acc;
+  }, { total: 0, cancelled: 0, net: 0 });
+
+  return { rows, grand };
+}
+
+/**
+ * Data-quality scanner. Surfaces bills whose stored numbers don't add up:
+ *   Σ items.taxable + bill.cgst + bill.sgst + bill.igst + bill.cess  >  bill.total + ₹1
+ * That gap means the bill was created/imported without applying the bill-
+ * level discount to the per-item `taxable_amount`, which over-states the
+ * outward-supply taxable value in every downstream return (GSTR-1, GSTR-3B).
+ *
+ * The aggregator does NOT auto-correct — silently changing the numbers
+ * would make the report disagree with what the user sees on the bill, and
+ * could mask real bugs. We expose the warnings so the operator can open
+ * each bill, re-save it (which re-applies the correct pro-rata discount
+ * via salesController.js), and re-run the report.
+ *
+ * Returns an array of warnings; empty when everything is clean.
+ */
+function detectBillDataIssues(bills) {
+  const warnings = [];
+  for (const b of (bills || [])) {
+    const itemsTax = (b.items || []).reduce((a, i) => a + (Number(i.taxable_amount) || 0), 0);
+    const headerTax = (Number(b.cgst_amount) || 0) + (Number(b.sgst_amount) || 0)
+                    + (Number(b.igst_amount) || 0) + (Number(b.cess_amount) || 0);
+    const computed = itemsTax + headerTax;
+    const total = Number(b.total_amount) || 0;
+    const delta = round2(computed - total);
+    // Allow ₹1 slop for benign round-off; anything bigger is a real defect.
+    if (delta > 1) {
+      warnings.push({
+        bill_id:     b.bill_id,
+        bill_number: b.bill_number,
+        bill_date:   b.bill_date,
+        issue:       'taxable_overstated',
+        message:     `Items + tax (₹${round2(computed)}) exceed bill total (₹${round2(total)}) by ₹${delta}. Likely cause: bill-level discount wasn't applied to per-item taxable amounts. Open and re-save the bill to fix.`,
+        items_taxable_sum: round2(itemsTax),
+        header_tax_sum:    round2(headerTax),
+        bill_total:        round2(total),
+        over_by:           delta,
+      });
+    }
+  }
+  // Sort worst-first so the operator sees the biggest discrepancies up top
+  warnings.sort((a, b) => b.over_by - a.over_by);
+  return warnings;
+}
+
+/**
+ * Build the complete GSTR-1 aggregate.
+ *
+ * `activeBills` is already filtered (period, non-cancelled) by the caller.
+ * `cancelledBills` (optional) is the same period's cancelled bills, fed
+ * only into Table 13 (Documents Issued) — the other tables continue to see
+ * just active bills, exactly as the portal expects.
+ *
+ * `activeReturns` / `cancelledReturns` (both optional) feed Tables 9A
+ * (CDNR — credit notes to registered) and 9B (CDNUR — to unregistered),
+ * plus the credit-note row in Table 13.
+ */
+function buildGstr1(activeBills, {
+  companyStateCode,
+  cancelledBills    = [],
+  activeReturns     = [],
+  cancelledReturns  = [],
+} = {}) {
   const cStateCode = companyStateCode || null;
+  const cnDn = aggregateCnDn(activeReturns, cStateCode);
+  // Surface dirty bills BEFORE aggregating so the operator can fix the
+  // source data; the aggregator continues to faithfully report the dirty
+  // numbers (no auto-correction — see detectBillDataIssues docs).
+  const billWarnings = detectBillDataIssues(activeBills);
   return {
     period_meta: {
-      invoice_count: bills.length,
-      company_state_code: cStateCode,
+      invoice_count:        activeBills.length,
+      cancelled_count:      cancelledBills.length,
+      credit_note_count:    activeReturns.length,
+      cancelled_cn_count:   cancelledReturns.length,
+      company_state_code:   cStateCode,
     },
-    b2b:  aggregateB2B(bills, cStateCode),
-    b2cs: aggregateB2CS(bills, cStateCode),
-    nil:  aggregateNil(bills, cStateCode),
-    hsn:  aggregateHSN(bills),
-    classification: bills.map(b => ({
+    data_quality: {
+      bill_warnings:        billWarnings,
+      bill_warning_count:   billWarnings.length,
+    },
+    b2b:   aggregateB2B(activeBills, cStateCode),
+    b2cl:  aggregateB2CL(activeBills, cStateCode),
+    b2cs:  aggregateB2CS(activeBills, cStateCode),
+    nil:   aggregateNil(activeBills, cStateCode),
+    cdnr:  cnDn.cdnr,
+    cdnur: cnDn.cdnur,
+    hsn:   aggregateHSN(activeBills),
+    docs:  aggregateDocsIssued(activeBills, cancelledBills, activeReturns, cancelledReturns),
+    classification: activeBills.map(b => ({
       bill_number: b.bill_number,
       bucket: classify(b, b.customer, cStateCode),
     })),
@@ -529,9 +984,15 @@ module.exports = {
   reconcileBillLevelTax,
   bucketsForBill,
   isNilExemptBill,
+  classifyNilReason,
+  normalizeUqc,
   aggregateB2B,
+  aggregateB2CL,
   aggregateB2CS,
   aggregateNil,
+  aggregateCnDn,
   aggregateHSN,
+  aggregateDocsIssued,
+  detectBillDataIssues,
   buildGstr1,
 };

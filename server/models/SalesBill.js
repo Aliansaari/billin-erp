@@ -129,6 +129,22 @@ const SalesBill = sequelize.define('SalesBill', {
   remarks: {
     type: DataTypes.TEXT,
   },
+  // 'item' (default — itemised invoice with line items) or 'amount' (a
+  // single synthetic line for amount-only / on-account / service bills).
+  // Amount-mode bills behave identically downstream — same GSTR-1
+  // routing, same balance, same payment, same reports — except they
+  // don't decrement stock (synthetic line has product_id=null).
+  bill_mode: {
+    type: DataTypes.STRING(10),
+    defaultValue: 'item',
+  },
+  // Free-text description of the service/charge for amount-mode bills.
+  // Becomes the synthetic line's product_name in the items table and is
+  // rendered as the line text on the printed invoice. Distinct from
+  // `remarks` (which is a footer note).
+  description: {
+    type: DataTypes.TEXT,
+  },
   created_by: {
     type: DataTypes.INTEGER,
     references: { model: 'users', key: 'user_id' },

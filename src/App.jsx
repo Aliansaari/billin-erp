@@ -33,6 +33,7 @@ import PartyLedger from './pages/reports/PartyLedger';
 import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
 import GSTR1Report from './pages/reports/GSTR1Report';
+import GSTR3BReport from './pages/reports/GSTR3BReport';
 import CompanyProfile from './pages/settings/CompanyProfile';
 import UserManagement from './pages/settings/UserManagement';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
@@ -160,6 +161,7 @@ export default function App() {
           <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
           <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
           <Route path="reports/gstr1"         element={<RoleRoute perm="reports.view"><GSTR1Report /></RoleRoute>} />
+          <Route path="reports/gstr3b"        element={<RoleRoute perm="reports.view"><GSTR3BReport /></RoleRoute>} />
 
           {/* Settings */}
           <Route path="settings/company"        element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />

@@ -116,6 +116,20 @@ const PurchaseBill = sequelize.define('PurchaseBill', {
   remarks: {
     type: DataTypes.TEXT,
   },
+  // 'item' (default — itemised purchase with line items) or 'amount' (a
+  // single synthetic line for service / freight / on-account purchases).
+  // Amount-mode bills behave identically downstream (party balance, GST
+  // routing, payment) but never touch stock — synthetic line is product_id=null.
+  bill_mode: {
+    type: DataTypes.STRING(10),
+    defaultValue: 'item',
+  },
+  // Free-text description for the synthetic line in amount-mode bills.
+  // Becomes the line's product_name in purchase_bill_items; rendered as
+  // the item text on print. Distinct from `remarks` (footer note).
+  description: {
+    type: DataTypes.TEXT,
+  },
   created_by: {
     type: DataTypes.INTEGER,
     references: { model: 'users', key: 'user_id' },

@@ -6,8 +6,10 @@ const Category = require('./Category');
 const Product = require('./Product');
 const PurchaseBill = require('./PurchaseBill');
 const PurchaseBillItem = require('./PurchaseBillItem');
+const PurchaseBillDraft = require('./PurchaseBillDraft');
 const SalesBill = require('./SalesBill');
 const SalesBillItem = require('./SalesBillItem');
+const SalesBillDraft = require('./SalesBillDraft');
 const SalesReturnBill = require('./SalesReturnBill');
 const SalesReturnBillItem = require('./SalesReturnBillItem');
 const PurchaseReturnBill = require('./PurchaseReturnBill');
@@ -77,6 +79,20 @@ SalesReturnBillItem.belongsTo(SalesReturnBill, { foreignKey: 'sales_return_id' }
 Product.hasMany(SalesReturnBillItem, { foreignKey: 'product_id', as: 'salesReturnItems' });
 SalesReturnBillItem.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
 
+// SalesBillDraft <-> Party (held customer; nullable for walk-ins)
+SalesBillDraft.belongsTo(Party, { foreignKey: 'customer_id', as: 'customer' });
+// SalesBillDraft <-> User (operator who held the bill — for the list UI)
+SalesBillDraft.belongsTo(User,  { foreignKey: 'created_by',  as: 'creator' });
+// Note: deliberately NO `Party.hasMany(SalesBillDraft)` — drafts are not
+// part of party history and must NOT appear in party-ledger queries.
+
+// PurchaseBillDraft <-> Party (held supplier; nullable when not yet picked)
+PurchaseBillDraft.belongsTo(Party, { foreignKey: 'supplier_id', as: 'supplier' });
+// PurchaseBillDraft <-> User (operator who held the bill — for the list UI)
+PurchaseBillDraft.belongsTo(User,  { foreignKey: 'created_by',  as: 'creator' });
+// Same omission as SalesBillDraft: NO `Party.hasMany(PurchaseBillDraft)` —
+// drafts must not surface in supplier-ledger queries.
+
 // Reference back to original SalesBill (nullable — amount-only / free-form returns)
 SalesBill.hasMany(SalesReturnBill, { foreignKey: 'reference_bill_id', as: 'returns' });
 SalesReturnBill.belongsTo(SalesBill, { foreignKey: 'reference_bill_id', as: 'referenceBill' });
@@ -122,8 +138,10 @@ module.exports = {
   Product,
   PurchaseBill,
   PurchaseBillItem,
+  PurchaseBillDraft,
   SalesBill,
   SalesBillItem,
+  SalesBillDraft,
   SalesReturnBill,
   SalesReturnBillItem,
   PurchaseReturnBill,

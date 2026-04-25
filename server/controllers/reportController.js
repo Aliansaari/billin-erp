@@ -1,6 +1,6 @@
 const { Op, fn, col, literal } = require('sequelize');
 const sequelize = require('../config/database');
-const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, PurchaseReturnBill, SystemSettings } = require('../models');
+const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, SystemSettings } = require('../models');
 const { sanitizePagination } = require('../utils/helpers');
 const { aggregateAging } = require('../utils/aging');
 
@@ -1200,15 +1200,18 @@ exports.exportAgingReport = async (req, res) => {
 
 const { buildGstr1, stateCodeFromGstin } = require('../utils/gstr1');
 
+// Loads ALL bills for the period (cancelled and active) and splits them.
+// Cancelled bills are needed by Table 13 (Documents Issued); the other
+// tables only see active bills, exactly as the portal expects.
 async function _loadGstr1Bills(from, to) {
   const rows = await SalesBill.findAll({
     where: {
-      is_cancelled: false,
+      // Note: no is_cancelled filter — both go into the result, split below.
       bill_date: { [Op.between]: [from, to] },
     },
     attributes: ['sales_bill_id', 'bill_number', 'bill_date',
                  'sub_total', 'cgst_amount', 'sgst_amount', 'igst_amount',
-                 'cess_amount', 'total_amount'],
+                 'cess_amount', 'total_amount', 'remarks', 'is_cancelled'],
     include: [
       { model: Party, as: 'customer',
         attributes: ['party_name', 'gstin', 'state', 'mobile_1'] },
@@ -1220,16 +1223,18 @@ async function _loadGstr1Bills(from, to) {
     order: [['bill_date', 'ASC'], ['sales_bill_id', 'ASC']],
   });
 
-  return rows.map(r => ({
-    bill_id:     r.sales_bill_id,
-    bill_number: r.bill_number,
-    bill_date:   r.bill_date,
-    sub_total:   Number(r.sub_total)   || 0,
-    cgst_amount: Number(r.cgst_amount) || 0,
-    sgst_amount: Number(r.sgst_amount) || 0,
-    igst_amount: Number(r.igst_amount) || 0,
-    cess_amount: Number(r.cess_amount) || 0,
+  const mapped = rows.map(r => ({
+    bill_id:      r.sales_bill_id,
+    bill_number:  r.bill_number,
+    bill_date:    r.bill_date,
+    is_cancelled: !!r.is_cancelled,
+    sub_total:    Number(r.sub_total)   || 0,
+    cgst_amount:  Number(r.cgst_amount) || 0,
+    sgst_amount:  Number(r.sgst_amount) || 0,
+    igst_amount:  Number(r.igst_amount) || 0,
+    cess_amount:  Number(r.cess_amount) || 0,
     total_amount: Number(r.total_amount) || 0,
+    remarks:      r.remarks || '',
     customer: r.customer ? {
       party_name: r.customer.party_name,
       gstin:      r.customer.gstin,
@@ -1248,6 +1253,89 @@ async function _loadGstr1Bills(from, to) {
       cess_amount:    Number(it.cess_amount)    || 0,
     })),
   }));
+
+  return {
+    active:    mapped.filter(b => !b.is_cancelled),
+    cancelled: mapped.filter(b =>  b.is_cancelled),
+  };
+}
+
+/**
+ * Load all sales returns (credit notes) in the period for GSTR-1
+ * Tables 9A (CDNR) and 9B (CDNUR). Mirrors `_loadGstr1Bills` shape:
+ * returns `{ active, cancelled }`. The original-invoice date isn't on the
+ * SalesReturnBill row directly, so we left-join SalesBill via
+ * `reference_bill_id` to pick it up — needed for the portal's
+ * "Original Invoice Date" column.
+ */
+async function _loadGstr1Returns(from, to) {
+  const rows = await SalesReturnBill.findAll({
+    where: { return_date: { [Op.between]: [from, to] } },
+    attributes: ['sales_return_id', 'return_number', 'return_date',
+                 'reference_bill_id', 'reference_bill_number',
+                 'sub_total', 'cgst_amount', 'sgst_amount', 'igst_amount',
+                 'cess_amount', 'total_amount', 'remarks', 'is_cancelled'],
+    include: [
+      { model: Party, as: 'customer',
+        attributes: ['party_name', 'gstin', 'state', 'mobile_1'] },
+      { model: SalesReturnBillItem, as: 'items',
+        attributes: ['hsn_code', 'gst_rate', 'quantity', 'unit_type',
+                     'taxable_amount', 'cgst_amount', 'sgst_amount',
+                     'igst_amount', 'cess_amount'] },
+    ],
+    order: [['return_date', 'ASC'], ['sales_return_id', 'ASC']],
+  });
+
+  // Look up reference bill dates separately (lighter than a JOIN we may not
+  // need on every row). Build a `bill_id → bill_date` map for the unique
+  // ids referenced.
+  const refIds = [...new Set(rows.map(r => r.reference_bill_id).filter(Boolean))];
+  const refBillRows = refIds.length
+    ? await SalesBill.findAll({
+        where: { sales_bill_id: { [Op.in]: refIds } },
+        attributes: ['sales_bill_id', 'bill_date'],
+      })
+    : [];
+  const refDateMap = new Map(refBillRows.map(b => [b.sales_bill_id, b.bill_date]));
+
+  const mapped = rows.map(r => ({
+    return_id:      r.sales_return_id,
+    return_number:  r.return_number,
+    return_date:    r.return_date,
+    is_cancelled:   !!r.is_cancelled,
+    reference_bill_id:     r.reference_bill_id,
+    reference_bill_number: r.reference_bill_number,
+    reference_bill_date:   r.reference_bill_id ? (refDateMap.get(r.reference_bill_id) || null) : null,
+    sub_total:    Number(r.sub_total)   || 0,
+    cgst_amount:  Number(r.cgst_amount) || 0,
+    sgst_amount:  Number(r.sgst_amount) || 0,
+    igst_amount:  Number(r.igst_amount) || 0,
+    cess_amount:  Number(r.cess_amount) || 0,
+    total_amount: Number(r.total_amount) || 0,
+    remarks:      r.remarks || '',
+    customer: r.customer ? {
+      party_name: r.customer.party_name,
+      gstin:      r.customer.gstin,
+      state:      r.customer.state,
+      mobile_1:   r.customer.mobile_1,
+    } : null,
+    items: (r.items || []).map(it => ({
+      hsn_code:       it.hsn_code,
+      gst_rate:       Number(it.gst_rate)       || 0,
+      quantity:       Number(it.quantity)       || 0,
+      unit_type:      it.unit_type,
+      taxable_amount: Number(it.taxable_amount) || 0,
+      cgst_amount:    Number(it.cgst_amount)    || 0,
+      sgst_amount:    Number(it.sgst_amount)    || 0,
+      igst_amount:    Number(it.igst_amount)    || 0,
+      cess_amount:    Number(it.cess_amount)    || 0,
+    })),
+  }));
+
+  return {
+    active:    mapped.filter(r => !r.is_cancelled),
+    cancelled: mapped.filter(r =>  r.is_cancelled),
+  };
 }
 
 // Period helpers — accept `period=YYYY-MM` or explicit `from_date`/`to_date`.
@@ -1274,8 +1362,16 @@ exports.gstr1Report = async (req, res) => {
     const settings = await SystemSettings.findOne();
     const companyStateCode = stateCodeFromGstin(settings?.gstin) || null;
 
-    const bills = await _loadGstr1Bills(period.from, period.to);
-    const report = buildGstr1(bills, { companyStateCode });
+    const [{ active, cancelled }, returnsRes] = await Promise.all([
+      _loadGstr1Bills(period.from, period.to),
+      _loadGstr1Returns(period.from, period.to),
+    ]);
+    const report = buildGstr1(active, {
+      companyStateCode,
+      cancelledBills:   cancelled,
+      activeReturns:    returnsRes.active,
+      cancelledReturns: returnsRes.cancelled,
+    });
 
     res.json({
       period,
@@ -1297,8 +1393,16 @@ exports.exportGstr1Report = async (req, res) => {
     const period = _gstr1Period(req.query);
     const settings = await SystemSettings.findOne();
     const companyStateCode = stateCodeFromGstin(settings?.gstin) || null;
-    const bills = await _loadGstr1Bills(period.from, period.to);
-    const { b2b, b2cs, nil, hsn } = buildGstr1(bills, { companyStateCode });
+    const [{ active, cancelled }, returnsRes] = await Promise.all([
+      _loadGstr1Bills(period.from, period.to),
+      _loadGstr1Returns(period.from, period.to),
+    ]);
+    const { b2b, b2cl, b2cs, nil, cdnr, cdnur, hsn, docs } = buildGstr1(active, {
+      companyStateCode,
+      cancelledBills:   cancelled,
+      activeReturns:    returnsRes.active,
+      cancelledReturns: returnsRes.cancelled,
+    });
 
     const wb = new ExcelJS.Workbook();
 
@@ -1336,20 +1440,93 @@ exports.exportGstr1Report = async (req, res) => {
       }
     }
 
-    /* ── Sheet: B2CS ── */
+    /* ── Sheet: B2CL (Table 5A) — large unregistered inter-state ──
+     *
+     * Each invoice > ₹2.5L to an unregistered customer in another state
+     * gets its own row per rate bucket. Closes the silent-drop hole that
+     * existed when only B2CS was implemented (B2CS skipped these but
+     * nothing caught them).
+     */
+    const b2clSheet = wb.addWorksheet('5A - B2CL');
+    b2clSheet.columns = [
+      { header: 'Invoice No',      key: 'inv',           width: 16 },
+      { header: 'Invoice Date',    key: 'inv_date',      width: 12 },
+      { header: 'Receiver',        key: 'receiver',      width: 28 },
+      { header: 'Mobile',          key: 'mobile',        width: 14 },
+      { header: 'Invoice Value',   key: 'inv_value',     width: 14 },
+      { header: 'Place of Supply', key: 'pos',           width: 12 },
+      { header: 'Rate (%)',        key: 'rate',          width: 8 },
+      { header: 'Taxable Value',   key: 'taxable',       width: 14 },
+      { header: 'IGST',            key: 'igst',          width: 12 },
+      { header: 'Cess',            key: 'cess',          width: 10 },
+    ];
+    b2clSheet.getRow(1).font = { bold: true };
+    b2cl.rows.forEach(r => b2clSheet.addRow({
+      inv: r.bill_number, inv_date: r.bill_date,
+      receiver: r.customer_name, mobile: r.mobile || '',
+      inv_value: r.invoice_value, pos: r.place_of_supply,
+      rate: r.rate, taxable: r.taxable, igst: r.igst, cess: r.cess,
+    }));
+    if (b2cl.rows.length > 0) {
+      const tot = b2clSheet.addRow({
+        inv: 'TOTAL', inv_date: '', receiver: '', mobile: '',
+        inv_value: '', pos: '', rate: '',
+        taxable: b2cl.grand.taxable, igst: b2cl.grand.igst, cess: b2cl.grand.cess,
+      });
+      tot.font = { bold: true };
+      tot.border = { top: { style: 'medium' } };
+    }
+
+    /* ── Sheet: B2CS ──
+     *
+     * Top block: the (POS × Rate × Type) aggregation the portal wants.
+     * Bottom block: per-invoice drill-down with customer names. The portal
+     * upload only consumes the aggregated block, but operators want to see
+     * which bills rolled up into each row (mirrors the expandable rows on
+     * the GSTR-1 page).
+     */
     const b2csSheet = wb.addWorksheet('7 - B2CS');
     b2csSheet.columns = [
-      { header: 'Place of Supply', key: 'pos',     width: 14 },
-      { header: 'Supply Type',     key: 'type',    width: 12 },
-      { header: 'Rate (%)',        key: 'rate',    width: 9 },
-      { header: 'Taxable Value',   key: 'taxable', width: 14 },
-      { header: 'IGST',            key: 'igst',    width: 12 },
-      { header: 'CGST',            key: 'cgst',    width: 12 },
-      { header: 'SGST',            key: 'sgst',    width: 12 },
-      { header: 'Cess',            key: 'cess',    width: 10 },
+      { header: 'Place of Supply', key: 'pos',           width: 14 },
+      { header: 'Supply Type',     key: 'type',          width: 12 },
+      { header: 'Rate (%)',        key: 'rate',          width: 9 },
+      { header: 'Invoices',        key: 'invoice_count', width: 10 },
+      { header: 'Taxable Value',   key: 'taxable',       width: 14 },
+      { header: 'IGST',            key: 'igst',          width: 12 },
+      { header: 'CGST',            key: 'cgst',          width: 12 },
+      { header: 'SGST',            key: 'sgst',          width: 12 },
+      { header: 'Cess',            key: 'cess',          width: 10 },
     ];
     b2csSheet.getRow(1).font = { bold: true };
-    b2cs.rows.forEach(r => b2csSheet.addRow(r));
+    b2cs.rows.forEach(r => b2csSheet.addRow({
+      pos: r.place_of_supply, type: r.type, rate: r.rate,
+      invoice_count: r.invoice_count ?? (r.invoices || []).length,
+      taxable: r.taxable, igst: r.igst, cgst: r.cgst, sgst: r.sgst, cess: r.cess,
+    }));
+    // Per-invoice details block — flatten every (group → invoice) pair
+    const b2csInvRows = [];
+    for (const grp of b2cs.rows) {
+      for (const inv of (grp.invoices || [])) {
+        b2csInvRows.push({ grp, inv });
+      }
+    }
+    if (b2csInvRows.length > 0) {
+      b2csSheet.addRow([]);
+      const hdr = b2csSheet.addRow(['Details']);
+      hdr.font = { bold: true };
+      b2csSheet.addRow([
+        'Invoice No', 'Date', 'Customer', 'Mobile',
+        'POS', 'Rate', 'Type',
+        'Taxable', 'IGST', 'CGST', 'SGST', 'Cess', 'Total',
+      ]).font = { bold: true };
+      for (const { grp, inv } of b2csInvRows) {
+        b2csSheet.addRow([
+          inv.bill_number, inv.bill_date, inv.customer_name, inv.mobile || '',
+          grp.place_of_supply, grp.rate, grp.type,
+          inv.taxable, inv.igst, inv.cgst, inv.sgst, inv.cess, inv.total,
+        ]);
+      }
+    }
 
     /* ── Sheet: Nil/Exempt/Non-GST (Table 8) ──
      *
@@ -1369,17 +1546,97 @@ exports.exportGstr1Report = async (req, res) => {
     nil.rows.forEach(r => nilSheet.addRow(r));
     if (nil.invoices.length > 0) {
       nilSheet.addRow([]);
-      const hdr = nilSheet.addRow(['Details', '', '', '']);
+      const hdr = nilSheet.addRow(['Details', '', '', '', '', '']);
       hdr.font = { bold: true };
-      nilSheet.addRow(['Invoice No', 'Date', 'Receiver', 'Taxable']).font = { bold: true };
+      nilSheet.addRow(['Invoice No', 'Date', 'Receiver', 'Reason', 'Remarks', 'Taxable']).font = { bold: true };
       nil.invoices.forEach(inv => {
         nilSheet.addRow([
           inv.bill_number,
           inv.bill_date,
           inv.party_name + (inv.gstin ? ` (${inv.gstin})` : ''),
+          inv.reason_detail || inv.reason || '',
+          inv.remarks || '',
           inv.taxable,
         ]);
       });
+    }
+
+    /* ── Sheet: 9A — CDNR (Credit/Debit Notes — Registered) ── */
+    const cdnrSheet = wb.addWorksheet('9A - CDNR');
+    cdnrSheet.columns = [
+      { header: 'GSTIN/UIN',                 key: 'gstin',         width: 18 },
+      { header: 'Receiver Name',             key: 'receiver',      width: 28 },
+      { header: 'Note Number',               key: 'note',          width: 16 },
+      { header: 'Note Date',                 key: 'note_date',     width: 12 },
+      { header: 'Note Type',                 key: 'note_type',     width: 10 },
+      { header: 'Place of Supply',           key: 'pos',           width: 12 },
+      { header: 'Reverse Charge',            key: 'reverse',       width: 10 },
+      { header: 'Note Value',                key: 'note_value',    width: 14 },
+      { header: 'Rate (%)',                  key: 'rate',          width: 8 },
+      { header: 'Taxable Value',             key: 'taxable',       width: 14 },
+      { header: 'IGST',                      key: 'igst',          width: 12 },
+      { header: 'CGST',                      key: 'cgst',          width: 12 },
+      { header: 'SGST',                      key: 'sgst',          width: 12 },
+      { header: 'Cess',                      key: 'cess',          width: 10 },
+      { header: 'Original Invoice No',       key: 'orig_inv',      width: 16 },
+      { header: 'Original Invoice Date',     key: 'orig_date',     width: 14 },
+    ];
+    cdnrSheet.getRow(1).font = { bold: true };
+    cdnr.rows.forEach(r => cdnrSheet.addRow({
+      gstin: r.gstin, receiver: r.customer_name,
+      note: r.note_number, note_date: r.note_date,
+      note_type: r.note_type, pos: r.place_of_supply,
+      reverse: r.reverse_charge ? 'Y' : 'N',
+      note_value: r.note_value, rate: r.rate,
+      taxable: r.taxable, igst: r.igst, cgst: r.cgst, sgst: r.sgst, cess: r.cess,
+      orig_inv: r.original_invoice_number, orig_date: r.original_invoice_date,
+    }));
+    if (cdnr.rows.length > 0) {
+      const tot = cdnrSheet.addRow({
+        gstin: '', receiver: '', note: 'TOTAL', note_date: '', note_type: '',
+        pos: '', reverse: '', note_value: '', rate: '',
+        taxable: cdnr.grand.taxable, igst: cdnr.grand.igst,
+        cgst: cdnr.grand.cgst, sgst: cdnr.grand.sgst, cess: cdnr.grand.cess,
+      });
+      tot.font = { bold: true };
+      tot.border = { top: { style: 'medium' } };
+    }
+
+    /* ── Sheet: 9B — CDNUR (Credit/Debit Notes — Unregistered) ── */
+    const cdnurSheet = wb.addWorksheet('9B - CDNUR');
+    cdnurSheet.columns = [
+      { header: 'UR Type',                   key: 'ur_type',       width: 10 },
+      { header: 'Receiver Name',             key: 'receiver',      width: 24 },
+      { header: 'Mobile',                    key: 'mobile',        width: 14 },
+      { header: 'Note Number',               key: 'note',          width: 16 },
+      { header: 'Note Date',                 key: 'note_date',     width: 12 },
+      { header: 'Note Type',                 key: 'note_type',     width: 10 },
+      { header: 'Place of Supply',           key: 'pos',           width: 12 },
+      { header: 'Note Value',                key: 'note_value',    width: 14 },
+      { header: 'Rate (%)',                  key: 'rate',          width: 8 },
+      { header: 'Taxable Value',             key: 'taxable',       width: 14 },
+      { header: 'IGST',                      key: 'igst',          width: 12 },
+      { header: 'Cess',                      key: 'cess',          width: 10 },
+      { header: 'Original Invoice No',       key: 'orig_inv',      width: 16 },
+      { header: 'Original Invoice Date',     key: 'orig_date',     width: 14 },
+    ];
+    cdnurSheet.getRow(1).font = { bold: true };
+    cdnur.rows.forEach(r => cdnurSheet.addRow({
+      ur_type: r.ur_type, receiver: r.customer_name, mobile: r.mobile || '',
+      note: r.note_number, note_date: r.note_date, note_type: r.note_type,
+      pos: r.place_of_supply, note_value: r.note_value, rate: r.rate,
+      taxable: r.taxable, igst: r.igst, cess: r.cess,
+      orig_inv: r.original_invoice_number, orig_date: r.original_invoice_date,
+    }));
+    if (cdnur.rows.length > 0) {
+      const tot = cdnurSheet.addRow({
+        ur_type: '', receiver: '', mobile: '',
+        note: 'TOTAL', note_date: '', note_type: '',
+        pos: '', note_value: '', rate: '',
+        taxable: cdnur.grand.taxable, igst: cdnur.grand.igst, cess: cdnur.grand.cess,
+      });
+      tot.font = { bold: true };
+      tot.border = { top: { style: 'medium' } };
     }
 
     /* ── Sheet: HSN ── */
@@ -1407,9 +1664,278 @@ exports.exportGstr1Report = async (req, res) => {
     hsnTot.font = { bold: true };
     hsnTot.border = { top: { style: 'medium' } };
 
-    return _sendWorkbook(res, wb, 'gstr1_' + period.label.replace(/\//g, '-') + '.xlsx');
+    /* ── Sheet: Docs Issued (Table 13) ──
+     *
+     * Auditor-facing summary: for each bill-number series, how many were
+     * raised, how many cancelled, and the from-no/to-no range. Catches
+     * missing sequence numbers and proves no parallel book exists.
+     */
+    const docsSheet = wb.addWorksheet('13 - Docs Issued');
+    docsSheet.columns = [
+      { header: 'Nature of Document', key: 'nature',    width: 28 },
+      { header: 'Series',             key: 'prefix',    width: 18 },
+      { header: 'From No',            key: 'from_no',   width: 10 },
+      { header: 'To No',              key: 'to_no',     width: 10 },
+      { header: 'Total',              key: 'total',     width: 8 },
+      { header: 'Cancelled',          key: 'cancelled', width: 10 },
+      { header: 'Net',                key: 'net',       width: 8 },
+    ];
+    docsSheet.getRow(1).font = { bold: true };
+    docs.rows.forEach(r => docsSheet.addRow(r));
+    if (docs.rows.length > 0) {
+      const dt = docsSheet.addRow({
+        nature: 'TOTAL', prefix: '', from_no: '', to_no: '',
+        total: docs.grand.total, cancelled: docs.grand.cancelled, net: docs.grand.net,
+      });
+      dt.font = { bold: true };
+      dt.border = { top: { style: 'medium' } };
+    }
+
+    // Open the workbook to whichever tab the user was viewing in the UI.
+    // Sheet order: 0=B2B, 1=B2CL, 2=B2CS, 3=Nil, 4=CDNR (9A), 5=CDNUR (9B),
+    // 6=HSN, 7=Docs Issued.
+    // Falls back to B2B (sheet 0) if the section query param is missing or
+    // unrecognised. ExcelJS surfaces this via wb.views[0].activeTab.
+    const SECTION_TO_TAB = {
+      b2b: 0, b2cl: 1, b2cs: 2, nil: 3,
+      cdnr: 4, cdnur: 5, hsn: 6, docs: 7,
+    };
+    const activeTab = SECTION_TO_TAB[String(req.query.section || '').toLowerCase()] ?? 0;
+    wb.views = [{ activeTab }];
+    // Suffix the filename with the section so the user can tell at a glance
+    // (and a re-export from another tab doesn't overwrite the previous file).
+    const sectionTag = req.query.section && SECTION_TO_TAB[String(req.query.section).toLowerCase()] !== undefined
+      ? '_' + String(req.query.section).toLowerCase()
+      : '';
+    return _sendWorkbook(res, wb, 'gstr1_' + period.label.replace(/\//g, '-') + sectionTag + '.xlsx');
   } catch (err) {
     console.error('GSTR-1 export error:', err);
+    res.status(500).json({ error: 'Export failed' });
+  }
+};
+
+/* ════════════════════════════════════════════════════════════════════════
+ *  GSTR-3B  — monthly summary return
+ *
+ *  Pulls outward + credit-note data from the existing GSTR-1 loaders and
+ *  ITC data from PurchaseBill rows in the period. The buildGstr3b helper
+ *  in utils/gstr3b.js does the math (pure, fully unit-tested).
+ * ══════════════════════════════════════════════════════════════════════ */
+
+const { buildGstr3b } = require('../utils/gstr3b');
+const { detectBillDataIssues } = require('../utils/gstr1');
+
+async function _loadGstr3bPurchases(from, to) {
+  const rows = await PurchaseBill.findAll({
+    where: { bill_date: { [Op.between]: [from, to] } },
+    attributes: ['purchase_bill_id', 'bill_number', 'bill_date',
+                 'cgst_amount', 'sgst_amount', 'igst_amount', 'cess_amount',
+                 'total_amount', 'is_cancelled'],
+    include: [
+      { model: Party, as: 'supplier',
+        attributes: ['party_name', 'gstin', 'state'] },
+      { model: PurchaseBillItem, as: 'items',
+        attributes: ['hsn_code', 'gst_rate', 'taxable_amount',
+                     'cgst_amount', 'sgst_amount', 'igst_amount', 'cess_amount'] },
+    ],
+    order: [['bill_date', 'ASC']],
+  });
+  return rows.map(r => ({
+    purchase_bill_id: r.purchase_bill_id,
+    bill_number:      r.bill_number,
+    bill_date:        r.bill_date,
+    is_cancelled:     !!r.is_cancelled,
+    cgst_amount:      Number(r.cgst_amount) || 0,
+    sgst_amount:      Number(r.sgst_amount) || 0,
+    igst_amount:      Number(r.igst_amount) || 0,
+    cess_amount:      Number(r.cess_amount) || 0,
+    total_amount:     Number(r.total_amount) || 0,
+    supplier: r.supplier ? {
+      party_name: r.supplier.party_name,
+      gstin:      r.supplier.gstin,
+      state:      r.supplier.state,
+    } : null,
+    items: (r.items || []).map(it => ({
+      hsn_code:       it.hsn_code,
+      gst_rate:       Number(it.gst_rate) || 0,
+      taxable_amount: Number(it.taxable_amount) || 0,
+      cgst_amount:    Number(it.cgst_amount) || 0,
+      sgst_amount:    Number(it.sgst_amount) || 0,
+      igst_amount:    Number(it.igst_amount) || 0,
+      cess_amount:    Number(it.cess_amount) || 0,
+    })),
+  }));
+}
+
+exports.gstr3bReport = async (req, res) => {
+  try {
+    const period = _gstr1Period(req.query);
+    const settings = await SystemSettings.findOne();
+    const companyStateCode = stateCodeFromGstin(settings?.gstin) || null;
+
+    const [{ active }, returnsRes, purchases] = await Promise.all([
+      _loadGstr1Bills(period.from, period.to),
+      _loadGstr1Returns(period.from, period.to),
+      _loadGstr3bPurchases(period.from, period.to),
+    ]);
+
+    const report = buildGstr3b({
+      activeBills:   active,
+      activeReturns: returnsRes.active,
+      purchases:     purchases.filter(p => !p.is_cancelled),
+      companyStateCode,
+    });
+
+    // Inherit the same data-quality warnings GSTR-1 surfaces. Filing 3B
+    // with dirty source bills propagates the over-statement to the portal.
+    const billWarnings = detectBillDataIssues(active);
+
+    res.json({
+      period,
+      company: {
+        gstin: settings?.gstin || null,
+        state_code: companyStateCode,
+        name: settings?.company_name || '',
+      },
+      data_quality: {
+        bill_warnings: billWarnings,
+        bill_warning_count: billWarnings.length,
+      },
+      ...report,
+    });
+  } catch (err) {
+    console.error('GSTR-3B error:', err);
+    res.status(500).json({ error: 'Failed to load GSTR-3B' });
+  }
+};
+
+exports.exportGstr3bReport = async (req, res) => {
+  try {
+    const period = _gstr1Period(req.query);
+    const settings = await SystemSettings.findOne();
+    const companyStateCode = stateCodeFromGstin(settings?.gstin) || null;
+
+    const [{ active }, returnsRes, purchases] = await Promise.all([
+      _loadGstr1Bills(period.from, period.to),
+      _loadGstr1Returns(period.from, period.to),
+      _loadGstr3bPurchases(period.from, period.to),
+    ]);
+
+    const r = buildGstr3b({
+      activeBills:   active,
+      activeReturns: returnsRes.active,
+      purchases:     purchases.filter(p => !p.is_cancelled),
+      companyStateCode,
+    });
+
+    const wb = new ExcelJS.Workbook();
+
+    /* ── Sheet 3.1 — Outward + Inward (RCM) supplies ── */
+    const s31 = wb.addWorksheet('3.1 Outward Supplies');
+    s31.columns = [
+      { header: 'Nature of Supplies', key: 'label',   width: 50 },
+      { header: 'Total Taxable Value', key: 'taxable', width: 18 },
+      { header: 'IGST',  key: 'igst', width: 14 },
+      { header: 'CGST',  key: 'cgst', width: 14 },
+      { header: 'SGST',  key: 'sgst', width: 14 },
+      { header: 'Cess',  key: 'cess', width: 12 },
+    ];
+    s31.getRow(1).font = { bold: true };
+    for (const key of ['taxable_outward', 'zero_rated', 'nil_exempt', 'inward_rcm', 'non_gst_outward']) {
+      s31.addRow(r.section_3_1[key]);
+    }
+
+    /* ── Sheet 3.2 — Inter-state to unregistered (per POS) ── */
+    const s32 = wb.addWorksheet('3.2 Inter-state Unreg');
+    s32.columns = [
+      { header: 'Place of Supply', key: 'place_of_supply', width: 14 },
+      { header: 'Total Taxable Value', key: 'taxable', width: 18 },
+      { header: 'IGST', key: 'igst', width: 14 },
+    ];
+    s32.getRow(1).font = { bold: true };
+    r.section_3_2.unregistered.forEach(row => s32.addRow(row));
+    if (r.section_3_2.unregistered.length === 0) {
+      s32.addRow(['(No inter-state supplies to unregistered persons in period)', '', '']);
+    }
+
+    /* ── Sheet 4 — Eligible ITC ── */
+    const s4 = wb.addWorksheet('4 ITC');
+    s4.columns = [
+      { header: 'Details', key: 'label', width: 60 },
+      { header: 'IGST', key: 'igst', width: 14 },
+      { header: 'CGST', key: 'cgst', width: 14 },
+      { header: 'SGST', key: 'sgst', width: 14 },
+      { header: 'Cess', key: 'cess', width: 12 },
+    ];
+    s4.getRow(1).font = { bold: true };
+    s4.addRow(['(A) ITC Available', '', '', '', '']).font = { bold: true };
+    for (const key of ['import_goods', 'import_services', 'inward_rcm', 'isd', 'all_other']) {
+      s4.addRow(r.section_4_itc.A[key]);
+    }
+    const at = s4.addRow({ label: '    Total (A)', ...r.section_4_itc.A_total });
+    at.font = { bold: true }; at.border = { top: { style: 'thin' } };
+
+    s4.addRow([]);
+    s4.addRow(['(B) ITC Reversed', '', '', '', '']).font = { bold: true };
+    for (const key of ['rules_38_42_43', 'others']) {
+      s4.addRow(r.section_4_itc.B[key]);
+    }
+    const bt = s4.addRow({ label: '    Total (B)', ...r.section_4_itc.B_total });
+    bt.font = { bold: true }; bt.border = { top: { style: 'thin' } };
+
+    s4.addRow([]);
+    const ct = s4.addRow({ label: '(C) Net ITC Available (A − B)', ...r.section_4_itc.C_net_available });
+    ct.font = { bold: true }; ct.border = { top: { style: 'medium' } };
+
+    s4.addRow([]);
+    s4.addRow(['(D) Other Details', '', '', '', '']).font = { bold: true };
+    for (const key of ['reclaimed', 'ineligible']) {
+      s4.addRow(r.section_4_itc.D[key]);
+    }
+
+    /* ── Sheet 5 — Exempt/Nil/Non-GST inward ── */
+    const s5 = wb.addWorksheet('5 Exempt Inward');
+    s5.columns = [
+      { header: 'Nature of Supplies', key: 'label',       width: 50 },
+      { header: 'Inter-state',        key: 'inter_state', width: 14 },
+      { header: 'Intra-state',        key: 'intra_state', width: 14 },
+    ];
+    s5.getRow(1).font = { bold: true };
+    s5.addRow({ label: 'From a supplier under composition / Exempt / Nil rated supply',
+      inter_state: r.section_5_exempt.inter_state.composition_or_exempt_or_nil,
+      intra_state: r.section_5_exempt.intra_state.composition_or_exempt_or_nil });
+    s5.addRow({ label: 'Non-GST supply',
+      inter_state: r.section_5_exempt.inter_state.non_gst_supply,
+      intra_state: r.section_5_exempt.intra_state.non_gst_supply });
+
+    /* ── Sheet 6.1 — Payment of tax ── */
+    const s61 = wb.addWorksheet('6.1 Payment');
+    s61.columns = [
+      { header: 'Tax', key: 'tax', width: 10 },
+      { header: 'Tax Payable',     key: 'tax_payable',   width: 16 },
+      { header: 'Paid via ITC',    key: 'paid_via_itc',  width: 16 },
+      { header: 'Paid via Cash',   key: 'paid_via_cash', width: 16 },
+    ];
+    s61.getRow(1).font = { bold: true };
+    for (const k of ['igst', 'cgst', 'sgst', 'cess']) {
+      s61.addRow({ tax: k.toUpperCase(), ...r.section_6_1_payment[k] });
+    }
+    const totals = ['igst', 'cgst', 'sgst', 'cess'].reduce((a, k) => {
+      a.tax_payable   += r.section_6_1_payment[k].tax_payable;
+      a.paid_via_itc  += r.section_6_1_payment[k].paid_via_itc;
+      a.paid_via_cash += r.section_6_1_payment[k].paid_via_cash;
+      return a;
+    }, { tax_payable: 0, paid_via_itc: 0, paid_via_cash: 0 });
+    const ttt = s61.addRow({ tax: 'TOTAL', ...totals });
+    ttt.font = { bold: true }; ttt.border = { top: { style: 'medium' } };
+
+    const SECTION_TO_TAB = { '3.1': 0, '3.2': 1, '4': 2, '5': 3, '6.1': 4 };
+    const activeTab = SECTION_TO_TAB[String(req.query.section || '').toLowerCase()] ?? 0;
+    wb.views = [{ activeTab }];
+
+    return _sendWorkbook(res, wb, 'gstr3b_' + period.label.replace(/\//g, '-') + '.xlsx');
+  } catch (err) {
+    console.error('GSTR-3B export error:', err);
     res.status(500).json({ error: 'Export failed' });
   }
 };

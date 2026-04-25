@@ -451,3 +451,252 @@
   color: var(--fg-secondary);
   margin-bottom: 6px;
 }
+
+/* ─── nil/exempt reason badge ──────────────────────────────────────
+ * Two visual states: green for "this is correct" (Nil-rated, all 0%)
+ * and amber for "operator should look at this" (data-entry slip,
+ * mixed rates). Hover surfaces the rate breakdown + bill remarks.
+ */
+.g1-reason {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: help;
+  border: 1px solid transparent;
+}
+.g1-reason-ok {
+  background: color-mix(in srgb, #16a34a 14%, transparent);
+  color: #15803d;
+  border-color: color-mix(in srgb, #16a34a 30%, transparent);
+}
+.g1-reason-warn {
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  color: #b45309;
+  border-color: color-mix(in srgb, #f59e0b 36%, transparent);
+}
+[data-theme-appearance="dark"] .g1-reason-ok {
+  color: #4ade80;
+  background: color-mix(in srgb, #16a34a 22%, transparent);
+}
+[data-theme-appearance="dark"] .g1-reason-warn {
+  color: #fbbf24;
+  background: color-mix(in srgb, #f59e0b 22%, transparent);
+}
+.g1-reason-mark {
+  font-size: 9px;
+  opacity: 0.8;
+  margin-left: 1px;
+}
+
+/* ─── nil/exempt filter bar (between summary and invoice list) ────── */
+.g1-nil-filterbar {
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.g1-nil-filterbar-label {
+  flex-shrink: 0;
+}
+.g1-nil-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-primary, #E26A4C) 18%, transparent);
+  color: var(--accent-primary, #E26A4C);
+  border: 1px solid color-mix(in srgb, var(--accent-primary, #E26A4C) 40%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.g1-nil-chip:hover {
+  background: color-mix(in srgb, var(--accent-primary, #E26A4C) 28%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary, #E26A4C) 55%, transparent);
+}
+.g1-nil-chip-x {
+  display: inline-grid;
+  place-items: center;
+  width: 16px; height: 16px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-primary, #E26A4C) 30%, transparent);
+  font-size: 13px;
+  line-height: 1;
+  margin-left: 2px;
+}
+
+/* ─── clickable bill numbers (open for editing) ──────────────────── */
+.g1-bill-link {
+  font-family: 'Source Sans 3', sans-serif;
+  color: var(--accent-primary, #E26A4C);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: color .12s, border-color .12s;
+}
+.g1-bill-link:hover,
+.g1-bill-link:focus {
+  color: var(--accent-primary, #E26A4C);
+  border-bottom-color: currentColor;
+  text-decoration: none;
+}
+
+/* ─── data-quality warning banner ──────────────────────────────────
+ * Red-ish container at the top of the page (between header and KPIs)
+ * that surfaces bills with arithmetic discrepancies. Operator clicks
+ * the bill number to open and fix.
+ */
+.g1-warn-banner {
+  margin: 12px 28px 0;
+  padding: 14px 18px;
+  background: color-mix(in srgb, #dc2626 10%, transparent);
+  border: 1px solid color-mix(in srgb, #dc2626 35%, transparent);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.g1-warn-banner-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.g1-warn-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  color: #b91c1c;
+  font-size: 14px;
+}
+[data-theme-appearance="dark"] .g1-warn-banner-title { color: #fca5a5; }
+.g1-warn-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.g1-warn-banner-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+  line-height: 1.5;
+}
+.g1-warn-banner-sub code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--fg-primary) 8%, transparent);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.g1-warn-toggle {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border: 1px solid color-mix(in srgb, #dc2626 50%, transparent);
+  background: transparent;
+  color: #b91c1c;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .15s;
+}
+.g1-warn-toggle:hover {
+  background: color-mix(in srgb, #dc2626 14%, transparent);
+}
+[data-theme-appearance="dark"] .g1-warn-toggle { color: #fca5a5; border-color: color-mix(in srgb, #fca5a5 40%, transparent); }
+.g1-warn-list {
+  margin-top: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-app);
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+.g1-warn-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.g1-warn-tbl th {
+  position: sticky; top: 0;
+  background: var(--bg-elevated);
+  text-align: left;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.g1-warn-tbl td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.g1-warn-tbl tr:last-child td { border-bottom: none; }
+.g1-warn-tbl tr:hover { background: color-mix(in srgb, #dc2626 6%, transparent); }
+
+/* ─── GSTR-3B section headers and notes ────────────────────────── */
+.g3b-section-h {
+  margin: 28px 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--fg-primary);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.g3b-section-h:first-child { margin-top: 8px; }
+.g3b-empty-note {
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+  font-style: italic;
+}
+.g3b-empty-note code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-style: normal;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--fg-primary) 8%, transparent);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.g3b-itc-meta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  text-align: right;
+  font-style: italic;
+}
+.g3b-payment-note {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--accent-primary, #E26A4C) 8%, transparent);
+  border-left: 3px solid var(--accent-primary, #E26A4C);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--fg-primary);
+  line-height: 1.5;
+}

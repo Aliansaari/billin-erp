@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
-const { PurchaseBill, PurchaseBillItem, Party, Product, StockLedger, Category, SystemSettings } = require('../models');
+const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, StockLedger, Category, SystemSettings } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
@@ -160,7 +160,53 @@ exports.getById = async (req, res) => {
 exports.create = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { items, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, gst_mode, ...billData } = req.body;
+    let { items, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, draft_id, ...billData } = req.body;
+
+    // ── AMOUNT-ONLY MODE ─────────────────────────────────────────────
+    // Mirror of salesController amount-mode: synthesise one line item so
+    // the rest of the pipeline (PASS 1/2, GST routing, supplier balance)
+    // runs unchanged. quantity=1, rate=amount, product_id=null (skips
+    // stock loop). gst_mode forced to 'product' for per-rate routing.
+    if (bill_mode === 'amount') {
+      const amt = parseFloat(amount);
+      const rate = parseFloat(amountGstRate || 0);
+      if (!isFinite(amt) || amt <= 0) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Amount must be greater than 0 for amount-only bills.' });
+      }
+      if (!isFinite(rate) || rate < 0 || rate > 100) {
+        await t.rollback();
+        return res.status(400).json({ error: 'GST rate must be between 0 and 100.' });
+      }
+      const hsn  = (amountHsnCode || '9999').toString().trim() || '9999';
+      const desc = (amountDescription || 'Service / Misc').toString().trim() || 'Service / Misc';
+      items = [{
+        product_id:          null,
+        barcode:             null,
+        category_id:         null,
+        category_name:       '',
+        product_name:        desc,
+        size:                '',
+        article_number:      '',
+        hsn_code:            hsn,
+        unit_type:           'OTH',
+        quantity:            1,
+        purchase_rate:       amt,
+        discount_percentage: 0,
+        discount_amount:     0,
+        margin_percentage:   0,
+        sale_rate:           0,
+        mrp:                 0,
+        gst_rate:            rate,
+        quantity_per_box:    1,
+      }];
+      gst_mode = 'product';
+      cgst_pct = 0; sgst_pct = 0; igst_pct = 0;
+      // Persist description on the bill header so prints/reports can show
+      // it without reading the items list.
+      billData.description = desc;
+    }
+    billData.bill_mode = bill_mode === 'amount' ? 'amount' : 'item';
 
     // Generate bill number using prefix from settings — inside transaction to prevent race condition
     const settings = await SystemSettings.findByPk(1, { transaction: t });
@@ -368,6 +414,16 @@ exports.create = async (req, res) => {
     // Recalculate supplier balance from scratch
     await recalculatePartyBalance(billData.supplier_id, t);
 
+    // If this bill came from a recalled draft, delete the draft inside the
+    // same transaction. Race-safe: rollback keeps the draft alive for retry;
+    // a duplicate recall results in the second DELETE being a no-op.
+    if (draft_id) {
+      await PurchaseBillDraft.destroy({
+        where: { draft_id },
+        transaction: t,
+      });
+    }
+
     await t.commit();
 
     // Return full bill with items for barcode printing
@@ -401,7 +457,47 @@ exports.update = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { items: newItems, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, gst_mode, ...billData } = req.body;
+    let { items: newItems, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, ...billData } = req.body;
+
+    // Same amount-only synthesis as create() — see comment block there.
+    if (bill_mode === 'amount') {
+      const amt = parseFloat(amount);
+      const rate = parseFloat(amountGstRate || 0);
+      if (!isFinite(amt) || amt <= 0) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Amount must be greater than 0 for amount-only bills.' });
+      }
+      if (!isFinite(rate) || rate < 0 || rate > 100) {
+        await t.rollback();
+        return res.status(400).json({ error: 'GST rate must be between 0 and 100.' });
+      }
+      const hsn  = (amountHsnCode || '9999').toString().trim() || '9999';
+      const desc = (amountDescription || 'Service / Misc').toString().trim() || 'Service / Misc';
+      newItems = [{
+        product_id:          null,
+        barcode:             null,
+        category_id:         null,
+        category_name:       '',
+        product_name:        desc,
+        size:                '',
+        article_number:      '',
+        hsn_code:            hsn,
+        unit_type:           'OTH',
+        quantity:            1,
+        purchase_rate:       amt,
+        discount_percentage: 0,
+        discount_amount:     0,
+        margin_percentage:   0,
+        sale_rate:           0,
+        mrp:                 0,
+        gst_rate:            rate,
+        quantity_per_box:    1,
+      }];
+      gst_mode = 'product';
+      cgst_pct = 0; sgst_pct = 0; igst_pct = 0;
+      billData.description = desc;
+    }
+    billData.bill_mode = bill_mode === 'amount' ? 'amount' : 'item';
 
     const existingBill = await PurchaseBill.findByPk(id, {
       include: [{ model: PurchaseBillItem, as: 'items' }],

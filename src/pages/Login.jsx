@@ -188,16 +188,27 @@ const loginCss = `
   font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
   color: #8F8372 !important; font-weight: 500;
 }
-.erp-login-input.ant-input-affix-wrapper,
-.erp-login-input .ant-input {
+.erp-login-input.ant-input-affix-wrapper {
   background: rgba(11, 8, 7, 0.55) !important;
   border: 1px solid rgba(245, 238, 226, 0.12) !important;
   border-radius: 9px !important;
   height: 48px !important;
+  padding: 0 14px !important;
+  color: #F5EEE2 !important;
+  box-shadow: none !important;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.erp-login-input .ant-input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
   color: #F5EEE2 !important;
   font-size: 15px !important;
-  box-shadow: none !important;
+  padding: 0 !important;
+  height: auto !important;
 }
+.erp-login-input .ant-input-prefix { margin-inline-end: 10px; }
+.erp-login-input .ant-input-suffix { margin-inline-start: 10px; }
 .erp-login-input.ant-input-affix-wrapper:hover { border-color: rgba(245, 238, 226, 0.22) !important; }
 .erp-login-input.ant-input-affix-wrapper-focused,
 .erp-login-input.ant-input-affix-wrapper:focus-within {
@@ -207,6 +218,7 @@ const loginCss = `
 }
 .erp-login-input input::placeholder,
 .erp-login-input .ant-input::placeholder { color: #6D6355 !important; }
+.erp-login-input .ant-input-password-icon { color: #8F8372 !important; }
 .erp-login-btn.ant-btn {
   height: 50px !important;
   margin-top: 8px;

@@ -7,10 +7,11 @@ import {
   PlusOutlined, SearchOutlined, EyeOutlined, StopOutlined,
   PrinterOutlined, EditOutlined, MoreOutlined,
   DollarOutlined, AppstoreOutlined, FilePdfOutlined, WhatsAppOutlined,
+  PauseCircleOutlined, DeleteOutlined, RollbackOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { salesAPI, settingsAPI } from '../../api';
+import { salesAPI, salesDraftAPI, settingsAPI } from '../../api';
 import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
 import '../../styles/bill-list.css';
 
@@ -242,6 +243,18 @@ export default function SalesList() {
   const [viewBill, setViewBill]     = useState(null);
   const [actionLoading, setActionLoading] = useState({});
   const [companyName, setCompanyName] = useState('');
+
+  // Drafts (held bills) — separate fetch from sales_bills, never affects
+  // counts/totals. Modal opens on click of the Drafts pill.
+  const [drafts, setDrafts] = useState([]);
+  const [draftsModalOpen, setDraftsModalOpen] = useState(false);
+  const loadDrafts = useCallback(async () => {
+    try {
+      const { data } = await salesDraftAPI.list();
+      setDrafts(data?.data || []);
+    } catch { /* silent — drafts pill just shows 0 */ }
+  }, []);
+  useEffect(() => { loadDrafts(); }, [loadDrafts]);
   // Column visibility — persisted so user's choice survives reload.
   const [cols, setCols] = useState(() => {
     try {
@@ -442,6 +455,23 @@ export default function SalesList() {
             </button>
           </Dropdown>
           <span className="blist-divider"></span>
+          {drafts.length > 0 && (
+            <button className="blist-cta ghost" onClick={() => setDraftsModalOpen(true)}
+                    title="View held bills">
+              <PauseCircleOutlined /> Drafts
+              <span style={{
+                marginLeft: 6,
+                padding: '0 7px',
+                background: 'var(--accent-primary, #E26A4C)',
+                color: '#fff',
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 700,
+                lineHeight: '18px',
+                display: 'inline-block',
+              }}>{drafts.length}</span>
+            </button>
+          )}
           <button className="blist-cta ghost" onClick={() => navigate('/receipt/new')}>
             <PlusOutlined /> Receipt
           </button>
@@ -558,6 +588,94 @@ export default function SalesList() {
       </div>
 
       <ViewModal bill={viewBill} onClose={() => setViewBill(null)} />
+
+      {/* Drafts modal — list of held bills with Recall / Discard.
+          MUST live in SalesList scope (not BillRow) because it references
+          drafts/draftsModalOpen/loadDrafts state from this component. */}
+      <Modal
+        open={draftsModalOpen}
+        onCancel={() => setDraftsModalOpen(false)}
+        title={`Held drafts (${drafts.length})`}
+        footer={null}
+        width={840}
+      >
+        <div style={{ fontSize: 12, color: 'var(--fg-tertiary)', marginBottom: 12, lineHeight: 1.5 }}>
+          Drafts do <b>not</b> consume bill numbers, do <b>not</b> affect stock or party balances, and do <b>not</b>
+          appear in any GST report. Click <b>Recall</b> to resume a draft in the bill form.
+        </div>
+        {drafts.length === 0 ? (
+          <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-tertiary)' }}>No drafts held.</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--fg-tertiary)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Draft #</th>
+                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Customer</th>
+                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Items</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px' }}>Preview Total</th>
+                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Held by</th>
+                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Held at</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {drafts.map(d => (
+                <tr key={d.draft_id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '10px 6px', fontWeight: 600 }}>{d.draft_number}</td>
+                  <td style={{ padding: '10px 6px' }}>{d.customer?.party_name || <span style={{ color: 'var(--fg-tertiary)', fontStyle: 'italic' }}>Walk-in</span>}</td>
+                  <td style={{ padding: '10px 6px' }}>
+                    {d.payload?.bill_mode === 'amount' ? (
+                      <Tag color="orange" style={{ marginRight: 0 }}>Amount</Tag>
+                    ) : (
+                      <span>{d.item_count || 0}</span>
+                    )}
+                  </td>
+                  <td style={{ padding: '10px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    ₹{parseFloat(d.total_preview || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td style={{ padding: '10px 6px', color: 'var(--fg-secondary)' }}>{d.creator?.username || '—'}</td>
+                  <td style={{ padding: '10px 6px', color: 'var(--fg-tertiary)', fontSize: 12 }}>
+                    {dayjs(d.created_date).format('DD MMM, HH:mm')}
+                  </td>
+                  <td style={{ padding: '10px 6px', textAlign: 'right' }}>
+                    <button
+                      onClick={() => {
+                        setDraftsModalOpen(false);
+                        navigate('/sale/new', { state: { recallDraft: d.draft_id } });
+                      }}
+                      style={{ padding: '4px 12px', border: '1px solid var(--accent-primary, #E26A4C)', background: 'var(--accent-primary, #E26A4C)', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', marginRight: 6 }}
+                    >
+                      <RollbackOutlined /> Recall
+                    </button>
+                    <button
+                      onClick={() => {
+                        Modal.confirm({
+                          title: `Discard ${d.draft_number}?`,
+                          content: 'This permanently deletes the draft. Cannot be undone.',
+                          okText: 'Discard',
+                          okType: 'danger',
+                          onOk: async () => {
+                            try {
+                              await salesDraftAPI.delete(d.draft_id);
+                              await loadDrafts();
+                              message.success(`${d.draft_number} discarded`);
+                            } catch (e) {
+                              message.error('Failed to discard: ' + (e.response?.data?.error || e.message));
+                            }
+                          },
+                        });
+                      }}
+                      style={{ padding: '4px 10px', border: '1px solid var(--border-subtle)', background: 'transparent', color: '#dc2626', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
+                    >
+                      <DeleteOutlined />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Modal>
     </div>
   );
 }
