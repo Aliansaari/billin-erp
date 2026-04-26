@@ -701,7 +701,17 @@ function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, on
   const isSameDay = billDate && billTime && billDate.isSame(billTime, 'day');
 
   const customerName = bill.customer?.party_name;
-  const customerPhone = bill.customer?.mobile_1;
+  // Secondary identifier: prefer GSTIN (real, externally meaningful),
+  // fall back to mobile, suppress legacy Tally-importer stubs that
+  // start with "TLY" (those used to fill the NOT NULL mobile_1
+  // when a Tally LEDGER had no phone — they leak nothing useful and
+  // look like fake GUIDs to the user).
+  const customerGstin = bill.customer?.gstin;
+  const rawMobile = bill.customer?.mobile_1;
+  const cleanMobile = rawMobile && !/^TLY/i.test(rawMobile) ? rawMobile : null;
+  const customerSecondary = customerGstin || cleanMobile || null;
+  // WhatsApp action still needs a real phone — never the GSTIN.
+  const customerPhone = cleanMobile;
   const isCash = !customerName;
 
   // Optional amounts
@@ -768,7 +778,7 @@ function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, on
       <div className="c-cust">
         <div className={`stk${isCash ? ' cash' : ''}`}>
           <span className="m">{customerName || 'Cash Sale'}</span>
-          <span className="s">{customerPhone || (isCash ? 'Walk-in' : '—')}</span>
+          <span className="s">{customerSecondary || (isCash ? 'Walk-in' : '—')}</span>
         </div>
       </div>
 

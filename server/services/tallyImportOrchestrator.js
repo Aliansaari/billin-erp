@@ -406,16 +406,21 @@ async function ensureParties(job, ledgers) {
     if (!isCustomer && !isSupplier) continue;
     const t = await sequelize.transaction();
     try {
-      // Tally rarely supplies a mobile number per ledger. We generate a
-      // placeholder that fits VARCHAR(15) and is recognisable for cleanup
-      // ("TLY" + last 12 chars of timestamp+random).
-      const stub = `TLY${Date.now().toString().slice(-9)}${Math.floor(Math.random()*100)}`.slice(0, 15);
+      // Tally rarely supplies a mobile number per ledger. We used to fill
+      // an unknown mobile with a "TLY..." pseudo-random stub so the
+      // VARCHAR NOT NULL constraint stayed satisfied — but the UI shows
+      // mobile_1 as the secondary identifier on the Sales List and the
+      // Party Ledger header, and "TLY..." leaked through to those
+      // surfaces (looking exactly like a fake Tally GUID). Empty string
+      // is accepted by the NOT NULL constraint and the UI now treats it
+      // as "no phone" alongside null. Real customer identifiers (GSTIN,
+      // mobile, email) carry through correctly when Tally supplies them.
       const [party] = await Party.findOrCreate({
         where: { party_name: lg.name },
         defaults: {
           party_type: isSupplier ? 'Supplier' : 'Customer',
           party_name: lg.name,
-          mobile_1: lg.mobile || stub,
+          mobile_1: lg.mobile || '',
           gstin: lg.gstin || null,
           opening_balance: lg.opening_balance || 0,
           // Tally parser yields 'Receivable'/'Payable' already, but route

@@ -692,7 +692,17 @@ export default function PartyLedger() {
               {selected && (
                 <span className="pl-party-meta">
                   {selected.party_type && <span>{selected.party_type}</span>}
-                  {selected.mobile_1 && <><span className="sep">·</span><span>{selected.mobile_1}</span></>}
+                  {/* Prefer GSTIN over mobile. Legacy "TLY..." mobile
+                      stubs from older Tally imports are suppressed —
+                      they're not real identifiers and look like
+                      Tally GUIDs to the user. */}
+                  {(() => {
+                    const gstin = selected.gstin || selected.gst_number;
+                    const m = selected.mobile_1;
+                    const cleanMobile = m && !/^TLY/i.test(m) ? m : null;
+                    const ident = gstin || cleanMobile;
+                    return ident ? <><span className="sep">·</span><span>{ident}</span></> : null;
+                  })()}
                   {ledger && closingBalance !== 0 && (
                     <span className={`pl-party-pill ${closingBalance > 0 ? 'rcv' : 'pay'}`}>
                       {closingBalance > 0 ? 'Receivable' : 'Payable'} ₹{fmtShort(Math.abs(closingBalance))}
