@@ -20,7 +20,8 @@
 //   • If neither is supplied, defaults to the system FY (start → today).
 
 const sequelize = require('../config/database');
-const { SystemSettings, Product } = require('../models');
+const { Op } = require('sequelize');
+const { SystemSettings, Product, Party, SalesBill, PurchaseBill } = require('../models');
 
 const ASSET_GROUP     = 'Assets';
 const LIABILITY_GROUP = 'Liabilities';
@@ -260,6 +261,297 @@ exports.balanceSheet = async (req, res) => {
     res.status(500).json({ error: 'Server error: ' + err.message });
   }
 };
+
+// ── Cash Flow Statement ────────────────────────────────────────────────
+//
+// Three sections — Operating, Investing, Financing — derived from
+// ledger_entries activity within the period. Cash + Bank ledgers are
+// tracked separately so we can show opening / closing reconciliation.
+//
+// Section detection runs on ledger_group + sub_group of the OTHER leg
+// of every cash/bank-touching voucher:
+//   Operating: party legs (Sundry Debtors / Sundry Creditors), Sales /
+//              Purchase / their returns, GST ledgers (Duties & Taxes),
+//              Indirect Income/Expense.
+//   Investing: Fixed Assets sub-group on either side.
+//   Financing: Capital / Loans sub-group.
+//
+// Net change in cash MUST equal Closing − Opening of (Cash + Bank). If
+// not, banner — most likely a manual SQL edit on stock_ledger or a
+// double-write someone left behind.
+exports.cashFlow = async (req, res) => {
+  try {
+    const { from, to } = await resolvePeriod(req.query);
+
+    // Resolve cash + bank ledger ids.
+    const cashRows = await sequelize.query(
+      `SELECT ledger_id, ledger_name, sub_group FROM ledger_accounts
+        WHERE is_active = true
+          AND (sub_group ILIKE '%Cash%' OR sub_group ILIKE '%Bank%'
+               OR ledger_name ILIKE '%Cash%' OR ledger_name ILIKE 'Bank%')`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+    const cashIds = cashRows.map((r) => r.ledger_id);
+    if (cashIds.length === 0) {
+      return res.json({
+        period: { from, to },
+        sections: { operating: [], investing: [], financing: [] },
+        totals: { operating: 0, investing: 0, financing: 0, net_change: 0 },
+        reconciliation: { opening: 0, closing: 0, computed_change: 0, balanced: true },
+      });
+    }
+
+    // Opening cash = net Dr − Cr on cash ledgers BEFORE from_date.
+    // Closing cash = net Dr − Cr on cash ledgers UP TO to_date.
+    const openingRow = (await sequelize.query(
+      `SELECT
+         COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float AS net
+        FROM ledger_entries le
+        WHERE le.ledger_id IN (:ids)
+          AND ${liveEntriesWhereSql('le', false, false)}
+          AND le.entry_date < :from_date`,
+      { replacements: { ids: cashIds, from_date: from }, type: sequelize.QueryTypes.SELECT },
+    ))[0];
+    const closingRow = (await sequelize.query(
+      `SELECT
+         COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float AS net
+        FROM ledger_entries le
+        WHERE le.ledger_id IN (:ids)
+          AND ${liveEntriesWhereSql('le', true, false)}
+          AND le.entry_date <= :to_date`,
+      { replacements: { ids: cashIds, to_date: to }, type: sequelize.QueryTypes.SELECT },
+    ))[0];
+    const opening = r2(openingRow.net);
+    const closing = r2(closingRow.net);
+    const computedChange = r2(closing - opening);
+
+    // Section attribution: for each entry on a cash/bank ledger inside
+    // the period, find the contra-leg(s) of the same voucher (same
+    // entry_number) and use their group/sub_group to classify.
+    //
+    // SQL approach: join ledger_entries to itself by entry_number, group
+    // by entry_number AND classification, then sum the cash impact.
+    const cashLegRows = await sequelize.query(
+      `WITH cash_legs AS (
+         SELECT entry_id, entry_number, debit_amount, credit_amount, entry_date
+           FROM ledger_entries le
+          WHERE le.ledger_id IN (:ids)
+            AND ${liveEntriesWhereSql('le', true, true)}
+       ),
+       contra_legs AS (
+         SELECT cl.entry_number,
+                la.ledger_group,
+                la.sub_group,
+                la.ledger_name,
+                SUM(le.debit_amount - le.credit_amount) AS contra_net
+           FROM cash_legs cl
+           JOIN ledger_entries le ON le.entry_number = cl.entry_number
+                                  AND le.ledger_id NOT IN (:ids)
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          GROUP BY cl.entry_number, la.ledger_group, la.sub_group, la.ledger_name
+       )
+       SELECT cl.entry_number,
+              SUM(cl.debit_amount - cl.credit_amount)::float AS cash_net,
+              MAX(cl.entry_date)::text AS entry_date,
+              (SELECT json_agg(json_build_object(
+                  'ledger_group', cn.ledger_group,
+                  'sub_group',    cn.sub_group,
+                  'ledger_name',  cn.ledger_name,
+                  'contra_net',   cn.contra_net
+              )) FROM contra_legs cn WHERE cn.entry_number = cl.entry_number) AS contras
+         FROM cash_legs cl
+        GROUP BY cl.entry_number`,
+      { replacements: { ids: cashIds, from_date: from, to_date: to }, type: sequelize.QueryTypes.SELECT },
+    );
+
+    const operating = [], investing = [], financing = [];
+    let totOp = 0, totIn = 0, totFi = 0;
+    for (const row of cashLegRows) {
+      const cashImpact = r2(row.cash_net);
+      const contras = row.contras || [];
+      // Pick the first contra leg as the section classifier (typical
+      // single-contra voucher). Multi-contra vouchers are rare — we
+      // attribute the whole cash leg to the first contra's section.
+      const c = contras[0] || {};
+      const sub = String(c.sub_group || '').toLowerCase();
+      const grp = String(c.ledger_group || '').toLowerCase();
+      let section = 'operating';   // default
+      if (/fixed assets/.test(sub) || /investment/.test(sub)) section = 'investing';
+      else if (/capital/.test(sub) || /loan/.test(sub) || grp === 'capital') section = 'financing';
+
+      const item = {
+        entry_number: row.entry_number,
+        entry_date:   row.entry_date,
+        cash_impact:  cashImpact,        // + = inflow, − = outflow
+        contra_label: contras.map((x) => x.ledger_name).filter(Boolean).join(', '),
+        section,
+      };
+      if (section === 'operating') { operating.push(item); totOp += cashImpact; }
+      else if (section === 'investing') { investing.push(item); totIn += cashImpact; }
+      else { financing.push(item); totFi += cashImpact; }
+    }
+
+    const totalsSum = r2(totOp + totIn + totFi);
+    res.json({
+      period: { from, to },
+      sections: { operating, investing, financing },
+      totals: {
+        operating: r2(totOp),
+        investing: r2(totIn),
+        financing: r2(totFi),
+        net_change: totalsSum,
+      },
+      reconciliation: {
+        opening, closing,
+        computed_change: computedChange,
+        attributed_change: totalsSum,
+        balanced: Math.abs(totalsSum - computedChange) < 0.01,
+      },
+    });
+  } catch (err) {
+    console.error('cashFlow error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+};
+
+// ── Aging (receivables / payables) ────────────────────────────────────
+//
+// Reads from bill-level balance_amount (NOT ledger_entries) — aging
+// requires per-bill granularity. Cross-checks against Trial Balance
+// Sundry Debtors / Sundry Creditors group for the same as-of date and
+// flags drift in the response.
+//
+// Buckets: 0-30 / 31-60 / 61-90 / 90+ days from bill_date.
+async function _agingHandler(req, res, kind) {
+  try {
+    const asOf = (req.query && req.query.as_of_date)
+      ? String(req.query.as_of_date).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+
+    const isReceivable = kind === 'receivable';
+    const Bill = isReceivable ? SalesBill : PurchaseBill;
+    const idCol = isReceivable ? 'sales_bill_id' : 'purchase_bill_id';
+    const fkParty = isReceivable ? 'customer_id' : 'supplier_id';
+    const groupSubName = isReceivable ? 'Sundry Debtors' : 'Sundry Creditors';
+
+    const bills = await Bill.findAll({
+      where: {
+        balance_amount: { [Op.gt]: 0 },
+        is_cancelled: false,
+        bill_date: { [Op.lte]: asOf },
+      },
+      attributes: [idCol, 'bill_number', 'bill_date', 'total_amount', 'balance_amount', fkParty],
+      include: [{
+        model: Party, as: isReceivable ? 'customer' : 'supplier',
+        attributes: ['party_id', 'party_name', 'mobile_1', 'gstin'],
+      }],
+      order: [['bill_date', 'ASC']],
+    });
+
+    // Bucket & aggregate per party.
+    const today = new Date(asOf);
+    const partyMap = new Map();
+    for (const b of bills) {
+      const partyId = b[fkParty];
+      const partyObj = isReceivable ? b.customer : b.supplier;
+      if (!partyId || !partyObj) continue;   // skip walk-in cash bills
+      const due = Number(b.balance_amount) || 0;
+      if (due <= 0.005) continue;
+      const days = Math.max(0, Math.floor(
+        (today - new Date(b.bill_date)) / (1000 * 60 * 60 * 24),
+      ));
+      const bucket = days <= 30 ? '0_30'
+                   : days <= 60 ? '31_60'
+                   : days <= 90 ? '61_90'
+                   : 'over_90';
+      if (!partyMap.has(partyId)) {
+        partyMap.set(partyId, {
+          party_id: partyId,
+          party_name: partyObj.party_name,
+          mobile_1: partyObj.mobile_1,
+          gstin: partyObj.gstin,
+          buckets: { '0_30': 0, '31_60': 0, '61_90': 0, 'over_90': 0 },
+          total: 0, oldest_days: 0, bills_count: 0,
+        });
+      }
+      const p = partyMap.get(partyId);
+      p.buckets[bucket] += due;
+      p.total += due;
+      p.bills_count += 1;
+      if (days > p.oldest_days) p.oldest_days = days;
+    }
+
+    const parties = [...partyMap.values()].map((p) => ({
+      ...p,
+      total: r2(p.total),
+      buckets: {
+        '0_30':    r2(p.buckets['0_30']),
+        '31_60':   r2(p.buckets['31_60']),
+        '61_90':   r2(p.buckets['61_90']),
+        'over_90': r2(p.buckets['over_90']),
+      },
+    }));
+    // Default sort: amount desc.
+    parties.sort((a, b) => b.total - a.total);
+
+    const totals = parties.reduce((acc, p) => {
+      acc.total += p.total;
+      acc.buckets['0_30']    += p.buckets['0_30'];
+      acc.buckets['31_60']   += p.buckets['31_60'];
+      acc.buckets['61_90']   += p.buckets['61_90'];
+      acc.buckets['over_90'] += p.buckets['over_90'];
+      acc.bills_count += p.bills_count;
+      return acc;
+    }, { total: 0, buckets: { '0_30': 0, '31_60': 0, '61_90': 0, 'over_90': 0 }, bills_count: 0 });
+    totals.total = r2(totals.total);
+    totals.buckets['0_30']    = r2(totals.buckets['0_30']);
+    totals.buckets['31_60']   = r2(totals.buckets['31_60']);
+    totals.buckets['61_90']   = r2(totals.buckets['61_90']);
+    totals.buckets['over_90'] = r2(totals.buckets['over_90']);
+    totals.parties_count = parties.length;
+    totals.oldest_days = parties.reduce((m, p) => Math.max(m, p.oldest_days), 0);
+
+    // Cross-reconcile against Trial Balance Sundry Debtors / Creditors.
+    // We run our own SQL rather than calling trialBalance() to avoid the
+    // controller round-trip. Same shape: net Dr − Cr per ledger,
+    // grouped by sub_group at to_date = asOf.
+    const tbRow = (await sequelize.query(
+      `SELECT COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float AS net
+         FROM ledger_accounts la
+         LEFT JOIN ledger_entries le
+           ON le.ledger_id = la.ledger_id
+          AND ${liveEntriesWhereSql('le', true, false)}
+        WHERE la.is_active = true
+          AND la.sub_group = :sub`,
+      { replacements: { to_date: asOf, sub: groupSubName }, type: sequelize.QueryTypes.SELECT },
+    ))[0];
+    // Receivable (Asset) → expect net Dr (positive); Payable (Liability)
+    // → expect net Cr (negative). Compare absolutes for the reconciliation.
+    const tbAbs = r2(Math.abs(tbRow.net));
+    const sumDue = totals.total;
+    const reconciled = Math.abs(tbAbs - sumDue) < 0.01;
+
+    res.json({
+      kind,
+      as_of: asOf,
+      parties,
+      totals,
+      reconciliation: {
+        bill_outstanding_total: sumDue,
+        ledger_group_total: tbAbs,
+        difference: r2(sumDue - tbAbs),
+        balanced: reconciled,
+        sub_group: groupSubName,
+      },
+    });
+  } catch (err) {
+    console.error(`${kind} aging error:`, err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+}
+
+exports.receivablesAging = (req, res) => _agingHandler(req, res, 'receivable');
+exports.payablesAging    = (req, res) => _agingHandler(req, res, 'payable');
 
 // Group an array of {sub_group, amount, ledger_*} into [{sub_group, total, rows[]}].
 function bucketBySubGroup(rows) {

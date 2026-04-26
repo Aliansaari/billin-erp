@@ -9,8 +9,11 @@ router.use(authenticateToken);
 
 // Phase R1 — Trial Balance + Balance Sheet. Gated on accounts.view
 // (same as profit-loss) since these surface ledger-level data.
-router.get('/trial-balance',  requirePermission('accounts.view'), financialReports.trialBalance);
-router.get('/balance-sheet',  requirePermission('accounts.view'), financialReports.balanceSheet);
+router.get('/trial-balance',      requirePermission('accounts.view'), financialReports.trialBalance);
+router.get('/balance-sheet',      requirePermission('accounts.view'), financialReports.balanceSheet);
+router.get('/cash-flow',          requirePermission('accounts.view'), financialReports.cashFlow);
+router.get('/receivables-aging',  requirePermission('reports.view'),  financialReports.receivablesAging);
+router.get('/payables-aging',     requirePermission('reports.view'),  financialReports.payablesAging);
 
 // Dashboard is informational and visible to anyone who can log in — it
 // doesn't expose bill-level data, just the stats already derivable from

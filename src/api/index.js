@@ -187,6 +187,10 @@ export const reportAPI = {
   // Phase R1 — Trial Balance + Balance Sheet
   trialBalance: (params) => api.get('/reports/trial-balance',  { params }),
   balanceSheet: (params) => api.get('/reports/balance-sheet',  { params }),
+  // Phase R2 — Cash Flow + Aging
+  cashFlow:           (params) => api.get('/reports/cash-flow',          { params }),
+  receivablesAging:   (params) => api.get('/reports/receivables-aging',  { params }),
+  payablesAging:      (params) => api.get('/reports/payables-aging',     { params }),
 
   // Filter-aware XLSX exports — SAME filter shape as the JSON endpoints above.
   // The server applies the filters, fetches ALL matching rows (no page limit),
