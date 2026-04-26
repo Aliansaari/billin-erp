@@ -652,6 +652,21 @@ async function resolvePartyByName(name, partiesByName, transaction) {
   return row;
 }
 
+// Same convention as the Phase-1 party opening JV: fy_start − 1 day so
+// the row sorts strictly before any regular transaction. Falls back to
+// today − 1 if no FY is configured.
+async function tallyOpeningDate(transaction) {
+  const settings = await SystemSettings.findOne({ where: { setting_id: 1 }, transaction });
+  if (settings && settings.financial_year_start) {
+    const fy = new Date(settings.financial_year_start);
+    fy.setDate(fy.getDate() - 1);
+    return fy.toISOString().slice(0, 10);
+  }
+  const t = new Date();
+  t.setDate(t.getDate() - 1);
+  return t.toISOString().slice(0, 10);
+}
+
 async function ensureProducts(job, stockItems) {
   const map = new Map();
   for (const it of stockItems) {
@@ -663,19 +678,48 @@ async function ensureProducts(job, stockItems) {
       }
       // Barcode VARCHAR(20) with unique constraint — short, prefixed.
       const bc = `T${Date.now().toString().slice(-10)}${Math.floor(Math.random()*1000)}`.slice(0, 20);
-      const [prod] = await Product.findOrCreate({
+      const openingQty = Number(it.opening_stock) || 0;
+      const [prod, created] = await Product.findOrCreate({
         where: { product_name: it.name },
         defaults: {
           product_name: it.name,
           barcode: bc,
           category_id: category.category_id,
           gst_rate: it.gst_rate || 0,
-          opening_stock: it.opening_stock || 0,
-          current_stock: it.opening_stock || 0,
+          opening_stock: openingQty,
+          current_stock: openingQty,
         },
         transaction: t,
       });
       map.set(it.name, prod);
+      // Stock-ledger Opening row. Only emit on first creation AND when
+      // the product genuinely has opening stock; re-importing the same
+      // STOCKITEM master must not double up the opening. The "first
+      // creation" gate is `created` (Sequelize's findOrCreate flag),
+      // belt-and-suspenders with an existence check on the ledger row
+      // so any earlier crashed run that left the product but not the
+      // opening row gets self-healed on next import.
+      if (openingQty > 0) {
+        const has = await StockLedger.count({
+          where: { product_id: prod.product_id, transaction_type: 'Opening Stock' },
+          transaction: t,
+        });
+        if (has === 0) {
+          await StockLedger.create({
+            product_id: prod.product_id,
+            barcode: prod.barcode,
+            transaction_type: 'Opening Stock',
+            transaction_date: await tallyOpeningDate(t),
+            reference_number: 'OPENING',
+            quantity_in: openingQty,
+            quantity_out: 0,
+            rate: 0,
+            balance_quantity: openingQty,
+            remarks: 'Opening Stock (Tally import)',
+            created_by: job.created_by || null,
+          }, { transaction: t });
+        }
+      }
       await t.commit();
     } catch (e) {
       try { await t.rollback(); } catch (_) {}

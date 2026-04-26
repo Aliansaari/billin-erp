@@ -24,7 +24,7 @@ const sequelize = require('../config/database');
 const {
   ImportJob, ImportBatch, Party, Product, Category,
   SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem,
-  PaymentReceipt, SystemSettings,
+  PaymentReceipt, StockLedger, SystemSettings,
 } = require('../models');
 const { postVoucher, reverseVoucher } = require('./ledgerPostingService');
 const { buildSalesBillVouchers, buildPurchaseBillVouchers, buildPaymentReceiptVouchers } = require('./voucherBuilders');
@@ -57,6 +57,8 @@ const HEADER_MAPS = {
     'gst %': 'gst_rate', 'gst rate': 'gst_rate',
     'unit': 'unit_of_measurement',
     'opening stock': 'opening_stock',
+    'opening stock rate': 'opening_stock_rate',
+    'opening stock date': 'opening_stock_date',
     'current stock': 'current_stock',
     'purchase rate': 'purchase_rate',
     'sale rate': 'sale_rate',
@@ -111,6 +113,22 @@ HEADER_MAPS.purchase_bills_items = HEADER_MAPS.sales_bills_items;
 
 // Lower-case + trim cell value for header lookup.
 function normHeader(s) { return String(s || '').trim().toLowerCase(); }
+
+// Opening-stock row date. Convention from the Phase-1 party opening JV:
+// fy_start - 1 day so opening rows sort strictly before any regular
+// transaction in date-ordered views. Falls back to today - 1 if no FY
+// is configured.
+async function openingDate(transaction) {
+  const settings = await SystemSettings.findOne({ where: { setting_id: 1 }, transaction });
+  if (settings && settings.financial_year_start) {
+    const fy = new Date(settings.financial_year_start);
+    fy.setDate(fy.getDate() - 1);
+    return fy.toISOString().slice(0, 10);
+  }
+  const t = new Date();
+  t.setDate(t.getDate() - 1);
+  return t.toISOString().slice(0, 10);
+}
 
 // Fields the parser should coerce to ISO YYYY-MM-DD. Excel cells in date-
 // formatted columns can arrive as Date objects, numeric serials (the
@@ -549,18 +567,39 @@ async function commitProduct(job, item, action) {
     }
     if (action === 'create') {
       const bc = d.barcode || `XLS${Date.now().toString().slice(-10)}${Math.floor(Math.random()*100)}`;
+      const openingQty  = Number(d.opening_stock) || 0;
+      const openingRate = Number(d.opening_stock_rate) || Number(d.purchase_rate) || 0;
       const prod = await Product.create({
         barcode: String(bc).slice(0, 20),
         product_name: d.product_name,
         category_id: categoryId,
         hsn_code: d.hsn_code || null,
         gst_rate: Number(d.gst_rate) || 0,
-        opening_stock: Number(d.opening_stock) || 0,
-        current_stock: Number(d.current_stock) || Number(d.opening_stock) || 0,
+        opening_stock: openingQty,
+        current_stock: Number(d.current_stock) || openingQty,
         purchase_rate: Number(d.purchase_rate) || 0,
         sale_rate: Number(d.sale_rate) || 0,
         mrp: Number(d.mrp) || 0,
       }, { transaction: t });
+      // Stock-ledger Opening row. Without this, Stock Movement shows
+      // Opening=0 even though current_stock equals the imported qty —
+      // every subsequent Sale produces a negative running balance.
+      // Same shape productController.create writes for manual entries.
+      if (openingQty > 0) {
+        await StockLedger.create({
+          product_id: prod.product_id,
+          barcode: prod.barcode,
+          transaction_type: 'Opening Stock',
+          transaction_date: await openingDate(t),
+          reference_number: 'OPENING',
+          quantity_in: openingQty,
+          quantity_out: 0,
+          rate: openingRate,
+          balance_quantity: openingQty,
+          remarks: 'Opening Stock (Excel import)',
+          created_by: job.created_by || null,
+        }, { transaction: t });
+      }
       await ImportBatch.create({
         import_job_id: job.id, entity_type: 'product', entity_id: prod.product_id,
         external_ref: prod.barcode, action: 'created',
