@@ -34,6 +34,8 @@ import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
 import GSTR1Report from './pages/reports/GSTR1Report';
 import GSTR3BReport from './pages/reports/GSTR3BReport';
+import TrialBalance from './pages/reports/TrialBalance';
+import BalanceSheet from './pages/reports/BalanceSheet';
 import JournalVoucherList from './pages/accounts/JournalVoucherList';
 import JournalVoucherForm from './pages/accounts/JournalVoucherForm';
 import LedgerIntegrity from './pages/accounts/LedgerIntegrity';
@@ -166,6 +168,8 @@ export default function App() {
           <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
           <Route path="reports/gstr1"         element={<RoleRoute perm="reports.view"><GSTR1Report /></RoleRoute>} />
           <Route path="reports/gstr3b"        element={<RoleRoute perm="reports.view"><GSTR3BReport /></RoleRoute>} />
+          <Route path="reports/trial-balance" element={<RoleRoute perm="accounts.view"><TrialBalance /></RoleRoute>} />
+          <Route path="reports/balance-sheet" element={<RoleRoute perm="accounts.view"><BalanceSheet /></RoleRoute>} />
 
           {/* Accounts (double-entry) */}
           <Route path="accounts/journal"          element={<RoleRoute perm="accounts.view"><JournalVoucherList /></RoleRoute>} />

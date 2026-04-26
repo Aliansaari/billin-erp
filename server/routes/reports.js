@@ -1,10 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const reportController = require('../controllers/reportController');
+const financialReports = require('../controllers/financialReportsController');
 const { authenticateToken } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 
 router.use(authenticateToken);
+
+// Phase R1 — Trial Balance + Balance Sheet. Gated on accounts.view
+// (same as profit-loss) since these surface ledger-level data.
+router.get('/trial-balance',  requirePermission('accounts.view'), financialReports.trialBalance);
+router.get('/balance-sheet',  requirePermission('accounts.view'), financialReports.balanceSheet);
 
 // Dashboard is informational and visible to anyone who can log in — it
 // doesn't expose bill-level data, just the stats already derivable from

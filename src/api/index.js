@@ -184,6 +184,9 @@ export const reportAPI = {
   getAging: (params) => api.get('/reports/aging', { params }),
   getGstr1: (params) => api.get('/reports/gstr1', { params }),
   getGstr3b: (params) => api.get('/reports/gstr3b', { params }),
+  // Phase R1 — Trial Balance + Balance Sheet
+  trialBalance: (params) => api.get('/reports/trial-balance',  { params }),
+  balanceSheet: (params) => api.get('/reports/balance-sheet',  { params }),
 
   // Filter-aware XLSX exports — SAME filter shape as the JSON endpoints above.
   // The server applies the filters, fetches ALL matching rows (no page limit),

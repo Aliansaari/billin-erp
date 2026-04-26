@@ -106,7 +106,9 @@ export const menuItems = [
       { key: '/reports/aging',        icon: <FieldTimeOutlined />,label: 'Aging Report',    perm: 'reports.view' },
       { key: '/reports/gstr1',        icon: <FileTextOutlined />, label: 'GSTR-1',          perm: 'reports.view' },
       { key: '/reports/gstr3b',       icon: <FileTextOutlined />, label: 'GSTR-3B',         perm: 'reports.view' },
-      { key: '/reports/profit-loss',  icon: <FundOutlined />,     label: 'Profit & Loss',   perm: 'accounts.view' },
+      { key: '/reports/profit-loss',   icon: <FundOutlined />,     label: 'Profit & Loss',   perm: 'accounts.view' },
+      { key: '/reports/trial-balance', icon: <TableOutlined />,    label: 'Trial Balance',   perm: 'accounts.view' },
+      { key: '/reports/balance-sheet', icon: <BankOutlined />,     label: 'Balance Sheet',   perm: 'accounts.view' },
     ],
   },
   {
