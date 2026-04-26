@@ -674,6 +674,37 @@ async function commitBill(job, item, action, kind) {
       await reverseVoucher({ sourceType: subType, sourceId: billRow[idCol], reason: 'Excel re-import update', transaction: t });
       await billRow.update(billData, { transaction: t });
       await ItemModel.destroy({ where: { [idCol]: billRow[idCol] }, transaction: t });
+      // Reverse the old stock movements before reinserting from the new
+      // line items. We refund the qty back onto products.current_stock
+      // so the per-line incremental update below produces the right net
+      // effect (otherwise an edit that changed qty 10→20 would leak
+      // 10 units onto the running stock).
+      const oldStockRows = await StockLedger.findAll({
+        where: {
+          reference_id: billRow[idCol],
+          transaction_type: kind === 'sales' ? 'Sales' : 'Purchase',
+        },
+        transaction: t,
+      });
+      for (const r of oldStockRows) {
+        if (!r.product_id) continue;
+        const p = await Product.findByPk(r.product_id, { transaction: t });
+        if (!p) continue;
+        // Sales out → add back; Purchase in → take away.
+        const delta = Number(r.quantity_out) - Number(r.quantity_in);
+        const restored = (Number(p.current_stock) || 0) + delta;
+        await Product.update(
+          { current_stock: restored },
+          { where: { product_id: p.product_id }, transaction: t },
+        );
+      }
+      await StockLedger.destroy({
+        where: {
+          reference_id: billRow[idCol],
+          transaction_type: kind === 'sales' ? 'Sales' : 'Purchase',
+        },
+        transaction: t,
+      });
     } else {
       billRow = await Bill.create(billData, { transaction: t });
     }
@@ -726,9 +757,41 @@ async function commitBill(job, item, action, kind) {
         // sale_rate is also NOT NULL on PurchaseBillItem in some installs;
         // default to the product's master sale_rate when available, else
         // mirror purchase_rate so the column always has a sensible number.
-        itemData.sale_rate = prod ? Number(prod.sale_rate || rate) : rate;
+        itemData.sale_rate = prod ? (Number(prod.sale_rate) || rate) : rate;
       }
       await ItemModel.create(itemData, { transaction: t });
+
+      // Stock-ledger + current_stock update per line. Without this,
+      // products.current_stock drifts from the stock_ledger sum: the
+      // Stock Movement view's running balance reads from stock_ledger
+      // (correct) while the On Hand tile reads products.current_stock
+      // (stale). Same shape Tally orchestrator uses + same shape live
+      // sales/purchase controllers use.
+      if (prod && qty > 0) {
+        const isInbound = kind === 'purchase';
+        const stockTxnType = isInbound ? 'Purchase' : 'Sales';
+        const currentStock = Number(prod.current_stock) || 0;
+        const newStock = isInbound ? currentStock + qty : currentStock - qty;
+        await StockLedger.create({
+          product_id: prod.product_id,
+          barcode: prod.barcode,
+          transaction_type: stockTxnType,
+          transaction_date: d.bill_date,
+          reference_id: billRow[idCol],
+          reference_number: d.bill_number,
+          quantity_in:  isInbound ? qty : 0,
+          quantity_out: isInbound ? 0   : qty,
+          rate, balance_quantity: newStock,
+          created_by: job.created_by || null,
+        }, { transaction: t });
+        await Product.update(
+          { current_stock: newStock },
+          { where: { product_id: prod.product_id }, transaction: t },
+        );
+        // Refresh cached product so subsequent lines on the same bill
+        // see the just-updated stock.
+        prod.current_stock = newStock;
+      }
     }
 
     // Post via Posting Service.

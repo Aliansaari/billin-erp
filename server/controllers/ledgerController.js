@@ -122,7 +122,43 @@ exports.integrity = async (req, res) => {
       unposted: 0,
     });
 
+    // Stock drift — products where current_stock disagrees with the
+    // sum across stock_ledger. Healthy systems should always have zero
+    // drift; non-zero indicates a write-side bug or a manual edit that
+    // bypassed both sides. Cap at 50 rows so the response stays small.
+    const driftRows = await sequelize.query(
+      `SELECT p.product_id,
+              p.product_name,
+              p.barcode,
+              p.current_stock::float AS current_stock,
+              COALESCE(SUM(sl.quantity_in - sl.quantity_out), 0)::float AS ledger_balance,
+              (p.current_stock - COALESCE(SUM(sl.quantity_in - sl.quantity_out), 0))::float AS drift
+         FROM products p
+         LEFT JOIN stock_ledger sl ON sl.product_id = p.product_id
+         GROUP BY p.product_id, p.product_name, p.barcode, p.current_stock
+        HAVING ABS(p.current_stock - COALESCE(SUM(sl.quantity_in - sl.quantity_out), 0)) > 0.005
+        ORDER BY ABS(p.current_stock - COALESCE(SUM(sl.quantity_in - sl.quantity_out), 0)) DESC
+        LIMIT 50`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+    const driftCountRow = (await sequelize.query(
+      `SELECT COUNT(*)::int AS c
+         FROM (
+           SELECT p.product_id
+             FROM products p
+             LEFT JOIN stock_ledger sl ON sl.product_id = p.product_id
+            GROUP BY p.product_id, p.current_stock
+           HAVING ABS(p.current_stock - COALESCE(SUM(sl.quantity_in - sl.quantity_out), 0)) > 0.005
+         ) sub`,
+      { type: sequelize.QueryTypes.SELECT },
+    ))[0];
+
     res.json({
+      stock: {
+        drifted_count: driftCountRow.c,
+        balanced: driftCountRow.c === 0,
+        sample: driftRows,
+      },
       totals: {
         // Lifetime — full audit trail, including reversal pairs.
         lifetime: {
