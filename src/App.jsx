@@ -38,6 +38,10 @@ import TrialBalance from './pages/reports/TrialBalance';
 import BalanceSheet from './pages/reports/BalanceSheet';
 import CashFlow from './pages/reports/CashFlow';
 import AgingV2 from './pages/reports/AgingV2';
+import RegisterV2 from './pages/reports/RegisterV2';
+import HsnSummary from './pages/reports/HsnSummary';
+import StockSummary from './pages/reports/StockSummary';
+import Movers from './pages/reports/Movers';
 import JournalVoucherList from './pages/accounts/JournalVoucherList';
 import JournalVoucherForm from './pages/accounts/JournalVoucherForm';
 import LedgerIntegrity from './pages/accounts/LedgerIntegrity';
@@ -175,6 +179,11 @@ export default function App() {
           <Route path="reports/cash-flow"         element={<RoleRoute perm="accounts.view"><CashFlow /></RoleRoute>} />
           <Route path="reports/receivables-aging" element={<RoleRoute perm="reports.view"><AgingV2 kind="receivable" /></RoleRoute>} />
           <Route path="reports/payables-aging"    element={<RoleRoute perm="reports.view"><AgingV2 kind="payable" /></RoleRoute>} />
+          <Route path="reports/sales-register"     element={<RoleRoute perm="reports.view"><RegisterV2 kind="sales" /></RoleRoute>} />
+          <Route path="reports/purchase-register"  element={<RoleRoute perm="reports.view"><RegisterV2 kind="purchase" /></RoleRoute>} />
+          <Route path="reports/hsn-summary"        element={<RoleRoute perm="reports.view"><HsnSummary /></RoleRoute>} />
+          <Route path="reports/stock-summary"      element={<RoleRoute perm="reports.view"><StockSummary /></RoleRoute>} />
+          <Route path="reports/movers"             element={<RoleRoute perm="reports.view"><Movers /></RoleRoute>} />
 
           {/* Accounts (double-entry) */}
           <Route path="accounts/journal"          element={<RoleRoute perm="accounts.view"><JournalVoucherList /></RoleRoute>} />

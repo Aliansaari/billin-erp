@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const reportController = require('../controllers/reportController');
 const financialReports = require('../controllers/financialReportsController');
+const operationalReports = require('../controllers/operationalReportsController');
 const { authenticateToken } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 
@@ -14,6 +15,13 @@ router.get('/balance-sheet',      requirePermission('accounts.view'), financialR
 router.get('/cash-flow',          requirePermission('accounts.view'), financialReports.cashFlow);
 router.get('/receivables-aging',  requirePermission('reports.view'),  financialReports.receivablesAging);
 router.get('/payables-aging',     requirePermission('reports.view'),  financialReports.payablesAging);
+
+// Phase R3 — Operational registers + summaries.
+router.get('/sales-register',     requirePermission('reports.view'),  operationalReports.salesRegister);
+router.get('/purchase-register',  requirePermission('reports.view'),  operationalReports.purchaseRegister);
+router.get('/hsn-summary',        requirePermission('reports.view'),  operationalReports.hsnSummary);
+router.get('/stock-summary',      requirePermission('reports.view'),  operationalReports.stockSummary);
+router.get('/movers',             requirePermission('reports.view'),  operationalReports.movers);
 
 // Dashboard is informational and visible to anyone who can log in — it
 // doesn't expose bill-level data, just the stats already derivable from

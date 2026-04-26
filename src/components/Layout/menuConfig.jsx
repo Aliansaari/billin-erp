@@ -112,6 +112,11 @@ export const menuItems = [
       { key: '/reports/cash-flow',         icon: <FundOutlined />,     label: 'Cash Flow',         perm: 'accounts.view' },
       { key: '/reports/receivables-aging', icon: <FieldTimeOutlined />,label: 'Receivables Aging', perm: 'reports.view'  },
       { key: '/reports/payables-aging',    icon: <FieldTimeOutlined />,label: 'Payables Aging',    perm: 'reports.view'  },
+      { key: '/reports/sales-register',    icon: <FileTextOutlined />, label: 'Sales Register',    perm: 'reports.view'  },
+      { key: '/reports/purchase-register', icon: <FileTextOutlined />, label: 'Purchase Register', perm: 'reports.view'  },
+      { key: '/reports/hsn-summary',       icon: <TagsOutlined />,     label: 'HSN Summary',       perm: 'reports.view'  },
+      { key: '/reports/stock-summary',     icon: <StockOutlined />,    label: 'Stock Summary',     perm: 'reports.view'  },
+      { key: '/reports/movers',            icon: <ThunderboltOutlined />,label: 'Fast / Slow Movers', perm: 'reports.view' },
     ],
   },
   {

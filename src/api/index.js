@@ -191,6 +191,12 @@ export const reportAPI = {
   cashFlow:           (params) => api.get('/reports/cash-flow',          { params }),
   receivablesAging:   (params) => api.get('/reports/receivables-aging',  { params }),
   payablesAging:      (params) => api.get('/reports/payables-aging',     { params }),
+  // Phase R3 — Operational registers
+  salesRegister:      (params) => api.get('/reports/sales-register',     { params }),
+  purchaseRegister:   (params) => api.get('/reports/purchase-register',  { params }),
+  hsnSummary:         (params) => api.get('/reports/hsn-summary',        { params }),
+  stockSummary:       (params) => api.get('/reports/stock-summary',      { params }),
+  movers:             (params) => api.get('/reports/movers',             { params }),
 
   // Filter-aware XLSX exports — SAME filter shape as the JSON endpoints above.
   // The server applies the filters, fetches ALL matching rows (no page limit),
