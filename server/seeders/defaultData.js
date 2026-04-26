@@ -100,6 +100,12 @@ async function seedDefaultData() {
     { ledger_name: 'Round Off', ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: true },
     { ledger_name: 'Stock-in-Hand', ledger_group: 'Assets', sub_group: 'Current Assets', is_system_ledger: true },
     { ledger_name: 'Capital Account', ledger_group: 'Capital', sub_group: 'Capital Account', is_system_ledger: true },
+    // Phase-1 additions for double-entry wiring:
+    // Opening Balance Equity is the contra account for opening-balance JVs
+    // posted by the Party afterCreate hook. Suspense Account is a fallback
+    // for unmappable entries during imports.
+    { ledger_name: 'Opening Balance Equity', ledger_group: 'Capital', sub_group: 'Capital Account', is_system_ledger: true },
+    { ledger_name: 'Suspense Account', ledger_group: 'Liabilities', sub_group: 'Suspense', is_system_ledger: true },
   ];
 
   for (const ledger of defaultLedgers) {

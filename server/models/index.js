@@ -19,6 +19,7 @@ const PaymentSplit = require('./PaymentSplit');
 const StockLedger = require('./StockLedger');
 const LedgerAccount = require('./LedgerAccount');
 const LedgerEntry = require('./LedgerEntry');
+const JournalVoucher = require('./JournalVoucher');
 const BarcodeSettings = require('./BarcodeSettings');
 const SystemSettings = require('./SystemSettings');
 const PrintProfile = require('./PrintProfile');
@@ -129,6 +130,20 @@ StockLedger.belongsTo(Product, { foreignKey: 'product_id' });
 LedgerAccount.hasMany(LedgerEntry, { foreignKey: 'ledger_id' });
 LedgerEntry.belongsTo(LedgerAccount, { foreignKey: 'ledger_id' });
 
+// Party → LedgerAccount (single direction to avoid Sequelize's cyclic-FK
+// sync path which surfaces unrelated enum-default issues on print_profiles).
+// Reverse lookups (ledger → party) use a direct query on
+// LedgerAccount.party_id, no association needed.
+Party.belongsTo(LedgerAccount, { foreignKey: 'ledger_account_id', as: 'ledger' });
+
+// LedgerEntry self-link (reversal)
+LedgerEntry.belongsTo(LedgerEntry, { foreignKey: 'reversal_of_id', as: 'reversalOf' });
+LedgerEntry.hasOne(LedgerEntry, { foreignKey: 'reversal_of_id', as: 'reversedBy' });
+
+// LedgerEntry ↔ Party (per-line tag)
+Party.hasMany(LedgerEntry, { foreignKey: 'party_id' });
+LedgerEntry.belongsTo(Party, { foreignKey: 'party_id', as: 'party' });
+
 module.exports = {
   sequelize,
   Role,
@@ -151,6 +166,7 @@ module.exports = {
   StockLedger,
   LedgerAccount,
   LedgerEntry,
+  JournalVoucher,
   BarcodeSettings,
   SystemSettings,
   PrintProfile,

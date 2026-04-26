@@ -34,6 +34,9 @@ import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
 import GSTR1Report from './pages/reports/GSTR1Report';
 import GSTR3BReport from './pages/reports/GSTR3BReport';
+import JournalVoucherList from './pages/accounts/JournalVoucherList';
+import JournalVoucherForm from './pages/accounts/JournalVoucherForm';
+import LedgerIntegrity from './pages/accounts/LedgerIntegrity';
 import CompanyProfile from './pages/settings/CompanyProfile';
 import UserManagement from './pages/settings/UserManagement';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
@@ -162,6 +165,12 @@ export default function App() {
           <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
           <Route path="reports/gstr1"         element={<RoleRoute perm="reports.view"><GSTR1Report /></RoleRoute>} />
           <Route path="reports/gstr3b"        element={<RoleRoute perm="reports.view"><GSTR3BReport /></RoleRoute>} />
+
+          {/* Accounts (double-entry) */}
+          <Route path="accounts/journal"          element={<RoleRoute perm="accounts.view"><JournalVoucherList /></RoleRoute>} />
+          <Route path="accounts/journal/new"      element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
+          <Route path="accounts/journal/edit/:id" element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
+          <Route path="accounts/integrity"        element={<RoleRoute perm="accounts.view"><LedgerIntegrity /></RoleRoute>} />
 
           {/* Settings */}
           <Route path="settings/company"        element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />

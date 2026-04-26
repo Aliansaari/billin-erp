@@ -15,6 +15,7 @@ const PurchaseReturnBillItem = sequelize.define('PurchaseReturnBillItem', {
   original_item_id: {
     type: DataTypes.INTEGER,
     references: { model: 'purchase_bill_items', key: 'item_id' },
+    onDelete: 'SET NULL',
   },
   product_id: {
     type: DataTypes.INTEGER,

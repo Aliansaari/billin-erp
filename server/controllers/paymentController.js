@@ -3,6 +3,8 @@ const sequelize = require('../config/database');
 const { PaymentReceipt, PaymentSplit, Party, SalesBill, PurchaseBill } = require('../models');
 const { generateTransactionNumber, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance, getPartyOutstanding, reconcileBillsForParty } = require('../utils/balanceHelper');
+const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
+const { buildPaymentReceiptVouchers } = require('../services/voucherBuilders');
 
 // Returns a best-guess preview of the next transaction number for the given
 // type so the entry form can show `REC-000046` instead of "Auto-numbered"
@@ -202,6 +204,21 @@ exports.create = async (req, res) => {
     await reconcileBillsForParty(data.party_id, t);
     await recalculatePartyBalance(data.party_id, t);
 
+    // ── Double-entry posting ──
+    {
+      const refreshed = await PaymentReceipt.findByPk(payment.transaction_id, {
+        include: [
+          { model: Party, as: 'party' },
+          { model: PaymentSplit, as: 'splits' },
+        ],
+        transaction: t,
+      });
+      const vouchers = await buildPaymentReceiptVouchers(refreshed, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
     await t.commit();
 
     const result = await PaymentReceipt.findByPk(payment.transaction_id, {
@@ -258,6 +275,12 @@ exports.cancel = async (req, res) => {
     // skip rows with is_cancelled=true, so the just-cancelled record is excluded.
     await reconcileBillsForParty(payment.party_id, t);
     await recalculatePartyBalance(payment.party_id, t);
+
+    await reverseVoucher({
+      sourceType: 'payment_receipt', sourceId: payment.transaction_id,
+      reason: reason || 'Payment cancelled',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
 
     await t.commit();
     res.json({ message: 'Transaction cancelled successfully' });

@@ -7,6 +7,8 @@ const {
 } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
+const { buildPurchaseReturnVouchers } = require('../services/voucherBuilders');
 
 // See salesReturnController.UNSAFE_BILL_FIELDS for rationale.
 const UNSAFE_BILL_FIELDS = [
@@ -457,6 +459,19 @@ exports.create = async (req, res) => {
     }
 
     await recalculatePartyBalance(billData.supplier_id, t);
+
+    // ── Double-entry posting ──
+    {
+      const refreshed = await PurchaseReturnBill.findByPk(bill.purchase_return_id, {
+        include: [{ model: Party, as: 'supplier' }],
+        transaction: t,
+      });
+      const vouchers = await buildPurchaseReturnVouchers(refreshed, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
     await t.commit();
 
     const result = await PurchaseReturnBill.findByPk(bill.purchase_return_id, {
@@ -659,6 +674,22 @@ exports.update = async (req, res) => {
     await recalculatePartyBalance(newSupplier, t);
     if (newSupplier !== oldSupplier) await recalculatePartyBalance(oldSupplier, t);
 
+    // ── Double-entry: reverse old, post new ──
+    await reverseVoucher({
+      sourceType: 'purchase_return_bill', sourceId: existing.purchase_return_id,
+      reason: 'Purchase return edited', userId: req.user && req.user.user_id, transaction: t,
+    });
+    {
+      const refreshed = await PurchaseReturnBill.findByPk(existing.purchase_return_id, {
+        include: [{ model: Party, as: 'supplier' }],
+        transaction: t,
+      });
+      const vouchers = await buildPurchaseReturnVouchers(refreshed, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
     await t.commit();
     const result = await PurchaseReturnBill.findByPk(existing.purchase_return_id, {
       include: [
@@ -715,6 +746,12 @@ exports.cancel = async (req, res) => {
     }, { transaction: t });
 
     if (bill.supplier_id) await recalculatePartyBalance(bill.supplier_id, t);
+
+    await reverseVoucher({
+      sourceType: 'purchase_return_bill', sourceId: bill.purchase_return_id,
+      reason: cancellationReason || 'Purchase return cancelled',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
 
     await t.commit();
     res.json({ message: 'Purchase return cancelled successfully' });

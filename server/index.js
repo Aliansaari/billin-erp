@@ -30,6 +30,8 @@ app.use('/api/sales-drafts', require('./routes/salesDrafts'));
 app.use('/api/sales-returns', require('./routes/salesReturns'));
 app.use('/api/purchase-returns', require('./routes/purchaseReturns'));
 app.use('/api/payments', require('./routes/payments'));
+app.use('/api/journal-vouchers', require('./routes/journalVouchers'));
+app.use('/api/ledger', require('./routes/ledger'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/data', require('./routes/importExport'));
@@ -59,6 +61,25 @@ async function startServer() {
     // Sync models (creates tables if they don't exist)
     await sequelize.sync({ alter: false });
     console.log('Database tables synced');
+
+    // ── Pre-migration: drop row-level UNIQUE on ledger_entries.entry_number ──
+    // entry_number groups Dr/Cr legs of one voucher and MUST not be row-unique.
+    // Sequelize auto-creates this constraint on every restart from the model
+    // declaration; we removed `unique:true` from the model, but existing DBs
+    // may still carry leftover constraints from prior boots. Dropped via a
+    // standalone PL/pgSQL block (kept out of the big template literal so JS
+    // template-string parsing stays simple).
+    await sequelize.query(
+      "DO $do$ DECLARE rec RECORD; BEGIN " +
+      "FOR rec IN SELECT c.conname FROM pg_constraint c " +
+      "JOIN pg_class cls ON cls.oid = c.conrelid " +
+      "WHERE cls.relname = 'ledger_entries' AND c.contype = 'u' " +
+      "AND pg_get_constraintdef(c.oid) ILIKE '%(entry_number)%' " +
+      "LOOP EXECUTE format('ALTER TABLE ledger_entries DROP CONSTRAINT %I', rec.conname); " +
+      "END LOOP; END $do$;",
+    ).catch((err) => {
+      console.error('[Pre-migration drop entry_number unique] Error:', err.message);
+    });
 
     // Safe migrations — add columns if they don't exist
     await sequelize.query(`
@@ -283,7 +304,63 @@ async function startServer() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='custom_permissions') THEN
           ALTER TABLE users ADD COLUMN custom_permissions JSONB DEFAULT NULL;
         END IF;
+
+        -- ── Double-entry ledger wiring (Phase 1) ───────────────────────
+        -- New columns required by the Posting Service. Sync with alter:false
+        -- won't add these to existing tables, so we ALTER explicitly.
+        -- All idempotent.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ledger_entries' AND column_name='source_type') THEN
+          ALTER TABLE ledger_entries ADD COLUMN source_type VARCHAR(40);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ledger_entries' AND column_name='reversal_of_id') THEN
+          ALTER TABLE ledger_entries ADD COLUMN reversal_of_id INTEGER REFERENCES ledger_entries(entry_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ledger_entries' AND column_name='party_id') THEN
+          ALTER TABLE ledger_entries ADD COLUMN party_id INTEGER REFERENCES parties(party_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ledger_accounts' AND column_name='is_party_ledger') THEN
+          ALTER TABLE ledger_accounts ADD COLUMN is_party_ledger BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ledger_accounts' AND column_name='party_id') THEN
+          ALTER TABLE ledger_accounts ADD COLUMN party_id INTEGER REFERENCES parties(party_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='parties' AND column_name='ledger_account_id') THEN
+          ALTER TABLE parties ADD COLUMN ledger_account_id INTEGER REFERENCES ledger_accounts(ledger_id) ON DELETE SET NULL;
+        END IF;
+        -- Replace any default-NO-ACTION FKs on the cyclic pair with
+        -- ON DELETE SET NULL so cleanup ordering doesn't matter.
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint c
+            JOIN pg_class cls ON cls.oid = c.conrelid
+           WHERE cls.relname = 'parties'
+             AND c.conname = 'parties_ledger_account_id_fkey'
+             AND c.confdeltype <> 'n'
+        ) THEN
+          ALTER TABLE parties DROP CONSTRAINT parties_ledger_account_id_fkey;
+          ALTER TABLE parties ADD CONSTRAINT parties_ledger_account_id_fkey
+            FOREIGN KEY (ledger_account_id) REFERENCES ledger_accounts(ledger_id) ON DELETE SET NULL;
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint c
+            JOIN pg_class cls ON cls.oid = c.conrelid
+           WHERE cls.relname = 'ledger_accounts'
+             AND c.conname = 'ledger_accounts_party_id_fkey'
+             AND c.confdeltype <> 'n'
+        ) THEN
+          ALTER TABLE ledger_accounts DROP CONSTRAINT ledger_accounts_party_id_fkey;
+          ALTER TABLE ledger_accounts ADD CONSTRAINT ledger_accounts_party_id_fkey
+            FOREIGN KEY (party_id) REFERENCES parties(party_id) ON DELETE SET NULL;
+        END IF;
       END $$;
+      CREATE INDEX IF NOT EXISTS idx_ledger_entries_source
+        ON ledger_entries (source_type, reference_id);
+      CREATE INDEX IF NOT EXISTS idx_ledger_entries_party
+        ON ledger_entries (party_id);
+      CREATE INDEX IF NOT EXISTS idx_ledger_accounts_party
+        ON ledger_accounts (party_id);
+
+      CREATE INDEX IF NOT EXISTS idx_ledger_entries_entry_number
+        ON ledger_entries (entry_number);
 
       -- Performance indexes. CREATE INDEX IF NOT EXISTS is idempotent and
       -- will no-op on subsequent boots. Without these, list pages do a

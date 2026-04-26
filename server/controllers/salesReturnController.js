@@ -7,6 +7,8 @@ const {
 } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
+const { buildSalesReturnVouchers } = require('../services/voucherBuilders');
 
 /**
  * Fields the client is NEVER allowed to set directly on a return bill.
@@ -535,6 +537,18 @@ exports.create = async (req, res) => {
 
     await recalculatePartyBalance(billData.customer_id, t);
 
+    // ── Double-entry posting ──
+    {
+      const refreshed = await SalesReturnBill.findByPk(bill.sales_return_id, {
+        include: [{ model: Party, as: 'customer' }],
+        transaction: t,
+      });
+      const vouchers = await buildSalesReturnVouchers(refreshed, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
     await t.commit();
 
     const result = await SalesReturnBill.findByPk(bill.sales_return_id, {
@@ -717,6 +731,22 @@ exports.update = async (req, res) => {
     if (oldCustomer) await recalculatePartyBalance(oldCustomer, t);
     if (newCustomer && newCustomer !== oldCustomer) await recalculatePartyBalance(newCustomer, t);
 
+    // ── Double-entry: reverse old, post new ──
+    await reverseVoucher({
+      sourceType: 'sales_return_bill', sourceId: existing.sales_return_id,
+      reason: 'Sales return edited', userId: req.user && req.user.user_id, transaction: t,
+    });
+    {
+      const refreshed = await SalesReturnBill.findByPk(existing.sales_return_id, {
+        include: [{ model: Party, as: 'customer' }],
+        transaction: t,
+      });
+      const vouchers = await buildSalesReturnVouchers(refreshed, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
     await t.commit();
     const result = await SalesReturnBill.findByPk(existing.sales_return_id, {
       include: [
@@ -797,6 +827,12 @@ exports.cancel = async (req, res) => {
     }, { transaction: t });
 
     if (bill.customer_id) await recalculatePartyBalance(bill.customer_id, t);
+
+    await reverseVoucher({
+      sourceType: 'sales_return_bill', sourceId: bill.sales_return_id,
+      reason: cancellationReason || 'Sales return cancelled',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
 
     await t.commit();
     res.json({ message: 'Sales return cancelled successfully' });

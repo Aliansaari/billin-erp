@@ -85,6 +85,16 @@ export const menuItems = [
     ],
   },
   {
+    key: 'accounts-menu',
+    icon: <FundOutlined />,
+    label: 'Accounts',
+    children: [
+      { key: '/accounts/journal/new', icon: <PlusCircleOutlined />,    label: 'New Journal Voucher', perm: 'accounts.view' },
+      { key: '/accounts/journal',     icon: <UnorderedListOutlined />, label: 'Journal Vouchers',    perm: 'accounts.view' },
+      { key: '/accounts/integrity',   icon: <ThunderboltOutlined />,   label: 'Ledger Integrity',    perm: 'accounts.view' },
+    ],
+  },
+  {
     key: 'reports-menu',
     icon: <BarChartOutlined />,
     label: 'Reports',
@@ -153,6 +163,7 @@ export function getOpenKeys(pathname) {
   if (pathname.startsWith('/customer') || pathname.startsWith('/supplier')) return ['parties-menu'];
   if (pathname.startsWith('/product') || pathname.startsWith('/categor') || pathname.startsWith('/stock-movement') || pathname === '/stock-report' || pathname === '/stock-report-pro') return ['inventory-menu'];
   if (pathname.startsWith('/payment') || pathname.startsWith('/receipt')) return ['payments-menu'];
+  if (pathname.startsWith('/accounts')) return ['accounts-menu'];
   if (pathname.startsWith('/reports')) return ['reports-menu'];
   if (pathname.startsWith('/settings')) return ['settings-menu'];
   return [];

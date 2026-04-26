@@ -4,6 +4,8 @@ const { SalesBill, SalesBillItem, SalesBillDraft, SalesReturnBill, SalesReturnBi
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { stateCodeFromGstin, stateCodeFromName } = require('../utils/gstr1');
+const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
+const { buildSalesBillVouchers } = require('../services/voucherBuilders');
 
 /**
  * Determine intra-state vs inter-state for a sales bill.
@@ -647,6 +649,21 @@ exports.create = async (req, res) => {
       });
     }
 
+    // ── Double-entry posting ─────────────────────────────────────────
+    // Inside the same transaction so the sale and its ledger entries
+    // commit (or roll back) together. If posting throws, the bill insert
+    // and stock movements above also roll back.
+    {
+      const billForPosting = await SalesBill.findByPk(bill.sales_bill_id, {
+        include: [{ model: Party, as: 'customer' }],
+        transaction: t,
+      });
+      const vouchers = await buildSalesBillVouchers(billForPosting, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
     await t.commit();
 
     const result = await SalesBill.findByPk(bill.sales_bill_id, {
@@ -957,6 +974,28 @@ exports.update = async (req, res) => {
     if (oldCustomerId) await recalculatePartyBalance(oldCustomerId, t);
     if (newCustomerId && newCustomerId !== oldCustomerId) await recalculatePartyBalance(newCustomerId, t);
 
+    // ── Double-entry: reverse old, post new ──
+    // Both source types (sales_bill + the optional sales_bill_receipt for
+    // paid_amount) need reversing so a re-post is idempotent.
+    await reverseVoucher({
+      sourceType: 'sales_bill', sourceId: existingBill.sales_bill_id,
+      reason: 'Sales bill edited', userId: req.user && req.user.user_id, transaction: t,
+    });
+    await reverseVoucher({
+      sourceType: 'sales_bill_receipt', sourceId: existingBill.sales_bill_id,
+      reason: 'Sales bill edited', userId: req.user && req.user.user_id, transaction: t,
+    });
+    {
+      const refreshed = await SalesBill.findByPk(existingBill.sales_bill_id, {
+        include: [{ model: Party, as: 'customer' }],
+        transaction: t,
+      });
+      const vouchers = await buildSalesBillVouchers(refreshed, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
     await t.commit();
 
     const result = await SalesBill.findByPk(existingBill.sales_bill_id, {
@@ -1045,6 +1084,18 @@ exports.cancel = async (req, res) => {
       await reconcileBillsForParty(bill.customer_id, t);
       await recalculatePartyBalance(bill.customer_id, t);
     }
+
+    // ── Double-entry: reverse the bill's vouchers ──
+    await reverseVoucher({
+      sourceType: 'sales_bill', sourceId: bill.sales_bill_id,
+      reason: cancellationReason || 'Sales bill cancelled',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
+    await reverseVoucher({
+      sourceType: 'sales_bill_receipt', sourceId: bill.sales_bill_id,
+      reason: cancellationReason || 'Sales bill cancelled',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
 
     await t.commit();
     res.json({ message: 'Bill cancelled successfully' });

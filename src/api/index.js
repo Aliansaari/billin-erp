@@ -300,4 +300,18 @@ export const printAPI = {
   duplicate:  (id)           => api.post(`/print/profiles/${id}/duplicate`),
 };
 
+export const journalAPI = {
+  list:    (params = {}) => api.get('/journal-vouchers', { params }),
+  getById: (id)          => api.get(`/journal-vouchers/${id}`),
+  create:  (data)        => api.post('/journal-vouchers', data),
+  update:  (id, data)    => api.put(`/journal-vouchers/${id}`, data),
+  remove:  (id, reason)  => api.delete(`/journal-vouchers/${id}`, { data: { reason } }),
+};
+
+export const ledgerAPI = {
+  listAccounts: (params = {}) => api.get('/ledger/accounts', { params }),
+  integrity:    () => api.get('/ledger/integrity'),
+  unposted:     () => api.get('/ledger/unposted'),
+};
+
 export default api;

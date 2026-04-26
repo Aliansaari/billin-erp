@@ -4,6 +4,8 @@ const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, Stock
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
+const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
+const { buildPurchaseBillVouchers } = require('../services/voucherBuilders');
 
 /**
  * Resolve or create a product for a purchase bill item.
@@ -424,6 +426,18 @@ exports.create = async (req, res) => {
       });
     }
 
+    // ── Double-entry posting ──
+    {
+      const billForPosting = await PurchaseBill.findByPk(bill.purchase_bill_id, {
+        include: [{ model: Party, as: 'supplier' }],
+        transaction: t,
+      });
+      const vouchers = await buildPurchaseBillVouchers(billForPosting, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
     await t.commit();
 
     // Return full bill with items for barcode printing
@@ -751,6 +765,26 @@ exports.update = async (req, res) => {
       await recalculatePartyBalance(existingBill.supplier_id, t);
     }
 
+    // ── Double-entry: reverse old, post new ──
+    await reverseVoucher({
+      sourceType: 'purchase_bill', sourceId: existingBill.purchase_bill_id,
+      reason: 'Purchase bill edited', userId: req.user && req.user.user_id, transaction: t,
+    });
+    await reverseVoucher({
+      sourceType: 'purchase_bill_payment', sourceId: existingBill.purchase_bill_id,
+      reason: 'Purchase bill edited', userId: req.user && req.user.user_id, transaction: t,
+    });
+    {
+      const refreshed = await PurchaseBill.findByPk(existingBill.purchase_bill_id, {
+        include: [{ model: Party, as: 'supplier' }],
+        transaction: t,
+      });
+      const vouchers = await buildPurchaseBillVouchers(refreshed, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
     await t.commit();
 
     const result = await PurchaseBill.findByPk(id, {
@@ -870,6 +904,18 @@ exports.cancel = async (req, res) => {
     // Redistribute any active payments across remaining bills (FIFO), then fix party balance
     await reconcileBillsForParty(bill.supplier_id, t);
     await recalculatePartyBalance(bill.supplier_id, t);
+
+    // ── Double-entry: reverse the bill's vouchers ──
+    await reverseVoucher({
+      sourceType: 'purchase_bill', sourceId: bill.purchase_bill_id,
+      reason: cancellationReason || 'Purchase bill cancelled',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
+    await reverseVoucher({
+      sourceType: 'purchase_bill_payment', sourceId: bill.purchase_bill_id,
+      reason: cancellationReason || 'Purchase bill cancelled',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
 
     await t.commit();
     res.json({ message: 'Bill cancelled successfully' });

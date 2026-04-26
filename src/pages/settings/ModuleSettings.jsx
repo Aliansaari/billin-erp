@@ -19,10 +19,28 @@ const CLEANUP_ITEMS = [
     color: '#3b82f6',
   },
   {
+    key: 'sales_returns',
+    label: 'Sales Returns',
+    desc: 'All sales return notes and their stock movements will be deleted (sales bills kept).',
+    color: '#14b8a6',
+  },
+  {
+    key: 'purchase_returns',
+    label: 'Purchase Returns',
+    desc: 'All purchase return notes and their stock movements will be deleted (purchase bills kept).',
+    color: '#0ea5e9',
+  },
+  {
     key: 'payments',
     label: 'Payments & Receipts',
     desc: 'All payment and receipt entries will be deleted.',
     color: '#f59e0b',
+  },
+  {
+    key: 'journal_vouchers',
+    label: 'Journal Vouchers',
+    desc: 'All manual journal vouchers and their ledger entries will be deleted (opening-balance JVs are tied to parties and stay).',
+    color: '#a855f7',
   },
   {
     key: 'stock_ledger',

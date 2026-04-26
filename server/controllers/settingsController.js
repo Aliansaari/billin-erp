@@ -247,8 +247,9 @@ exports.cleanupData = async (req, res) => {
   // the firm's books. Require the admin to re-enter their password AND type
   // an explicit confirmation phrase server-side.
   const ALLOWED_CATEGORIES = new Set([
-    'sales', 'purchases', 'payments', 'stock_ledger',
-    'products', 'parties', 'categories',
+    'sales', 'purchases', 'sales_returns', 'purchase_returns',
+    'payments', 'journal_vouchers', 'stock_ledger', 'products',
+    'parties', 'categories',
   ]);
 
   try {
@@ -298,6 +299,9 @@ exports.cleanupData = async (req, res) => {
     // don't exist and the old SQL crashed mid-cleanup, leaving orphaned data).
     if (categories.includes('sales')) {
       await del('DELETE FROM stock_ledger WHERE transaction_type = \'Sales\'');
+      await del("DELETE FROM ledger_entries WHERE source_type IN ('sales_bill','sales_bill_receipt','sales_return_bill')");
+      await del('DELETE FROM sales_return_bill_items');
+      await del('DELETE FROM sales_return_bills');
       await del('DELETE FROM sales_bill_items');
       await del('DELETE FROM sales_bills');
       // Also drop payment splits / receipts tied to sales — leaving them would
@@ -327,6 +331,9 @@ exports.cleanupData = async (req, res) => {
     // ── Purchases ─────────────────────────────────────────
     if (categories.includes('purchases')) {
       await del('DELETE FROM stock_ledger WHERE transaction_type = \'Purchase\'');
+      await del("DELETE FROM ledger_entries WHERE source_type IN ('purchase_bill','purchase_bill_payment','purchase_return_bill')");
+      await del('DELETE FROM purchase_return_bill_items');
+      await del('DELETE FROM purchase_return_bills');
       await del('DELETE FROM purchase_bill_items');
       await del('DELETE FROM purchase_bills');
       await del("DELETE FROM payment_splits WHERE transaction_id IN (SELECT transaction_id FROM payments_receipts WHERE transaction_type = 'Payment')");
@@ -349,8 +356,76 @@ exports.cleanupData = async (req, res) => {
       `);
     }
 
+    // ── Sales Returns (only) ──────────────────────────────
+    // Deletes return notes + their stock movements; sales bills stay.
+    // Customer balance is rebuilt because the return's refund_amount
+    // had been credited to the customer's running balance.
+    if (categories.includes('sales_returns')) {
+      await del("DELETE FROM stock_ledger WHERE transaction_type = 'Sales Return'");
+      await del("DELETE FROM ledger_entries WHERE source_type = 'sales_return_bill'");
+      await del('DELETE FROM sales_return_bill_items');
+      await del('DELETE FROM sales_return_bills');
+      await del(`
+        UPDATE parties p SET current_balance =
+          CASE WHEN p.opening_balance_type = 'Payable'
+               THEN -COALESCE(p.opening_balance, 0)
+               ELSE  COALESCE(p.opening_balance, 0) END
+          + COALESCE((
+            SELECT SUM(sb.balance_amount) FROM sales_bills sb
+            WHERE sb.customer_id = p.party_id AND sb.is_cancelled = false
+          ), 0)
+          - COALESCE((
+            SELECT SUM(pb.balance_amount) FROM purchase_bills pb
+            WHERE pb.supplier_id = p.party_id AND pb.is_cancelled = false
+          ), 0)
+          + COALESCE((
+            SELECT SUM(pr.total_amount) FROM payments_receipts pr
+            WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
+              AND pr.is_cancelled = false
+          ), 0)
+          - COALESCE((
+            SELECT SUM(pr.total_amount) FROM payments_receipts pr
+            WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
+              AND pr.is_cancelled = false
+          ), 0)
+      `);
+    }
+
+    // ── Purchase Returns (only) ───────────────────────────
+    if (categories.includes('purchase_returns')) {
+      await del("DELETE FROM stock_ledger WHERE transaction_type = 'Purchase Return'");
+      await del("DELETE FROM ledger_entries WHERE source_type = 'purchase_return_bill'");
+      await del('DELETE FROM purchase_return_bill_items');
+      await del('DELETE FROM purchase_return_bills');
+      await del(`
+        UPDATE parties p SET current_balance =
+          CASE WHEN p.opening_balance_type = 'Payable'
+               THEN -COALESCE(p.opening_balance, 0)
+               ELSE  COALESCE(p.opening_balance, 0) END
+          + COALESCE((
+            SELECT SUM(sb.balance_amount) FROM sales_bills sb
+            WHERE sb.customer_id = p.party_id AND sb.is_cancelled = false
+          ), 0)
+          - COALESCE((
+            SELECT SUM(pb.balance_amount) FROM purchase_bills pb
+            WHERE pb.supplier_id = p.party_id AND pb.is_cancelled = false
+          ), 0)
+          + COALESCE((
+            SELECT SUM(pr.total_amount) FROM payments_receipts pr
+            WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
+              AND pr.is_cancelled = false
+          ), 0)
+          - COALESCE((
+            SELECT SUM(pr.total_amount) FROM payments_receipts pr
+            WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
+              AND pr.is_cancelled = false
+          ), 0)
+      `);
+    }
+
     // ── Payments & Receipts ───────────────────────────────
     if (categories.includes('payments')) {
+      await del("DELETE FROM ledger_entries WHERE source_type IN ('payment_receipt','sales_bill_receipt','purchase_bill_payment')");
       await del('DELETE FROM payment_splits');
       await del('DELETE FROM payments_receipts');
       // Rebuild party balances from remaining bills + opening balance — otherwise
@@ -372,6 +447,15 @@ exports.cleanupData = async (req, res) => {
       `);
     }
 
+    // ── Journal Vouchers ──────────────────────────────────
+    // Drops the JV header rows and their corresponding ledger_entries.
+    // Opening-balance JVs (source_type='party_opening') are NOT touched
+    // here — they're tied to the parties scope.
+    if (categories.includes('journal_vouchers')) {
+      await del("DELETE FROM ledger_entries WHERE source_type = 'journal_voucher'");
+      await del('DELETE FROM journal_vouchers');
+    }
+
     // ── Stock Ledger (history only) ───────────────────────
     if (categories.includes('stock_ledger')) {
       await del('DELETE FROM stock_ledger');
@@ -383,21 +467,37 @@ exports.cleanupData = async (req, res) => {
       // Dropping products invalidates every bill line that references them.
       // Do a full financial wipe for safety, not just bill_items.
       await del('DELETE FROM stock_ledger');
+      await del("DELETE FROM ledger_entries WHERE source_type IN ('sales_bill','sales_bill_receipt','sales_return_bill','purchase_bill','purchase_bill_payment','purchase_return_bill')");
+      await del('DELETE FROM sales_return_bill_items');
+      await del('DELETE FROM sales_return_bills');
       await del('DELETE FROM sales_bill_items');
       await del('DELETE FROM sales_bills');
+      await del('DELETE FROM purchase_return_bill_items');
+      await del('DELETE FROM purchase_return_bills');
       await del('DELETE FROM purchase_bill_items');
       await del('DELETE FROM purchase_bills');
       await del('DELETE FROM products');
     }
 
     // ── Parties ───────────────────────────────────────────
+    // Nuking parties cascades to everything ledger-related: opening JVs,
+    // journal vouchers, and every ledger_entries row.
     if (categories.includes('parties')) {
       await del('DELETE FROM payment_splits');
       await del('DELETE FROM payments_receipts');
       await del('DELETE FROM ledger_entries');
-      await del('DELETE FROM ledger_accounts');
+      await del('DELETE FROM journal_vouchers');
+      // Null the FK first so dropping ledger_accounts doesn't leave dangling
+      // references on parties rows that survive (none should — parties are
+      // deleted below — but defensive against future schema changes).
+      await del('UPDATE parties SET ledger_account_id = NULL');
+      await del('DELETE FROM ledger_accounts WHERE is_party_ledger = true');
+      await del('DELETE FROM sales_return_bill_items');
+      await del('DELETE FROM sales_return_bills');
       await del('DELETE FROM sales_bill_items');
       await del('DELETE FROM sales_bills');
+      await del('DELETE FROM purchase_return_bill_items');
+      await del('DELETE FROM purchase_return_bills');
       await del('DELETE FROM purchase_bill_items');
       await del('DELETE FROM purchase_bills');
       await del('DELETE FROM parties');
