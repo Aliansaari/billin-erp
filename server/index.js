@@ -32,6 +32,8 @@ app.use('/api/purchase-returns', require('./routes/purchaseReturns'));
 app.use('/api/payments', require('./routes/payments'));
 app.use('/api/journal-vouchers', require('./routes/journalVouchers'));
 app.use('/api/ledger', require('./routes/ledger'));
+app.use('/api/imports', require('./routes/imports'));
+app.use('/api/tally/ledger-mapping', require('./routes/tallyMapping'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/data', require('./routes/importExport'));
@@ -361,6 +363,12 @@ async function startServer() {
 
       CREATE INDEX IF NOT EXISTS idx_ledger_entries_entry_number
         ON ledger_entries (entry_number);
+
+      -- ── Phase 4: import job queue + tally ledger mapping ────────────
+      -- The three new tables (import_jobs, import_batches,
+      -- tally_ledger_mappings) are created by sequelize.sync. The worker
+      -- crash-recovery sweep below relies on them existing; if a fresh
+      -- install hasn't synced yet, the sweep no-ops cleanly.
 
       -- Performance indexes. CREATE INDEX IF NOT EXISTS is idempotent and
       -- will no-op on subsequent boots. Without these, list pages do a
@@ -750,6 +758,11 @@ async function startServer() {
       console.log(`API available at http://localhost:${PORT}/api`);
       // Start auto-backup scheduler
       require('./controllers/backupController').initScheduler();
+      // Import job worker — recover orphans first, then start polling.
+      const importWorker = require('./services/importJobWorker');
+      importWorker.recoverOrphans()
+        .then(() => importWorker.start())
+        .catch((e) => console.error('[importJobWorker] failed to start:', e.message));
     });
   } catch (error) {
     console.error('Failed to start server:', error.message);

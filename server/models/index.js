@@ -20,6 +20,9 @@ const StockLedger = require('./StockLedger');
 const LedgerAccount = require('./LedgerAccount');
 const LedgerEntry = require('./LedgerEntry');
 const JournalVoucher = require('./JournalVoucher');
+const ImportJob = require('./ImportJob');
+const ImportBatch = require('./ImportBatch');
+const TallyLedgerMapping = require('./TallyLedgerMapping');
 const BarcodeSettings = require('./BarcodeSettings');
 const SystemSettings = require('./SystemSettings');
 const PrintProfile = require('./PrintProfile');
@@ -167,6 +170,9 @@ module.exports = {
   LedgerAccount,
   LedgerEntry,
   JournalVoucher,
+  ImportJob,
+  ImportBatch,
+  TallyLedgerMapping,
   BarcodeSettings,
   SystemSettings,
   PrintProfile,

@@ -121,6 +121,7 @@ export const menuItems = [
       { key: '/settings/print',          icon: <PrinterOutlined />,     label: 'Print Settings',   perm: 'settings.print' },
       { key: '/settings/modules',        icon: <ThunderboltOutlined />, label: 'Modules',          perm: 'settings.manage_company' },
       { key: '/settings/import-export',  icon: <SwapOutlined />,        label: 'Import & Export',  perm: 'settings.import_export' },
+      { key: '/settings/import',         icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export' },
       { key: '/settings/tally',          icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally' },
       { key: '/settings/backup',         icon: <CloudServerOutlined />, label: 'Backup & Recovery',perm: 'settings.backup' },
     ],

@@ -9,3 +9,7 @@ server.log
 server/backups/
 server/uploads/
 backup_*.json
+
+# Phase 4-6 import worker artifacts
+uploads/
+Wire_Imports_Prompt.md

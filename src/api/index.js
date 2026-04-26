@@ -314,4 +314,19 @@ export const ledgerAPI = {
   unposted:     () => api.get('/ledger/unposted'),
 };
 
+export const importsAPI = {
+  list:    () => api.get('/imports'),
+  getById: (id) => api.get(`/imports/${id}`),
+  create:  (formData) => api.post('/imports', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  confirm: (id, choices) => api.post(`/imports/${id}/confirm`, choices || {}),
+  cancel:  (id) => api.post(`/imports/${id}/cancel`),
+  rejectedUrl: (id) => `/api/imports/${id}/rejected-rows`,
+};
+
+export const tallyMappingAPI = {
+  list:    () => api.get('/tally/ledger-mapping'),
+  suggest: (names) => api.get('/tally/ledger-mapping/suggest', { params: { names: names.join(',') } }),
+  save:    (mappings) => api.post('/tally/ledger-mapping', { mappings }),
+};
+
 export default api;

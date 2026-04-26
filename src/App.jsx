@@ -37,6 +37,7 @@ import GSTR3BReport from './pages/reports/GSTR3BReport';
 import JournalVoucherList from './pages/accounts/JournalVoucherList';
 import JournalVoucherForm from './pages/accounts/JournalVoucherForm';
 import LedgerIntegrity from './pages/accounts/LedgerIntegrity';
+import ImportV2 from './pages/settings/ImportV2';
 import CompanyProfile from './pages/settings/CompanyProfile';
 import UserManagement from './pages/settings/UserManagement';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
@@ -181,6 +182,7 @@ export default function App() {
           {/* Theme is per-user UX — anyone can pick light/dark. */}
           <Route path="settings/theme"          element={<ThemeSettings />} />
           <Route path="settings/import-export"  element={<RoleRoute perm="settings.import_export"><ImportExport /></RoleRoute>} />
+          <Route path="settings/import"         element={<RoleRoute perm="settings.import_export"><ImportV2 /></RoleRoute>} />
           <Route path="settings/tally"          element={<RoleRoute perm="settings.tally"><TallySync /></RoleRoute>} />
           <Route path="settings/print"          element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
         </Route>
