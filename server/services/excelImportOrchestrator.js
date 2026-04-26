@@ -509,7 +509,11 @@ async function commitParty(job, item, action) {
         city: d.city || null, state: d.state || null, pincode: d.pincode || null,
         gstin: d.gstin || null, pan_number: d.pan_number || null,
         opening_balance: Number(d.opening_balance) || 0,
-        opening_balance_type: (String(d.opening_balance_type || 'Receivable')).toLowerCase().startsWith('p') ? 'Payable' : 'Receivable',
+        // Workbook "Balance Type" column carries free-form values like
+        // "Cr"/"Dr"/"Credit"/"Receivable". Route through the model's
+        // static normalizer so every alias maps to the right enum value
+        // — the afterCreate hook posts the JV based on this column.
+        opening_balance_type: Party.normalizeBalanceType(d.opening_balance_type),
         credit_allowed: !!d.credit_allowed,
         credit_limit: Number(d.credit_limit) || 0,
       }, { transaction: t });

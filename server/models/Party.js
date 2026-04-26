@@ -115,6 +115,37 @@ const Party = sequelize.define('Party', {
   ],
 });
 
+// ── Static helper: normalise opening_balance_type ─────────────────────
+//
+// The Party model column accepts only the enum {'Receivable','Payable'},
+// but human input arrives in many forms — accounting shorthand (Dr/Cr),
+// long form (Debit/Credit), or our own enum spelling. A naïve
+// `startsWith('p')` test silently mis-routes "Cr" to 'Receivable',
+// which inverts the opening JV on the supplier's own ledger.
+//
+// Mapping:
+//   ''                    → 'Receivable'   (default — no input)
+//   'cr' / 'credit'       → 'Payable'
+//   'pay' / 'payable'     → 'Payable'
+//   'dr' / 'debit'        → 'Receivable'
+//   'rec' / 'receivable'  → 'Receivable'
+//   anything else         → 'Receivable'   (safe default; over-credit is
+//                                          worse than under-credit since
+//                                          a wrong-direction opening
+//                                          corrupts the audit trail)
+//
+// Every caller that builds a Party row from external input (Excel / Tally
+// orchestrators, future imports) must run the user-supplied value through
+// this helper before Party.create. The afterCreate hook below keeps its
+// trust in the column value — the normalizer is the single point of
+// translation.
+Party.normalizeBalanceType = function normalizeBalanceType(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return 'Receivable';
+  if (s === 'cr' || s.startsWith('cred') || s.startsWith('pay')) return 'Payable';
+  return 'Receivable';
+};
+
 // ── afterCreate: auto-link a ledger_accounts row + post opening JV ─────
 // One ledger per party. Customer → Sundry Debtors (Assets), Supplier →
 // Sundry Creditors (Liabilities). Convention for 'Both': Sundry Debtors.

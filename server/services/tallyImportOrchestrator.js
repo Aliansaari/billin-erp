@@ -357,7 +357,10 @@ async function ensureParties(job, ledgers) {
           mobile_1: lg.mobile || stub,
           gstin: lg.gstin || null,
           opening_balance: lg.opening_balance || 0,
-          opening_balance_type: lg.opening_balance_type || 'Receivable',
+          // Tally parser yields 'Receivable'/'Payable' already, but route
+          // through the shared normalizer so any future Tally schema drift
+          // (or a hand-edited XML) doesn't silently mis-direct an opening JV.
+          opening_balance_type: Party.normalizeBalanceType(lg.opening_balance_type),
         },
         transaction: t,
       });
