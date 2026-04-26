@@ -189,6 +189,29 @@ async function validateAndPreview(job, parsed) {
   const purchasesByNumber= new Map(existingPurchases.map((b)=> [b.bill_number, b]));
   const paymentsByNumber = new Map(existingPayments.map((p) => [p.transaction_number, p]));
 
+  // Party-existence index for the validate phase. A party is "known" if
+  // it appears in the XML's <LEDGER> masters (we'll create it during
+  // commit) OR already exists in the DB (created by a prior import or
+  // manually). Receipt/Payment/Debit Note vouchers that reference an
+  // unknown party are rejected at validate-time so the user sees the
+  // problem in the preview rather than at commit.
+  const stagedNames = new Set(parsed.ledgers.map((l) => l.name));
+  const referenced  = new Set();
+  for (const v of parsed.vouchers) if (v.party_name) referenced.add(v.party_name);
+  const referencedArr = [...referenced];
+  const existingByName = new Set();
+  if (referencedArr.length > 0) {
+    const rows = await Party.findAll({
+      where: { party_name: referencedArr },
+      attributes: ['party_name'],
+    });
+    for (const r of rows) existingByName.add(r.party_name);
+  }
+  const partyKnown = (name) => !!name && (stagedNames.has(name) || existingByName.has(name));
+  // Cash-class ledger names — these legitimately replace the party leg
+  // on cash sales/purchases and don't need to exist as a party row.
+  const isCashLikeName = (n) => /\b(cash|bank)\b/i.test(String(n || ''));
+
   const buckets = { create: [], update: [], skip: [], reject: [] };
 
   for (const v of parsed.vouchers) {
@@ -217,6 +240,30 @@ async function validateAndPreview(job, parsed) {
         reason: `Date ${formatDateForReason(v.voucher_date)} is before FY start (${formatDateForReason(fyStart)}).`,
       });
       continue;
+    }
+
+    // Party-existence check for voucher types that REQUIRE a party row.
+    //   Receipt / Payment    → PaymentReceipt.party_id NOT NULL
+    //   Debit Note           → PurchaseReturnBill.supplier_id NOT NULL
+    //   Purchase             → PurchaseBill.supplier_id NOT NULL, but
+    //                          cash-named parties route to the
+    //                          "Cash Purchases" stub at commit
+    // Sales / Credit Note / Contra / Tally Journal don't need a strict
+    // pre-check (customer_id nullable, JV legs resolved separately).
+    const needsParty = ['Receipt', 'Payment', 'Debit Note'].includes(v.voucher_type)
+      || (v.voucher_type === 'Purchase' && !isCashLikeName(v.party_name));
+    if (needsParty) {
+      if (!v.party_name) {
+        buckets.reject.push({ voucher: v, reason: `${v.voucher_type} has no party name on the voucher.` });
+        continue;
+      }
+      if (!partyKnown(v.party_name)) {
+        buckets.reject.push({
+          voucher: v,
+          reason: `Party '${v.party_name}' not found in this import or in existing data. Create the party first or include it as a <LEDGER> in the XML.`,
+        });
+        continue;
+      }
     }
 
     // Compute totals from ledger entries
@@ -412,6 +459,29 @@ async function ensureCashPurchasesParty(t) {
   return party.party_id;
 }
 
+// Shared party resolver. Used by both the validate phase (existence
+// check) and every commit branch. Looking up only in `partiesByName`
+// (the in-batch staged map populated from the XML's <LEDGER> masters)
+// missed parties that already existed in the DB from a prior import —
+// e.g., "Sharma Cloth House" created via Excel customers earlier and
+// referenced by Receipt/Payment vouchers in a later Tally re-import.
+//
+// Order:
+//   1. In-batch staged map (fastest; covers parties just created).
+//   2. parties table by exact party_name match.
+//   3. null — caller decides whether to reject or substitute.
+//
+// The DB hit is cached on partiesByName so subsequent vouchers in the
+// same import don't re-query for the same name.
+async function resolvePartyByName(name, partiesByName, transaction) {
+  if (!name) return null;
+  const cached = partiesByName.get(name);
+  if (cached) return cached;
+  const row = await Party.findOne({ where: { party_name: name }, transaction });
+  if (row) partiesByName.set(name, row);
+  return row;
+}
+
 async function ensureProducts(job, stockItems) {
   const map = new Map();
   for (const it of stockItems) {
@@ -460,7 +530,8 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
       const sourceType = isSales ? 'sales_bill' : 'purchase_bill';
       const subType   = isSales ? 'sales_bill_receipt' : 'purchase_bill_payment';
 
-      let partyId = v.party_name ? (partiesByName.get(v.party_name) || {}).party_id : null;
+      const partyRow = await resolvePartyByName(v.party_name, partiesByName, t);
+      let partyId = partyRow ? partyRow.party_id : null;
       // Cash purchase: PARTYLEDGERNAME is "Cash" / a Bank ledger rather
       // than a Sundry Creditor. PurchaseBill.supplier_id is NOT NULL, so
       // we auto-create (or reuse) a "Cash Purchases" stub Supplier party.
@@ -528,7 +599,11 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
       }, { transaction: t });
 
     } else if (v.voucher_type === 'Receipt' || v.voucher_type === 'Payment') {
-      const partyId = v.party_name ? (partiesByName.get(v.party_name) || {}).party_id : null;
+      // Look up via shared resolver — both in-batch and DB. Validate phase
+      // already enforces existence so this should always succeed; the
+      // throw is a defence-in-depth guard.
+      const partyRow = await resolvePartyByName(v.party_name, partiesByName, t);
+      const partyId = partyRow ? partyRow.party_id : null;
       if (!partyId) throw new Error(`${v.voucher_type} has no party (party_id required).`);
       let row;
       if (action === 'update') {
@@ -569,7 +644,8 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
       const fkParty = isCN ? 'customer_id' : 'supplier_id';
       const sourceType = isCN ? 'sales_return_bill' : 'purchase_return_bill';
       const builder = isCN ? buildSalesReturnVouchers : buildPurchaseReturnVouchers;
-      const partyId = v.party_name ? (partiesByName.get(v.party_name) || {}).party_id : null;
+      const partyRow = await resolvePartyByName(v.party_name, partiesByName, t);
+      const partyId = partyRow ? partyRow.party_id : null;
       if (!isCN && !partyId) throw new Error('Debit Note has no supplier (supplier_id NOT NULL).');
 
       let row;
@@ -738,9 +814,10 @@ async function fail(job, message) {
 //
 // Returns null if none of these resolve — the caller rejects the voucher.
 async function resolveLegLedger(le, partiesByName, t) {
-  // 1. Party leg.
-  if (le.classification === 'party_or_other' && partiesByName.has(le.name)) {
-    const party = partiesByName.get(le.name);
+  // 1. Party leg — resolve via the shared helper so a party that lives
+  // in the DB but isn't in this XML's <LEDGER> masters still wins.
+  if (le.classification === 'party_or_other') {
+    const party = await resolvePartyByName(le.name, partiesByName, t);
     if (party && party.ledger_account_id) return party.ledger_account_id;
   }
   // 2. Persisted mapping.
