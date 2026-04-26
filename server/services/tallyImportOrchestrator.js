@@ -26,7 +26,10 @@ const ExcelJS = require('exceljs');
 const sequelize = require('../config/database');
 const {
   ImportJob, ImportBatch, Party, Product, SalesBill, PurchaseBill,
-  SalesReturnBill, PurchaseReturnBill, JournalVoucher,
+  SalesBillItem, PurchaseBillItem,
+  SalesReturnBill, PurchaseReturnBill,
+  SalesReturnBillItem, PurchaseReturnBillItem,
+  JournalVoucher, StockLedger,
   PaymentReceipt, LedgerAccount, SystemSettings, Category, TallyLedgerMapping,
 } = require('../models');
 const { decodeXmlBuffer, parseLedgers, parseStockItems, parseVouchers } = require('../utils/tallyXmlParser');
@@ -212,6 +215,28 @@ async function validateAndPreview(job, parsed) {
   // on cash sales/purchases and don't need to exist as a party row.
   const isCashLikeName = (n) => /\b(cash|bank)\b/i.test(String(n || ''));
 
+  // Stock-item existence index. Same shape as the party guard:
+  //   in-batch <STOCKITEM> masters ∪ products table by exact name.
+  // A voucher whose <ALLINVENTORYENTRIES.LIST> references an unknown
+  // stock item is rejected at validate-time so the user can fix the
+  // master in the XML or pre-create the product before re-uploading.
+  const stagedStockNames = new Set(parsed.stockItems.map((s) => s.name));
+  const refStock = new Set();
+  for (const v of parsed.vouchers) {
+    for (const it of (v.inventory || [])) if (it.name) refStock.add(it.name);
+  }
+  const refStockArr = [...refStock];
+  const existingStockNames = new Set();
+  if (refStockArr.length > 0) {
+    const prods = await Product.findAll({
+      where: { product_name: refStockArr },
+      attributes: ['product_name'],
+    });
+    for (const p of prods) existingStockNames.add(p.product_name);
+  }
+  const stockItemKnown = (name) =>
+    !!name && (stagedStockNames.has(name) || existingStockNames.has(name));
+
   const buckets = { create: [], update: [], skip: [], reject: [] };
 
   for (const v of parsed.vouchers) {
@@ -261,6 +286,23 @@ async function validateAndPreview(job, parsed) {
         buckets.reject.push({
           voucher: v,
           reason: `Party '${v.party_name}' not found in this import or in existing data. Create the party first or include it as a <LEDGER> in the XML.`,
+        });
+        continue;
+      }
+    }
+
+    // Stock-item existence guard for voucher types that carry inventory.
+    // Sales / Purchase / Credit Note / Debit Note all have <ALLINVENTORY-
+    // ENTRIES.LIST>. If any line references a stock item not in the
+    // staged masters or the products table, reject in preview rather
+    // than failing at commit when the item insert tries to look it up.
+    const carriesInventory = ['Sales', 'Purchase', 'Credit Note', 'Debit Note'].includes(v.voucher_type);
+    if (carriesInventory && Array.isArray(v.inventory) && v.inventory.length > 0) {
+      const unknown = v.inventory.find((it) => it.name && !stockItemKnown(it.name));
+      if (unknown) {
+        buckets.reject.push({
+          voucher: v,
+          reason: `Stock item '${unknown.name}' not found. Include it as a <STOCKITEM> in the XML or create the product first.`,
         });
         continue;
       }
@@ -464,6 +506,129 @@ async function ensureCashPurchasesParty(t) {
   return party.party_id;
 }
 
+// ── Item-insert helper ────────────────────────────────────────────────
+//
+// Translates a parsed Tally <ALLINVENTORYENTRIES.LIST> into rows on the
+// right *_bill_items table for the voucher kind. Sales/Sales-Return
+// items use a single `rate` column; Purchase/Purchase-Return items split
+// into `purchase_rate` (NOT NULL) + `sale_rate` (matches the Phase 6c
+// shape used by the Excel orchestrator).
+//
+// Per-item GST: Tally rarely supplies it on the inventory line, so we
+// derive it from the bill's effective tax rate (cgst+sgst+igst pct).
+// Per-item taxable_amount = qty × rate, total_amount = same (taxes are
+// summed at the bill level by the Posting Service, not duplicated on
+// the line).
+//
+// Also writes a stock_ledger row per line so inventory reports and the
+// Stock Movement view see Tally-imported transactions like manually-
+// entered ones.
+//
+// All writes share the caller's transaction; a failure here rolls the
+// whole voucher back.
+async function insertVoucherItems({
+  inventory, kind, idCol, billId, billNumber, billDate,
+  voucherTaxablePct, productsByName, userId, transaction,
+}) {
+  if (!Array.isArray(inventory) || inventory.length === 0) return;
+
+  const ItemModel =
+    kind === 'sales'           ? SalesBillItem :
+    kind === 'purchase'        ? PurchaseBillItem :
+    kind === 'sales_return'    ? SalesReturnBillItem :
+    kind === 'purchase_return' ? PurchaseReturnBillItem : null;
+  if (!ItemModel) throw new Error(`insertVoucherItems: unknown kind '${kind}'`);
+
+  const stockTxnType =
+    kind === 'sales'           ? 'Sales' :
+    kind === 'purchase'        ? 'Purchase' :
+    kind === 'sales_return'    ? 'Sales Return' :
+    kind === 'purchase_return' ? 'Purchase Return' : null;
+
+  for (const it of inventory) {
+    const qty  = Number(it.quantity) || 0;
+    const rate = Number(it.rate)     || 0;
+    if (qty <= 0 || !it.name) continue;
+
+    const product = await resolveProductByName(it.name, productsByName, transaction);
+    const taxable = round2(qty * rate);
+    // Per-item GST falls back to product master, then to bill-level pct.
+    const gstRate = (product && Number(product.gst_rate)) || voucherTaxablePct || 0;
+
+    const itemData = {
+      [idCol]: billId,
+      product_id: product ? product.product_id : null,
+      barcode: product ? product.barcode : null,
+      product_name: it.name,
+      hsn_code: product ? product.hsn_code : null,
+      quantity: qty,
+      mrp: 0,
+      taxable_amount: taxable,
+      gst_rate: gstRate,
+      total_amount: taxable,
+    };
+    if (kind === 'purchase') {
+      // PurchaseBillItem.purchase_rate is NOT NULL. sale_rate falls back
+      // to product master, else mirrors purchase_rate so the column has
+      // a sensible value.
+      itemData.purchase_rate = rate;
+      // Decimal columns come back as strings — "0.00" is truthy, so the
+      // naïve `product.sale_rate || rate` fall-back never kicks in.
+      // Coerce first, then fall back when the numeric value is zero.
+      itemData.sale_rate = product ? (Number(product.sale_rate) || rate) : rate;
+    } else {
+      itemData.rate = rate;
+      if (kind === 'sales') {
+        // Snapshot COGS at sale time — same convention live sales flow uses.
+        itemData.cost_rate = product ? Number(product.purchase_rate || 0) : 0;
+      }
+    }
+    await ItemModel.create(itemData, { transaction });
+
+    // Stock ledger movement — qty in for Purchase / Sales Return, qty out
+    // for Sales / Purchase Return. The reference_id ties the row back to
+    // the bill so Stock Movement and bill-cancellation cleanup work.
+    if (product && stockTxnType) {
+      const isInbound = stockTxnType === 'Purchase' || stockTxnType === 'Sales Return';
+      // Refresh the running balance from the product row. Live flows do a
+      // similar incremental update; we keep it simple here since the
+      // post-import re-sync sweep in server/index.js reconciles anyway.
+      const currentStock = Number(product.current_stock) || 0;
+      const newStock = isInbound ? currentStock + qty : currentStock - qty;
+      await StockLedger.create({
+        product_id: product.product_id,
+        barcode: product.barcode,
+        transaction_type: stockTxnType,
+        transaction_date: billDate,
+        reference_id: billId,
+        reference_number: billNumber,
+        quantity_in:  isInbound ? qty : 0,
+        quantity_out: isInbound ? 0   : qty,
+        rate, balance_quantity: newStock,
+        created_by: userId || null,
+      }, { transaction });
+      await Product.update(
+        { current_stock: newStock },
+        { where: { product_id: product.product_id }, transaction },
+      );
+      // Update the cached product so subsequent lines on the same bill
+      // see the freshly-updated stock.
+      product.current_stock = newStock;
+    }
+  }
+}
+
+// Shared product resolver. In-batch staged map (from <STOCKITEM>
+// masters) first, products table second. Same shape as resolvePartyByName.
+async function resolveProductByName(name, productsByName, transaction) {
+  if (!name) return null;
+  const cached = productsByName.get(name);
+  if (cached) return cached;
+  const row = await Product.findOne({ where: { product_name: name }, transaction });
+  if (row) productsByName.set(name, row);
+  return row;
+}
+
 // Shared party resolver. Used by both the validate phase (existence
 // check) and every commit branch. Looking up only in `partiesByName`
 // (the in-batch staged map populated from the XML's <LEDGER> masters)
@@ -557,6 +722,18 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
         if (!billRow) throw new Error('Update target row vanished.');
         await reverseVoucher({ sourceType,         sourceId: billRow[idCol], reason: 'Tally re-import update', transaction: t });
         await reverseVoucher({ sourceType: subType, sourceId: billRow[idCol], reason: 'Tally re-import update', transaction: t });
+        // Re-import update: wipe old item rows + old stock_ledger rows
+        // before re-inserting from the new XML. Without this, an edit
+        // would silently double the line items.
+        const ItemModelUpd = isSales ? SalesBillItem : PurchaseBillItem;
+        await ItemModelUpd.destroy({ where: { [idCol]: billRow[idCol] }, transaction: t });
+        await StockLedger.destroy({
+          where: {
+            reference_id: billRow[idCol],
+            transaction_type: isSales ? 'Sales' : 'Purchase',
+          },
+          transaction: t,
+        });
         const updateData = {
           bill_date: v.voucher_date,
           [fkParty]: partyId,
@@ -587,6 +764,21 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
         };
         billRow = await Bill.create(data, { transaction: t });
       }
+
+      // Insert item rows from <ALLINVENTORYENTRIES.LIST>. Same shape as
+      // the Excel orchestrator (Phase 6c convention for Purchase items:
+      // purchase_rate is NOT NULL, sale_rate falls back to product
+      // master). Also writes stock_ledger movements so inventory reports
+      // see Tally-imported transactions like manual ones.
+      await insertVoucherItems({
+        inventory: v.inventory,
+        kind: isSales ? 'sales' : 'purchase',
+        idCol, billId: billRow[idCol],
+        billNumber: v.voucher_number,
+        billDate: v.voucher_date,
+        voucherTaxablePct: totals.cgst_pct + totals.sgst_pct + totals.igst_pct,
+        productsByName, userId: job.created_by, transaction: t,
+      });
 
       const refreshed = await Bill.findByPk(billRow[idCol], {
         include: [{ model: Party, as: isSales ? 'customer' : 'supplier' }],
@@ -654,10 +846,19 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
       if (!isCN && !partyId) throw new Error('Debit Note has no supplier (supplier_id NOT NULL).');
 
       let row;
+      const ItemModelRet = isCN ? SalesReturnBillItem : PurchaseReturnBillItem;
+      const stockTxnTypeRet = isCN ? 'Sales Return' : 'Purchase Return';
       if (action === 'update') {
         row = await ReturnBill.findOne({ where: { return_number: v.voucher_number }, transaction: t });
         if (!row) throw new Error('Update target return bill vanished.');
         await reverseVoucher({ sourceType, sourceId: row[idCol], reason: 'Tally re-import update', transaction: t });
+        // Wipe old item rows + stock movements before re-inserting from
+        // the new XML. Same pattern as the sales/purchase update branch.
+        await ItemModelRet.destroy({ where: { [idCol]: row[idCol] }, transaction: t });
+        await StockLedger.destroy({
+          where: { reference_id: row[idCol], transaction_type: stockTxnTypeRet },
+          transaction: t,
+        });
         await row.update({
           return_date: v.voucher_date,
           [fkParty]: partyId,
@@ -683,6 +884,16 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
           refund_status: 'Pending', refund_method: 'Cash',
         }, { transaction: t });
       }
+      // Insert return item rows + stock movements before posting.
+      await insertVoucherItems({
+        inventory: v.inventory,
+        kind: isCN ? 'sales_return' : 'purchase_return',
+        idCol, billId: row[idCol],
+        billNumber: v.voucher_number,
+        billDate: v.voucher_date,
+        voucherTaxablePct: totals.cgst_pct + totals.sgst_pct + totals.igst_pct,
+        productsByName, userId: job.created_by, transaction: t,
+      });
       const refreshed = await ReturnBill.findByPk(row[idCol], {
         include: [{ model: Party, as: isCN ? 'customer' : 'supplier' }],
         transaction: t,
