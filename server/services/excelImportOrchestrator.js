@@ -100,7 +100,12 @@ HEADER_MAPS.purchase_bills_header = {
   ...HEADER_MAPS.sales_bills_header,
   'supplier mobile': 'supplier_mobile',
   'supplier name': 'supplier_name',
-  'supplier bill no': 'supplier_bill_number',
+  'supplier bill no':     'supplier_bill_number',
+  'supplier bill number': 'supplier_bill_number',
+  'transport':       'transport_name',
+  'transport name':  'transport_name',
+  'vehicle no':      'vehicle_number',
+  'vehicle number':  'vehicle_number',
 };
 HEADER_MAPS.purchase_bills_items = HEADER_MAPS.sales_bills_items;
 
@@ -609,6 +614,14 @@ async function commitBill(job, item, action, kind) {
       balance_amount: totals.total_amount, payment_status: 'Unpaid',
       payment_method: d.payment_method || 'Cash',
     };
+    // Purchase-only header fields. Carry them through if the workbook
+    // supplied them — leaving them off would silently lose data the user
+    // entered and is hard to spot until an audit.
+    if (kind === 'purchase') {
+      if (d.supplier_bill_number) billData.supplier_bill_number = String(d.supplier_bill_number);
+      if (d.transport_name)       billData.transport_name       = String(d.transport_name);
+      if (d.vehicle_number)       billData.vehicle_number       = String(d.vehicle_number);
+    }
 
     let billRow;
     if (action === 'update') {
@@ -645,6 +658,11 @@ async function commitBill(job, item, action, kind) {
       }
       const qty = Number(it.quantity) || 0;
       const rate = Number(it.rate) || 0;
+      // SalesBillItem stores the line price as `rate`; PurchaseBillItem
+      // splits it into `purchase_rate` (NOT NULL — what the supplier
+      // charged) and `sale_rate` (planned outgoing). We map the single
+      // workbook "Rate" column to the right model field so the NOT NULL
+      // constraint isn't tripped.
       const itemData = {
         [idCol]: billRow[idCol],
         product_id: prod ? prod.product_id : null,
@@ -652,12 +670,21 @@ async function commitBill(job, item, action, kind) {
         product_name: it.product_name || (prod && prod.product_name),
         hsn_code: it.hsn_code || null,
         quantity: qty,
-        rate, mrp: 0,
+        mrp: 0,
         taxable_amount: round2(qty * rate),
         gst_rate: Number(it.gst_rate) || 0,
         total_amount: round2(qty * rate),
       };
-      if (kind === 'sales') itemData.cost_rate = prod ? Number(prod.purchase_rate || 0) : 0;
+      if (kind === 'sales') {
+        itemData.rate = rate;
+        itemData.cost_rate = prod ? Number(prod.purchase_rate || 0) : 0;
+      } else {
+        itemData.purchase_rate = rate;
+        // sale_rate is also NOT NULL on PurchaseBillItem in some installs;
+        // default to the product's master sale_rate when available, else
+        // mirror purchase_rate so the column always has a sensible number.
+        itemData.sale_rate = prod ? Number(prod.sale_rate || rate) : rate;
+      }
       await ItemModel.create(itemData, { transaction: t });
     }
 
