@@ -107,6 +107,62 @@ HEADER_MAPS.purchase_bills_items = HEADER_MAPS.sales_bills_items;
 // Lower-case + trim cell value for header lookup.
 function normHeader(s) { return String(s || '').trim().toLowerCase(); }
 
+// Fields the parser should coerce to ISO YYYY-MM-DD. Excel cells in date-
+// formatted columns can arrive as Date objects, numeric serials (the
+// internal Excel format), formula cells whose .result is a Date or string,
+// or plain strings (ISO, dd/mm/yyyy, etc.) when the file came from a
+// non-Excel tool. Without this set the orchestrator silently keeps the
+// raw value, so validation passes (truthy) but the commit phase trips
+// when Sequelize tries to coerce a number into DATEONLY.
+const DATE_FIELDS = new Set(['bill_date', 'transaction_date', 'voucher_date']);
+
+// Excel's day 0 is "Dec 30, 1899" — accounting for the Lotus 1-2-3 leap-
+// year bug Excel inherited. Day 1 = 1900-01-01.
+const EXCEL_DAY_ZERO_UTC = Date.UTC(1899, 11, 30);
+
+// Single source of truth for date normalisation. Returns ISO YYYY-MM-DD
+// string on success, null on failure. ANY input the validator and the
+// committer use must run through this function — keeping them in lock-
+// step is what makes "preview accepts → commit accepts" hold.
+function coerceDate(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null;
+    return v.toISOString().slice(0, 10);
+  }
+  if (typeof v === 'number' && isFinite(v)) {
+    // Excel serial date.
+    const ms = EXCEL_DAY_ZERO_UTC + Math.round(v) * 86400000;
+    const d = new Date(ms);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0, 10);
+  }
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    // dd/mm/yyyy or dd-mm-yyyy (Indian convention — ambiguous with the US
+    // mm/dd; we default to dd/mm because that's the regional norm).
+    const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    if (m) {
+      const dd = m[1].padStart(2, '0');
+      const mm = m[2].padStart(2, '0');
+      let yyyy = m[3]; if (yyyy.length === 2) yyyy = '20' + yyyy;
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0, 10);
+  }
+  // Formula cell.
+  if (typeof v === 'object' && v.result != null) return coerceDate(v.result);
+  // Rich text.
+  if (typeof v === 'object' && Array.isArray(v.richText)) {
+    return coerceDate(v.richText.map((r) => r.text).join(''));
+  }
+  return null;
+}
+
 // ── Public entry point ─────────────────────────────────────────────────
 async function run(job) {
   await job.update({ started_at: job.started_at || new Date() });
@@ -157,8 +213,8 @@ async function parseAndPreview(job) {
       skip: buckets.skip.length, reject: buckets.reject.length,
     },
     sample: {
-      create: buckets.create.slice(0, 10).map((x) => slim(x)),
-      update: buckets.update.slice(0, 10).map((x) => slim(x)),
+      create: buckets.create.slice(0, 10).map((x) => slim(x, false)),
+      update: buckets.update.slice(0, 10).map((x) => slim(x, true)),
       reject: buckets.reject.slice(0, 20).map((x) => ({ row: x.row, reason: x.reason })),
     },
     gst_enabled: gstEnabled,
@@ -172,7 +228,25 @@ async function parseAndPreview(job) {
   });
 }
 
-function slim(x) { return { row: x.row, identifier: x.identifier }; }
+// Shape the preview UI consumes. Includes the date and total so the
+// "Will create / Will update" tables can render them — without this the
+// preview would render "—" in every row even when the data was fine.
+function slim(x, isUpdate) {
+  const d = x._data || {};
+  const date = d.bill_date || d.transaction_date || d.voucher_date || null;
+  const newTotal = x._totals ? x._totals.total_amount : (d.total_amount != null ? Number(d.total_amount) : null);
+  const out = {
+    row: x.row,
+    identifier: x.identifier,
+    date,
+    total: newTotal,
+  };
+  if (isUpdate) {
+    out.new_total = newTotal;
+    out.old_total = x._existingTotal != null ? Number(x._existingTotal) : null;
+  }
+  return out;
+}
 
 // ── parseSheet — header→field translator ─────────────────────────────
 function parseSheet(ws, headerMap) {
@@ -190,11 +264,19 @@ function parseSheet(ws, headerMap) {
       const field = headerMap[headerRow[i]];
       if (!field) continue;
       const v = row.values[i];
-      // Excel cell can be null / Date / number / formula object.
       if (v == null) continue;
+      // Date-typed columns ALWAYS go through coerceDate so validate and
+      // commit see the same shape (ISO YYYY-MM-DD string, or null).
+      if (DATE_FIELDS.has(field)) {
+        const iso = coerceDate(v);
+        if (iso) out[field] = iso;
+        continue;
+      }
       if (v instanceof Date) out[field] = v.toISOString().slice(0, 10);
       else if (typeof v === 'object' && v.result != null) out[field] = v.result;
-      else out[field] = v;
+      else if (typeof v === 'object' && Array.isArray(v.richText)) {
+        out[field] = v.richText.map((r) => r.text).join('');
+      } else out[field] = v;
     }
     rows.push(out);
   });
@@ -321,10 +403,12 @@ async function validateBills(wb, kind, gstEnabled) {
     const existingBill = byNum.get(r.bill_number);
     const totals = { taxable: round2(taxable), discount, cgst, sgst, igst, cgst_pct: cgstPct, sgst_pct: sgstPct, igst_pct: igstPct, other_charges: otherCharges, freight_charges: freight, round_off: roundOff, total_amount: total };
     if (existingBill) {
-      if (Math.abs((Number(existingBill.total_amount) || 0) - total) < 0.01) {
-        buckets.skip.push({ row: r._rowNum, identifier, _data: r, _items: items, _totals: totals, _existingId: existingBill[kind === 'sales' ? 'sales_bill_id' : 'purchase_bill_id'] });
+      const idVal = existingBill[kind === 'sales' ? 'sales_bill_id' : 'purchase_bill_id'];
+      const existingTotal = Number(existingBill.total_amount) || 0;
+      if (Math.abs(existingTotal - total) < 0.01) {
+        buckets.skip.push({ row: r._rowNum, identifier, _data: r, _items: items, _totals: totals, _existingId: idVal, _existingTotal: existingTotal });
       } else {
-        buckets.update.push({ row: r._rowNum, identifier, _data: r, _items: items, _totals: totals, _existingId: existingBill[kind === 'sales' ? 'sales_bill_id' : 'purchase_bill_id'] });
+        buckets.update.push({ row: r._rowNum, identifier, _data: r, _items: items, _totals: totals, _existingId: idVal, _existingTotal: existingTotal });
       }
     } else {
       buckets.create.push({ row: r._rowNum, identifier, _data: r, _items: items, _totals: totals });
@@ -352,10 +436,11 @@ async function validatePayments(wb) {
     const identifier = r.transaction_number;
     const existingRow = byNum.get(r.transaction_number);
     if (existingRow) {
-      if (Math.abs((Number(existingRow.total_amount) || 0) - Number(r.total_amount)) < 0.01) {
-        buckets.skip.push({ row: r._rowNum, identifier, _data: r, _existingId: existingRow.transaction_id });
+      const existingTotal = Number(existingRow.total_amount) || 0;
+      if (Math.abs(existingTotal - Number(r.total_amount)) < 0.01) {
+        buckets.skip.push({ row: r._rowNum, identifier, _data: r, _existingId: existingRow.transaction_id, _existingTotal: existingTotal });
       } else {
-        buckets.update.push({ row: r._rowNum, identifier, _data: r, _existingId: existingRow.transaction_id });
+        buckets.update.push({ row: r._rowNum, identifier, _data: r, _existingId: existingRow.transaction_id, _existingTotal: existingTotal });
       }
     } else {
       buckets.create.push({ row: r._rowNum, identifier, _data: r });

@@ -320,7 +320,10 @@ export const importsAPI = {
   create:  (formData) => api.post('/imports', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   confirm: (id, choices) => api.post(`/imports/${id}/confirm`, choices || {}),
   cancel:  (id) => api.post(`/imports/${id}/cancel`),
-  rejectedUrl: (id) => `/api/imports/${id}/rejected-rows`,
+  // Auth'd blob download. A plain <a href> wouldn't carry the JWT, so the
+  // endpoint would 401. Return the blob; caller triggers the save.
+  rejectedRowsBlob: (id) =>
+    api.get(`/imports/${id}/rejected-rows`, { responseType: 'blob' }),
 };
 
 export const tallyMappingAPI = {

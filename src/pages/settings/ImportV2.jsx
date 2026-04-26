@@ -104,6 +104,30 @@ export default function ImportV2() {
     setJob(null); setFile(null); setResultOpen(false);
   };
 
+  // Auth'd blob download. A direct <a href> would skip the Authorization
+  // header and 401. We fetch the blob via the API client (which injects
+  // the JWT), then trigger the save with a transient object URL.
+  const handleDownloadRejected = async () => {
+    if (!job) return;
+    try {
+      const res = await importsAPI.rejectedRowsBlob(job.id);
+      const url = URL.createObjectURL(new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rejected-rows-${job.id}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoke after the click is queued so the browser has time to start
+      // the download. 1s is conservative.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Download failed.');
+    }
+  };
+
   return (
     <div>
       {/* Source picker + upload */}
@@ -182,7 +206,7 @@ export default function ImportV2() {
         onCancel={() => setResultOpen(false)}
         footer={[
           (job && job.rejected_rows_path) ? (
-            <Button key="reject" icon={<DownloadOutlined />} href={importsAPI.rejectedUrl(job && job.id)}>
+            <Button key="reject" icon={<DownloadOutlined />} onClick={handleDownloadRejected}>
               Download rejected rows
             </Button>
           ) : null,
@@ -246,17 +270,26 @@ function PreviewPanel({ job, onConfirm, onCancel }) {
   );
 }
 
-function Bucket({ title, rows = [], reject = false, updates = false, onToggle, unchecked = [] }) {
+function Bucket({ title, rows = [], reject = false, updates = false }) {
   if (!rows.length) return null;
+  const mono = { fontFamily: 'Geist Mono, monospace' };
   const cols = reject
-    ? [{ title: 'Row / Voucher', key: 'r', render: (_, r) => r.voucher_number || r.row || '—' },
-       { title: 'Reason', dataIndex: 'reason', ellipsis: true }]
+    ? [
+        { title: 'Row / Voucher', key: 'r', render: (_, r) => r.voucher_number || r.row || '—' },
+        { title: 'Reason', dataIndex: 'reason', ellipsis: true },
+      ]
     : updates
-    ? [{ title: 'Identifier', key: 'id', render: (_, r) => r.voucher_number || r.identifier || '—' },
-       { title: 'Old', key: 'old', align: 'right', render: (_, r) => <span style={{ fontFamily: 'Geist Mono, monospace' }}>{fmt(r.old_total || r.existing_total)}</span> },
-       { title: 'New', key: 'new', align: 'right', render: (_, r) => <span style={{ fontFamily: 'Geist Mono, monospace' }}>{fmt(r.new_total || r.total)}</span> }]
-    : [{ title: 'Identifier', key: 'id', render: (_, r) => r.voucher_number || r.identifier || '—' },
-       { title: 'Date / Total', key: 'd', render: (_, r) => r.date ? r.date : (r.total != null ? <span style={{ fontFamily: 'Geist Mono, monospace' }}>{fmt(r.total)}</span> : '—') }];
+    ? [
+        { title: 'Identifier', key: 'id', render: (_, r) => r.voucher_number || r.identifier || '—' },
+        { title: 'Date',  key: 'date', render: (_, r) => r.date || '—' },
+        { title: 'Old',   key: 'old',   align: 'right', render: (_, r) => r.old_total != null || r.existing_total != null ? <span style={mono}>{fmt(r.old_total != null ? r.old_total : r.existing_total)}</span> : '—' },
+        { title: 'New',   key: 'new',   align: 'right', render: (_, r) => r.new_total != null || r.total != null ? <span style={mono}>{fmt(r.new_total != null ? r.new_total : r.total)}</span> : '—' },
+      ]
+    : [
+        { title: 'Identifier', key: 'id', render: (_, r) => r.voucher_number || r.identifier || '—' },
+        { title: 'Date',  key: 'date', render: (_, r) => r.date || '—' },
+        { title: 'Total', key: 'tot',  align: 'right', render: (_, r) => r.total != null ? <span style={mono}>{fmt(r.total)}</span> : '—' },
+      ];
   return (
     <div style={{ marginBottom: 12 }}>
       <Text strong>{title}</Text>
