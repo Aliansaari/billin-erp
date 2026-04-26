@@ -173,6 +173,13 @@ async function validateAndPreview(job, parsed) {
 
   const settings = await SystemSettings.findOne({ where: { setting_id: 1 } });
   const gstEnabled = !!(settings && settings.gst_enabled);
+  // FY start guard. Tally exports often include vouchers from prior years
+  // that the user does NOT want re-imported into the current period.
+  // Reject any voucher dated before fy_start so the audit trail can't be
+  // back-dated by accident. Stored as 'YYYY-MM-DD' on system_settings.
+  const fyStart = settings && settings.financial_year_start
+    ? String(settings.financial_year_start).slice(0, 10)
+    : null;
 
   // Pre-load existing bill/payment numbers so we can detect re-import diffs.
   const existingSales     = await SalesBill.findAll({ attributes: ['sales_bill_id', 'bill_number', 'total_amount'] });
@@ -202,6 +209,13 @@ async function validateAndPreview(job, parsed) {
     }
     if (!v.voucher_date) {
       buckets.reject.push({ voucher: v, reason: 'Voucher date missing or unparseable.' });
+      continue;
+    }
+    if (fyStart && v.voucher_date < fyStart) {
+      buckets.reject.push({
+        voucher: v,
+        reason: `Date ${formatDateForReason(v.voucher_date)} is before FY start (${formatDateForReason(fyStart)}).`,
+      });
       continue;
     }
 
@@ -379,6 +393,25 @@ async function ensureParties(job, ledgers) {
   return map;
 }
 
+// Cash purchase fallback: PurchaseBill.supplier_id is NOT NULL but
+// counter-style cash purchases legitimately have no supplier party.
+// We materialise a single "Cash Purchases" Supplier and reuse it for
+// every cash purchase from any import — keeping the constraint satisfied
+// without polluting the parties list with one stub per cash bill.
+async function ensureCashPurchasesParty(t) {
+  const STUB_NAME = 'Cash Purchases';
+  const existing = await Party.findOne({ where: { party_name: STUB_NAME }, transaction: t });
+  if (existing) return existing.party_id;
+  const party = await Party.create({
+    party_type: 'Supplier',
+    party_name: STUB_NAME,
+    mobile_1: 'CASH-PURCHASES',
+    opening_balance: 0,
+    opening_balance_type: 'Payable',
+  }, { transaction: t });
+  return party.party_id;
+}
+
 async function ensureProducts(job, stockItems) {
   const map = new Map();
   for (const it of stockItems) {
@@ -427,7 +460,20 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
       const sourceType = isSales ? 'sales_bill' : 'purchase_bill';
       const subType   = isSales ? 'sales_bill_receipt' : 'purchase_bill_payment';
 
-      const partyId = v.party_name ? (partiesByName.get(v.party_name) || {}).party_id : null;
+      let partyId = v.party_name ? (partiesByName.get(v.party_name) || {}).party_id : null;
+      // Cash purchase: PARTYLEDGERNAME is "Cash" / a Bank ledger rather
+      // than a Sundry Creditor. PurchaseBill.supplier_id is NOT NULL, so
+      // we auto-create (or reuse) a "Cash Purchases" stub Supplier party.
+      // We also flag this voucher so the bill is booked as paid in full
+      // — that triggers the secondary purchase_bill_payment voucher
+      // (Stub Supplier Dr / Cash Cr) which (a) puts the credit on the
+      // real Cash ledger and (b) nets the stub supplier ledger to zero
+      // so it doesn't clutter party-balance reports.
+      let isCashPurchase = false;
+      if (!isSales && !partyId) {
+        partyId = await ensureCashPurchasesParty(t);
+        isCashPurchase = true;
+      }
 
       let billRow;
       if (action === 'update') {
@@ -457,13 +503,12 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
           cgst_amount: totals.cgst, sgst_amount: totals.sgst, igst_amount: totals.igst,
           cgst_pct: totals.cgst_pct, sgst_pct: totals.sgst_pct, igst_pct: totals.igst_pct,
           round_off: totals.round_off,
-          total_amount: totals.total_amount, paid_amount: 0,
-          balance_amount: totals.total_amount, payment_status: 'Unpaid',
+          total_amount: totals.total_amount,
+          paid_amount: isCashPurchase ? totals.total_amount : 0,
+          balance_amount: isCashPurchase ? 0 : totals.total_amount,
+          payment_status: isCashPurchase ? 'Paid' : 'Unpaid',
           payment_method: 'Cash',
         };
-        // PurchaseBill requires a supplier — auto-fall-back is impossible
-        // since the FK is NOT NULL. Reject this voucher cleanly.
-        if (!isSales && !partyId) throw new Error('Purchase voucher has no supplier and supplier_id is NOT NULL.');
         billRow = await Bill.create(data, { transaction: t });
       }
 
@@ -729,6 +774,17 @@ async function resolveLegLedger(le, partiesByName, t) {
 // ── pure helpers ───────────────────────────────────────────────────────
 function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 
+// "2026-04-15" → "15-Apr-2026". Used in reject reasons so the user sees
+// the same date format the rest of the app uses, regardless of how the
+// XML wrote it.
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function formatDateForReason(iso) {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return String(iso || '');
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  const mIdx = parseInt(m, 10) - 1;
+  return `${d}-${MONTHS_SHORT[mIdx] || m}-${y}`;
+}
+
 // Tally lines come in two sign conventions: "isDeemedPositive=YES" lines
 // behave as debits (party Dr on a sale, cash Dr on a receipt). Tally's
 // AMOUNT field carries a sign that mirrors this. We extract the absolute
@@ -783,9 +839,30 @@ function computeVoucherTotals(v, gstEnabled) {
   }
 
   // Sales / Purchase shape.
-  let taxable = 0, cgst = 0, sgst = 0, igst = 0, roundOff = 0, discount = 0, partyAbs = 0;
+  //
+  // Identify the party-equivalent leg by *name match against v.party_name*
+  // — what Tally itself guarantees is the bill total. This works for both
+  // credit sales (party = Sundry Debtor ledger) AND cash sales / cash
+  // purchases (party = "Cash" or a Bank ledger). The previous bucket-sum
+  // approach summed every party_or_other + cash_bank leg into one number,
+  // so a "Local Sales 12%" line that didn't classify as 'sales' got
+  // double-counted into the party leg.
+  //
+  // Breakdown of the OTHER legs still uses the by-classification buckets
+  // for the bill row (taxable / cgst / sgst / igst / round-off / discount).
+  // Unclassified non-party legs fall back to taxable so the breakdown
+  // still ties to the party leg total.
+  const partyLedgerName = v.party_name || '';
+  const isPartyLeg = (le) => partyLedgerName && le.name === partyLedgerName;
+
+  let partyLegAbs = 0;
+  let taxable = 0, cgst = 0, sgst = 0, igst = 0, roundOff = 0, discount = 0;
   for (const le of v.ledger_entries) {
     const a = Math.abs(le.amount);
+    if (isPartyLeg(le)) {
+      partyLegAbs += a;
+      continue;
+    }
     switch (le.classification) {
       case 'sales': case 'purchase':       taxable += a;  break;
       case 'cgst':                         if (gstEnabled) cgst += a; else taxable += a; break;
@@ -793,18 +870,25 @@ function computeVoucherTotals(v, gstEnabled) {
       case 'igst':                         if (gstEnabled) igst += a; else taxable += a; break;
       case 'roundoff':                     roundOff += le.amount; break;
       case 'discount':                     discount += a; break;
-      case 'party_or_other': case 'cash_bank': partyAbs += a; break;
-      default: break;
+      // Anything else (mis-classified party_or_other, unknown income/
+      // expense ledgers) folds into taxable. Better to over-attribute than
+      // to silently drop value — the balance check still catches genuine
+      // mismatches.
+      default:                             taxable += a; break;
     }
   }
+  partyLegAbs = round2(partyLegAbs);
   taxable = round2(taxable);
   cgst = round2(cgst); sgst = round2(sgst); igst = round2(igst);
   roundOff = round2(roundOff); discount = round2(discount);
 
   const total = round2(taxable - discount + cgst + sgst + igst + roundOff);
 
-  if (partyAbs > 0 && Math.abs(partyAbs - total) > 1) {
-    return { error: `Voucher unbalanced: party leg ₹${partyAbs.toFixed(2)} vs computed total ₹${total.toFixed(2)}` };
+  // Balance check: the party leg's magnitude must match the sum of all
+  // other legs (= computed total). We allow ₹1 slack for paisa drift on
+  // very long item lists.
+  if (partyLegAbs > 0 && Math.abs(partyLegAbs - total) > 1) {
+    return { error: `Voucher unbalanced: party leg ₹${partyLegAbs.toFixed(2)} vs computed total ₹${total.toFixed(2)}` };
   }
   if (total <= 0) {
     return { error: `Voucher has zero or negative total (₹${total.toFixed(2)}).` };

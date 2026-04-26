@@ -74,8 +74,16 @@ function classifyLedger(name) {
   // same taxable + tax shape for Credit Notes / Debit Notes.
   if (u.includes('SALES RETURN'))    return 'sales';
   if (u.includes('PURCHASE RETURN')) return 'purchase';
-  if (u.includes('SALES ACCOUNT') || u.includes('SALES A/C') || u === 'SALES') return 'sales';
-  if (u.includes('PURCHASE ACCOUNT') || u.includes('PURCHASE A/C') || u === 'PURCHASE') return 'purchase';
+  // Broad match on SALES / PURCHASE — Tally users name their sales ledgers
+  // many ways: "Sales Account", "Local Sales 12%", "Interstate Sales 18%",
+  // "Export Sales", etc. A narrow whitelist mis-classifies all of these
+  // as party_or_other, which then breaks the balance-check on cash sales
+  // (the Sales line gets summed into the party leg instead of the
+  // computed total). False positives like "Sales Commission" are
+  // accounting-acceptable here — they still net out against the party
+  // leg in the same direction.
+  if (u.includes('SALES'))    return 'sales';
+  if (u.includes('PURCHASE')) return 'purchase';
   if (u.includes('CASH') || u.includes('BANK')) return 'cash_bank';
   return 'party_or_other';
 }
