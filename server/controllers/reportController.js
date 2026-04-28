@@ -251,6 +251,32 @@ exports.dashboardStats = async (req, res) => {
   }
 };
 
+// ── Ledger-vs-register reconciliation helpers ────────────────────────
+// Replicates the reconciliation block previously surfaced by the now-
+// removed Sales/Purchase Register endpoints. Sales Account Cr (or
+// Purchase Account Dr) is posted by the voucher builder as
+//   sub_total − discount + other_charges + freight_charges
+// (the "Net Sales/Purchase method"). The bill side computes the same
+// formula across the filtered rows; mismatch surfaces a banner.
+async function ledgerNetWithinPeriod(ledgerName, from, to) {
+  const [r] = await sequelize.query(
+    `SELECT COALESCE(SUM(le.debit_amount), 0)::float  AS dr,
+            COALESCE(SUM(le.credit_amount), 0)::float AS cr
+       FROM ledger_entries le
+       JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+      WHERE la.ledger_name = :name
+        AND le.reversal_of_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id
+        )
+        AND le.entry_date BETWEEN :from AND :to`,
+    { replacements: { name: ledgerName, from, to }, type: sequelize.QueryTypes.SELECT },
+  );
+  const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+  return { dr: r2(r.dr), cr: r2(r.cr) };
+}
+function r2(v) { return Math.round((Number(v) || 0) * 100) / 100; }
+
 exports.salesReport = async (req, res) => {
   try {
     const { from_date, to_date, customer_id, payment_status } = req.query;
@@ -265,7 +291,10 @@ exports.salesReport = async (req, res) => {
 
     const { count, rows } = await SalesBill.findAndCountAll({
       where,
-      include: [{ model: Party, as: 'customer', attributes: ['party_name', 'mobile_1'] }],
+      // GSTIN + state included so the optional columns the user can
+      // toggle on (for GSTR-1 reconciliation) have data to show.
+      include: [{ model: Party, as: 'customer',
+        attributes: ['party_id', 'party_name', 'mobile_1', 'gstin', 'state'] }],
       order: [['bill_date', 'DESC']],
       limit,
       offset,
@@ -302,13 +331,55 @@ exports.salesReport = async (req, res) => {
       total_amount:   +parseFloat(t0.total_sales).toFixed(2),       // alias for UI code reading total_amount
       total_sub:      +parseFloat(t0.total_sub).toFixed(2),
       total_discount: +parseFloat(t0.total_discount).toFixed(2),
+      total_cgst:     +parseFloat(t0.total_cgst).toFixed(2),
+      total_sgst:     +parseFloat(t0.total_sgst).toFixed(2),
+      total_igst:     +parseFloat(t0.total_igst).toFixed(2),
+      total_cess:     +parseFloat(t0.total_cess).toFixed(2),
       total_gst,
       total_paid:     +parseFloat(t0.total_paid).toFixed(2),
       total_pending:  +parseFloat(t0.total_pending).toFixed(2),
       total_balance:  +parseFloat(t0.total_pending).toFixed(2),     // alias for UI code reading total_balance
     };
 
-    res.json({ total: count, page, data: rows, summary });
+    // Ledger reconciliation — only meaningful when filtering by date
+    // range. Sales Account Cr (period) should equal
+    //   sub_total − discount + other_charges + freight_charges
+    // summed across the same filtered set. Drift surfaces a banner.
+    let reconciliation = null;
+    if (from_date && to_date) {
+      const reconWhere = { ...where };
+      const breakdown = await SalesBill.findAll({
+        where: reconWhere,
+        attributes: [
+          [fn('COALESCE', fn('SUM', col('sub_total')),       0), 'sub'],
+          [fn('COALESCE', fn('SUM', col('discount_amount')), 0), 'disc'],
+          [fn('COALESCE', fn('SUM', col('other_charges')),   0), 'other'],
+          [fn('COALESCE', fn('SUM', col('freight_charges')), 0), 'freight'],
+        ],
+        raw: true,
+      });
+      const b = breakdown[0] || {};
+      const sub     = r2(b.sub);
+      const disc    = r2(b.disc);
+      const other   = r2(b.other);
+      const freight = r2(b.freight);
+      const registerNetToLedger = r2(sub - disc + other + freight);
+      const salesLedger = await ledgerNetWithinPeriod('Sales Account', from_date, to_date);
+      const salesNetCr  = r2(salesLedger.cr - salesLedger.dr);
+      reconciliation = {
+        ledger_name: 'Sales Account',
+        ledger_net_credit: salesNetCr,
+        register_net_to_ledger: registerNetToLedger,
+        register_taxable: sub,
+        register_discount: disc,
+        register_freight: freight,
+        register_other: other,
+        difference: r2(salesNetCr - registerNetToLedger),
+        balanced: Math.abs(salesNetCr - registerNetToLedger) < 0.01,
+      };
+    }
+
+    res.json({ total: count, page, data: rows, summary, reconciliation });
   } catch (error) {
     console.error('Sales report error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -327,7 +398,8 @@ exports.purchaseReport = async (req, res) => {
 
     const { count, rows } = await PurchaseBill.findAndCountAll({
       where,
-      include: [{ model: Party, as: 'supplier', attributes: ['party_name', 'mobile_1'] }],
+      include: [{ model: Party, as: 'supplier',
+        attributes: ['party_id', 'party_name', 'mobile_1', 'gstin', 'state'] }],
       order: [['bill_date', 'DESC']],
       limit,
       offset,
@@ -360,13 +432,53 @@ exports.purchaseReport = async (req, res) => {
       total_amount:    +parseFloat(t0.total_purchases).toFixed(2), // alias for UI code reading total_amount
       total_sub:       +parseFloat(t0.total_sub).toFixed(2),
       total_discount:  +parseFloat(t0.total_discount).toFixed(2),
+      total_cgst:      +parseFloat(t0.total_cgst).toFixed(2),
+      total_sgst:      +parseFloat(t0.total_sgst).toFixed(2),
+      total_igst:      +parseFloat(t0.total_igst).toFixed(2),
+      total_cess:      +parseFloat(t0.total_cess).toFixed(2),
       total_gst,
       total_paid:      +parseFloat(t0.total_paid).toFixed(2),
       total_pending:   +parseFloat(t0.total_pending).toFixed(2),
       total_balance:   +parseFloat(t0.total_pending).toFixed(2),   // alias for UI code reading total_balance
     };
 
-    res.json({ total: count, page, data: rows, summary });
+    // Ledger reconciliation — Purchase Account Dr (period) should equal
+    // the same Net-Purchase formula as the voucher builder uses.
+    let reconciliation = null;
+    if (from_date && to_date) {
+      const reconWhere = { ...where };
+      const breakdown = await PurchaseBill.findAll({
+        where: reconWhere,
+        attributes: [
+          [fn('COALESCE', fn('SUM', col('sub_total')),       0), 'sub'],
+          [fn('COALESCE', fn('SUM', col('discount_amount')), 0), 'disc'],
+          [fn('COALESCE', fn('SUM', col('other_charges')),   0), 'other'],
+          [fn('COALESCE', fn('SUM', col('freight_charges')), 0), 'freight'],
+        ],
+        raw: true,
+      });
+      const b = breakdown[0] || {};
+      const sub     = r2(b.sub);
+      const disc    = r2(b.disc);
+      const other   = r2(b.other);
+      const freight = r2(b.freight);
+      const registerNetToLedger = r2(sub - disc + other + freight);
+      const purLedger = await ledgerNetWithinPeriod('Purchase Account', from_date, to_date);
+      const purNetDr  = r2(purLedger.dr - purLedger.cr);
+      reconciliation = {
+        ledger_name: 'Purchase Account',
+        ledger_net_debit: purNetDr,
+        register_net_to_ledger: registerNetToLedger,
+        register_taxable: sub,
+        register_discount: disc,
+        register_freight: freight,
+        register_other: other,
+        difference: r2(purNetDr - registerNetToLedger),
+        balanced: Math.abs(purNetDr - registerNetToLedger) < 0.01,
+      };
+    }
+
+    res.json({ total: count, page, data: rows, summary, reconciliation });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }

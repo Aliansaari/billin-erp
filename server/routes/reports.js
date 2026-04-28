@@ -16,9 +16,10 @@ router.get('/cash-flow',          requirePermission('accounts.view'), financialR
 // /receivables-aging + /payables-aging removed in Phase R5 follow-up.
 // Use /api/reports/aging?party_type=Customer|Supplier (single source).
 
-// Phase R3 — Operational registers + summaries.
-router.get('/sales-register',     requirePermission('reports.view'),  operationalReports.salesRegister);
-router.get('/purchase-register',  requirePermission('reports.view'),  operationalReports.purchaseRegister);
+// Phase R3 — Operational summaries. (Sales/Purchase Registers were
+// merged into /reports/sales and /reports/purchases — those endpoints
+// now carry the same reconciliation block, with pagination + filters
+// the registers lacked.)
 router.get('/hsn-summary',        requirePermission('reports.view'),  operationalReports.hsnSummary);
 router.get('/stock-summary',      requirePermission('reports.view'),  operationalReports.stockSummary);
 router.get('/movers',             requirePermission('reports.view'),  operationalReports.movers);

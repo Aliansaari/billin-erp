@@ -28,6 +28,7 @@ const { postVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers, buildPurchaseBillVouchers } = require('../services/voucherBuilders');
 const finReports = require('../controllers/financialReportsController');
 const ops = require('../controllers/operationalReportsController');
+const reportControllerR4 = require('../controllers/reportController');
 
 let pass = 0, fail = 0;
 const results = [];
@@ -122,8 +123,8 @@ async function main() {
 
   // Take baseline reconciliation deltas BEFORE creating fixtures so we
   // can assert "a +1000 bill moves both sides by +1000 in lockstep".
-  const srBase = await callCtrl(ops.salesRegister,    { from_date: FROM, to_date: TO });
-  const prBase = await callCtrl(ops.purchaseRegister, { from_date: FROM, to_date: TO });
+  const srBase = await callCtrl(reportControllerR4.salesReport,    { from_date: FROM, to_date: TO, limit: 1000 });
+  const prBase = await callCtrl(reportControllerR4.purchaseReport, { from_date: FROM, to_date: TO, limit: 1000 });
   const baseSalesLedger    = srBase.body.reconciliation.ledger_net_credit;
   const baseSalesNet2L     = srBase.body.reconciliation.register_net_to_ledger;
   const basePurLedger      = prBase.body.reconciliation.ledger_net_debit;
@@ -163,7 +164,7 @@ async function main() {
   await t1.commit();
 
   // ── (C) Sales Register reconciliation ────────────────────────────────
-  const sr = await callCtrl(ops.salesRegister, { from_date: FROM, to_date: TO });
+  const sr = await callCtrl(reportControllerR4.salesReport, { from_date: FROM, to_date: TO, limit: 1000 });
   const srRecon = sr.body.reconciliation;
   check('SR: reconciliation present', !!srRecon);
   check('SR: register_net_to_ledger field present', typeof srRecon.register_net_to_ledger === 'number');
@@ -201,7 +202,7 @@ async function main() {
   )) await postVoucher({ ...v, transaction: t2 });
   await t2.commit();
 
-  const pr = await callCtrl(ops.purchaseRegister, { from_date: FROM, to_date: TO });
+  const pr = await callCtrl(reportControllerR4.purchaseReport, { from_date: FROM, to_date: TO, limit: 1000 });
   const prRecon = pr.body.reconciliation;
   check('PR: reconciliation present', !!prRecon);
   check('PR: register_net_to_ledger field present', typeof prRecon.register_net_to_ledger === 'number');
@@ -241,7 +242,7 @@ async function main() {
   )) await postVoucher({ ...v, transaction: t2b });
   await t2b.commit();
 
-  const srAfterFreight = await callCtrl(ops.salesRegister, { from_date: FROM, to_date: TO });
+  const srAfterFreight = await callCtrl(reportControllerR4.salesReport, { from_date: FROM, to_date: TO, limit: 1000 });
   const recF = srAfterFreight.body.reconciliation;
   // Sales Cr should advance by 2000 − 50 + 25 + 300 = 2275.
   check('Freight-only: ledger Cr delta = 2,275',
@@ -290,7 +291,7 @@ async function main() {
           '${PFX}drift inducer', '${PFX}MANUAL-JV1', 'journal_voucher', 'Journal', NOW())`,
     );
 
-    const sr2 = await callCtrl(ops.salesRegister, { from_date: FROM, to_date: TO });
+    const sr2 = await callCtrl(reportControllerR4.salesReport, { from_date: FROM, to_date: TO, limit: 1000 });
     const drifted = sr2.body.reconciliation;
     // Sales Cr advances by 100 (off-bill). register_net_to_ledger does NOT
     // (no SalesBill row created). Difference must advance by exactly 100.

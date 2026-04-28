@@ -110,8 +110,6 @@ export const menuItems = [
       { key: '/reports/trial-balance',     icon: <TableOutlined />,    label: 'Trial Balance',     perm: 'accounts.view' },
       { key: '/reports/balance-sheet',     icon: <BankOutlined />,     label: 'Balance Sheet',     perm: 'accounts.view' },
       { key: '/reports/cash-flow',         icon: <FundOutlined />,     label: 'Cash Flow',         perm: 'accounts.view' },
-      { key: '/reports/sales-register',    icon: <FileTextOutlined />, label: 'Sales Register',    perm: 'reports.view'  },
-      { key: '/reports/purchase-register', icon: <FileTextOutlined />, label: 'Purchase Register', perm: 'reports.view'  },
       { key: '/reports/hsn-summary',       icon: <TagsOutlined />,     label: 'HSN Summary',       perm: 'reports.view'  },
       { key: '/reports/stock-summary',     icon: <StockOutlined />,    label: 'Stock Summary',     perm: 'reports.view'  },
       { key: '/reports/movers',            icon: <ThunderboltOutlined />,label: 'Fast / Slow Movers', perm: 'reports.view' },

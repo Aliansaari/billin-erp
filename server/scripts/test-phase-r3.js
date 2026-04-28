@@ -16,6 +16,7 @@ const {
 const { postVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers, buildPurchaseBillVouchers } = require('../services/voucherBuilders');
 const ops = require('../controllers/operationalReportsController');
+const reportController = require('../controllers/reportController');
 
 let pass = 0, fail = 0;
 const results = [];
@@ -61,14 +62,18 @@ async function main() {
   const TODAY = new Date().toISOString().slice(0, 10);
 
   // ── Baseline snapshots (R3 reports include any prod data — assert deltas) ─
-  const baseSales = await callCtrl(ops.salesRegister, { from_date: FROM, to_date: TO });
-  const basePurch = await callCtrl(ops.purchaseRegister, { from_date: FROM, to_date: TO });
+  // /sales and /purchases — the canonical bill-by-bill endpoints.
+  // (R3 originally tested /sales-register + /purchase-register; those
+  // were folded into /sales and /purchases — same data shape, with
+  // pagination + filters + reconciliation.)
+  const baseSales = await callCtrl(reportController.salesReport,    { from_date: FROM, to_date: TO, limit: 1000 });
+  const basePurch = await callCtrl(reportController.purchaseReport, { from_date: FROM, to_date: TO, limit: 1000 });
   const baseHsnS = await callCtrl(ops.hsnSummary, { from_date: FROM, to_date: TO, direction: 'sales' });
   const baseStock = await callCtrl(ops.stockSummary, { from_date: FROM, to_date: TO });
   const baseMov = await callCtrl(ops.movers, { from_date: FROM, to_date: TO, limit: 100 });
 
-  check('Baseline: salesRegister status 200', baseSales.status === 200);
-  check('Baseline: purchaseRegister status 200', basePurch.status === 200);
+  check('Baseline: salesReport status 200', baseSales.status === 200);
+  check('Baseline: purchaseReport status 200', basePurch.status === 200);
   check('Baseline: hsnSummary status 200', baseHsnS.status === 200);
   check('Baseline: stockSummary status 200', baseStock.status === 200);
   check('Baseline: movers status 200', baseMov.status === 200);
@@ -173,40 +178,40 @@ async function main() {
   await prodB.update({ current_stock: 15 }, { transaction: t2 });
   await t2.commit();
 
-  // ── Sales Register ─────────────────────────────────────────────────────
-  const sr = await callCtrl(ops.salesRegister, { from_date: FROM, to_date: TO });
+  // ── Sales Report (canonical bill-by-bill) ─────────────────────────────
+  const sr = await callCtrl(reportController.salesReport, { from_date: FROM, to_date: TO, limit: 1000 });
   check('SR: status 200', sr.status === 200);
-  const myBill = (sr.body.bills || []).find((b) => b.bill_number === `${PFX}SAL-1`);
+  const myBill = (sr.body.data || []).find((b) => b.bill_number === `${PFX}SAL-1`);
   check('SR: our bill present', !!myBill);
   if (myBill) {
-    check('SR: customer name matches', myBill.customer_name === `${PFX}CustA`);
-    check('SR: gstin returned', myBill.gstin === '27AAAAA1234A1Z5');
-    check('SR: taxable = 2,900', Math.abs(myBill.taxable - 2900) < 0.01);
-    check('SR: total = 3,045', Math.abs(myBill.total - 3045) < 0.01);
-    check('SR: balance = 3,045 (unpaid)', Math.abs(myBill.balance - 3045) < 0.01);
+    check('SR: customer name matches', myBill.customer?.party_name === `${PFX}CustA`);
+    check('SR: gstin returned', myBill.customer?.gstin === '27AAAAA1234A1Z5');
+    check('SR: sub_total = 2,900', Math.abs(Number(myBill.sub_total) - 2900) < 0.01);
+    check('SR: total = 3,045', Math.abs(Number(myBill.total_amount) - 3045) < 0.01);
+    check('SR: balance = 3,045 (unpaid)', Math.abs(Number(myBill.balance_amount) - 3045) < 0.01);
   }
-  // Delta totals: ours adds bills_count + 1, taxable + 2,900
-  check('SR: totals.bills_count delta = +1',
-    sr.body.totals.bills_count === baseSales.body.totals.bills_count + 1,
-    `before=${baseSales.body.totals.bills_count} after=${sr.body.totals.bills_count}`);
-  check('SR: totals.taxable delta = +2,900',
-    Math.abs(sr.body.totals.taxable - baseSales.body.totals.taxable - 2900) < 0.01,
-    `delta=${(sr.body.totals.taxable - baseSales.body.totals.taxable).toFixed(2)}`);
+  // Delta totals: ours adds bills_count + 1, sub_total + 2,900
+  check('SR: summary.total_bills delta = +1',
+    sr.body.summary.total_bills === baseSales.body.summary.total_bills + 1,
+    `before=${baseSales.body.summary.total_bills} after=${sr.body.summary.total_bills}`);
+  check('SR: summary.total_sub delta = +2,900',
+    Math.abs(sr.body.summary.total_sub - baseSales.body.summary.total_sub - 2900) < 0.01,
+    `delta=${(sr.body.summary.total_sub - baseSales.body.summary.total_sub).toFixed(2)}`);
 
-  // ── Purchase Register ──────────────────────────────────────────────────
-  const pr = await callCtrl(ops.purchaseRegister, { from_date: FROM, to_date: TO });
+  // ── Purchase Report (canonical bill-by-bill) ───────────────────────────
+  const pr = await callCtrl(reportController.purchaseReport, { from_date: FROM, to_date: TO, limit: 1000 });
   check('PR: status 200', pr.status === 200);
-  const myPur = (pr.body.bills || []).find((b) => b.bill_number === `${PFX}PUR-1`);
+  const myPur = (pr.body.data || []).find((b) => b.bill_number === `${PFX}PUR-1`);
   check('PR: our bill present', !!myPur);
   if (myPur) {
-    check('PR: supplier name matches', myPur.supplier_name === `${PFX}SupA`);
-    check('PR: taxable = 7,000', Math.abs(myPur.taxable - 7000) < 0.01);
-    check('PR: total = 7,350', Math.abs(myPur.total - 7350) < 0.01);
+    check('PR: supplier name matches', myPur.supplier?.party_name === `${PFX}SupA`);
+    check('PR: sub_total = 7,000', Math.abs(Number(myPur.sub_total) - 7000) < 0.01);
+    check('PR: total = 7,350', Math.abs(Number(myPur.total_amount) - 7350) < 0.01);
   }
-  check('PR: totals.bills_count delta = +1',
-    pr.body.totals.bills_count === basePurch.body.totals.bills_count + 1);
-  check('PR: totals.taxable delta = +7,000',
-    Math.abs(pr.body.totals.taxable - basePurch.body.totals.taxable - 7000) < 0.01);
+  check('PR: summary.total_bills delta = +1',
+    pr.body.summary.total_bills === basePurch.body.summary.total_bills + 1);
+  check('PR: summary.total_sub delta = +7,000',
+    Math.abs(pr.body.summary.total_sub - basePurch.body.summary.total_sub - 7000) < 0.01);
 
   // ── HSN Summary (sales) ────────────────────────────────────────────────
   const hs = await callCtrl(ops.hsnSummary, { from_date: FROM, to_date: TO, direction: 'sales' });
@@ -299,10 +304,10 @@ async function main() {
   }
 
   // ── Period filter — empty future window ────────────────────────────────
-  const future = await callCtrl(ops.salesRegister, { from_date: '2099-01-01', to_date: '2099-12-31' });
-  check('Empty period: salesRegister bills empty', (future.body.bills || []).length === 0);
-  check('Empty period: salesRegister totals zero',
-    future.body.totals.bills_count === 0 && future.body.totals.total === 0);
+  const future = await callCtrl(reportController.salesReport, { from_date: '2099-01-01', to_date: '2099-12-31', limit: 1000 });
+  check('Empty period: salesReport bills empty', (future.body.data || []).length === 0);
+  check('Empty period: salesReport totals zero',
+    future.body.summary.total_bills === 0 && future.body.summary.total_amount === 0);
 
   const futureMov = await callCtrl(ops.movers, { from_date: '2099-01-01', to_date: '2099-12-31', limit: 10 });
   check('Empty period: movers fast empty', (futureMov.body.fast || []).length === 0);
@@ -310,9 +315,9 @@ async function main() {
 
   // ── Cancelled bills don't appear ──────────────────────────────────────
   await SalesBill.update({ is_cancelled: true }, { where: { sales_bill_id: salBill.sales_bill_id } });
-  const sr2 = await callCtrl(ops.salesRegister, { from_date: FROM, to_date: TO });
-  const stillThere = (sr2.body.bills || []).find((b) => b.bill_number === `${PFX}SAL-1`);
-  check('Cancelled bill excluded from Sales Register', !stillThere);
+  const sr2 = await callCtrl(reportController.salesReport, { from_date: FROM, to_date: TO, limit: 1000 });
+  const stillThere = (sr2.body.data || []).find((b) => b.bill_number === `${PFX}SAL-1`);
+  check('Cancelled bill excluded from Sales Report', !stillThere);
   // restore for cleanup invariance
   await SalesBill.update({ is_cancelled: false }, { where: { sales_bill_id: salBill.sales_bill_id } });
 

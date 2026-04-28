@@ -1,19 +1,17 @@
 // ── Operational Reports Controller (Phase R3) ──────────────────────────
 //
-// Bill-level + item-level operational reports. Distinct from the existing
-// list reports (`salesReport`, `purchaseReport`, `stockReport`) which are
-// paginated UI listings — these are *registers*: full-period, one-row-
-// per-bill (or per-HSN / per-product), suitable for audit, GSTR
-// reconciliation, and management review.
+// Item-level reports: HSN Summary, Stock Summary, Fast/Slow Movers.
+// (Sales/Purchase Registers were folded into the canonical
+//  /api/reports/sales and /api/reports/purchases endpoints — single
+//  source of truth for bill-by-bill listings.)
 //
 // Period:
 //   • from_date / to_date in req.query — defaults to current FY (start
 //     → today) when missing.
 //
 // Source of truth:
-//   • Sales/Purchase Registers + HSN Summary read directly from
-//     sales_bill_items / purchase_bill_items joined to the bill header.
-//     Cancelled bills are excluded.
+//   • HSN Summary reads from sales_bill_items / purchase_bill_items
+//     joined to the bill header. Cancelled bills are excluded.
 //   • Stock Summary + Fast/Slow Movers read from stock_ledger so that
 //     opening, in, out, and closing tie to ledger movements (not the
 //     denormalised products.current_stock which can drift).
@@ -21,32 +19,12 @@
 const sequelize = require('../config/database');
 const { Op, fn, col, literal } = require('sequelize');
 const {
-  SystemSettings, SalesBill, PurchaseBill, SalesBillItem, PurchaseBillItem,
-  Party, Product, StockLedger, Category,
+  SystemSettings, SalesBillItem, PurchaseBillItem,
+  Product, StockLedger, Category,
 } = require('../models');
 
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function r2(v) { return Math.round(num(v) * 100) / 100; }
-
-// Net activity (Cr − Dr for income accounts, Dr − Cr for expense) on a
-// named ledger within a date range. Live entries only.
-async function ledgerNetWithinPeriod(ledgerName, from, to) {
-  const [r] = await sequelize.query(
-    `SELECT COALESCE(SUM(le.debit_amount), 0)::float  AS dr,
-            COALESCE(SUM(le.credit_amount), 0)::float AS cr
-       FROM ledger_entries le
-       JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
-      WHERE la.ledger_name = :name
-        AND le.reversal_of_id IS NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM ledger_entries m
-           WHERE m.reversal_of_id = le.entry_id
-        )
-        AND le.entry_date BETWEEN :from AND :to`,
-    { replacements: { name: ledgerName, from, to }, type: sequelize.QueryTypes.SELECT },
-  );
-  return { dr: r2(r.dr), cr: r2(r.cr) };
-}
 
 async function resolvePeriod(query) {
   let from = (query && query.from_date) ? String(query.from_date).slice(0, 10) : null;
@@ -59,187 +37,6 @@ async function resolvePeriod(query) {
   }
   return { from, to };
 }
-
-// ── Sales Register ─────────────────────────────────────────────────────
-//
-// Full-period bill-by-bill listing. Each row carries headline numbers
-// (taxable, CGST, SGST, IGST, total, paid, balance) plus the customer
-// label. No pagination — the consumer is expected to be a report screen
-// or Excel exporter that wants the entire period in memory.
-exports.salesRegister = async (req, res) => {
-  try {
-    const { from, to } = await resolvePeriod(req.query);
-    const where = { is_cancelled: false, bill_date: { [Op.between]: [from, to] } };
-    if (req.query.customer_id) where.customer_id = req.query.customer_id;
-
-    const rows = await SalesBill.findAll({
-      where,
-      include: [{ model: Party, as: 'customer', attributes: ['party_id', 'party_name', 'gstin', 'state'] }],
-      order: [['bill_date', 'ASC'], ['sales_bill_id', 'ASC']],
-    });
-
-    const data = rows.map((b) => ({
-      sales_bill_id: b.sales_bill_id,
-      bill_number:   b.bill_number,
-      bill_date:     b.bill_date,
-      customer_id:   b.customer_id,
-      customer_name: b.customer ? b.customer.party_name : '(Walk-in)',
-      gstin:         b.customer ? b.customer.gstin : null,
-      state:         b.customer ? b.customer.state : null,
-      taxable:       r2(b.sub_total),
-      discount:      r2(b.discount_amount),
-      cgst:          r2(b.cgst_amount),
-      sgst:          r2(b.sgst_amount),
-      igst:          r2(b.igst_amount),
-      cess:          r2(b.cess_amount),
-      round_off:     r2(b.round_off),
-      total:         r2(b.total_amount),
-      paid:          r2(b.paid_amount),
-      balance:       r2(b.balance_amount),
-      status:        b.payment_status,
-      bill_mode:     b.bill_mode,
-    }));
-
-    const totals = data.reduce((acc, r) => {
-      acc.taxable  += r.taxable;
-      acc.discount += r.discount;
-      acc.cgst     += r.cgst;
-      acc.sgst     += r.sgst;
-      acc.igst     += r.igst;
-      acc.cess     += r.cess;
-      acc.total    += r.total;
-      acc.paid     += r.paid;
-      acc.balance  += r.balance;
-      return acc;
-    }, { taxable: 0, discount: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, total: 0, paid: 0, balance: 0 });
-    Object.keys(totals).forEach((k) => { totals[k] = r2(totals[k]); });
-    totals.bills_count = data.length;
-
-    // Capture the non-taxable charges that the voucher builder bundles
-    // into the Sales Account credit (Net Sales method —
-    // see services/voucherBuilders.js): Sales Cr posts as
-    //   sub_total − discount + other_charges + freight_charges.
-    // The register's `taxable` is sub_total alone, so the apples-to-
-    // apples comparison for ledger reconciliation requires adding
-    // freight + other and subtracting discount.
-    let regFreight = 0, regOther = 0;
-    for (const b of rows) {
-      regFreight += num(b.freight_charges);
-      regOther   += num(b.other_charges);
-    }
-    regFreight = r2(regFreight); regOther = r2(regOther);
-
-    // Cross-reconciliation: Sales Account ledger net Cr (in period)
-    // should equal Σ(sub_total − discount + other + freight) — the
-    // same formula the voucher builder posts. Drift surfaces a banner
-    // (genuine causes: manual JV against Sales that bypasses billing,
-    // amount-mode bills with mismatched fields).
-    const salesLedger      = await ledgerNetWithinPeriod('Sales Account', from, to);
-    const salesNetCr       = r2(salesLedger.cr - salesLedger.dr);
-    const registerNetToLedger = r2(totals.taxable - totals.discount + regOther + regFreight);
-    const reconciliation = {
-      ledger_name:            'Sales Account',
-      ledger_net_credit:      salesNetCr,
-      register_net_to_ledger: registerNetToLedger,
-      // Breakdown — the banner displays the formula so any future
-      // drift is diagnosable from the screen.
-      register_taxable:  totals.taxable,
-      register_discount: totals.discount,
-      register_freight:  regFreight,
-      register_other:    regOther,
-      difference:        r2(salesNetCr - registerNetToLedger),
-      balanced:          Math.abs(salesNetCr - registerNetToLedger) < 0.01,
-    };
-
-    res.json({ from, to, bills: data, totals, reconciliation });
-  } catch (err) {
-    console.error('salesRegister error:', err);
-    res.status(500).json({ error: 'Server error' });
-  }
-};
-
-// ── Purchase Register ──────────────────────────────────────────────────
-exports.purchaseRegister = async (req, res) => {
-  try {
-    const { from, to } = await resolvePeriod(req.query);
-    const where = { is_cancelled: false, bill_date: { [Op.between]: [from, to] } };
-    if (req.query.supplier_id) where.supplier_id = req.query.supplier_id;
-
-    const rows = await PurchaseBill.findAll({
-      where,
-      include: [{ model: Party, as: 'supplier', attributes: ['party_id', 'party_name', 'gstin', 'state'] }],
-      order: [['bill_date', 'ASC'], ['purchase_bill_id', 'ASC']],
-    });
-
-    const data = rows.map((b) => ({
-      purchase_bill_id: b.purchase_bill_id,
-      bill_number:      b.bill_number,
-      supplier_bill_no: b.supplier_bill_number,
-      bill_date:        b.bill_date,
-      supplier_id:      b.supplier_id,
-      supplier_name:    b.supplier ? b.supplier.party_name : '(Cash purchase)',
-      gstin:            b.supplier ? b.supplier.gstin : null,
-      state:            b.supplier ? b.supplier.state : null,
-      taxable:          r2(b.sub_total),
-      discount:         r2(b.discount_amount),
-      cgst:             r2(b.cgst_amount),
-      sgst:             r2(b.sgst_amount),
-      igst:             r2(b.igst_amount),
-      cess:             r2(b.cess_amount),
-      round_off:        r2(b.round_off),
-      total:            r2(b.total_amount),
-      paid:             r2(b.paid_amount),
-      balance:          r2(b.balance_amount),
-      status:           b.payment_status,
-      bill_mode:        b.bill_mode,
-    }));
-
-    const totals = data.reduce((acc, r) => {
-      acc.taxable  += r.taxable;
-      acc.discount += r.discount;
-      acc.cgst     += r.cgst;
-      acc.sgst     += r.sgst;
-      acc.igst     += r.igst;
-      acc.cess     += r.cess;
-      acc.total    += r.total;
-      acc.paid     += r.paid;
-      acc.balance  += r.balance;
-      return acc;
-    }, { taxable: 0, discount: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, total: 0, paid: 0, balance: 0 });
-    Object.keys(totals).forEach((k) => { totals[k] = r2(totals[k]); });
-    totals.bills_count = data.length;
-
-    let regFreight = 0, regOther = 0;
-    for (const b of rows) {
-      regFreight += num(b.freight_charges);
-      regOther   += num(b.other_charges);
-    }
-    regFreight = r2(regFreight); regOther = r2(regOther);
-
-    // Cross-reconciliation: Purchase Account ledger net Dr should equal
-    // Σ(sub_total − discount + other + freight) — the same formula
-    // buildPurchaseBillVouchers uses (Net Purchase method).
-    const purLedger      = await ledgerNetWithinPeriod('Purchase Account', from, to);
-    const purNetDr       = r2(purLedger.dr - purLedger.cr);
-    const registerNetToLedger = r2(totals.taxable - totals.discount + regOther + regFreight);
-    const reconciliation = {
-      ledger_name:            'Purchase Account',
-      ledger_net_debit:       purNetDr,
-      register_net_to_ledger: registerNetToLedger,
-      register_taxable:  totals.taxable,
-      register_discount: totals.discount,
-      register_freight:  regFreight,
-      register_other:    regOther,
-      difference:        r2(purNetDr - registerNetToLedger),
-      balanced:          Math.abs(purNetDr - registerNetToLedger) < 0.01,
-    };
-
-    res.json({ from, to, bills: data, totals, reconciliation });
-  } catch (err) {
-    console.error('purchaseRegister error:', err);
-    res.status(500).json({ error: 'Server error' });
-  }
-};
 
 // ── HSN Summary ────────────────────────────────────────────────────────
 //
