@@ -11,6 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesReturnAPI, settingsAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument } from '../../services/printer';
 import '../../styles/bill-list.css';
 import './return-list.css';
@@ -241,10 +242,11 @@ function Ring({ pct, tone = 'ok' }) {
 
 // ── Main list ──────────────────────────────────────────────────────────────────
 export default function SalesReturnList() {
+  const { fyStart, fyEnd } = useFinancialYear();
   const [bills, setBills]             = useState([]);
   const [loading, setLoading]         = useState(false);
   const [total, setTotal]             = useState(0);
-  const [filters, setFilters]         = useState({ search: '', refund_status: null, from_date: null, to_date: null });
+  const [filters, setFilters]         = useState({ search: '', refund_status: null, from_date: fyStart, to_date: fyEnd });
   const [viewBill, setViewBill]       = useState(null);
   const [actionLoading, setActionLoading] = useState({});
   const [companyName, setCompanyName] = useState('');
@@ -363,6 +365,7 @@ export default function SalesReturnList() {
           <DatePicker.RangePicker
             size="middle" format="DD MMM"
             placeholder={['From', 'To']}
+            value={[filters.from_date ? dayjs(filters.from_date) : null, filters.to_date ? dayjs(filters.to_date) : null]}
             onChange={(v) => setFilters(f => ({
               ...f,
               from_date: v?.[0]?.format('YYYY-MM-DD') || null,

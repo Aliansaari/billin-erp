@@ -8,6 +8,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { partyAPI, dataAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 import PartyForm from './PartyForm';
 
 const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -43,6 +44,7 @@ const TYPE_COLOR = {
 export default function PartyLedgerView({ partyType }) {
   const isCustomer = partyType === 'Customer';
   const navigate   = useNavigate();
+  const { fyStart, fyEnd } = useFinancialYear();
 
   const [parties, setParties]         = useState([]);
   const [loading, setLoading]         = useState(false);
@@ -54,7 +56,11 @@ export default function PartyLedgerView({ partyType }) {
   const [ledgerLoading, setLedgerLoading] = useState(false);
 
   const [txSearch, setTxSearch]       = useState('');
-  const [dateRange, setDateRange]     = useState([null, null]);
+  // Default to company FY for consistency.
+  const [dateRange, setDateRange]     = useState([
+    fyStart ? dayjs(fyStart) : null,
+    fyEnd   ? dayjs(fyEnd)   : null,
+  ]);
 
   const [formVisible, setFormVisible] = useState(false);
   const [editingParty, setEditingParty] = useState(null);

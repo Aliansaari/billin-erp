@@ -2,35 +2,39 @@ import React, { useEffect, useState } from 'react';
 import { Card, DatePicker, Typography, Space, Row, Col, Spin, message } from 'antd';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title, Text } = Typography;
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
-// Indian Financial Year: April 1 – March 31.
-// Snapshot `now` once so both the comparison and the derived date use the
-// exact same reference time — without this, calling dayjs() twice across
-// month boundaries (e.g. at 23:59:59 on Mar 31) could put fyStart and fyEnd
-// in different FYs and render an impossible range.
-const fyStart = () => {
+// Fallback FY (Indian Apr 1 – Mar 31) for the rare boot path where
+// the company-configured FY hasn't been fetched yet AND nothing was
+// cached. The shared useFinancialYear hook is the source of truth in
+// the steady state — these helpers only matter on the very first
+// install before settings are loaded.
+const FALLBACK_FY_START = () => {
   const now = dayjs();
   return now.month() < 3
-    ? now.subtract(1, 'year').month(3).startOf('month')  // Jan-Mar → FY began Apr last year
-    : now.month(3).startOf('month');                      // Apr-Dec → FY began Apr this year
+    ? now.subtract(1, 'year').month(3).startOf('month')
+    : now.month(3).startOf('month');
 };
-const fyEnd = () => {
+const FALLBACK_FY_END = () => {
   const now = dayjs();
   return now.month() < 3
-    ? now.month(2).endOf('month')                         // Jan-Mar → FY ends Mar this year
-    : now.add(1, 'year').month(2).endOf('month');         // Apr-Dec → FY ends Mar next year
+    ? now.month(2).endOf('month')
+    : now.add(1, 'year').month(2).endOf('month');
 };
 
 export default function ProfitLoss() {
+  const { fyStart, fyEnd } = useFinancialYear();
+  const fyFrom = fyStart ? dayjs(fyStart) : FALLBACK_FY_START();
+  const fyTo   = fyEnd   ? dayjs(fyEnd)   : FALLBACK_FY_END();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState({
-    from_date: fyStart().format('YYYY-MM-DD'),
-    to_date: fyEnd().format('YYYY-MM-DD'),
+    from_date: fyFrom.format('YYYY-MM-DD'),
+    to_date: fyTo.format('YYYY-MM-DD'),
   });
 
   useEffect(() => {
@@ -117,13 +121,13 @@ export default function ProfitLoss() {
         <DatePicker.RangePicker
           format="DD-MMM-YYYY"
           allowClear={false}
-          defaultValue={[fyStart(), fyEnd()]}
+          defaultValue={[fyFrom, fyTo]}
           onChange={(v) => {
-            // If the picker is cleared, fall back to the Indian financial year
-            // (Apr 1 – Mar 31). Never send null dates — the P&L statement is
-            // meaningless without a period.
-            const from = v?.[0]?.format('YYYY-MM-DD') || fyStart().format('YYYY-MM-DD');
-            const to   = v?.[1]?.format('YYYY-MM-DD') || fyEnd().format('YYYY-MM-DD');
+            // If the picker is cleared, fall back to the company FY.
+            // Never send null dates — the P&L is meaningless without
+            // a period.
+            const from = v?.[0]?.format('YYYY-MM-DD') || fyFrom.format('YYYY-MM-DD');
+            const to   = v?.[1]?.format('YYYY-MM-DD') || fyTo.format('YYYY-MM-DD');
             setDateRange({ from_date: from, to_date: to });
           }}
         />

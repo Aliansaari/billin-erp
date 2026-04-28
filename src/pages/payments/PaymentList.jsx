@@ -4,15 +4,18 @@ import { PlusOutlined, DeleteOutlined, PrinterOutlined } from '@ant-design/icons
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument } from '../../services/printer';
 
 const { Title } = Typography;
 
 export default function PaymentList() {
+  const { fyStart, fyEnd } = useFinancialYear();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-  const [filters, setFilters] = useState({ transaction_type: null, from_date: null, to_date: null });
+  // Default to company FY for consistency.
+  const [filters, setFilters] = useState({ transaction_type: null, from_date: fyStart, to_date: fyEnd });
   const navigate = useNavigate();
 
   useEffect(() => { loadData(); }, [filters]);
@@ -122,6 +125,7 @@ export default function PaymentList() {
         {/* Filter Bar */}
         <div className="erp-filter-bar" style={{ flexShrink: 0 }}>
           <DatePicker.RangePicker format="DD-MM-YYYY" style={{ height: 34 }}
+            value={[filters.from_date ? dayjs(filters.from_date) : null, filters.to_date ? dayjs(filters.to_date) : null]}
             onChange={(v) => setFilters(f => ({ ...f, from_date: v?.[0]?.format('YYYY-MM-DD'), to_date: v?.[1]?.format('YYYY-MM-DD') }))} />
           <Select placeholder="All Types" style={{ width: 130, height: 34 }} allowClear
             onChange={(v) => setFilters(f => ({ ...f, transaction_type: v }))}>

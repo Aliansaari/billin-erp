@@ -4,16 +4,22 @@ import { ArrowLeftOutlined } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { partyAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title, Text } = Typography;
 
 export default function PartyDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { fyStart, fyEnd } = useFinancialYear();
   const [party, setParty] = useState(null);
   const [ledger, setLedger] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState([dayjs().startOf('year'), dayjs()]);
+  // Default to company FY for consistency.
+  const [dateRange, setDateRange] = useState([
+    fyStart ? dayjs(fyStart) : dayjs().startOf('year'),
+    fyEnd   ? dayjs(fyEnd)   : dayjs(),
+  ]);
 
   useEffect(() => { loadParty(); loadLedger(); }, [id]);
 

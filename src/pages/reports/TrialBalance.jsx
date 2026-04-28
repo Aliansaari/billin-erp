@@ -13,7 +13,8 @@ import { Card, Table, Tag, Typography, Space, Button, Alert, DatePicker, Select,
 import { PrinterOutlined, FileExcelOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { reportAPI, settingsAPI } from '../../api';
+import { reportAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title, Text } = Typography;
 
@@ -34,20 +35,12 @@ export default function TrialBalance() {
   const navigate = useNavigate();
   const [data, setData]     = useState(null);
   const [loading, setLoad]  = useState(true);
-  const [fyStart, setFyS]   = useState(null);
-  const [fyEnd, setFyE]     = useState(null);
+  // Shared FY cache (hydrated synchronously from localStorage) — no
+  // flicker on first paint. Refresh handled centrally in App.jsx.
+  const { fyStart, fyEnd }  = useFinancialYear();
   const [preset, setPreset] = useState('this_fy');
   const [from, setFrom]     = useState(null);
   const [to, setTo]         = useState(null);
-
-  // Bootstrap with the firm's FY then snap to "This FY" by default.
-  useEffect(() => {
-    settingsAPI.getSystem().then(({ data: s }) => {
-      const sys = s?.data || s || {};
-      if (sys.financial_year_start) setFyS(sys.financial_year_start.slice(0, 10));
-      if (sys.financial_year_end)   setFyE(sys.financial_year_end.slice(0, 10));
-    }).catch(() => {});
-  }, []);
   useEffect(() => {
     if (!fyStart || !fyEnd) return;
     if (preset === 'custom') return;

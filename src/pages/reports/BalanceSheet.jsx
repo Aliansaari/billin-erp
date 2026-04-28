@@ -12,15 +12,27 @@ import { PrinterOutlined, FileExcelOutlined, ReloadOutlined } from '@ant-design/
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title, Text } = Typography;
 const fmtINR = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function BalanceSheet() {
   const navigate = useNavigate();
+  const { fyEnd } = useFinancialYear();
   const [data, setData]    = useState(null);
-  const [asOf, setAsOf]    = useState(dayjs().format('YYYY-MM-DD'));
+  // As-of date defaults to the configured FY end (the natural snapshot
+  // point for a Balance Sheet). Falls back to today on first install
+  // before settings are loaded.
+  const [asOf, setAsOf]    = useState(fyEnd || dayjs().format('YYYY-MM-DD'));
+  const [userPicked, setUserPicked] = useState(false);
   const [loading, setLoad] = useState(true);
+
+  // If FY arrives after first render (cold-start fetch) and the user
+  // hasn't manually picked a date yet, snap to fyEnd.
+  useEffect(() => {
+    if (fyEnd && !userPicked) setAsOf(fyEnd);
+  }, [fyEnd, userPicked]);
 
   useEffect(() => {
     setLoad(true);
@@ -73,7 +85,7 @@ export default function BalanceSheet() {
         <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap' }}>
           <Title level={4} style={{ margin: 0 }}>Balance Sheet</Title>
           <Space wrap>
-            <DatePicker value={dayjs(asOf)} onChange={(d) => d && setAsOf(d.format('YYYY-MM-DD'))} format="YYYY-MM-DD" />
+            <DatePicker value={dayjs(asOf)} onChange={(d) => { if (d) { setAsOf(d.format('YYYY-MM-DD')); setUserPicked(true); } }} format="YYYY-MM-DD" />
             <Button icon={<ReloadOutlined />} onClick={() => { setLoad(true); reportAPI.balanceSheet({ to_date: asOf }).then((r) => setData(r.data)).finally(() => setLoad(false)); }}>Refresh</Button>
             <Button icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
             <Button icon={<FileExcelOutlined />} onClick={() => exportExcel(data, asOf)}>Excel</Button>

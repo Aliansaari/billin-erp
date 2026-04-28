@@ -3,6 +3,7 @@ import { Card, Form, Input, Button, DatePicker, Row, Col, Typography, message, D
 import { SaveOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settingsAPI } from '../../api';
+import { refreshFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -45,6 +46,9 @@ export default function CompanyProfile() {
         financial_year_start: values.financial_year_start?.format('YYYY-MM-DD'),
         financial_year_end:   values.financial_year_end?.format('YYYY-MM-DD'),
       });
+      // Push the new FY into the shared cache so every open period
+      // picker reflects the change immediately on next render.
+      await refreshFinancialYear();
       message.success('Company profile updated successfully');
     } catch (error) {
       message.error('Failed to update company profile');

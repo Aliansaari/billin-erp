@@ -3,6 +3,7 @@ import { Table, Card, DatePicker, Select, Button, Tag, Typography, Space, messag
 import { DownloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { reportAPI, partyAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title } = Typography;
 
@@ -11,6 +12,7 @@ const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFr
 const PAGE_SIZE = 200;
 
 export default function PurchaseReport() {
+  const { fyStart, fyEnd } = useFinancialYear();
   const [data, setData] = useState([]);
   const [totalCount, setTotalCount] = useState(0); // full filtered count across all pages
   const [summary, setSummary] = useState({});
@@ -19,9 +21,11 @@ export default function PurchaseReport() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [serverPage, setServerPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  // Defaults to the company FY for consistency with every other
+  // period selector. Falls back to current month on first install.
   const [filters, setFilters] = useState({
-    from_date: dayjs().startOf('month').format('YYYY-MM-DD'),
-    to_date: dayjs().endOf('month').format('YYYY-MM-DD'),
+    from_date: fyStart || dayjs().startOf('month').format('YYYY-MM-DD'),
+    to_date:   fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
     supplier_id: null,
     payment_status: null,
   });
@@ -153,13 +157,13 @@ export default function PurchaseReport() {
           <DatePicker.RangePicker
             format="DD-MMM-YYYY" style={{ height: 34 }}
             allowClear={false}
-            defaultValue={[dayjs().startOf('month'), dayjs().endOf('month')]}
+            value={[dayjs(filters.from_date), dayjs(filters.to_date)]}
             onChange={(v) => {
               // Prevent null-date dump of every purchase ever — fall back to
-              // the current month if the picker is somehow cleared. See SalesReport
+              // the company FY if the picker is somehow cleared. See SalesReport
               // for the full rationale.
-              const from = v?.[0]?.format('YYYY-MM-DD') || dayjs().startOf('month').format('YYYY-MM-DD');
-              const to   = v?.[1]?.format('YYYY-MM-DD') || dayjs().endOf('month').format('YYYY-MM-DD');
+              const from = v?.[0]?.format('YYYY-MM-DD') || fyStart || dayjs().startOf('month').format('YYYY-MM-DD');
+              const to   = v?.[1]?.format('YYYY-MM-DD') || fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD');
               setFilters((f) => ({ ...f, from_date: from, to_date: to }));
             }}
           />

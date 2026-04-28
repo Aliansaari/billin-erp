@@ -10,7 +10,8 @@ import { Card, Table, Typography, Space, Button, Alert, DatePicker, Select, mess
 import { PrinterOutlined, FileExcelOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { reportAPI, settingsAPI } from '../../api';
+import { reportAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title } = Typography;
 const fmt = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,19 +30,10 @@ export default function RegisterV2({ kind = 'sales' }) {
   const navigate = useNavigate();
   const [data, setData]   = useState(null);
   const [loading, setLd]  = useState(true);
-  const [fyStart, setFyS] = useState(null);
-  const [fyEnd, setFyE]   = useState(null);
+  const { fyStart, fyEnd } = useFinancialYear();
   const [preset, setPr]   = useState('this_fy');
   const [from, setFrom]   = useState(null);
   const [to, setTo]       = useState(null);
-
-  useEffect(() => {
-    settingsAPI.getSystem().then(({ data: s }) => {
-      const sys = s?.data || s || {};
-      if (sys.financial_year_start) setFyS(sys.financial_year_start.slice(0, 10));
-      if (sys.financial_year_end)   setFyE(sys.financial_year_end.slice(0, 10));
-    }).catch(() => {});
-  }, []);
   useEffect(() => {
     if (!fyStart || !fyEnd || preset === 'custom') return;
     const r = presetRange(preset, fyStart, fyEnd);

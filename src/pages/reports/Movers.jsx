@@ -9,7 +9,8 @@ import React, { useEffect, useState } from 'react';
 import { Card, Table, Typography, Space, Button, DatePicker, Select, message, Statistic, Row, Col } from 'antd';
 import { PrinterOutlined, FileExcelOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { reportAPI, settingsAPI } from '../../api';
+import { reportAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title } = Typography;
 const fmt = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -28,20 +29,13 @@ function presetRange(key, fyStart, fyEnd) {
 export default function Movers() {
   const [data, setData]  = useState(null);
   const [loading, setLd] = useState(true);
-  const [preset, setPr]  = useState('last_30');
+  // Default to "This FY" — consistent with every other report page.
+  // The Last 30/90 day presets remain available in the dropdown.
+  const [preset, setPr]  = useState('this_fy');
   const [from, setFrom]  = useState(null);
   const [to, setTo]      = useState(null);
   const [limit, setLimit]= useState(20);
-  const [fyStart, setFyS] = useState(null);
-  const [fyEnd, setFyE] = useState(null);
-
-  useEffect(() => {
-    settingsAPI.getSystem().then(({ data: s }) => {
-      const sys = s?.data || s || {};
-      if (sys.financial_year_start) setFyS(sys.financial_year_start.slice(0, 10));
-      if (sys.financial_year_end)   setFyE(sys.financial_year_end.slice(0, 10));
-    }).catch(() => {});
-  }, []);
+  const { fyStart, fyEnd } = useFinancialYear();
   useEffect(() => {
     if (preset === 'custom') return;
     if ((preset === 'this_fy' || preset === 'this_q' || preset === 'this_month') && (!fyStart || !fyEnd)) return;

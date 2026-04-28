@@ -18,6 +18,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 import './gstr1-report.css';   // reuse styles
 
 const { RangePicker } = DatePicker;
@@ -32,13 +33,16 @@ const fmtDate = (d) => (d ? dayjs(d).format('DD-MM-YYYY') : '—');
 export default function GSTR3BReport() {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
+  const { fyStart, fyEnd } = useFinancialYear();
   const fromState = { from: location.pathname + location.search };
 
+  // Default: company FY. URL params win if present.
   const [range, setRange] = useState(() => {
     const f = params.get('from'), t = params.get('to');
     if (f && /^\d{4}-\d{2}-\d{2}$/.test(f) && t && /^\d{4}-\d{2}-\d{2}$/.test(t)) {
       return [dayjs(f), dayjs(t)];
     }
+    if (fyStart && fyEnd) return [dayjs(fyStart), dayjs(fyEnd)];
     return [dayjs().startOf('month'), dayjs().endOf('month')];
   });
 

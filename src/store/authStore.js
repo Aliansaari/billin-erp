@@ -42,6 +42,10 @@ const useAuthStore = create((set) => ({
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     localStorage.removeItem('must_change_password');
+    // Drop the FY cache too — next user might be in a different
+    // company/FY, and we don't want their pickers showing the
+    // previous user's FY values during the brief window before login.
+    try { localStorage.removeItem('fy_start_v1'); localStorage.removeItem('fy_end_v1'); } catch {}
     set({ user: null, token: null, isAuthenticated: false, mustChangePassword: false });
   },
 

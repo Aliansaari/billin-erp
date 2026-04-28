@@ -8,7 +8,8 @@ import React, { useEffect, useState } from 'react';
 import { Card, Table, Typography, Space, Button, DatePicker, Select, message, Statistic, Row, Col, Tag } from 'antd';
 import { PrinterOutlined, FileExcelOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { reportAPI, settingsAPI } from '../../api';
+import { reportAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title } = Typography;
 const fmt = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,16 +30,7 @@ export default function HsnSummary() {
   const [preset, setPr]  = useState('this_fy');
   const [from, setFrom]  = useState(null);
   const [to, setTo]      = useState(null);
-  const [fyStart, setFyS] = useState(null);
-  const [fyEnd, setFyE] = useState(null);
-
-  useEffect(() => {
-    settingsAPI.getSystem().then(({ data: s }) => {
-      const sys = s?.data || s || {};
-      if (sys.financial_year_start) setFyS(sys.financial_year_start.slice(0, 10));
-      if (sys.financial_year_end)   setFyE(sys.financial_year_end.slice(0, 10));
-    }).catch(() => {});
-  }, []);
+  const { fyStart, fyEnd } = useFinancialYear();
   useEffect(() => {
     if (!fyStart || !fyEnd || preset === 'custom') return;
     const r = presetRange(preset, fyStart, fyEnd);

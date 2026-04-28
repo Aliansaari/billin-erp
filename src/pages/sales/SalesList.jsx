@@ -12,6 +12,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, salesDraftAPI, settingsAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
 import '../../styles/bill-list.css';
 
@@ -221,6 +222,7 @@ function Ring({ pct, tone = 'ok' }) {
 
 // ── Main list ──────────────────────────────────────────────────────────────────
 export default function SalesList() {
+  const { fyStart, fyEnd } = useFinancialYear();
   const [bills, setBills]           = useState([]);
   const [loading, setLoading]       = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -231,7 +233,9 @@ export default function SalesList() {
   // actually hits the API. Debouncing cuts 6 network calls for "balaji"
   // down to 1 and keeps the list stable while the user is typing.
   const [searchInput, setSearchInput] = useState('');
-  const [filters, setFilters]       = useState({ search: '', payment_status: null, from_date: null, to_date: null });
+  // Date defaults to the company FY — same as every other period
+  // selector. User can clear/override.
+  const [filters, setFilters]       = useState({ search: '', payment_status: null, from_date: fyStart, to_date: fyEnd });
   const listEndRef = useRef(null);
 
   useEffect(() => {
@@ -409,6 +413,7 @@ export default function SalesList() {
           <DatePicker.RangePicker
             size="middle" format="DD MMM"
             placeholder={['From', 'To']}
+            value={[filters.from_date ? dayjs(filters.from_date) : null, filters.to_date ? dayjs(filters.to_date) : null]}
             onChange={(v) => setFilters(f => ({
               ...f,
               from_date: v?.[0]?.format('YYYY-MM-DD') || null,

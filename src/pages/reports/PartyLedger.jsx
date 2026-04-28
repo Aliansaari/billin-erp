@@ -30,6 +30,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { partyAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 import './party-ledger.css';
 
 /* ──────────────────────────────────────────────────────────────── */
@@ -114,15 +115,21 @@ const COLS_META = [
 /* Period presets                                                   */
 /* ──────────────────────────────────────────────────────────────── */
 
-const PERIOD_PRESETS = [
-  { key: 'fy',     label: 'This financial year', range: () => [dayjs().startOf('year'), dayjs()] },
-  { key: 'lfy',    label: 'Last financial year', range: () => [dayjs().subtract(1, 'year').startOf('year'), dayjs().subtract(1, 'year').endOf('year')] },
-  { key: 'month',  label: 'This month',          range: () => [dayjs().startOf('month'), dayjs().endOf('month')] },
-  { key: 'lmonth', label: 'Last month',          range: () => [dayjs().subtract(1, 'month').startOf('month'), dayjs().subtract(1, 'month').endOf('month')] },
-  { key: 'quarter',label: 'This quarter',        range: () => [dayjs().startOf('quarter'), dayjs().endOf('quarter')] },
-];
-
-const defaultPeriod = () => PERIOD_PRESETS[0].range();
+// Period presets resolved against the company's configured FY (passed
+// in by the hook). Falling back to calendar year if FY isn't loaded
+// yet (first install). The "fy" preset is the default for any new
+// view of the page — same as every other report's date selector.
+function buildPeriodPresets(fyStart, fyEnd) {
+  const fyFrom = fyStart ? dayjs(fyStart) : dayjs().startOf('year');
+  const fyTo   = fyEnd   ? dayjs(fyEnd)   : dayjs().endOf('year');
+  return [
+    { key: 'fy',     label: 'This financial year', range: () => [fyFrom, fyTo] },
+    { key: 'lfy',    label: 'Last financial year', range: () => [fyFrom.subtract(1, 'year'), fyTo.subtract(1, 'year')] },
+    { key: 'month',  label: 'This month',          range: () => [dayjs().startOf('month'), dayjs().endOf('month')] },
+    { key: 'lmonth', label: 'Last month',          range: () => [dayjs().subtract(1, 'month').startOf('month'), dayjs().subtract(1, 'month').endOf('month')] },
+    { key: 'quarter',label: 'This quarter',        range: () => [dayjs().startOf('quarter'), dayjs().endOf('quarter')] },
+  ];
+}
 
 /* ──────────────────────────────────────────────────────────────── */
 /* Main component                                                   */
@@ -130,6 +137,9 @@ const defaultPeriod = () => PERIOD_PRESETS[0].range();
 
 export default function PartyLedger() {
   const navigate = useNavigate();
+  const { fyStart, fyEnd } = useFinancialYear();
+  const PERIOD_PRESETS = useMemo(() => buildPeriodPresets(fyStart, fyEnd), [fyStart, fyEnd]);
+  const defaultPeriod = () => PERIOD_PRESETS[0].range();
 
   // Parties + selection
   const [parties, setParties]   = useState([]);
@@ -139,7 +149,7 @@ export default function PartyLedger() {
   const [partySearch, setPartySearch] = useState('');
   const [partyPopOpen, setPartyPopOpen] = useState(false);
 
-  // Date range
+  // Date range — defaults to the company FY (first preset).
   const [dateRange, setDateRange] = useState(defaultPeriod());
   const [periodPopOpen, setPeriodPopOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState(null);

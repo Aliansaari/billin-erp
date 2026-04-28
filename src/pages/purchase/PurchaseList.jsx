@@ -11,6 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, settingsAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument } from '../../services/printer';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import '../../styles/bill-list.css';
@@ -213,10 +214,13 @@ function Ring({ pct, tone = 'ok' }) {
 
 // ── Main list ──────────────────────────────────────────────────────────────────
 export default function PurchaseList() {
+  const { fyStart, fyEnd } = useFinancialYear();
   const [bills, setBills]           = useState([]);
   const [loading, setLoading]       = useState(false);
   const [total, setTotal]           = useState(0);
-  const [filters, setFilters]       = useState({ search: '', payment_status: null, from_date: null, to_date: null });
+  // Date defaults to the company FY (consistent with every other
+  // period selector). User can clear/override.
+  const [filters, setFilters]       = useState({ search: '', payment_status: null, from_date: fyStart, to_date: fyEnd });
   const [viewBill, setViewBill]     = useState(null);
   const [barcodeModal, setBarcodeModal] = useState({ visible: false, bill: null });
   const [actionLoading, setActionLoading] = useState({});
@@ -360,6 +364,7 @@ export default function PurchaseList() {
           <DatePicker.RangePicker
             size="middle" format="DD MMM"
             placeholder={['From', 'To']}
+            value={[filters.from_date ? dayjs(filters.from_date) : null, filters.to_date ? dayjs(filters.to_date) : null]}
             onChange={(v) => setFilters(f => ({
               ...f,
               from_date: v?.[0]?.format('YYYY-MM-DD') || null,

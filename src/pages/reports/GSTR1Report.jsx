@@ -20,6 +20,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 import './gstr1-report.css';
 
 const { RangePicker } = DatePicker;
@@ -35,17 +36,20 @@ const fmtDate = (d) => (d ? dayjs(d).format('DD-MM-YYYY') : '—');
 export default function GSTR1Report() {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
+  const { fyStart, fyEnd } = useFinancialYear();
   // Captured per render so Back/save in SalesBillForm returns here with the
   // current date range preserved (the search string carries from/to).
   const fromState = { from: location.pathname + location.search };
 
   // Range = [from, to]. URL params ?from=YYYY-MM-DD&to=YYYY-MM-DD make the
-  // view bookmarkable. Default: the current calendar month.
+  // view bookmarkable. Default: the company FY (URL params win when
+  // present so deep-linked dashboards still work).
   const [range, setRange] = useState(() => {
     const f = params.get('from'), t = params.get('to');
     if (f && /^\d{4}-\d{2}-\d{2}$/.test(f) && t && /^\d{4}-\d{2}-\d{2}$/.test(t)) {
       return [dayjs(f), dayjs(t)];
     }
+    if (fyStart && fyEnd) return [dayjs(fyStart), dayjs(fyEnd)];
     return [dayjs().startOf('month'), dayjs().endOf('month')];
   });
   const [data, setData]       = useState(null);

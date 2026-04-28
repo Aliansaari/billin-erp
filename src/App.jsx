@@ -1,6 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './store/authStore';
+import { refreshFinancialYear } from './hooks/useFinancialYear';
 import { useGlobalShortcuts, SHORTCUTS_LIST } from './hooks/useKeyboardShortcuts';
 import AppLayout from './components/Layout/AppLayout';
 import RoleRoute from './components/RoleRoute';
@@ -104,6 +105,7 @@ function ShortcutsOverlay({ visible, onClose }) {
 
 export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   const toggleHelp = useCallback((val) => {
     if (typeof val === 'boolean') setShowShortcuts(val);
@@ -111,6 +113,14 @@ export default function App() {
   }, []);
 
   useGlobalShortcuts({ onToggleHelp: toggleHelp });
+
+  // Refresh the cached Financial Year on every authenticated boot.
+  // The cache (localStorage) hydrates pickers synchronously on first
+  // paint, so this background fetch only updates the values if admin
+  // changed them since the last login. No flicker.
+  useEffect(() => {
+    if (isAuthenticated) refreshFinancialYear();
+  }, [isAuthenticated]);
 
   return (
     <>
