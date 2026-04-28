@@ -1101,6 +1101,177 @@ async function _loadAgingBills(partyType) {
   }));
 }
 
+// ── Aging reconciliation ───────────────────────────────────────────────
+//
+// The naïve invariant `Σ bill.balance_amount == Sundry Debtors/Creditors
+// ledger total` does NOT hold in this codebase, by construction. There
+// are five sources of legitimate drift:
+//
+//   1. Receipts/Payments credit/debit the party ledger but never
+//      decrement the source bill's balance_amount (no FIFO allocation
+//      yet — see "Receipt → Bill allocation" in known foundation gaps).
+//   2. Opening JVs (Opening Balance Equity ↔ party) post to the party
+//      ledger but create no SalesBill / PurchaseBill row.
+//   3. Paid-in-full / partially-paid bills: `paid_amount` reduces
+//      balance_amount, AND the receipt that paid it is also captured
+//      in (1). Without correction this is double-subtracted.
+//   4. Sales/Purchase returns Cr/Dr the party ledger but exist as
+//      their own bill type (sales_return_bill/purchase_return_bill).
+//   5. Cash-sale bills (customer_id=NULL) with balance > 0 inflate
+//      bill_outstanding without touching Sundry Debtors at all.
+//
+// The corrected invariant — sums every per-source contribution to the
+// party ledger, expressed in terms the user can read on the banner:
+//   bill_outstanding            (Σ balance_amount of credit-sale bills)
+//   + paid_in_bills             (Σ paid_amount of those bills, closes #3)
+//   − unallocated_receipts      (Cr legs from payment_receipt sources)
+//   − returns_offset            (Cr legs from sales_return_bill source)
+//   + opening_dr − opening_cr   (Dr/Cr legs from party_opening source)
+//   == Σ Sundry Debtors / Creditors ledger
+//
+// All six breakdown numbers are surfaced on the response so the UI
+// banner shows the formula and any genuine future drift remains
+// diagnosable from the screen.
+async function _agingReconciliation(partyType, asOf) {
+  const isCustomer = partyType === 'Customer';
+  const subGroup = isCustomer ? 'Sundry Debtors' : 'Sundry Creditors';
+  const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+
+  // Bill side — restrict to bills whose party leg actually posts to
+  // Sundry Debtors / Creditors. Cash sales (customer_id=NULL) and cash
+  // purchases (supplier the canonical "Cash Purchases" stub system
+  // party — its ledger lives outside Sundry Creditors) are excluded
+  // by the customer_id IS NOT NULL filter (sales) and by joining on
+  // the supplier's ledger sub_group (purchase).
+  const [billRow] = await sequelize.query(
+    isCustomer
+      ? `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
+                COALESCE(SUM(b.paid_amount), 0)::float paid_in_bills
+           FROM sales_bills b
+          WHERE b.is_cancelled = false
+            AND b.customer_id IS NOT NULL
+            AND b.bill_date <= :as_of`
+      : `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
+                COALESCE(SUM(b.paid_amount), 0)::float paid_in_bills
+           FROM purchase_bills b
+           JOIN parties p ON p.party_id = b.supplier_id
+           JOIN ledger_accounts la ON la.ledger_id = p.ledger_account_id
+          WHERE b.is_cancelled = false
+            AND b.supplier_id IS NOT NULL
+            AND la.sub_group = 'Sundry Creditors'
+            AND b.bill_date <= :as_of`,
+    { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT },
+  );
+  const billOutstanding = r2(billRow.outstanding);
+  const paidInBills     = r2(billRow.paid_in_bills);
+
+  // Returns offset — sales returns Cr the customer ledger; purchase
+  // returns Dr the supplier ledger.
+  const [returnsRow] = await sequelize.query(
+    isCustomer
+      ? `SELECT COALESCE(SUM(le.credit_amount), 0)::float v
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE la.sub_group = 'Sundry Debtors'
+            AND le.source_type = 'sales_return_bill'
+            AND le.reversal_of_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+            AND le.entry_date <= :as_of`
+      : `SELECT COALESCE(SUM(le.debit_amount), 0)::float v
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE la.sub_group = 'Sundry Creditors'
+            AND le.source_type = 'purchase_return_bill'
+            AND le.reversal_of_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+            AND le.entry_date <= :as_of`,
+    { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT },
+  );
+  const returnsOffset = r2(returnsRow.v);
+
+  // Ledger side — Σ Sundry Debtors/Creditors net.
+  const [ledgerRow] = await sequelize.query(
+    `SELECT COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float net
+       FROM ledger_entries le
+       JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+      WHERE la.sub_group = :sg
+        AND le.reversal_of_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+        AND le.entry_date <= :as_of`,
+    { replacements: { sg: subGroup, as_of: asOf }, type: sequelize.QueryTypes.SELECT },
+  );
+  // Receivables: ledger is Dr-positive. Payables: flip so "outstanding
+  // to suppliers" reads as a positive number on the banner.
+  const ledgerOutstanding = r2(isCustomer ? ledgerRow.net : -ledgerRow.net);
+
+  // Unallocated receipts/payments — every Cr (sales) / Dr (purchase)
+  // leg posted from a receipt/payment source onto the party sub_group.
+  // Includes both standalone payment_receipt vouchers and the at-
+  // creation sales_bill_receipt / purchase_bill_payment legs that
+  // close out a paid bill.
+  const [unallocRow] = await sequelize.query(
+    isCustomer
+      ? `SELECT COALESCE(SUM(le.credit_amount), 0)::float v
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE la.sub_group = 'Sundry Debtors'
+            AND le.source_type IN ('payment_receipt', 'sales_bill_receipt')
+            AND le.reversal_of_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+            AND le.entry_date <= :as_of`
+      : `SELECT COALESCE(SUM(le.debit_amount), 0)::float v
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE la.sub_group = 'Sundry Creditors'
+            AND le.source_type IN ('payment_receipt', 'purchase_bill_payment')
+            AND le.reversal_of_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+            AND le.entry_date <= :as_of`,
+    { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT },
+  );
+  const unallocated = r2(unallocRow.v);
+
+  // Opening JVs — Dr/Cr from party_opening source. For receivables:
+  // opening_dr = "they owed us at FY start", opening_cr = "we owed them
+  // (advances)". Reversed for payables.
+  const [openingRow] = await sequelize.query(
+    `SELECT COALESCE(SUM(le.debit_amount), 0)::float opening_dr,
+            COALESCE(SUM(le.credit_amount), 0)::float opening_cr
+       FROM ledger_entries le
+       JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+      WHERE la.sub_group = :sg
+        AND le.source_type = 'party_opening'
+        AND le.reversal_of_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+        AND le.entry_date <= :as_of`,
+    { replacements: { sg: subGroup, as_of: asOf }, type: sequelize.QueryTypes.SELECT },
+  );
+  // For payables, swap opening_dr / opening_cr semantics — what we owe
+  // them at FY start is THEIR Cr leg in the ledger, but we want to read
+  // it as a positive on the "outstanding" axis.
+  const openingDr = r2(isCustomer ? openingRow.opening_dr : openingRow.opening_cr);
+  const openingCr = r2(isCustomer ? openingRow.opening_cr : openingRow.opening_dr);
+
+  const expectedLedger = r2(
+    billOutstanding + paidInBills - unallocated - returnsOffset + openingDr - openingCr
+  );
+  const difference = r2(ledgerOutstanding - expectedLedger);
+
+  return {
+    sub_group: subGroup,
+    bill_outstanding:    billOutstanding,
+    paid_in_bills:       paidInBills,
+    unallocated_receipts: unallocated,
+    returns_offset:      returnsOffset,
+    opening_dr:          openingDr,
+    opening_cr:          openingCr,
+    expected_ledger_outstanding: expectedLedger,
+    ledger_outstanding:  ledgerOutstanding,
+    difference,
+    balanced: Math.abs(difference) < 0.01,
+  };
+}
+
 exports.agingReport = async (req, res) => {
   try {
     const partyType = req.query.party_type === 'Supplier' ? 'Supplier' : 'Customer';
@@ -1110,8 +1281,9 @@ exports.agingReport = async (req, res) => {
 
     const bills = await _loadAgingBills(partyType);
     const result = aggregateAging(bills, asOf, bounds);
+    const reconciliation = await _agingReconciliation(partyType, asOf);
 
-    res.json({ party_type: partyType, ...result });
+    res.json({ party_type: partyType, ...result, reconciliation });
   } catch (err) {
     console.error('Aging report error:', err);
     res.status(500).json({ error: 'Server error' });

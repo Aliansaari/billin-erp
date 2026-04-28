@@ -310,25 +310,25 @@ async function main() {
     check('SR drift detection: reconciliation flags unbalanced (skipped)', true);
   }
 
-  // ── (F) Aging cross-checks: customer/supplier outstanding sum ─────
-  // Aging endpoint already exposes bill_outstanding_total; verify that
-  // Σ party.total in the parties array == bill_outstanding_total.
-  const ra = await callCtrl(finReports.receivablesAging, { as_of_date: TO });
-  const raSum = (ra.body.parties || []).reduce((a, p) => a + p.total, 0);
-  check('RA: Σ party.total == bill_outstanding_total (paisa)',
-    Math.abs(raSum - ra.body.reconciliation.bill_outstanding_total) < 0.01,
-    `Σ=${raSum.toFixed(2)} bill=${ra.body.reconciliation.bill_outstanding_total}`);
-
-  const pa = await callCtrl(finReports.payablesAging, { as_of_date: TO });
-  const paSum = (pa.body.parties || []).reduce((a, p) => a + p.total, 0);
-  check('PA: Σ party.total == bill_outstanding_total (paisa)',
-    Math.abs(paSum - pa.body.reconciliation.bill_outstanding_total) < 0.01);
-
-  // Sub-group cross check: Aging surfaces the Sundry Debtors/Creditors
-  // group total — verify its shape & numeric type.
-  check('RA: reconciliation.sub_group = Sundry Debtors',
+  // ── (F) Aging cross-checks against /api/reports/aging ────────────
+  // The R2-era /receivables-aging + /payables-aging endpoints were
+  // removed in the Phase R5 follow-up. /api/reports/aging is the
+  // single source of truth and carries the corrected reconciliation
+  // formula (see _agingReconciliation in reportController.js).
+  const reportController = require('../controllers/reportController');
+  const ra = await callCtrl(reportController.agingReport, { party_type: 'Customer' });
+  check('Aging (Customer): reconciliation present', !!ra.body.reconciliation);
+  check('Aging (Customer): balanced (paisa-exact, post-R5 formula)',
+    ra.body.reconciliation.balanced === true,
+    `diff=${ra.body.reconciliation.difference}`);
+  check('Aging (Customer): sub_group = Sundry Debtors',
     ra.body.reconciliation.sub_group === 'Sundry Debtors');
-  check('PA: reconciliation.sub_group = Sundry Creditors',
+
+  const pa = await callCtrl(reportController.agingReport, { party_type: 'Supplier' });
+  check('Aging (Supplier): balanced (paisa-exact)',
+    pa.body.reconciliation.balanced === true,
+    `diff=${pa.body.reconciliation.difference}`);
+  check('Aging (Supplier): sub_group = Sundry Creditors',
     pa.body.reconciliation.sub_group === 'Sundry Creditors');
 
   // ── Cleanup ──

@@ -13,8 +13,8 @@ router.use(authenticateToken);
 router.get('/trial-balance',      requirePermission('accounts.view'), financialReports.trialBalance);
 router.get('/balance-sheet',      requirePermission('accounts.view'), financialReports.balanceSheet);
 router.get('/cash-flow',          requirePermission('accounts.view'), financialReports.cashFlow);
-router.get('/receivables-aging',  requirePermission('reports.view'),  financialReports.receivablesAging);
-router.get('/payables-aging',     requirePermission('reports.view'),  financialReports.payablesAging);
+// /receivables-aging + /payables-aging removed in Phase R5 follow-up.
+// Use /api/reports/aging?party_type=Customer|Supplier (single source).
 
 // Phase R3 — Operational registers + summaries.
 router.get('/sales-register',     requirePermission('reports.view'),  operationalReports.salesRegister);

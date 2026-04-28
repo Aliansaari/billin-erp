@@ -884,3 +884,23 @@
   font-size: 13px;
 }
 .ar-empty .big { font-size: 18px; font-weight: 600; color: var(--fg-secondary); margin-bottom: 6px; }
+
+/* Ledger reconciliation banner — only renders on drift. */
+.ar-recon-banner {
+  margin: 0 0 16px 0;
+  padding: 12px 16px;
+  border: 1px solid #ff4d4f;
+  border-radius: 6px;
+  background: rgba(255, 77, 79, 0.08);
+}
+.ar-recon-title {
+  font-weight: 600;
+  color: #ff4d4f;
+  margin-bottom: 6px;
+}
+.ar-recon-formula {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  line-height: 1.6;
+}

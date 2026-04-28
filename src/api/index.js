@@ -189,8 +189,6 @@ export const reportAPI = {
   balanceSheet: (params) => api.get('/reports/balance-sheet',  { params }),
   // Phase R2 — Cash Flow + Aging
   cashFlow:           (params) => api.get('/reports/cash-flow',          { params }),
-  receivablesAging:   (params) => api.get('/reports/receivables-aging',  { params }),
-  payablesAging:      (params) => api.get('/reports/payables-aging',     { params }),
   // Phase R3 — Operational registers
   salesRegister:      (params) => api.get('/reports/sales-register',     { params }),
   purchaseRegister:   (params) => api.get('/reports/purchase-register',  { params }),

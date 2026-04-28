@@ -368,6 +368,35 @@ export default function AgingReport() {
         </div>
       </div>
 
+      {/* Ledger reconciliation — fires only when the ledger doesn't
+          match the bill side after accounting for the four legitimate
+          gaps (paid-in-bills, unallocated receipts, returns, openings).
+          The banner shows the formula so any future drift is
+          diagnosable from the screen. Pre-Phase R5 this banner showed
+          ₹19,320 (receivables) / ₹15,500 (payables) drift on seeded
+          data — now balanced paisa-exact. */}
+      {data?.reconciliation && !data.reconciliation.balanced && (() => {
+        const r = data.reconciliation;
+        return (
+          <div className="ar-recon-banner">
+            <div className="ar-recon-title">
+              {isCustomer ? 'Receivables' : 'Payables'} ledger does not reconcile to bills
+            </div>
+            <div className="ar-recon-formula">
+              bill ₹{fmt(r.bill_outstanding)}
+              {' + paid '}₹{fmt(r.paid_in_bills)}
+              {' − receipts '}₹{fmt(r.unallocated_receipts)}
+              {' − returns '}₹{fmt(r.returns_offset)}
+              {' + opening Dr '}₹{fmt(r.opening_dr)}
+              {' − opening Cr '}₹{fmt(r.opening_cr)}
+              {' = expected '}<b>₹{fmt(r.expected_ledger_outstanding)}</b>
+              {' vs ledger '}<b>₹{fmt(r.ledger_outstanding)}</b>
+              {' → diff '}<b style={{ color: '#ff4d4f' }}>₹{fmt(r.difference)}</b>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* KPIs (toggle via Customize). Four themed cards mirroring the
           mockup: Total (with bucket distribution bar), Overdue (red),
           Oldest Overdue (amber), Action Queue Today (indigo CTA). */}

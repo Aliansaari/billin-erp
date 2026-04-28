@@ -14,6 +14,7 @@ const {
 const { postVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers, buildPurchaseBillVouchers, buildPaymentReceiptVouchers } = require('../services/voucherBuilders');
 const finReports = require('../controllers/financialReportsController');
+const reportController = require('../controllers/reportController');
 
 let pass = 0, fail = 0;
 const results = [];
@@ -149,123 +150,98 @@ async function main() {
   check('CF: closing - opening = computed_change',
     Math.abs((cf.body.reconciliation.closing - cf.body.reconciliation.opening) - cf.body.reconciliation.computed_change) < 0.01);
 
-  // ── Test 3: Receivables Aging ─────────────────────────
-  const ra = await callCtrl(finReports.receivablesAging, { as_of_date: today });
-  check('RA: status 200', ra.status === 200);
-  const raCust = (ra.body.parties || []).find((p) => p.party_id === cust.party_id);
-  check('RA: customer present', !!raCust);
-  if (raCust) {
-    // Old bill (95 days) → over_90 bucket; New bill (5 days) → 0_30.
-    check('RA: over_90 bucket = 10,000', Math.abs(raCust.buckets['over_90'] - 10000) < 0.01,
-      `over_90=${raCust.buckets['over_90']}`);
-    check('RA: 0_30 bucket = 7,000', Math.abs(raCust.buckets['0_30'] - 7000) < 0.01);
-    check('RA: 31_60 + 61_90 buckets empty for this customer',
-      raCust.buckets['31_60'] === 0 && raCust.buckets['61_90'] === 0);
-    check('RA: total = 17,000', Math.abs(raCust.total - 17000) < 0.01);
-    check('RA: oldest_days >= 95', raCust.oldest_days >= 95);
-    check('RA: bills_count = 2', raCust.bills_count === 2);
-  }
-  check('RA: reconciliation surfaces sub_group',
-    ra.body.reconciliation.sub_group === 'Sundry Debtors');
-  // Reconciliation balanced check is intentionally NOT asserted: legacy
-  // data may have drift between bill outstanding and Sundry Debtors ledger
-  // (off-cycle JVs, opening JVs, manual writeoffs). The banner surfaces
-  // this to the user; the test only confirms the fields are populated.
-  check('RA: reconciliation has numeric totals',
-    typeof ra.body.reconciliation.bill_outstanding_total === 'number'
-    && typeof ra.body.reconciliation.ledger_group_total === 'number');
+  // ── Test 3: Aging reconciliation invariant ────────────────
+  // The /api/reports/aging endpoint (single source of truth, after the
+  // R2 V2 surface was removed) carries the corrected reconciliation:
+  //   bill_outstanding + paid_in_bills − unallocated_receipts
+  //     − returns_offset + opening_dr − opening_cr == ledger_outstanding
+  // On clean books (no off-bill JVs, no allocation gap), all four
+  // adjustment terms are 0 and the formula reduces to bill == ledger.
+  const ra = await callCtrl(reportController.agingReport, { party_type: 'Customer' });
+  check('Aging (Customer): status 200', ra.status === 200);
+  check('Aging (Customer): reconciliation present', !!ra.body.reconciliation);
+  const raR = ra.body.reconciliation || {};
+  check('Aging (Customer): reconciliation has all six breakdown fields',
+    typeof raR.bill_outstanding === 'number'
+    && typeof raR.paid_in_bills === 'number'
+    && typeof raR.unallocated_receipts === 'number'
+    && typeof raR.returns_offset === 'number'
+    && typeof raR.opening_dr === 'number'
+    && typeof raR.opening_cr === 'number');
+  check('Aging (Customer): expected_ledger == ledger (paisa-exact, balanced)',
+    raR.balanced === true,
+    `diff=${raR.difference} expected=${raR.expected_ledger_outstanding} ledger=${raR.ledger_outstanding}`);
+  check('Aging (Customer): sub_group = Sundry Debtors',
+    raR.sub_group === 'Sundry Debtors');
 
-  // ── Test 4: Bucket boundary — exactly 30 days ─────────
-  // A bill dated exactly 30 days ago should land in 0_30, not 31_60.
-  const exactly30 = new Date(today); exactly30.setDate(exactly30.getDate() - 30);
-  const billBound = await SalesBill.create({
-    bill_number: `${PFX}SAL-30`, bill_date: exactly30.toISOString().slice(0, 10),
-    customer_id: cust.party_id,
-    sub_total: 1000, total_amount: 1000, balance_amount: 1000,
-  });
+  const pa = await callCtrl(reportController.agingReport, { party_type: 'Supplier' });
+  check('Aging (Supplier): status 200', pa.status === 200);
+  const paR = pa.body.reconciliation || {};
+  check('Aging (Supplier): expected_ledger == ledger (paisa-exact)',
+    paR.balanced === true,
+    `diff=${paR.difference}`);
+  check('Aging (Supplier): sub_group = Sundry Creditors',
+    paR.sub_group === 'Sundry Creditors');
+
+  // ── Test 4: Adding a credit-sale bill moves both sides in lockstep
+  // The fixture-customer (cust) had two bills (10K + 7K) totalling
+  // ₹17,000 outstanding; their party-leg posted ₹17,000 to Sundry
+  // Debtors. Adding another credit sale of ₹1,000 should advance both
+  // bill_outstanding AND ledger_outstanding by ₹1,000 — recon stays
+  // balanced.
+  const beforeR = ra.body.reconciliation;
   const t2 = await sequelize.transaction();
+  const extraBill = await SalesBill.create({
+    bill_number: `${PFX}SAL-EXTRA`, bill_date: today,
+    customer_id: cust.party_id,
+    sub_total: 1000, total_amount: 1000, balance_amount: 1000, payment_status: 'Unpaid',
+  }, { transaction: t2 });
   for (const v of await buildSalesBillVouchers(
-    await SalesBill.findByPk(billBound.sales_bill_id, { include: [{ model: Party, as: 'customer' }], transaction: t2 }),
+    await SalesBill.findByPk(extraBill.sales_bill_id, { include: [{ model: Party, as: 'customer' }], transaction: t2 }),
     { transaction: t2 },
   )) await postVoucher({ ...v, transaction: t2 });
   await t2.commit();
 
-  const ra2 = await callCtrl(finReports.receivablesAging, { as_of_date: today });
-  const raCust2 = (ra2.body.parties || []).find((p) => p.party_id === cust.party_id);
-  check('Boundary: 30-day bill in 0_30 bucket',
-    raCust2 && Math.abs(raCust2.buckets['0_30'] - (7000 + 1000)) < 0.01,
-    `0_30=${raCust2 && raCust2.buckets['0_30']}`);
+  const raAfter = await callCtrl(reportController.agingReport, { party_type: 'Customer' });
+  const afterR = raAfter.body.reconciliation;
+  check('Aging: bill_outstanding delta = +1,000',
+    Math.abs(afterR.bill_outstanding - beforeR.bill_outstanding - 1000) < 0.01);
+  check('Aging: ledger_outstanding delta = +1,000',
+    Math.abs(afterR.ledger_outstanding - beforeR.ledger_outstanding - 1000) < 0.01);
+  check('Aging: balanced remains true after lockstep posting',
+    afterR.balanced === true);
 
-  // ── Test 5: Paid bills don't appear ───────────────────
-  // Mark billNew as fully paid by zeroing balance_amount.
-  await SalesBill.update({ balance_amount: 0, payment_status: 'Paid' }, { where: { sales_bill_id: billNew.sales_bill_id } });
-  const ra3 = await callCtrl(finReports.receivablesAging, { as_of_date: today });
-  const raCust3 = (ra3.body.parties || []).find((p) => p.party_id === cust.party_id);
-  // Customer should still appear with old + 30-day bills, total = 11,000 (10K + 1K).
-  check('Paid bill excluded: customer total drops by 7,000',
-    raCust3 && Math.abs(raCust3.total - 11000) < 0.01,
-    `total=${raCust3 && raCust3.total}`);
-
-  // ── Test 6: Payables Aging ────────────────────────────
-  const pa = await callCtrl(finReports.payablesAging, { as_of_date: today });
-  check('PA: status 200', pa.status === 200);
-  const paSup = (pa.body.parties || []).find((p) => p.party_id === sup.party_id);
-  check('PA: supplier present with ₹5,000 outstanding',
-    paSup && Math.abs(paSup.total - 5000) < 0.01);
-  if (paSup) {
-    check('PA: 31_60 bucket = 5,000 (45-day bill)',
-      Math.abs(paSup.buckets['31_60'] - 5000) < 0.01);
-    check('PA: oldest_days = 45', paSup.oldest_days === 45);
-  }
-  check('PA: reconciliation sub_group = Sundry Creditors',
-    pa.body.reconciliation.sub_group === 'Sundry Creditors');
-  check('PA: reconciliation has numeric totals',
-    typeof pa.body.reconciliation.bill_outstanding_total === 'number'
-    && typeof pa.body.reconciliation.ledger_group_total === 'number');
-
-  // ── Test 7: Sort options work ────────────────────────
-  // Add a second customer with a smaller balance to ensure ordering.
-  const cust2 = await Party.create({
-    party_type: 'Customer', party_name: `${PFX}AAACust2`, mobile_1: '5500000003',
-  });
-  await cust2.reload();
-  const t3 = await sequelize.transaction();
-  const billC2 = await SalesBill.create({
-    bill_number: `${PFX}SAL-C2`, bill_date: today,
-    customer_id: cust2.party_id,
-    sub_total: 500, total_amount: 500, balance_amount: 500,
-  }, { transaction: t3 });
-  for (const v of await buildSalesBillVouchers(
-    await SalesBill.findByPk(billC2.sales_bill_id, { include: [{ model: Party, as: 'customer' }], transaction: t3 }),
-    { transaction: t3 },
-  )) await postVoucher({ ...v, transaction: t3 });
-  await t3.commit();
-
-  const ra4 = await callCtrl(finReports.receivablesAging, { as_of_date: today });
-  const ourParties = (ra4.body.parties || []).filter((p) => p.party_id === cust.party_id || p.party_id === cust2.party_id);
-  check('Sort: amount desc (default) — bigger total first',
-    ourParties.length === 2 && ourParties[0].total >= ourParties[1].total);
-
-  // ── Test 8: Empty receivables when filter excludes all ──
-  const emptyRa = await callCtrl(finReports.receivablesAging, { as_of_date: '1900-01-01' });
-  check('Empty as-of: 0 parties', (emptyRa.body.parties || []).length === 0);
-  check('Empty as-of: totals zero',
-    emptyRa.body.totals.total === 0
-    && emptyRa.body.totals.parties_count === 0
-    && emptyRa.body.totals.bills_count === 0);
-  check('Empty as-of: reconciliation balanced (both zero)',
-    emptyRa.body.reconciliation.balanced === true);
-
-  // ── Test 9: Walk-in (no customer_id) sales don't appear ─
+  // ── Test 5: Walk-in cash sales (customer_id=NULL) don't affect recon
+  // A cash sale must not appear in bill_outstanding (no Sundry Debtor
+  // contribution) — recon stays balanced.
+  const beforeWalk = await callCtrl(reportController.agingReport, { party_type: 'Customer' });
   await SalesBill.create({
     bill_number: `${PFX}SAL-WALK`, bill_date: today,
     customer_id: null,
     sub_total: 999, total_amount: 999, balance_amount: 999,
   });
-  const ra5 = await callCtrl(finReports.receivablesAging, { as_of_date: today });
-  const partiesAll = (ra5.body.parties || []);
-  check('Walk-in sales (customer_id=null) NOT in aging',
-    !partiesAll.some((p) => p.party_id === null || p.party_id === undefined));
+  const afterWalk = await callCtrl(reportController.agingReport, { party_type: 'Customer' });
+  check('Aging: walk-in cash sale (customer_id=NULL) does NOT advance bill_outstanding',
+    Math.abs(afterWalk.body.reconciliation.bill_outstanding - beforeWalk.body.reconciliation.bill_outstanding) < 0.01);
+  check('Aging: walk-in does NOT advance ledger_outstanding',
+    Math.abs(afterWalk.body.reconciliation.ledger_outstanding - beforeWalk.body.reconciliation.ledger_outstanding) < 0.01);
+  check('Aging: balanced remains true with walk-in present',
+    afterWalk.body.reconciliation.balanced === true);
+
+  // ── Test 6: Payables side — supplier bill of ₹5,000 advances
+  // bill_outstanding by 5,000 and ledger_outstanding by 5,000 in
+  // lockstep on the Sundry Creditors side.
+  const beforeP = await callCtrl(reportController.agingReport, { party_type: 'Supplier' });
+  const beforePR = beforeP.body.reconciliation;
+  // The earlier 45-day purchase bill of ₹5,000 already posted in the
+  // fixture block. Compute the delta from the recon snapshot taken
+  // BEFORE this whole self-test ran (we don't have one — but we can
+  // verify the supplier's contribution is captured in bill_outstanding
+  // and matches their leg in the ledger).
+  check('Aging (Supplier): bill_outstanding ≥ 5,000 (fixture supplier bill)',
+    beforePR.bill_outstanding >= 5000);
+  check('Aging (Supplier): balanced after fixture purchase bill',
+    beforePR.balanced === true);
 
   // ── Cleanup ──
   await preClean();
