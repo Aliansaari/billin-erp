@@ -115,19 +115,40 @@ exports.salesRegister = async (req, res) => {
     Object.keys(totals).forEach((k) => { totals[k] = r2(totals[k]); });
     totals.bills_count = data.length;
 
+    // Capture the non-taxable charges that the voucher builder bundles
+    // into the Sales Account credit (Net Sales method —
+    // see services/voucherBuilders.js): Sales Cr posts as
+    //   sub_total − discount + other_charges + freight_charges.
+    // The register's `taxable` is sub_total alone, so the apples-to-
+    // apples comparison for ledger reconciliation requires adding
+    // freight + other and subtracting discount.
+    let regFreight = 0, regOther = 0;
+    for (const b of rows) {
+      regFreight += num(b.freight_charges);
+      regOther   += num(b.other_charges);
+    }
+    regFreight = r2(regFreight); regOther = r2(regOther);
+
     // Cross-reconciliation: Sales Account ledger net Cr (in period)
-    // should equal Σ sub_total of non-cancelled bills in the same
-    // period. Drift surfaces a banner — common causes are manual JV
-    // adjustments to the Sales ledger that bypass billing, or
-    // amount-mode bills with mismatched sub_total/total_amount.
-    const salesLedger = await ledgerNetWithinPeriod('Sales Account', from, to);
-    const salesNetCr  = r2(salesLedger.cr - salesLedger.dr);
+    // should equal Σ(sub_total − discount + other + freight) — the
+    // same formula the voucher builder posts. Drift surfaces a banner
+    // (genuine causes: manual JV against Sales that bypasses billing,
+    // amount-mode bills with mismatched fields).
+    const salesLedger      = await ledgerNetWithinPeriod('Sales Account', from, to);
+    const salesNetCr       = r2(salesLedger.cr - salesLedger.dr);
+    const registerNetToLedger = r2(totals.taxable - totals.discount + regOther + regFreight);
     const reconciliation = {
-      ledger_name:        'Sales Account',
-      ledger_net_credit:  salesNetCr,
-      register_taxable:   totals.taxable,
-      difference:         r2(salesNetCr - totals.taxable),
-      balanced:           Math.abs(salesNetCr - totals.taxable) < 0.01,
+      ledger_name:            'Sales Account',
+      ledger_net_credit:      salesNetCr,
+      register_net_to_ledger: registerNetToLedger,
+      // Breakdown — the banner displays the formula so any future
+      // drift is diagnosable from the screen.
+      register_taxable:  totals.taxable,
+      register_discount: totals.discount,
+      register_freight:  regFreight,
+      register_other:    regOther,
+      difference:        r2(salesNetCr - registerNetToLedger),
+      balanced:          Math.abs(salesNetCr - registerNetToLedger) < 0.01,
     };
 
     res.json({ from, to, bills: data, totals, reconciliation });
@@ -188,16 +209,29 @@ exports.purchaseRegister = async (req, res) => {
     Object.keys(totals).forEach((k) => { totals[k] = r2(totals[k]); });
     totals.bills_count = data.length;
 
+    let regFreight = 0, regOther = 0;
+    for (const b of rows) {
+      regFreight += num(b.freight_charges);
+      regOther   += num(b.other_charges);
+    }
+    regFreight = r2(regFreight); regOther = r2(regOther);
+
     // Cross-reconciliation: Purchase Account ledger net Dr should equal
-    // Σ sub_total of non-cancelled purchase bills.
-    const purLedger = await ledgerNetWithinPeriod('Purchase Account', from, to);
-    const purNetDr  = r2(purLedger.dr - purLedger.cr);
+    // Σ(sub_total − discount + other + freight) — the same formula
+    // buildPurchaseBillVouchers uses (Net Purchase method).
+    const purLedger      = await ledgerNetWithinPeriod('Purchase Account', from, to);
+    const purNetDr       = r2(purLedger.dr - purLedger.cr);
+    const registerNetToLedger = r2(totals.taxable - totals.discount + regOther + regFreight);
     const reconciliation = {
-      ledger_name:        'Purchase Account',
-      ledger_net_debit:   purNetDr,
-      register_taxable:   totals.taxable,
-      difference:         r2(purNetDr - totals.taxable),
-      balanced:           Math.abs(purNetDr - totals.taxable) < 0.01,
+      ledger_name:            'Purchase Account',
+      ledger_net_debit:       purNetDr,
+      register_net_to_ledger: registerNetToLedger,
+      register_taxable:  totals.taxable,
+      register_discount: totals.discount,
+      register_freight:  regFreight,
+      register_other:    regOther,
+      difference:        r2(purNetDr - registerNetToLedger),
+      balanced:          Math.abs(purNetDr - registerNetToLedger) < 0.01,
     };
 
     res.json({ from, to, bills: data, totals, reconciliation });

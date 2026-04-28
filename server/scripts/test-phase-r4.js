@@ -125,11 +125,19 @@ async function main() {
   const srBase = await callCtrl(ops.salesRegister,    { from_date: FROM, to_date: TO });
   const prBase = await callCtrl(ops.purchaseRegister, { from_date: FROM, to_date: TO });
   const baseSalesLedger    = srBase.body.reconciliation.ledger_net_credit;
-  const baseSalesTaxable   = srBase.body.reconciliation.register_taxable;
+  const baseSalesNet2L     = srBase.body.reconciliation.register_net_to_ledger;
   const basePurLedger      = prBase.body.reconciliation.ledger_net_debit;
-  const basePurTaxable     = prBase.body.reconciliation.register_taxable;
+  const basePurNet2L       = prBase.body.reconciliation.register_net_to_ledger;
   const baseSalesDiff      = srBase.body.reconciliation.difference;
   const basePurDiff        = prBase.body.reconciliation.difference;
+  // Seeded data MUST already balance now that the invariant matches the
+  // voucher-builder formula (sub − discount + freight + other).
+  check('Seeded data: SR reconciliation balanced (paisa)',
+    srBase.body.reconciliation.balanced === true,
+    `diff=${baseSalesDiff} ledger=${baseSalesLedger} net2L=${baseSalesNet2L}`);
+  check('Seeded data: PR reconciliation balanced (paisa)',
+    prBase.body.reconciliation.balanced === true,
+    `diff=${basePurDiff} ledger=${basePurLedger} net2L=${basePurNet2L}`);
 
   // Sales bill of 10 × 100 = ₹1,000 sub_total. With voucher posting,
   // Sales Account gets a Cr of 1,000.
@@ -158,15 +166,19 @@ async function main() {
   const sr = await callCtrl(ops.salesRegister, { from_date: FROM, to_date: TO });
   const srRecon = sr.body.reconciliation;
   check('SR: reconciliation present', !!srRecon);
+  check('SR: register_net_to_ledger field present', typeof srRecon.register_net_to_ledger === 'number');
+  check('SR: breakdown fields present',
+    typeof srRecon.register_taxable === 'number' && typeof srRecon.register_freight === 'number'
+    && typeof srRecon.register_other === 'number' && typeof srRecon.register_discount === 'number');
   check('SR: ledger Cr delta = +1,000',
     Math.abs(srRecon.ledger_net_credit - baseSalesLedger - 1000) < 0.01,
     `before=${baseSalesLedger} after=${srRecon.ledger_net_credit}`);
-  check('SR: register taxable delta = +1,000',
-    Math.abs(srRecon.register_taxable - baseSalesTaxable - 1000) < 0.01);
-  // The DIFFERENCE field should be unchanged — both sides moved by +1000.
-  check('SR: reconciliation difference unchanged after lockstep posting',
-    Math.abs(srRecon.difference - baseSalesDiff) < 0.01,
-    `before=${baseSalesDiff} after=${srRecon.difference}`);
+  check('SR: register_net_to_ledger delta = +1,000',
+    Math.abs(srRecon.register_net_to_ledger - baseSalesNet2L - 1000) < 0.01);
+  // After this lockstep posting, recon must STILL be balanced (paisa).
+  check('SR: balanced remains true after vanilla bill',
+    srRecon.balanced === true,
+    `diff=${srRecon.difference}`);
 
   // ── (D) Purchase fixtures + Purchase Register reconciliation ────────
   const t2 = await sequelize.transaction();
@@ -192,12 +204,63 @@ async function main() {
   const pr = await callCtrl(ops.purchaseRegister, { from_date: FROM, to_date: TO });
   const prRecon = pr.body.reconciliation;
   check('PR: reconciliation present', !!prRecon);
+  check('PR: register_net_to_ledger field present', typeof prRecon.register_net_to_ledger === 'number');
   check('PR: ledger Dr delta = +500',
     Math.abs(prRecon.ledger_net_debit - basePurLedger - 500) < 0.01);
-  check('PR: register taxable delta = +500',
-    Math.abs(prRecon.register_taxable - basePurTaxable - 500) < 0.01);
-  check('PR: reconciliation difference unchanged after lockstep posting',
-    Math.abs(prRecon.difference - basePurDiff) < 0.01);
+  check('PR: register_net_to_ledger delta = +500',
+    Math.abs(prRecon.register_net_to_ledger - basePurNet2L - 500) < 0.01);
+  check('PR: balanced remains true after vanilla bill',
+    prRecon.balanced === true);
+
+  // ── (D2) FREIGHT-ONLY REGRESSION — locks in the bug class.
+  // The voucher builder posts Sales Cr = sub_total − discount + other +
+  // freight. A bill with freight ≠ 0 used to drift the SR reconciliation
+  // (Sales Cr included freight; register_taxable did not). With the
+  // fix, register_net_to_ledger absorbs freight + other − discount, so
+  // the recon stays balanced.
+  const t2b = await sequelize.transaction();
+  const freightBill = await SalesBill.create({
+    bill_number: `${PFX}SAL-FREIGHT`, bill_date: '2025-09-25',
+    customer_id: cust.party_id,
+    sub_total: 2000, discount_amount: 50, other_charges: 25,
+    freight_charges: 300, total_amount: 2275, balance_amount: 2275,
+    payment_status: 'Unpaid',
+  }, { transaction: t2b });
+  await SalesBillItem.create({
+    sales_bill_id: freightBill.sales_bill_id, product_id: prodA.product_id,
+    barcode: prodA.barcode, product_name: prodA.product_name, hsn_code: '610910',
+    unit_type: 'Pcs', quantity: 20, rate: 100, cost_rate: 80,
+    taxable_amount: 2000, total_amount: 2000,
+  }, { transaction: t2b });
+  for (const v of await buildSalesBillVouchers(
+    await SalesBill.findByPk(freightBill.sales_bill_id, {
+      include: [{ model: Party, as: 'customer' }, { model: SalesBillItem, as: 'items' }],
+      transaction: t2b,
+    }),
+    { transaction: t2b },
+  )) await postVoucher({ ...v, transaction: t2b });
+  await t2b.commit();
+
+  const srAfterFreight = await callCtrl(ops.salesRegister, { from_date: FROM, to_date: TO });
+  const recF = srAfterFreight.body.reconciliation;
+  // Sales Cr should advance by 2000 − 50 + 25 + 300 = 2275.
+  check('Freight-only: ledger Cr delta = 2,275',
+    Math.abs(recF.ledger_net_credit - srRecon.ledger_net_credit - 2275) < 0.01);
+  check('Freight-only: register_net_to_ledger delta = 2,275',
+    Math.abs(recF.register_net_to_ledger - srRecon.register_net_to_ledger - 2275) < 0.01);
+  check('Freight-only: register_taxable delta = 2,000 (sub_total only)',
+    Math.abs(recF.register_taxable - srRecon.register_taxable - 2000) < 0.01);
+  check('Freight-only: register_freight delta = 300',
+    Math.abs(recF.register_freight - srRecon.register_freight - 300) < 0.01);
+  check('Freight-only: register_other delta = 25',
+    Math.abs(recF.register_other - srRecon.register_other - 25) < 0.01);
+  check('Freight-only: register_discount delta = 50',
+    Math.abs(recF.register_discount - srRecon.register_discount - 50) < 0.01);
+  // Critical regression check — recon must STILL balance after the
+  // freight-bearing bill (the bug R4 missed before this fix).
+  check('Freight-only: SR balanced remains true (regression lock)',
+    recF.balanced === true,
+    `diff=${recF.difference}`);
 
   // ── (E) Detect a deliberately broken Sales bill (manual JV that
   // bypasses billing → ledger Cr increases without a register entry) ──
@@ -229,13 +292,15 @@ async function main() {
 
     const sr2 = await callCtrl(ops.salesRegister, { from_date: FROM, to_date: TO });
     const drifted = sr2.body.reconciliation;
+    // Sales Cr advances by 100 (off-bill). register_net_to_ledger does NOT
+    // (no SalesBill row created). Difference must advance by exactly 100.
     check('SR drift detection: ledger Cr advanced by 100',
-      Math.abs(drifted.ledger_net_credit - srRecon.ledger_net_credit - 100) < 0.01);
-    check('SR drift detection: register taxable unchanged',
-      Math.abs(drifted.register_taxable - srRecon.register_taxable) < 0.01);
+      Math.abs(drifted.ledger_net_credit - recF.ledger_net_credit - 100) < 0.01);
+    check('SR drift detection: register_net_to_ledger unchanged',
+      Math.abs(drifted.register_net_to_ledger - recF.register_net_to_ledger) < 0.01);
     check('SR drift detection: difference advanced by exactly 100',
-      Math.abs(drifted.difference - srRecon.difference - 100) < 0.01,
-      `before=${srRecon.difference} after=${drifted.difference}`);
+      Math.abs(drifted.difference - recF.difference - 100) < 0.01,
+      `before=${recF.difference} after=${drifted.difference}`);
     check('SR drift detection: reconciliation flags unbalanced',
       drifted.balanced === false);
   } else {

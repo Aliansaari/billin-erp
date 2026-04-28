@@ -119,12 +119,26 @@ export default function RegisterV2({ kind = 'sales' }) {
           </Space>
         </Space>
 
-        {data && data.reconciliation && !data.reconciliation.balanced && (
-          <Alert type="warning" showIcon style={{ marginBottom: 16 }}
-            message={`${isSales ? 'Sales' : 'Purchase'} ledger does not match register taxable`}
-            description={`${data.reconciliation.ledger_name} net ${isSales ? 'Cr' : 'Dr'}: ₹${fmt(isSales ? data.reconciliation.ledger_net_credit : data.reconciliation.ledger_net_debit)}; Register taxable: ₹${fmt(data.reconciliation.register_taxable)}; Difference: ₹${fmt(data.reconciliation.difference)}. Common causes: manual JV adjustments to the ${isSales ? 'Sales' : 'Purchase'} ledger that bypass billing, or amount-mode bills with mismatched sub_total.`}
-          />
-        )}
+        {data && data.reconciliation && !data.reconciliation.balanced && (() => {
+          const r = data.reconciliation;
+          const ledgerNet = isSales ? r.ledger_net_credit : r.ledger_net_debit;
+          const side = isSales ? 'Cr' : 'Dr';
+          return (
+            <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+              message={`${isSales ? 'Sales' : 'Purchase'} ledger does not reconcile to register`}
+              description={
+                <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 12 }}>
+                  <div>{r.ledger_name} net {side}: <b>₹{fmt(ledgerNet)}</b></div>
+                  <div>vs register: sub ₹{fmt(r.register_taxable)} − disc ₹{fmt(r.register_discount)} + freight ₹{fmt(r.register_freight)} + other ₹{fmt(r.register_other)} = <b>₹{fmt(r.register_net_to_ledger)}</b></div>
+                  <div>Difference: <b style={{ color: '#ff4d4f' }}>₹{fmt(r.difference)}</b></div>
+                  <div style={{ marginTop: 8, fontFamily: 'inherit', fontSize: 13, color: 'var(--fg-secondary, #aaa)' }}>
+                    Likely causes: manual JV against the {r.ledger_name} that bypasses billing, or an amount-mode bill with a sub_total/total_amount mismatch.
+                  </div>
+                </div>
+              }
+            />
+          );
+        })()}
 
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={6}><Card size="small"><Statistic title="Bills" value={totals.bills_count || 0} /></Card></Col>
