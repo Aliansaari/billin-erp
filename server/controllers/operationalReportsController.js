@@ -28,6 +28,26 @@ const {
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function r2(v) { return Math.round(num(v) * 100) / 100; }
 
+// Net activity (Cr − Dr for income accounts, Dr − Cr for expense) on a
+// named ledger within a date range. Live entries only.
+async function ledgerNetWithinPeriod(ledgerName, from, to) {
+  const [r] = await sequelize.query(
+    `SELECT COALESCE(SUM(le.debit_amount), 0)::float  AS dr,
+            COALESCE(SUM(le.credit_amount), 0)::float AS cr
+       FROM ledger_entries le
+       JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+      WHERE la.ledger_name = :name
+        AND le.reversal_of_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM ledger_entries m
+           WHERE m.reversal_of_id = le.entry_id
+        )
+        AND le.entry_date BETWEEN :from AND :to`,
+    { replacements: { name: ledgerName, from, to }, type: sequelize.QueryTypes.SELECT },
+  );
+  return { dr: r2(r.dr), cr: r2(r.cr) };
+}
+
 async function resolvePeriod(query) {
   let from = (query && query.from_date) ? String(query.from_date).slice(0, 10) : null;
   let to   = (query && query.to_date)   ? String(query.to_date).slice(0, 10)   : null;
@@ -95,7 +115,22 @@ exports.salesRegister = async (req, res) => {
     Object.keys(totals).forEach((k) => { totals[k] = r2(totals[k]); });
     totals.bills_count = data.length;
 
-    res.json({ from, to, bills: data, totals });
+    // Cross-reconciliation: Sales Account ledger net Cr (in period)
+    // should equal Σ sub_total of non-cancelled bills in the same
+    // period. Drift surfaces a banner — common causes are manual JV
+    // adjustments to the Sales ledger that bypass billing, or
+    // amount-mode bills with mismatched sub_total/total_amount.
+    const salesLedger = await ledgerNetWithinPeriod('Sales Account', from, to);
+    const salesNetCr  = r2(salesLedger.cr - salesLedger.dr);
+    const reconciliation = {
+      ledger_name:        'Sales Account',
+      ledger_net_credit:  salesNetCr,
+      register_taxable:   totals.taxable,
+      difference:         r2(salesNetCr - totals.taxable),
+      balanced:           Math.abs(salesNetCr - totals.taxable) < 0.01,
+    };
+
+    res.json({ from, to, bills: data, totals, reconciliation });
   } catch (err) {
     console.error('salesRegister error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -153,7 +188,19 @@ exports.purchaseRegister = async (req, res) => {
     Object.keys(totals).forEach((k) => { totals[k] = r2(totals[k]); });
     totals.bills_count = data.length;
 
-    res.json({ from, to, bills: data, totals });
+    // Cross-reconciliation: Purchase Account ledger net Dr should equal
+    // Σ sub_total of non-cancelled purchase bills.
+    const purLedger = await ledgerNetWithinPeriod('Purchase Account', from, to);
+    const purNetDr  = r2(purLedger.dr - purLedger.cr);
+    const reconciliation = {
+      ledger_name:        'Purchase Account',
+      ledger_net_debit:   purNetDr,
+      register_taxable:   totals.taxable,
+      difference:         r2(purNetDr - totals.taxable),
+      balanced:           Math.abs(purNetDr - totals.taxable) < 0.01,
+    };
+
+    res.json({ from, to, bills: data, totals, reconciliation });
   } catch (err) {
     console.error('purchaseRegister error:', err);
     res.status(500).json({ error: 'Server error' });

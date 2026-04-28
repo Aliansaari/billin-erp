@@ -6,7 +6,7 @@
 // audit/reconciliation view of the period.
 
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Typography, Space, Button, DatePicker, Select, message, Statistic, Row, Col, Tag } from 'antd';
+import { Card, Table, Typography, Space, Button, Alert, DatePicker, Select, message, Statistic, Row, Col, Tag } from 'antd';
 import { PrinterOutlined, FileExcelOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -118,6 +118,13 @@ export default function RegisterV2({ kind = 'sales' }) {
             <Button icon={<FileExcelOutlined />} onClick={() => exportXls(data, isSales)}>Excel</Button>
           </Space>
         </Space>
+
+        {data && data.reconciliation && !data.reconciliation.balanced && (
+          <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+            message={`${isSales ? 'Sales' : 'Purchase'} ledger does not match register taxable`}
+            description={`${data.reconciliation.ledger_name} net ${isSales ? 'Cr' : 'Dr'}: ₹${fmt(isSales ? data.reconciliation.ledger_net_credit : data.reconciliation.ledger_net_debit)}; Register taxable: ₹${fmt(data.reconciliation.register_taxable)}; Difference: ₹${fmt(data.reconciliation.difference)}. Common causes: manual JV adjustments to the ${isSales ? 'Sales' : 'Purchase'} ledger that bypass billing, or amount-mode bills with mismatched sub_total.`}
+          />
+        )}
 
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={6}><Card size="small"><Statistic title="Bills" value={totals.bills_count || 0} /></Card></Col>

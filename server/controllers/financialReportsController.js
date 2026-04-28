@@ -75,6 +75,17 @@ function liveEntriesWhereSql(toAlias = 'le', toDateLte = null, fromDateGte = nul
 //
 // For an "activity during period" view we'd return separate
 // opening/activity/closing columns; that's a follow-up if needed.
+//
+// Reconciliation: a Trial Balance's per-column totals are NOT expected
+// to equal the raw sum of every Dr/Cr leg — TB nets opposing entries
+// within an account, so a customer with both sales and receipts
+// contributes a single Dr (or Cr) in their column rather than two
+// separate legs. The invariant we DO assert as a filter-drift check is:
+//   Σ(legs with entry_date ≤ to_date)  +  Σ(legs with entry_date > to_date)
+//     = Σ(all live legs)
+// If that fails, the WHERE clause is dropping entries it shouldn't and
+// the banner surfaces the bug. This is what catches a regression like
+// "someone added a from_date filter and silently excluded opening JVs".
 exports.trialBalance = async (req, res) => {
   try {
     const { from, to } = await resolvePeriod(req.query);
@@ -117,6 +128,51 @@ exports.trialBalance = async (req, res) => {
     }
     totalDr = r2(totalDr); totalCr = r2(totalCr);
 
+    // Filter-drift reconciliation. Computed independently from the TB SQL
+    // above so a bug in the per-account aggregation can't make both
+    // numbers wrong in the same way.
+    const [filtRaw] = await sequelize.query(
+      `SELECT COALESCE(SUM(le.debit_amount),  0)::float AS dr,
+              COALESCE(SUM(le.credit_amount), 0)::float AS cr
+         FROM ledger_entries le
+        WHERE le.reversal_of_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ledger_entries m
+             WHERE m.reversal_of_id = le.entry_id
+          )
+          AND le.entry_date <= :to_date`,
+      { replacements: { to_date: to }, type: sequelize.QueryTypes.SELECT },
+    );
+    const [excluded] = await sequelize.query(
+      `SELECT COALESCE(SUM(le.debit_amount),  0)::float AS dr,
+              COALESCE(SUM(le.credit_amount), 0)::float AS cr
+         FROM ledger_entries le
+        WHERE le.reversal_of_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ledger_entries m
+             WHERE m.reversal_of_id = le.entry_id
+          )
+          AND le.entry_date > :to_date`,
+      { replacements: { to_date: to }, type: sequelize.QueryTypes.SELECT },
+    );
+    const [integ] = await sequelize.query(
+      `SELECT COALESCE(SUM(le.debit_amount),  0)::float AS dr,
+              COALESCE(SUM(le.credit_amount), 0)::float AS cr
+         FROM ledger_entries le
+        WHERE le.reversal_of_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ledger_entries m
+             WHERE m.reversal_of_id = le.entry_id
+          )`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
+    const filterRawDr = r2(filtRaw.dr), filterRawCr = r2(filtRaw.cr);
+    const excludedDr  = r2(excluded.dr), excludedCr = r2(excluded.cr);
+    const integDr     = r2(integ.dr),    integCr    = r2(integ.cr);
+    const driftDr = r2(filterRawDr + excludedDr - integDr);
+    const driftCr = r2(filterRawCr + excludedCr - integCr);
+
     res.json({
       period: { from, to },
       ledgers,
@@ -126,6 +182,25 @@ exports.trialBalance = async (req, res) => {
         difference: r2(totalDr - totalCr),
         balanced: Math.abs(totalDr - totalCr) < 0.01,
         accounts_count: ledgers.length,
+      },
+      reconciliation: {
+        // Σ legs included by the filter. Compared with `excluded` and
+        // `integrity_active` to detect any silent filter drift.
+        filter_raw_dr: filterRawDr,
+        filter_raw_cr: filterRawCr,
+        // Σ legs deliberately excluded by `entry_date > to_date`. Non-zero
+        // when the user picks a historical to_date — that's normal.
+        excluded_after_to_dr: excludedDr,
+        excluded_after_to_cr: excludedCr,
+        // Σ all live legs across the entire ledger (no date bound).
+        integrity_active_dr: integDr,
+        integrity_active_cr: integCr,
+        // Should be 0 to the paisa. If non-zero, the TB SQL is dropping
+        // entries it shouldn't (regression like an inadvertent from_date
+        // clause). UI banner surfaces this.
+        drift_dr: driftDr,
+        drift_cr: driftCr,
+        balanced: Math.abs(driftDr) < 0.01 && Math.abs(driftCr) < 0.01,
       },
     });
   } catch (err) {

@@ -136,6 +136,20 @@ export default function TrialBalance() {
             action={<Button size="small" onClick={() => navigate('/accounts/integrity')}>Open Integrity</Button>}
           />
         )}
+        {data && data.reconciliation && !data.reconciliation.balanced && (
+          <Alert type="error" showIcon style={{ marginBottom: 16 }}
+            message="Trial balance period filter is dropping entries"
+            description={
+              <div>
+                Filter raw + entries past to-date should equal lifetime active total. Drift Dr ₹{fmtINR(data.reconciliation.drift_dr)}, Cr ₹{fmtINR(data.reconciliation.drift_cr)}.
+                Filter raw: Dr ₹{fmtINR(data.reconciliation.filter_raw_dr)} / Cr ₹{fmtINR(data.reconciliation.filter_raw_cr)};
+                excluded after to-date: Dr ₹{fmtINR(data.reconciliation.excluded_after_to_dr)} / Cr ₹{fmtINR(data.reconciliation.excluded_after_to_cr)};
+                integrity active: Dr ₹{fmtINR(data.reconciliation.integrity_active_dr)} / Cr ₹{fmtINR(data.reconciliation.integrity_active_cr)}.
+              </div>
+            }
+            action={<Button size="small" onClick={() => navigate('/accounts/integrity')}>Open Integrity</Button>}
+          />
+        )}
 
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={6}>
