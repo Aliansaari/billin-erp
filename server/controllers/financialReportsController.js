@@ -358,12 +358,18 @@ exports.cashFlow = async (req, res) => {
   try {
     const { from, to } = await resolvePeriod(req.query);
 
-    // Resolve cash + bank ledger ids.
+    // Resolve cash + bank ledger ids. The classification is by sub_group
+    // ONLY — not by name. The previous `ledger_name ILIKE '%Cash%'`
+    // bandage matched a Sundry Debtors party stub literally named
+    // "Cash Sales" (created by Tally import), which then had every
+    // sales-bill leg counted as a cash inflow. Fix: restrict to the
+    // canonical cash/bank sub_groups AND require is_party_ledger=false
+    // — a party ledger is NEVER cash by definition.
     const cashRows = await sequelize.query(
       `SELECT ledger_id, ledger_name, sub_group FROM ledger_accounts
         WHERE is_active = true
-          AND (sub_group ILIKE '%Cash%' OR sub_group ILIKE '%Bank%'
-               OR ledger_name ILIKE '%Cash%' OR ledger_name ILIKE 'Bank%')`,
+          AND is_party_ledger = false
+          AND sub_group IN ('Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c')`,
       { type: sequelize.QueryTypes.SELECT },
     );
     const cashIds = cashRows.map((r) => r.ledger_id);

@@ -130,7 +130,14 @@ Product.hasMany(StockLedger, { foreignKey: 'product_id' });
 StockLedger.belongsTo(Product, { foreignKey: 'product_id' });
 
 // LedgerEntry <-> LedgerAccount
-LedgerAccount.hasMany(LedgerEntry, { foreignKey: 'ledger_id' });
+// onDelete: RESTRICT — ledger_entries is the books-integrity source of
+// truth and must outlive its parents. Sequelize's hasMany default of
+// CASCADE silently wiped ₹8,606 of debits when a stub ledger account
+// was deleted (Apr 2026 incident). Removing a ledger now requires
+// reversing all its postings first, then setting is_active=false —
+// never hard-deleting. The DB-level RESTRICT enforces this even when
+// admin SQL bypasses the ORM hooks.
+LedgerAccount.hasMany(LedgerEntry, { foreignKey: 'ledger_id', onDelete: 'RESTRICT' });
 LedgerEntry.belongsTo(LedgerAccount, { foreignKey: 'ledger_id' });
 
 // Party → LedgerAccount (single direction to avoid Sequelize's cyclic-FK
@@ -144,7 +151,9 @@ LedgerEntry.belongsTo(LedgerEntry, { foreignKey: 'reversal_of_id', as: 'reversal
 LedgerEntry.hasOne(LedgerEntry, { foreignKey: 'reversal_of_id', as: 'reversedBy' });
 
 // LedgerEntry ↔ Party (per-line tag)
-Party.hasMany(LedgerEntry, { foreignKey: 'party_id' });
+// Same RESTRICT rationale as the ledger_id FK above — never silently
+// wipe ledger history by deleting a parent party row.
+Party.hasMany(LedgerEntry, { foreignKey: 'party_id', onDelete: 'RESTRICT' });
 LedgerEntry.belongsTo(Party, { foreignKey: 'party_id', as: 'party' });
 
 module.exports = {

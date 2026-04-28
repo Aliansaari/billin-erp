@@ -440,12 +440,27 @@ async function commit(job) {
 }
 
 // ── helper: ensure a party exists for every relevant Tally ledger ──
+// Names that look like cash-class transaction stubs ("Cash", "Cash Sales",
+// "Cash Purchases", "Bank") — Tally users sometimes set these as the
+// PARTYLEDGERNAME on a counter-style voucher rather than booking it
+// against an actual customer/supplier. We must NOT create a Sundry
+// Debtor/Creditor row for these — the voucher's party leg should route
+// to the real Cash ledger at commit time. Otherwise we end up with a
+// party stub whose Dr balance pollutes Sundry Debtors AND gets
+// classified as "cash" by Cash Flow's name-match resolver.
+function isCashClassPartyName(n) {
+  return /^\s*cash(\s+(sales|purchases?))?\s*$/i.test(String(n || ''));
+}
+
 async function ensureParties(job, ledgers) {
   const map = new Map();
   for (const lg of ledgers) {
     const isCustomer = /debtor/i.test(lg.parent || '');
     const isSupplier = /creditor/i.test(lg.parent || '');
     if (!isCustomer && !isSupplier) continue;
+    // Skip cash-class names — they're not real parties. The voucher
+    // commit path routes the leg to the Cash ledger directly.
+    if (isCashClassPartyName(lg.name)) continue;
     const t = await sequelize.transaction();
     try {
       // Tally rarely supplies a mobile number per ledger. We used to fill
@@ -759,6 +774,16 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
         partyId = await ensureCashPurchasesParty(t);
         isCashPurchase = true;
       }
+      // Cash sale: PARTYLEDGERNAME is "Cash" / "Cash Sales" / a Bank
+      // ledger. SalesBill.customer_id IS nullable, so we leave it null
+      // and book the bill paid-in-full — buildSalesBillVouchers' walk-in
+      // branch then posts Cash Dr / Sales Cr directly. No Sundry Debtor
+      // stub gets created (the previous behaviour caused the
+      // "Cash Sales" party-stub bug).
+      let isCashSale = false;
+      if (isSales && !partyId && isCashClassPartyName(v.party_name)) {
+        isCashSale = true;
+      }
 
       let billRow;
       if (action === 'update') {
@@ -801,9 +826,9 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
           cgst_pct: totals.cgst_pct, sgst_pct: totals.sgst_pct, igst_pct: totals.igst_pct,
           round_off: totals.round_off,
           total_amount: totals.total_amount,
-          paid_amount: isCashPurchase ? totals.total_amount : 0,
-          balance_amount: isCashPurchase ? 0 : totals.total_amount,
-          payment_status: isCashPurchase ? 'Paid' : 'Unpaid',
+          paid_amount: (isCashPurchase || isCashSale) ? totals.total_amount : 0,
+          balance_amount: (isCashPurchase || isCashSale) ? 0 : totals.total_amount,
+          payment_status: (isCashPurchase || isCashSale) ? 'Paid' : 'Unpaid',
           payment_method: 'Cash',
         };
         billRow = await Bill.create(data, { transaction: t });
@@ -1241,4 +1266,4 @@ function computeVoucherTotals(v, gstEnabled) {
   };
 }
 
-module.exports = { run, _commit: commit, _validateAndPreview: validateAndPreview, _computeVoucherTotals: computeVoucherTotals };
+module.exports = { run, _commit: commit, _validateAndPreview: validateAndPreview, _computeVoucherTotals: computeVoucherTotals, isCashClassPartyName };

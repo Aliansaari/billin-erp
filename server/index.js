@@ -750,6 +750,63 @@ async function startServer() {
       console.error('[Safe migrations] Error:', err.message);
     });
 
+    // ── Books-integrity FK hardening ─────────────────────────────────
+    // The two FKs from ledger_entries to its parents (ledger_accounts
+    // and parties) used to be ON DELETE CASCADE — Sequelize's hasMany
+    // default. That silently wiped ₹8,606 of debits when a stub ledger
+    // account was deleted. Append-only is now enforced at the DB level:
+    // RESTRICT means you cannot delete a parent row that has any
+    // ledger history. Removing a ledger / party requires reversing
+    // every voucher first, then setting is_active=false.
+    //
+    // This is idempotent — running on a DB that's already been
+    // hardened is a no-op (DROP CONSTRAINT IF EXISTS, then re-ADD).
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint
+           WHERE conname = 'ledger_entries_ledger_id_fkey'
+             AND confdeltype = 'c'   -- 'c' = CASCADE
+        ) THEN
+          ALTER TABLE ledger_entries DROP CONSTRAINT ledger_entries_ledger_id_fkey;
+          ALTER TABLE ledger_entries
+            ADD CONSTRAINT ledger_entries_ledger_id_fkey
+            FOREIGN KEY (ledger_id) REFERENCES ledger_accounts(ledger_id)
+            ON UPDATE CASCADE ON DELETE RESTRICT;
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint
+           WHERE conname = 'ledger_entries_party_id_fkey'
+             AND confdeltype = 'c'
+        ) THEN
+          ALTER TABLE ledger_entries DROP CONSTRAINT ledger_entries_party_id_fkey;
+          ALTER TABLE ledger_entries
+            ADD CONSTRAINT ledger_entries_party_id_fkey
+            FOREIGN KEY (party_id) REFERENCES parties(party_id)
+            ON UPDATE CASCADE ON DELETE RESTRICT;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[FK hardening] Error:', err.message);
+    });
+
+    // ── One-time created_date alignment for the 6 ledger_entries
+    // re-inserted during the corrupted-backfill incident (Apr 2026).
+    // Those rows had their original Dr-leg created_date wiped by a
+    // cascade-delete, then were rebuilt from the known amounts via
+    // direct SQL INSERT with created_date=NOW(). Aligning to the
+    // entry_date doesn't restore the original timestamp, but at
+    // least keeps audit-log queries honest about the business date.
+    // Idempotent — once aligned, re-running matches no rows.
+    await sequelize.query(`
+      UPDATE ledger_entries
+         SET created_date = entry_date::timestamp
+       WHERE narration = 'Cash sale (restored from corrupted backfill)'
+         AND created_date::date <> entry_date;
+    `).catch((err) => {
+      console.error('[Created-date alignment] Error:', err.message);
+    });
+
     // Seed default data
     await seedDefaultData();
 
