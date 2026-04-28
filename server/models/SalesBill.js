@@ -16,6 +16,15 @@ const SalesBill = sequelize.define('SalesBill', {
     type: DataTypes.INTEGER,
     references: { model: 'parties', key: 'party_id' },
   },
+  // Walk-in customer name shown alongside the system "Cash" party on
+  // cash sales. Optional — the form only collects it when the operator
+  // selects the Cash party. Stored on the bill (not as a per-person
+  // party row) because cash walk-ins don't have ledger history. Rendered
+  // on the bill list (second line under "Cash"), the edit form, and the
+  // print/PDF customer header.
+  walk_in_name: {
+    type: DataTypes.STRING(120),
+  },
   bill_date: {
     type: DataTypes.DATEONLY,
     allowNull: false,

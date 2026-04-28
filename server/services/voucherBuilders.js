@@ -12,12 +12,19 @@
 //     purchase, they ride along with Purchase Account.
 //   • Round Off: positive value → credit Round-Off (income); negative →
 //     debit Round-Off (expense). Mirrored on purchase.
-//   • Cash sale / cash purchase: when customer_id / supplier_id is absent,
-//     the party leg is replaced with the Cash ledger.
+//   • Cash sale / cash purchase: when customer_id / supplier_id is absent
+//     OR when the linked party is the system Cash party (party.is_system_cash),
+//     the party leg is replaced with the Cash ledger directly (no party
+//     tag) — the system Cash party's ledger_account_id is the Cash-in-Hand
+//     ledger, so even if we did walk through getPartyLedger() the leg
+//     would land on Cash. Going direct keeps the post free of the
+//     party_id tag (so per-party reports / aging never see cash bills).
 //   • Each bill produces ONE primary voucher (Sales/Purchase). If the bill
-//     records paid_amount > 0 against a customer/supplier, a SECOND voucher
-//     (Receipt / Payment) is posted for the paid portion in the same
-//     transaction. Cash sales are posted as a single voucher, Cash → Sales.
+//     records paid_amount > 0 against a NON-cash customer/supplier, a SECOND
+//     voucher (Receipt / Payment) is posted for the paid portion in the same
+//     transaction. Cash sales/purchases are posted as a single voucher
+//     (Cash → Sales / Purchase → Cash) — a Cash Dr / Cash Cr receipt
+//     would be a self-cancelling no-op.
 //
 // All builders return `{ lines, narration, voucherDate, referenceNumber }`
 // — a payload ready to spread into postVoucher(). They never write to the
@@ -92,6 +99,9 @@ async function buildSalesBillVouchers(bill, opts = {}) {
   const customer = bill.customer || (bill.customer_id
     ? await Party.findByPk(bill.customer_id, { transaction: t })
     : null);
+  // System Cash party? Treat as a cash sale (Cash leg, no party tag, no
+  // receipt voucher) regardless of whether customer_id was set.
+  const isCashCustomer = !customer || !!customer.is_system_cash;
 
   const sales   = await getSystemLedger('Sales Account', cache, t);
   const cash    = await getSystemLedger('Cash',          cache, t);
@@ -117,14 +127,15 @@ async function buildSalesBillVouchers(bill, opts = {}) {
   const lines = [];
 
   // Party / Cash debit (the receivable)
-  if (customer) {
+  if (!isCashCustomer) {
     const partyLedger = await getPartyLedger(customer, t);
     if (!partyLedger) {
       throw new Error(`buildSalesBillVouchers: customer #${customer.party_id} has no ledger account — run backfill?`);
     }
     lines.push({ ledgerAccountId: partyLedger.ledger_id, debit: totalAmount, credit: 0, partyId: customer.party_id });
   } else {
-    // Cash sale (walk-in): Cash account debited for the full bill.
+    // Cash sale: Cash account debited for the full bill — no party tag,
+    // so this entry never shows up in per-party ledgers / aging.
     lines.push({ ledgerAccountId: cash.ledger_id, debit: totalAmount, credit: 0 });
   }
 
@@ -139,6 +150,10 @@ async function buildSalesBillVouchers(bill, opts = {}) {
     lines.push({ ledgerAccountId: roundOf.ledger_id, debit: -roundOff, credit: 0 });
   }
 
+  // Narration: use the walk-in name if the operator captured one on the
+  // bill so audit logs read "Cash sale (Mr Sharma)" rather than just
+  // "Cash sale". Falls back to the party name for credit sales.
+  const walkIn = String(bill.walk_in_name || '').trim();
   const primary = {
     voucherType: 'Sales',
     sourceType:  'sales_bill',
@@ -146,15 +161,16 @@ async function buildSalesBillVouchers(bill, opts = {}) {
     voucherDate: bill.bill_date,
     referenceNumber: bill.bill_number,
     lines,
-    narration: customer
-      ? `Sales to ${customer.party_name}`
-      : 'Cash sale',
+    narration: isCashCustomer
+      ? (walkIn ? `Cash sale (${walkIn})` : 'Cash sale')
+      : `Sales to ${customer.party_name}`,
   };
 
-  // Optional receipt voucher for any paid_amount on a credit sale.
-  // Cash sales already have Cash debited above — no extra receipt needed.
+  // Optional receipt voucher for any paid_amount on a CREDIT sale.
+  // Cash sales already have Cash debited above — adding a Cash Dr /
+  // Cash Cr receipt would be a self-cancelling no-op.
   const vouchers = [primary];
-  if (customer && paidAmount > 0) {
+  if (!isCashCustomer && paidAmount > 0) {
     const partyLedger = await getPartyLedger(customer, t);
     const cashOrBank = await paymentMethodToLedger(bill.payment_method, cache, t);
     vouchers.push({
@@ -181,6 +197,7 @@ async function buildPurchaseBillVouchers(bill, opts = {}) {
   const supplier = bill.supplier || (bill.supplier_id
     ? await Party.findByPk(bill.supplier_id, { transaction: t })
     : null);
+  const isCashSupplier = !supplier || !!supplier.is_system_cash;
 
   const purchase = await getSystemLedger('Purchase Account', cache, t);
   const cash     = await getSystemLedger('Cash',             cache, t);
@@ -210,16 +227,18 @@ async function buildPurchaseBillVouchers(bill, opts = {}) {
   if (roundOff > 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: roundOff, credit: 0 });
   else if (roundOff < 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: -roundOff });
 
-  if (supplier) {
+  if (!isCashSupplier) {
     const partyLedger = await getPartyLedger(supplier, t);
     if (!partyLedger) {
       throw new Error(`buildPurchaseBillVouchers: supplier #${supplier.party_id} has no ledger account — run backfill?`);
     }
     lines.push({ ledgerAccountId: partyLedger.ledger_id, debit: 0, credit: totalAmount, partyId: supplier.party_id });
   } else {
+    // Cash purchase — Cash credited directly, no party tag.
     lines.push({ ledgerAccountId: cash.ledger_id, debit: 0, credit: totalAmount });
   }
 
+  const walkIn = String(bill.walk_in_name || '').trim();
   const primary = {
     voucherType: 'Purchase',
     sourceType:  'purchase_bill',
@@ -227,13 +246,13 @@ async function buildPurchaseBillVouchers(bill, opts = {}) {
     voucherDate: bill.bill_date,
     referenceNumber: bill.bill_number,
     lines,
-    narration: supplier
-      ? `Purchase from ${supplier.party_name}`
-      : 'Cash purchase',
+    narration: isCashSupplier
+      ? (walkIn ? `Cash purchase (${walkIn})` : 'Cash purchase')
+      : `Purchase from ${supplier.party_name}`,
   };
 
   const vouchers = [primary];
-  if (supplier && paidAmount > 0) {
+  if (!isCashSupplier && paidAmount > 0) {
     const partyLedger = await getPartyLedger(supplier, t);
     const cashOrBank = await paymentMethodToLedger(bill.payment_method, cache, t);
     vouchers.push({
@@ -262,6 +281,7 @@ async function buildSalesReturnVouchers(ret, opts = {}) {
   const customer = ret.customer || (ret.customer_id
     ? await Party.findByPk(ret.customer_id, { transaction: t })
     : null);
+  const isCashCustomer = !customer || !!customer.is_system_cash;
 
   const salesReturn = await getSystemLedger('Sales Return', cache, t);
   const cash        = await getSystemLedger('Cash',         cache, t);
@@ -290,7 +310,7 @@ async function buildSalesReturnVouchers(ret, opts = {}) {
   if (roundOff > 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: roundOff, credit: 0 });
   else if (roundOff < 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: -roundOff });
 
-  if (customer) {
+  if (!isCashCustomer) {
     const partyLedger = await getPartyLedger(customer, t);
     if (!partyLedger) {
       throw new Error(`buildSalesReturnVouchers: customer #${customer.party_id} has no ledger account`);
@@ -307,9 +327,9 @@ async function buildSalesReturnVouchers(ret, opts = {}) {
     voucherDate: ret.return_date,
     referenceNumber: ret.return_number,
     lines,
-    narration: customer
-      ? `Sales return from ${customer.party_name}`
-      : 'Cash sales return',
+    narration: isCashCustomer
+      ? 'Cash sales return'
+      : `Sales return from ${customer.party_name}`,
   }];
 }
 
@@ -320,6 +340,7 @@ async function buildPurchaseReturnVouchers(ret, opts = {}) {
   const supplier = ret.supplier || (ret.supplier_id
     ? await Party.findByPk(ret.supplier_id, { transaction: t })
     : null);
+  const isCashSupplier = !supplier || !!supplier.is_system_cash;
 
   const purchaseReturn = await getSystemLedger('Purchase Return', cache, t);
   const cash           = await getSystemLedger('Cash',            cache, t);
@@ -341,7 +362,7 @@ async function buildPurchaseReturnVouchers(ret, opts = {}) {
   const returnCredit = r2(subTotal - discount + otherCharges + freight);
 
   const lines = [];
-  if (supplier) {
+  if (!isCashSupplier) {
     const partyLedger = await getPartyLedger(supplier, t);
     if (!partyLedger) {
       throw new Error(`buildPurchaseReturnVouchers: supplier #${supplier.party_id} has no ledger account`);
@@ -365,9 +386,9 @@ async function buildPurchaseReturnVouchers(ret, opts = {}) {
     voucherDate: ret.return_date,
     referenceNumber: ret.return_number,
     lines,
-    narration: supplier
-      ? `Purchase return to ${supplier.party_name}`
-      : 'Cash purchase return',
+    narration: isCashSupplier
+      ? 'Cash purchase return'
+      : `Purchase return to ${supplier.party_name}`,
   }];
 }
 

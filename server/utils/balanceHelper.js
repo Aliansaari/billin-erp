@@ -40,6 +40,17 @@ async function recalculatePartyBalance(partyId, t = null) {
   const party = await Party.findByPk(partyId, opts);
   if (!party) return 0;
 
+  // System Cash party never carries a balance: cash bills are paid in
+  // full at point-of-sale (paid_amount = total_amount), so the formula
+  // would compute zero anyway. Short-circuit to avoid the per-bill
+  // aggregation cost on a row that can have thousands of cash bills.
+  if (party.is_system_cash) {
+    if (party.current_balance !== 0) {
+      await party.update({ current_balance: 0 }, opts);
+    }
+    return 0;
+  }
+
   // ── Opening balance ───────────────────────────────────────────────────────
   const rawOpening   = parseFloat(party.opening_balance) || 0;
   const openingSigned = party.opening_balance_type === 'Payable'

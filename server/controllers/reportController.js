@@ -1225,6 +1225,11 @@ async function _loadAgingBills(partyType) {
     include: [{
       model: Party,
       as: partyAssoc,
+      // Exclude the system Cash party — cash sales/purchases are settled
+      // at point-of-sale and have no credit window to age. A cash bill
+      // with balance_amount > 0 is a half-saved entry, not a receivable.
+      where: { is_system_cash: { [Op.or]: [false, null] } },
+      required: true,
       attributes: ['party_id', 'party_name', 'mobile_1', 'city', 'state',
                    'credit_days', 'credit_limit'],
     }],

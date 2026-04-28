@@ -241,7 +241,9 @@ export default function Dashboard() {
     const s = (stats.recent_sales || []).map(b => ({
       type: 'sale',
       ref: b.bill_number,
-      who: b.customer?.party_name || 'Cash Sale',
+      who: (b.customer?.is_system_cash || !b.customer?.party_name)
+        ? `Cash${b.walk_in_name ? ` — ${String(b.walk_in_name).trim()}` : ''}`
+        : b.customer.party_name,
       detail: null,
       amt: Number(b.total_amount) || 0,
       status: b.payment_status,

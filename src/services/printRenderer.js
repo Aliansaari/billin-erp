@@ -185,12 +185,22 @@ const renderTotals = (bill, profile) => {
 
 const renderPartyBlock = (bill) => {
   const p = bill.customer || bill.supplier || bill.party || {};
+  const isCash = !p.party_name || p.is_system_cash;
+  const walkIn = String(bill.walk_in_name || '').trim();
   const lines = [];
-  if (p.party_name) lines.push(`<b>${esc(p.party_name)}</b>`);
-  if (p.address_line1) lines.push(esc(p.address_line1));
-  if (p.city || p.state) lines.push(esc([p.city, p.state].filter(Boolean).join(', ')));
-  if (p.gstin) lines.push(`GSTIN: ${esc(p.gstin)}`);
-  if (p.mobile_1) lines.push(`Mobile: ${esc(p.mobile_1)}`);
+  if (isCash) {
+    // System Cash party prints as "Cash" with the operator-typed walk-in
+    // name on a second line (when present). Skip mobile/GSTIN — they're
+    // sentinel values on the system party (mobile_1 = "CASH").
+    lines.push('<b>Cash</b>');
+    if (walkIn) lines.push(esc(walkIn));
+  } else {
+    lines.push(`<b>${esc(p.party_name)}</b>`);
+    if (p.address_line1) lines.push(esc(p.address_line1));
+    if (p.city || p.state) lines.push(esc([p.city, p.state].filter(Boolean).join(', ')));
+    if (p.gstin) lines.push(`GSTIN: ${esc(p.gstin)}`);
+    if (p.mobile_1) lines.push(`Mobile: ${esc(p.mobile_1)}`);
+  }
   return `<div class="party">${lines.join('<br/>')}</div>`;
 };
 
@@ -647,10 +657,19 @@ function renderThermal(bill, profile, company) {
         <div class="doc-type">${esc(DOC_LABEL[bill.__doctype] || 'BILL')}${bill.__copyLabel ? ` - ${esc(bill.__copyLabel)}` : ''}</div>
       </div>
       <div class="meta-row"><span>${esc(bill.bill_number || bill.transaction_number || '')}</span><span>${esc(fmtDate(bill.bill_date || bill.transaction_date))}</span></div>
-      <div class="party">
-        ${bill.customer?.party_name || bill.supplier?.party_name || bill.party?.party_name || 'Walk-in'}
-        ${bill.customer?.mobile_1 || bill.supplier?.mobile_1 ? '<br/>' + esc(bill.customer?.mobile_1 || bill.supplier?.mobile_1) : ''}
-      </div>
+      ${(() => {
+        // Thermal-format party block. Mirrors renderPartyBlock's cash logic:
+        // system Cash party prints as "Cash" + walk-in name on a 2nd line,
+        // never the sentinel mobile_1 / GSTIN.
+        const p = bill.customer || bill.supplier || bill.party || {};
+        const isCash = !p.party_name || p.is_system_cash;
+        const walkIn = String(bill.walk_in_name || '').trim();
+        if (isCash) {
+          return `<div class="party">Cash${walkIn ? '<br/>' + esc(walkIn) : ''}</div>`;
+        }
+        const phone = p.mobile_1 ? '<br/>' + esc(p.mobile_1) : '';
+        return `<div class="party">${esc(p.party_name)}${phone}</div>`;
+      })()}
       ${items.length ? `<table class="items"><tbody>${itemsHtml}</tbody></table>` : ''}
       <div class="hrb"></div>
       ${showPrev && prev > 0 ? line('Previous Bal', fmtMoney(prev, profile)) : ''}

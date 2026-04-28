@@ -502,23 +502,24 @@ async function ensureParties(job, ledgers) {
   return map;
 }
 
-// Cash purchase fallback: PurchaseBill.supplier_id is NOT NULL but
-// counter-style cash purchases legitimately have no supplier party.
-// We materialise a single "Cash Purchases" Supplier and reuse it for
-// every cash purchase from any import — keeping the constraint satisfied
-// without polluting the parties list with one stub per cash bill.
-async function ensureCashPurchasesParty(t) {
-  const STUB_NAME = 'Cash Purchases';
-  const existing = await Party.findOne({ where: { party_name: STUB_NAME }, transaction: t });
-  if (existing) return existing.party_id;
-  const party = await Party.create({
-    party_type: 'Supplier',
-    party_name: STUB_NAME,
-    mobile_1: 'CASH-PURCHASES',
-    opening_balance: 0,
-    opening_balance_type: 'Payable',
-  }, { transaction: t });
-  return party.party_id;
+// Returns the party_id of the seeded system Cash party. Every cash sale
+// AND cash purchase imported from Tally now lands on this single canonical
+// row (the seeder's idempotent findOrCreate guarantees it exists; the
+// partial unique index guarantees there's at most one).
+//
+// Replaces the old per-stub pattern: sales used to set customer_id=NULL,
+// purchases used to materialise a "Cash Purchases" Supplier stub. Both of
+// those leaked into Sundry Debtors/Creditors aging via party-ledger rows
+// and showed up in customer/supplier dropdowns. Routing to the system
+// Cash party means cash legs post to Cash-in-Hand directly (the
+// voucher builder branches on party.is_system_cash), no party-ledger
+// row is created, and reports cleanly filter on is_system_cash.
+async function getSystemCashPartyId(t) {
+  const row = await Party.findOne({ where: { is_system_cash: true }, transaction: t });
+  if (!row) {
+    throw new Error('Tally import: system Cash party missing — seeder not run?');
+  }
+  return row.party_id;
 }
 
 // ── Item-insert helper ────────────────────────────────────────────────
@@ -761,29 +762,23 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
 
       const partyRow = await resolvePartyByName(v.party_name, partiesByName, t);
       let partyId = partyRow ? partyRow.party_id : null;
-      // Cash purchase: PARTYLEDGERNAME is "Cash" / a Bank ledger rather
-      // than a Sundry Creditor. PurchaseBill.supplier_id is NOT NULL, so
-      // we auto-create (or reuse) a "Cash Purchases" stub Supplier party.
-      // We also flag this voucher so the bill is booked as paid in full
-      // — that triggers the secondary purchase_bill_payment voucher
-      // (Stub Supplier Dr / Cash Cr) which (a) puts the credit on the
-      // real Cash ledger and (b) nets the stub supplier ledger to zero
-      // so it doesn't clutter party-balance reports.
-      let isCashPurchase = false;
-      if (!isSales && !partyId) {
-        partyId = await ensureCashPurchasesParty(t);
-        isCashPurchase = true;
+      // Cash sale or cash purchase: PARTYLEDGERNAME matches the
+      // cash-class regex (^Cash, ^Cash Sales, ^Cash Purchases, ^Bank).
+      // Route both to the seeded system Cash party — its
+      // is_system_cash flag makes the voucher builder post the cash
+      // leg to Cash-in-Hand directly (no party tag, no party-ledger
+      // row, no clutter in receivables/payables aging). Replaces the
+      // old NULL-customer / per-import "Cash Purchases" stub pattern.
+      let isCashVoucher = false;
+      if (!partyId && isCashClassPartyName(v.party_name)) {
+        partyId = await getSystemCashPartyId(t);
+        isCashVoucher = true;
       }
-      // Cash sale: PARTYLEDGERNAME is "Cash" / "Cash Sales" / a Bank
-      // ledger. SalesBill.customer_id IS nullable, so we leave it null
-      // and book the bill paid-in-full — buildSalesBillVouchers' walk-in
-      // branch then posts Cash Dr / Sales Cr directly. No Sundry Debtor
-      // stub gets created (the previous behaviour caused the
-      // "Cash Sales" party-stub bug).
-      let isCashSale = false;
-      if (isSales && !partyId && isCashClassPartyName(v.party_name)) {
-        isCashSale = true;
-      }
+      // Pre-existing local aliases used downstream (book the bill as
+      // paid-in-full). Single flag for both directions; legacy names
+      // kept for the data + receipt-vs-payment branching below.
+      const isCashPurchase = isCashVoucher && !isSales;
+      const isCashSale     = isCashVoucher && isSales;
 
       let billRow;
       if (action === 'update') {

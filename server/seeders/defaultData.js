@@ -1,5 +1,5 @@
 const bcrypt = require('bcryptjs');
-const { Role, User, BarcodeSettings, SystemSettings, LedgerAccount, PrintProfile } = require('../models');
+const { Role, User, BarcodeSettings, SystemSettings, LedgerAccount, PrintProfile, Party } = require('../models');
 const { ROLES } = require('../utils/rolePerms');
 
 async function seedDefaultData() {
@@ -110,6 +110,41 @@ async function seedDefaultData() {
 
   for (const ledger of defaultLedgers) {
     await LedgerAccount.findOrCreate({ where: { ledger_name: ledger.ledger_name }, defaults: ledger });
+  }
+
+  // ── System "Cash" party ──────────────────────────────────────────────
+  // One canonical row used as the customer (and supplier) for every cash
+  // sale / cash purchase. Pre-linked to the seeded Cash-in-Hand ledger so
+  // the voucher builder posts cash legs directly there — no auto-created
+  // Sundry Debtors row, no per-import "Cash Sales" stub, no NULL
+  // customer_id pattern. is_active=true, is_system_cash=true (which the
+  // partyController + reports pivot on to pin to the top of dropdowns,
+  // skip the /^cash/i name validation, and exclude from receivables/
+  // payables aging + the Sundry Debtors/Creditors balance-sheet groups).
+  //
+  // findOrCreate is keyed on is_system_cash=true (only one row may have
+  // that flag — partial unique index in the migration block) so reseeds
+  // are no-ops. We bypass the Party afterCreate hook's auto-ledger
+  // logic by pre-populating ledger_account_id; the hook short-circuits
+  // when is_system_cash is set.
+  const cashLedger = await LedgerAccount.findOne({ where: { ledger_name: 'Cash' } });
+  if (cashLedger) {
+    await Party.findOrCreate({
+      where: { is_system_cash: true },
+      defaults: {
+        is_system_cash: true,
+        party_type: 'Both',
+        party_name: 'Cash',
+        // mobile_1 is NOT NULL on the model. The system Cash party isn't
+        // a real contactable entity, so use a sentinel that won't collide
+        // with a real number and clearly signals "system fixture".
+        mobile_1: 'CASH',
+        opening_balance: 0,
+        opening_balance_type: 'Receivable',
+        is_active: true,
+        ledger_account_id: cashLedger.ledger_id,
+      },
+    });
   }
 
   // ── Default Print Profiles ──

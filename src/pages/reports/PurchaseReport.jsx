@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { Table, Card, DatePicker, Select, Button, Tag, Typography, Space, message, Spin, Alert, Checkbox, Popover } from 'antd';
-import { DownloadOutlined, SettingOutlined } from '@ant-design/icons';
+import { Table, DatePicker, Select, Button, Tag, message, Spin, Checkbox, Popover, Input } from 'antd';
+import { DownloadOutlined, SettingOutlined, PrinterOutlined, SearchOutlined, CloseOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { reportAPI, partyAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
-
-const { Title } = Typography;
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
@@ -41,6 +39,27 @@ const ALL_COLS = [
 const COLS_STORAGE_KEY = 'purchaseReport_cols_v2';
 const DEFAULT_COLS = ALL_COLS.reduce((o, c) => ({ ...o, [c.key]: c.default }), {});
 
+// KPI cards user can pick from the Customize popover. Semantic tones map to
+// theme CSS vars so tiles re-skin automatically when switching Classic↔Modern.
+const ALL_KPIS = [
+  { key: 'purchases',   label: 'Total Purchases', tone: 'accent',  default: true,
+    value: (s) => `₹ ${parseFloat(s.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'gst',         label: 'Total GST',       tone: 'warning', default: true,
+    value: (s) => `₹ ${parseFloat(s.total_gst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'discount',    label: 'Total Discount',  tone: 'success', default: true,
+    value: (s) => `₹ ${parseFloat(s.total_discount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'paid',        label: 'Total Paid',      tone: 'success', default: true,
+    value: (s) => `₹ ${parseFloat(s.total_paid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'balance',     label: 'Total Balance',   tone: 'danger',  default: true,
+    value: (s) => `₹ ${parseFloat(s.total_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'sub_total',   label: 'Taxable Value',   tone: 'info',    default: false,
+    value: (s) => `₹ ${parseFloat(s.total_sub || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'bill_count',  label: 'Bill Count',      tone: 'neutral', default: false,
+    value: (_s, count) => String(count || 0) },
+];
+const KPIS_STORAGE_KEY = 'purchaseReport_kpis_v1';
+const DEFAULT_KPIS = ALL_KPIS.reduce((o, k) => ({ ...o, [k.key]: k.default }), {});
+
 function presetRange(key, fyStart, fyEnd) {
   const today = dayjs();
   if (key === 'this_fy'    && fyStart && fyEnd) return [dayjs(fyStart), dayjs(fyEnd)];
@@ -67,7 +86,9 @@ export default function PurchaseReport() {
     to_date:   fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
     supplier_id: null,
     payment_status: null,
+    search: '',
   });
+  const [reconDismissed, setReconDismissed] = useState(false);
   const [preset, setPreset] = useState('this_fy');
   const [reconciliation, setReconciliation] = useState(null);
   const [colsVisible, setColsVisible] = useState(() => {
@@ -76,7 +97,14 @@ export default function PurchaseReport() {
       return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
     } catch { return DEFAULT_COLS; }
   });
+  const [kpisVisible, setKpisVisible] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KPIS_STORAGE_KEY) || 'null');
+      return saved && typeof saved === 'object' ? { ...DEFAULT_KPIS, ...saved } : DEFAULT_KPIS;
+    } catch { return DEFAULT_KPIS; }
+  });
   const loaderRef = useRef(null);
+  const scrollRef = useRef(null);
 
   useEffect(() => {
     if (preset === 'custom') return;
@@ -94,6 +122,10 @@ export default function PurchaseReport() {
   useEffect(() => {
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(colsVisible)); } catch {}
   }, [colsVisible]);
+
+  useEffect(() => {
+    try { localStorage.setItem(KPIS_STORAGE_KEY, JSON.stringify(kpisVisible)); } catch {}
+  }, [kpisVisible]);
 
   useEffect(() => {
     loadSuppliers();
@@ -150,7 +182,7 @@ export default function PurchaseReport() {
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => { if (entries[0].isIntersecting) loadNextPage(); },
-      { threshold: 0.1 }
+      { root: scrollRef.current || null, threshold: 0.1 }
     );
     if (loaderRef.current) observer.observe(loaderRef.current);
     return () => observer.disconnect();
@@ -187,9 +219,15 @@ export default function PurchaseReport() {
   };
 
   const COL_SPECS = useMemo(() => ({
-    bill_no:       { title: 'Bill No',      dataIndex: 'bill_number', width: 130 },
-    date:          { title: 'Date',         dataIndex: 'bill_date',   width: 110, render: (v) => dayjs(v).format('DD-MMM-YYYY') },
-    supplier:      { title: 'Supplier',     dataIndex: ['supplier', 'party_name'], width: 180 },
+    bill_no:       { title: 'Bill No',      dataIndex: 'bill_number', width: 130,
+                     render: (v) => <span className="rpt-bill-no">{v}</span> },
+    date:          { title: 'Date',         dataIndex: 'bill_date',   width: 110, render: (v) => dayjs(v).format('DD/MM/YYYY') },
+    supplier:      { title: 'Supplier',     dataIndex: ['supplier', 'party_name'], width: 180,
+                     render: (v, row) => {
+                       const isCash = row?.supplier?.is_system_cash || !v;
+                       const w = String(row?.walk_in_name || '').trim();
+                       return isCash ? (w ? `Cash — ${w}` : 'Cash') : v;
+                     } },
     gstin:         { title: 'GSTIN',        dataIndex: ['supplier', 'gstin'], width: 150,
                      render: (v) => v ? <Tag style={{ fontFamily: 'Geist Mono, monospace' }}>{v}</Tag> : '—' },
     state:         { title: 'State',        dataIndex: ['supplier', 'state'], width: 130, render: (v) => v || '—' },
@@ -211,7 +249,7 @@ export default function PurchaseReport() {
     payment_mode:  { title: 'Mode',         dataIndex: 'payment_method', width: 100,
                      render: (v) => v ? <Tag>{v}</Tag> : '—' },
     due_date:      { title: 'Due',          dataIndex: 'due_date', width: 110,
-                     render: (v) => v ? dayjs(v).format('DD-MMM-YYYY') : '—' },
+                     render: (v) => v ? dayjs(v).format('DD/MM/YYYY') : '—' },
     overdue_days:  { title: 'Overdue',      width: 90, align: 'right',
                      render: (_, r) => {
                        const d = rowOverdueDays(r);
@@ -219,73 +257,66 @@ export default function PurchaseReport() {
                        return <span style={{ color: d > 30 ? '#dc2626' : d > 0 ? '#d97706' : undefined, fontFamily: 'Geist Mono, monospace' }}>{d > 0 ? `${d} d` : '—'}</span>;
                      } },
     status:        { title: 'Status',       dataIndex: 'payment_status', width: 90,
-                     render: (s) => <Tag color={s === 'Paid' ? 'green' : s === 'Partial' ? 'orange' : 'red'}>{s}</Tag> },
+                     render: (s) => <span className={`rpt-pill ${s === 'Paid' ? 'paid' : s === 'Partial' ? 'partial' : 'unpaid'}`}>{s}</span> },
   }), []);
 
   const columns = useMemo(() => {
     return ALL_COLS.filter((c) => colsVisible[c.key]).map((c) => ({ key: c.key, ...COL_SPECS[c.key] }));
   }, [colsVisible, COL_SPECS]);
 
-  const colsPickerContent = (
-    <div style={{ minWidth: 320, maxWidth: 360, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
-      {ALL_COLS.map((c) => (
-        <div key={c.key}>
-          <Checkbox checked={!!colsVisible[c.key]} onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}>
-            {c.label}
-          </Checkbox>
-        </div>
-      ))}
+  const customizePopoverContent = (
+    <div style={{ width: 360, maxHeight: '70vh', overflowY: 'auto' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary, #6b7280)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>KPI Cards</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 14 }}>
+        {ALL_KPIS.map((k) => (
+          <div key={k.key}>
+            <Checkbox checked={!!kpisVisible[k.key]} onChange={(e) => setKpisVisible((v) => ({ ...v, [k.key]: e.target.checked }))}>
+              {k.label}
+            </Checkbox>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary, #6b7280)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Columns</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+        {ALL_COLS.map((c) => (
+          <div key={c.key}>
+            <Checkbox checked={!!colsVisible[c.key]} onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}>
+              {c.label}
+            </Checkbox>
+          </div>
+        ))}
+      </div>
     </div>
   );
 
-  const fmt2 = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  const fyLabel = fyStart ? `FY ${dayjs(fyStart).format('YYYY')}-${dayjs(fyEnd).format('YY')}` : '';
+  const handlePrint = () => window.print();
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Page Header */}
-      <div className="erp-page-header" style={{ padding: '12px 20px', marginBottom: 0, background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-        <div className="erp-page-header-title">
-          <Title level={3} style={{ margin: 0, fontWeight: 700, color: '#1f2937' }}>Purchase Report</Title>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>
-            {totalCount} bill{totalCount === 1 ? '' : 's'}
-            {data.length < totalCount ? ` · showing ${data.length}` : ''}
-          </span>
+    <div className="report-editorial" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="rpt-page-hd">
+        <div className="rpt-title">
+          <h1>Purchase Report</h1>
+          <div className="rpt-sub">
+            <b>{totalCount}</b> bill{totalCount === 1 ? '' : 's'}
+            {fyLabel && <><span className="sep">·</span>{fyLabel}</>}
+            {data.length < totalCount && <><span className="sep">·</span>showing <b>{data.length}</b></>}
+          </div>
         </div>
-        <Space>
-          <Popover content={colsPickerContent} title="Columns" trigger="click" placement="bottomRight">
-            <Button icon={<SettingOutlined />} style={{ height: 38 }}>Columns</Button>
-          </Popover>
-          <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ height: 38 }}>Export Excel</Button>
-        </Space>
-      </div>
-
-      {reconciliation && !reconciliation.balanced && (
-        <Alert type="warning" showIcon style={{ margin: '0 20px' }}
-          message="Purchase ledger does not reconcile to bills"
-          description={
-            <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 12 }}>
-              <div>{reconciliation.ledger_name} net Dr: <b>₹{fmt(reconciliation.ledger_net_debit).replace('₹ ', '')}</b></div>
-              <div>vs bills: sub ₹{fmt(reconciliation.register_taxable).replace('₹ ', '')} − disc ₹{fmt(reconciliation.register_discount).replace('₹ ', '')} + freight ₹{fmt(reconciliation.register_freight).replace('₹ ', '')} + other ₹{fmt(reconciliation.register_other).replace('₹ ', '')} = <b>₹{fmt(reconciliation.register_net_to_ledger).replace('₹ ', '')}</b></div>
-              <div>Difference: <b style={{ color: '#ff4d4f' }}>{fmt(reconciliation.difference)}</b></div>
-            </div>
-          }
-        />
-      )}
-
-      <Card bodyStyle={{ padding: 0, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
-        style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {/* Filter Bar */}
-        <div className="erp-filter-bar">
-          <Select value={preset} onChange={setPreset} style={{ width: 140, height: 34 }}
-            options={[
-              { value: 'this_fy',    label: 'This FY' },
-              { value: 'last_fy',    label: 'Last FY' },
-              { value: 'this_q',     label: 'This Quarter' },
-              { value: 'this_month', label: 'This Month' },
-              { value: 'custom',     label: 'Custom' },
-            ]} />
+        <div className="rpt-hd-ctrl">
+          <div className="rpt-period">
+            {[
+              { v: 'this_fy', l: 'This FY' },
+              { v: 'last_fy', l: 'Last FY' },
+              { v: 'this_q', l: 'This Q' },
+              { v: 'this_month', l: 'This Month' },
+              { v: 'custom', l: 'Custom' },
+            ].map((p) => (
+              <button key={p.v} className={preset === p.v ? 'on' : ''} onClick={() => setPreset(p.v)}>{p.l}</button>
+            ))}
+          </div>
           <DatePicker.RangePicker
-            format="DD-MMM-YYYY" style={{ height: 34 }}
+            format="DD/MM/YYYY" className="rpt-date"
             allowClear={false}
             value={[dayjs(filters.from_date), dayjs(filters.to_date)]}
             onChange={(v) => {
@@ -295,52 +326,85 @@ export default function PurchaseReport() {
               setFilters((f) => ({ ...f, from_date: from, to_date: to }));
             }}
           />
-          <Select placeholder="All Suppliers" style={{ width: 180, height: 34 }} allowClear showSearch optionFilterProp="children"
-            onChange={(v) => setFilters((f) => ({ ...f, supplier_id: v }))}>
-            {suppliers.map((s) => (
-              <Select.Option key={s.party_id} value={s.party_id}>{s.party_name}</Select.Option>
-            ))}
-          </Select>
-          <Select placeholder="All Statuses" style={{ width: 130, height: 34 }} allowClear
-            onChange={(v) => setFilters((f) => ({ ...f, payment_status: v }))}>
-            <Select.Option value="Paid">Paid</Select.Option>
-            <Select.Option value="Partial">Partial</Select.Option>
-            <Select.Option value="Unpaid">Unpaid</Select.Option>
-          </Select>
+          <Popover content={customizePopoverContent} title="Customize" trigger="click" placement="bottomRight">
+            <Button icon={<SettingOutlined />} className="rpt-btn">Customize</Button>
+          </Popover>
+          <Button icon={<DownloadOutlined />} onClick={handleExport} className="rpt-btn">Excel</Button>
+          <Button icon={<PrinterOutlined />} onClick={handlePrint} className="rpt-btn">Print</Button>
         </div>
+      </div>
 
-        {/* Summary Bar */}
-        <div className="erp-summary-bar">
-          <div className="erp-summary-stat" style={{ background: '#eef2ff' }}>
-            <span className="erp-summary-stat-label">Total Purchases</span>
-            <span className="erp-summary-stat-value" style={{ color: '#4F46E5' }}>{fmt2(summary.total_amount)}</span>
-          </div>
-          <div className="erp-summary-stat" style={{ background: '#fffbeb' }}>
-            <span className="erp-summary-stat-label">Total GST</span>
-            <span className="erp-summary-stat-value" style={{ color: '#D97706' }}>{fmt2(summary.total_gst)}</span>
-          </div>
-          <div className="erp-summary-stat" style={{ background: '#ecfdf5' }}>
-            <span className="erp-summary-stat-label">Total Discount</span>
-            <span className="erp-summary-stat-value" style={{ color: '#059669' }}>{fmt2(summary.total_discount)}</span>
-          </div>
-          <div className="erp-summary-stat" style={{ background: '#f0fdf4' }}>
-            <span className="erp-summary-stat-label">Total Paid</span>
-            <span className="erp-summary-stat-value" style={{ color: '#16a34a' }}>{fmt2(summary.total_paid)}</span>
-          </div>
-          <div className="erp-summary-stat" style={{ background: '#fef2f2' }}>
-            <span className="erp-summary-stat-label">Total Balance</span>
-            <span className="erp-summary-stat-value" style={{ color: '#dc2626' }}>{fmt2(summary.total_balance)}</span>
-          </div>
+      {ALL_KPIS.some((k) => kpisVisible[k.key]) && (
+        <div className="rpt-kpis">
+          {ALL_KPIS.filter((k) => kpisVisible[k.key]).map((k) => {
+            const tone = typeof k.tone === 'function' ? k.tone(summary) : k.tone;
+            return (
+              <div key={k.key} className={`rpt-kpi tone-${tone}`}>
+                <div className="rpt-kpi-k">{k.label}</div>
+                <div className="rpt-kpi-v">{k.value(summary, totalCount)}</div>
+              </div>
+            );
+          })}
         </div>
+      )}
 
-        <div style={{ flex: 1, overflow: 'auto' }}>
+      {reconciliation && !reconciliation.balanced && !reconDismissed && (
+        <div className="rpt-recon warn">
+          <div className="rpt-recon-ic"><WarningOutlined /></div>
+          <div className="rpt-recon-body">
+            <div className="rpt-recon-title">Purchase ledger does not reconcile to bill aggregate</div>
+            <div className="rpt-recon-formula">
+              {reconciliation.ledger_name} net Dr <b>{fmt(reconciliation.ledger_net_debit)}</b> vs bills:
+              {' '}sub <b>{fmt(reconciliation.register_taxable)}</b>
+              {' '}− discount <b>{fmt(reconciliation.register_discount)}</b>
+              {' '}+ freight <b>{fmt(reconciliation.register_freight)}</b>
+              {' '}+ other <b>{fmt(reconciliation.register_other)}</b>
+              <span className="delta"> → {fmt(reconciliation.difference)} drift</span>
+            </div>
+          </div>
+          <button className="rpt-recon-x" onClick={() => setReconDismissed(true)} aria-label="Dismiss"><CloseOutlined /></button>
+        </div>
+      )}
+
+      <div className="rpt-filter">
+        <Input
+          className="rpt-search"
+          prefix={<SearchOutlined />}
+          placeholder="Search bill no, supplier, GSTIN, or supplier-bill…"
+          value={filters.search}
+          onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+          allowClear
+        />
+        <span className="rpt-sep" />
+        {[
+          { v: 'Unpaid',  d: 'unpaid'  },
+          { v: 'Partial', d: 'partial' },
+          { v: 'Paid',    d: 'paid'    },
+        ].map((s) => (
+          <button key={s.v}
+            className={`rpt-chip ${filters.payment_status === s.v ? 'on' : ''}`}
+            onClick={() => setFilters((f) => ({ ...f, payment_status: f.payment_status === s.v ? null : s.v }))}>
+            <span className={`rpt-dot ${s.d}`} />{s.v}
+          </button>
+        ))}
+      </div>
+
+      <div className="rpt-tbl-wrap">
+        <div ref={scrollRef} className="report-table-scroll rpt-tbl">
           <Table
             columns={columns}
-            dataSource={data}
+            dataSource={(filters.search ? data.filter((r) => {
+              const q = filters.search.toLowerCase();
+              return (r.bill_number || '').toLowerCase().includes(q)
+                  || (r.supplier?.party_name || '').toLowerCase().includes(q)
+                  || (r.supplier_bill_number || '').toLowerCase().includes(q)
+                  || String(r.total_amount || '').includes(q);
+            }) : data)}
             rowKey="purchase_bill_id"
             loading={loading}
             size="small"
             scroll={{ x: 1300 }}
+            sticky={{ offsetHeader: 0, offsetSummary: 0 }}
             pagination={false}
             summary={() => {
               if (data.length === 0) return null;
@@ -374,11 +438,12 @@ export default function PurchaseReport() {
           />
           {hasMore && (
             <div ref={loaderRef} style={{ textAlign: 'center', padding: '12px 0' }}>
-              {loadingMore ? <Spin size="small" /> : <span style={{ color: '#6b7280', fontSize: 12 }}>Scroll for more…</span>}
+              {loadingMore ? <Spin size="small" /> : <span style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>Scroll for more…</span>}
             </div>
           )}
         </div>
-      </Card>
+
+      </div>
     </div>
   );
 }

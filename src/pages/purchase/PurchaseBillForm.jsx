@@ -350,6 +350,7 @@ export default function PurchaseBillForm() {
       setBillNumber(data.bill_number||'');
       form.setFieldsValue({
         supplier_id:data.supplier_id,
+        walk_in_name:data.walk_in_name||'',
         bill_date:data.bill_date?dayjs(data.bill_date):dayjs(),
         supplier_bill_number:data.supplier_bill_number||'',
         due_date:data.due_date?dayjs(data.due_date):null,
@@ -881,6 +882,12 @@ export default function PurchaseBillForm() {
   const paidAmt      = Form.useWatch('paid_amount',form)||0;
   const otherChr     = Form.useWatch('other_charges',form)||0;
   const freightChr   = Form.useWatch('freight_charges',form)||0;
+  // Watch supplier so we can show the walk-in vendor name field only when
+  // the system "Cash" party is selected. Same UX as the sales form.
+  const supplierIdW  = Form.useWatch('supplier_id', form);
+  const isCashSupplierSelected = !!parties.find(
+    p => p.party_id === supplierIdW && p.is_system_cash,
+  );
   // In amount-mode the synthetic line has no item/bill discount — taxableTotal
   // is just the typed amount, GST is rate% × amount on a 'product'-style path.
   const subTotal     = billMode === 'amount'
@@ -1017,8 +1024,13 @@ export default function PurchaseBillForm() {
       }
       submittingRef.current=true;
       setLoading(true);
+      // walk_in_name is only meaningful when the system Cash supplier
+      // is selected; sent regardless so flipping a non-cash bill back
+      // to Cash mid-edit cleanly overwrites the column.
+      const walkIn = String(values.walk_in_name || '').trim().slice(0, 120);
       const billData={
         supplier_id:values.supplier_id,
+        walk_in_name: walkIn || null,
         bill_date:values.bill_date.format('YYYY-MM-DD'),
         due_date:values.due_date?.format('YYYY-MM-DD'),
         supplier_bill_number:values.supplier_bill_number,
@@ -1127,6 +1139,7 @@ export default function PurchaseBillForm() {
       const values = form.getFieldsValue();
       const payload = {
         supplier_id:        values.supplier_id || null,
+        walk_in_name:       String(values.walk_in_name || '').trim() || null,
         bill_date:          values.bill_date ? values.bill_date.format('YYYY-MM-DD') : null,
         due_date:           values.due_date  ? values.due_date.format('YYYY-MM-DD')  : null,
         supplier_bill_number: values.supplier_bill_number || '',
@@ -1185,6 +1198,7 @@ export default function PurchaseBillForm() {
       setRecalledDraftId(draft.draft_id);
       form.setFieldsValue({
         supplier_id:        p.supplier_id || undefined,
+        walk_in_name:       p.walk_in_name || '',
         bill_date:          p.bill_date ? dayjs(p.bill_date) : dayjs(),
         due_date:           p.due_date  ? dayjs(p.due_date)  : undefined,
         supplier_bill_number: p.supplier_bill_number || '',
@@ -1416,8 +1430,14 @@ export default function PurchaseBillForm() {
                 sales-form layout. */}
             <div className="pbf-top-row">
               <div className="pbf-field">
-                <Form.Item name="supplier_id" noStyle rules={[{required:true,message:' '}]}>
-                  <Select showSearch placeholder="Supplier *" optionFilterProp="children" dropdownStyle={{minWidth:280}}>
+                {/* Supplier is hard-required. Cash purchases pick the
+                    seeded system "Cash" party (pinned to the top); a
+                    walk-in name field appears below for the actual
+                    vendor's name without creating a per-vendor party row. */}
+                <Form.Item name="supplier_id" noStyle
+                  rules={[{ required: true, message: 'Select a supplier (use Cash for walk-in vendors)' }]}>
+                  <Select showSearch placeholder="Supplier (required — pick Cash for walk-in vendors)"
+                    optionFilterProp="children" dropdownStyle={{minWidth:280}}>
                     {parties.map(p=><Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>)}
                   </Select>
                 </Form.Item>
@@ -1443,6 +1463,24 @@ export default function PurchaseBillForm() {
                 </Form.Item>
               </div>
             </div>
+
+            {/* Walk-in vendor name — only when the system "Cash" supplier
+                is selected. Stored on purchase_bills.walk_in_name; rendered
+                on the bill list (second line under "Cash") and the printed
+                supplier header. */}
+            {isCashSupplierSelected && (
+              <div className="pbf-top-row" style={{ marginTop: 6 }}>
+                <div className="pbf-field" style={{ flex: '1 1 auto' }}>
+                  <Form.Item name="walk_in_name" noStyle>
+                    <Input
+                      placeholder="Walk-in vendor name (optional)"
+                      maxLength={120}
+                      allowClear
+                    />
+                  </Form.Item>
+                </div>
+              </div>
+            )}
 
             {/* Product entry row — only in itemised mode. Amount-mode shows
                 the amount-only panel further below instead. */}

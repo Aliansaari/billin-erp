@@ -78,7 +78,14 @@ function printBill(bill, companyName) {
       <b>Date:</b> ${dayjs(bill.bill_date).format('DD-MMM-YYYY')}<br>
     </div>
     <div style="text-align:right">
-      <b>Customer:</b> ${bill.customer?.party_name || 'Cash Sale'}<br>
+      <b>Customer:</b> ${
+        (() => {
+          const n = bill.customer?.party_name;
+          const isCash = !n || bill.customer?.is_system_cash;
+          const w = String(bill.walk_in_name || '').trim();
+          return isCash ? `Cash${w ? ` — ${w}` : ''}` : n;
+        })()
+      }<br>
       <b>Status:</b> ${bill.payment_status}<br>
     </div>
   </div>
@@ -158,7 +165,14 @@ function ViewModal({ bill, onClose }) {
       <Descriptions size="small" bordered column={2} style={{ marginBottom: 16 }}>
         <Descriptions.Item label="Bill No">{bill.bill_number}</Descriptions.Item>
         <Descriptions.Item label="Date">{dayjs(bill.bill_date).format('DD-MMM-YYYY')}</Descriptions.Item>
-        <Descriptions.Item label="Customer">{bill.customer?.party_name || 'Cash Sale'}</Descriptions.Item>
+        <Descriptions.Item label="Customer">{
+          (() => {
+            const n = bill.customer?.party_name;
+            const isCash = !n || bill.customer?.is_system_cash;
+            const w = String(bill.walk_in_name || '').trim();
+            return isCash ? `Cash${w ? ` — ${w}` : ''}` : n;
+          })()
+        }</Descriptions.Item>
         <Descriptions.Item label="Status">
           <Tag color={bill.payment_status === 'Paid' ? 'green' : bill.payment_status === 'Partial' ? 'orange' : 'red'}>
             {bill.payment_status}
@@ -706,6 +720,12 @@ function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, on
   const isSameDay = billDate && billTime && billDate.isSame(billTime, 'day');
 
   const customerName = bill.customer?.party_name;
+  // Cash sale = either no customer (legacy NULL pattern) or the system
+  // Cash party. Either way, the row renders "Cash" on the primary line
+  // and the operator-captured walk-in name on the secondary line.
+  const isSystemCash = !!bill.customer?.is_system_cash;
+  const isCash = !customerName || isSystemCash;
+  const walkInName = String(bill.walk_in_name || '').trim();
   // Secondary identifier: prefer GSTIN (real, externally meaningful),
   // fall back to mobile, suppress legacy Tally-importer stubs that
   // start with "TLY" (those used to fill the NOT NULL mobile_1
@@ -714,10 +734,13 @@ function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, on
   const customerGstin = bill.customer?.gstin;
   const rawMobile = bill.customer?.mobile_1;
   const cleanMobile = rawMobile && !/^TLY/i.test(rawMobile) ? rawMobile : null;
-  const customerSecondary = customerGstin || cleanMobile || null;
-  // WhatsApp action still needs a real phone — never the GSTIN.
-  const customerPhone = cleanMobile;
-  const isCash = !customerName;
+  const customerSecondary = isCash
+    ? (walkInName || 'Walk-in')
+    : (customerGstin || cleanMobile || null);
+  // WhatsApp action still needs a real phone — never the GSTIN, and
+  // never for cash (the system Cash party's mobile_1 is the literal
+  // sentinel "CASH").
+  const customerPhone = isCash ? null : cleanMobile;
 
   // Optional amounts
   const gstAmt = parseFloat(bill.gst_amount || 0) ||
@@ -782,8 +805,8 @@ function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, on
 
       <div className="c-cust">
         <div className={`stk${isCash ? ' cash' : ''}`}>
-          <span className="m">{customerName || 'Cash Sale'}</span>
-          <span className="s">{customerSecondary || (isCash ? 'Walk-in' : '—')}</span>
+          <span className="m">{isCash ? 'Cash' : customerName}</span>
+          <span className="s">{customerSecondary || '—'}</span>
         </div>
       </div>
 

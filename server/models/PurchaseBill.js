@@ -14,8 +14,15 @@ const PurchaseBill = sequelize.define('PurchaseBill', {
   },
   supplier_id: {
     type: DataTypes.INTEGER,
-    allowNull: false,
+    // Was NOT NULL — relaxed so the in-flight stub→Cash migration can
+    // pivot rows to the system Cash party without a constraint conflict.
+    // The form still hard-requires a supplier (system Cash counts).
     references: { model: 'parties', key: 'party_id' },
+  },
+  // Walk-in vendor name shown alongside the system "Cash" party on
+  // cash purchases. See SalesBill.walk_in_name for the same rationale.
+  walk_in_name: {
+    type: DataTypes.STRING(120),
   },
   supplier_bill_number: {
     type: DataTypes.STRING(50),

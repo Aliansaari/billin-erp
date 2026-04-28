@@ -23,7 +23,8 @@ const getAgingBuckets = async () => {
 // party_id (PK), current_balance (derived from bills + receipts), created_by,
 // created_date, modified_date — columns owned by the server. Without this
 // filter a malicious client could POST {"current_balance": 9999999} and
-// silently rewrite their ledger.
+// silently rewrite their ledger. is_system_cash is also intentionally
+// EXCLUDED — it's only ever set by the seeder, never by client requests.
 const PARTY_UPDATABLE_FIELDS = [
   'party_type', 'party_name', 'display_name', 'mobile_1', 'mobile_2', 'email',
   'address_line_1', 'address_line_2', 'city', 'state', 'pincode', 'country',
@@ -32,6 +33,17 @@ const PARTY_UPDATABLE_FIELDS = [
   'opening_balance', 'opening_balance_type',
   'interest_rate', 'party_status', 'is_active',
 ];
+
+// Names that collide with the seeded system "Cash" party. The dropdown
+// pins that single row to the top; allowing user-created "Cash" / "Cash
+// Sales" / "Cash Purchases" / "CASH " parties would let cash-leg
+// transactions land on a Sundry Debtors stub instead of Cash-in-Hand,
+// recreating the same accounting drift this whole change set fixes.
+// Keep the regex permissive — leading whitespace, any trailing word.
+const CASH_NAME_RE = /^\s*cash(\b|$)/i;
+function isReservedCashName(name) {
+  return CASH_NAME_RE.test(String(name || ''));
+}
 
 exports.getAll = async (req, res) => {
   try {
@@ -99,6 +111,17 @@ exports.create = async (req, res) => {
     for (const k of PARTY_UPDATABLE_FIELDS) {
       if (req.body[k] !== undefined) safe[k] = req.body[k];
     }
+    // Reject names that collide with the seeded system Cash party. The
+    // dropdown pins it to the top and reports filter on is_system_cash;
+    // a user-created "Cash" stub would silently steal those bills back
+    // into Sundry Debtors/Creditors. Frontend (PartyForm) shows the same
+    // message as inline validation; this is the server-side guard.
+    if (isReservedCashName(safe.party_name)) {
+      return res.status(400).json({
+        error: 'The name "Cash" is reserved. Use the system Cash party instead.',
+        field: 'party_name',
+      });
+    }
     const data = { ...safe, created_by: req.user.user_id };
     if (data.opening_balance) {
       data.current_balance = data.opening_balance_type === 'Payable'
@@ -126,6 +149,15 @@ exports.update = async (req, res) => {
     const safe = {};
     for (const k of PARTY_UPDATABLE_FIELDS) {
       if (req.body[k] !== undefined) safe[k] = req.body[k];
+    }
+    // Block renaming any party (including the system Cash party itself
+    // — we never want its name drift) into the reserved /^cash/i
+    // namespace. Same rejection as create().
+    if (safe.party_name !== undefined && isReservedCashName(safe.party_name)) {
+      return res.status(400).json({
+        error: 'The name "Cash" is reserved. Use the system Cash party instead.',
+        field: 'party_name',
+      });
     }
 
     const openingChanged =
@@ -175,6 +207,12 @@ exports.getAging = async (req, res) => {
         WHERE b.is_cancelled = false
           AND b.balance_amount > 0
           AND p.is_active = true
+          -- System Cash bills always have balance_amount=0 in steady
+          -- state (the form pre-fills paid_amount=total for cash sales),
+          -- but a half-finished cash bill could still leak in here. The
+          -- explicit filter keeps Receivables/Payables Aging strictly
+          -- about real credit accounts.
+          AND COALESCE(p.is_system_cash, false) = false
       )
       SELECT
         COUNT(DISTINCT party_id)                                              AS party_count,
@@ -708,6 +746,8 @@ const enrichPartiesForList = async (parties, kind /* 'Customer' | 'Supplier' */)
         FROM ${billTable} b
         JOIN parties p ON p.party_id = b.${billPartyCol}
         WHERE b.${billPartyCol} IN (:ids) AND b.is_cancelled = false AND b.balance_amount > 0
+          -- System Cash never carries an aging bucket — see getAging above.
+          AND COALESCE(p.is_system_cash, false) = false
       )
       SELECT party_id,
              MAX(age_days)                                                         AS oldest_days,
@@ -802,7 +842,14 @@ exports.getCustomers = async (req, res) => {
     if (balance_status === 'Payable') where.current_balance = { [Op.lt]: 0 };
     if (balance_status === 'NoDues') where.current_balance = 0;
 
-    const order = sort_by ? [[sort_by, sort_order || 'ASC']] : [['party_name', 'ASC']];
+    // System Cash always sorts first so the operator can pick it as the
+    // very first dropdown option for walk-in cash sales — even when the
+    // user requested a different sort_by, we keep is_system_cash DESC as
+    // the primary key. Secondary key is the user's choice (or
+    // party_name asc by default).
+    const order = sort_by
+      ? [['is_system_cash', 'DESC'], [sort_by, sort_order || 'ASC']]
+      : [['is_system_cash', 'DESC'], ['party_name', 'ASC']];
     const { count, rows } = await Party.findAndCountAll({ where, order, limit, offset });
     const enriched = await enrichPartiesForList(rows, 'Customer');
     res.json({ total: count, page, limit, data: enriched });
@@ -832,7 +879,10 @@ exports.getSuppliers = async (req, res) => {
     if (balance_status === 'Payable') where.current_balance = { [Op.lt]: 0 };
     if (balance_status === 'NoDues') where.current_balance = 0;
 
-    const order = sort_by ? [[sort_by, sort_order || 'ASC']] : [['party_name', 'ASC']];
+    // System Cash sorts first — same rationale as getCustomers above.
+    const order = sort_by
+      ? [['is_system_cash', 'DESC'], [sort_by, sort_order || 'ASC']]
+      : [['is_system_cash', 'DESC'], ['party_name', 'ASC']];
     const { count, rows } = await Party.findAndCountAll({ where, order, limit, offset });
     const enriched = await enrichPartiesForList(rows, 'Supplier');
     res.json({ total: count, page, limit, data: enriched });
@@ -885,8 +935,12 @@ exports.recalculateAll = async (req, res) => {
     // Important: we subtract BOTH balance_amount AND refund_amount from each
     // return bill because together they equal the return's total_amount. The
     // cash refund leg lives on the Cash ledger, not the customer's ledger.
+    // The bulk recalc writes 0 for the system Cash party — same
+    // short-circuit as recalculatePartyBalance(). Cash bills are paid
+    // in full at point-of-sale; the formula collapses to 0 anyway, but
+    // an explicit branch keeps the SQL self-explanatory.
     await sequelize.query(`
-      UPDATE parties p SET current_balance = ROUND((
+      UPDATE parties p SET current_balance = CASE WHEN COALESCE(p.is_system_cash, false) = true THEN 0 ELSE ROUND((
         CASE WHEN p.opening_balance_type = 'Payable'
           THEN -ABS(COALESCE(p.opening_balance, 0))
           ELSE  ABS(COALESCE(p.opening_balance, 0))
@@ -930,7 +984,7 @@ exports.recalculateAll = async (req, res) => {
               AND transaction_type = 'Payment'
               AND is_cancelled = false
           ), 0)
-      )::numeric, 2)
+      )::numeric, 2) END
     `);
     res.json({ message: 'All party balances recalculated successfully' });
   } catch (error) {
@@ -958,6 +1012,12 @@ exports.getAging = async (req, res) => {
         WHERE b.is_cancelled = false
           AND b.balance_amount > 0
           AND p.is_active = true
+          -- System Cash bills always have balance_amount=0 in steady
+          -- state (the form pre-fills paid_amount=total for cash sales),
+          -- but a half-finished cash bill could still leak in here. The
+          -- explicit filter keeps Receivables/Payables Aging strictly
+          -- about real credit accounts.
+          AND COALESCE(p.is_system_cash, false) = false
       )
       SELECT
         COUNT(DISTINCT party_id)                                              AS party_count,

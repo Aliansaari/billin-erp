@@ -116,7 +116,26 @@ export default function PartyForm({ visible, onCancel, onSubmit, onDeleted, init
       <Form form={form} layout="vertical" size="middle">
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item name="party_name" label="Party Name" rules={[{ required: true, min: 2 }]}>
+            <Form.Item name="party_name" label="Party Name"
+              // Block names that collide with the seeded system Cash party.
+              // The dropdown pins it to the top and reports filter on
+              // is_system_cash; allowing a user-created "Cash" / "Cash
+              // Sales" stub would silently steal those bills back into
+              // Sundry Debtors/Creditors. Mirrors the server-side guard
+              // in partyController.create / .update.
+              rules={[
+                { required: true, min: 2 },
+                {
+                  validator: (_, value) => {
+                    if (value && /^\s*cash(\b|$)/i.test(value)) {
+                      return Promise.reject(
+                        new Error('Use the system Cash party instead — pick "Cash" from the dropdown for walk-ins.'),
+                      );
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}>
               <Input placeholder="Enter name" autoFocus />
             </Form.Item>
           </Col>

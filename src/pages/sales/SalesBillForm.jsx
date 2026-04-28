@@ -398,6 +398,7 @@ export default function SalesBillForm() {
       setBillNo(data.bill_number||'');
       form.setFieldsValue({
         customer_id:data.customer_id,
+        walk_in_name:data.walk_in_name||'',
         bill_date:data.bill_date?dayjs(data.bill_date):dayjs(),
         due_date:data.due_date?dayjs(data.due_date):null,
         // If the stored bill has a discount_amount but pct=0 (old Tally
@@ -778,8 +779,14 @@ export default function SalesBillForm() {
         return;
       }
       // Common header fields used by BOTH modes
+      // walk_in_name is only meaningful for the system Cash party (and
+      // empty otherwise). Always send it so the backend column gets a
+      // clean overwrite when the operator switches a non-cash bill back
+      // to Cash mid-edit. Trim + cap at 120 chars (the column width).
+      const walkIn = String(vals.walk_in_name || '').trim().slice(0, 120);
       const commonBody = {
         customer_id:vals.customer_id||null,
+        walk_in_name: walkIn || null,
         bill_date:vals.bill_date.format('YYYY-MM-DD'),
         due_date:vals.due_date?.format('YYYY-MM-DD'),
         sale_type:vals.sale_type||'Retail',
@@ -901,6 +908,7 @@ export default function SalesBillForm() {
         // the user is mid-entry and the data may be incomplete by design.
         bill_mode: billMode,
         customer_id: vals.customer_id || null,
+        walk_in_name: String(vals.walk_in_name || '').trim() || null,
         bill_date: vals.bill_date ? vals.bill_date.format('YYYY-MM-DD') : null,
         due_date: vals.due_date ? vals.due_date.format('YYYY-MM-DD') : null,
         sale_type: vals.sale_type || 'Retail',
@@ -979,6 +987,7 @@ export default function SalesBillForm() {
       setRecalledDraftId(draft.draft_id);
       form.setFieldsValue({
         customer_id:        p.customer_id || undefined,
+        walk_in_name:       p.walk_in_name || '',
         bill_date:          p.bill_date ? dayjs(p.bill_date) : dayjs(),
         due_date:           p.due_date  ? dayjs(p.due_date)  : undefined,
         sale_type:          p.sale_type || 'Retail',
@@ -1228,9 +1237,16 @@ export default function SalesBillForm() {
 
             <div className="sbf-top-row">
               <div className="sbf-field" style={{flex:'1 1 auto'}}>
-                <Form.Item name="customer_id" noStyle>
-                  <Select showSearch placeholder="Customer — Cash Sale (optional)"
-                    allowClear optionFilterProp="label"
+                {/* Customer is now hard-required. Cash sales select the
+                    seeded system "Cash" party (pinned to the top of the
+                    dropdown); a walk-in name field appears below when
+                    Cash is the selection so the operator can capture
+                    the actual person's name without creating a real
+                    party row. */}
+                <Form.Item name="customer_id" noStyle
+                  rules={[{ required: true, message: 'Select a customer (use Cash for walk-ins)' }]}>
+                  <Select showSearch placeholder="Customer (required — pick Cash for walk-ins)"
+                    optionFilterProp="label"
                     dropdownStyle={{minWidth:600,padding:0}}
                     dropdownRender={menu=>(
                       <div>
@@ -1278,7 +1294,7 @@ export default function SalesBillForm() {
             </div>
 
             {/* Party info strip */}
-            {selectedParty && (
+            {selectedParty && !selectedParty.is_system_cash && (
               <div className="sbf-party-info">
                 {selectedParty.city && <span>{selectedParty.city}</span>}
                 {selectedParty.mobile_1 && <span>📞 <b>{selectedParty.mobile_1}</b></span>}
@@ -1288,6 +1304,24 @@ export default function SalesBillForm() {
                 <span className={selectedParty.credit_allowed ? 'credit-ok' : 'credit-no'}>
                   Credit {selectedParty.credit_allowed ? 'allowed' : 'not allowed'}
                 </span>
+              </div>
+            )}
+
+            {/* Walk-in name — only when the system "Cash" party is selected.
+                Optional. Stored on sales_bills.walk_in_name and rendered on
+                the bill list (second line under "Cash"), the edit form, and
+                the printed customer header. Doesn't create a real party row. */}
+            {selectedParty && selectedParty.is_system_cash && (
+              <div className="sbf-top-row" style={{ marginTop: 6 }}>
+                <div className="sbf-field" style={{ flex: '1 1 auto' }}>
+                  <Form.Item name="walk_in_name" noStyle>
+                    <Input
+                      placeholder="Walk-in customer name (optional — e.g. Mr Sharma)"
+                      maxLength={120}
+                      allowClear
+                    />
+                  </Form.Item>
+                </div>
               </div>
             )}
 

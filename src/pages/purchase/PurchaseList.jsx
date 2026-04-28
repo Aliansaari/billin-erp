@@ -76,7 +76,14 @@ function printBill(bill, companyName) {
       ${bill.supplier_bill_number ? `<b>Supplier Bill:</b> ${bill.supplier_bill_number}<br>` : ''}
     </div>
     <div style="text-align:right">
-      <b>Supplier:</b> ${bill.supplier?.party_name || ''}<br>
+      <b>Supplier:</b> ${
+        (() => {
+          const n = bill.supplier?.party_name;
+          const isCash = !n || bill.supplier?.is_system_cash;
+          const w = String(bill.walk_in_name || '').trim();
+          return isCash ? `Cash${w ? ` — ${w}` : ''}` : n;
+        })()
+      }<br>
       <b>Status:</b> ${bill.payment_status}<br>
     </div>
   </div>
@@ -154,7 +161,14 @@ function ViewModal({ bill, onClose }) {
       <Descriptions size="small" bordered column={2} style={{ marginBottom: 16 }}>
         <Descriptions.Item label="Bill No">{bill.bill_number}</Descriptions.Item>
         <Descriptions.Item label="Date">{dayjs(bill.bill_date).format('DD-MMM-YYYY')}</Descriptions.Item>
-        <Descriptions.Item label="Supplier">{bill.supplier?.party_name}</Descriptions.Item>
+        <Descriptions.Item label="Supplier">{
+          (() => {
+            const n = bill.supplier?.party_name;
+            const isCash = !n || bill.supplier?.is_system_cash;
+            const w = String(bill.walk_in_name || '').trim();
+            return isCash ? `Cash${w ? ` — ${w}` : ''}` : n;
+          })()
+        }</Descriptions.Item>
         <Descriptions.Item label="Status">
           <Tag color={bill.payment_status === 'Paid' ? 'green' : bill.payment_status === 'Partial' ? 'orange' : 'red'}>
             {bill.payment_status}
@@ -527,7 +541,13 @@ function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, on
   const isSameDay = billDate && billTime && billDate.isSame(billTime, 'day');
 
   const supplierName = bill.supplier?.party_name;
-  const supplierPhone = bill.supplier?.mobile_1;
+  const isSystemCash = !!bill.supplier?.is_system_cash;
+  const isCash = !supplierName || isSystemCash;
+  const walkInName = String(bill.walk_in_name || '').trim();
+  // No phone for the system Cash party (mobile_1 is the literal sentinel
+  // "CASH"). Suppress so the secondary line doesn't render junk.
+  const rawPhone = bill.supplier?.mobile_1;
+  const supplierPhone = isCash ? null : rawPhone;
 
   const gstAmt = parseFloat(bill.gst_amount || 0) ||
                  (parseFloat(bill.cgst_amount || 0) + parseFloat(bill.sgst_amount || 0) + parseFloat(bill.igst_amount || 0));
@@ -579,9 +599,13 @@ function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, on
       </div>
 
       <div className="c-cust">
-        <div className="stk">
-          <span className="m">{supplierName || '—'}</span>
-          <span className="s">{supplierPhone || (bill.supplier_bill_number ? `Supplier bill ${bill.supplier_bill_number}` : '—')}</span>
+        <div className={`stk${isCash ? ' cash' : ''}`}>
+          <span className="m">{isCash ? 'Cash' : supplierName}</span>
+          <span className="s">{
+            isCash
+              ? (walkInName || (bill.supplier_bill_number ? `Supplier bill ${bill.supplier_bill_number}` : 'Walk-in'))
+              : (supplierPhone || (bill.supplier_bill_number ? `Supplier bill ${bill.supplier_bill_number}` : '—'))
+          }</span>
         </div>
       </div>
 

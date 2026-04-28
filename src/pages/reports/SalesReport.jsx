@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { Table, Card, DatePicker, Select, Button, Tag, Typography, Space, message, Spin, Alert, Checkbox, Popover } from 'antd';
-import { DownloadOutlined, SettingOutlined } from '@ant-design/icons';
+import { Table, DatePicker, Select, Button, Tag, message, Spin, Checkbox, Popover, Input } from 'antd';
+import { DownloadOutlined, SettingOutlined, PrinterOutlined, SearchOutlined, CloseOutlined, WarningOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { reportAPI, partyAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
-
-const { Title } = Typography;
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
@@ -13,7 +11,7 @@ const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFr
 // IntersectionObserver pulls the next page when the user scrolls near the end.
 const PAGE_SIZE = 200;
 
-// Every column in the table is toggleable from the Columns popover.
+// Every column in the table is toggleable from the Customize popover.
 // `default: true` columns ship visible; the rest are off by default
 // (mostly GST-filing / dispatch-routing columns the operator opts
 // into when they need them). Persisted to localStorage so a user's
@@ -48,6 +46,35 @@ const ALL_COLS = [
 const COLS_STORAGE_KEY = 'salesReport_cols_v2';
 const DEFAULT_COLS = ALL_COLS.reduce((o, c) => ({ ...o, [c.key]: c.default }), {});
 
+// KPI cards user can pick from the Customize popover. Each entry has a semantic
+// `tone` (success / warning / danger / info / accent / neutral) that maps to
+// theme CSS vars — so the same KPI re-skins automatically when the user
+// switches between Classic (indigo/green/red) and Modern (cream/terracotta).
+const ALL_KPIS = [
+  { key: 'sales',       label: 'Total Sales',    tone: 'success', default: true,
+    value: (s) => `₹ ${parseFloat(s.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'profit',      label: 'Total Profit',   tone: (s) => (s.total_profit || 0) >= 0 ? 'profit-pos' : 'profit-neg', default: true,
+    value: (s) => `₹ ${parseFloat(s.total_profit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'margin',      label: 'Margin',         tone: 'warning', default: true,
+    value: (s) => `${(s.margin_pct || 0).toFixed(1)}%` },
+  { key: 'gst',         label: 'Total GST',      tone: 'accent',  default: true,
+    value: (s) => `₹ ${parseFloat(s.total_gst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'discount',    label: 'Total Discount', tone: 'warning', default: true,
+    value: (s) => `₹ ${parseFloat(s.total_discount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'outstanding', label: 'Outstanding',    tone: 'danger',  default: true,
+    value: (s) => `₹ ${parseFloat(s.total_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'paid',        label: 'Total Paid',     tone: 'success', default: false,
+    value: (s) => `₹ ${parseFloat(s.total_paid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'cogs',        label: 'Total COGS',     tone: 'neutral', default: false,
+    value: (s) => `₹ ${parseFloat(s.total_cogs || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'sub_total',   label: 'Taxable Value',  tone: 'info',    default: false,
+    value: (s) => `₹ ${parseFloat(s.total_sub || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+  { key: 'bill_count',  label: 'Bill Count',     tone: 'neutral', default: false,
+    value: (_s, count) => String(count || 0) },
+];
+const KPIS_STORAGE_KEY = 'salesReport_kpis_v1';
+const DEFAULT_KPIS = ALL_KPIS.reduce((o, k) => ({ ...o, [k.key]: k.default }), {});
+
 // Period presets — dayjs values resolved against the company FY.
 function presetRange(key, fyStart, fyEnd) {
   const today = dayjs();
@@ -76,7 +103,9 @@ export default function SalesReport() {
     to_date:   fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
     customer_id: null,
     payment_status: null,
+    search: '',
   });
+  const [reconDismissed, setReconDismissed] = useState(false);
   const [preset, setPreset] = useState('this_fy');
   const [reconciliation, setReconciliation] = useState(null);
   const [colsVisible, setColsVisible] = useState(() => {
@@ -85,7 +114,14 @@ export default function SalesReport() {
       return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
     } catch { return DEFAULT_COLS; }
   });
+  const [kpisVisible, setKpisVisible] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KPIS_STORAGE_KEY) || 'null');
+      return saved && typeof saved === 'object' ? { ...DEFAULT_KPIS, ...saved } : DEFAULT_KPIS;
+    } catch { return DEFAULT_KPIS; }
+  });
   const loaderRef = useRef(null);
+  const scrollRef = useRef(null);
 
   // Sync filters dates when preset changes (and FY arrives async).
   useEffect(() => {
@@ -105,6 +141,10 @@ export default function SalesReport() {
   useEffect(() => {
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(colsVisible)); } catch {}
   }, [colsVisible]);
+
+  useEffect(() => {
+    try { localStorage.setItem(KPIS_STORAGE_KEY, JSON.stringify(kpisVisible)); } catch {}
+  }, [kpisVisible]);
 
   useEffect(() => {
     loadCustomers();
@@ -160,9 +200,11 @@ export default function SalesReport() {
   }, [loadingMore, hasMore, loading, serverPage, filters]);
 
   useEffect(() => {
+    // Use the inner scroll container as the IO root so the sentinel triggers
+    // when the user scrolls within the table box (not the page).
     const observer = new IntersectionObserver(
       (entries) => { if (entries[0].isIntersecting) loadNextPage(); },
-      { threshold: 0.1 }
+      { root: scrollRef.current || null, threshold: 0.1 }
     );
     if (loaderRef.current) observer.observe(loaderRef.current);
     return () => observer.disconnect();
@@ -214,9 +256,15 @@ export default function SalesReport() {
   // colsVisible. Adding/removing/renaming a column happens in one
   // place — no fragile push/spread chain.
   const COL_SPECS = useMemo(() => ({
-    bill_no:      { title: 'Bill No',     dataIndex: 'bill_number', width: 130 },
-    date:         { title: 'Date',        dataIndex: 'bill_date',   width: 110, render: (v) => dayjs(v).format('DD-MMM-YYYY') },
-    customer:     { title: 'Customer',    dataIndex: ['customer', 'party_name'], width: 180, render: (v) => v || 'Cash Sale' },
+    bill_no:      { title: 'Bill No',     dataIndex: 'bill_number', width: 130,
+                    render: (v) => <span className="rpt-bill-no">{v}</span> },
+    date:         { title: 'Date',        dataIndex: 'bill_date',   width: 110, render: (v) => dayjs(v).format('DD/MM/YYYY') },
+    customer:     { title: 'Customer',    dataIndex: ['customer', 'party_name'], width: 180,
+                    render: (v, row) => {
+                      const isCash = row?.customer?.is_system_cash || !v;
+                      const w = String(row?.walk_in_name || '').trim();
+                      return isCash ? (w ? `Cash — ${w}` : 'Cash') : v;
+                    } },
     gstin:        { title: 'GSTIN',       dataIndex: ['customer', 'gstin'], width: 150,
                     render: (v) => v ? <Tag style={{ fontFamily: 'Geist Mono, monospace' }}>{v}</Tag> : '—' },
     state:        { title: 'State',       dataIndex: ['customer', 'state'], width: 130, render: (v) => v || '—' },
@@ -250,7 +298,7 @@ export default function SalesReport() {
     payment_mode: { title: 'Mode',        dataIndex: 'payment_method', width: 100,
                     render: (v) => v ? <Tag>{v}</Tag> : '—' },
     due_date:     { title: 'Due',         dataIndex: 'due_date', width: 110,
-                    render: (v) => v ? dayjs(v).format('DD-MMM-YYYY') : '—' },
+                    render: (v) => v ? dayjs(v).format('DD/MM/YYYY') : '—' },
     overdue_days: { title: 'Overdue',     width: 90, align: 'right',
                     render: (_, r) => {
                       const d = rowOverdueDays(r);
@@ -258,143 +306,161 @@ export default function SalesReport() {
                       return <span style={{ color: d > 30 ? '#dc2626' : d > 0 ? '#d97706' : undefined, fontFamily: 'Geist Mono, monospace' }}>{d > 0 ? `${d} d` : '—'}</span>;
                     } },
     status:       { title: 'Status',      dataIndex: 'payment_status', width: 90,
-                    render: (s) => <Tag color={s === 'Paid' ? 'green' : s === 'Partial' ? 'orange' : 'red'}>{s}</Tag> },
+                    render: (s) => <span className={`rpt-pill ${s === 'Paid' ? 'paid' : s === 'Partial' ? 'partial' : 'unpaid'}`}>{s}</span> },
   }), []);
 
   const columns = useMemo(() => {
     return ALL_COLS.filter((c) => colsVisible[c.key]).map((c) => ({ key: c.key, ...COL_SPECS[c.key] }));
   }, [colsVisible, COL_SPECS]);
 
-  // Column-picker popover content. Two columns wide so 25 toggles
-  // don't push the popover off-screen.
-  const colsPickerContent = (
-    <div style={{ minWidth: 320, maxWidth: 360, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
-      {ALL_COLS.map((c) => (
-        <div key={c.key}>
-          <Checkbox checked={!!colsVisible[c.key]} onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}>
-            {c.label}
-          </Checkbox>
-        </div>
-      ))}
+  // Customize popover — two sections: KPI cards (top) + table columns (bottom).
+  // Two-column grid so the toggles don't push the popover off-screen.
+  const customizePopoverContent = (
+    <div style={{ width: 360, maxHeight: '70vh', overflowY: 'auto' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary, #6b7280)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>KPI Cards</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 14 }}>
+        {ALL_KPIS.map((k) => (
+          <div key={k.key}>
+            <Checkbox checked={!!kpisVisible[k.key]} onChange={(e) => setKpisVisible((v) => ({ ...v, [k.key]: e.target.checked }))}>
+              {k.label}
+            </Checkbox>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary, #6b7280)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Columns</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+        {ALL_COLS.map((c) => (
+          <div key={c.key}>
+            <Checkbox checked={!!colsVisible[c.key]} onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}>
+              {c.label}
+            </Checkbox>
+          </div>
+        ))}
+      </div>
     </div>
   );
 
-  const fmt2 = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  const fyLabel = fyStart ? `FY ${dayjs(fyStart).format('YYYY')}-${dayjs(fyEnd).format('YY')}` : '';
+  const handlePrint = () => window.print();
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Page Header */}
-      <div className="erp-page-header" style={{ padding: '12px 20px', marginBottom: 0, background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-        <div className="erp-page-header-title">
-          <Title level={3} style={{ margin: 0, fontWeight: 700, color: '#1f2937' }}>Sales Report</Title>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>
-            {totalCount} bill{totalCount === 1 ? '' : 's'}
-            {data.length < totalCount ? ` · showing ${data.length}` : ''}
-          </span>
+    <div className="report-editorial" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* ─── HEADER — title + period preset segments + date pill + Excel/Print ─── */}
+      <div className="rpt-page-hd">
+        <div className="rpt-title">
+          <h1>Sales Report</h1>
+          <div className="rpt-sub">
+            <b>{totalCount}</b> bill{totalCount === 1 ? '' : 's'}
+            {fyLabel && <><span className="sep">·</span>{fyLabel}</>}
+            {data.length < totalCount && <><span className="sep">·</span>showing <b>{data.length}</b></>}
+          </div>
         </div>
-        <Space>
-          <Popover content={colsPickerContent} title="Columns" trigger="click" placement="bottomRight">
-            <Button icon={<SettingOutlined />} style={{ height: 38 }}>Columns</Button>
-          </Popover>
-          <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ height: 38 }}>Export Excel</Button>
-        </Space>
-      </div>
-
-      {/* Ledger reconciliation — fires only on real drift (off-bill JV
-          against Sales Account, amount-mode bill mismatch, etc.). The
-          formula matches what the voucher builder posts:
-          Sales Cr = sub − discount + freight + other. */}
-      {reconciliation && !reconciliation.balanced && (
-        <Alert type="warning" showIcon style={{ margin: '0 20px' }}
-          message="Sales ledger does not reconcile to bills"
-          description={
-            <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 12 }}>
-              <div>{reconciliation.ledger_name} net Cr: <b>₹{fmt(reconciliation.ledger_net_credit).replace('₹ ', '')}</b></div>
-              <div>vs bills: sub ₹{fmt(reconciliation.register_taxable).replace('₹ ', '')} − disc ₹{fmt(reconciliation.register_discount).replace('₹ ', '')} + freight ₹{fmt(reconciliation.register_freight).replace('₹ ', '')} + other ₹{fmt(reconciliation.register_other).replace('₹ ', '')} = <b>₹{fmt(reconciliation.register_net_to_ledger).replace('₹ ', '')}</b></div>
-              <div>Difference: <b style={{ color: '#ff4d4f' }}>{fmt(reconciliation.difference)}</b></div>
-            </div>
-          }
-        />
-      )}
-
-      <Card bodyStyle={{ padding: 0, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
-        style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {/* Filter Bar */}
-        <div className="erp-filter-bar">
-          <Select value={preset} onChange={setPreset} style={{ width: 140, height: 34 }}
-            options={[
-              { value: 'this_fy',    label: 'This FY' },
-              { value: 'last_fy',    label: 'Last FY' },
-              { value: 'this_q',     label: 'This Quarter' },
-              { value: 'this_month', label: 'This Month' },
-              { value: 'custom',     label: 'Custom' },
-            ]} />
+        <div className="rpt-hd-ctrl">
+          <div className="rpt-period">
+            {[
+              { v: 'this_fy', l: 'This FY' },
+              { v: 'last_fy', l: 'Last FY' },
+              { v: 'this_q', l: 'This Q' },
+              { v: 'this_month', l: 'This Month' },
+              { v: 'custom', l: 'Custom' },
+            ].map((p) => (
+              <button key={p.v} className={preset === p.v ? 'on' : ''} onClick={() => setPreset(p.v)}>{p.l}</button>
+            ))}
+          </div>
           <DatePicker.RangePicker
-            format="DD-MMM-YYYY" style={{ height: 34 }}
+            format="DD/MM/YYYY" className="rpt-date"
             allowClear={false}
             value={[dayjs(filters.from_date), dayjs(filters.to_date)]}
             onChange={(v) => {
-              // Manual edit drops out of preset mode. Clearing falls back
-              // to the company FY (allowClear=false guards against null
-              // ranges that previously dumped every sales bill ever
-              // entered).
               setPreset('custom');
               const from = v?.[0]?.format('YYYY-MM-DD') || fyStart || dayjs().startOf('month').format('YYYY-MM-DD');
               const to   = v?.[1]?.format('YYYY-MM-DD') || fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD');
               setFilters((f) => ({ ...f, from_date: from, to_date: to }));
             }}
           />
-          <Select placeholder="All Customers" style={{ width: 180, height: 34 }} allowClear showSearch optionFilterProp="children"
-            onChange={(v) => setFilters((f) => ({ ...f, customer_id: v }))}>
-            {customers.map((c) => (
-              <Select.Option key={c.party_id} value={c.party_id}>{c.party_name}</Select.Option>
-            ))}
-          </Select>
-          <Select placeholder="All Statuses" style={{ width: 130, height: 34 }} allowClear
-            onChange={(v) => setFilters((f) => ({ ...f, payment_status: v }))}>
-            <Select.Option value="Paid">Paid</Select.Option>
-            <Select.Option value="Partial">Partial</Select.Option>
-            <Select.Option value="Unpaid">Unpaid</Select.Option>
-          </Select>
+          <Popover content={customizePopoverContent} title="Customize" trigger="click" placement="bottomRight">
+            <Button icon={<SettingOutlined />} className="rpt-btn">Customize</Button>
+          </Popover>
+          <Button icon={<DownloadOutlined />} onClick={handleExport} className="rpt-btn">Excel</Button>
+          <Button icon={<PrinterOutlined />} onClick={handlePrint} className="rpt-btn">Print</Button>
         </div>
+      </div>
 
-        {/* Summary Bar — Profit + Margin tiles surface the new
-            COGS-derived numbers right next to the headline totals. */}
-        <div className="erp-summary-bar">
-          <div className="erp-summary-stat" style={{ background: '#ecfdf5' }}>
-            <span className="erp-summary-stat-label">Total Sales</span>
-            <span className="erp-summary-stat-value" style={{ color: '#059669' }}>{fmt2(summary.total_amount)}</span>
-          </div>
-          <div className="erp-summary-stat" style={{ background: '#f0fdf4' }}>
-            <span className="erp-summary-stat-label">Total Profit</span>
-            <span className="erp-summary-stat-value" style={{ color: (summary.total_profit || 0) >= 0 ? '#16a34a' : '#dc2626' }}>{fmt2(summary.total_profit)}</span>
-          </div>
-          <div className="erp-summary-stat" style={{ background: '#fef3c7' }}>
-            <span className="erp-summary-stat-label">Margin</span>
-            <span className="erp-summary-stat-value" style={{ color: '#b45309' }}>{(summary.margin_pct || 0).toFixed(1)}%</span>
-          </div>
-          <div className="erp-summary-stat" style={{ background: '#eef2ff' }}>
-            <span className="erp-summary-stat-label">Total GST</span>
-            <span className="erp-summary-stat-value" style={{ color: '#4F46E5' }}>{fmt2(summary.total_gst)}</span>
-          </div>
-          <div className="erp-summary-stat" style={{ background: '#fffbeb' }}>
-            <span className="erp-summary-stat-label">Total Discount</span>
-            <span className="erp-summary-stat-value" style={{ color: '#D97706' }}>{fmt2(summary.total_discount)}</span>
-          </div>
-          <div className="erp-summary-stat" style={{ background: '#fef2f2' }}>
-            <span className="erp-summary-stat-label">Outstanding</span>
-            <span className="erp-summary-stat-value" style={{ color: '#dc2626' }}>{fmt2(summary.total_balance)}</span>
-          </div>
+      {/* ─── KPI STRIP ─── */}
+      {ALL_KPIS.some((k) => kpisVisible[k.key]) && (
+        <div className="rpt-kpis">
+          {ALL_KPIS.filter((k) => kpisVisible[k.key]).map((k) => {
+            const tone = typeof k.tone === 'function' ? k.tone(summary) : k.tone;
+            return (
+              <div key={k.key} className={`rpt-kpi tone-${tone}`}>
+                <div className="rpt-kpi-k">{k.label}</div>
+                <div className="rpt-kpi-v">{k.value(summary, totalCount)}</div>
+              </div>
+            );
+          })}
         </div>
+      )}
 
-        <div style={{ flex: 1, overflow: 'auto' }}>
+      {/* ─── RECONCILIATION BANNER ─── */}
+      {reconciliation && !reconciliation.balanced && !reconDismissed && (
+        <div className="rpt-recon warn">
+          <div className="rpt-recon-ic"><WarningOutlined /></div>
+          <div className="rpt-recon-body">
+            <div className="rpt-recon-title">Sales ledger does not reconcile to bill aggregate</div>
+            <div className="rpt-recon-formula">
+              {reconciliation.ledger_name} net Cr <b>{fmt(reconciliation.ledger_net_credit)}</b> vs bills:
+              {' '}sub <b>{fmt(reconciliation.register_taxable)}</b>
+              {' '}− discount <b>{fmt(reconciliation.register_discount)}</b>
+              {' '}+ freight <b>{fmt(reconciliation.register_freight)}</b>
+              {' '}+ other <b>{fmt(reconciliation.register_other)}</b>
+              {' '}= <b>{fmt(reconciliation.register_net_to_ledger)}</b>
+              <span className="delta"> → {fmt(reconciliation.difference)} drift</span>
+            </div>
+          </div>
+          <button className="rpt-recon-x" onClick={() => setReconDismissed(true)} aria-label="Dismiss"><CloseOutlined /></button>
+        </div>
+      )}
+
+      {/* ─── FILTER BAR — search + status chips ─── */}
+      <div className="rpt-filter">
+        <Input
+          className="rpt-search"
+          prefix={<SearchOutlined />}
+          placeholder="Search bill no, customer, or amount…"
+          value={filters.search}
+          onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+          allowClear
+        />
+        <span className="rpt-sep" />
+        {[
+          { v: 'Unpaid',  d: 'unpaid'  },
+          { v: 'Partial', d: 'partial' },
+          { v: 'Paid',    d: 'paid'    },
+        ].map((s) => (
+          <button key={s.v}
+            className={`rpt-chip ${filters.payment_status === s.v ? 'on' : ''}`}
+            onClick={() => setFilters((f) => ({ ...f, payment_status: f.payment_status === s.v ? null : s.v }))}>
+            <span className={`rpt-dot ${s.d}`} />{s.v}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── TABLE ─── */}
+      <div className="rpt-tbl-wrap">
+        <div ref={scrollRef} className="report-table-scroll rpt-tbl">
           <Table
             columns={columns}
-            dataSource={data}
+            dataSource={(filters.search ? data.filter((r) => {
+              const q = filters.search.toLowerCase();
+              return (r.bill_number || '').toLowerCase().includes(q)
+                  || (r.customer?.party_name || '').toLowerCase().includes(q)
+                  || String(r.total_amount || '').includes(q);
+            }) : data)}
             rowKey="sales_bill_id"
             loading={loading}
             size="small"
             scroll={{ x: 1300 }}
+            sticky={{ offsetHeader: 0, offsetSummary: 0 }}
             pagination={false}
             summary={() => {
               if (data.length === 0) return null;
@@ -438,11 +504,12 @@ export default function SalesReport() {
           {/* Infinite-scroll sentinel — when visible, fetch the next page. */}
           {hasMore && (
             <div ref={loaderRef} style={{ textAlign: 'center', padding: '12px 0' }}>
-              {loadingMore ? <Spin size="small" /> : <span style={{ color: '#6b7280', fontSize: 12 }}>Scroll for more…</span>}
+              {loadingMore ? <Spin size="small" /> : <span style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>Scroll for more…</span>}
             </div>
           )}
         </div>
-      </Card>
+
+      </div>
     </div>
   );
 }

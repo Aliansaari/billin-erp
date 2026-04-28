@@ -881,7 +881,11 @@ export default function SalesReturnForm() {
                     <div className="date">{dayjs(b.bill_date).format('DD-MMM-YYYY')}</div>
                   </div>
                   <div>
-                    <div style={{ fontWeight: 600 }}>{b.customer?.party_name || 'Cash Sale'}</div>
+                    <div style={{ fontWeight: 600 }}>{
+                      (b.customer?.is_system_cash || !b.customer?.party_name)
+                        ? `Cash${b.walk_in_name ? ` — ${String(b.walk_in_name).trim()}` : ''}`
+                        : b.customer.party_name
+                    }</div>
                     <div style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>{b.total_items} items · {parseFloat(b.total_quantity || 0)} qty</div>
                   </div>
                   <div className="amt">₹ {fmtN(b.total_amount)}</div>

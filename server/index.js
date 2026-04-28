@@ -513,6 +513,49 @@ async function startServer() {
         END IF;
       END $$;
 
+      -- ── System "Cash" party + walk-in name columns ────────────────────
+      -- Replace the old NULL-customer / per-import "Cash Sales" stub
+      -- pattern with a single canonical Cash party. Every cash sale and
+      -- cash purchase points at this row; the party leg posts to the
+      -- Cash-in-Hand ledger directly (skipping Sundry Debtors/Creditors).
+      -- Reports filter it out of receivables/payables aging and the
+      -- Sundry Debtors/Creditors Trial Balance/Balance Sheet groups so it
+      -- doesn't pollute those buckets with a non-credit party.
+      --
+      -- walk_in_name lets the operator capture the actual person's name
+      -- on the bill ("Mr Sharma walked in and paid in cash") without
+      -- creating a real per-person party row. Stored on the bill so it
+      -- prints alongside "Cash" on the customer header and shows up on
+      -- the second line of the list view.
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='parties' AND column_name='is_system_cash') THEN
+          ALTER TABLE parties ADD COLUMN is_system_cash BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_bills' AND column_name='walk_in_name') THEN
+          ALTER TABLE sales_bills ADD COLUMN walk_in_name VARCHAR(120);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_bills' AND column_name='walk_in_name') THEN
+          ALTER TABLE purchase_bills ADD COLUMN walk_in_name VARCHAR(120);
+        END IF;
+        -- purchase_bills.supplier_id was NOT NULL — relax that. After this
+        -- change the only legal cash-purchase shape is supplier_id = system
+        -- Cash party (also enforced by the form's required validation), so
+        -- in practice we never write NULL going forward, but the relaxation
+        -- removes a constraint conflict during the in-flight stub→Cash
+        -- migration that runs further down on first boot.
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name='purchase_bills' AND column_name='supplier_id' AND is_nullable='NO'
+        ) THEN
+          ALTER TABLE purchase_bills ALTER COLUMN supplier_id DROP NOT NULL;
+        END IF;
+      END $$;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_parties_one_system_cash
+        ON parties (is_system_cash) WHERE is_system_cash = true;
+
       -- One-time revert: any bill that was touched by the old halving SQL
       -- (tally_correction_applied=true) and has not been reverted yet gets
       -- DOUBLED back. After the user re-imported with the fixed importer,
@@ -809,6 +852,27 @@ async function startServer() {
 
     // Seed default data
     await seedDefaultData();
+
+    // ── One-shot migration: legacy "Cash Sales" / "Cash Purchases"
+    //    stub parties → seeded system Cash party. Idempotent — finds
+    //    no candidates after first run. Has to live HERE (not inside
+    //    the SQL migration block above) because it needs Sequelize
+    //    models + the ledger posting service to reverse + repost
+    //    vouchers safely. Errors are logged but don't crash the
+    //    server: the system Cash party is already seeded above, so
+    //    fresh installs and already-migrated installs are unaffected;
+    //    only an in-flight migration with a partial failure would
+    //    benefit from manual intervention, and surfacing the error to
+    //    the admin via the log is the right move.
+    try {
+      const { migrateStubsToSystemCash } = require('./scripts/migrate-stubs-to-system-cash');
+      const result = await migrateStubsToSystemCash();
+      if (result.migrated > 0) {
+        console.log(`[Cash stub migration] migrated ${result.migrated} stub party(ies), ${result.billsRepointed} bill(s) repointed`);
+      }
+    } catch (err) {
+      console.error('[Cash stub migration] Error:', err.message);
+    }
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on http://localhost:${PORT}`);

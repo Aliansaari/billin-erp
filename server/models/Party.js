@@ -103,6 +103,22 @@ const Party = sequelize.define('Party', {
   ledger_account_id: {
     type: DataTypes.INTEGER,
   },
+  // System "Cash" party flag. There is exactly ONE row in `parties` with
+  // is_system_cash=true (enforced by a partial unique index in
+  // server/index.js). It's seeded on first boot with party_name='Cash',
+  // party_type='Both', and ledger_account_id pointing at the Cash-in-Hand
+  // system ledger directly — not its own auto-created Sundry Debtors row.
+  // Every cash sale/purchase posts its party leg against that Cash ledger,
+  // so cash transactions never pollute Sundry Debtors/Creditors aging or
+  // the Trial Balance debtor/creditor buckets.
+  //
+  // The Party form blocks creation of any user-typed name matching
+  // /^cash/i (the operator must use the system party). The dropdown
+  // sorts is_system_cash DESC so "Cash" pins to the top.
+  is_system_cash: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
 }, {
   tableName: 'parties',
   timestamps: true,
@@ -168,6 +184,28 @@ Party.addHook('afterCreate', async (party, options) => {
   // Skip if a ledger is already linked (re-runs of afterCreate via update,
   // or rows that imported with their ledger pre-populated).
   if (party.ledger_account_id) return;
+
+  // System Cash party: no auto-created Sundry Debtors/Creditors row.
+  // Instead, link directly to the seeded Cash-in-Hand ledger so cash
+  // sale / cash purchase party legs post to Cash directly. The seeder
+  // sets ledger_account_id explicitly when creating this row, but
+  // defensively short-circuit here in case anything ever creates a
+  // system-cash party without pre-populating the ledger link.
+  if (party.is_system_cash) {
+    const { LedgerAccount } = require('./index');
+    const cashLedger = await LedgerAccount.findOne({
+      where: { ledger_name: 'Cash' },
+      transaction: t,
+    });
+    if (cashLedger) {
+      await Party.update(
+        { ledger_account_id: cashLedger.ledger_id },
+        { where: { party_id: party.party_id }, transaction: t, hooks: false },
+      );
+      party.ledger_account_id = cashLedger.ledger_id;
+    }
+    return;
+  }
 
   const isSupplierOnly = party.party_type === 'Supplier';
   const ledgerGroup = isSupplierOnly ? 'Liabilities' : 'Assets';
