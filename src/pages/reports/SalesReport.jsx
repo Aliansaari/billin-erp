@@ -13,20 +13,40 @@ const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFr
 // IntersectionObserver pulls the next page when the user scrolls near the end.
 const PAGE_SIZE = 200;
 
-// Optional columns the user can toggle from the column-picker popover.
-// GSTIN/state/CGST/SGST/IGST/Cess matter for GST filing & reconciliation
-// (formerly the parallel "Sales Register" page) — off by default to keep
-// the operational view uncluttered.
-const OPTIONAL_COLS = [
-  { key: 'gstin',    label: 'GSTIN' },
-  { key: 'state',    label: 'State' },
-  { key: 'cgst',     label: 'CGST' },
-  { key: 'sgst',     label: 'SGST' },
-  { key: 'igst',     label: 'IGST' },
-  { key: 'cess',     label: 'Cess' },
+// Every column in the table is toggleable from the Columns popover.
+// `default: true` columns ship visible; the rest are off by default
+// (mostly GST-filing / dispatch-routing columns the operator opts
+// into when they need them). Persisted to localStorage so a user's
+// column choice survives page reloads.
+const ALL_COLS = [
+  { key: 'bill_no',       label: 'Bill No',          default: true  },
+  { key: 'date',          label: 'Date',             default: true  },
+  { key: 'customer',      label: 'Customer',         default: true  },
+  { key: 'gstin',         label: 'GSTIN',            default: false },
+  { key: 'state',         label: 'State',            default: false },
+  { key: 'city',          label: 'City',             default: false },
+  { key: 'salesman',      label: 'Salesperson',      default: false },
+  { key: 'items',         label: 'Items count',      default: true  },
+  { key: 'sub_total',     label: 'Sub Total',        default: true  },
+  { key: 'discount',      label: 'Discount',         default: true  },
+  { key: 'cgst',          label: 'CGST',             default: false },
+  { key: 'sgst',          label: 'SGST',             default: false },
+  { key: 'igst',          label: 'IGST',             default: false },
+  { key: 'cess',          label: 'Cess',             default: false },
+  { key: 'gst',           label: 'GST (combined)',   default: true  },
+  { key: 'cogs',          label: 'COGS',             default: false },
+  { key: 'profit',        label: 'Profit (₹)',       default: true  },
+  { key: 'margin',        label: 'Margin %',         default: false },
+  { key: 'total',         label: 'Total',            default: true  },
+  { key: 'paid',          label: 'Paid',             default: true  },
+  { key: 'balance',       label: 'Balance',          default: true  },
+  { key: 'payment_mode',  label: 'Payment mode',     default: false },
+  { key: 'due_date',      label: 'Due date',         default: false },
+  { key: 'overdue_days',  label: 'Days overdue',     default: false },
+  { key: 'status',        label: 'Status',           default: true  },
 ];
-const COLS_STORAGE_KEY = 'salesReport_cols_v1';
-const DEFAULT_COLS = { gstin: false, state: false, cgst: false, sgst: false, igst: false, cess: false };
+const COLS_STORAGE_KEY = 'salesReport_cols_v2';
+const DEFAULT_COLS = ALL_COLS.reduce((o, c) => ({ ...o, [c.key]: c.default }), {});
 
 // Period presets — dayjs values resolved against the company FY.
 function presetRange(key, fyStart, fyEnd) {
@@ -167,54 +187,91 @@ export default function SalesReport() {
     }
   };
 
-  // rowGST = CGST + SGST + IGST + Cess (SalesBill stores these as separate columns,
-  // there's no single gst_amount field — summing here gives the row-level tax.)
-  const rowGST = (r) => parseFloat(r.cgst_amount || 0) + parseFloat(r.sgst_amount || 0)
-                       + parseFloat(r.igst_amount || 0) + parseFloat(r.cess_amount || 0);
+  // Per-bill computed values used by the new operational columns.
+  const rowGST    = (r) => parseFloat(r.cgst_amount || 0) + parseFloat(r.sgst_amount || 0)
+                          + parseFloat(r.igst_amount || 0) + parseFloat(r.cess_amount || 0);
+  // Profit = sub_total − COGS. Sub-total (taxable) rather than total
+  // because GST is collected for the government and isn't margin.
+  const rowProfit = (r) => parseFloat(r.sub_total || 0) - parseFloat(r.cogs || 0);
+  const rowMargin = (r) => {
+    const sub = parseFloat(r.sub_total || 0);
+    return sub > 0 ? (rowProfit(r) / sub) * 100 : 0;
+  };
+  // Days overdue = today − (bill_date + customer.credit_days). Only
+  // shown for bills with a balance > 0; clean (paid) bills render —.
+  const rowOverdueDays = (r) => {
+    if (parseFloat(r.balance_amount || 0) <= 0) return null;
+    const billDate = dayjs(r.bill_date);
+    const dueDate = r.due_date
+      ? dayjs(r.due_date)
+      : billDate.add(parseInt(r.customer?.credit_days, 10) || 0, 'day');
+    const diff = dayjs().diff(dueDate, 'day');
+    return diff > 0 ? diff : 0;
+  };
 
-  // Optional columns sit between Customer and Items so the GST-related
-  // fields stay together visually when the user enables them.
+  // Single source-of-truth column registry. Each entry is the full
+  // antd Column spec; the render builds them in order based on
+  // colsVisible. Adding/removing/renaming a column happens in one
+  // place — no fragile push/spread chain.
+  const COL_SPECS = useMemo(() => ({
+    bill_no:      { title: 'Bill No',     dataIndex: 'bill_number', width: 130 },
+    date:         { title: 'Date',        dataIndex: 'bill_date',   width: 110, render: (v) => dayjs(v).format('DD-MMM-YYYY') },
+    customer:     { title: 'Customer',    dataIndex: ['customer', 'party_name'], width: 180, render: (v) => v || 'Cash Sale' },
+    gstin:        { title: 'GSTIN',       dataIndex: ['customer', 'gstin'], width: 150,
+                    render: (v) => v ? <Tag style={{ fontFamily: 'Geist Mono, monospace' }}>{v}</Tag> : '—' },
+    state:        { title: 'State',       dataIndex: ['customer', 'state'], width: 130, render: (v) => v || '—' },
+    city:         { title: 'City',        dataIndex: ['customer', 'city'],  width: 130, render: (v) => v || '—' },
+    salesman:     { title: 'Salesperson', dataIndex: 'salesman_name', width: 140, render: (v) => v || '—' },
+    items:        { title: 'Items',       dataIndex: 'total_items', width: 70, align: 'center' },
+    sub_total:    { title: 'Sub Total',   dataIndex: 'sub_total', width: 120, align: 'right', render: fmt },
+    discount:     { title: 'Discount',    dataIndex: 'discount_amount', width: 100, align: 'right', render: fmt },
+    cgst:         { title: 'CGST',        dataIndex: 'cgst_amount', width: 90, align: 'right', render: fmt },
+    sgst:         { title: 'SGST',        dataIndex: 'sgst_amount', width: 90, align: 'right', render: fmt },
+    igst:         { title: 'IGST',        dataIndex: 'igst_amount', width: 90, align: 'right', render: fmt },
+    cess:         { title: 'Cess',        dataIndex: 'cess_amount', width: 90, align: 'right', render: fmt },
+    gst:          { title: 'GST',         width: 100, align: 'right', render: (_, r) => fmt(rowGST(r)) },
+    cogs:         { title: 'COGS',        dataIndex: 'cogs', width: 110, align: 'right',
+                    render: (v) => fmt(v) },
+    profit:       { title: 'Profit',      width: 110, align: 'right',
+                    render: (_, r) => {
+                      const p = rowProfit(r);
+                      return <span style={{ color: p > 0 ? '#16a34a' : p < 0 ? '#dc2626' : undefined, fontWeight: 600 }}>{fmt(p)}</span>;
+                    } },
+    margin:       { title: 'Margin %',    width: 90, align: 'right',
+                    render: (_, r) => {
+                      const m = rowMargin(r);
+                      return <span style={{ color: m > 0 ? '#16a34a' : m < 0 ? '#dc2626' : undefined }}>{m.toFixed(1)}%</span>;
+                    } },
+    total:        { title: 'Total',       dataIndex: 'total_amount', width: 120, align: 'right',
+                    render: (v) => <strong>{fmt(v)}</strong> },
+    paid:         { title: 'Paid',        dataIndex: 'paid_amount', width: 110, align: 'right', render: fmt },
+    balance:      { title: 'Balance',     dataIndex: 'balance_amount', width: 110, align: 'right',
+                    render: (v) => <span style={{ color: v > 0 ? '#ff4d4f' : '#52c41a' }}>{fmt(v)}</span> },
+    payment_mode: { title: 'Mode',        dataIndex: 'payment_method', width: 100,
+                    render: (v) => v ? <Tag>{v}</Tag> : '—' },
+    due_date:     { title: 'Due',         dataIndex: 'due_date', width: 110,
+                    render: (v) => v ? dayjs(v).format('DD-MMM-YYYY') : '—' },
+    overdue_days: { title: 'Overdue',     width: 90, align: 'right',
+                    render: (_, r) => {
+                      const d = rowOverdueDays(r);
+                      if (d === null) return '—';
+                      return <span style={{ color: d > 30 ? '#dc2626' : d > 0 ? '#d97706' : undefined, fontFamily: 'Geist Mono, monospace' }}>{d > 0 ? `${d} d` : '—'}</span>;
+                    } },
+    status:       { title: 'Status',      dataIndex: 'payment_status', width: 90,
+                    render: (s) => <Tag color={s === 'Paid' ? 'green' : s === 'Partial' ? 'orange' : 'red'}>{s}</Tag> },
+  }), []);
+
   const columns = useMemo(() => {
-    const cols = [
-      { title: 'Bill No', dataIndex: 'bill_number', width: 130 },
-      { title: 'Date', dataIndex: 'bill_date', width: 110, render: (v) => dayjs(v).format('DD-MMM-YYYY') },
-      { title: 'Customer', dataIndex: ['customer', 'party_name'], width: 180, render: (v) => v || 'Cash Sale' },
-    ];
-    if (colsVisible.gstin) cols.push({ title: 'GSTIN', dataIndex: ['customer', 'gstin'], width: 150,
-      render: (v) => v ? <Tag style={{ fontFamily: 'Geist Mono, monospace' }}>{v}</Tag> : '—' });
-    if (colsVisible.state) cols.push({ title: 'State', dataIndex: ['customer', 'state'], width: 130, render: (v) => v || '—' });
-    cols.push(
-      { title: 'Items', dataIndex: 'total_items', width: 70, align: 'center' },
-      { title: 'Sub Total', dataIndex: 'sub_total', width: 120, align: 'right', render: fmt },
-      { title: 'Discount', dataIndex: 'discount_amount', width: 100, align: 'right', render: fmt },
-    );
-    if (colsVisible.cgst) cols.push({ title: 'CGST', dataIndex: 'cgst_amount', width: 90, align: 'right', render: fmt });
-    if (colsVisible.sgst) cols.push({ title: 'SGST', dataIndex: 'sgst_amount', width: 90, align: 'right', render: fmt });
-    if (colsVisible.igst) cols.push({ title: 'IGST', dataIndex: 'igst_amount', width: 90, align: 'right', render: fmt });
-    if (colsVisible.cess) cols.push({ title: 'Cess', dataIndex: 'cess_amount', width: 90, align: 'right', render: fmt });
-    cols.push(
-      { title: 'GST', width: 100, align: 'right', render: (_, r) => fmt(rowGST(r)) },
-      { title: 'Total', dataIndex: 'total_amount', width: 120, align: 'right', render: (v) => <strong>{fmt(v)}</strong> },
-      { title: 'Paid', dataIndex: 'paid_amount', width: 110, align: 'right', render: fmt },
-      {
-        title: 'Balance', dataIndex: 'balance_amount', width: 110, align: 'right',
-        render: (v) => <span style={{ color: v > 0 ? '#ff4d4f' : '#52c41a' }}>{fmt(v)}</span>,
-      },
-      {
-        title: 'Status', dataIndex: 'payment_status', width: 90,
-        render: (s) => <Tag color={s === 'Paid' ? 'green' : s === 'Partial' ? 'orange' : 'red'}>{s}</Tag>,
-      },
-    );
-    return cols;
-  }, [colsVisible]);
+    return ALL_COLS.filter((c) => colsVisible[c.key]).map((c) => ({ key: c.key, ...COL_SPECS[c.key] }));
+  }, [colsVisible, COL_SPECS]);
 
-  // Column-picker popover content.
+  // Column-picker popover content. Two columns wide so 25 toggles
+  // don't push the popover off-screen.
   const colsPickerContent = (
-    <div style={{ minWidth: 200 }}>
-      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Optional columns</div>
-      {OPTIONAL_COLS.map((c) => (
-        <div key={c.key} style={{ padding: '4px 0' }}>
-          <Checkbox checked={colsVisible[c.key]} onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}>
+    <div style={{ minWidth: 320, maxWidth: 360, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+      {ALL_COLS.map((c) => (
+        <div key={c.key}>
+          <Checkbox checked={!!colsVisible[c.key]} onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}>
             {c.label}
           </Checkbox>
         </div>
@@ -301,11 +358,20 @@ export default function SalesReport() {
           </Select>
         </div>
 
-        {/* Summary Bar */}
+        {/* Summary Bar — Profit + Margin tiles surface the new
+            COGS-derived numbers right next to the headline totals. */}
         <div className="erp-summary-bar">
           <div className="erp-summary-stat" style={{ background: '#ecfdf5' }}>
             <span className="erp-summary-stat-label">Total Sales</span>
             <span className="erp-summary-stat-value" style={{ color: '#059669' }}>{fmt2(summary.total_amount)}</span>
+          </div>
+          <div className="erp-summary-stat" style={{ background: '#f0fdf4' }}>
+            <span className="erp-summary-stat-label">Total Profit</span>
+            <span className="erp-summary-stat-value" style={{ color: (summary.total_profit || 0) >= 0 ? '#16a34a' : '#dc2626' }}>{fmt2(summary.total_profit)}</span>
+          </div>
+          <div className="erp-summary-stat" style={{ background: '#fef3c7' }}>
+            <span className="erp-summary-stat-label">Margin</span>
+            <span className="erp-summary-stat-value" style={{ color: '#b45309' }}>{(summary.margin_pct || 0).toFixed(1)}%</span>
           </div>
           <div className="erp-summary-stat" style={{ background: '#eef2ff' }}>
             <span className="erp-summary-stat-label">Total GST</span>
@@ -315,12 +381,8 @@ export default function SalesReport() {
             <span className="erp-summary-stat-label">Total Discount</span>
             <span className="erp-summary-stat-value" style={{ color: '#D97706' }}>{fmt2(summary.total_discount)}</span>
           </div>
-          <div className="erp-summary-stat" style={{ background: '#f0fdf4' }}>
-            <span className="erp-summary-stat-label">Total Paid</span>
-            <span className="erp-summary-stat-value" style={{ color: '#16a34a' }}>{fmt2(summary.total_paid)}</span>
-          </div>
           <div className="erp-summary-stat" style={{ background: '#fef2f2' }}>
-            <span className="erp-summary-stat-label">Total Balance</span>
+            <span className="erp-summary-stat-label">Outstanding</span>
             <span className="erp-summary-stat-value" style={{ color: '#dc2626' }}>{fmt2(summary.total_balance)}</span>
           </div>
         </div>
@@ -336,42 +398,38 @@ export default function SalesReport() {
             pagination={false}
             summary={() => {
               if (data.length === 0) return null;
-              // Map every column to its summary cell. Non-numeric columns
-              // (Bill No / Date / Customer / GSTIN / State / Items / Status)
-              // get blank cells; numeric columns pull from the backend
-              // summary aggregate (NOT data.reduce — that would only sum
-              // the visible rows and drift from the bill-count label
-              // whenever pagination truncates).
-              const totalForCol = (c) => {
-                if (c.dataIndex === 'sub_total')         return fmt(summary.total_sub);
-                if (c.dataIndex === 'discount_amount')   return fmt(summary.total_discount);
-                if (c.dataIndex === 'cgst_amount')       return fmt(summary.total_cgst);
-                if (c.dataIndex === 'sgst_amount')       return fmt(summary.total_sgst);
-                if (c.dataIndex === 'igst_amount')       return fmt(summary.total_igst);
-                if (c.dataIndex === 'cess_amount')       return fmt(summary.total_cess);
-                if (c.title === 'GST')                   return fmt(summary.total_gst);
-                if (c.dataIndex === 'total_amount')      return fmt(summary.total_amount);
-                if (c.dataIndex === 'paid_amount')       return fmt(summary.total_paid);
-                if (c.dataIndex === 'balance_amount')    return fmt(summary.total_balance);
-                return null;
+              // Each column key maps to its backend summary aggregate. Non-
+              // numeric columns (Bill No / Date / Customer / GSTIN / State /
+              // City / Salesperson / Items count / Status / etc.) get blank
+              // cells; numeric columns pull from the backend summary
+              // aggregate (NOT data.reduce — that would only sum the visible
+              // page and drift from the bill-count label).
+              const totalForKey = (k) => {
+                switch (k) {
+                  case 'sub_total': return fmt(summary.total_sub);
+                  case 'discount':  return fmt(summary.total_discount);
+                  case 'cgst':      return fmt(summary.total_cgst);
+                  case 'sgst':      return fmt(summary.total_sgst);
+                  case 'igst':      return fmt(summary.total_igst);
+                  case 'cess':      return fmt(summary.total_cess);
+                  case 'gst':       return fmt(summary.total_gst);
+                  case 'cogs':      return fmt(summary.total_cogs);
+                  case 'profit':    return <span style={{ color: (summary.total_profit || 0) >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(summary.total_profit)}</span>;
+                  case 'margin':    return `${(summary.margin_pct || 0).toFixed(1)}%`;
+                  case 'total':     return fmt(summary.total_amount);
+                  case 'paid':      return fmt(summary.total_paid);
+                  case 'balance':   return fmt(summary.total_balance);
+                  default:          return null;
+                }
               };
               return (
                 <Table.Summary fixed>
                   <Table.Summary.Row style={{ background: '#fafafa', fontWeight: 'bold' }}>
-                    {columns.map((c, i) => {
-                      if (i === 0) return (
-                        <Table.Summary.Cell key="label" index={0} colSpan={3}>
-                          Total (all {totalCount})
-                        </Table.Summary.Cell>
-                      );
-                      if (i === 1 || i === 2) return null; // covered by colSpan above
-                      const v = totalForCol(c);
-                      return (
-                        <Table.Summary.Cell key={i} index={i} align={c.align || 'left'}>
-                          {v}
-                        </Table.Summary.Cell>
-                      );
-                    })}
+                    {columns.map((c, i) => (
+                      <Table.Summary.Cell key={c.key || i} index={i} align={c.align || 'left'}>
+                        {i === 0 ? `Total (${totalCount})` : totalForKey(c.key)}
+                      </Table.Summary.Cell>
+                    ))}
                   </Table.Summary.Row>
                 </Table.Summary>
               );

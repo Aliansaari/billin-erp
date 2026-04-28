@@ -291,10 +291,20 @@ exports.salesReport = async (req, res) => {
 
     const { count, rows } = await SalesBill.findAndCountAll({
       where,
-      // GSTIN + state included so the optional columns the user can
-      // toggle on (for GSTR-1 reconciliation) have data to show.
+      // GSTIN + state + city included so the operational column
+      // toggles (GSTR-1 reconciliation, dispatch routing, etc.)
+      // have data to show.
       include: [{ model: Party, as: 'customer',
-        attributes: ['party_id', 'party_name', 'mobile_1', 'gstin', 'state'] }],
+        attributes: ['party_id', 'party_name', 'mobile_1', 'gstin', 'state', 'city', 'credit_days'] }],
+      // Computed COGS per bill (Σ qty × cost_rate across line items).
+      // cost_rate is the snapshot of products.purchase_rate frozen at
+      // bill creation, so historic gross profit stays stable even if
+      // the master rate changes later.
+      attributes: {
+        include: [
+          [literal(`(SELECT COALESCE(SUM("quantity" * "cost_rate"), 0) FROM "sales_bill_items" WHERE "sales_bill_items"."sales_bill_id" = "SalesBill"."sales_bill_id")`), 'cogs'],
+        ],
+      },
       order: [['bill_date', 'DESC']],
       limit,
       offset,
@@ -323,13 +333,38 @@ exports.salesReport = async (req, res) => {
       raw: true,
     });
 
+    // COGS aggregate over the same filtered set. Joined SQL query
+    // because Sequelize aggregate via include is awkward when the
+    // outer where filter is on the parent.
+    const cogsWhereSql = [
+      'b.is_cancelled = false',
+      from_date && to_date ? 'b.bill_date BETWEEN :from_date AND :to_date' : null,
+      customer_id ? 'b.customer_id = :customer_id' : null,
+      payment_status ? 'b.payment_status = :payment_status' : null,
+    ].filter(Boolean).join(' AND ');
+    const [cogsRow] = await sequelize.query(
+      `SELECT COALESCE(SUM(it.quantity * it.cost_rate), 0)::float AS total_cogs
+         FROM sales_bill_items it
+         JOIN sales_bills b ON b.sales_bill_id = it.sales_bill_id
+        WHERE ${cogsWhereSql}`,
+      { replacements: { from_date, to_date, customer_id, payment_status }, type: sequelize.QueryTypes.SELECT },
+    );
+    const total_cogs = r2(cogsRow.total_cogs);
+
     const t0 = totals[0];
     const total_gst = +(parseFloat(t0.total_cgst) + parseFloat(t0.total_sgst) + parseFloat(t0.total_igst) + parseFloat(t0.total_cess)).toFixed(2);
+    const total_sub = +parseFloat(t0.total_sub).toFixed(2);
+    // Profit = Σ(taxable) − Σ COGS. Margin = profit / taxable × 100.
+    // Computed off taxable (sub_total) rather than total_amount so GST
+    // doesn't dilute the margin — the operator wants to see the
+    // markup over cost, not the markup over cost+tax.
+    const total_profit = r2(total_sub - total_cogs);
+    const margin_pct = total_sub > 0 ? r2((total_profit / total_sub) * 100) : 0;
     const summary = {
       total_bills:    parseInt(t0.total_bills),
       total_sales:    +parseFloat(t0.total_sales).toFixed(2),
       total_amount:   +parseFloat(t0.total_sales).toFixed(2),       // alias for UI code reading total_amount
-      total_sub:      +parseFloat(t0.total_sub).toFixed(2),
+      total_sub,
       total_discount: +parseFloat(t0.total_discount).toFixed(2),
       total_cgst:     +parseFloat(t0.total_cgst).toFixed(2),
       total_sgst:     +parseFloat(t0.total_sgst).toFixed(2),
@@ -339,6 +374,9 @@ exports.salesReport = async (req, res) => {
       total_paid:     +parseFloat(t0.total_paid).toFixed(2),
       total_pending:  +parseFloat(t0.total_pending).toFixed(2),
       total_balance:  +parseFloat(t0.total_pending).toFixed(2),     // alias for UI code reading total_balance
+      total_cogs,
+      total_profit,
+      margin_pct,
     };
 
     // Ledger reconciliation — only meaningful when filtering by date
@@ -399,7 +437,7 @@ exports.purchaseReport = async (req, res) => {
     const { count, rows } = await PurchaseBill.findAndCountAll({
       where,
       include: [{ model: Party, as: 'supplier',
-        attributes: ['party_id', 'party_name', 'mobile_1', 'gstin', 'state'] }],
+        attributes: ['party_id', 'party_name', 'mobile_1', 'gstin', 'state', 'city', 'credit_days'] }],
       order: [['bill_date', 'DESC']],
       limit,
       offset,
