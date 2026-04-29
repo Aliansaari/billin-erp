@@ -1257,6 +1257,20 @@ export default function SalesBillForm() {
               </div>
             )}
             <div className="sbf-top-head-right">
+              {/* Issuing godown lives in the header strip alongside the
+                  date pickers — same height (size="small"), pinned to the
+                  right of the row. Disabled on edit because moving
+                  inventory between godowns is the Stock Transfer flow,
+                  not bill-edit. */}
+              <Form.Item name="godown_id" noStyle rules={[{ required: true, message: ' ' }]}>
+                <Select
+                  size="small"
+                  style={{ width: 180 }}
+                  placeholder="Godown *"
+                  disabled={isEdit}
+                  options={godowns.map(g => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+                />
+              </Form.Item>
               {/* No labels — placeholders communicate the field's purpose. */}
               <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
                 <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Bill date *" size="small"/>
@@ -1270,21 +1284,6 @@ export default function SalesBillForm() {
           <div className="sbf-top-inner">
 
             <div className="sbf-top-row">
-              {/* Issuing godown — picked once at the top of the form. Drives
-                  per-godown stock checks and (later) Place-of-Supply on the
-                  printed invoice. Disabled on edit because moving inventory
-                  between godowns must go through Stock Transfer, not via
-                  rewriting an existing bill. */}
-              <div className="sbf-field" style={{flex:'0 0 200px'}}>
-                <Form.Item name="godown_id" noStyle
-                  rules={[{ required: true, message: 'Pick a godown' }]}>
-                  <Select
-                    placeholder="Godown"
-                    disabled={isEdit}
-                    options={godowns.map(g => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
-                  />
-                </Form.Item>
-              </div>
               <div className="sbf-field" style={{flex:'1 1 auto'}}>
                 {/* Customer is now hard-required. Cash sales select the
                     seeded system "Cash" party (pinned to the top of the

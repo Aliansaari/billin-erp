@@ -1458,6 +1458,20 @@ export default function PurchaseBillForm() {
                 </div>
               )}
               <div className="pbf-top-head-right">
+                {/* Receiving godown — sits in the header strip next to the
+                    dates. Same height (size="small"); doesn't disturb the
+                    company-name chip in the centre. Disabled on edit because
+                    moving inventory between godowns is the Stock Transfer
+                    flow rather than rewriting an existing bill. */}
+                <Form.Item name="godown_id" noStyle rules={[{ required: true, message: ' ' }]}>
+                  <Select
+                    size="small"
+                    style={{ width: 180 }}
+                    placeholder="Godown *"
+                    disabled={isEdit}
+                    options={godowns.map(g => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+                  />
+                </Form.Item>
                 {/* No labels — placeholders communicate the field's purpose. */}
                 <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
                   <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Bill date *" size="small"/>
@@ -1475,21 +1489,6 @@ export default function PurchaseBillForm() {
                 style cash purchases don't carry a separate supplier bill
                 number, so the slot reuse is honest, not just convenient. */}
             <div className="pbf-top-row">
-              {/* Receiving godown — picked once per bill. Drives per-godown
-                  stock add and Place-of-Supply for inward GST.
-                  Disabled on edit because moving inventory between godowns
-                  must go through Stock Transfer rather than rewriting an
-                  existing purchase. */}
-              <div className="pbf-field" style={{ flex: '0 0 200px' }}>
-                <Form.Item name="godown_id" noStyle
-                  rules={[{ required: true, message: 'Pick a godown' }]}>
-                  <Select
-                    placeholder="Godown"
-                    disabled={isEdit}
-                    options={godowns.map(g => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
-                  />
-                </Form.Item>
-              </div>
               <div className="pbf-field">
                 {/* Supplier is hard-required. Cash purchases pick the
                     seeded system "Cash" party (pinned to the top); the
