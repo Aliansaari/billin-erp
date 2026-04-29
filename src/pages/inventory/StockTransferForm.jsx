@@ -205,10 +205,13 @@ export default function StockTransferForm() {
   }, [fromGodownId, activeCatId]);
 
   // Category preload — when the operator picks a category, populate
-  // prodOpts with everything in that category so the Product dropdown
-  // can be opened and clicked without typing. Identical to the Sales
-  // form's preload effect (line ~356). Cleared when category clears
-  // (no category → typed-search-only behaviour).
+  // prodOpts with everything in that category AND auto-jump focus
+  // into the Product cell with the dropdown already open. Mirrors
+  // SalesBillForm line ~362 (the setTimeout focus+open is the bit
+  // that makes the keyboard rhythm feel right: pick category → land
+  // in product with options visible → arrow-key down or click to
+  // pick). 30ms gives AntD enough time to mount the new option list
+  // before we focus.
   useEffect(() => {
     let cancelled = false;
     if (!activeCatId) { setProdOpts([]); return; }
@@ -217,7 +220,11 @@ export default function StockTransferForm() {
       name_only:   'true',
       ...(fromGodownId ? { godown_id: fromGodownId } : {}),
     })
-      .then(({ data }) => { if (!cancelled) setProdOpts(data.data || []); })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setProdOpts(data.data || []);
+        setTimeout(() => { prodRef.current?.focus(); setProdOpen(true); }, 30);
+      })
       .catch(() => { if (!cancelled) setProdOpts([]); });
     return () => { cancelled = true; };
   }, [activeCatId, fromGodownId]);
@@ -292,6 +299,11 @@ export default function StockTransferForm() {
           rate:           parseFloat(p.purchase_rate) || 0,
         },
       ]);
+      // Same flag/state cleanup as +ADD so the next focus-into-Product
+      // opens the dropdown normally instead of being intercepted as a
+      // just-selected redirect.
+      justSelectedRef.current = false;
+      setActiveCatId(null);
       setEntry(EMPTY_ENTRY);
       barcodeRef.current?.focus();
     } catch (err) {
@@ -337,8 +349,17 @@ export default function StockTransferForm() {
         rate:           parseFloat(entry.rate) || 0,
       },
     ]);
+    // Same cleanup Sales does in addItem (line ~610): clearing
+    // activeCatId triggers the preload useEffect to drop prodOpts so
+    // the next category change starts fresh, AND we explicitly drop
+    // justSelectedRef so the next focus-into-Product opens the
+    // dropdown normally instead of being intercepted as a
+    // "just-selected → jump to qty" redirect.
+    justSelectedRef.current = false;
+    setActiveCatId(null);
+    setProdOpen(false);
     setEntry(EMPTY_ENTRY);
-    barcodeRef.current?.focus();
+    setTimeout(() => barcodeRef.current?.focus(), 50);
   };
 
   // Field updater for entry cells (qty, rate, etc.) — mirrors Sales' `ue`.
@@ -608,6 +629,13 @@ export default function StockTransferForm() {
                 <Select
                   value={activeCatId}
                   onChange={(v, opt) => {
+                    // Reset the just-selected flag here (matches
+                    // SalesBillForm line ~1444). Without this, if the
+                    // operator picked a product, then clicked +ADD,
+                    // then later clicked Product again, the leftover
+                    // flag would intercept the first focus and the
+                    // dropdown would close before the second click.
+                    justSelectedRef.current = false;
                     setActiveCatId(v || null);
                     setEntry((p) => ({
                       ...p,
@@ -666,6 +694,9 @@ export default function StockTransferForm() {
                     }
                   }}
                   onClear={() => {
+                    // Same reset as Category-onChange so a clear-then-
+                    // click cycle re-opens the dropdown cleanly.
+                    justSelectedRef.current = false;
                     setProdOpen(false);
                     setEntry((p) => ({ ...p, product_id: null, product_name: '' }));
                   }}
