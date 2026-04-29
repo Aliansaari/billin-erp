@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Form, DatePicker, Select, Input, InputNumber, Button, Table, Tag, Space, message, Popconfirm, Spin, Tooltip } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
-import { SwapOutlined, PlusCircleOutlined, DeleteOutlined, SaveOutlined, SendOutlined, CheckCircleOutlined, CloseCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { SwapOutlined, DeleteOutlined, SaveOutlined, SendOutlined, CheckCircleOutlined, CloseCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { stockTransferAPI, godownAPI, productAPI } from '../../api';
 
@@ -54,6 +54,12 @@ export default function StockTransferForm() {
   const [prodOpts, setProdOpts] = useState([]);
   const [prodSearching, setProdSearching] = useState(false);
   const [prodOpen, setProdOpen] = useState(false);
+  // searchValue is the controlled query the operator typed. Resetting it
+  // on select is the single point of control that makes the Select clear
+  // back to placeholder after each pick — without this, AntD leaves the
+  // last typed string in the box and the operator has to backspace before
+  // searching for the next item.
+  const [searchValue, setSearchValue] = useState('');
   const [transferNo, setTransferNo] = useState('—');
   const itemKeyRef    = useRef(1);
   const submittingRef = useRef(false);
@@ -137,6 +143,7 @@ export default function StockTransferForm() {
   //  - godown_id forwarded so the server scopes current_stock to the
   //    source godown (productController.getAll honours godown_id).
   const handleProdSearch = useCallback((v) => {
+    setSearchValue(v);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     if (!v) { setProdOpts([]); return; }
     searchTimerRef.current = setTimeout(async () => {
@@ -154,7 +161,9 @@ export default function StockTransferForm() {
 
   // Pick a product → push as a transfer line. Mirrors handleProdSel
   // shape from the bill forms (qty defaults from quantity_per_box,
-  // rate snapshots purchase_rate for valuation).
+  // rate snapshots purchase_rate for valuation). Then clears the
+  // picker so the next character the operator types starts a fresh
+  // search instead of appending to the previous query.
   const handleProdSel = (val, opt) => {
     const p = opt?.product;
     if (!p) return;
@@ -167,6 +176,10 @@ export default function StockTransferForm() {
       quantity:     qty,
       rate:         parseFloat(p.purchase_rate) || 0,
     });
+    // Clear sequence — order matters: drop the search text first so the
+    // controlled `searchValue` resets to '', then close the dropdown,
+    // then drop the cached options so the next open starts empty.
+    setSearchValue('');
     setProdOpen(false);
     setProdOpts([]);
   };
@@ -401,50 +414,69 @@ export default function StockTransferForm() {
           </Form.Item>
         </Form>
 
-        {/* Item entry — product picker.
+        {/* Product picker.
          *
-         * Mirrors SalesBillForm's product cell exactly:
-         *   - showSearch + filterOption=false (server-side search)
-         *   - optionLabelProp="label" so the selected value renders as
-         *     a plain product name, NOT the option's full grid HTML
-         *     (without this, AntD tries to render the layout div inside
-         *     the select trigger and the layout collapses)
-         *   - controlled `open` state so picking an item closes the
-         *     dropdown immediately
-         *   - Select.Option carries `label={p.product_name}` and the
-         *     full product object via `product={p}` so handleProdSel
-         *     can read it
-         *   - dropdownMatchSelectWidth=520 so longer names + meta
-         *     details aren't truncated
+         * Mirrors the Sales bill form's `.sbf-cell` Product picker
+         * 1:1 — same Select props, same option rendering, same
+         * dropdown width, same label-on-top treatment. Differences
+         * from the Sales picker: standalone (not inside an entry-row
+         * grid), and onSelect adds a row to `items` rather than
+         * setting an entry. Everything else — including the after-
+         * select clear-search behaviour — is identical.
+         *
+         * Why these props matter:
+         *   - filterOption=false       → server-side search, no
+         *                                client-side prefiltering
+         *   - optionLabelProp="label"  → selected-value renders as
+         *                                plain product_name, not the
+         *                                option's grid <div> (without
+         *                                this AntD tries to inject the
+         *                                whole layout into the select
+         *                                trigger and the cell collapses)
+         *   - controlled `open` state  → picking closes the dropdown
+         *                                synchronously
+         *   - controlled `searchValue` → reset on select so the next
+         *                                keystroke starts a fresh
+         *                                search instead of appending
+         *                                to the previous query
+         *   - dropdownMatchSelectWidth=460 → same width as Sales
          */}
         {!readOnly && (
-          <div style={{
-            border: '1px solid var(--border, #e5e7eb)', borderRadius: 8,
-            padding: 12, marginBottom: 12, background: 'var(--bg-subtle, #f9fafb)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <PlusCircleOutlined style={{ color: 'var(--accent, #4F46E5)' }} />
-              <strong>Add item</strong>
-              <span style={{ color: 'var(--fg-tertiary)', fontSize: 12 }}>
-                Stock shown is at the source godown
-              </span>
+          <div
+            style={{
+              display: 'flex', flexDirection: 'column',
+              padding: '4px 12px',
+              borderTop: '1px solid var(--border-subtle, #f1f5f9)',
+              borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+              marginBottom: 8,
+              position: 'relative',
+            }}
+          >
+            <div style={{
+              fontSize: 9, textTransform: 'uppercase', letterSpacing: 1.2,
+              fontWeight: 700, color: 'var(--fg-tertiary)',
+              lineHeight: '14px', whiteSpace: 'nowrap',
+            }}>
+              Product
             </div>
             <Select
-              key={`prod-${fromGodownId || 'no'}`}  /* refresh per-source so cached opts don't bleed across godown changes */
+              key={`prod-${fromGodownId || 'no'}`}
               showSearch
               filterOption={false}
               optionLabelProp="label"
               value={undefined}
+              searchValue={searchValue}
               open={prodOpen}
               onDropdownVisibleChange={(v) => setProdOpen(v)}
               onSearch={(v) => { setProdOpen(true); handleProdSearch(v); }}
               onSelect={(val, opt) => handleProdSel(val, opt)}
               allowClear
-              placeholder={fromGodownId ? 'Search product by name' : 'Pick source godown first'}
+              placeholder={fromGodownId ? 'Product name' : 'Pick source godown first'}
               disabled={!fromGodownId}
               notFoundContent={prodSearching ? 'Searching…' : null}
               listHeight={320}
-              dropdownMatchSelectWidth={520}
+              dropdownMatchSelectWidth={460}
+              variant="borderless"
               style={{ width: '100%' }}
             >
               {prodOpts.map((p) => {
