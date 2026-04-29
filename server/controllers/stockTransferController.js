@@ -233,9 +233,16 @@ exports.create = async (req, res) => {
 exports.submit = async (req, res) => {
   const t = await sequelize.transaction();
   try {
+    // FOR UPDATE only locks the parent stock_transfers row; the
+    // included stock_transfer_items rows must NOT be in the lock
+    // because Postgres rejects "FOR UPDATE" on the nullable side
+    // of an outer join (and Sequelize generates LEFT JOIN for
+    // includes). Sequelize v6 supports the {level, of} form for
+    // exactly this case.
     const transfer = await StockTransfer.findByPk(req.params.id, {
       include: [{ model: StockTransferItem, as: 'items' }],
-      transaction: t, lock: t.LOCK.UPDATE,
+      transaction: t,
+      lock: { level: t.LOCK.UPDATE, of: StockTransfer },
     });
     if (!transfer) {
       await t.rollback();
@@ -292,9 +299,16 @@ exports.submit = async (req, res) => {
 exports.receive = async (req, res) => {
   const t = await sequelize.transaction();
   try {
+    // FOR UPDATE only locks the parent stock_transfers row; the
+    // included stock_transfer_items rows must NOT be in the lock
+    // because Postgres rejects "FOR UPDATE" on the nullable side
+    // of an outer join (and Sequelize generates LEFT JOIN for
+    // includes). Sequelize v6 supports the {level, of} form for
+    // exactly this case.
     const transfer = await StockTransfer.findByPk(req.params.id, {
       include: [{ model: StockTransferItem, as: 'items' }],
-      transaction: t, lock: t.LOCK.UPDATE,
+      transaction: t,
+      lock: { level: t.LOCK.UPDATE, of: StockTransfer },
     });
     if (!transfer) {
       await t.rollback();
@@ -356,9 +370,16 @@ exports.receive = async (req, res) => {
 exports.cancel = async (req, res) => {
   const t = await sequelize.transaction();
   try {
+    // FOR UPDATE only locks the parent stock_transfers row; the
+    // included stock_transfer_items rows must NOT be in the lock
+    // because Postgres rejects "FOR UPDATE" on the nullable side
+    // of an outer join (and Sequelize generates LEFT JOIN for
+    // includes). Sequelize v6 supports the {level, of} form for
+    // exactly this case.
     const transfer = await StockTransfer.findByPk(req.params.id, {
       include: [{ model: StockTransferItem, as: 'items' }],
-      transaction: t, lock: t.LOCK.UPDATE,
+      transaction: t,
+      lock: { level: t.LOCK.UPDATE, of: StockTransfer },
     });
     if (!transfer) {
       await t.rollback();
