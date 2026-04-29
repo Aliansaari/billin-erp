@@ -452,6 +452,8 @@ export default function SalesReturnForm() {
       submittingRef.current = true;
       setLoading(true);
       const body = {
+        // Receiving godown for the returned goods.
+        godown_id: vals.godown_id,
         customer_id: vals.customer_id || null,
         return_date: vals.return_date.format('YYYY-MM-DD'),
         reference_bill_id: refBill?.sales_bill_id || null,

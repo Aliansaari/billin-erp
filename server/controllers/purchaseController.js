@@ -130,7 +130,10 @@ exports.getAll = async (req, res) => {
           ), '_pcs_total'],
         ],
       },
-      include: [{ model: Party, as: 'supplier', attributes: ['party_name', 'mobile_1'] }],
+      include: [
+        { model: Party,  as: 'supplier', attributes: ['party_name', 'mobile_1'] },
+        { model: Godown, as: 'godown',   attributes: ['godown_id', 'code', 'name'] },
+      ],
       order: [['bill_date', 'DESC'], ['purchase_bill_id', 'DESC']],
       limit,
       offset,

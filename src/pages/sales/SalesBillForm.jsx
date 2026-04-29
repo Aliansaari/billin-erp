@@ -818,6 +818,10 @@ export default function SalesBillForm() {
       // to Cash mid-edit. Trim + cap at 120 chars (the column width).
       const walkIn = String(vals.walk_in_name || '').trim().slice(0, 120);
       const commonBody = {
+        // Issuing godown — picked in the header strip; the controller
+        // routes per-godown stock writes against this id and uses it for
+        // GST place-of-supply (later phase).
+        godown_id: vals.godown_id,
         customer_id:vals.customer_id||null,
         walk_in_name: walkIn || null,
         bill_date:vals.bill_date.format('YYYY-MM-DD'),

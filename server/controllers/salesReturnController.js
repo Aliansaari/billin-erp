@@ -180,7 +180,10 @@ exports.getAll = async (req, res) => {
 
     const { count, rows } = await SalesReturnBill.findAndCountAll({
       where,
-      include: [{ model: Party, as: 'customer', attributes: ['party_name', 'mobile_1'] }],
+      include: [
+        { model: Party,  as: 'customer', attributes: ['party_name', 'mobile_1'] },
+        { model: Godown, as: 'godown',   attributes: ['godown_id', 'code', 'name'] },
+      ],
       order: [['return_date', 'DESC'], ['sales_return_id', 'DESC']],
       limit,
       offset,

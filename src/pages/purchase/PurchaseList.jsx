@@ -587,7 +587,17 @@ function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, on
   return (
     <div className={`brow data${cancelled ? ' cancelled' : ''}`}>
       <div className="c-sr"><span className="sr-n">{String(index + 1).padStart(2, '0')}</span></div>
-      <div className="c-bill"><span className="bill-no">{bill.bill_number}</span></div>
+      <div className="c-bill">
+        <span className="bill-no">{bill.bill_number}</span>
+        {bill.godown && (
+          <span title={`Godown: ${bill.godown.name}`} style={{
+            marginLeft: 6, padding: '1px 5px', fontSize: 10, fontWeight: 600,
+            border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
+            color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
+            fontFamily: 'var(--font-mono, monospace)', verticalAlign: 'middle',
+          }}>{bill.godown.code}</span>
+        )}
+      </div>
 
       <div className="c-date">
         <div className="stk">

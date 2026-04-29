@@ -1072,6 +1072,9 @@ export default function PurchaseBillForm() {
       // to Cash mid-edit cleanly overwrites the column.
       const walkIn = String(values.walk_in_name || '').trim().slice(0, 120);
       const billData={
+        // Receiving godown — picked in the header strip; the controller
+        // routes per-godown stock writes against this id.
+        godown_id: values.godown_id,
         supplier_id:values.supplier_id,
         walk_in_name: walkIn || null,
         bill_date:values.bill_date.format('YYYY-MM-DD'),

@@ -439,6 +439,8 @@ export default function PurchaseReturnForm() {
       submittingRef.current = true;
       setLoading(true);
       const body = {
+        // Source godown — where the goods physically leave from.
+        godown_id: vals.godown_id,
         supplier_id: vals.supplier_id,
         return_date: vals.return_date.format('YYYY-MM-DD'),
         reference_bill_id: refBill?.purchase_bill_id || null,
