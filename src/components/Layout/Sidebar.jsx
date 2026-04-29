@@ -6,7 +6,8 @@ import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
-import { menuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
+import { useMenuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
+import useFavoritesStore from '../../store/favoritesStore';
 import {
   SettingOutlined,
   UserOutlined,
@@ -112,7 +113,17 @@ export default function Sidebar({ collapsed, setCollapsed }) {
 
   // Prune the menu to items this user can reach. Re-filters when the
   // user changes (login/logout/role reassignment).
-  const visibleItems = React.useMemo(() => filterMenuByPermissions(menuItems, user), [user]);
+  // Favorites drive the Reports submenu's children; load once on
+  // auth and let the store push updates whenever the user pins/
+  // unpins from the hub.
+  const loadFavs   = useFavoritesStore((s) => s.load);
+  const favsLoaded = useFavoritesStore((s) => s.loaded);
+  React.useEffect(() => { if (user && !favsLoaded) loadFavs(); }, [user, favsLoaded, loadFavs]);
+
+  // useMenuItems subscribes to favorites — Sidebar re-renders when
+  // pins change, dropdown reflects new state without manual refresh.
+  const menuItems = useMenuItems();
+  const visibleItems = React.useMemo(() => filterMenuByPermissions(menuItems, user), [user, menuItems]);
 
   // Guarded navigate — asks for confirmation when the current form has unsaved work.
   // confirmLeave takes an onConfirm callback; when the form is clean it calls

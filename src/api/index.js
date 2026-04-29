@@ -359,6 +359,17 @@ export const godownAPI = {
   delete:     (id) => api.delete(`/godowns/${id}`),
 };
 
+// Per-user report favorites. The hub page + the nav dropdown both
+// read from a Zustand store that calls these endpoints and caches
+// the resulting id list — so consumers should hit the store, not
+// these endpoints, except when initially hydrating or when the
+// store calls through.
+export const favoritesAPI = {
+  list:   () => api.get('/user/favorites'),
+  pin:    (reportId) => api.post(`/user/favorites/${reportId}`),
+  unpin:  (reportId) => api.delete(`/user/favorites/${reportId}`),
+};
+
 // Stock transfers between godowns. Lifecycle is Draft → In-Transit →
 // Received (or → Cancelled from Draft/In-Transit). Server enforces all
 // transitions; the UI just exposes the buttons.

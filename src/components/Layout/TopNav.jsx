@@ -9,7 +9,8 @@ import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
-import { menuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
+import { useMenuItems, menuItems as staticMenuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
+import useFavoritesStore from '../../store/favoritesStore';
 import './top-nav.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -72,14 +73,24 @@ export default function TopNav() {
   // Which top-level pill is "active". Walk up via getOpenKeys so deep routes
   // like /sale/edit/42 still highlight the Sales pill.
   const activeKey = useMemo(() => {
-    const exact = menuItems.find((m) => m.key === location.pathname);
+    // activeKey resolution uses the static parent shape (favorites
+    // children don't influence which top-level pill is highlighted).
+    const exact = staticMenuItems.find((m) => m.key === location.pathname);
     if (exact) return exact.key;
     const opens = getOpenKeys(location.pathname);
     return opens[0] || null;
   }, [location.pathname]);
 
+  // Favorites drive the Reports submenu's children; load once on auth.
+  const loadFavs   = useFavoritesStore((s) => s.load);
+  const favsLoaded = useFavoritesStore((s) => s.loaded);
+  React.useEffect(() => { if (user && !favsLoaded) loadFavs(); }, [user, favsLoaded, loadFavs]);
+
+  // useMenuItems subscribes to favorites so this nav re-renders when
+  // a star toggles anywhere in the app.
+  const menuItems = useMenuItems();
   // Prune the menu to items this user can reach.
-  const visibleItems = useMemo(() => filterMenuByPermissions(menuItems, user), [user]);
+  const visibleItems = useMemo(() => filterMenuByPermissions(menuItems, user), [user, menuItems]);
 
   const handleLogout = () => { logout(); navigate('/login'); };
 

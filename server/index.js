@@ -42,6 +42,7 @@ app.use('/api/backup', require('./routes/backup'));
 app.use('/api/print', require('./routes/print'));
 app.use('/api/godowns', require('./routes/godowns'));
 app.use('/api/stock-transfers', require('./routes/stockTransfers'));
+app.use('/api/user/favorites', require('./routes/userFavorites'));
 
 // Health check
 app.get('/api/health', (req, res) => {

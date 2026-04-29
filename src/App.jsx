@@ -46,6 +46,7 @@ import StockSummary from './pages/reports/StockSummary';
 import Movers from './pages/reports/Movers';
 import GodownTransferRegister from './pages/reports/GodownTransferRegister';
 import GodownValuation from './pages/reports/GodownValuation';
+import ReportsHub from './pages/reports/ReportsHub';
 import JournalVoucherList from './pages/accounts/JournalVoucherList';
 import JournalVoucherForm from './pages/accounts/JournalVoucherForm';
 import LedgerIntegrity from './pages/accounts/LedgerIntegrity';
@@ -183,6 +184,9 @@ export default function App() {
           <Route path="payments"    element={<RoleRoute perm="payments.view"><PaymentList /></RoleRoute>} />
 
           {/* Reports */}
+          {/* Reports hub — landing for all reports. Cluttered flat dropdown
+              has been replaced by this page + a favorites-only nav menu. */}
+          <Route path="reports"               element={<ReportsHub />} />
           <Route path="reports/sales"         element={<RoleRoute perm="reports.view"><SalesReport /></RoleRoute>} />
           <Route path="reports/purchases"     element={<RoleRoute perm="reports.view"><PurchaseReport /></RoleRoute>} />
           <Route path="reports/stock"         element={<RoleRoute perm="reports.view"><StockReportPage /></RoleRoute>} />

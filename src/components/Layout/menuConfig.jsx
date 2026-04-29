@@ -26,8 +26,11 @@ import {
   FieldTimeOutlined, BookOutlined,
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
   SwapOutlined, ApiOutlined, PrinterOutlined,
+  StarFilled, RiseOutlined, PieChartOutlined,
 } from '@ant-design/icons';
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
+import useFavoritesStore from '../../store/favoritesStore';
+import { CATEGORY_META, resolveReports } from '../../config/reports';
 
 export const menuItems = [
   { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
@@ -95,29 +98,16 @@ export const menuItems = [
       { key: '/accounts/integrity',   icon: <ThunderboltOutlined />,   label: 'Ledger Integrity',    perm: 'accounts.view' },
     ],
   },
+  // Reports — children are dynamic (driven by user favorites). The
+  // static placeholder below carries the parent shape only; consumers
+  // call useMenuItems() to get the resolved tree with the favorites
+  // expanded as children. See useMenuItems below for the rationale.
   {
     key: 'reports-menu',
     icon: <BarChartOutlined />,
     label: 'Reports',
-    children: [
-      { key: '/reports/day-book',     icon: <BookOutlined />,     label: 'Day Book',        perm: 'accounts.view' },
-      { key: '/reports/sales',        icon: <FileTextOutlined />, label: 'Sales Report',    perm: 'reports.view' },
-      { key: '/reports/purchases',    icon: <FileTextOutlined />, label: 'Purchase Report', perm: 'reports.view' },
-      { key: '/reports/stock',        icon: <StockOutlined />,    label: 'Stock Report',    perm: 'reports.view' },
-      { key: '/reports/party-ledger', icon: <WalletOutlined />,   label: 'Party Ledger',    perm: 'accounts.view' },
-      { key: '/reports/aging',        icon: <FieldTimeOutlined />,label: 'Aging Report',    perm: 'reports.view' },
-      { key: '/reports/gstr1',        icon: <FileTextOutlined />, label: 'GSTR-1',          perm: 'reports.view' },
-      { key: '/reports/gstr3b',       icon: <FileTextOutlined />, label: 'GSTR-3B',         perm: 'reports.view' },
-      { key: '/reports/profit-loss',   icon: <FundOutlined />,     label: 'Profit & Loss',   perm: 'accounts.view' },
-      { key: '/reports/trial-balance',     icon: <TableOutlined />,    label: 'Trial Balance',     perm: 'accounts.view' },
-      { key: '/reports/balance-sheet',     icon: <BankOutlined />,     label: 'Balance Sheet',     perm: 'accounts.view' },
-      { key: '/reports/cash-flow',         icon: <FundOutlined />,     label: 'Cash Flow',         perm: 'accounts.view' },
-      { key: '/reports/hsn-summary',       icon: <TagsOutlined />,     label: 'HSN Summary',       perm: 'reports.view'  },
-      { key: '/reports/stock-summary',     icon: <StockOutlined />,    label: 'Stock Summary',     perm: 'reports.view'  },
-      { key: '/reports/movers',            icon: <ThunderboltOutlined />,label: 'Fast / Slow Movers', perm: 'reports.view' },
-      { key: '/reports/transfer-register', icon: <SwapOutlined />,     label: 'Transfer Register', perm: 'reports.view' },
-      { key: '/reports/godown-valuation',  icon: <BankOutlined />,     label: 'Godown Valuation',  perm: 'reports.view' },
-    ],
+    __dynamic: 'reports',
+    children: [],   // filled in at render time by useMenuItems
   },
   {
     key: 'settings-menu',
@@ -138,6 +128,72 @@ export const menuItems = [
     ],
   },
 ];
+
+// Map category meta icon names to actual AntD icon components for the
+// nav dropdown. Same icons the Reports hub uses on its category cards
+// — keeps the operator's visual association from hub to dropdown.
+const CATEGORY_ICON = {
+  RiseOutlined:         <RiseOutlined />,
+  ShoppingCartOutlined: <ShoppingCartOutlined />,
+  InboxOutlined:        <InboxOutlined />,
+  PieChartOutlined:     <PieChartOutlined />,
+  TeamOutlined:         <TeamOutlined />,
+  FileTextOutlined:     <FileTextOutlined />,
+};
+
+/**
+ * Hook variant of menuItems. Reads the favorites store and inflates
+ * the Reports parent's children with the user's pinned reports +
+ * a "View all reports →" link. With zero pins, children collapse to
+ * a single "Browse all reports" item so the menu still navigates
+ * somewhere useful.
+ *
+ * Why a hook (not a static array): both the sidebar and the top nav
+ * need to re-render when the user pins/unpins a report. Co-locating
+ * the favorites read with the menu shape gives Sidebar/TopNav a
+ * subscription via the store, so the dropdown updates the moment a
+ * star is clicked anywhere in the app.
+ */
+export function useMenuItems() {
+  const favIds = useFavoritesStore((s) => s.ids);
+  const favs = resolveReports(favIds);
+
+  return menuItems.map((item) => {
+    if (item.__dynamic !== 'reports') return item;
+    // Build the favorites children list. Each pinned report becomes a
+    // menu item with its category icon (matches the hub) + the report
+    // route as the key. Trailing "View all reports →" link always
+    // shows so the operator can jump to /reports without opening the
+    // hub from elsewhere.
+    const children = [];
+    if (favs.length === 0) {
+      children.push({
+        key: '/reports',
+        icon: <StarFilled style={{ color: '#EF9F27' }} />,
+        label: 'Browse all reports',
+      });
+    } else {
+      for (const r of favs) {
+        const meta = CATEGORY_META[r.category];
+        children.push({
+          key: r.route,
+          icon: CATEGORY_ICON[meta?.icon] || <FileTextOutlined />,
+          label: r.name,
+          perm: r.perm,
+        });
+      }
+      // Visual divider isn't supported by AntD Menu items spec without
+      // type:'divider'; render the "View all" link as a regular leaf
+      // with a ↗ glyph so it reads distinctly from the favorites.
+      children.push({
+        key: '/reports',
+        icon: <BarChartOutlined />,
+        label: 'View all reports →',
+      });
+    }
+    return { ...item, children };
+  });
+}
 
 /**
  * Prune the menu tree to entries the user can reach. Keep parents whose

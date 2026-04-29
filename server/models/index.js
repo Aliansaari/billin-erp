@@ -30,6 +30,7 @@ const Godown = require('./Godown');
 const ProductGodownStock = require('./ProductGodownStock');
 const StockTransfer = require('./StockTransfer');
 const StockTransferItem = require('./StockTransferItem');
+const UserReportFavorite = require('./UserReportFavorite');
 
 // ── Associations ──
 
@@ -206,6 +207,11 @@ StockTransferItem.belongsTo(Product,       { foreignKey: 'product_id',     as: '
 StockTransfer.belongsTo(User,              { foreignKey: 'created_by',     as: 'creator'    });
 StockTransfer.belongsTo(User,              { foreignKey: 'received_by',    as: 'receiver'   });
 
+// User ↔ ReportFavorites — cascade ensures favorite rows go with
+// the user if the user is removed.
+User.hasMany(UserReportFavorite,   { foreignKey: 'user_id', as: 'reportFavorites', onDelete: 'CASCADE' });
+UserReportFavorite.belongsTo(User, { foreignKey: 'user_id' });
+
 module.exports = {
   sequelize,
   Role,
@@ -239,4 +245,5 @@ module.exports = {
   ProductGodownStock,
   StockTransfer,
   StockTransferItem,
+  UserReportFavorite,
 };
