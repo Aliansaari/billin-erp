@@ -113,16 +113,16 @@ export default function ReportsHub() {
   }, [favIds, visibleReports]);
 
   return (
-    <div style={{ padding: 24, maxWidth: 1280, margin: '0 auto' }}>
-      {/* ── Header ───────────────────────────────────────────── */}
+    <div style={{ padding: '14px 18px', maxWidth: 1400, margin: '0 auto' }}>
+      {/* ── Header — single tight row ───────────────────────── */}
       <div style={{
-        display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
-        flexWrap: 'wrap', gap: 16, marginBottom: 20,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 12, marginBottom: 12,
       }}>
-        <div>
-          <Title level={2} style={{ margin: 0, letterSpacing: '-0.02em' }}>Reports</Title>
-          <Text type="secondary" style={{ fontSize: 14 }}>
-            {visibleReports.length} reports across {CATEGORY_ORDER.length} categories
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <Title level={4} style={{ margin: 0, letterSpacing: '-0.01em' }}>Reports</Title>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {visibleReports.length} reports · {CATEGORY_ORDER.length} categories
             {pinned.length > 0 && <> · <b>{pinned.length}</b> pinned</>}
           </Text>
         </div>
@@ -132,66 +132,64 @@ export default function ReportsHub() {
           prefix={<SearchOutlined style={{ color: 'var(--fg-tertiary, #9ca3af)' }} />}
           suffix={
             <Tag style={{
-              fontSize: 11, padding: '0 6px', margin: 0,
+              fontSize: 10, padding: '0 5px', margin: 0, lineHeight: '16px',
               background: 'var(--bg-subtle, #f9fafb)', border: '1px solid var(--border, #e5e7eb)',
               color: 'var(--fg-secondary, #6b7280)',
             }}>⌘K</Tag>
           }
-          placeholder="Search reports — try “p&l”, “gst”, “stock”…"
+          placeholder="Search — “p&l”, “gst”, “stock”…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          style={{ width: 360, maxWidth: '100%' }}
-          size="large"
+          style={{ width: 280, maxWidth: '100%' }}
         />
       </div>
 
-      {/* ── Pinned strip ─────────────────────────────────────── */}
+      {/* ── Pinned strip — inline pill row, no card chrome ──── */}
       {pinned.length > 0 && !query && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{
-            display: 'flex', alignItems: 'baseline', gap: 8,
-            color: 'var(--fg-secondary, #6b7280)', textTransform: 'uppercase',
-            fontSize: 11, letterSpacing: 1.2, fontWeight: 600, marginBottom: 10,
+        <div style={{
+          marginBottom: 12, padding: '8px 10px',
+          background: 'var(--bg-subtle, #fafafa)',
+          border: '1px solid var(--border, #e5e7eb)',
+          borderRadius: 8,
+          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            color: 'var(--fg-secondary, #6b7280)',
+            textTransform: 'uppercase', fontSize: 10, letterSpacing: 1, fontWeight: 600,
+            paddingRight: 6, borderRight: '1px solid var(--border, #e5e7eb)',
           }}>
-            <StarFilled style={{ color: '#EF9F27' }} /> Pinned
-          </div>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-            gap: 12,
-          }}>
-            {pinned.map((r) => {
-              const tone = TONE_COLORS[CATEGORY_META[r.category]?.tone] || TONE_COLORS.info;
-              return (
-                <Card
-                  key={r.id}
-                  hoverable
-                  size="small"
-                  onClick={() => nav(r.route)}
-                  style={{ cursor: 'pointer', borderLeft: `3px solid ${tone.fg}` }}
-                  bodyStyle={{ padding: 14 }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                      <span style={{
-                        background: tone.bg, color: tone.fg,
-                        width: 26, height: 26, borderRadius: 6,
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0,
-                      }}>{ICON_BY_NAME[CATEGORY_META[r.category]?.icon]}</span>
-                      <span style={{ fontWeight: 600, color: 'var(--fg-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {r.name}
-                      </span>
-                    </div>
-                    <FavoriteStar reportId={r.id} size={14} />
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--fg-tertiary)', marginTop: 4, marginLeft: 34 }}>
-                    {r.subtitle}
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
+            <StarFilled style={{ color: '#EF9F27', fontSize: 11 }} /> Pinned
+          </span>
+          {pinned.map((r) => {
+            const tone = TONE_COLORS[CATEGORY_META[r.category]?.tone] || TONE_COLORS.info;
+            return (
+              <span
+                key={r.id}
+                onClick={() => nav(r.route)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '3px 8px 3px 6px', borderRadius: 14,
+                  background: 'var(--bg-elevated, white)',
+                  border: '1px solid var(--border, #e5e7eb)',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                  color: 'var(--fg-primary)',
+                  transition: 'border-color .12s, transform .1s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = tone.fg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = ''; }}
+                title={r.subtitle}
+              >
+                <span style={{
+                  width: 16, height: 16, borderRadius: 4,
+                  background: tone.bg, color: tone.fg,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 10, flexShrink: 0,
+                }}>{ICON_BY_NAME[CATEGORY_META[r.category]?.icon]}</span>
+                {r.name}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -204,12 +202,12 @@ export default function ReportsHub() {
         />
       )}
 
-      {/* ── Category grid (2 columns) ────────────────────────── */}
+      {/* ── Category grid (3 cols on wide screens, denser rows) */}
       {filtered.length > 0 && (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
-          gap: 16,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: 10,
         }}>
           {CATEGORY_ORDER.map((cat) => {
             const reports = byCategory[cat];
@@ -217,56 +215,62 @@ export default function ReportsHub() {
             const meta = CATEGORY_META[cat];
             const tone = TONE_COLORS[meta.tone] || TONE_COLORS.info;
             return (
-              <Card key={cat} bodyStyle={{ padding: 0 }}>
-                {/* Category header */}
+              <Card key={cat} bodyStyle={{ padding: 0 }} size="small">
+                {/* Compact category header */}
                 <div style={{
-                  padding: '14px 18px',
-                  borderBottom: '1px solid var(--border, #e5e7eb)',
-                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '6px 12px',
+                  borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: tone.bg,
                 }}>
                   <span style={{
-                    width: 32, height: 32, borderRadius: 8,
-                    background: tone.bg, color: tone.fg,
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 16,
+                    color: tone.fg,
+                    display: 'inline-flex', alignItems: 'center',
+                    fontSize: 13,
                   }}>{ICON_BY_NAME[meta.icon]}</span>
-                  <span style={{ fontWeight: 700, fontSize: 15 }}>{meta.label}</span>
+                  <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--fg-primary)', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                    {meta.label}
+                  </span>
                   <span style={{
-                    color: 'var(--fg-tertiary)', fontSize: 12, marginLeft: 'auto',
+                    color: 'var(--fg-tertiary)', fontSize: 11, marginLeft: 'auto',
                     fontVariantNumeric: 'tabular-nums',
                   }}>
-                    {reports.length} {reports.length === 1 ? 'report' : 'reports'}
+                    {reports.length}
                   </span>
                 </div>
 
-                {/* Report rows */}
+                {/* Compact report rows — single-line each */}
                 <div>
                   {reports.map((r, idx) => (
                     <div
                       key={r.id}
                       onClick={() => nav(r.route)}
                       style={{
-                        display: 'flex', alignItems: 'center', gap: 12,
-                        padding: '10px 18px',
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '5px 12px',
                         borderTop: idx === 0 ? 'none' : '1px solid var(--border-subtle, #f1f5f9)',
                         cursor: 'pointer',
-                        transition: 'background .12s',
+                        transition: 'background .1s',
+                        minHeight: 30,
                       }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-subtle, #f9fafb)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
+                      title={r.subtitle}
                     >
-                      <FavoriteStar reportId={r.id} size={16} style={{ flexShrink: 0 }} />
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontWeight: 500, color: 'var(--fg-primary)' }}>{r.name}</span>
-                          {r.isNew && (
-                            <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', margin: 0, fontWeight: 700, letterSpacing: 0.4 }}>NEW</Tag>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 11.5, color: 'var(--fg-tertiary)', marginTop: 1 }}>
-                          {r.subtitle}
-                        </div>
-                      </div>
+                      <FavoriteStar reportId={r.id} size={13} style={{ flexShrink: 0 }} />
+                      <span style={{ fontWeight: 500, fontSize: 13, color: 'var(--fg-primary)', whiteSpace: 'nowrap' }}>
+                        {r.name}
+                      </span>
+                      <span style={{
+                        fontSize: 11, color: 'var(--fg-tertiary)',
+                        flex: 1, minWidth: 0,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {r.subtitle}
+                      </span>
+                      {r.isNew && (
+                        <Tag color="orange" style={{ fontSize: 8, padding: '0 4px', lineHeight: '13px', margin: 0, fontWeight: 700, letterSpacing: 0.4 }}>NEW</Tag>
+                      )}
                     </div>
                   ))}
                 </div>
