@@ -146,7 +146,14 @@ const TONE_TEXT = {
   neutral: 'var(--fg-primary)',
 };
 
-// ── Pinned card — fetches its own metric ─────────────────────────────
+// ── Pinned card — ledger-tile style with tinted top stripe ───────────
+//
+// The card mimics the P&L screen's section pattern: tight 4px border-
+// radius, a tinted top stripe that carries the category color (same
+// idiom as P&L's green Income / red Expense headers), then a clean
+// white body with a metric label, big value, and footer line. This is
+// what makes the strip read as "report tile" rather than "dashboard
+// widget".
 function PinnedCard({ report, range, onOpen }) {
   const tone = TONE[CATEGORY_META[report.category]?.tone] || TONE.info;
   const metric = METRICS[report.id];
@@ -172,47 +179,69 @@ function PinnedCard({ report, range, onOpen }) {
     <div
       onClick={onOpen}
       style={{
-        padding: '16px 18px',
         background: 'var(--bg-elevated, #fff)',
         border: '1px solid var(--border, #e5e7eb)',
-        borderRadius: 10,
+        borderRadius: 4,
         cursor: 'pointer',
         position: 'relative',
-        transition: 'transform .15s, border-color .15s, box-shadow .15s',
-        minHeight: 110,
+        overflow: 'hidden',
+        transition: 'border-color .15s, transform .12s, box-shadow .15s',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = tone.fg;
-        e.currentTarget.style.transform = 'translateY(-1px)';
+        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = '';
-        e.currentTarget.style.transform = '';
+        e.currentTarget.style.boxShadow = '';
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{
-            width: 22, height: 22, borderRadius: 5,
-            background: tone.bg, color: tone.fg,
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 12,
-          }}>{ICON_BY_NAME[CATEGORY_META[report.category]?.icon]}</span>
-          <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--fg-primary)' }}>{report.name}</span>
-        </div>
-        <FavoriteStar reportId={report.id} size={14} />
-      </div>
+      {/* Tinted header stripe — same idiom as P&L's Income/Expense bar */}
       <div style={{
-        fontSize: 26, fontWeight: 700, lineHeight: 1.1,
-        fontVariantNumeric: 'tabular-nums',
-        color: valueColor,
-        letterSpacing: '-0.02em',
-        marginBottom: 4,
+        background: tone.bg,
+        padding: '8px 14px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        borderBottom: `1px solid ${tone.bg}`,
       }}>
-        {display}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+          <span style={{ color: tone.fg, fontSize: 12, lineHeight: 1, flexShrink: 0 }}>
+            {ICON_BY_NAME[CATEGORY_META[report.category]?.icon]}
+          </span>
+          <span style={{
+            fontWeight: 600, fontSize: 11, color: tone.fg,
+            textTransform: 'uppercase', letterSpacing: 0.6,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {report.name}
+          </span>
+        </div>
+        <FavoriteStar reportId={report.id} size={13} />
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--fg-tertiary, #9ca3af)' }}>
-        {metric ? `${metric.label} · ${metric.sub}` : report.subtitle}
+
+      {/* Body — metric label, then big value, then footnote */}
+      <div style={{ padding: '14px 16px 12px' }}>
+        <div style={{
+          fontSize: 9.5, color: 'var(--fg-tertiary)', fontWeight: 600,
+          textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2,
+        }}>
+          {metric?.label || 'Open'}
+        </div>
+        <div style={{
+          fontSize: 28, fontWeight: 700, lineHeight: 1.05,
+          fontVariantNumeric: 'tabular-nums',
+          color: valueColor,
+          letterSpacing: '-0.025em',
+          marginBottom: 6,
+          minHeight: 32,
+        }}>
+          {display}
+        </div>
+        <div style={{
+          fontSize: 11, color: 'var(--fg-tertiary)',
+          paddingTop: 8, borderTop: '1px dashed var(--border-subtle, #f1f5f9)',
+        }}>
+          {metric?.sub || report.subtitle}
+        </div>
       </div>
     </div>
   );
@@ -418,7 +447,14 @@ export default function ReportsHub() {
           style={{ padding: 60 }} />
       )}
 
-      {/* ── Category grid ───────────────────────────────────────── */}
+      {/* ── Category grid — ledger style ─────────────────────────
+       *
+       * Each section reads like a P&L ledger pane: tight 4px border
+       * radius, tinted full-width header stripe carrying the category
+       * tone, hairline-separated rows below with name on the left and
+       * subtitle pinned right (same flex-justify-between as the P&L
+       * line items). This is what makes the page feel like a report
+       * surface rather than a dashboard widget. */}
       {filtered.length > 0 && (
         <div style={{
           display: 'grid',
@@ -434,33 +470,36 @@ export default function ReportsHub() {
               <div key={cat} style={{
                 background: 'var(--bg-elevated, #fff)',
                 border: '1px solid var(--border, #e5e7eb)',
-                borderRadius: 10,
+                borderRadius: 4,
                 overflow: 'hidden',
               }}>
-                {/* Category header — icon + label + count */}
+                {/* Tinted header stripe — uppercase tracking, count
+                    pinned right — directly mirrors P&L's headerStyle. */}
                 <div style={{
-                  padding: '10px 16px',
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+                  background: tone.bg,
+                  padding: '9px 14px',
+                  display: 'flex', alignItems: 'center', gap: 9,
                 }}>
                   <span style={{
-                    width: 24, height: 24, borderRadius: 6,
-                    background: tone.bg, color: tone.fg,
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 13,
+                    color: tone.fg, fontSize: 13, lineHeight: 1, flexShrink: 0,
                   }}>{ICON_BY_NAME[meta.icon]}</span>
-                  <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--fg-primary)' }}>
+                  <span style={{
+                    fontWeight: 700, fontSize: 11, color: tone.fg,
+                    textTransform: 'uppercase', letterSpacing: 0.8,
+                  }}>
                     {meta.label}
                   </span>
                   <span style={{
-                    color: 'var(--fg-tertiary)', fontSize: 12, marginLeft: 'auto',
+                    color: tone.fg, opacity: 0.7,
+                    fontSize: 11, marginLeft: 'auto',
                     fontVariantNumeric: 'tabular-nums',
                   }}>
                     {reports.length} report{reports.length === 1 ? '' : 's'}
                   </span>
                 </div>
 
-                {/* Rows — name left, subtitle right (matches reference) */}
+                {/* Ledger rows — flex justify-between, hairline divider.
+                    Same lineStyle pattern as P&L's per-account lines. */}
                 <div>
                   {reports.map((r, idx) => (
                     <div
@@ -468,7 +507,7 @@ export default function ReportsHub() {
                       onClick={() => nav(r.route)}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '9px 16px',
+                        padding: '10px 14px',
                         borderTop: idx === 0 ? 'none' : '1px solid var(--border-subtle, #f1f5f9)',
                         cursor: 'pointer',
                         transition: 'background .12s',
@@ -490,6 +529,7 @@ export default function ReportsHub() {
                         fontSize: 12, color: 'var(--fg-tertiary)',
                         marginLeft: 'auto',
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        fontStyle: 'italic',
                       }}>
                         {r.subtitle}
                       </span>
