@@ -16,6 +16,8 @@ import CategoryList from './pages/inventory/CategoryList';
 import StockReport from './pages/inventory/StockReport';
 import StockReportPro from './pages/inventory/StockReportPro';
 import StockMovement from './pages/inventory/StockMovement';
+import StockTransferList from './pages/inventory/StockTransferList';
+import StockTransferForm from './pages/inventory/StockTransferForm';
 import PurchaseBillForm from './pages/purchase/PurchaseBillForm';
 import PurchaseList from './pages/purchase/PurchaseList';
 import SalesBillForm from './pages/sales/SalesBillForm';
@@ -151,6 +153,9 @@ export default function App() {
                clicking a product doesn't remount the whole page (which
                previously re-ran loadProducts and caused a visible blink). */}
           <Route path="stock-movement/*"               element={<RoleRoute perm="inventory.view"><StockMovement /></RoleRoute>} />
+          <Route path="stock-transfers"                element={<RoleRoute perm="stock_transfers.view"><StockTransferList /></RoleRoute>} />
+          <Route path="stock-transfer/new"             element={<RoleRoute perm="stock_transfers.create"><StockTransferForm /></RoleRoute>} />
+          <Route path="stock-transfer/edit/:id"        element={<RoleRoute perm="stock_transfers.view"><StockTransferForm /></RoleRoute>} />
 
           {/* Purchase */}
           <Route path="purchase/new"     element={<RoleRoute perm="purchase.create"><PurchaseBillForm /></RoleRoute>} />

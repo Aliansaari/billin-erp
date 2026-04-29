@@ -72,6 +72,7 @@ export const menuItems = [
       { key: '/stock-movement',   icon: <SwapOutlined />,     label: 'Stock Movement',  perm: 'inventory.view' },
       { key: '/stock-report',     icon: <StockOutlined />,    label: 'Stock Report',    perm: 'inventory.view' },
       { key: '/stock-report-pro', icon: <TableOutlined />,    label: 'Smart Stock',     perm: 'inventory.view' },
+      { key: '/stock-transfers',  icon: <SwapOutlined />,     label: 'Stock Transfers', perm: 'stock_transfers.view' },
     ],
   },
   {
@@ -170,7 +171,7 @@ export function getOpenKeys(pathname) {
   if (pathname.startsWith('/sale') || pathname === '/sales')         return ['sales-menu'];
   if (pathname.startsWith('/purchase') || pathname === '/purchases') return ['purchase-menu'];
   if (pathname.startsWith('/customer') || pathname.startsWith('/supplier')) return ['parties-menu'];
-  if (pathname.startsWith('/product') || pathname.startsWith('/categor') || pathname.startsWith('/stock-movement') || pathname === '/stock-report' || pathname === '/stock-report-pro') return ['inventory-menu'];
+  if (pathname.startsWith('/product') || pathname.startsWith('/categor') || pathname.startsWith('/stock-movement') || pathname.startsWith('/stock-transfer') || pathname === '/stock-report' || pathname === '/stock-report-pro') return ['inventory-menu'];
   if (pathname.startsWith('/payment') || pathname.startsWith('/receipt')) return ['payments-menu'];
   if (pathname.startsWith('/accounts')) return ['accounts-menu'];
   if (pathname.startsWith('/reports')) return ['reports-menu'];
