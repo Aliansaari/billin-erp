@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Reports — Editorial home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * Reports — Editorial home
+ *
+ * Two surfaces in this file:
+ *   1. Sidebar with the Reports tree GROUPED into 5 categories
+ *      (Financial · Sales & Purchase · Inventory & Stock ·
+ *       Receivables & Payables · GST & Tax). Replaces today's flat
+ *      17-item list — the same items, just clustered.
+ *   2. /reports landing — search bar, "Recent" strip, 5 category
+ *      cards. Cards mirror the dashboard tile (same border-radius,
+ *      same warm-panel surface, same hover lift). Below the default
+ *      state, a small inset shows the "search active" state for
+ *      review.
+ *
+ * Reuses the v3-dashboard palette so this slots into the existing
+ * editorial app without new tokens. Dark/light toggle wired.
+ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+  --bg-hover:    #EEE6D3;
+  --bg-inset:    #EFE8D9;
+
+  --ink:         #1D1A15;
+  --ink-2:       #6D5F4E;
+  --ink-3:       #9B8F7E;
+  --ink-4:       #C9BFA8;
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10);
+  --accent-border:rgba(177,71,47,0.24);
+
+  --tier-s:      #B1472F;
+  --tier-a:      #B8923C;
+  --tier-b:      #7A9660;
+  --tier-c:      #6D6355;
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-2:    #B2A791;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:   #B1472F;
+  --sb-active-ink:  #FDFAF2;
+
+  --glass-bg:     rgba(253, 250, 242, 0.55);
+  --glass-border: rgba(253, 250, 242, 0.72);
+  --glass-shadow: rgba(45, 31, 21, 0.08);
+}
+
+[data-mode="dark"] {
+  --bg: #0E0B08; --bg-panel: #1A1713; --bg-muted: #14110D;
+  --bg-hover: #24201B; --bg-inset: #211C16;
+  --ink: #F5EEE2; --ink-2: #B2A791; --ink-3: #8A7F6C; --ink-4: #55503F;
+  --rule: #2E2922; --rule-soft: #24201A;
+  --accent: #E26A4C; --accent-hover: #F08975;
+  --accent-soft: rgba(226,106,76,0.14);
+  --tier-s: #E26A4C; --tier-a: #D4A574; --tier-b: #94B885; --tier-c: #8A7F6C;
+  --sb-bg: #0B0807; --sb-border: #1A1713;
+  --glass-bg: rgba(26, 23, 19, 0.55);
+  --glass-border: rgba(178, 167, 145, 0.18);
+  --glass-shadow: rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  transition: background .25s, color .25s;
+}
+.num { font-variant-numeric: tabular-nums; }
+
+/* ─────────── App frame ─────────── */
+.app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+/* ── Sidebar ── */
+.sidebar {
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 16px 12px 20px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+}
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(245,238,226,0.10); border-radius: 3px; }
+.sb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px 18px;
+  border-bottom: 1px solid var(--sb-border);
+  margin-bottom: 12px;
+}
+.sb-brand-icon {
+  width: 32px; height: 32px; border-radius: 7px;
+  background: var(--accent); color: #FDFAF2;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 15px;
+}
+.sb-brand-name { font-weight: 600; font-size: 15px; color: #F5EEE2; letter-spacing: -0.01em; }
+.sb-section {
+  font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--sb-ink-3);
+  padding: 14px 12px 6px;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 6px;
+  color: var(--sb-ink); font-size: 13.5px;
+  cursor: pointer; margin-bottom: 1px;
+  transition: background .15s, color .15s;
+}
+.sb-item:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-item.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+  box-shadow: 0 2px 10px rgba(177,71,47,0.32);
+}
+.sb-item .ic { width: 16px; color: var(--sb-ink-3); font-size: 14px; text-align: center; }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+
+/* Reports submenu — nested branch with chevron */
+.sb-group {
+  margin-bottom: 2px;
+}
+.sb-group-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 6px;
+  font-size: 13.5px; cursor: pointer;
+  transition: background .15s;
+  user-select: none;
+}
+.sb-group-head:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-group-head .ic { width: 16px; font-size: 14px; text-align: center; color: var(--sb-ink-3); }
+.sb-group-head .label { flex: 1; }
+.sb-group-head .chev {
+  font-size: 10px; color: var(--sb-ink-3);
+  transition: transform .2s;
+}
+.sb-group.open > .sb-group-head .chev { transform: rotate(90deg); }
+.sb-group-children {
+  display: none; padding-left: 8px;
+  border-left: 1px dashed var(--sb-border);
+  margin-left: 18px; padding-top: 2px; padding-bottom: 4px;
+}
+.sb-group.open > .sb-group-children { display: block; }
+.sb-group-children .sb-leaf {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; margin-bottom: 1px;
+  border-radius: 5px;
+  font-size: 12.5px; color: var(--sb-ink-2);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.sb-group-children .sb-leaf:hover {
+  background: var(--sb-hover); color: #F5EEE2;
+}
+.sb-group-children .sb-leaf.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+}
+.sb-group-children .sb-leaf .dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--sb-ink-3); flex-shrink: 0;
+}
+.sb-group-children .sb-leaf.new::after {
+  content: 'NEW';
+  font-size: 8.5px; letter-spacing: 0.6px;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--accent); color: #FDFAF2;
+  margin-left: auto; font-weight: 700;
+}
+
+/* ─────────── Main ─────────── */
+.main { min-width: 0; display: flex; flex-direction: column; }
+
+.crumb-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 32px 0;
+  font-size: 11.5px; letter-spacing: 0.4px;
+  color: var(--ink-3); font-weight: 500;
+}
+.crumb-bar b { color: var(--ink); font-weight: 600; }
+
+.header-bar {
+  padding: 20px 32px 24px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap;
+}
+.header-title h1 {
+  font-size: 28px; font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink); line-height: 1.15;
+  margin-bottom: 4px;
+}
+.header-title .sub { font-size: 14px; color: var(--ink-2); }
+.header-title .sub b { color: var(--ink); font-weight: 600; }
+
+/* ── Search input (glass) ── */
+.search-wrap {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; min-width: 320px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px var(--glass-shadow), 0 8px 24px var(--glass-shadow);
+}
+.search-wrap .icon { color: var(--ink-3); font-size: 14px; }
+.search-wrap input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-family: inherit; font-size: 13.5px; color: var(--ink);
+}
+.search-wrap input::placeholder { color: var(--ink-3); }
+.search-wrap kbd {
+  font-family: inherit; font-size: 10.5px;
+  padding: 2px 6px; border-radius: 4px;
+  background: var(--bg-inset); color: var(--ink-2);
+  border: 1px solid var(--rule);
+}
+
+/* ── Section header ── */
+.section-hd {
+  padding: 4px 32px 14px;
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.section-hd h2 {
+  font-size: 13px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 1px;
+  color: var(--ink-2);
+}
+.section-hd .aside { font-size: 13px; color: var(--ink-3); font-style: italic; }
+
+/* ── Recent strip ── */
+.recent-strip {
+  padding: 0 32px 24px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+}
+.recent-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 4px;
+  cursor: pointer; transition: border-color .15s, transform .15s;
+}
+.recent-card:hover { border-color: var(--ink-4); transform: translateY(-1px); }
+.recent-card .cat {
+  font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 600;
+}
+.recent-card .name {
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  letter-spacing: -0.005em;
+}
+.recent-card .when { font-size: 11.5px; color: var(--ink-3); }
+
+/* ── Category grid ── */
+.cat-grid {
+  padding: 0 32px 32px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+@media (max-width: 1200px) { .cat-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 800px)  { .cat-grid { grid-template-columns: 1fr; } }
+
+.cat-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 10px;
+  transition: transform .25s cubic-bezier(.2,.7,.2,1),
+              box-shadow .25s cubic-bezier(.2,.7,.2,1),
+              border-color .25s;
+  min-height: 280px;
+}
+.cat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(45,31,21,0.10);
+  border-color: var(--ink-4);
+}
+[data-mode="dark"] .cat-card:hover { box-shadow: 0 10px 28px rgba(0,0,0,0.45); }
+
+.cat-card-top { display: flex; align-items: center; justify-content: space-between; }
+.cat-icon {
+  width: 36px; height: 36px; border-radius: 8px;
+  display: grid; place-items: center;
+  font-size: 16px; font-weight: 600;
+}
+.cat-icon.fin { background: rgba(177,71,47,0.10);  color: var(--tier-s); }
+.cat-icon.snp { background: rgba(184,146,60,0.12); color: var(--tier-a); }
+.cat-icon.inv { background: rgba(122,150,96,0.12); color: var(--tier-b); }
+.cat-icon.rnp { background: rgba(109,99,85,0.12);  color: var(--tier-c); }
+.cat-icon.gst { background: rgba(177,71,47,0.10);  color: var(--tier-s); }
+
+.cat-count {
+  font-size: 10.5px; letter-spacing: 1.2px;
+  text-transform: uppercase; font-weight: 600;
+  color: var(--ink-3);
+}
+.cat-title {
+  font-size: 15px; font-weight: 700;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+.cat-blurb { font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
+
+.cat-list {
+  list-style: none; padding: 8px 0 0; margin: 0;
+  border-top: 1px dashed var(--rule-soft);
+}
+.cat-list li {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 0; cursor: pointer;
+  transition: color .15s;
+  font-size: 13px;
+}
+.cat-list li:hover { color: var(--accent); }
+.cat-list li .name { color: var(--ink); font-weight: 500; }
+.cat-list li:hover .name { color: var(--accent); }
+.cat-list li .desc { color: var(--ink-3); font-size: 11.5px; flex: 1; }
+.cat-list li .new {
+  font-size: 8.5px; letter-spacing: 0.6px; font-weight: 700;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--accent); color: #FDFAF2;
+}
+
+.cat-card-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: auto; padding-top: 10px;
+  border-top: 1px dashed var(--rule-soft);
+  font-size: 12px; color: var(--ink-3);
+}
+.cat-card-foot a {
+  color: var(--accent); text-decoration: none; font-weight: 500;
+}
+
+/* ── Search-active body ── */
+.search-active {
+  padding: 0 32px 32px;
+}
+.search-active .results-hd {
+  font-size: 13px; color: var(--ink-2);
+  padding: 14px 0;
+}
+.search-active .results-hd b { color: var(--ink); font-weight: 600; }
+.result-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 14px; align-items: center;
+  padding: 10px 14px; border-bottom: 1px solid var(--rule-soft);
+  cursor: pointer; transition: background .15s;
+}
+.result-row:hover { background: var(--bg-muted); }
+.result-row .glyph {
+  width: 22px; height: 22px; border-radius: 5px;
+  display: grid; place-items: center;
+  font-size: 11px;
+}
+.result-row .name {
+  font-size: 14px; font-weight: 500; color: var(--ink);
+}
+.result-row .cat {
+  font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 600;
+  margin-right: 10px;
+}
+.result-row .desc { font-size: 12px; color: var(--ink-2); }
+.result-row mark { background: rgba(177,71,47,0.18); color: var(--ink); border-radius: 2px; padding: 0 2px; }
+
+/* ── Toggle UI (theme + state demo) ── */
+.demo-toggle {
+  display: inline-flex; padding: 4px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--glass-border);
+  border-radius: 99px; font-size: 13px;
+}
+.demo-toggle button {
+  padding: 6px 12px; border: none; background: transparent;
+  font-family: inherit; color: var(--ink-2);
+  cursor: pointer; border-radius: 99px;
+  font-weight: 500; transition: all .2s;
+}
+.demo-toggle button:hover { color: var(--ink); }
+.demo-toggle button.on {
+  background: var(--accent); color: #FDFAF2;
+  box-shadow: 0 2px 10px rgba(177,71,47,0.32);
+}
+
+/* Inset for showing "search active" inline below */
+.demo-divider {
+  margin: 32px; padding: 16px 24px;
+  background: var(--bg-inset);
+  border: 1px dashed var(--rule);
+  border-radius: 12px;
+  font-size: 13px; color: var(--ink-2);
+}
+.demo-divider b { color: var(--ink); font-weight: 600; }
+
+</style>
+</head>
+<body data-mode="light">
+
+<div class="app">
+
+  <!-- ─────────── Sidebar ─────────── -->
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-brand-icon">⚡</div>
+      <div class="sb-brand-name">Billing ERP</div>
+    </div>
+
+    <div class="sb-section">General</div>
+    <div class="sb-item"><span class="ic">⊟</span> Dashboard</div>
+
+    <div class="sb-section">Transact</div>
+    <div class="sb-item"><span class="ic">+</span> New sales bill</div>
+    <div class="sb-item"><span class="ic">≡</span> Sales list</div>
+    <div class="sb-item"><span class="ic">+</span> New purchase bill</div>
+    <div class="sb-item"><span class="ic">≡</span> Purchase list</div>
+    <div class="sb-item"><span class="ic">₹</span> Receipts &amp; payments</div>
+
+    <div class="sb-section">Masters</div>
+    <div class="sb-item"><span class="ic">●</span> Customers</div>
+    <div class="sb-item"><span class="ic">●</span> Suppliers</div>
+    <div class="sb-item"><span class="ic">□</span> Products</div>
+    <div class="sb-item"><span class="ic">▤</span> Stock report</div>
+
+    <div class="sb-section">Insight</div>
+
+    <!-- Reports — grouped, OPEN by default to demo the new design -->
+    <div class="sb-group open">
+      <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open')">
+        <span class="ic">≋</span>
+        <span class="label">Reports</span>
+        <span class="chev">▸</span>
+      </div>
+      <div class="sb-group-children">
+
+        <div class="sb-group open" style="margin-bottom:0">
+          <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open')" style="padding:5px 10px;font-size:12px;color:var(--sb-ink-2)">
+            <span class="ic" style="font-size:9px">▣</span>
+            <span class="label">Financial</span>
+            <span class="chev">▸</span>
+          </div>
+          <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+            <div class="sb-leaf"><span class="dot"></span> Day Book</div>
+            <div class="sb-leaf"><span class="dot"></span> Trial Balance</div>
+            <div class="sb-leaf"><span class="dot"></span> Profit &amp; Loss</div>
+            <div class="sb-leaf"><span class="dot"></span> Balance Sheet</div>
+            <div class="sb-leaf"><span class="dot"></span> Cash Flow</div>
+          </div>
+        </div>
+
+        <div class="sb-group open" style="margin-bottom:0">
+          <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open')" style="padding:5px 10px;font-size:12px;color:var(--sb-ink-2)">
+            <span class="ic" style="font-size:9px">▣</span>
+            <span class="label">Sales &amp; Purchase</span>
+            <span class="chev">▸</span>
+          </div>
+          <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+            <div class="sb-leaf"><span class="dot"></span> Sales Report</div>
+            <div class="sb-leaf"><span class="dot"></span> Purchase Report</div>
+          </div>
+        </div>
+
+        <div class="sb-group open" style="margin-bottom:0">
+          <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open')" style="padding:5px 10px;font-size:12px;color:var(--sb-ink-2)">
+            <span class="ic" style="font-size:9px">▣</span>
+            <span class="label">Inventory &amp; Stock</span>
+            <span class="chev">▸</span>
+          </div>
+          <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+            <div class="sb-leaf"><span class="dot"></span> Stock Report</div>
+            <div class="sb-leaf"><span class="dot"></span> Stock Summary</div>
+            <div class="sb-leaf"><span class="dot"></span> Fast / Slow Movers</div>
+            <div class="sb-leaf new"><span class="dot"></span> Transfer Register</div>
+            <div class="sb-leaf new"><span class="dot"></span> Godown Valuation</div>
+          </div>
+        </div>
+
+        <div class="sb-group open" style="margin-bottom:0">
+          <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open')" style="padding:5px 10px;font-size:12px;color:var(--sb-ink-2)">
+            <span class="ic" style="font-size:9px">▣</span>
+            <span class="label">Receivables &amp; Payables</span>
+            <span class="chev">▸</span>
+          </div>
+          <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+            <div class="sb-leaf"><span class="dot"></span> Party Ledger</div>
+            <div class="sb-leaf"><span class="dot"></span> Aging Report</div>
+          </div>
+        </div>
+
+        <div class="sb-group open" style="margin-bottom:0">
+          <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open')" style="padding:5px 10px;font-size:12px;color:var(--sb-ink-2)">
+            <span class="ic" style="font-size:9px">▣</span>
+            <span class="label">GST &amp; Tax</span>
+            <span class="chev">▸</span>
+          </div>
+          <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+            <div class="sb-leaf"><span class="dot"></span> GSTR-1</div>
+            <div class="sb-leaf"><span class="dot"></span> GSTR-3B</div>
+            <div class="sb-leaf"><span class="dot"></span> HSN Summary</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+
+  </aside>
+
+  <!-- ─────────── Main ─────────── -->
+  <main class="main">
+
+    <div class="crumb-bar">
+      <span><b>Reports</b></span>
+      <div class="demo-toggle">
+        <button class="on" onclick="document.body.dataset.mode='light'">☀ Light</button>
+        <button onclick="document.body.dataset.mode='dark'">☾ Dark</button>
+      </div>
+    </div>
+
+    <div class="header-bar">
+      <div class="header-title">
+        <h1>Reports</h1>
+        <div class="sub">17 reports across 5 categories · <b>2</b> visited recently</div>
+      </div>
+      <div class="search-wrap">
+        <span class="icon">⌕</span>
+        <input id="search" placeholder="Search reports — try “stock”, “gst”, “customer”…" oninput="filterReports(this.value)">
+        <kbd>⌘ K</kbd>
+      </div>
+    </div>
+
+    <!-- ─── Default state ─── -->
+    <div id="default-state">
+
+      <div class="section-hd">
+        <h2>Recent</h2>
+        <span class="aside">last visited by you</span>
+      </div>
+      <div class="recent-strip">
+        <div class="recent-card">
+          <span class="cat">Sales &amp; Purchase</span>
+          <span class="name">Sales Report</span>
+          <span class="when">Yesterday · 4:12 pm</span>
+        </div>
+        <div class="recent-card">
+          <span class="cat">Financial</span>
+          <span class="name">Day Book</span>
+          <span class="when">2h ago</span>
+        </div>
+        <div class="recent-card">
+          <span class="cat">Receivables</span>
+          <span class="name">Aging Report</span>
+          <span class="when">Mon, 28 Apr</span>
+        </div>
+        <div class="recent-card">
+          <span class="cat">Inventory</span>
+          <span class="name">Godown Valuation</span>
+          <span class="when">Mon, 28 Apr</span>
+        </div>
+      </div>
+
+      <div class="section-hd">
+        <h2>Browse by category</h2>
+        <span class="aside">click a row to open a report · ⌃click to open in new tab</span>
+      </div>
+
+      <div class="cat-grid">
+
+        <!-- 1. Financial -->
+        <div class="cat-card">
+          <div class="cat-card-top">
+            <div class="cat-icon fin">📊</div>
+            <span class="cat-count">5 reports</span>
+          </div>
+          <div class="cat-title">Financial</div>
+          <div class="cat-blurb">Books of account — voucher day book, trial balance, P&amp;L, balance sheet, cash flow.</div>
+          <ul class="cat-list">
+            <li><span class="name">Day Book</span><span class="desc">Chronological voucher list</span></li>
+            <li><span class="name">Trial Balance</span><span class="desc">Group/sub-group balances</span></li>
+            <li><span class="name">Profit &amp; Loss</span><span class="desc">Revenue minus expenses</span></li>
+            <li><span class="name">Balance Sheet</span><span class="desc">Assets · liabilities · equity</span></li>
+            <li><span class="name">Cash Flow</span><span class="desc">Cash in vs cash out</span></li>
+          </ul>
+          <div class="cat-card-foot">
+            <span>Last opened: Day Book, 2h ago</span>
+            <a href="#">Open category →</a>
+          </div>
+        </div>
+
+        <!-- 2. Sales & Purchase -->
+        <div class="cat-card">
+          <div class="cat-card-top">
+            <div class="cat-icon snp">💰</div>
+            <span class="cat-count">2 reports</span>
+          </div>
+          <div class="cat-title">Sales &amp; Purchase</div>
+          <div class="cat-blurb">Period registers with date / party / item filters and reconciliation totals.</div>
+          <ul class="cat-list">
+            <li><span class="name">Sales Report</span><span class="desc">Date / customer / item · profit + margin</span></li>
+            <li><span class="name">Purchase Report</span><span class="desc">Date / supplier / item · supplier-bill no</span></li>
+          </ul>
+          <div class="cat-card-foot">
+            <span>Last opened: Sales Report, yesterday</span>
+            <a href="#">Open category →</a>
+          </div>
+        </div>
+
+        <!-- 3. Inventory & Stock -->
+        <div class="cat-card">
+          <div class="cat-card-top">
+            <div class="cat-icon inv">📦</div>
+            <span class="cat-count">5 reports</span>
+          </div>
+          <div class="cat-title">Inventory &amp; Stock</div>
+          <div class="cat-blurb">Where inventory sits today, what moved this period, godown-to-godown transfers.</div>
+          <ul class="cat-list">
+            <li><span class="name">Stock Report</span><span class="desc">Per-product current stock + value</span></li>
+            <li><span class="name">Stock Summary</span><span class="desc">Period opening / in / out / closing</span></li>
+            <li><span class="name">Fast / Slow Movers</span><span class="desc">Top &amp; bottom by qty sold + dead stock</span></li>
+            <li><span class="name">Transfer Register</span><span class="desc">Godown-to-godown movement log</span><span class="new">NEW</span></li>
+            <li><span class="name">Godown Valuation</span><span class="desc">Per-godown stock value snapshot</span><span class="new">NEW</span></li>
+          </ul>
+          <div class="cat-card-foot">
+            <span>Last opened: Godown Valuation, Mon</span>
+            <a href="#">Open category →</a>
+          </div>
+        </div>
+
+        <!-- 4. Receivables & Payables -->
+        <div class="cat-card">
+          <div class="cat-card-top">
+            <div class="cat-icon rnp">👥</div>
+            <span class="cat-count">2 reports</span>
+          </div>
+          <div class="cat-title">Receivables &amp; Payables</div>
+          <div class="cat-blurb">Who owes you · whom you owe · how old each balance is.</div>
+          <ul class="cat-list">
+            <li><span class="name">Party Ledger</span><span class="desc">Per-customer / supplier statement</span></li>
+            <li><span class="name">Aging Report</span><span class="desc">0–30 / 30–60 / 60–90 / 90+ buckets</span></li>
+          </ul>
+          <div class="cat-card-foot">
+            <span>Last opened: Aging, Mon</span>
+            <a href="#">Open category →</a>
+          </div>
+        </div>
+
+        <!-- 5. GST & Tax -->
+        <div class="cat-card">
+          <div class="cat-card-top">
+            <div class="cat-icon gst">🏛</div>
+            <span class="cat-count">3 reports</span>
+          </div>
+          <div class="cat-title">GST &amp; Tax</div>
+          <div class="cat-blurb">Filing-ready exports — GSTR-1, GSTR-3B, HSN-wise summary for Table 12.</div>
+          <ul class="cat-list">
+            <li><span class="name">GSTR-1</span><span class="desc">B2B / B2C / CDN / HSN tabs</span></li>
+            <li><span class="name">GSTR-3B</span><span class="desc">Monthly summary, ITC, liability</span></li>
+            <li><span class="name">HSN Summary</span><span class="desc">HSN aggregation for sales / purchase</span></li>
+          </ul>
+          <div class="cat-card-foot">
+            <span>—</span>
+            <a href="#">Open category →</a>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- ─── Search-active state (toggled when user types) ─── -->
+    <div id="search-state" style="display:none">
+      <div class="search-active">
+        <div class="results-hd">
+          <b id="result-count">4</b> results for "<b id="result-q">stock</b>"
+          · <a href="#" onclick="clearSearch();return false" style="color:var(--accent);text-decoration:none">clear</a>
+        </div>
+        <div id="result-list">
+          <div class="result-row">
+            <div class="glyph" style="background:rgba(122,150,96,0.12);color:var(--tier-b)">▤</div>
+            <div>
+              <div><span class="cat">Inventory</span><span class="name"><mark>Stock</mark> Report</span></div>
+              <div class="desc">Per-product current stock + value (sortable by qty / value / category)</div>
+            </div>
+            <span style="color:var(--ink-3);font-size:11px">⌥ + 1</span>
+          </div>
+          <div class="result-row">
+            <div class="glyph" style="background:rgba(122,150,96,0.12);color:var(--tier-b)">▤</div>
+            <div>
+              <div><span class="cat">Inventory</span><span class="name"><mark>Stock</mark> Summary</span></div>
+              <div class="desc">Period opening / in / out / closing per product · godown filter</div>
+            </div>
+            <span style="color:var(--ink-3);font-size:11px">⌥ + 2</span>
+          </div>
+          <div class="result-row">
+            <div class="glyph" style="background:rgba(122,150,96,0.12);color:var(--tier-b)">▤</div>
+            <div>
+              <div><span class="cat">Inventory · NEW</span><span class="name">Godown Valuation</span></div>
+              <div class="desc">Per-godown <mark>stock</mark> value snapshot · drill into godown for items</div>
+            </div>
+            <span style="color:var(--ink-3);font-size:11px">⌥ + 3</span>
+          </div>
+          <div class="result-row">
+            <div class="glyph" style="background:rgba(122,150,96,0.12);color:var(--tier-b)">▤</div>
+            <div>
+              <div><span class="cat">Inventory · NEW</span><span class="name">Transfer Register</span></div>
+              <div class="desc">Godown-to-godown <mark>stock</mark> movement log + status totals</div>
+            </div>
+            <span style="color:var(--ink-3);font-size:11px">⌥ + 4</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-divider">
+      <b>Mockup notes —</b>
+      Sidebar shows the new grouped Reports tree (5 collapsible categories, click any
+      header row to toggle). Type in the search box above to swap the body to the
+      filtered-results state. Light/dark toggle in the breadcrumb bar. The "NEW"
+      pills mark the two reports added in Phase 5 (Transfer Register, Godown
+      Valuation).
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // Tiny client-side filter for the demo. Real app uses a hash + recents from
+  // localStorage — keeping the mockup self-contained.
+  const REPORTS = [
+    ['Day Book',           'Financial',                'Chronological voucher list'],
+    ['Trial Balance',      'Financial',                'Group/sub-group balances'],
+    ['Profit & Loss',      'Financial',                'Revenue minus expenses'],
+    ['Balance Sheet',      'Financial',                'Assets · liabilities · equity'],
+    ['Cash Flow',          'Financial',                'Cash in vs cash out'],
+    ['Sales Report',       'Sales & Purchase',         'Date / customer / item · profit + margin'],
+    ['Purchase Report',    'Sales & Purchase',         'Date / supplier / item · supplier-bill no'],
+    ['Stock Report',       'Inventory',                'Per-product current stock + value'],
+    ['Stock Summary',      'Inventory',                'Period opening / in / out / closing'],
+    ['Fast / Slow Movers', 'Inventory',                'Top & bottom by qty sold + dead stock'],
+    ['Transfer Register',  'Inventory · NEW',          'Godown-to-godown stock movement log'],
+    ['Godown Valuation',   'Inventory · NEW',          'Per-godown stock value snapshot'],
+    ['Party Ledger',       'Receivables & Payables',   'Per-customer / supplier statement'],
+    ['Aging Report',       'Receivables & Payables',   '0–30 / 30–60 / 60–90 / 90+ buckets'],
+    ['GSTR-1',             'GST & Tax',                'B2B / B2C / CDN / HSN tabs'],
+    ['GSTR-3B',            'GST & Tax',                'Monthly summary, ITC, liability'],
+    ['HSN Summary',        'GST & Tax',                'HSN aggregation for sales / purchase'],
+  ];
+
+  function filterReports(q) {
+    const def = document.getElementById('default-state');
+    const sea = document.getElementById('search-state');
+    if (!q || !q.trim()) {
+      def.style.display = ''; sea.style.display = 'none'; return;
+    }
+    def.style.display = 'none'; sea.style.display = '';
+    const norm = q.toLowerCase();
+    const hits = REPORTS.filter(([n, c, d]) =>
+      n.toLowerCase().includes(norm) ||
+      c.toLowerCase().includes(norm) ||
+      d.toLowerCase().includes(norm)
+    );
+    document.getElementById('result-count').textContent = hits.length;
+    document.getElementById('result-q').textContent = q;
+    const list = document.getElementById('result-list');
+    const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+    list.innerHTML = hits.map(([n, c, d], i) => {
+      const tone = c.startsWith('Financial') ? 'tier-s'
+                 : c.startsWith('Sales')     ? 'tier-a'
+                 : c.startsWith('Inventory') ? 'tier-b'
+                 : c.startsWith('Receivables') ? 'tier-c' : 'tier-s';
+      const bg = c.startsWith('Financial') ? 'rgba(177,71,47,0.10)'
+               : c.startsWith('Sales')     ? 'rgba(184,146,60,0.12)'
+               : c.startsWith('Inventory') ? 'rgba(122,150,96,0.12)'
+               : c.startsWith('Receivables') ? 'rgba(109,99,85,0.12)' : 'rgba(177,71,47,0.10)';
+      const fg = c.startsWith('Financial') ? 'var(--tier-s)'
+               : c.startsWith('Sales')     ? 'var(--tier-a)'
+               : c.startsWith('Inventory') ? 'var(--tier-b)'
+               : c.startsWith('Receivables') ? 'var(--tier-c)' : 'var(--tier-s)';
+      const hl = (s) => s.replace(re, '<mark>$1</mark>');
+      return `
+        <div class="result-row">
+          <div class="glyph" style="background:${bg};color:${fg}">▤</div>
+          <div>
+            <div><span class="cat">${hl(c)}</span><span class="name">${hl(n)}</span></div>
+            <div class="desc">${hl(d)}</div>
+          </div>
+          <span style="color:var(--ink-3);font-size:11px">⌥ + ${i + 1}</span>
+        </div>`;
+    }).join('') || `<div class="result-row" style="color:var(--ink-3);justify-content:center;padding:40px 0">
+      No reports match "${q}". Try a shorter query or pick a category below.
+    </div>`;
+  }
+
+  function clearSearch() {
+    document.getElementById('search').value = '';
+    filterReports('');
+  }
+
+  // ⌘K / Ctrl+K to focus search
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      document.getElementById('search').focus();
+    }
+  });
+</script>
+
+</body>
+</html>
