@@ -3,13 +3,18 @@ import { Form, DatePicker, Select, Input, InputNumber, Button, Table, Tag, Space
 import { useNavigate, useParams } from 'react-router-dom';
 import { SwapOutlined, DeleteOutlined, SaveOutlined, SendOutlined, CheckCircleOutlined, CloseCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { stockTransferAPI, godownAPI, productAPI } from '../../api';
-// Reuse the Sales bill form's entry-ledger CSS verbatim so the picker
+import { stockTransferAPI, godownAPI, productAPI, categoryAPI } from '../../api';
+// Reuse the Sales bill form's entry-ledger CSS verbatim so the entry
 // row visually matches its sibling on the Sales/Purchase forms — same
 // hairlines, same cell padding, same focus state, same dotted column
-// dividers, same +ADD button. We override only `grid-template-columns`
-// inline below since Stock Transfer has fewer cells than a sales bill.
+// dividers, same +ADD button. We use the SAME .sbf-entry-grid (which
+// has hardcoded 11-column layout in CSS) so the cells line up exactly
+// with what an operator sees on Sales.
 import '../sales/sales-bill-form.css';
+
+// Same canonical unit list the Sales/Purchase forms use; keeping it
+// identical here so the Unit dropdown's options match across pages.
+const UNITS = ['Pcs', 'Box', 'Set', 'Pair', 'Dozen', 'Mtr', 'Roll'];
 
 /*
  * Stock Transfer — create / view / receive / cancel form.
@@ -55,6 +60,11 @@ export default function StockTransferForm() {
   const [loading, setLoading]   = useState(false);
   const [pgLoading, setPgLoading] = useState(false);
   const [godowns, setGodowns]   = useState([]);
+  // Category list backs the Category cell's narrow filter — picking a
+  // category constrains the product search to that category, same as
+  // SalesBillForm.
+  const [cats, setCats]         = useState([]);
+  const [activeCatId, setActiveCatId] = useState(null);
   const [items, setItems]       = useState([]);     // [{ key, product_id, product_name, barcode, quantity, rate }]
   const [transfer, setTransfer] = useState(null);   // loaded transfer (edit mode)
   const [prodOpts, setProdOpts] = useState([]);
@@ -68,9 +78,18 @@ export default function StockTransferForm() {
   const [searchValue, setSearchValue] = useState('');
   const [transferNo, setTransferNo] = useState('—');
   // Entry-row state — mirrors Sales' single-row buffer. Operator fills
-  // these cells (barcode → product → qty → rate) and clicks +ADD (or
-  // hits Enter on the last cell) to push a row into `items`.
-  const EMPTY_ENTRY = { product_id: null, product_name: '', barcode: '', unit: 'PCS', quantity: 1, rate: 0, available_stock: 0 };
+  // these cells (barcode → category → product → size → art# → qty →
+  // rate → unit) and clicks +ADD to push a row into `items`. Same
+  // shape as SalesBillForm's `entry`, minus the GST/discount fields
+  // which don't apply to internal transfers (the cells still render
+  // as disabled placeholders for visual parity with sales).
+  const EMPTY_ENTRY = {
+    product_id: null, product_name: '', barcode: '',
+    category_id: null, category_name: '',
+    size: '', article_number: '',
+    unit_type: 'Pcs', quantity: 1, rate: 0,
+    available_stock: 0,
+  };
   const [entry, setEntry] = useState(EMPTY_ENTRY);
   const itemKeyRef    = useRef(1);
   const submittingRef = useRef(false);
@@ -82,6 +101,8 @@ export default function StockTransferForm() {
   // the bill-form rhythm so the operator never reaches for the mouse.
   const barcodeRef = useRef(null);
   const prodRef    = useRef(null);
+  const sizeRef    = useRef(null);
+  const artRef     = useRef(null);
   const qtyRef     = useRef(null);
   const rateRef    = useRef(null);
 
@@ -107,6 +128,8 @@ export default function StockTransferForm() {
       })();
       setGodowns(userAllowed ? list.filter((g) => userAllowed.includes(g.godown_id)) : list);
     }).catch(() => {});
+    // Categories — drives the Category cell's filter on product search.
+    categoryAPI.getAllFlat().then(({ data }) => setCats(data || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -168,13 +191,14 @@ export default function StockTransferForm() {
       try {
         const { data } = await productAPI.search(v, {
           name_only: 'true',
+          ...(activeCatId ? { category_id: activeCatId } : {}),
           ...(fromGodownId ? { godown_id: fromGodownId } : {}),
         });
         if (reqId !== searchReqRef.current) return;
         setProdOpts(data.data || []);
       } catch { /* surface as empty result; server-side error already toasted globally */ }
     }, 150);
-  }, [fromGodownId]);
+  }, [fromGodownId, activeCatId]);
 
   // Pick a product → fill the entry-row buffer (NOT items — bill-form
   // pattern: edit qty/rate first, then click +ADD). Mirrors
@@ -184,12 +208,18 @@ export default function StockTransferForm() {
     const p = opt?.product;
     if (!p) return;
     const qty = parseFloat(p.quantity_per_box) || 1;
+    const unit = qty > 1 ? 'Box' : 'Pcs';
+    setActiveCatId(p.category_id || null);
     setEntry((prev) => ({
       ...prev,
       product_id:      p.product_id,
       product_name:    p.product_name,
       barcode:         p.barcode || prev.barcode,
-      unit:            p.unit_of_measurement || 'PCS',
+      category_id:     p.category_id,
+      category_name:   p.Category?.category_name || '',
+      size:            p.size_value || '',
+      article_number:  p.article_number || '',
+      unit_type:       unit,
       quantity:        qty,
       rate:            parseFloat(p.purchase_rate) || 0,
       available_stock: parseFloat(p.current_stock) || 0,
@@ -224,13 +254,17 @@ export default function StockTransferForm() {
       setItems((prev) => [
         ...prev,
         {
-          key: itemKeyRef.current++,
-          product_id:   p.product_id,
-          product_name: p.product_name,
-          barcode:      p.barcode,
-          unit:         p.unit_of_measurement || 'PCS',
-          quantity:     parseFloat(p.quantity_per_box) || 1,
-          rate:         parseFloat(p.purchase_rate) || 0,
+          key:            itemKeyRef.current++,
+          product_id:     p.product_id,
+          product_name:   p.product_name,
+          barcode:        p.barcode,
+          category_id:    p.category_id,
+          category_name:  p.Category?.category_name || '',
+          size:           p.size_value || '',
+          article_number: p.article_number || '',
+          unit:           (parseFloat(p.quantity_per_box) || 1) > 1 ? 'Box' : 'Pcs',
+          quantity:       parseFloat(p.quantity_per_box) || 1,
+          rate:           parseFloat(p.purchase_rate) || 0,
         },
       ]);
       setEntry(EMPTY_ENTRY);
@@ -265,13 +299,17 @@ export default function StockTransferForm() {
     setItems((prev) => [
       ...prev,
       {
-        key:          itemKeyRef.current++,
-        product_id:   entry.product_id,
-        product_name: entry.product_name,
-        barcode:      entry.barcode,
-        unit:         entry.unit,
-        quantity:     q,
-        rate:         parseFloat(entry.rate) || 0,
+        key:            itemKeyRef.current++,
+        product_id:     entry.product_id,
+        product_name:   entry.product_name,
+        barcode:        entry.barcode,
+        category_id:    entry.category_id,
+        category_name:  entry.category_name,
+        size:           entry.size,
+        article_number: entry.article_number,
+        unit:           entry.unit_type,
+        quantity:       q,
+        rate:           parseFloat(entry.rate) || 0,
       },
     ]);
     setEntry(EMPTY_ENTRY);
@@ -395,36 +433,44 @@ export default function StockTransferForm() {
 
   /* ── Render ───────────────────────────────────────────────────────── */
 
+  // Items table — columns mirror the Sales bill items table (BARCODE,
+  // PRODUCT NAME, SIZE, UNIT, ART#, QTY, RATE ₹, AMOUNT ₹) so an
+  // operator who knows the Sales list also knows this one. The Disc%
+  // and GST% columns from Sales are intentionally absent here — they
+  // stay zero on transfers and would be visual noise.
   const itemColumns = [
     { title: '#', width: 40, render: (_, __, i) => i + 1 },
     {
-      title: 'Product', dataIndex: 'product_name',
-      render: (v, r) => (
-        <div style={{ minWidth: 200 }}>
-          <div style={{ fontWeight: 600 }}>{v || '—'}</div>
-          <div style={{ color: 'var(--fg-tertiary, #9ca3af)', fontSize: 11, fontFamily: 'var(--font-mono, monospace)' }}>
-            {r.barcode || '—'}
-          </div>
-        </div>
-      ),
+      title: 'Barcode', dataIndex: 'barcode', width: 120,
+      render: (v) => <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11 }}>{v || '—'}</span>,
     },
     {
-      title: 'Qty', dataIndex: 'quantity', width: 120, align: 'right',
+      title: 'Product Name', dataIndex: 'product_name',
+      render: (v) => <span style={{ fontWeight: 600 }}>{v || '—'}</span>,
+    },
+    { title: 'Size', dataIndex: 'size', width: 80, render: (v) => v || '—' },
+    { title: 'Unit', dataIndex: 'unit', width: 70, render: (v) => v || 'Pcs' },
+    {
+      title: 'Art#', dataIndex: 'article_number', width: 100,
+      render: (v) => v || '—',
+    },
+    {
+      title: 'Qty', dataIndex: 'quantity', width: 100, align: 'right',
       render: (v, r) => readOnly
-        ? <span>{fmtN(v)} <span style={{ color: 'var(--fg-tertiary)', fontSize: 11 }}>{r.unit || ''}</span></span>
+        ? fmtN(v)
         : <InputNumber min={0.01} step={1} size="small" value={v}
             onChange={(val) => updateItem(r.key, 'quantity', val)} style={{ width: '100%' }} />,
     },
     {
-      title: 'Rate', dataIndex: 'rate', width: 130, align: 'right',
+      title: 'Rate ₹', dataIndex: 'rate', width: 110, align: 'right',
       render: (v, r) => readOnly
-        ? <span>₹ {fmtN(v)}</span>
-        : <InputNumber min={0} step={1} size="small" value={v} prefix="₹"
+        ? fmtN(v)
+        : <InputNumber min={0} step={1} size="small" value={v}
             onChange={(val) => updateItem(r.key, 'rate', val)} style={{ width: '100%' }} />,
     },
     {
-      title: 'Amount', width: 130, align: 'right',
-      render: (_, r) => `₹ ${fmtN((parseFloat(r.quantity) || 0) * (parseFloat(r.rate) || 0))}`,
+      title: 'Amount ₹', width: 120, align: 'right',
+      render: (_, r) => fmtN((parseFloat(r.quantity) || 0) * (parseFloat(r.rate) || 0)),
     },
     !readOnly && {
       title: '', width: 50, align: 'center',
@@ -499,25 +545,24 @@ export default function StockTransferForm() {
           </Form.Item>
         </Form>
 
-        {/* Entry row — 5-cell strip styled identically to the Sales
-         * bill form's entry ledger. Cells from left to right:
-         *   Barcode · Product · Qty · Rate · +ADD
-         * Uses the same `.sbf-entry-ledger` / `.sbf-cell` classes the
-         * Sales form uses (sales-bill-form.css imported at the top of
-         * this file). The only override is `gridTemplateColumns` —
-         * applied inline because Stock Transfer has 5 cells where the
-         * sales form has 11, so the default Sales template doesn't fit.
+        {/* Entry row — full 11-cell strip matching SalesBillForm's
+         * .sbf-entry-grid layout 1:1 (same cells, same widths, same
+         * order). Two cells are intentionally disabled: Disc% and
+         * GST% don't apply to internal stock transfers (no party,
+         * no GST) — they render as visually-present-but-greyed cells
+         * so the row layout stays identical to a sales bill row.
+         *
+         * Cell order, mirroring SalesBillForm:
+         *   Barcode · Category · Product · Size · Art# · Qty · Rate ₹
+         *   · Disc% (N/A) · GST% (N/A) · Unit · +ADD
+         *
+         * No gridTemplateColumns override — we use the default
+         * SalesBillForm template from sales-bill-form.css so cells
+         * line up pixel-for-pixel with the sales form.
          */}
         {!readOnly && (
           <div className="sbf-entry-ledger">
-            <div className="sbf-entry-grid" style={{
-              gridTemplateColumns:
-                'minmax(130px, 170px)' +    /* Barcode */
-                ' minmax(220px, 1fr)' +     /* Product */
-                ' minmax(80px,  100px)' +   /* Qty */
-                ' minmax(110px, 140px)' +   /* Rate */
-                ' 90px',                    /* +ADD */
-            }}>
+            <div className="sbf-entry-grid">
               <div className="sbf-cell">
                 <div className="sbf-cell-lbl">Barcode</div>
                 <Input
@@ -534,10 +579,36 @@ export default function StockTransferForm() {
                 />
               </div>
               <div className="sbf-cell has-arrow">
+                <div className="sbf-cell-lbl">Category</div>
+                <Select
+                  value={activeCatId}
+                  onChange={(v, opt) => {
+                    setActiveCatId(v || null);
+                    setEntry((p) => ({
+                      ...p,
+                      category_id:   v || null,
+                      category_name: opt?.children || '',
+                      product_name:  '', product_id: null,
+                    }));
+                  }}
+                  placeholder="Category"
+                  showSearch
+                  filterOption={(input, opt) => !input || opt.children.toLowerCase().includes(input.toLowerCase())}
+                  allowClear
+                  notFoundContent={null}
+                  dropdownMatchSelectWidth={300}
+                  disabled={!fromGodownId}
+                >
+                  {cats.map((c) => (
+                    <Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>
+                  ))}
+                </Select>
+              </div>
+              <div className="sbf-cell has-arrow">
                 <div className="sbf-cell-lbl">Product</div>
                 <Select
                   ref={prodRef}
-                  key={`prod-${fromGodownId || 'no'}`}
+                  key={`prod-${fromGodownId || 'no'}-${activeCatId || 'all'}`}
                   showSearch
                   filterOption={false}
                   optionLabelProp="label"
@@ -585,6 +656,20 @@ export default function StockTransferForm() {
                   })}
                 </Select>
               </div>
+              <div className="sbf-cell">
+                <div className="sbf-cell-lbl">Size</div>
+                <Input ref={sizeRef} value={entry.size} placeholder=""
+                  onChange={(e) => ue('size', e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); artRef.current?.focus(); } }}
+                />
+              </div>
+              <div className="sbf-cell">
+                <div className="sbf-cell-lbl">Art #</div>
+                <Input ref={artRef} value={entry.article_number} placeholder=""
+                  onChange={(e) => ue('article_number', e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); qtyRef.current?.focus(); } }}
+                />
+              </div>
               <div className="sbf-cell numeric">
                 <div className="sbf-cell-lbl">Qty</div>
                 <InputNumber
@@ -595,9 +680,7 @@ export default function StockTransferForm() {
                   placeholder=""
                   style={{ width: '100%' }}
                   onChange={(v) => ue('quantity', v || 0)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); rateRef.current?.focus(); }
-                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); rateRef.current?.focus(); } }}
                 />
               </div>
               <div className="sbf-cell numeric">
@@ -610,10 +693,31 @@ export default function StockTransferForm() {
                   placeholder=""
                   style={{ width: '100%' }}
                   onChange={(v) => ue('rate', v || 0)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); }
-                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }}
                 />
+              </div>
+              {/* Disc% — N/A for stock transfers (internal movement, no
+                  party, no discount). Disabled placeholder so the entry
+                  row's column count + widths match a sales bill row 1:1. */}
+              <Tooltip title="Discounts don't apply to stock transfers — same legal entity.">
+                <div className="sbf-cell numeric">
+                  <div className="sbf-cell-lbl">Disc%</div>
+                  <InputNumber disabled value={undefined} placeholder="—" style={{ width: '100%' }} />
+                </div>
+              </Tooltip>
+              {/* GST% — N/A for stock transfers (no outward/inward supply). */}
+              <Tooltip title="GST doesn't apply to stock transfers — same legal entity.">
+                <div className="sbf-cell numeric">
+                  <div className="sbf-cell-lbl">GST%</div>
+                  <InputNumber disabled value={undefined} placeholder="—" style={{ width: '100%' }} />
+                </div>
+              </Tooltip>
+              <div className="sbf-cell has-arrow">
+                <div className="sbf-cell-lbl">Unit</div>
+                <Select value={entry.unit_type || 'Pcs'} placeholder=""
+                  onChange={(v) => ue('unit_type', v)}>
+                  {UNITS.map((u) => <Select.Option key={u} value={u}>{u}</Select.Option>)}
+                </Select>
               </div>
               <button onClick={handleAddItem} className="sbf-cell add" type="button">
                 <span className="sbf-cell-add-text">ADD</span>
@@ -638,11 +742,15 @@ export default function StockTransferForm() {
           style={{ background: 'var(--bg-elevated, white)' }}
           summary={() => items.length === 0 ? null : (
             <Table.Summary.Row>
-              <Table.Summary.Cell index={0} colSpan={2}><b>Total</b></Table.Summary.Cell>
-              <Table.Summary.Cell index={2} align="right"><b>{fmtN(totals.totalQty)}</b></Table.Summary.Cell>
-              <Table.Summary.Cell index={3} />
-              <Table.Summary.Cell index={4} align="right"><b>₹ {fmtN(totals.totalVal)}</b></Table.Summary.Cell>
-              {!readOnly && <Table.Summary.Cell index={5} />}
+              {/* Columns now: # · Barcode · Product · Size · Unit · Art#
+                  · Qty · Rate · Amount · (Action). Span the first 6 to
+                  carry the "Total" label across product-meta columns,
+                  then put totals under Qty + Amount. Action cell empty. */}
+              <Table.Summary.Cell index={0} colSpan={6}><b>Total</b></Table.Summary.Cell>
+              <Table.Summary.Cell index={6} align="right"><b>{fmtN(totals.totalQty)}</b></Table.Summary.Cell>
+              <Table.Summary.Cell index={7} />
+              <Table.Summary.Cell index={8} align="right"><b>₹ {fmtN(totals.totalVal)}</b></Table.Summary.Cell>
+              {!readOnly && <Table.Summary.Cell index={9} />}
             </Table.Summary.Row>
           )}
         />
