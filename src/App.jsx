@@ -29,6 +29,7 @@ import ReceiptEntry from './pages/payments/ReceiptEntry';
 import PaymentList from './pages/payments/PaymentList';
 import SalesReport from './pages/reports/SalesReport';
 import PurchaseReport from './pages/reports/PurchaseReport';
+import DayBook from './pages/reports/DayBook';
 import StockReportPage from './pages/reports/StockReportPage';
 import PartyLedger from './pages/reports/PartyLedger';
 import ProfitLoss from './pages/reports/ProfitLoss';
@@ -47,6 +48,7 @@ import LedgerIntegrity from './pages/accounts/LedgerIntegrity';
 import ImportV2 from './pages/settings/ImportV2';
 import CompanyProfile from './pages/settings/CompanyProfile';
 import UserManagement from './pages/settings/UserManagement';
+import GodownList from './pages/settings/GodownList';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
 import ModuleSettings from './pages/settings/ModuleSettings';
 import BackupRestore from './pages/settings/BackupRestore';
@@ -185,6 +187,7 @@ export default function App() {
           <Route path="reports/trial-balance"     element={<RoleRoute perm="accounts.view"><TrialBalance /></RoleRoute>} />
           <Route path="reports/balance-sheet"     element={<RoleRoute perm="accounts.view"><BalanceSheet /></RoleRoute>} />
           <Route path="reports/cash-flow"         element={<RoleRoute perm="accounts.view"><CashFlow /></RoleRoute>} />
+          <Route path="reports/day-book"          element={<RoleRoute perm="accounts.view"><DayBook /></RoleRoute>} />
           <Route path="reports/hsn-summary"        element={<RoleRoute perm="reports.view"><HsnSummary /></RoleRoute>} />
           <Route path="reports/stock-summary"      element={<RoleRoute perm="reports.view"><StockSummary /></RoleRoute>} />
           <Route path="reports/movers"             element={<RoleRoute perm="reports.view"><Movers /></RoleRoute>} />
@@ -207,6 +210,7 @@ export default function App() {
           <Route path="settings/import"         element={<RoleRoute perm="settings.import_export"><ImportV2 /></RoleRoute>} />
           <Route path="settings/tally"          element={<RoleRoute perm="settings.tally"><TallySync /></RoleRoute>} />
           <Route path="settings/print"          element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
+          <Route path="settings/godowns"        element={<RoleRoute perm="godowns.view"><GodownList /></RoleRoute>} />
         </Route>
       </Routes>
     </>

@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal } from 'antd';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
+import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
 import { printDocument } from '../../services/printer';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
@@ -14,7 +14,12 @@ const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFraction
 
 const EMPTY_ENTRY = {
   barcode:'', category_id:null, category_name:'', product_name:'', size:'',
-  article_number:'', purchase_rate:0, quantity:0, quantity_per_box:1,
+  // P/Box left at 0 — the entry-row cell shows empty placeholder
+  // (val: entry.quantity_per_box || undefined renders 0 as nothing) so
+  // the operator types the actual box-size themselves. Downstream
+  // calculations (boxQty, item-row math, save payload) all already
+  // fall back to 1 when quantity_per_box is missing/0/falsy.
+  article_number:'', purchase_rate:0, quantity:0, quantity_per_box:0,
   margin_percentage:0, sale_rate:0, mrp:0, hsn_code:'', gst_rate:0, product_id:null,
 };
 
@@ -177,6 +182,9 @@ export default function PurchaseBillForm() {
   const [items, setItems] = useState([]);
   const [parties, setParties]       = useState([]);
   const [categories, setCategories] = useState([]);
+  // Active godowns the operator can receive purchases into (filtered to
+  // user.allowed_godowns when set; server enforces independently).
+  const [godowns, setGodowns]       = useState([]);
   const [loading, setLoading]       = useState(false);
   const [pageLoading, setPageLoading] = useState(false);
   const [entry, setEntry]           = useState(EMPTY_ENTRY);
@@ -256,6 +264,11 @@ export default function PurchaseBillForm() {
   const tableWrapRef = useRef(null);
   const [tblHeight, setTblHeight] = useState(300);
   const barcodeRef  = useRef(null);
+  // Purchase flow is "category → product → details" (wholesale-buy style)
+  // rather than sales' "scan barcode" POS flow. We focus categoryRef after
+  // supplier pick AND after every addItem so the operator drops into the
+  // category dropdown ready to start the next line item.
+  const categoryRef = useRef(null);
   const productRef  = useRef(null);
   const sizeRef     = useRef(null);
   const articleRef  = useRef(null);
@@ -265,7 +278,13 @@ export default function PurchaseBillForm() {
   const marginRef   = useRef(null);
   const saleRateRef = useRef(null);
   const gstRef      = useRef(null);
-  const entryRefs   = [productRef,sizeRef,articleRef,rateRef,qtyRef,qpbRef,marginRef,saleRateRef,gstRef];
+  // Tab/Enter/ArrowDown walk this array left → right; ArrowUp walks
+  // back. Order MIRRORS the visual entry-row order: Product → Size →
+  // Art# → Qty → Rate → P/Box → Margin% → Sale ₹ → GST% → (+ADD via
+  // the addItem fall-through at the end of handleEntryKey).
+  // Qty BEFORE Rate so the natural typing rhythm is "size, art, how
+  // many, at what price" — same flow as the sales form.
+  const entryRefs   = [productRef,sizeRef,articleRef,qtyRef,rateRef,qpbRef,marginRef,saleRateRef,gstRef];
 
   useLayoutEffect(()=>{
     const el = tableWrapRef.current;
@@ -312,7 +331,7 @@ export default function PurchaseBillForm() {
   },[activeCatId]);
 
   useEffect(() => {
-    loadParties(); loadCategories();
+    loadParties(); loadCategories(); loadGodowns();
     settingsAPI.getSystem().then(({data}) => {
       setCompanyName(data?.data?.company_name || '');
       // Default to enabled when the column is missing (older DBs without
@@ -342,6 +361,24 @@ export default function PurchaseBillForm() {
 
   const loadParties    = async()=>{ try{ const{data}=await partyAPI.getSuppliers({limit:1000}); setParties((data.data||[]).filter(p=>p.is_active!==false)); }catch(e){} };
   const loadCategories = async()=>{ try{ const{data}=await categoryAPI.getAllFlat(); setCategories(data||[]); }catch(e){} };
+  const loadGodowns    = async()=>{
+    try {
+      const { data } = await godownAPI.getAll();
+      const list = (data || []).filter(g => g.is_active);
+      const userAllowed = (() => {
+        try {
+          const u = JSON.parse(localStorage.getItem('user') || 'null');
+          return Array.isArray(u?.allowed_godowns) ? u.allowed_godowns : null;
+        } catch { return null; }
+      })();
+      const filtered = userAllowed ? list.filter(g => userAllowed.includes(g.godown_id)) : list;
+      setGodowns(filtered);
+      if (!isEdit && !form.getFieldValue('godown_id')) {
+        const def = filtered.find(g => g.is_default) || filtered[0];
+        if (def) form.setFieldsValue({ godown_id: def.godown_id });
+      }
+    } catch (e) { /* surfaces as empty dropdown — server enforces required */ }
+  };
 
   const loadBill = async(billId)=>{
     setPageLoading(true);
@@ -349,6 +386,7 @@ export default function PurchaseBillForm() {
       const{data}=await purchaseAPI.getById(billId);
       setBillNumber(data.bill_number||'');
       form.setFieldsValue({
+        godown_id:data.godown_id,
         supplier_id:data.supplier_id,
         walk_in_name:data.walk_in_name||'',
         bill_date:data.bill_date?dayjs(data.bill_date):dayjs(),
@@ -524,11 +562,12 @@ export default function PurchaseBillForm() {
       product_name:p.product_name,
       category_id:p.category_id||prev.category_id,
       category_name:p.Category?.category_name||prev.category_name,
-      // reset identity + rate fields so user enters fresh
+      // reset identity + rate fields so user enters fresh — quantity_per_box
+      // stays at 0 (operator types it; downstream uses ||1 fallback).
       product_id:null, barcode:'',
       size:'', article_number:'',
       purchase_rate:0, sale_rate:0, mrp:0, margin_percentage:0,
-      hsn_code:'', gst_rate:0, quantity_per_box:1,
+      hsn_code:'', gst_rate:0, quantity_per_box:0,
     }));
     setBarcodeError('');
     // Redirect focus to Size field — blur Select first so AntD can't steal focus back.
@@ -873,7 +912,11 @@ export default function PurchaseBillForm() {
     setPickerRateFilter(null); setPickerArticleFilter(null);
     invalidateFamilyCache(); // next lookup re-fetches fresh from DB (may include variants just saved)
     setActiveCatId(null); // triggers useEffect → clears prodRawList automatically
-    setTimeout(()=>barcodeRef.current?.focus(),50);
+    // Focus the Category dropdown for the NEXT line item — purchase is a
+    // wholesale-buy flow where the operator picks category → product per
+    // line, not a barcode-scan flow. Sales does the opposite (focus
+    // barcode after addItem) because retail = scan-driven.
+    setTimeout(()=>categoryRef.current?.focus(),50);
   },[entry,barcodeError,invalidateFamilyCache]);
   const removeItem=(key)=>setItems(prev=>prev.filter(i=>i.key!==key));
 
@@ -1101,7 +1144,7 @@ export default function PurchaseBillForm() {
     setActiveCatId(null);
     setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
     setRecalledDraftId(null);
-    form.resetFields(['discount_percentage','paid_amount','other_charges','freight_charges','remarks']);
+    form.resetFields(['supplier_id','walk_in_name','supplier_bill_number','transport_name','vehicle_number','lr_number','due_date','discount_percentage','paid_amount','other_charges','freight_charges','remarks']);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   };
 
@@ -1427,24 +1470,59 @@ export default function PurchaseBillForm() {
 
             {/* Supplier / transport row — bill_date and due_date moved up
                 into the header strip's right cluster to match the editorial
-                sales-form layout. */}
+                sales-form layout. When Cash is selected, the supplier-bill-#
+                slot (col 2) flips to a Walk-in vendor name input — Tally-
+                style cash purchases don't carry a separate supplier bill
+                number, so the slot reuse is honest, not just convenient. */}
             <div className="pbf-top-row">
+              {/* Receiving godown — picked once per bill. Drives per-godown
+                  stock add and Place-of-Supply for inward GST.
+                  Disabled on edit because moving inventory between godowns
+                  must go through Stock Transfer rather than rewriting an
+                  existing purchase. */}
+              <div className="pbf-field" style={{ flex: '0 0 200px' }}>
+                <Form.Item name="godown_id" noStyle
+                  rules={[{ required: true, message: 'Pick a godown' }]}>
+                  <Select
+                    placeholder="Godown"
+                    disabled={isEdit}
+                    options={godowns.map(g => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+                  />
+                </Form.Item>
+              </div>
               <div className="pbf-field">
                 {/* Supplier is hard-required. Cash purchases pick the
-                    seeded system "Cash" party (pinned to the top); a
-                    walk-in name field appears below for the actual
-                    vendor's name without creating a per-vendor party row. */}
+                    seeded system "Cash" party (pinned to the top); the
+                    walk-in name appears in col 2 (same height + AntD
+                    style as this Select) instead of supplier-bill-#. */}
                 <Form.Item name="supplier_id" noStyle
                   rules={[{ required: true, message: 'Select a supplier (use Cash for walk-in vendors)' }]}>
                   <Select showSearch placeholder="Supplier (required — pick Cash for walk-in vendors)"
-                    optionFilterProp="children" dropdownStyle={{minWidth:280}}>
+                    optionFilterProp="children" dropdownStyle={{minWidth:280}}
+                    // Purchase = wholesale-buy flow: after picking the
+                    // supplier, jump into the category dropdown so the
+                    // operator can start choosing what to buy. onSelect
+                    // (not onChange) so Form.Item's value binding stays
+                    // intact and we don't fire on the initial-load
+                    // hydration when editing an existing bill.
+                    onSelect={() => setTimeout(() => categoryRef.current?.focus(), 50)}>
                     {parties.map(p=><Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>)}
                   </Select>
                 </Form.Item>
               </div>
-              <div className="pbf-field">
+              {/* Col 2 — supplier-bill-# OR walk-in name. Both rendered
+                  but exactly one is display:flex so the grid track width
+                  stays stable when toggling Cash on/off. */}
+              <div className="pbf-field" style={{ display: isCashSupplierSelected ? 'none' : 'flex' }}>
                 <Form.Item name="supplier_bill_number" noStyle>
                   <Input placeholder="Supp. bill #"/>
+                </Form.Item>
+              </div>
+              <div className="pbf-field" style={{ display: isCashSupplierSelected ? 'flex' : 'none' }}>
+                <Form.Item name="walk_in_name" noStyle>
+                  {/* No allowClear — see SalesBillForm for the affix-wrapper
+                      box-in-box rationale. */}
+                  <Input placeholder="Walk-in vendor name (optional)" maxLength={120} style={{ width: '100%' }}/>
                 </Form.Item>
               </div>
               <div className="pbf-field">
@@ -1464,121 +1542,135 @@ export default function PurchaseBillForm() {
               </div>
             </div>
 
-            {/* Walk-in vendor name — only when the system "Cash" supplier
-                is selected. Stored on purchase_bills.walk_in_name; rendered
-                on the bill list (second line under "Cash") and the printed
-                supplier header. */}
-            {isCashSupplierSelected && (
-              <div className="pbf-top-row" style={{ marginTop: 6 }}>
-                <div className="pbf-field" style={{ flex: '1 1 auto' }}>
-                  <Form.Item name="walk_in_name" noStyle>
-                    <Input
-                      placeholder="Walk-in vendor name (optional)"
-                      maxLength={120}
-                      allowClear
-                    />
-                  </Form.Item>
-                </div>
-              </div>
-            )}
-
-            {/* Product entry row — only in itemised mode. Amount-mode shows
-                the amount-only panel further below instead. */}
+            {/* ─── ENTRY ROW (Editorial Ledger) ──────────────────────────
+             *
+             *  Mirror of the sales-form ledger row — see SalesBillForm
+             *  for the full rationale. One bordered strip with top +
+             *  bottom hairlines, no internal rectangles, dotted column
+             *  separators between cells, and a 2px accent under-rule on
+             *  the active cell driven by :focus-within (zero React
+             *  state). Field order: Barcode · Category · Product · Size
+             *  · Art # · QTY · RATE · P/Box · Margin% · Sale ₹ · GST% ·
+             *  +ADD — Qty BEFORE Rate so the typing rhythm is "size,
+             *  art, how many, at what price", matching the sales form.
+             *
+             *  Logic preserved exactly: every ref (barcodeRef,
+             *  productRef, sizeRef, articleRef, qtyRef, rateRef, qpbRef,
+             *  marginRef, saleRateRef, gstRef + the *WrapRef wrappers)
+             *  stays attached to the same element. The variant picker
+             *  portal still anchors off articleWrapRef / rateWrapRef.
+             *  handleRateBlur, handleRateInputChange,
+             *  handleArticleChange, handleProductSelect,
+             *  handleProductSearch, handleBarcodeScan, handleEntryKey —
+             *  all unchanged.
+             * ────────────────────────────────────────────────────────── */}
             {billMode === 'item' && (
-            <div className="pbf-top-row-2">
-              <div className="pbf-field">
-                <Input ref={barcodeRef} value={entry.barcode} placeholder="Barcode / scan"
-                  onChange={e=>{setEntry(p=>({...p,barcode:e.target.value}));setBarcodeError('');}}
-                  onPressEnter={e=>handleBarcodeScan(e.target.value)}
-                  onBlur={e=>handleBarcodeBlur(e.target.value)}
-                  onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();productRef.current?.focus();}}}
-                  status={barcodeError?'error':undefined}/>
-              </div>
-              <div className="pbf-field">
-                <Select value={activeCatId} placeholder="Category" showSearch
-                  filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
-                  allowClear notFoundContent={null}
-                  onChange={(v,opt)=>{
-                    setActiveCatId(v||null);
-                    setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
-                  }}>
-                  {categories.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
-                </Select>
-              </div>
-              <div className="pbf-field" ref={prodWrapRef}>
-                <Select key={activeCatId??'no-cat'} ref={productRef}
-                  showSearch filterOption={false} optionLabelProp="label"
-                  value={entry.product_name||undefined}
-                  onSearch={handleProductSearch}
-                  onSelect={(val,opt)=>handleProductSelect(val,opt)}
-                  onFocus={()=>{
-                    if(justSelectedRef.current){
-                      justSelectedRef.current=false;
-                      requestAnimationFrame(()=>{ productRef.current?.blur(); sizeRef.current?.focus(); sizeRef.current?.select?.(); });
-                    }
-                  }}
-                  onClear={()=>setEntry(p=>({...p,product_name:'',product_id:null}))}
-                  allowClear
-                  placeholder={activeCatId?'Product name (in category)':'Product name'}
-                  notFoundContent={productSearching?'Searching…':null}
-                  listHeight={320} dropdownMatchSelectWidth={520}>
-                  {dedupedProducts.map(p=>{
-                    const stock = parseFloat(p._totalStock||p.current_stock||0);
-                    const stockColor = stock<=0 ? 'var(--danger)' : stock<=5 ? 'var(--warning)' : 'var(--success)';
-                    return(
-                      <Select.Option key={p.product_id} value={p.product_name} label={p.product_name} product={p}>
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 90px 70px 60px 72px',columnGap:10,alignItems:'center',fontVariantNumeric:'tabular-nums'}}>
-                          <span style={{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.product_name}</span>
-                          <span style={{fontSize:11,color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.Category?.category_name||'—'}</span>
-                          <span style={{fontSize:12,color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.article_number||'—'}</span>
-                          <span style={{fontSize:12,color:'var(--fg-tertiary)'}}>{p.size_value||'—'}</span>
-                          <span style={{fontSize:11,fontWeight:600,color:stockColor,justifySelf:'end'}}>
-                            {stock<=0?'out':stock}
-                          </span>
-                        </div>
-                      </Select.Option>
-                    );
-                  })}
-                </Select>
-              </div>
-              {[
-                {lbl2:'Size',    ref:sizeRef,    field:'size',             val:entry.size,                        idx:1, t:'txt'},
-                {lbl2:'Art #',   ref:articleRef, field:'article_number',   val:entry.article_number,              idx:2, t:'txt', wrapRef:articleWrapRef,
-                 onChangeFn:e=>handleArticleChange(e.target.value)},
-                {lbl2:'Rate ₹',  ref:rateRef,    field:'purchase_rate',    val:entry.purchase_rate||undefined,    idx:3, t:'num', min:0, onBlur:handleRateBlur,
-                 wrapRef:rateWrapRef, onChangeFn:v=>handleRateInputChange(v||0)},
-                {lbl2:'Qty',     ref:qtyRef,     field:'quantity',         val:entry.quantity||undefined,         idx:4, t:'num', min:0},
-                {lbl2:'P/Box',   ref:qpbRef,     field:'quantity_per_box', val:entry.quantity_per_box,            idx:5, t:'num', min:1, onBlur:handleRateBlur},
-                {lbl2:'Margin%', ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,idx:6, t:'num'},
-                {lbl2:'Sale ₹',  ref:saleRateRef,field:'sale_rate',        val:entry.sale_rate||undefined,        idx:7, t:'num', min:0, onBlur:handleRateBlur},
-                {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,         idx:8, t:'num', min:0},
-              ].map(({lbl2,ref,field,val,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
-                <div key={field} className="pbf-field" ref={wrapRef||undefined}>
-                  {t==='txt'
-                    ? <Input ref={ref} value={val} placeholder={lbl2}
-                        onChange={onChangeFn||(e=>updateEntry(field,e.target.value))}
-                        onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur}/>
-                    : <InputNumber keyboard={false} ref={ref} value={val} style={{width:'100%'}} min={min} placeholder={lbl2}
-                        onChange={onChangeFn||(v=>updateEntry(field,v||0))}
-                        onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur} onFocus={onFocusFn}/>
-                  }
+            <div className="pbf-entry-ledger">
+              <div className="pbf-entry-grid">
+                <div className="pbf-cell">
+                  <div className="pbf-cell-lbl">Barcode</div>
+                  <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type"
+                    onChange={e=>{setEntry(p=>({...p,barcode:e.target.value}));setBarcodeError('');}}
+                    onPressEnter={e=>handleBarcodeScan(e.target.value)}
+                    onBlur={e=>handleBarcodeBlur(e.target.value)}
+                    onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();productRef.current?.focus();}}}
+                    status={barcodeError?'error':undefined}/>
                 </div>
-              ))}
-              {/* Variant picker — rendered via portal so no ancestor CSS can hide it */}
-              {showVariantPicker&&variantOptions.length>0&&(
-                <VariantPickerDropdown
-                  options={variantOptions}
-                  selectedIdx={variantPickerIdx}
-                  onPick={handleVariantPick}
-                  top={pickerPos.top}
-                  left={pickerPos.left}
-                  rateFilter={pickerAnchorRef.current==='rate'?pickerRateFilter:null}
-                  articleFilter={pickerAnchorRef.current==='article'?pickerArticleFilter:null}
-                />
-              )}
-              <button className="pbf-add-btn" onClick={addItem}>
-                ＋ ADD
-              </button>
+                <div className="pbf-cell has-arrow">
+                  <div className="pbf-cell-lbl">Category</div>
+                  <Select ref={categoryRef} value={activeCatId} placeholder="Category" showSearch
+                    filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
+                    allowClear notFoundContent={null} dropdownMatchSelectWidth={300}
+                    onChange={(v,opt)=>{
+                      setActiveCatId(v||null);
+                      setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
+                    }}>
+                    {categories.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
+                  </Select>
+                </div>
+                <div className="pbf-cell has-arrow" ref={prodWrapRef}>
+                  <div className="pbf-cell-lbl">Product</div>
+                  <Select key={activeCatId??'no-cat'} ref={productRef}
+                    showSearch filterOption={false} optionLabelProp="label"
+                    value={entry.product_name||undefined}
+                    onSearch={handleProductSearch}
+                    onSelect={(val,opt)=>handleProductSelect(val,opt)}
+                    onFocus={()=>{
+                      if(justSelectedRef.current){
+                        justSelectedRef.current=false;
+                        requestAnimationFrame(()=>{ productRef.current?.blur(); sizeRef.current?.focus(); sizeRef.current?.select?.(); });
+                      }
+                    }}
+                    onClear={()=>setEntry(p=>({...p,product_name:'',product_id:null}))}
+                    allowClear
+                    placeholder={activeCatId?'Product name (in category)':'Product name'}
+                    notFoundContent={productSearching?'Searching…':null}
+                    listHeight={320} dropdownMatchSelectWidth={520}>
+                    {dedupedProducts.map(p=>{
+                      const stock = parseFloat(p._totalStock||p.current_stock||0);
+                      const stockColor = stock<=0 ? 'var(--danger)' : stock<=5 ? 'var(--warning)' : 'var(--success)';
+                      return(
+                        <Select.Option key={p.product_id} value={p.product_name} label={p.product_name} product={p}>
+                          <div style={{display:'grid',gridTemplateColumns:'1fr 90px 70px 60px 72px',columnGap:10,alignItems:'center',fontVariantNumeric:'tabular-nums'}}>
+                            <span style={{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.product_name}</span>
+                            <span style={{fontSize:11,color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.Category?.category_name||'—'}</span>
+                            <span style={{fontSize:12,color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.article_number||'—'}</span>
+                            <span style={{fontSize:12,color:'var(--fg-tertiary)'}}>{p.size_value||'—'}</span>
+                            <span style={{fontSize:11,fontWeight:600,color:stockColor,justifySelf:'end'}}>
+                              {stock<=0?'out':stock}
+                            </span>
+                          </div>
+                        </Select.Option>
+                      );
+                    })}
+                  </Select>
+                </div>
+                {/* Field array: Size · Art# · QTY · RATE · P/Box · Margin% ·
+                 *  Sale ₹ · GST%. Indices 1–8 line up with entryRefs[1..8]
+                 *  so handleEntryKey's ArrowUp/Down/Enter walk maps cell-
+                 *  position to ref. */}
+                {[
+                  {lbl2:'Size',    ref:sizeRef,    field:'size',             val:entry.size,                        idx:1, t:'txt'},
+                  {lbl2:'Art #',   ref:articleRef, field:'article_number',   val:entry.article_number,              idx:2, t:'txt', wrapRef:articleWrapRef,
+                   onChangeFn:e=>handleArticleChange(e.target.value)},
+                  {lbl2:'Qty',     ref:qtyRef,     field:'quantity',         val:entry.quantity||undefined,         idx:3, t:'num', min:0},
+                  {lbl2:'Rate ₹',  ref:rateRef,    field:'purchase_rate',    val:entry.purchase_rate||undefined,    idx:4, t:'num', min:0, onBlur:handleRateBlur,
+                   wrapRef:rateWrapRef, onChangeFn:v=>handleRateInputChange(v||0)},
+                  {lbl2:'P/Box',   ref:qpbRef,     field:'quantity_per_box', val:entry.quantity_per_box||undefined, idx:5, t:'num', min:1, onBlur:handleRateBlur},
+                  {lbl2:'Margin%', ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,idx:6, t:'num'},
+                  {lbl2:'Sale ₹',  ref:saleRateRef,field:'sale_rate',        val:entry.sale_rate||undefined,        idx:7, t:'num', min:0, onBlur:handleRateBlur},
+                  {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,         idx:8, t:'num', min:0},
+                ].map(({lbl2,ref,field,val,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
+                  <div key={field} className={`pbf-cell ${t==='num'?'numeric':''}`} ref={wrapRef||undefined}>
+                    <div className="pbf-cell-lbl">{lbl2}</div>
+                    {t==='txt'
+                      ? <Input ref={ref} value={val} placeholder=""
+                          onChange={onChangeFn||(e=>updateEntry(field,e.target.value))}
+                          onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur}/>
+                      : <InputNumber keyboard={false} ref={ref} value={val} style={{width:'100%'}} min={min} placeholder=""
+                          onChange={onChangeFn||(v=>updateEntry(field,v||0))}
+                          onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur} onFocus={onFocusFn}/>
+                    }
+                  </div>
+                ))}
+                {/* Variant picker — rendered via portal so no ancestor CSS
+                    can hide it. Anchors off articleWrapRef / rateWrapRef
+                    which still attach to the same cells via wrapRef above. */}
+                {showVariantPicker&&variantOptions.length>0&&(
+                  <VariantPickerDropdown
+                    options={variantOptions}
+                    selectedIdx={variantPickerIdx}
+                    onPick={handleVariantPick}
+                    top={pickerPos.top}
+                    left={pickerPos.left}
+                    rateFilter={pickerAnchorRef.current==='rate'?pickerRateFilter:null}
+                    articleFilter={pickerAnchorRef.current==='article'?pickerArticleFilter:null}
+                  />
+                )}
+                <button className="pbf-cell add" onClick={addItem} type="button">
+                  <span className="pbf-cell-add-text">ADD</span>
+                </button>
+              </div>
             </div>
             )}
 
@@ -1652,18 +1744,13 @@ export default function PurchaseBillForm() {
                   columns={itemColumns} dataSource={items} rowKey="key"
                   size="small" pagination={false} loading={pageLoading}
                   scroll={items.length?{x:1176,y:tblHeight}:{y:tblHeight}}
-                  locale={{emptyText:(
-                    <div className="pbf-empty">
-                      <div className="pbf-empty-bolt">⚡</div>
-                      <div className="pbf-empty-main">Scan a barcode or search a product to add items</div>
-                      <div className="pbf-empty-sub">Use the entry row above to add products to this purchase</div>
-                      <div className="pbf-empty-hints">
-                        <span><kbd>F1</kbd> save &amp; pay</span>
-                        <span><kbd>F8</kbd> save credit</span>
-                        <span><kbd>Esc</kbd> go back</span>
-                      </div>
-                    </div>
-                  )}}
+                  // Empty state intentionally blank — the entry row above
+                  // already tells the operator what to do; another hero
+                  // copy block under the header just adds noise. AntD's
+                  // Table needs *something* in emptyText so we render an
+                  // empty span — keeps the table layout stable, paints
+                  // nothing.
+                  locale={{ emptyText: <span /> }}
                 />
               </div>
             </div>

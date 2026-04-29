@@ -189,6 +189,7 @@ export const reportAPI = {
   balanceSheet: (params) => api.get('/reports/balance-sheet',  { params }),
   // Phase R2 — Cash Flow + Aging
   cashFlow:           (params) => api.get('/reports/cash-flow',          { params }),
+  dayBook:            (params) => api.get('/reports/day-book',           { params }),
   // Phase R3 — Operational summaries (Sales/Purchase Registers folded
   // into the canonical /reports/sales and /reports/purchases above).
   hsnSummary:         (params) => api.get('/reports/hsn-summary',        { params }),
@@ -340,6 +341,31 @@ export const tallyMappingAPI = {
   list:    () => api.get('/tally/ledger-mapping'),
   suggest: (names) => api.get('/tally/ledger-mapping/suggest', { params: { names: names.join(',') } }),
   save:    (mappings) => api.post('/tally/ledger-mapping', { mappings }),
+};
+
+// Godowns — physical storage locations. CRUD lives in Settings.
+// `getAll` is unfiltered by allowed_godowns deliberately (the form needs
+// labels for any godown a bill might reference); the list dropdown in
+// bill forms applies its own client-side filter to user.allowed_godowns.
+export const godownAPI = {
+  getAll:     (params) => api.get('/godowns', { params }),
+  getById:    (id) => api.get(`/godowns/${id}`),
+  create:     (data) => api.post('/godowns', data),
+  update:     (id, data) => api.put(`/godowns/${id}`, data),
+  setDefault: (id) => api.post(`/godowns/${id}/default`),
+  delete:     (id) => api.delete(`/godowns/${id}`),
+};
+
+// Stock transfers between godowns. Lifecycle is Draft → In-Transit →
+// Received (or → Cancelled from Draft/In-Transit). Server enforces all
+// transitions; the UI just exposes the buttons.
+export const stockTransferAPI = {
+  getAll:  (params) => api.get('/stock-transfers', { params }),
+  getById: (id) => api.get(`/stock-transfers/${id}`),
+  create:  (data) => api.post('/stock-transfers', data),
+  submit:  (id) => api.post(`/stock-transfers/${id}/submit`),
+  receive: (id, data) => api.post(`/stock-transfers/${id}/receive`, data || {}),
+  cancel:  (id, reason) => api.post(`/stock-transfers/${id}/cancel`, { reason }),
 };
 
 export default api;

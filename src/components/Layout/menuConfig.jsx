@@ -23,7 +23,7 @@ import {
   UserOutlined, TagsOutlined, FileTextOutlined, WalletOutlined,
   FundOutlined, AppstoreOutlined, StockOutlined, PlusCircleOutlined,
   UnorderedListOutlined, RollbackOutlined, BankOutlined, ThunderboltOutlined,
-  FieldTimeOutlined,
+  FieldTimeOutlined, BookOutlined,
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
   SwapOutlined, ApiOutlined, PrinterOutlined,
 } from '@ant-design/icons';
@@ -99,6 +99,7 @@ export const menuItems = [
     icon: <BarChartOutlined />,
     label: 'Reports',
     children: [
+      { key: '/reports/day-book',     icon: <BookOutlined />,     label: 'Day Book',        perm: 'accounts.view' },
       { key: '/reports/sales',        icon: <FileTextOutlined />, label: 'Sales Report',    perm: 'reports.view' },
       { key: '/reports/purchases',    icon: <FileTextOutlined />, label: 'Purchase Report', perm: 'reports.view' },
       { key: '/reports/stock',        icon: <StockOutlined />,    label: 'Stock Report',    perm: 'reports.view' },
@@ -130,6 +131,7 @@ export const menuItems = [
       { key: '/settings/import',         icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export' },
       { key: '/settings/tally',          icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally' },
       { key: '/settings/backup',         icon: <CloudServerOutlined />, label: 'Backup & Recovery',perm: 'settings.backup' },
+      { key: '/settings/godowns',        icon: <BankOutlined />,        label: 'Godowns',          perm: 'godowns.view' },
     ],
   },
 ];

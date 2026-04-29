@@ -3,7 +3,7 @@ import { Form, Input, DatePicker, Select, InputNumber, Table, Modal, message } f
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
-  purchaseReturnAPI, purchaseAPI, partyAPI, productAPI, categoryAPI, settingsAPI,
+  purchaseReturnAPI, purchaseAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI,
 } from '../../api';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
@@ -40,6 +40,7 @@ export default function PurchaseReturnForm() {
   const [form]                    = Form.useForm();
   const [items, setItems]         = useState([]);
   const [parties, setParties]     = useState([]);
+  const [godowns, setGodowns]     = useState([]);  // godowns the operator can return from
   const [cats, setCats]           = useState([]);
   const [loading, setLoading]     = useState(false);
   const [pgLoading, setPgLoading] = useState(false);
@@ -110,6 +111,21 @@ export default function PurchaseReturnForm() {
       .catch(() => {});
     categoryAPI.getAllFlat().then(({ data }) => setCats(data || [])).catch(() => {});
     settingsAPI.getSystem().then(({ data }) => setCompany(data?.data?.company_name || '')).catch(() => {});
+    godownAPI.getAll().then(({ data }) => {
+      const list = (data || []).filter((g) => g.is_active);
+      const userAllowed = (() => {
+        try {
+          const u = JSON.parse(localStorage.getItem('user') || 'null');
+          return Array.isArray(u?.allowed_godowns) ? u.allowed_godowns : null;
+        } catch { return null; }
+      })();
+      const filtered = userAllowed ? list.filter((g) => userAllowed.includes(g.godown_id)) : list;
+      setGodowns(filtered);
+      if (!isEdit && !form.getFieldValue('godown_id')) {
+        const def = filtered.find((g) => g.is_default) || filtered[0];
+        if (def) form.setFieldsValue({ godown_id: def.godown_id });
+      }
+    }).catch(() => {});
     if (isEdit) loadReturn(id);
     else {
       form.setFieldsValue({ return_date: dayjs(), refund_method: 'Cash' });
@@ -124,6 +140,7 @@ export default function PurchaseReturnForm() {
       setReturnNo(data.return_number || '');
       setReturnMode(data.return_mode || 'Items');
       form.setFieldsValue({
+        godown_id: data.godown_id,
         supplier_id: data.supplier_id,
         return_date: data.return_date ? dayjs(data.return_date) : dayjs(),
         discount_percentage: parseFloat(data.discount_percentage) || 0,
@@ -562,6 +579,17 @@ export default function PurchaseReturnForm() {
             </div>
 
             <div className="rtn-top-row">
+              {/* Source godown — where the returned goods leave from.
+                  Defaults to the referenced bill's godown when one is loaded. */}
+              <div className="rtn-field" style={{ flex: '0 0 180px' }}>
+                <Form.Item name="godown_id" noStyle rules={[{ required: true, message: ' ' }]}>
+                  <Select
+                    placeholder="Godown *"
+                    disabled={isEdit}
+                    options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+                  />
+                </Form.Item>
+              </div>
               <div className="rtn-field">
                 <Form.Item name="supplier_id" noStyle rules={[{ required: true, message: ' ' }]}>
                   <Select showSearch placeholder="Supplier *" allowClear optionFilterProp="label"
@@ -615,7 +643,7 @@ export default function PurchaseReturnForm() {
                 <div className="rtn-field">
                   <Select value={activeCatId} placeholder="Category" showSearch
                     filterOption={(input, opt) => !input || opt.children.toLowerCase().includes(input.toLowerCase())}
-                    allowClear notFoundContent={null}
+                    allowClear notFoundContent={null} dropdownMatchSelectWidth={300}
                     onChange={(v, opt) => {
                       justSelectedRef.current = false;
                       setActiveCatId(v || null);
