@@ -4,6 +4,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { SwapOutlined, DeleteOutlined, SaveOutlined, SendOutlined, CheckCircleOutlined, CloseCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { stockTransferAPI, godownAPI, productAPI } from '../../api';
+// Reuse the Sales bill form's entry-ledger CSS verbatim so the picker
+// row visually matches its sibling on the Sales/Purchase forms — same
+// hairlines, same cell padding, same focus state, same dotted column
+// dividers, same +ADD button. We override only `grid-template-columns`
+// inline below since Stock Transfer has fewer cells than a sales bill.
+import '../sales/sales-bill-form.css';
 
 /*
  * Stock Transfer — create / view / receive / cancel form.
@@ -61,12 +67,23 @@ export default function StockTransferForm() {
   // searching for the next item.
   const [searchValue, setSearchValue] = useState('');
   const [transferNo, setTransferNo] = useState('—');
+  // Entry-row state — mirrors Sales' single-row buffer. Operator fills
+  // these cells (barcode → product → qty → rate) and clicks +ADD (or
+  // hits Enter on the last cell) to push a row into `items`.
+  const EMPTY_ENTRY = { product_id: null, product_name: '', barcode: '', unit: 'PCS', quantity: 1, rate: 0, available_stock: 0 };
+  const [entry, setEntry] = useState(EMPTY_ENTRY);
   const itemKeyRef    = useRef(1);
   const submittingRef = useRef(false);
   // Sales-form parity: debounce timer + stale-request id so concurrent
   // typed characters don't race and overwrite the latest result set.
   const searchTimerRef = useRef(null);
   const searchReqRef   = useRef(0);
+  // Cell refs for keyboard walk (Tab/Enter/ArrowDown/ArrowUp), matching
+  // the bill-form rhythm so the operator never reaches for the mouse.
+  const barcodeRef = useRef(null);
+  const prodRef    = useRef(null);
+  const qtyRef     = useRef(null);
+  const rateRef    = useRef(null);
 
   const fromGodownId = Form.useWatch('from_godown_id', form);
   const toGodownId   = Form.useWatch('to_godown_id', form);
@@ -159,32 +176,73 @@ export default function StockTransferForm() {
     }, 150);
   }, [fromGodownId]);
 
-  // Pick a product → push as a transfer line. Mirrors handleProdSel
-  // shape from the bill forms (qty defaults from quantity_per_box,
-  // rate snapshots purchase_rate for valuation). Then clears the
-  // picker so the next character the operator types starts a fresh
-  // search instead of appending to the previous query.
+  // Pick a product → fill the entry-row buffer (NOT items — bill-form
+  // pattern: edit qty/rate first, then click +ADD). Mirrors
+  // SalesBillForm's handleProdSel; jumps focus to the qty cell so the
+  // operator can immediately type a quantity.
   const handleProdSel = (val, opt) => {
     const p = opt?.product;
     if (!p) return;
     const qty = parseFloat(p.quantity_per_box) || 1;
-    addItem({
-      product_id:   p.product_id,
-      product_name: p.product_name,
-      barcode:      p.barcode,
-      unit:         p.unit_of_measurement || 'PCS',
-      quantity:     qty,
-      rate:         parseFloat(p.purchase_rate) || 0,
-    });
+    setEntry((prev) => ({
+      ...prev,
+      product_id:      p.product_id,
+      product_name:    p.product_name,
+      barcode:         p.barcode || prev.barcode,
+      unit:            p.unit_of_measurement || 'PCS',
+      quantity:        qty,
+      rate:            parseFloat(p.purchase_rate) || 0,
+      available_stock: parseFloat(p.current_stock) || 0,
+    }));
     // Clear sequence — order matters: drop the search text first so the
     // controlled `searchValue` resets to '', then close the dropdown,
     // then drop the cached options so the next open starts empty.
     setSearchValue('');
     setProdOpen(false);
     setProdOpts([]);
+    // Keyboard rhythm — jump straight into qty so the operator can
+    // type the count without reaching for the mouse.
+    setTimeout(() => qtyRef.current?.focus(), 30);
   };
 
-  const addItem = (it) => {
+  // Barcode scan → look up product, fill entry, push immediately.
+  // Same pattern Sales uses (barcode is the fast-path bypass for the
+  // pick-then-edit flow).
+  const handleScan = async (raw) => {
+    const code = String(raw || '').trim();
+    if (!code) return;
+    if (!fromGodownId) {
+      message.warning('Pick source godown first');
+      return;
+    }
+    try {
+      const { data } = await productAPI.getByBarcode(code);
+      const p = data;
+      if (!p) { message.warning(`No product with barcode ${code}`); return; }
+      // For barcode-driven entry: push directly with quantity 1, the
+      // way scanner-led counters expect ("scan, scan, scan, save").
+      setItems((prev) => [
+        ...prev,
+        {
+          key: itemKeyRef.current++,
+          product_id:   p.product_id,
+          product_name: p.product_name,
+          barcode:      p.barcode,
+          unit:         p.unit_of_measurement || 'PCS',
+          quantity:     parseFloat(p.quantity_per_box) || 1,
+          rate:         parseFloat(p.purchase_rate) || 0,
+        },
+      ]);
+      setEntry(EMPTY_ENTRY);
+      barcodeRef.current?.focus();
+    } catch (err) {
+      message.error(err?.response?.data?.error || `Failed to look up ${code}`);
+    }
+  };
+
+  // +ADD — push the entry-row buffer onto items. Validates qty>0 and
+  // a product is selected; otherwise warns without crashing.
+  const handleAddItem = () => {
     if (!fromGodownId || !toGodownId) {
       message.warning('Pick both godowns first');
       return;
@@ -193,8 +251,35 @@ export default function StockTransferForm() {
       message.warning('From and To godowns must differ');
       return;
     }
-    setItems((prev) => [...prev, { key: itemKeyRef.current++, ...it }]);
+    if (!entry.product_id) {
+      message.warning('Pick a product');
+      prodRef.current?.focus();
+      return;
+    }
+    const q = parseFloat(entry.quantity);
+    if (!isFinite(q) || q <= 0) {
+      message.warning('Quantity must be > 0');
+      qtyRef.current?.focus();
+      return;
+    }
+    setItems((prev) => [
+      ...prev,
+      {
+        key:          itemKeyRef.current++,
+        product_id:   entry.product_id,
+        product_name: entry.product_name,
+        barcode:      entry.barcode,
+        unit:         entry.unit,
+        quantity:     q,
+        rate:         parseFloat(entry.rate) || 0,
+      },
+    ]);
+    setEntry(EMPTY_ENTRY);
+    barcodeRef.current?.focus();
   };
+
+  // Field updater for entry cells (qty, rate, etc.) — mirrors Sales' `ue`.
+  const ue = (field, value) => setEntry((p) => ({ ...p, [field]: value }));
 
   const removeItem = (key) => setItems((prev) => prev.filter((i) => i.key !== key));
 
@@ -414,100 +499,131 @@ export default function StockTransferForm() {
           </Form.Item>
         </Form>
 
-        {/* Product picker.
-         *
-         * Mirrors the Sales bill form's `.sbf-cell` Product picker
-         * 1:1 — same Select props, same option rendering, same
-         * dropdown width, same label-on-top treatment. Differences
-         * from the Sales picker: standalone (not inside an entry-row
-         * grid), and onSelect adds a row to `items` rather than
-         * setting an entry. Everything else — including the after-
-         * select clear-search behaviour — is identical.
-         *
-         * Why these props matter:
-         *   - filterOption=false       → server-side search, no
-         *                                client-side prefiltering
-         *   - optionLabelProp="label"  → selected-value renders as
-         *                                plain product_name, not the
-         *                                option's grid <div> (without
-         *                                this AntD tries to inject the
-         *                                whole layout into the select
-         *                                trigger and the cell collapses)
-         *   - controlled `open` state  → picking closes the dropdown
-         *                                synchronously
-         *   - controlled `searchValue` → reset on select so the next
-         *                                keystroke starts a fresh
-         *                                search instead of appending
-         *                                to the previous query
-         *   - dropdownMatchSelectWidth=460 → same width as Sales
+        {/* Entry row — 5-cell strip styled identically to the Sales
+         * bill form's entry ledger. Cells from left to right:
+         *   Barcode · Product · Qty · Rate · +ADD
+         * Uses the same `.sbf-entry-ledger` / `.sbf-cell` classes the
+         * Sales form uses (sales-bill-form.css imported at the top of
+         * this file). The only override is `gridTemplateColumns` —
+         * applied inline because Stock Transfer has 5 cells where the
+         * sales form has 11, so the default Sales template doesn't fit.
          */}
         {!readOnly && (
-          <div
-            style={{
-              display: 'flex', flexDirection: 'column',
-              padding: '4px 12px',
-              borderTop: '1px solid var(--border-subtle, #f1f5f9)',
-              borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
-              marginBottom: 8,
-              position: 'relative',
-            }}
-          >
-            <div style={{
-              fontSize: 9, textTransform: 'uppercase', letterSpacing: 1.2,
-              fontWeight: 700, color: 'var(--fg-tertiary)',
-              lineHeight: '14px', whiteSpace: 'nowrap',
+          <div className="sbf-entry-ledger">
+            <div className="sbf-entry-grid" style={{
+              gridTemplateColumns:
+                'minmax(130px, 170px)' +    /* Barcode */
+                ' minmax(220px, 1fr)' +     /* Product */
+                ' minmax(80px,  100px)' +   /* Qty */
+                ' minmax(110px, 140px)' +   /* Rate */
+                ' 90px',                    /* +ADD */
             }}>
-              Product
+              <div className="sbf-cell">
+                <div className="sbf-cell-lbl">Barcode</div>
+                <Input
+                  ref={barcodeRef}
+                  value={entry.barcode}
+                  placeholder="Scan or type"
+                  disabled={!fromGodownId}
+                  onChange={(e) => ue('barcode', e.target.value)}
+                  onPressEnter={(e) => {
+                    const v = e.target.value.trim();
+                    if (v) { e.target.value = ''; handleScan(v); }
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'ArrowDown') { e.preventDefault(); prodRef.current?.focus(); } }}
+                />
+              </div>
+              <div className="sbf-cell has-arrow">
+                <div className="sbf-cell-lbl">Product</div>
+                <Select
+                  ref={prodRef}
+                  key={`prod-${fromGodownId || 'no'}`}
+                  showSearch
+                  filterOption={false}
+                  optionLabelProp="label"
+                  value={entry.product_name || undefined}
+                  searchValue={searchValue}
+                  open={prodOpen}
+                  onDropdownVisibleChange={(v) => setProdOpen(v)}
+                  onSearch={(v) => { setProdOpen(true); handleProdSearch(v); }}
+                  onSelect={(val, opt) => handleProdSel(val, opt)}
+                  onClear={() => { setProdOpen(false); setEntry((p) => ({ ...p, product_id: null, product_name: '' })); }}
+                  allowClear
+                  placeholder={fromGodownId ? 'Product name' : 'Pick source godown first'}
+                  disabled={!fromGodownId}
+                  notFoundContent={prodSearching ? 'Searching…' : null}
+                  listHeight={320}
+                  dropdownMatchSelectWidth={460}
+                >
+                  {prodOpts.map((p) => {
+                    const stock = parseFloat(p.current_stock || 0);
+                    const stockColor = stock <= 0
+                      ? 'var(--danger)'
+                      : stock <= 5 ? 'var(--warning)' : 'var(--fg-tertiary)';
+                    return (
+                      <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '2px 0' }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {p.product_name}
+                            </div>
+                            <div style={{ fontSize: 10, color: 'var(--fg-tertiary)', marginTop: 1 }}>
+                              {[p.Category?.category_name, p.article_number && `Art# ${p.article_number}`, p.size_value && `Size ${p.size_value}`].filter(Boolean).join(' · ')}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
+                            <span style={{ color: 'var(--success)', fontWeight: 700, fontSize: 12 }}>
+                              ₹{parseFloat(p.purchase_rate || 0).toFixed(2)}
+                            </span>
+                            <span style={{ color: stockColor, fontSize: 10, fontWeight: 600 }}>
+                              {stock <= 0 ? 'Out of stock' : `Stock: ${stock}`}
+                            </span>
+                          </div>
+                        </div>
+                      </Select.Option>
+                    );
+                  })}
+                </Select>
+              </div>
+              <div className="sbf-cell numeric">
+                <div className="sbf-cell-lbl">Qty</div>
+                <InputNumber
+                  ref={qtyRef}
+                  keyboard={false}
+                  value={entry.quantity || undefined}
+                  min={0}
+                  placeholder=""
+                  style={{ width: '100%' }}
+                  onChange={(v) => ue('quantity', v || 0)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); rateRef.current?.focus(); }
+                  }}
+                />
+              </div>
+              <div className="sbf-cell numeric">
+                <div className="sbf-cell-lbl">Rate ₹</div>
+                <InputNumber
+                  ref={rateRef}
+                  keyboard={false}
+                  value={entry.rate || undefined}
+                  min={0}
+                  placeholder=""
+                  style={{ width: '100%' }}
+                  onChange={(v) => ue('rate', v || 0)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); }
+                  }}
+                />
+              </div>
+              <button onClick={handleAddItem} className="sbf-cell add" type="button">
+                <span className="sbf-cell-add-text">ADD</span>
+              </button>
             </div>
-            <Select
-              key={`prod-${fromGodownId || 'no'}`}
-              showSearch
-              filterOption={false}
-              optionLabelProp="label"
-              value={undefined}
-              searchValue={searchValue}
-              open={prodOpen}
-              onDropdownVisibleChange={(v) => setProdOpen(v)}
-              onSearch={(v) => { setProdOpen(true); handleProdSearch(v); }}
-              onSelect={(val, opt) => handleProdSel(val, opt)}
-              allowClear
-              placeholder={fromGodownId ? 'Product name' : 'Pick source godown first'}
-              disabled={!fromGodownId}
-              notFoundContent={prodSearching ? 'Searching…' : null}
-              listHeight={320}
-              dropdownMatchSelectWidth={460}
-              variant="borderless"
-              style={{ width: '100%' }}
-            >
-              {prodOpts.map((p) => {
-                const stock = parseFloat(p.current_stock || 0);
-                const stockColor = stock <= 0
-                  ? 'var(--danger)'
-                  : stock <= 5 ? 'var(--warning)' : 'var(--fg-tertiary)';
-                return (
-                  <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '2px 0' }}>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {p.product_name}
-                        </div>
-                        <div style={{ fontSize: 10, color: 'var(--fg-tertiary)', marginTop: 1 }}>
-                          {[p.Category?.category_name, p.article_number && `Art# ${p.article_number}`, p.size_value && `Size ${p.size_value}`].filter(Boolean).join(' · ')}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
-                        <span style={{ color: 'var(--success)', fontWeight: 700, fontSize: 12 }}>
-                          ₹{parseFloat(p.purchase_rate || 0).toFixed(2)}
-                        </span>
-                        <span style={{ color: stockColor, fontSize: 10, fontWeight: 600 }}>
-                          {stock <= 0 ? 'Out of stock' : `Stock: ${stock}`}
-                        </span>
-                      </div>
-                    </div>
-                  </Select.Option>
-                );
-              })}
-            </Select>
+            {entry.available_stock > 0 && (
+              <span className={`sbf-stock-chip ${entry.quantity > entry.available_stock ? 'low' : 'ok'}`}>
+                Stock at source: {entry.available_stock}
+              </span>
+            )}
           </div>
         )}
 
