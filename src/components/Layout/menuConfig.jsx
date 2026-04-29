@@ -115,6 +115,8 @@ export const menuItems = [
       { key: '/reports/hsn-summary',       icon: <TagsOutlined />,     label: 'HSN Summary',       perm: 'reports.view'  },
       { key: '/reports/stock-summary',     icon: <StockOutlined />,    label: 'Stock Summary',     perm: 'reports.view'  },
       { key: '/reports/movers',            icon: <ThunderboltOutlined />,label: 'Fast / Slow Movers', perm: 'reports.view' },
+      { key: '/reports/transfer-register', icon: <SwapOutlined />,     label: 'Transfer Register', perm: 'reports.view' },
+      { key: '/reports/godown-valuation',  icon: <BankOutlined />,     label: 'Godown Valuation',  perm: 'reports.view' },
     ],
   },
   {

@@ -44,6 +44,8 @@ import CashFlow from './pages/reports/CashFlow';
 import HsnSummary from './pages/reports/HsnSummary';
 import StockSummary from './pages/reports/StockSummary';
 import Movers from './pages/reports/Movers';
+import GodownTransferRegister from './pages/reports/GodownTransferRegister';
+import GodownValuation from './pages/reports/GodownValuation';
 import JournalVoucherList from './pages/accounts/JournalVoucherList';
 import JournalVoucherForm from './pages/accounts/JournalVoucherForm';
 import LedgerIntegrity from './pages/accounts/LedgerIntegrity';
@@ -196,6 +198,8 @@ export default function App() {
           <Route path="reports/hsn-summary"        element={<RoleRoute perm="reports.view"><HsnSummary /></RoleRoute>} />
           <Route path="reports/stock-summary"      element={<RoleRoute perm="reports.view"><StockSummary /></RoleRoute>} />
           <Route path="reports/movers"             element={<RoleRoute perm="reports.view"><Movers /></RoleRoute>} />
+          <Route path="reports/transfer-register"  element={<RoleRoute perm="reports.view"><GodownTransferRegister /></RoleRoute>} />
+          <Route path="reports/godown-valuation"   element={<RoleRoute perm="reports.view"><GodownValuation /></RoleRoute>} />
 
           {/* Accounts (double-entry) */}
           <Route path="accounts/journal"          element={<RoleRoute perm="accounts.view"><JournalVoucherList /></RoleRoute>} />

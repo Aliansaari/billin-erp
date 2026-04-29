@@ -195,6 +195,9 @@ export const reportAPI = {
   hsnSummary:         (params) => api.get('/reports/hsn-summary',        { params }),
   stockSummary:       (params) => api.get('/reports/stock-summary',      { params }),
   movers:             (params) => api.get('/reports/movers',             { params }),
+  // Phase Godown — multi-warehouse reports
+  transferRegister:   (params) => api.get('/reports/transfer-register',  { params }),
+  godownValuation:    (params) => api.get('/reports/godown-valuation',   { params }),
 
   // Filter-aware XLSX exports — SAME filter shape as the JSON endpoints above.
   // The server applies the filters, fetches ALL matching rows (no page limit),

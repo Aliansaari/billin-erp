@@ -138,8 +138,18 @@ exports.stockSummary = async (req, res) => {
   try {
     const { from, to } = await resolvePeriod(req.query);
     const categoryFilter = req.query.category_id ? ' AND p.category_id = :cid ' : '';
+    // Optional godown scope. When set, every Opening/In/Out value is
+    // computed from stock_ledger rows AT THAT GODOWN ONLY — so the
+    // report tells the operator "what's at MAIN" rather than "what's
+    // anywhere in the company". Without this, the same physical
+    // movement of stock between godowns (a transfer) would inflate
+    // both In and Out at the company level even though net is zero.
+    const godownFilter = req.query.godown_id
+      ? ' AND sl.godown_id = :gid '
+      : '';
     const replacements = { from, to };
     if (req.query.category_id) replacements.cid = req.query.category_id;
+    if (req.query.godown_id)   replacements.gid = req.query.godown_id;
 
     // Opening = sum of (in − out) for entries STRICTLY BEFORE from_date.
     // In/Out = sum within [from, to].  Closing = opening + in − out.
@@ -164,6 +174,7 @@ exports.stockSummary = async (req, res) => {
           LEFT JOIN categories c ON c.category_id = p.category_id
           LEFT JOIN stock_ledger sl ON sl.product_id = p.product_id
                                     AND sl.transaction_date <= :to
+                                    ${godownFilter}
          WHERE p.is_active = true
            ${categoryFilter}
          GROUP BY p.product_id, p.product_name, p.barcode, p.unit_of_measurement,
@@ -228,6 +239,14 @@ exports.movers = async (req, res) => {
   try {
     const { from, to } = await resolvePeriod(req.query);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
+    // Optional godown scope — restrict the sales window to bills issued
+    // from the given godown. Lets a multi-warehouse op see "what moved
+    // at MAIM" without bleed from PIMP / branch sales.
+    const godownFilter = req.query.godown_id
+      ? ' AND b.godown_id = :gid '
+      : '';
+    const replacements = { from, to };
+    if (req.query.godown_id) replacements.gid = req.query.godown_id;
 
     const rows = await sequelize.query(
       // CASE WHEN guards on b.sales_bill_id ensure we only count line items
@@ -252,10 +271,11 @@ exports.movers = async (req, res) => {
          LEFT JOIN sales_bills b ON b.sales_bill_id = it.sales_bill_id
                                 AND b.is_cancelled = false
                                 AND b.bill_date BETWEEN :from AND :to
+                                ${godownFilter}
         WHERE p.is_active = true
         GROUP BY p.product_id, p.product_name, p.barcode, p.hsn_code,
                  p.unit_of_measurement, p.purchase_rate, c.category_name`,
-      { replacements: { from, to }, type: sequelize.QueryTypes.SELECT },
+      { replacements, type: sequelize.QueryTypes.SELECT },
     );
 
     const enriched = rows.map((r) => {
@@ -297,6 +317,133 @@ exports.movers = async (req, res) => {
     res.json({ from, to, limit, fast, slow, totals });
   } catch (err) {
     console.error('movers error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ── Godown Transfer Register ─────────────────────────────────────────
+//
+// Date-windowed list of stock_transfers with optional from/to/status
+// filters. Includes line items and from/to godown labels. Same data
+// the Stock Transfers list shows, but exposed as a report so it can
+// be filed alongside the inventory reports the operator already
+// reviews monthly. Date defaults via resolvePeriod (FY-aware).
+//
+// Output shape mirrors the existing operational-report endpoints:
+// `{ from, to, transfers: [...], totals: {...} }` so the client can
+// render headers + table + summary in the usual three-strip layout.
+exports.transferRegister = async (req, res) => {
+  try {
+    const { from, to } = await resolvePeriod(req.query);
+    const where = ['t.transfer_date BETWEEN :from AND :to'];
+    const replacements = { from, to };
+    if (req.query.from_godown_id) {
+      where.push('t.from_godown_id = :fid');
+      replacements.fid = req.query.from_godown_id;
+    }
+    if (req.query.to_godown_id) {
+      where.push('t.to_godown_id = :tid');
+      replacements.tid = req.query.to_godown_id;
+    }
+    if (req.query.status) {
+      where.push('t.status = :status');
+      replacements.status = req.query.status;
+    }
+
+    const transfers = await sequelize.query(
+      `SELECT t.transfer_id, t.transfer_number, t.transfer_date,
+              t.status, t.notes,
+              t.total_quantity::float AS total_quantity,
+              t.total_value::float    AS total_value,
+              t.from_godown_id, gf.code AS from_code, gf.name AS from_name,
+              t.to_godown_id,   gt.code AS to_code,   gt.name AS to_name,
+              (SELECT COUNT(*)::int FROM stock_transfer_items i
+                 WHERE i.transfer_id = t.transfer_id) AS item_count
+         FROM stock_transfers t
+         LEFT JOIN godowns gf ON gf.godown_id = t.from_godown_id
+         LEFT JOIN godowns gt ON gt.godown_id = t.to_godown_id
+        WHERE ${where.join(' AND ')}
+        ORDER BY t.transfer_date DESC, t.transfer_id DESC`,
+      { replacements, type: sequelize.QueryTypes.SELECT },
+    );
+
+    // Bucket-totals by status — useful for the report summary strip
+    // (e.g. "12 Received · 3 In-Transit · 1 Cancelled").
+    const totals = transfers.reduce((acc, t) => {
+      acc.count += 1;
+      acc.total_quantity += parseFloat(t.total_quantity) || 0;
+      acc.total_value    += parseFloat(t.total_value)    || 0;
+      acc.by_status[t.status] = (acc.by_status[t.status] || 0) + 1;
+      return acc;
+    }, { count: 0, total_quantity: 0, total_value: 0, by_status: {} });
+    totals.total_quantity = r2(totals.total_quantity);
+    totals.total_value    = r2(totals.total_value);
+
+    res.json({ from, to, transfers, totals });
+  } catch (err) {
+    console.error('transferRegister error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ── Godown-wise Stock Valuation ───────────────────────────────────────
+//
+// Aggregates per-godown stock value: SUM(pgs.current_stock * p.purchase_rate)
+// grouped by godown. Active godowns only. Inactive godowns are skipped
+// rather than shown with zeros — the operator wants a snapshot of where
+// inventory currently sits, not an audit of every godown ever created.
+//
+// `?detail=true` adds a per-product breakdown for each godown (used by
+// the drill-in panel of the report); without it, only the per-godown
+// roll-up rows are returned (cheap default for the dashboard tile).
+exports.godownValuation = async (req, res) => {
+  try {
+    const summary = await sequelize.query(
+      `SELECT g.godown_id, g.code, g.name, g.is_default,
+              COUNT(DISTINCT pgs.product_id)::int                  AS products,
+              COALESCE(SUM(pgs.current_stock), 0)::float           AS total_qty,
+              COALESCE(SUM(pgs.current_stock * p.purchase_rate), 0)::float
+                                                                   AS total_value
+         FROM godowns g
+         LEFT JOIN product_godown_stock pgs ON pgs.godown_id = g.godown_id
+         LEFT JOIN products p              ON p.product_id   = pgs.product_id
+                                            AND p.is_active = true
+        WHERE g.is_active = true
+        GROUP BY g.godown_id, g.code, g.name, g.is_default
+        ORDER BY g.is_default DESC, g.code ASC`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
+    let detail = null;
+    if (req.query.detail === 'true') {
+      detail = await sequelize.query(
+        `SELECT pgs.godown_id, pgs.product_id,
+                p.product_name, p.barcode, p.unit_of_measurement,
+                p.category_id, c.category_name,
+                pgs.current_stock::float AS current_stock,
+                p.purchase_rate::float   AS purchase_rate,
+                (pgs.current_stock * p.purchase_rate)::float AS value
+           FROM product_godown_stock pgs
+           JOIN products p   ON p.product_id   = pgs.product_id AND p.is_active = true
+           LEFT JOIN categories c ON c.category_id = p.category_id
+          WHERE pgs.current_stock > 0
+          ORDER BY pgs.godown_id ASC, p.product_name ASC`,
+        { type: sequelize.QueryTypes.SELECT },
+      );
+    }
+
+    const totals = summary.reduce((acc, g) => {
+      acc.total_qty   += parseFloat(g.total_qty)   || 0;
+      acc.total_value += parseFloat(g.total_value) || 0;
+      acc.godowns     += 1;
+      return acc;
+    }, { godowns: 0, total_qty: 0, total_value: 0 });
+    totals.total_qty   = r2(totals.total_qty);
+    totals.total_value = r2(totals.total_value);
+
+    res.json({ summary, detail, totals });
+  } catch (err) {
+    console.error('godownValuation error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };

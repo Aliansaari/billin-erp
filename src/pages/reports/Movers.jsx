@@ -9,7 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, Table, Typography, Space, Button, DatePicker, Select, message, Statistic, Row, Col } from 'antd';
 import { PrinterOutlined, FileExcelOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { reportAPI } from '../../api';
+import { reportAPI, godownAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title } = Typography;
@@ -36,6 +36,14 @@ export default function Movers() {
   const [to, setTo]      = useState(null);
   const [limit, setLimit]= useState(20);
   const { fyStart, fyEnd } = useFinancialYear();
+  // Optional godown scope — restrict the sales window to bills issued
+  // from this godown. Lets a multi-warehouse op read fast/slow movers
+  // for one branch instead of the company-wide aggregate.
+  const [godownId, setGodownId] = useState();
+  const [godowns,  setGodowns]  = useState([]);
+  useEffect(() => {
+    godownAPI.getAll().then(({ data }) => setGodowns((data || []).filter((g) => g.is_active))).catch(() => {});
+  }, []);
   useEffect(() => {
     if (preset === 'custom') return;
     if ((preset === 'this_fy' || preset === 'this_q' || preset === 'this_month') && (!fyStart || !fyEnd)) return;
@@ -45,11 +53,11 @@ export default function Movers() {
   useEffect(() => {
     if (!from || !to) return;
     setLd(true);
-    reportAPI.movers({ from_date: from, to_date: to, limit })
+    reportAPI.movers({ from_date: from, to_date: to, limit, ...(godownId ? { godown_id: godownId } : {}) })
       .then((r) => setData(r.data))
       .catch((e) => message.error(e.response?.data?.error || 'Failed to load Movers'))
       .finally(() => setLd(false));
-  }, [from, to, limit]);
+  }, [from, to, limit, godownId]);
 
   const totals = data?.totals || {};
   const numCol = (val) => <span style={{ fontFamily: 'Geist Mono, monospace' }}>{fmtQ(val)}</span>;
@@ -89,10 +97,16 @@ export default function Movers() {
             )}
             <Select value={limit} onChange={setLimit} style={{ width: 110 }}
               options={[10, 20, 50, 100].map((n) => ({ value: n, label: `Top ${n}` }))} />
+            <Select
+              allowClear placeholder="All godowns"
+              value={godownId} onChange={setGodownId} style={{ width: 180 }}
+              options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+            />
             <Button icon={<ReloadOutlined />} onClick={() => {
               if (!from || !to) return;
               setLd(true);
-              reportAPI.movers({ from_date: from, to_date: to, limit }).then((r) => setData(r.data)).finally(() => setLd(false));
+              reportAPI.movers({ from_date: from, to_date: to, limit, ...(godownId ? { godown_id: godownId } : {}) })
+                .then((r) => setData(r.data)).finally(() => setLd(false));
             }}>Refresh</Button>
             <Button icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
             <Button icon={<FileExcelOutlined />} onClick={() => exportXls(data)}>Excel</Button>

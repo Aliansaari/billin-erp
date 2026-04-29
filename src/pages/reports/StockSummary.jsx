@@ -9,7 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, Table, Typography, Space, Button, DatePicker, Select, Input, message, Statistic, Row, Col, Tag } from 'antd';
 import { PrinterOutlined, FileExcelOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { reportAPI } from '../../api';
+import { reportAPI, godownAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 
 const { Title } = Typography;
@@ -32,6 +32,14 @@ export default function StockSummary() {
   const [to, setTo]      = useState(null);
   const { fyStart, fyEnd } = useFinancialYear();
   const [search, setSearch] = useState('');
+  // Optional godown scope. undefined = all godowns (default behaviour);
+  // a numeric id restricts In/Out/Opening/Closing to movements at that
+  // godown only. The server applies the filter to stock_ledger.godown_id.
+  const [godownId, setGodownId] = useState();
+  const [godowns,  setGodowns]  = useState([]);
+  useEffect(() => {
+    godownAPI.getAll().then(({ data }) => setGodowns((data || []).filter((g) => g.is_active))).catch(() => {});
+  }, []);
   useEffect(() => {
     if (!fyStart || !fyEnd || preset === 'custom') return;
     const r = presetRange(preset, fyStart, fyEnd);
@@ -40,11 +48,11 @@ export default function StockSummary() {
   useEffect(() => {
     if (!from || !to) return;
     setLd(true);
-    reportAPI.stockSummary({ from_date: from, to_date: to })
+    reportAPI.stockSummary({ from_date: from, to_date: to, ...(godownId ? { godown_id: godownId } : {}) })
       .then((r) => setData(r.data))
       .catch((e) => message.error(e.response?.data?.error || 'Failed to load Stock Summary'))
       .finally(() => setLd(false));
-  }, [from, to]);
+  }, [from, to, godownId]);
 
   const totals = data?.totals || {};
   const products = (data?.products || []).filter((p) => {
@@ -82,6 +90,11 @@ export default function StockSummary() {
           <Space wrap>
             <Input prefix={<SearchOutlined />} placeholder="Search product / barcode / HSN" value={search}
               onChange={(e) => setSearch(e.target.value)} style={{ width: 260 }} allowClear />
+            <Select
+              allowClear placeholder="All godowns"
+              value={godownId} onChange={setGodownId} style={{ width: 180 }}
+              options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+            />
             <Select value={preset} onChange={setPr} style={{ width: 140 }}
               options={[
                 { value: 'this_fy', label: 'This FY' },
@@ -97,7 +110,7 @@ export default function StockSummary() {
             <Button icon={<ReloadOutlined />} onClick={() => {
               if (!from || !to) return;
               setLd(true);
-              reportAPI.stockSummary({ from_date: from, to_date: to })
+              reportAPI.stockSummary({ from_date: from, to_date: to, ...(godownId ? { godown_id: godownId } : {}) })
                 .then((r) => setData(r.data)).finally(() => setLd(false));
             }}>Refresh</Button>
             <Button icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
