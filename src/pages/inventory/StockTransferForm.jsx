@@ -53,9 +53,14 @@ export default function StockTransferForm() {
   const [transfer, setTransfer] = useState(null);   // loaded transfer (edit mode)
   const [prodOpts, setProdOpts] = useState([]);
   const [prodSearching, setProdSearching] = useState(false);
+  const [prodOpen, setProdOpen] = useState(false);
   const [transferNo, setTransferNo] = useState('—');
-  const itemKeyRef = useRef(1);
+  const itemKeyRef    = useRef(1);
   const submittingRef = useRef(false);
+  // Sales-form parity: debounce timer + stale-request id so concurrent
+  // typed characters don't race and overwrite the latest result set.
+  const searchTimerRef = useRef(null);
+  const searchReqRef   = useRef(0);
 
   const fromGodownId = Form.useWatch('from_godown_id', form);
   const toGodownId   = Form.useWatch('to_godown_id', form);
@@ -122,28 +127,48 @@ export default function StockTransferForm() {
 
   /* ── Item entry ───────────────────────────────────────────────────── */
 
-  // Live product search; scoped to the FROM godown so per-godown stock
-  // is what the operator sees on the row, not the global aggregate.
-  const handleProdSearch = useCallback((q) => {
-    if (!q || q.length < 1) { setProdOpts([]); return; }
-    setProdSearching(true);
-    productAPI.search(q, { limit: 30, godown_id: fromGodownId })
-      .then(({ data }) => setProdOpts(data || []))
-      .catch(() => setProdOpts([]))
-      .finally(() => setProdSearching(false));
+  // Mirrors SalesBillForm's handleProdSearch:
+  //  - debounced (150ms) so we don't fire one request per keystroke
+  //  - stale-request guard via reqId so a slow earlier response can't
+  //    overwrite a later, fresher result set
+  //  - response shape is data.data (paginated wrapper) — using `data`
+  //    as the array would set prodOpts to an OBJECT and prodOpts.map
+  //    would crash with "is not a function", blanking the screen.
+  //  - godown_id forwarded so the server scopes current_stock to the
+  //    source godown (productController.getAll honours godown_id).
+  const handleProdSearch = useCallback((v) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!v) { setProdOpts([]); return; }
+    searchTimerRef.current = setTimeout(async () => {
+      const reqId = ++searchReqRef.current;
+      try {
+        const { data } = await productAPI.search(v, {
+          name_only: 'true',
+          ...(fromGodownId ? { godown_id: fromGodownId } : {}),
+        });
+        if (reqId !== searchReqRef.current) return;
+        setProdOpts(data.data || []);
+      } catch { /* surface as empty result; server-side error already toasted globally */ }
+    }, 150);
   }, [fromGodownId]);
 
-  const handleProdSelect = (val, opt) => {
+  // Pick a product → push as a transfer line. Mirrors handleProdSel
+  // shape from the bill forms (qty defaults from quantity_per_box,
+  // rate snapshots purchase_rate for valuation).
+  const handleProdSel = (val, opt) => {
     const p = opt?.product;
     if (!p) return;
+    const qty = parseFloat(p.quantity_per_box) || 1;
     addItem({
       product_id:   p.product_id,
       product_name: p.product_name,
       barcode:      p.barcode,
       unit:         p.unit_of_measurement || 'PCS',
-      quantity:     1,
+      quantity:     qty,
       rate:         parseFloat(p.purchase_rate) || 0,
     });
+    setProdOpen(false);
+    setProdOpts([]);
   };
 
   const addItem = (it) => {
@@ -376,53 +401,81 @@ export default function StockTransferForm() {
           </Form.Item>
         </Form>
 
-        {/* Item entry — product picker; only when not read-only and godowns picked */}
+        {/* Item entry — product picker.
+         *
+         * Mirrors SalesBillForm's product cell exactly:
+         *   - showSearch + filterOption=false (server-side search)
+         *   - optionLabelProp="label" so the selected value renders as
+         *     a plain product name, NOT the option's full grid HTML
+         *     (without this, AntD tries to render the layout div inside
+         *     the select trigger and the layout collapses)
+         *   - controlled `open` state so picking an item closes the
+         *     dropdown immediately
+         *   - Select.Option carries `label={p.product_name}` and the
+         *     full product object via `product={p}` so handleProdSel
+         *     can read it
+         *   - dropdownMatchSelectWidth=520 so longer names + meta
+         *     details aren't truncated
+         */}
         {!readOnly && (
           <div style={{
             border: '1px solid var(--border, #e5e7eb)', borderRadius: 8,
             padding: 12, marginBottom: 12, background: 'var(--bg-subtle, #f9fafb)',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <PlusCircleOutlined style={{ color: 'var(--accent, #4F46E5)' }} />
               <strong>Add item</strong>
               <span style={{ color: 'var(--fg-tertiary)', fontSize: 12 }}>
                 Stock shown is at the source godown
               </span>
             </div>
-            <div style={{ marginTop: 8 }}>
-              <Select
-                showSearch
-                value={undefined}
-                placeholder={fromGodownId ? 'Search product (name / barcode)' : 'Pick source godown first'}
-                disabled={!fromGodownId}
-                filterOption={false}
-                onSearch={handleProdSearch}
-                onSelect={handleProdSelect}
-                notFoundContent={prodSearching ? <Spin size="small" /> : null}
-                style={{ width: '100%' }}
-                size="middle"
-              >
-                {prodOpts.map((p) => {
-                  const stock = parseFloat(p.current_stock || 0);
-                  const stockColor = stock <= 0 ? 'var(--danger, #dc2626)' : stock <= 5 ? 'var(--warning, #d97706)' : 'var(--success, #059669)';
-                  return (
-                    <Select.Option key={p.product_id} value={p.product_id} product={p}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <Select
+              key={`prod-${fromGodownId || 'no'}`}  /* refresh per-source so cached opts don't bleed across godown changes */
+              showSearch
+              filterOption={false}
+              optionLabelProp="label"
+              value={undefined}
+              open={prodOpen}
+              onDropdownVisibleChange={(v) => setProdOpen(v)}
+              onSearch={(v) => { setProdOpen(true); handleProdSearch(v); }}
+              onSelect={(val, opt) => handleProdSel(val, opt)}
+              allowClear
+              placeholder={fromGodownId ? 'Search product by name' : 'Pick source godown first'}
+              disabled={!fromGodownId}
+              notFoundContent={prodSearching ? 'Searching…' : null}
+              listHeight={320}
+              dropdownMatchSelectWidth={520}
+              style={{ width: '100%' }}
+            >
+              {prodOpts.map((p) => {
+                const stock = parseFloat(p.current_stock || 0);
+                const stockColor = stock <= 0
+                  ? 'var(--danger)'
+                  : stock <= 5 ? 'var(--warning)' : 'var(--fg-tertiary)';
+                return (
+                  <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '2px 0' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {p.product_name}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--fg-tertiary)', marginTop: 1 }}>
+                          {[p.Category?.category_name, p.article_number && `Art# ${p.article_number}`, p.size_value && `Size ${p.size_value}`].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
+                        <span style={{ color: 'var(--success)', fontWeight: 700, fontSize: 12 }}>
+                          ₹{parseFloat(p.purchase_rate || 0).toFixed(2)}
                         </span>
-                        <span style={{ fontSize: 11, color: 'var(--fg-tertiary)', fontFamily: 'var(--font-mono, monospace)' }}>
-                          {p.barcode}
-                        </span>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: stockColor, textAlign: 'right' }}>
-                          {stock <= 0 ? 'out' : `${stock} ${p.unit_of_measurement || ''}`}
+                        <span style={{ color: stockColor, fontSize: 10, fontWeight: 600 }}>
+                          {stock <= 0 ? 'Out of stock' : `Stock: ${stock}`}
                         </span>
                       </div>
-                    </Select.Option>
-                  );
-                })}
-              </Select>
-            </div>
+                    </div>
+                  </Select.Option>
+                );
+              })}
+            </Select>
           </div>
         )}
 

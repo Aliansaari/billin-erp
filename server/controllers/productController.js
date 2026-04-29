@@ -114,6 +114,27 @@ exports.getAll = async (req, res) => {
       });
     }
 
+    // Per-godown stock override. When the caller passes godown_id (set
+    // by Stock Transfer pickers + Sales/Purchase forms scoped to a
+    // specific godown), each returned product's current_stock is replaced
+    // with its per-godown count from product_godown_stock. Missing pairs
+    // resolve to 0 — matches the implicit-zero semantics used elsewhere.
+    // Without this, the picker would show the global aggregate which
+    // misleads the operator about what's actually on the shelf.
+    if (req.query.godown_id && rows.length) {
+      const { ProductGodownStock } = require('../models');
+      const gid = parseInt(req.query.godown_id, 10);
+      const pgsRows = await ProductGodownStock.findAll({
+        where: { godown_id: gid, product_id: rows.map(r => r.product_id) },
+        attributes: ['product_id', 'current_stock'],
+      });
+      const stockByProduct = new Map(pgsRows.map(p => [p.product_id, parseFloat(p.current_stock) || 0]));
+      data = (data === rows ? rows : data).map(r => {
+        const j = r.toJSON ? r.toJSON() : r;
+        return { ...j, current_stock: stockByProduct.get(j.product_id) || 0 };
+      });
+    }
+
     res.json({ total: count, page, limit, data });
   } catch (error) {
     console.error('Get products error:', error);
