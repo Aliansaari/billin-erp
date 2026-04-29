@@ -1,11 +1,13 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
-const { SalesBill, SalesBillItem, SalesBillDraft, SalesReturnBill, SalesReturnBillItem, Party, Product, StockLedger, SystemSettings } = require('../models');
+const { SalesBill, SalesBillItem, SalesBillDraft, SalesReturnBill, SalesReturnBillItem, Party, Product, StockLedger, SystemSettings, Godown } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { stateCodeFromGstin, stateCodeFromName } = require('../utils/gstr1');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers } = require('../services/voucherBuilders');
+const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
 /**
  * Determine intra-state vs inter-state for a sales bill.
@@ -131,7 +133,7 @@ exports.getById = async (req, res) => {
  *
  * Returns the created SalesReturnBill row (or null if items[] is empty).
  */
-async function createInlineReturn({ customer_id, billDate, items, reason, isInterState, req, t }) {
+async function createInlineReturn({ customer_id, billDate, items, reason, isInterState, godown_id, req, t }) {
   if (!Array.isArray(items) || items.length === 0) return null;
 
   // Allocate next return number under a row lock (mirrors salesController
@@ -207,6 +209,7 @@ async function createInlineReturn({ customer_id, billDate, items, reason, isInte
   const returnBill = await SalesReturnBill.create({
     return_number: returnNumber,
     customer_id,
+    godown_id,
     return_date: billDate,
     reference_bill_id: null,    // standalone — inline return isn't tied to a single past bill
     return_mode: 'Items',
@@ -242,10 +245,15 @@ async function createInlineReturn({ customer_id, billDate, items, reason, isInte
     if (it.product_id) {
       const product = await Product.findByPk(it.product_id, { transaction: t });
       if (product) {
-        const newStock = +((parseFloat(product.current_stock) || 0) + parseFloat(it.quantity)).toFixed(2);
-        await product.update({ current_stock: newStock }, { transaction: t });
+        // Restock at the SAME godown the parent sale issued from. Inline
+        // returns piggy-back on the sales bill, so godown_id flows through
+        // the call site (paired sale uses billData.godown_id).
+        const newStock = await applyGodownStockDelta({
+          product_id: it.product_id, godown_id, delta: +parseFloat(it.quantity), t,
+        });
         await StockLedger.create({
           product_id: it.product_id,
+          godown_id,
           barcode: it.barcode,
           transaction_type: 'Sales Return',
           transaction_date: billDate,
@@ -346,6 +354,21 @@ exports.create = async (req, res) => {
     billData.bill_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
     billData.sales_person = billData.sales_person || req.user.user_id;
+
+    // ── Resolve issuing godown ──
+    // Explicit body.godown_id wins (subject to allowed_godowns). When
+    // missing (legacy clients, scripts, imports), fall back to the user's
+    // first allowed godown or the system default. The bill row carries
+    // the resolved id so every downstream operation (stock writes, GST
+    // routing, print Place-of-Supply) reads the same value.
+    const godownResolved = await resolveGodownForWrite({
+      req_godown_id: billData.godown_id, user: req.user, t,
+    });
+    if (godownResolved.error) {
+      await t.rollback();
+      return res.status(403).json({ error: godownResolved.error });
+    }
+    billData.godown_id = godownResolved.godown_id;
 
     // Prefer the explicit mode flag from the client. Fall back to the legacy
     // "any non-zero %" heuristic only when the flag is missing, so older
@@ -562,23 +585,31 @@ exports.create = async (req, res) => {
         cost_rate: costRate,
       }, { transaction: t });
 
-      // Deduct stock
+      // Deduct stock at the BILL'S godown (not the global aggregate). The
+      // pre-check uses getGodownStock so the per-godown current_stock
+      // governs the negative-stock guard — a product that has 5 units
+      // total but 0 at this godown can't be sold from this godown.
       if (product) {
-        const currentStock = parseFloat(product.current_stock) || 0;
+        const currentStock = await getGodownStock({
+          product_id: item.product_id, godown_id: billData.godown_id, t,
+        });
         const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
 
-        // Block sale if it would cause negative stock and negative stock is disabled
         if (!allowNegativeStock && newStock < 0) {
           await t.rollback();
           return res.status(400).json({
-            error: `Insufficient stock for "${item.product_name || product.product_name}". Available: ${currentStock}, Requested: ${item.quantity}. Enable "Allow Negative Stock" in Module Settings to proceed.`,
+            error: `Insufficient stock for "${item.product_name || product.product_name}" at this godown. Available: ${currentStock}, Requested: ${item.quantity}. Enable "Allow Negative Stock" in Module Settings to proceed.`,
           });
         }
 
-        await product.update({ current_stock: newStock }, { transaction: t });
+        await applyGodownStockDelta({
+          product_id: item.product_id, godown_id: billData.godown_id,
+          delta: -parseFloat(item.quantity), t,
+        });
 
         await StockLedger.create({
           product_id: item.product_id,
+          godown_id: billData.godown_id,
           barcode: item.barcode,
           transaction_type: 'Sales',
           transaction_date: billData.bill_date,
@@ -614,6 +645,9 @@ exports.create = async (req, res) => {
           // Reuse the same intra/inter-state resolution the sale used so
           // the return's GST routing matches the sale.
           isInterState: interState,
+          // The paired return restocks at the same godown the sale shipped
+          // from — goods physically came back to the same warehouse.
+          godown_id: billData.godown_id,
           req, t,
         });
         // CRITICAL: zero out the SalesBill's `return_amount` field. Without
@@ -741,14 +775,30 @@ exports.update = async (req, res) => {
     if (!existingBill) { await t.rollback(); return res.status(404).json({ error: 'Bill not found' }); }
     if (existingBill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Cannot edit a cancelled bill' }); }
 
-    // Step 1: Reverse old stock effects (no reversal ledger entries)
+    // Resolve target godown for this edit. If the body specifies one,
+    // validate it; if not, retain the existing bill's godown. Same
+    // permission gate as create — the user must have access to the
+    // chosen godown.
+    if (billData.godown_id != null) {
+      const denied = denyIfGodownInaccessible(billData.godown_id, req.user);
+      if (denied) { await t.rollback(); return res.status(403).json({ error: denied }); }
+    } else {
+      billData.godown_id = existingBill.godown_id;
+    }
+
+    // Step 1: Reverse old stock effects at the EXISTING bill's godown.
+    // Edits don't migrate inventory between godowns — that's what stock
+    // transfers are for. Even if the operator changes godown_id on edit,
+    // the reversal goes back to the original godown (where the stock was
+    // taken from); the apply-new step below pushes the deduction at the
+    // updated godown.
+    const oldGodownId = existingBill.godown_id;
     for (const oldItem of existingBill.items) {
-      if (oldItem.product_id) {
-        const product = await Product.findByPk(oldItem.product_id, { transaction: t });
-        if (product) {
-          const revStock = +((parseFloat(product.current_stock) || 0) + parseFloat(oldItem.quantity)).toFixed(2);
-          await product.update({ current_stock: revStock }, { transaction: t });
-        }
+      if (oldItem.product_id && oldGodownId) {
+        await applyGodownStockDelta({
+          product_id: oldItem.product_id, godown_id: oldGodownId,
+          delta: +parseFloat(oldItem.quantity), t,
+        });
       }
     }
 
@@ -945,19 +995,26 @@ exports.update = async (req, res) => {
       }, { transaction: t });
 
       if (product) {
-        const currentStock = parseFloat(product.current_stock) || 0;
+        const currentStock = await getGodownStock({
+          product_id: item.product_id, godown_id: billData.godown_id, t,
+        });
         const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
 
         if (!allowNegStockU && newStock < 0) {
           await t.rollback();
           return res.status(400).json({
-            error: `Insufficient stock for "${item.product_name || product.product_name}". Available: ${currentStock}, Requested: ${item.quantity}. Enable "Allow Negative Stock" in Module Settings to proceed.`,
+            error: `Insufficient stock for "${item.product_name || product.product_name}" at this godown. Available: ${currentStock}, Requested: ${item.quantity}. Enable "Allow Negative Stock" in Module Settings to proceed.`,
           });
         }
 
-        await product.update({ current_stock: newStock }, { transaction: t });
+        await applyGodownStockDelta({
+          product_id: item.product_id, godown_id: billData.godown_id,
+          delta: -parseFloat(item.quantity), t,
+        });
         await StockLedger.create({
-          product_id: item.product_id, barcode: item.barcode,
+          product_id: item.product_id,
+          godown_id: billData.godown_id,
+          barcode: item.barcode,
           transaction_type: 'Sales',
           transaction_date: billData.bill_date,
           reference_id: existingBill.sales_bill_id,
@@ -1054,11 +1111,14 @@ exports.cancel = async (req, res) => {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // Reverse the deduction at the bill's own godown (the one the sale
+    // shipped from). Cancellation never re-routes stock.
     for (const item of bill.items) {
-      if (item.product_id) {
-        const product = await Product.findByPk(item.product_id, { transaction: t });
-        const newStock = +((parseFloat(product.current_stock) || 0) + parseFloat(item.quantity)).toFixed(2);
-        await product.update({ current_stock: newStock }, { transaction: t });
+      if (item.product_id && bill.godown_id) {
+        await applyGodownStockDelta({
+          product_id: item.product_id, godown_id: bill.godown_id,
+          delta: +parseFloat(item.quantity), t,
+        });
       }
     }
 

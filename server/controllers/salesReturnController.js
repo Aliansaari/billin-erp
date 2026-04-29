@@ -3,12 +3,14 @@ const sequelize = require('../config/database');
 const {
   SalesReturnBill, SalesReturnBillItem,
   SalesBill, SalesBillItem,
-  Party, Product, StockLedger, SystemSettings,
+  Party, Product, StockLedger, SystemSettings, Godown,
 } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesReturnVouchers } = require('../services/voucherBuilders');
+const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
 /**
  * Fields the client is NEVER allowed to set directly on a return bill.
@@ -430,6 +432,23 @@ exports.create = async (req, res) => {
     billData.return_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
 
+    // Resolve godown — explicit body wins, else default. If the return
+    // references a sales bill, prefer THAT bill's godown over the user
+    // default (returning to the same warehouse the goods came from is
+    // the intuitive behaviour).
+    if (billData.godown_id == null && billData.reference_bill_id) {
+      const ref = await SalesBill.findByPk(billData.reference_bill_id, { transaction: t });
+      if (ref && ref.godown_id) billData.godown_id = ref.godown_id;
+    }
+    const godownResolved = await resolveGodownForWrite({
+      req_godown_id: billData.godown_id, user: req.user, t,
+    });
+    if (godownResolved.error) {
+      await t.rollback();
+      return res.status(403).json({ error: godownResolved.error });
+    }
+    billData.godown_id = godownResolved.godown_id;
+
     // Pick the item set we'll compute totals on — either the real ones, or
     // a single synthetic line representing the amount-only credit note.
     const effectiveItems = return_mode === 'Amount'
@@ -514,12 +533,14 @@ exports.create = async (req, res) => {
       if (item.product_id && return_mode === 'Items') {
         const product = await Product.findByPk(item.product_id, { transaction: t });
         if (!product) continue;
-        const currentStock = parseFloat(product.current_stock) || 0;
-        const newStock = +(currentStock + parseFloat(item.quantity)).toFixed(2);
-        await product.update({ current_stock: newStock }, { transaction: t });
+        const newStock = await applyGodownStockDelta({
+          product_id: item.product_id, godown_id: billData.godown_id,
+          delta: +parseFloat(item.quantity), t,
+        });
 
         await StockLedger.create({
           product_id: item.product_id,
+          godown_id: billData.godown_id,
           barcode: item.barcode,
           transaction_type: 'Sales Return',
           transaction_date: billData.return_date,
@@ -608,6 +629,14 @@ exports.update = async (req, res) => {
     if (!existing) { await t.rollback(); return res.status(404).json({ error: 'Return not found' }); }
     if (existing.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Cannot edit a cancelled return' }); }
 
+    // Resolve godown — body wins (validate); else retain existing.
+    if (billData.godown_id != null) {
+      const denied = denyIfGodownInaccessible(billData.godown_id, req.user);
+      if (denied) { await t.rollback(); return res.status(403).json({ error: denied }); }
+    } else {
+      billData.godown_id = existing.godown_id;
+    }
+
     // Reference bill: may be newly set, changed, or cleared. Validate the
     // effective values the update will end up with.
     try {
@@ -620,14 +649,15 @@ exports.update = async (req, res) => {
       return res.status(400).json({ error: refErr.message });
     }
 
-    // Reverse old stock restorations (only for lines that actually moved stock).
+    // Reverse old stock restorations at the EXISTING return's godown
+    // (where the returned goods originally landed).
+    const oldGodownId = existing.godown_id;
     for (const oldItem of existing.items) {
-      if (oldItem.product_id && existing.return_mode === 'Items') {
-        const product = await Product.findByPk(oldItem.product_id, { transaction: t });
-        if (product) {
-          const rev = +(parseFloat(product.current_stock) - parseFloat(oldItem.quantity)).toFixed(2);
-          await product.update({ current_stock: rev }, { transaction: t });
-        }
+      if (oldItem.product_id && existing.return_mode === 'Items' && oldGodownId) {
+        await applyGodownStockDelta({
+          product_id: oldItem.product_id, godown_id: oldGodownId,
+          delta: -parseFloat(oldItem.quantity), t,
+        });
       }
     }
     await StockLedger.destroy({
@@ -709,11 +739,14 @@ exports.update = async (req, res) => {
       if (item.product_id && return_mode === 'Items') {
         const product = await Product.findByPk(item.product_id, { transaction: t });
         if (!product) continue;
-        const currentStock = parseFloat(product.current_stock) || 0;
-        const newStock = +(currentStock + parseFloat(item.quantity)).toFixed(2);
-        await product.update({ current_stock: newStock }, { transaction: t });
+        const newStock = await applyGodownStockDelta({
+          product_id: item.product_id, godown_id: billData.godown_id,
+          delta: +parseFloat(item.quantity), t,
+        });
         await StockLedger.create({
-          product_id: item.product_id, barcode: item.barcode,
+          product_id: item.product_id,
+          godown_id: billData.godown_id,
+          barcode: item.barcode,
           transaction_type: 'Sales Return',
           transaction_date: billData.return_date || existing.return_date,
           reference_id: existing.sales_return_id,
@@ -787,27 +820,32 @@ exports.cancel = async (req, res) => {
         const cur = byProduct.get(item.product_id) || 0;
         byProduct.set(item.product_id, cur + parseFloat(item.quantity || 0));
       }
+      // Cancellation pulls the restored stock back out at the return's
+      // own godown. A different godown's headroom is irrelevant.
+      const billGodown = bill.godown_id;
       for (const [pid, qty] of byProduct) {
         const product = await Product.findByPk(pid, { transaction: t });
-        const finalStock = +((parseFloat(product?.current_stock) || 0) - qty).toFixed(2);
+        const haveAtGodown = billGodown
+          ? await getGodownStock({ product_id: pid, godown_id: billGodown, t })
+          : 0;
+        const finalStock = +(haveAtGodown - qty).toFixed(2);
         if (finalStock < 0) {
           await t.rollback();
           return res.status(400).json({
-            error: `Cannot cancel this sales return: "${product.product_name}" would drop to ${finalStock} units (${Math.abs(finalStock)} already sold from the restored stock). Enable "Allow Negative Stock" in Module Settings to proceed.`,
+            error: `Cannot cancel this sales return: "${product.product_name}" would drop to ${finalStock} units at this godown (${Math.abs(finalStock)} already sold from the restored stock). Enable "Allow Negative Stock" in Module Settings to proceed.`,
           });
         }
       }
     }
 
-    // Reverse stock (only lines that originally moved stock).
+    // Reverse stock at the return's godown.
     if (bill.return_mode === 'Items') {
       for (const item of bill.items) {
-        if (item.product_id) {
-          const product = await Product.findByPk(item.product_id, { transaction: t });
-          if (product) {
-            const revStock = +((parseFloat(product.current_stock) || 0) - parseFloat(item.quantity)).toFixed(2);
-            await product.update({ current_stock: revStock }, { transaction: t });
-          }
+        if (item.product_id && bill.godown_id) {
+          await applyGodownStockDelta({
+            product_id: item.product_id, godown_id: bill.godown_id,
+            delta: -parseFloat(item.quantity), t,
+          });
         }
       }
     }

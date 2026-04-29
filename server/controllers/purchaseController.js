@@ -1,11 +1,13 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
-const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, StockLedger, Category, SystemSettings } = require('../models');
+const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, StockLedger, Category, SystemSettings, Godown } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPurchaseBillVouchers } = require('../services/voucherBuilders');
+const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
 /**
  * Resolve or create a product for a purchase bill item.
@@ -224,6 +226,19 @@ exports.create = async (req, res) => {
     billData.bill_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
 
+    // Resolve receiving godown — body-supplied wins (subject to allowlist),
+    // else user default, else system default. The bill row carries it so
+    // every downstream operation (per-godown stock add, future Place-of-
+    // Supply for inward GST) reads the same value.
+    const godownResolved = await resolveGodownForWrite({
+      req_godown_id: billData.godown_id, user: req.user, t,
+    });
+    if (godownResolved.error) {
+      await t.rollback();
+      return res.status(403).json({ error: godownResolved.error });
+    }
+    billData.godown_id = godownResolved.godown_id;
+
     // Prefer the explicit mode flag from the client so bill-wise mode with all
     // three % = 0 (exempt goods) stays bill-wise instead of silently flipping
     // to product-wise and losing the zero-rated declaration.
@@ -385,12 +400,17 @@ exports.create = async (req, res) => {
         ...item,
       }, { transaction: t });
 
-      // Update product stock and latest rates
+      // Update product stock at the receiving godown + refresh catalog
+      // rates. The catalog rates (purchase_rate, margin, sale_rate, mrp)
+      // remain a single global value — this commit doesn't introduce
+      // per-godown pricing. Only inventory quantity is per-godown.
       if (item.product_id) {
         const product = await Product.findByPk(item.product_id, { transaction: t });
-        const newStock = +((parseFloat(product.current_stock) || 0) + parseFloat(item.quantity)).toFixed(2);
+        const newStock = await applyGodownStockDelta({
+          product_id: item.product_id, godown_id: billData.godown_id,
+          delta: +parseFloat(item.quantity), t,
+        });
         await product.update({
-          current_stock: newStock,
           purchase_rate: item.purchase_rate,
           margin_percentage: item.margin_percentage || product.margin_percentage,
           sale_rate: item.sale_rate || product.sale_rate,
@@ -399,6 +419,7 @@ exports.create = async (req, res) => {
 
         await StockLedger.create({
           product_id: item.product_id,
+          godown_id: billData.godown_id,
           barcode: item.barcode,
           transaction_type: 'Purchase',
           transaction_date: billData.bill_date,
@@ -520,6 +541,14 @@ exports.update = async (req, res) => {
     if (!existingBill) { await t.rollback(); return res.status(404).json({ error: 'Bill not found' }); }
     if (existingBill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Cannot edit a cancelled bill' }); }
 
+    // Resolve target godown — body wins (validate); else retain existing.
+    if (billData.godown_id != null) {
+      const denied = denyIfGodownInaccessible(billData.godown_id, req.user);
+      if (denied) { await t.rollback(); return res.status(403).json({ error: denied }); }
+    } else {
+      billData.godown_id = existingBill.godown_id;
+    }
+
     // ── Step 1: Reverse old stock effects (no reversal ledger entries) ───────
     // A purchase-update is: reverse-old + add-new. The NET effect on each
     // product is (newQty - oldQty). If allow_negative_stock is off and the
@@ -553,29 +582,38 @@ exports.update = async (req, res) => {
           deltaByProduct.set(matchOld.product_id, cur + parseFloat(newItem.quantity || 0));
         }
       }
+      // Pre-check uses per-godown stock at the EXISTING bill's godown
+      // (where the old purchase landed). If the same product was bought at
+      // a different godown elsewhere, those quantities don't help — we can
+      // only undo what was deposited at this specific godown.
+      const oldGodown = existingBill.godown_id;
       for (const [pid, delta] of deltaByProduct) {
         if (delta >= 0) continue;              // net addition → safe
         const product = await Product.findByPk(pid, { transaction: t });
-        const finalStock = +((parseFloat(product?.current_stock) || 0) + delta).toFixed(2);
+        const haveAtGodown = oldGodown
+          ? await getGodownStock({ product_id: pid, godown_id: oldGodown, t })
+          : 0;
+        const finalStock = +(haveAtGodown + delta).toFixed(2);
         if (finalStock < 0) {
           await t.rollback();
           return res.status(400).json({
-            error: `Cannot update purchase bill: "${product.product_name}" would go to ${finalStock} units (${Math.abs(finalStock)} already sold). Enable "Allow Negative Stock" in Module Settings, or issue a Purchase Return instead.`,
+            error: `Cannot update purchase bill: "${product.product_name}" would go to ${finalStock} units at this godown (${Math.abs(finalStock)} already sold). Enable "Allow Negative Stock" in Module Settings, or issue a Purchase Return instead.`,
           });
         }
       }
     }
 
+    // Reverse old quantities at the EXISTING bill's godown (the one the
+    // original purchase actually landed in). Even if the operator is
+    // editing the bill to point at a different godown, the reversal must
+    // go to the original — that's where the stock was added.
+    const oldGodownId = existingBill.godown_id;
     for (const oldItem of existingBill.items) {
-      if (oldItem.product_id) {
-        const product = await Product.findByPk(oldItem.product_id, { transaction: t });
-        if (product) {
-          // Reversal may temporarily push stock negative inside this transaction
-          // — that's fine, the corresponding new-item in Step 6 restores it.
-          // allow_negative_stock enforcement happened in the pre-check above.
-          const revStock = +(parseFloat(product.current_stock) - parseFloat(oldItem.quantity)).toFixed(2);
-          await product.update({ current_stock: revStock }, { transaction: t });
-        }
+      if (oldItem.product_id && oldGodownId) {
+        await applyGodownStockDelta({
+          product_id: oldItem.product_id, godown_id: oldGodownId,
+          delta: -parseFloat(oldItem.quantity), t,
+        });
       }
     }
 
@@ -738,15 +776,20 @@ exports.update = async (req, res) => {
       await PurchaseBillItem.create({ purchase_bill_id: id, ...item }, { transaction: t });
       if (item.product_id) {
         const product = await Product.findByPk(item.product_id, { transaction: t });
-        const newStock = +((parseFloat(product.current_stock) || 0) + parseFloat(item.quantity)).toFixed(2);
+        const newStock = await applyGodownStockDelta({
+          product_id: item.product_id, godown_id: billData.godown_id,
+          delta: +parseFloat(item.quantity), t,
+        });
         await product.update({
-          current_stock: newStock, purchase_rate: item.purchase_rate,
+          purchase_rate: item.purchase_rate,
           margin_percentage: item.margin_percentage || product.margin_percentage,
           sale_rate: item.sale_rate || product.sale_rate,
           mrp: item.mrp || product.mrp,
         }, { transaction: t });
         await StockLedger.create({
-          product_id: item.product_id, barcode: item.barcode,
+          product_id: item.product_id,
+          godown_id: billData.godown_id,
+          barcode: item.barcode,
           transaction_type: 'Purchase',
           transaction_date: billData.bill_date || existingBill.bill_date,
           reference_id: id, reference_number: existingBill.bill_number,
@@ -832,13 +875,20 @@ exports.cancel = async (req, res) => {
         const cur = revByProduct.get(item.product_id) || 0;
         revByProduct.set(item.product_id, cur + parseFloat(item.quantity || 0));
       }
+      // Cancellation reverses qty at the bill's own godown — that's where
+      // the original purchase was added. Pre-check guards against pulling
+      // stock below zero AT THAT GODOWN (other godowns' stock is irrelevant).
+      const billGodown = bill.godown_id;
       for (const [pid, qty] of revByProduct) {
         const product = await Product.findByPk(pid, { transaction: t });
-        const finalStock = +((parseFloat(product?.current_stock) || 0) - qty).toFixed(2);
+        const haveAtGodown = billGodown
+          ? await getGodownStock({ product_id: pid, godown_id: billGodown, t })
+          : 0;
+        const finalStock = +(haveAtGodown - qty).toFixed(2);
         if (finalStock < 0) {
           await t.rollback();
           return res.status(400).json({
-            error: `Cannot cancel this purchase bill: "${product.product_name}" would go to ${finalStock} units (${Math.abs(finalStock)} already sold from this stock). Enable "Allow Negative Stock" in Module Settings, or create a Purchase Return instead.`,
+            error: `Cannot cancel this purchase bill: "${product.product_name}" would go to ${finalStock} units at this godown (${Math.abs(finalStock)} already sold from this stock). Enable "Allow Negative Stock" in Module Settings, or create a Purchase Return instead.`,
           });
         }
       }
@@ -873,14 +923,16 @@ exports.cancel = async (req, res) => {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Reverse stock. Pre-check above already guaranteed we won't go negative
-    // when allow_negative_stock is disabled. If allow_negative_stock IS on,
-    // we record the true negative (don't clamp — clamping loses shortage info).
+    // Reverse stock at the bill's godown. Pre-check above already
+    // guaranteed we won't go negative when allow_negative_stock is
+    // disabled. allowGodownStockDelta handles the row-locked update +
+    // products.current_stock mirror in one shot.
     for (const item of bill.items) {
-      if (item.product_id) {
-        const product = await Product.findByPk(item.product_id, { transaction: t });
-        const newStock = +((parseFloat(product.current_stock) || 0) - parseFloat(item.quantity)).toFixed(2);
-        await product.update({ current_stock: newStock }, { transaction: t });
+      if (item.product_id && bill.godown_id) {
+        await applyGodownStockDelta({
+          product_id: item.product_id, godown_id: bill.godown_id,
+          delta: -parseFloat(item.quantity), t,
+        });
       }
     }
 
