@@ -70,12 +70,11 @@ export default function StockTransferForm() {
   const [prodOpts, setProdOpts] = useState([]);
   const [prodSearching, setProdSearching] = useState(false);
   const [prodOpen, setProdOpen] = useState(false);
-  // searchValue is the controlled query the operator typed. Resetting it
-  // on select is the single point of control that makes the Select clear
-  // back to placeholder after each pick — without this, AntD leaves the
-  // last typed string in the box and the operator has to backspace before
-  // searching for the next item.
-  const [searchValue, setSearchValue] = useState('');
+  // justSelectedRef carries a one-shot flag from handleProdSel into the
+  // next render's Select.onFocus — used to redirect AntD's focus-restore
+  // to the qty cell so the operator can immediately type a quantity
+  // without an extra Tab. Same pattern SalesBillForm uses.
+  const justSelectedRef = useRef(false);
   const [transferNo, setTransferNo] = useState('—');
   // Entry-row state — mirrors Sales' single-row buffer. Operator fills
   // these cells (barcode → category → product → size → art# → qty →
@@ -182,10 +181,15 @@ export default function StockTransferForm() {
   //    would crash with "is not a function", blanking the screen.
   //  - godown_id forwarded so the server scopes current_stock to the
   //    source godown (productController.getAll honours godown_id).
+  // Mirrors SalesBillForm's handleProdSearch byte-for-byte, plus
+  // godown_id forwarding so the per-source-godown stock chip is
+  // accurate. When the search box clears WITH a category active, we
+  // intentionally DON'T blank prodOpts — the category-preload effect
+  // below holds those results steady so the operator can pick from
+  // the open dropdown without re-typing.
   const handleProdSearch = useCallback((v) => {
-    setSearchValue(v);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (!v) { setProdOpts([]); return; }
+    if (!v) { if (!activeCatId) setProdOpts([]); return; }
     searchTimerRef.current = setTimeout(async () => {
       const reqId = ++searchReqRef.current;
       try {
@@ -196,15 +200,39 @@ export default function StockTransferForm() {
         });
         if (reqId !== searchReqRef.current) return;
         setProdOpts(data.data || []);
-      } catch { /* surface as empty result; server-side error already toasted globally */ }
+      } catch { /* surface as empty result */ }
     }, 150);
   }, [fromGodownId, activeCatId]);
+
+  // Category preload — when the operator picks a category, populate
+  // prodOpts with everything in that category so the Product dropdown
+  // can be opened and clicked without typing. Identical to the Sales
+  // form's preload effect (line ~356). Cleared when category clears
+  // (no category → typed-search-only behaviour).
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeCatId) { setProdOpts([]); return; }
+    productAPI.search('', {
+      category_id: activeCatId,
+      name_only:   'true',
+      ...(fromGodownId ? { godown_id: fromGodownId } : {}),
+    })
+      .then(({ data }) => { if (!cancelled) setProdOpts(data.data || []); })
+      .catch(() => { if (!cancelled) setProdOpts([]); });
+    return () => { cancelled = true; };
+  }, [activeCatId, fromGodownId]);
 
   // Pick a product → fill the entry-row buffer (NOT items — bill-form
   // pattern: edit qty/rate first, then click +ADD). Mirrors
   // SalesBillForm's handleProdSel; jumps focus to the qty cell so the
   // operator can immediately type a quantity.
-  const handleProdSel = (val, opt) => {
+  // Pick a product → fill the entry-row buffer and jump focus into qty.
+  // Mirrors SalesBillForm's handleProdSel exactly (same field set, same
+  // justSelectedRef-driven focus redirect via requestAnimationFrame).
+  // The `value={entry.product_id}` binding + `optionLabelProp="label"`
+  // give us AntD's free clear-search-on-select behaviour, so we don't
+  // touch a controlled searchValue here.
+  const handleProdSel = useCallback((val, opt) => {
     const p = opt?.product;
     if (!p) return;
     const qty = parseFloat(p.quantity_per_box) || 1;
@@ -224,16 +252,13 @@ export default function StockTransferForm() {
       rate:            parseFloat(p.purchase_rate) || 0,
       available_stock: parseFloat(p.current_stock) || 0,
     }));
-    // Clear sequence — order matters: drop the search text first so the
-    // controlled `searchValue` resets to '', then close the dropdown,
-    // then drop the cached options so the next open starts empty.
-    setSearchValue('');
-    setProdOpen(false);
-    setProdOpts([]);
-    // Keyboard rhythm — jump straight into qty so the operator can
-    // type the count without reaching for the mouse.
-    setTimeout(() => qtyRef.current?.focus(), 30);
-  };
+    // Flag carries through the next focus cycle so onFocus can redirect.
+    justSelectedRef.current = true;
+    requestAnimationFrame(() => {
+      prodRef.current?.blur();
+      qtyRef.current?.focus();
+    });
+  }, []);
 
   // Barcode scan → look up product, fill entry, push immediately.
   // Same pattern Sales uses (barcode is the fast-path bypass for the
@@ -608,21 +633,46 @@ export default function StockTransferForm() {
                 <div className="sbf-cell-lbl">Product</div>
                 <Select
                   ref={prodRef}
-                  key={`prod-${fromGodownId || 'no'}-${activeCatId || 'all'}`}
+                  /* Mirrors SalesBillForm's product Select 1:1:
+                   *   - key={activeCatId??'no-cat'}  remounts on category
+                   *     change so the dropdown's option list refreshes
+                   *     cleanly without stale opts bleeding through.
+                   *   - value={entry.product_id||undefined} + optionLabelProp
+                   *     "label" makes the trigger render product_name and
+                   *     gives AntD's autoClearSearchValue (default true)
+                   *     a chance to wipe the search text on select.
+                   *   - onFocus catches the just-selected flag so AntD's
+                   *     focus-restore after a click doesn't leave the
+                   *     operator stuck back in Product instead of qty.
+                   *   - notFoundContent=null keeps "no data" out of the
+                   *     way during the brief async window between typing
+                   *     and the search firing. */
+                  key={activeCatId ?? 'no-cat'}
                   showSearch
                   filterOption={false}
                   optionLabelProp="label"
-                  value={entry.product_name || undefined}
-                  searchValue={searchValue}
+                  value={entry.product_id || undefined}
                   open={prodOpen}
                   onDropdownVisibleChange={(v) => setProdOpen(v)}
                   onSearch={(v) => { setProdOpen(true); handleProdSearch(v); }}
-                  onSelect={(val, opt) => handleProdSel(val, opt)}
-                  onClear={() => { setProdOpen(false); setEntry((p) => ({ ...p, product_id: null, product_name: '' })); }}
+                  onSelect={(val, opt) => { setProdOpen(false); handleProdSel(val, opt); }}
+                  onFocus={() => {
+                    if (justSelectedRef.current) {
+                      justSelectedRef.current = false;
+                      requestAnimationFrame(() => {
+                        prodRef.current?.blur();
+                        qtyRef.current?.focus();
+                      });
+                    }
+                  }}
+                  onClear={() => {
+                    setProdOpen(false);
+                    setEntry((p) => ({ ...p, product_id: null, product_name: '' }));
+                  }}
                   allowClear
                   placeholder={fromGodownId ? 'Product name' : 'Pick source godown first'}
                   disabled={!fromGodownId}
-                  notFoundContent={prodSearching ? 'Searching…' : null}
+                  notFoundContent={null}
                   listHeight={320}
                   dropdownMatchSelectWidth={460}
                 >
