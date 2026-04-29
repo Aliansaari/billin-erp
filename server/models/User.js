@@ -47,6 +47,21 @@ const User = sequelize.define('User', {
     allowNull: true,
     defaultValue: null,
   },
+  // Per-user godown access list. Three states:
+  //   NULL   → unrestricted (this user can see and write to every godown).
+  //            Default for freshly-created users; matches today's behaviour.
+  //   []     → no godown access. Empty array, NOT NULL — used to lock a
+  //            user out without changing their role. (Distinct from NULL.)
+  //   [1, 3] → explicit allowlist of godown_ids.
+  // Super Admin and Admin role-name short-circuit to "all" regardless of
+  // this field — see effectiveGodownIds() in server/middleware/godownScope.js.
+  // The bill-form godown dropdown filters to this list; controllers refuse
+  // create/edit when the requested godown_id is outside the allowlist.
+  allowed_godowns: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: null,
+  },
   last_login: {
     type: DataTypes.DATE,
   },

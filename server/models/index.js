@@ -26,6 +26,10 @@ const TallyLedgerMapping = require('./TallyLedgerMapping');
 const BarcodeSettings = require('./BarcodeSettings');
 const SystemSettings = require('./SystemSettings');
 const PrintProfile = require('./PrintProfile');
+const Godown = require('./Godown');
+const ProductGodownStock = require('./ProductGodownStock');
+const StockTransfer = require('./StockTransfer');
+const StockTransferItem = require('./StockTransferItem');
 
 // ── Associations ──
 
@@ -156,6 +160,52 @@ LedgerEntry.hasOne(LedgerEntry, { foreignKey: 'reversal_of_id', as: 'reversedBy'
 Party.hasMany(LedgerEntry, { foreignKey: 'party_id', onDelete: 'RESTRICT' });
 LedgerEntry.belongsTo(Party, { foreignKey: 'party_id', as: 'party' });
 
+// ── Godown associations ──
+//
+// Godown is the issuing/receiving location for bills and the partition for
+// stock_ledger movements. We deliberately do NOT cascade-delete on FK
+// removal: a godown that has ever issued a bill cannot be hard-deleted
+// (controller-level guard). Soft-delete via is_active=false is the only
+// supported path once a godown has activity.
+Godown.hasMany(StockLedger,        { foreignKey: 'godown_id' });
+StockLedger.belongsTo(Godown,      { foreignKey: 'godown_id', as: 'godown' });
+Godown.hasMany(SalesBill,          { foreignKey: 'godown_id' });
+SalesBill.belongsTo(Godown,        { foreignKey: 'godown_id', as: 'godown' });
+Godown.hasMany(PurchaseBill,       { foreignKey: 'godown_id' });
+PurchaseBill.belongsTo(Godown,     { foreignKey: 'godown_id', as: 'godown' });
+Godown.hasMany(SalesReturnBill,    { foreignKey: 'godown_id' });
+SalesReturnBill.belongsTo(Godown,  { foreignKey: 'godown_id', as: 'godown' });
+Godown.hasMany(PurchaseReturnBill, { foreignKey: 'godown_id' });
+PurchaseReturnBill.belongsTo(Godown, { foreignKey: 'godown_id', as: 'godown' });
+
+// Product ↔ Godown m:m through ProductGodownStock — each pair carries
+// per-godown current_stock + opening_stock. The `as` aliases let
+// reports include() either side cleanly.
+Product.belongsToMany(Godown, {
+  through: ProductGodownStock,
+  foreignKey: 'product_id', otherKey: 'godown_id',
+  as: 'godowns',
+});
+Godown.belongsToMany(Product, {
+  through: ProductGodownStock,
+  foreignKey: 'godown_id', otherKey: 'product_id',
+  as: 'products',
+});
+Product.hasMany(ProductGodownStock,    { foreignKey: 'product_id', as: 'godownStock' });
+ProductGodownStock.belongsTo(Product,  { foreignKey: 'product_id', as: 'product' });
+Godown.hasMany(ProductGodownStock,     { foreignKey: 'godown_id',  as: 'productStock' });
+ProductGodownStock.belongsTo(Godown,   { foreignKey: 'godown_id',  as: 'godown' });
+
+// Stock transfers — header → items, plus from/to godown aliases used by
+// the list view + transfer-register report.
+StockTransfer.hasMany(StockTransferItem,   { foreignKey: 'transfer_id', as: 'items', onDelete: 'CASCADE' });
+StockTransferItem.belongsTo(StockTransfer, { foreignKey: 'transfer_id' });
+StockTransfer.belongsTo(Godown,            { foreignKey: 'from_godown_id', as: 'fromGodown' });
+StockTransfer.belongsTo(Godown,            { foreignKey: 'to_godown_id',   as: 'toGodown'   });
+StockTransferItem.belongsTo(Product,       { foreignKey: 'product_id',     as: 'product'    });
+StockTransfer.belongsTo(User,              { foreignKey: 'created_by',     as: 'creator'    });
+StockTransfer.belongsTo(User,              { foreignKey: 'received_by',    as: 'receiver'   });
+
 module.exports = {
   sequelize,
   Role,
@@ -185,4 +235,8 @@ module.exports = {
   BarcodeSettings,
   SystemSettings,
   PrintProfile,
+  Godown,
+  ProductGodownStock,
+  StockTransfer,
+  StockTransferItem,
 };

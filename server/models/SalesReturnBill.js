@@ -12,6 +12,14 @@ const SalesReturnBill = sequelize.define('SalesReturnBill', {
     unique: true,
     allowNull: false,
   },
+  // Godown the returned items go back into. Defaults to the referenced
+  // sales bill's godown when a reference is loaded — returning to the
+  // same warehouse goods came from is the common case.
+  godown_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'godowns', key: 'godown_id' },
+  },
   customer_id: {
     type: DataTypes.INTEGER,
     references: { model: 'parties', key: 'party_id' },

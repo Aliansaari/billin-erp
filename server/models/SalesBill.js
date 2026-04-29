@@ -12,6 +12,17 @@ const SalesBill = sequelize.define('SalesBill', {
     unique: true,
     allowNull: false,
   },
+  // Issuing godown — drives stock deduction (which warehouse loses inventory
+  // on this sale) and Place-of-Supply / GSTIN routing for GST. Defaults to
+  // the user's first allowed godown or the system-default Main godown when
+  // the bill form first renders. Nullable at the DB level until the
+  // migration backfill completes; application code is expected to always
+  // set it. See plans/godown.md for the migration order rationale.
+  godown_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'godowns', key: 'godown_id' },
+  },
   customer_id: {
     type: DataTypes.INTEGER,
     references: { model: 'parties', key: 'party_id' },

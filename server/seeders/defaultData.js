@@ -1,5 +1,5 @@
 const bcrypt = require('bcryptjs');
-const { Role, User, BarcodeSettings, SystemSettings, LedgerAccount, PrintProfile, Party } = require('../models');
+const { Role, User, BarcodeSettings, SystemSettings, LedgerAccount, PrintProfile, Party, Godown } = require('../models');
 const { ROLES } = require('../utils/rolePerms');
 
 async function seedDefaultData() {
@@ -167,6 +167,27 @@ async function seedDefaultData() {
   for (const p of defaultPrintProfiles) {
     await PrintProfile.findOrCreate({ where: { name: p.name, doc_type: p.doc_type }, defaults: p });
   }
+
+  // ── Default Godown ────────────────────────────────────────────────────
+  // Every install needs at least one godown for bill issuance. The "Main"
+  // godown is_system=true (cannot be hard-deleted) and is_default=true
+  // (auto-selected in bill forms unless the user picks otherwise). Single-
+  // warehouse deployments live entirely on this row; multi-warehouse
+  // deployments add more godowns from Settings → Godowns.
+  //
+  // findOrCreate keyed on is_system=true so re-seeds are no-ops even if
+  // someone renames "Main" to something else. Partial unique index on
+  // is_default ensures only one default exists.
+  await Godown.findOrCreate({
+    where: { is_system: true },
+    defaults: {
+      name: 'Main',
+      code: 'MAIN',
+      is_default: true,
+      is_system: true,
+      is_active: true,
+    },
+  });
 
   console.log('Default data seeded successfully');
 }

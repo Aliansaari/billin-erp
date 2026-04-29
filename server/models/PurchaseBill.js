@@ -12,6 +12,14 @@ const PurchaseBill = sequelize.define('PurchaseBill', {
     unique: true,
     allowNull: false,
   },
+  // Receiving godown — drives stock addition (which warehouse gains
+  // inventory) and Place-of-Supply for inward GST. Same nullable-then-NOT-NULL
+  // migration story as SalesBill.godown_id.
+  godown_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'godowns', key: 'godown_id' },
+  },
   supplier_id: {
     type: DataTypes.INTEGER,
     // Was NOT NULL — relaxed so the in-flight stub→Cash migration can

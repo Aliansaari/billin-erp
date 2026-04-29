@@ -12,6 +12,17 @@ const StockLedger = sequelize.define('StockLedger', {
     allowNull: false,
     references: { model: 'products', key: 'product_id' },
   },
+  // Godown the movement happened at. Nullable in the model to keep the
+  // sync alive on a populated table (NOT NULL is enforced by the migration
+  // block in server/index.js after a backfill flips legacy rows to the
+  // Main godown). Every stock_ledger row written by application code is
+  // expected to carry godown_id — see server/utils/godownStock.js
+  // applyGodownStockDelta which is the central writer.
+  godown_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'godowns', key: 'godown_id' },
+  },
   barcode: {
     type: DataTypes.STRING(20),
   },

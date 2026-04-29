@@ -12,6 +12,13 @@ const PurchaseReturnBill = sequelize.define('PurchaseReturnBill', {
     unique: true,
     allowNull: false,
   },
+  // Godown the returned items leave from. Defaults to the referenced
+  // purchase bill's godown.
+  godown_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'godowns', key: 'godown_id' },
+  },
   supplier_id: {
     type: DataTypes.INTEGER,
     allowNull: false,

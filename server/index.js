@@ -40,6 +40,8 @@ app.use('/api/data', require('./routes/importExport'));
 app.use('/api/tally', require('./routes/tally'));
 app.use('/api/backup', require('./routes/backup'));
 app.use('/api/print', require('./routes/print'));
+app.use('/api/godowns', require('./routes/godowns'));
+app.use('/api/stock-transfers', require('./routes/stockTransfers'));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -833,6 +835,82 @@ async function startServer() {
       console.error('[FK hardening] Error:', err.message);
     });
 
+    // ── Godown / multi-warehouse migration ─────────────────────────────
+    //
+    // What runs here:
+    //   1. ADD COLUMN godown_id (nullable) to stock_ledger + every bill
+    //      table. Nullable for now — sync() can't add NOT NULL to a
+    //      populated table, and we backfill rows below before any code
+    //      starts depending on the column being NOT NULL. Flipping to
+    //      NOT NULL is deferred to a follow-up commit once every controller
+    //      reliably populates it.
+    //   2. ADD COLUMN allowed_godowns JSONB to users.
+    //   3. Partial unique index on godowns(is_default) WHERE is_default = true
+    //      so exactly one godown can be flagged default at a time. Same
+    //      pattern as the system-Cash party fixture.
+    //   4. CHECK constraint on stock_transfers — from/to must differ.
+    //      DB-level guard backing up the frontend disable.
+    //
+    // Idempotent: every step is wrapped in `IF NOT EXISTS` (or
+    // `pg_indexes` / `pg_constraint` lookups for the index + check).
+    // Running this block twice on the same DB is a no-op.
+    //
+    // The actual JS-side backfill (UPDATE legacy rows to godown_id=Main,
+    // populate product_godown_stock from products.current_stock) lives
+    // AFTER seedDefaultData() because it needs the seeded Main godown.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='stock_ledger' AND column_name='godown_id') THEN
+          ALTER TABLE stock_ledger ADD COLUMN godown_id INTEGER REFERENCES godowns(godown_id);
+          CREATE INDEX IF NOT EXISTS idx_stock_ledger_godown_id ON stock_ledger(godown_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_bills' AND column_name='godown_id') THEN
+          ALTER TABLE sales_bills ADD COLUMN godown_id INTEGER REFERENCES godowns(godown_id);
+          CREATE INDEX IF NOT EXISTS idx_sales_bills_godown_id ON sales_bills(godown_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_bills' AND column_name='godown_id') THEN
+          ALTER TABLE purchase_bills ADD COLUMN godown_id INTEGER REFERENCES godowns(godown_id);
+          CREATE INDEX IF NOT EXISTS idx_purchase_bills_godown_id ON purchase_bills(godown_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_return_bills' AND column_name='godown_id') THEN
+          ALTER TABLE sales_return_bills ADD COLUMN godown_id INTEGER REFERENCES godowns(godown_id);
+          CREATE INDEX IF NOT EXISTS idx_sales_return_bills_godown_id ON sales_return_bills(godown_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_return_bills' AND column_name='godown_id') THEN
+          ALTER TABLE purchase_return_bills ADD COLUMN godown_id INTEGER REFERENCES godowns(godown_id);
+          CREATE INDEX IF NOT EXISTS idx_purchase_return_bills_godown_id ON purchase_return_bills(godown_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='users' AND column_name='allowed_godowns') THEN
+          ALTER TABLE users ADD COLUMN allowed_godowns JSONB DEFAULT NULL;
+        END IF;
+      END $$;
+
+      -- Exactly one default godown, enforced by partial unique index.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_godowns_one_default
+        ON godowns (is_default) WHERE is_default = true;
+
+      -- Distinct from/to godowns on transfers (controller also guards;
+      -- this is the authoritative DB-level invariant).
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+           WHERE conname = 'stock_transfers_distinct_godowns'
+        ) THEN
+          ALTER TABLE stock_transfers
+            ADD CONSTRAINT stock_transfers_distinct_godowns
+            CHECK (from_godown_id <> to_godown_id);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Godown migration] Error:', err.message);
+    });
+
     // ── One-time created_date alignment for the 6 ledger_entries
     // re-inserted during the corrupted-backfill incident (Apr 2026).
     // Those rows had their original Dr-leg created_date wiped by a
@@ -852,6 +930,69 @@ async function startServer() {
 
     // Seed default data
     await seedDefaultData();
+
+    // ── Godown backfill (must run AFTER seed so the Main godown exists)
+    //
+    // Pre-multi-warehouse rows have no godown_id. Pin them to the seeded
+    // Main godown — that's the historically-correct location since there
+    // was no other warehouse to choose from.
+    //
+    // Also seed product_godown_stock with one row per product at Main,
+    // copying the existing products.current_stock and opening_stock
+    // values across so all reports keep showing the same numbers post-
+    // migration. ON CONFLICT DO NOTHING means a re-run skips already-seeded
+    // pairs (idempotent).
+    //
+    // products.current_stock is intentionally NOT dropped — too many
+    // (>100) call sites read it directly. It becomes a denormalized mirror
+    // = SUM(product_godown_stock.current_stock) maintained by
+    // applyGodownStockDelta. A follow-up commit can drop the column once
+    // every reader switches to the join table.
+    try {
+      const { Godown } = require('./models');
+      const main = await Godown.findOne({ where: { is_default: true } });
+      if (main) {
+        const gid = main.godown_id;
+        const before = {};
+        for (const tbl of ['stock_ledger', 'sales_bills', 'purchase_bills', 'sales_return_bills', 'purchase_return_bills']) {
+          const [[r]] = await sequelize.query(
+            `UPDATE ${tbl} SET godown_id = :gid WHERE godown_id IS NULL RETURNING ledger_id, sales_bill_id, purchase_bill_id, sales_return_id, purchase_return_id`,
+            { replacements: { gid } },
+          ).catch(() => [[]]);
+          before[tbl] = r ? Object.values(r).filter(Boolean).length : 0;
+        }
+        // Rough log so an admin watching boot logs sees the backfill happen
+        // exactly once (subsequent boots return zero rows from the UPDATEs
+        // because no NULLs remain).
+        const totalBackfilled = Object.values(before).reduce((a, b) => a + b, 0);
+        if (totalBackfilled > 0) {
+          console.log(`[Godown backfill] pinned ${totalBackfilled} legacy row(s) to Main godown (id=${gid})`);
+        }
+
+        // Per-product seed at Main godown. INSERT … SELECT so we get one
+        // row per product without N round-trips. ON CONFLICT skips the
+        // (product_id, godown_id) PK collision when re-running.
+        const [pgsResult] = await sequelize.query(
+          `INSERT INTO product_godown_stock
+             (product_id, godown_id, current_stock, opening_stock, created_date, modified_date)
+           SELECT p.product_id, :gid,
+                  COALESCE(p.current_stock, 0),
+                  COALESCE(p.opening_stock, 0),
+                  NOW(), NOW()
+             FROM products p
+            ON CONFLICT (product_id, godown_id) DO NOTHING`,
+          { replacements: { gid } },
+        );
+        const inserted = (pgsResult && pgsResult.rowCount) || 0;
+        if (inserted > 0) {
+          console.log(`[Godown backfill] seeded product_godown_stock for ${inserted} product(s) at Main godown`);
+        }
+      } else {
+        console.warn('[Godown backfill] Main godown missing — skipped backfill (seeder will retry on next boot)');
+      }
+    } catch (err) {
+      console.error('[Godown backfill] Error:', err.message);
+    }
 
     // ── One-shot migration: legacy "Cash Sales" / "Cash Purchases"
     //    stub parties → seeded system Cash party. Idempotent — finds
