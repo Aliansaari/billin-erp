@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { Table, DatePicker, Select, Button, Tag, message, Spin, Checkbox, Popover, Input } from 'antd';
 import { DownloadOutlined, SettingOutlined, PrinterOutlined, SearchOutlined, CloseOutlined, WarningOutlined } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI, partyAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
@@ -87,6 +88,20 @@ function presetRange(key, fyStart, fyEnd) {
 
 export default function SalesReport() {
   const { fyStart, fyEnd } = useFinancialYear();
+  // URL search params — when this page is reached via a drill-down
+  // (e.g., Profit & Loss → Sales Account), `?from=YYYY-MM-DD&to=…` is
+  // present and we honour it so the report opens on the same window
+  // the user was viewing in the source report. Bare-URL navigation
+  // falls through to the FY default.
+  const [searchParams] = useSearchParams();
+  const initialFrom = (() => {
+    const q = searchParams.get('from');
+    return q && dayjs(q).isValid() ? q : null;
+  })();
+  const initialTo = (() => {
+    const q = searchParams.get('to');
+    return q && dayjs(q).isValid() ? q : null;
+  })();
   const [data, setData] = useState([]);
   const [totalCount, setTotalCount] = useState(0); // full filtered count across all pages
   const [summary, setSummary] = useState({});
@@ -99,14 +114,16 @@ export default function SalesReport() {
   // app uses the same window. Falls back to current month on first
   // install before settings are loaded.
   const [filters, setFilters] = useState({
-    from_date: fyStart || dayjs().startOf('month').format('YYYY-MM-DD'),
-    to_date:   fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
+    from_date: initialFrom || fyStart || dayjs().startOf('month').format('YYYY-MM-DD'),
+    to_date:   initialTo   || fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
     customer_id: null,
     payment_status: null,
     search: '',
   });
   const [reconDismissed, setReconDismissed] = useState(false);
-  const [preset, setPreset] = useState('this_fy');
+  // If the page was opened with explicit ?from / ?to from a drill-down,
+  // start on 'custom' so the dropdown label reads honestly.
+  const [preset, setPreset] = useState(initialFrom && initialTo ? 'custom' : 'this_fy');
   const [reconciliation, setReconciliation] = useState(null);
   const [colsVisible, setColsVisible] = useState(() => {
     try {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Table, DatePicker, Button, message, Spin, Checkbox, Popover, Input } from 'antd';
 import { SettingOutlined, PrinterOutlined, DownloadOutlined, SearchOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -82,13 +82,29 @@ export default function DayBook() {
   const navigate = useNavigate();
   const { fyStart, fyEnd } = useFinancialYear();
 
+  // URL search params — when reached via a P&L drill-down on a misc
+  // ledger (Round Off, Discount Allowed/Received, Direct/Indirect
+  // Income/Expense), `?from=…&to=…&ledger_id=…&ledger_name=…` carries
+  // the source report's window + which ledger to focus on. The
+  // ledger_id filter isn't yet supported by the backend; we honour
+  // the period for now and the per-ledger filter is a follow-up.
+  const [searchParams] = useSearchParams();
+  const initialFrom = (() => {
+    const q = searchParams.get('from');
+    return q && dayjs(q).isValid() ? q : null;
+  })();
+  const initialTo = (() => {
+    const q = searchParams.get('to');
+    return q && dayjs(q).isValid() ? q : null;
+  })();
+
   const [data, setData] = useState([]);
   const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(false);
 
   const [filters, setFilters] = useState({
-    from_date: fyStart || dayjs().startOf('month').format('YYYY-MM-DD'),
-    to_date:   fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
+    from_date: initialFrom || fyStart || dayjs().startOf('month').format('YYYY-MM-DD'),
+    to_date:   initialTo   || fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
     voucher_types: [],
     sort_dir: 'asc',
     search: '',

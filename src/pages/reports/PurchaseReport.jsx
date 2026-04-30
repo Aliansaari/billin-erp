@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { Table, DatePicker, Select, Button, Tag, message, Spin, Checkbox, Popover, Input } from 'antd';
 import { DownloadOutlined, SettingOutlined, PrinterOutlined, SearchOutlined, CloseOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI, partyAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
@@ -71,6 +72,18 @@ function presetRange(key, fyStart, fyEnd) {
 
 export default function PurchaseReport() {
   const { fyStart, fyEnd } = useFinancialYear();
+  // URL search params — when reached via a P&L drill-down on
+  // Purchase Account, `?from=YYYY-MM-DD&to=…` carries the source
+  // report's window so the period stays consistent.
+  const [searchParams] = useSearchParams();
+  const initialFrom = (() => {
+    const q = searchParams.get('from');
+    return q && dayjs(q).isValid() ? q : null;
+  })();
+  const initialTo = (() => {
+    const q = searchParams.get('to');
+    return q && dayjs(q).isValid() ? q : null;
+  })();
   const [data, setData] = useState([]);
   const [totalCount, setTotalCount] = useState(0); // full filtered count across all pages
   const [summary, setSummary] = useState({});
@@ -82,14 +95,14 @@ export default function PurchaseReport() {
   // Defaults to the company FY for consistency with every other
   // period selector. Falls back to current month on first install.
   const [filters, setFilters] = useState({
-    from_date: fyStart || dayjs().startOf('month').format('YYYY-MM-DD'),
-    to_date:   fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
+    from_date: initialFrom || fyStart || dayjs().startOf('month').format('YYYY-MM-DD'),
+    to_date:   initialTo   || fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
     supplier_id: null,
     payment_status: null,
     search: '',
   });
   const [reconDismissed, setReconDismissed] = useState(false);
-  const [preset, setPreset] = useState('this_fy');
+  const [preset, setPreset] = useState(initialFrom && initialTo ? 'custom' : 'this_fy');
   const [reconciliation, setReconciliation] = useState(null);
   const [colsVisible, setColsVisible] = useState(() => {
     try {
