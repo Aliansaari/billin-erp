@@ -418,12 +418,20 @@ export default function ReportsHub() {
           style={{ padding: 60 }} />
       )}
 
-      {/* ── Category grid ───────────────────────────────────────── */}
+      {/* ── Category grid — borderless, typographic separation ───
+       *
+       * Categories aren't framed in card boxes anymore — that was
+       * giving the page a settings-grid vibe. Now each category is a
+       * borderless inline section: icon + label + count as the header
+       * with a single hairline rule below, then rows underneath. The
+       * whole hub becomes one continuous report surface, not a grid
+       * of widgets. Two columns laid out via CSS grid. */}
       {filtered.length > 0 && (
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
-          gap: 14,
+          columnGap: 40,
+          rowGap: 28,
         }}>
           {CATEGORY_ORDER.map((cat) => {
             const reports = byCategory[cat];
@@ -431,71 +439,73 @@ export default function ReportsHub() {
             const meta = CATEGORY_META[cat];
             const tone = TONE[meta.tone] || TONE.info;
             return (
-              <div key={cat} style={{
-                background: 'var(--bg-elevated, #fff)',
-                border: '1px solid var(--border, #e5e7eb)',
-                borderRadius: 10,
-                overflow: 'hidden',
-              }}>
-                {/* Category header — icon + label + count */}
+              <div key={cat}>
+                {/* Header: icon + label + count, hairline rule below */}
                 <div style={{
-                  padding: '10px 16px',
                   display: 'flex', alignItems: 'center', gap: 10,
-                  borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+                  paddingBottom: 8,
+                  borderBottom: '1px solid var(--border, #e5e7eb)',
+                  marginBottom: 4,
                 }}>
                   <span style={{
-                    width: 24, height: 24, borderRadius: 6,
-                    background: tone.bg, color: tone.fg,
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 13,
+                    color: tone.fg, fontSize: 16,
+                    display: 'inline-flex', alignItems: 'center',
                   }}>{ICON_BY_NAME[meta.icon]}</span>
-                  <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--fg-primary)' }}>
+                  <span style={{
+                    fontWeight: 700, fontSize: 15, color: 'var(--fg-primary)',
+                    letterSpacing: '-0.005em',
+                  }}>
                     {meta.label}
                   </span>
                   <span style={{
                     color: 'var(--fg-tertiary)', fontSize: 12, marginLeft: 'auto',
                     fontVariantNumeric: 'tabular-nums',
                   }}>
-                    {reports.length} report{reports.length === 1 ? '' : 's'}
+                    {reports.length} {reports.length === 1 ? 'report' : 'reports'}
                   </span>
                 </div>
 
-                {/* Rows — name left, subtitle right (matches reference) */}
-                <div>
-                  {reports.map((r, idx) => (
-                    <div
-                      key={r.id}
-                      onClick={() => nav(r.route)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '9px 16px',
-                        borderTop: idx === 0 ? 'none' : '1px solid var(--border-subtle, #f1f5f9)',
-                        cursor: 'pointer',
-                        transition: 'background .12s',
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-subtle, #fafafa)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
-                    >
-                      <FavoriteStar reportId={r.id} size={14} style={{ flexShrink: 0 }} />
-                      <span style={{
-                        fontWeight: 500, fontSize: 13.5, color: 'var(--fg-primary)',
-                      }}>{r.name}</span>
-                      {r.isNew && (
-                        <Tag color="orange" style={{
-                          fontSize: 8.5, padding: '0 4px', lineHeight: '14px',
-                          margin: 0, fontWeight: 700, letterSpacing: 0.4,
-                        }}>NEW</Tag>
-                      )}
-                      <span style={{
-                        fontSize: 12, color: 'var(--fg-tertiary)',
-                        marginLeft: 'auto',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>
-                        {r.subtitle}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                {/* Rows — typographic, no row borders, just generous
+                    padding. Hover warms the row but no chrome around it. */}
+                {reports.map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => nav(r.route)}
+                    style={{
+                      display: 'flex', alignItems: 'baseline', gap: 10,
+                      padding: '10px 0',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+                      transition: 'background .12s, padding .12s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'var(--bg-subtle, #fafafa)';
+                      e.currentTarget.style.padding = '10px 8px';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '';
+                      e.currentTarget.style.padding = '10px 0';
+                    }}
+                  >
+                    <FavoriteStar reportId={r.id} size={14} style={{ flexShrink: 0, position: 'relative', top: 2 }} />
+                    <span style={{
+                      fontWeight: 500, fontSize: 14, color: 'var(--fg-primary)',
+                    }}>{r.name}</span>
+                    {r.isNew && (
+                      <Tag color="orange" style={{
+                        fontSize: 8.5, padding: '0 4px', lineHeight: '14px',
+                        margin: 0, fontWeight: 700, letterSpacing: 0.4,
+                      }}>NEW</Tag>
+                    )}
+                    <span style={{
+                      fontSize: 12, color: 'var(--fg-tertiary)',
+                      marginLeft: 'auto',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {r.subtitle}
+                    </span>
+                  </div>
+                ))}
               </div>
             );
           })}
