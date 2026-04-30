@@ -15,6 +15,10 @@ router.get('/trial-balance',      requirePermission('accounts.view'), financialR
 router.get('/balance-sheet',      requirePermission('accounts.view'), financialReports.balanceSheet);
 router.get('/cash-flow',          requirePermission('accounts.view'), financialReports.cashFlow);
 router.get('/day-book',           requirePermission('accounts.view'), dayBookController.dayBook);
+// Profit & Loss — full Tally-shape statement sourced from ledger_entries.
+// Replaces the legacy reportController.profitLoss which read from
+// sales_bills / purchase_bills (bypassing the journal).
+router.get('/profit-loss',        requirePermission('accounts.view'), financialReports.profitLoss);
 // /receivables-aging + /payables-aging removed in Phase R5 follow-up.
 // Use /api/reports/aging?party_type=Customer|Supplier (single source).
 
@@ -36,7 +40,6 @@ router.get('/dashboard', reportController.dashboardStats);
 router.get('/sales',             requirePermission('reports.view'),  reportController.salesReport);
 router.get('/purchases',         requirePermission('reports.view'),  reportController.purchaseReport);
 router.get('/stock',             requirePermission('reports.view'),  reportController.stockReport);
-router.get('/profit-loss',       requirePermission('accounts.view'), reportController.profitLoss);
 router.get('/party-outstanding', requirePermission('reports.view'),  reportController.partyOutstanding);
 router.get('/aging',             requirePermission('reports.view'),  reportController.agingReport);
 router.get('/gstr1',             requirePermission('reports.view'),  reportController.gstr1Report);

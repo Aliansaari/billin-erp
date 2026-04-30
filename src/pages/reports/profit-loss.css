@@ -1,0 +1,229 @@
+/*
+ * Profit & Loss — additive overrides on top of balance-sheet.css.
+ *
+ * The shell (.bs-page / .bs-headbar / .bs-body / .bs-totalbar / .bs-fbar)
+ * comes from balance-sheet.css. This file adds:
+ *   · row variants specific to P&L line types (sub-row indentation,
+ *     deduction styling for Returns, balancing-figure emphasis,
+ *     stage divider between Trading and P&L A/c)
+ *   · banner styles for invariant violations
+ *   · the optional third comparative column sizing
+ *   · @media print rules so window.print() yields a clean A4 layout
+ */
+
+/* ── Row baseline ────────────────────────────────────────────────── */
+.pl-row {
+  cursor: default;
+}
+.pl-row .pl-cell-label {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pl-row .pl-cell-num {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: right;
+  font-size: 13px;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.pl-row .pl-cell-comp {
+  color: var(--fg-secondary);
+}
+
+.pl-row .pl-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-primary);
+}
+.pl-row .pl-name-sub {
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  position: relative;
+}
+.pl-row .pl-name-sub::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 50%;
+  width: 8px; height: 1px;
+  background: var(--border);
+}
+
+/* Drill arrow — fades in on row hover. Mirrors .bs-row-sub .arrow. */
+.pl-row .pl-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  opacity: 0;
+  transition: opacity .12s, color .12s, transform .12s;
+}
+.pl-row[onclick]:hover,
+.pl-row:has(.pl-arrow):hover { background: var(--bg-hover); cursor: pointer; }
+.pl-row:hover .pl-arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.pl-row:hover .pl-name { color: var(--accent); }
+
+/* Computed-row tag (Opening Stock / Closing Stock — derived, not posted) */
+.pl-row-computed { background: var(--warning-bg); }
+.pl-row-computed .pl-name { color: var(--warning); font-weight: 600; }
+.pl-row-computed .pl-cell-num { color: var(--warning); font-weight: 600; }
+.pl-row .pl-tag {
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--warning); color: #fff;
+  text-transform: uppercase;
+  margin-left: 6px;
+}
+
+/* Aggregate header — section title (Sales Accounts / Purchase Accounts).
+ * No amount on this row; the children plus the net-row carry the values. */
+.pl-row-aggregate-header .pl-cell-label { padding-top: 11px; padding-bottom: 6px; }
+.pl-row-aggregate-header .pl-name {
+  font-size: 13.5px; font-weight: 600; color: var(--fg-primary);
+}
+.pl-row-aggregate-header { cursor: default; background: transparent; }
+.pl-row-aggregate-header:hover { background: transparent; }
+
+/* Sub-row (Sales Account / Purchase Account ledger lines under header) */
+.pl-row-sub .pl-cell-num { font-size: 12.5px; color: var(--fg-secondary); }
+
+/* Deduction row (Less: Sales Return / Less: Purchase Return).
+ * Italic so the eye reads it as a deduction line at a glance. */
+.pl-row-sub-deduction .pl-name { font-style: italic; color: var(--fg-secondary); }
+.pl-row-sub-deduction .pl-cell-num { color: var(--fg-secondary); font-style: italic; }
+
+/* Aggregate net (Net Sales / Net Purchases) — slightly emphasised
+ * subtotal closing the Sales/Purchase block. */
+.pl-row-aggregate-net .pl-cell-label { padding-top: 6px; padding-bottom: 9px; }
+.pl-row-aggregate-net .pl-cell-num   { padding-top: 6px; padding-bottom: 9px; }
+.pl-row-aggregate-net .pl-name {
+  font-weight: 600; color: var(--fg-primary); padding-left: 0;
+}
+.pl-row-aggregate-net .pl-name::before { display: none; }
+.pl-row-aggregate-net .pl-cell-num { font-weight: 600; }
+.pl-row-aggregate-net td {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-muted);
+}
+
+/* Direct/Indirect subtotal (only when there are 2+ lines in the bucket). */
+.pl-row-subtotal .pl-name { font-weight: 600; font-style: italic; }
+.pl-row-subtotal .pl-cell-num { font-weight: 600; }
+
+/* Balancing figure (Gross Profit c/o, Gross Loss b/f, etc.). */
+.pl-row-balancing .pl-name {
+  font-weight: 600; font-style: italic;
+  color: var(--accent);
+}
+.pl-row-balancing .pl-cell-num {
+  font-weight: 600; color: var(--accent);
+}
+.pl-row-balancing td { background: var(--accent-bg); }
+
+/* Final figure (Net Profit on Dr, Net Loss on Cr). */
+.pl-row-final .pl-name      { font-weight: 700; color: var(--success); }
+.pl-row-final .pl-cell-num  { font-weight: 700; color: var(--success); }
+.pl-row-final td            { background: var(--success-bg); }
+/* Net Loss reuses the success colour family because it's still a
+ * "computed-final" line on its side; the fact that it's a loss is
+ * carried by the label and the negative-margin colour in the F-bar. */
+
+/* Stage divider — visual marker between Stage 1 (Trading A/c) and
+ * Stage 2 (P&L A/c). Drawn as a centred subtle label bar. */
+.pl-stage-divider td {
+  padding: 8px 14px;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  background: var(--bg-strip);
+  text-align: center;
+}
+.pl-stage-divider .lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--fg-tertiary);
+  text-transform: uppercase;
+}
+
+/* Active row (keyboard nav) — accent highlight + outline. Same idiom
+ * as .bs-row-group.bs-active in balance-sheet.css. */
+.pl-active td {
+  background: var(--accent-bg) !important;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.pl-active .pl-name      { color: var(--accent); }
+.pl-active .pl-arrow     { opacity: 1; color: var(--accent); }
+
+/* ── Banner (reconciliation drift) ───────────────────────────────── */
+.pl-banner {
+  flex-shrink: 0;
+  padding: 8px 28px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+}
+.pl-banner-error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-bottom-color: var(--danger);
+}
+.pl-banner-warn {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-bottom-color: var(--warning);
+}
+
+/* ── Comparative column ──────────────────────────────────────────── */
+/*
+ * When the user toggles Comparative, each .hh inside .bs-headbar grows
+ * to a 3-col grid (label | current | previous). The body tables and
+ * total bar mirror the same widths via inline colgroups.
+ */
+.bs-headbar.pl-headbar-comp .hh {
+  grid-template-columns: 1fr 150px 150px;
+}
+
+/* ── F-bar summary ───────────────────────────────────────────────── */
+.bs-fbar .pl-summary {
+  font-size: 12px;
+  color: var(--fg-secondary);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 12px;
+}
+.bs-fbar .pl-summary b { color: var(--fg-primary); font-weight: 700; }
+
+/* ── Print (A4 two-column) ───────────────────────────────────────── */
+@media print {
+  /* Hide the chrome the report doesn't need on paper. */
+  .bs-actions, .bs-fbar, .pl-banner { display: none !important; }
+  /* Lift the height clamp so all content renders, not just the
+   * viewport's worth. */
+  .bs-page { height: auto; overflow: visible; }
+  .bs-body { overflow: visible; padding: 0 8mm; }
+  .bs-hd   { padding: 8mm 8mm 4mm; border-bottom: 1px solid #000; }
+  .bs-headbar    { padding: 0 8mm; background: #fff; color: #000; border-bottom-color: #000; }
+  .bs-totalbar   { padding: 0 8mm; }
+  .pl-stage-divider td { background: #fff; }
+  .pl-row td { background: #fff !important; color: #000 !important; }
+  .pl-row .pl-name, .pl-row .pl-cell-num,
+  .pl-row-balancing .pl-name, .pl-row-balancing .pl-cell-num,
+  .pl-row-final    .pl-name, .pl-row-final    .pl-cell-num,
+  .pl-row-computed .pl-name, .pl-row-computed .pl-cell-num { color: #000 !important; }
+  .pl-row .pl-arrow, .pl-row .pl-tag { display: none !important; }
+  /* Page-break behaviour: avoid splitting a Sales/Purchase aggregate
+   * across pages — keep header + lines + net together if possible. */
+  .pl-row-aggregate-header,
+  .pl-row-aggregate-header + .pl-row,
+  .pl-row-aggregate-net { break-inside: avoid; }
+}
+
+/* ── Responsive (< 1024px) ───────────────────────────────────────── */
+@media (max-width: 1024px) {
+  /* Stack sides vertically on narrow viewports — same as BS shell. */
+  .bs-headbar.pl-headbar-comp .hh { grid-template-columns: 1fr 110px 110px; }
+}

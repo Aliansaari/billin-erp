@@ -179,14 +179,20 @@ export const reportAPI = {
   getSalesReport: (params) => api.get('/reports/sales', { params }),
   getPurchaseReport: (params) => api.get('/reports/purchases', { params }),
   getStockReport: (params) => api.get('/reports/stock', { params }),
+  // Legacy alias — kept for callers we haven't migrated yet (Dashboard etc).
+  // The new Tally-shape P&L is exported as `profitLoss` below alongside
+  // trialBalance/balanceSheet, with a structured two-column response.
   getProfitLoss: (params) => api.get('/reports/profit-loss', { params }),
   getPartyOutstanding: (params) => api.get('/reports/party-outstanding', { params }),
   getAging: (params) => api.get('/reports/aging', { params }),
   getGstr1: (params) => api.get('/reports/gstr1', { params }),
   getGstr3b: (params) => api.get('/reports/gstr3b', { params }),
-  // Phase R1 — Trial Balance + Balance Sheet
+  // Phase R1 — Trial Balance + Balance Sheet + Profit & Loss
+  // (P&L moved here from reportController; new shape is two-column
+  // Tally-style with optional comparative period.)
   trialBalance: (params) => api.get('/reports/trial-balance',  { params }),
   balanceSheet: (params) => api.get('/reports/balance-sheet',  { params }),
+  profitLoss:   (params) => api.get('/reports/profit-loss',    { params }),
   // Phase R2 — Cash Flow + Aging
   cashFlow:           (params) => api.get('/reports/cash-flow',          { params }),
   dayBook:            (params) => api.get('/reports/day-book',           { params }),

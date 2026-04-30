@@ -929,6 +929,42 @@ async function startServer() {
       console.error('[Created-date alignment] Error:', err.message);
     });
 
+    // ── P&L sub_group reclassification (idempotent) ────────────────────
+    //
+    // Sales / Purchase + their Returns historically lived under
+    // 'Direct Incomes' / 'Direct Expenses', but Tally treats them as
+    // dedicated primary groups ('Sales Accounts', 'Purchase Accounts').
+    // Direct Incomes / Direct Expenses are reserved for operational
+    // direct items (service income, freight inward, factory wages, etc.),
+    // which the P&L renders as a separate section.
+    //
+    // Without this fix the P&L either:
+    //   · double-counts Sales Returns as Direct Income (instead of
+    //     netting them under Sales), or
+    //   · forces hardcoded ledger-name allowlists in the report query.
+    //
+    // The fix is a pure data migration: change sub_group on the four
+    // system ledgers. Idempotent — re-running matches no rows after the
+    // first pass. is_system_ledger=true gate keeps user-renamed ledgers
+    // safe (a user could have created their own ledger named "Sales
+    // Account" with a deliberate Direct Incomes classification).
+    await sequelize.query(`
+      UPDATE ledger_accounts
+         SET sub_group = 'Sales Accounts'
+       WHERE is_system_ledger = true
+         AND ledger_group = 'Income'
+         AND sub_group = 'Direct Incomes'
+         AND ledger_name IN ('Sales Account', 'Sales Return');
+      UPDATE ledger_accounts
+         SET sub_group = 'Purchase Accounts'
+       WHERE is_system_ledger = true
+         AND ledger_group = 'Expenses'
+         AND sub_group = 'Direct Expenses'
+         AND ledger_name IN ('Purchase Account', 'Purchase Return');
+    `).catch((err) => {
+      console.error('[P&L sub_group reclassification] Error:', err.message);
+    });
+
     // Seed default data
     await seedDefaultData();
 

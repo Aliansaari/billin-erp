@@ -85,10 +85,18 @@ async function seedDefaultData() {
     { ledger_name: 'Bank Account', ledger_group: 'Assets', sub_group: 'Bank Accounts', is_system_ledger: true },
     { ledger_name: 'Accounts Receivable', ledger_group: 'Assets', sub_group: 'Sundry Debtors', is_system_ledger: true },
     { ledger_name: 'Accounts Payable', ledger_group: 'Liabilities', sub_group: 'Sundry Creditors', is_system_ledger: true },
-    { ledger_name: 'Sales Account', ledger_group: 'Income', sub_group: 'Direct Incomes', is_system_ledger: true },
-    { ledger_name: 'Purchase Account', ledger_group: 'Expenses', sub_group: 'Direct Expenses', is_system_ledger: true },
-    { ledger_name: 'Sales Return', ledger_group: 'Income', sub_group: 'Direct Incomes', is_system_ledger: true },
-    { ledger_name: 'Purchase Return', ledger_group: 'Expenses', sub_group: 'Direct Expenses', is_system_ledger: true },
+    // Sales / Purchase + their Returns sit in dedicated Tally primary groups
+    // (Sales Accounts / Purchase Accounts) so the P&L can render the
+    // "Less: Returns" deduction line cleanly. Direct Incomes / Direct
+    // Expenses are reserved for operational direct items (service income,
+    // freight inward, factory wages) — distinct primary groups in Tally.
+    // Within each group the natural sign tells us which is sale vs return:
+    // a Cr-balance ledger in 'Sales Accounts' is a sale, a Dr-balance
+    // ledger is a return.
+    { ledger_name: 'Sales Account', ledger_group: 'Income', sub_group: 'Sales Accounts', is_system_ledger: true },
+    { ledger_name: 'Purchase Account', ledger_group: 'Expenses', sub_group: 'Purchase Accounts', is_system_ledger: true },
+    { ledger_name: 'Sales Return', ledger_group: 'Income', sub_group: 'Sales Accounts', is_system_ledger: true },
+    { ledger_name: 'Purchase Return', ledger_group: 'Expenses', sub_group: 'Purchase Accounts', is_system_ledger: true },
     { ledger_name: 'Discount Allowed', ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: true },
     { ledger_name: 'Discount Received', ledger_group: 'Income', sub_group: 'Indirect Incomes', is_system_ledger: true },
     { ledger_name: 'CGST Input', ledger_group: 'Assets', sub_group: 'Duties & Taxes', is_system_ledger: true },

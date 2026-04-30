@@ -27,7 +27,7 @@ import {
   PrinterOutlined, FilePdfOutlined, FileExcelOutlined,
   WhatsAppOutlined, AppstoreOutlined, CalendarOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { partyAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
@@ -141,16 +141,40 @@ export default function PartyLedger() {
   const PERIOD_PRESETS = useMemo(() => buildPeriodPresets(fyStart, fyEnd), [fyStart, fyEnd]);
   const defaultPeriod = () => PERIOD_PRESETS[0].range();
 
+  // URL query params — used to pre-select a party when this page is
+  // opened from a drill-down (e.g., Trial Balance → Group Summary →
+  // ledger row). Pre-seed `partyId` from the URL so the page lands
+  // already focused on the right party instead of auto-picking the
+  // first one.
+  const [searchParams] = useSearchParams();
+  const initialPartyId = (() => {
+    const raw = searchParams.get('party_id');
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+
   // Parties + selection
   const [parties, setParties]   = useState([]);
   const [partiesLoading, setPartiesLoading] = useState(false);
   const [partyFilter, setPartyFilter] = useState('all'); // 'all' | 'customer' | 'supplier'
-  const [partyId, setPartyId] = useState(null);
+  const [partyId, setPartyId] = useState(initialPartyId);
   const [partySearch, setPartySearch] = useState('');
   const [partyPopOpen, setPartyPopOpen] = useState(false);
 
-  // Date range — defaults to the company FY (first preset).
-  const [dateRange, setDateRange] = useState(defaultPeriod());
+  // Date range — defaults to the company FY (first preset), but
+  // honors `?from=YYYY-MM-DD&to=YYYY-MM-DD` from the URL when this
+  // page was opened by a drill-down (e.g., Trial Balance → Group
+  // Summary → ledger).
+  const [dateRange, setDateRange] = useState(() => {
+    const fromQ = searchParams.get('from');
+    const toQ   = searchParams.get('to');
+    if (fromQ && toQ) {
+      const f = dayjs(fromQ);
+      const t = dayjs(toQ);
+      if (f.isValid() && t.isValid()) return [f, t];
+    }
+    return defaultPeriod();
+  });
   const [periodPopOpen, setPeriodPopOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState(null);
   const [customTo,   setCustomTo]   = useState(null);
