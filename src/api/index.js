@@ -185,6 +185,12 @@ export const reportAPI = {
   getProfitLoss: (params) => api.get('/reports/profit-loss', { params }),
   getPartyOutstanding: (params) => api.get('/reports/party-outstanding', { params }),
   getAging: (params) => api.get('/reports/aging', { params }),
+  // Bill-level outstanding lists. Cursor pagination via page+limit so
+  // useVirtualizedReport can chunk-load 10k+ rows.
+  billsReceivable:       (params) => api.get('/reports/bills-receivable', { params }),
+  billsPayable:          (params) => api.get('/reports/bills-payable',    { params }),
+  exportBillsReceivable: (params) => api.get('/reports/bills-receivable/export', { params, responseType: 'blob' }),
+  exportBillsPayable:    (params) => api.get('/reports/bills-payable/export',    { params, responseType: 'blob' }),
   getGstr1: (params) => api.get('/reports/gstr1', { params }),
   getGstr3b: (params) => api.get('/reports/gstr3b', { params }),
   // Phase R1 — Trial Balance + Balance Sheet + Profit & Loss

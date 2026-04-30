@@ -69,6 +69,7 @@ export default function AppLayout() {
     '/reports/sales', '/reports/purchases', '/reports/stock',
     '/reports/party-ledger', '/reports/profit-loss', '/reports/aging',
     '/reports/gstr1', '/reports/day-book',
+    '/reports/bills-receivable', '/reports/bills-payable',
     // Editorial financial reports — full-page shells with sticky
     // total bar + F-bar pinned to viewport bottom. Without these
     // listed, the wrapper paints them as a padded card and the

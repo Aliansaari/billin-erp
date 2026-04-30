@@ -29,19 +29,45 @@
 // names — actual icon components are imported by the consumer to
 // avoid pulling icon weight into the registry itself.
 export const CATEGORY_META = {
-  sales:     { label: 'Sales',     icon: 'RiseOutlined',         tone: 'info'    },
-  purchase:  { label: 'Purchase',  icon: 'ShoppingCartOutlined', tone: 'warning' },
-  inventory: { label: 'Inventory', icon: 'InboxOutlined',        tone: 'success' },
-  financial: { label: 'Financial', icon: 'PieChartOutlined',     tone: 'danger'  },
-  parties:   { label: 'Parties',   icon: 'TeamOutlined',         tone: 'purple'  },
-  tax:       { label: 'Tax / GST', icon: 'FileTextOutlined',     tone: 'teal'    },
+  outstanding: { label: 'Outstanding', icon: 'AlertOutlined',       tone: 'danger'  },
+  sales:       { label: 'Sales',       icon: 'RiseOutlined',         tone: 'info'    },
+  purchase:    { label: 'Purchase',    icon: 'ShoppingCartOutlined', tone: 'warning' },
+  inventory:   { label: 'Inventory',   icon: 'InboxOutlined',        tone: 'success' },
+  financial:   { label: 'Financial',   icon: 'PieChartOutlined',     tone: 'danger'  },
+  parties:     { label: 'Parties',     icon: 'TeamOutlined',         tone: 'purple'  },
+  tax:         { label: 'Tax / GST',   icon: 'FileTextOutlined',     tone: 'teal'    },
 };
 
-// Category render order on the hub. Sales first (most-used), then
-// Purchase, Inventory (largest group), Financial, Parties, Tax last.
-export const CATEGORY_ORDER = ['sales', 'purchase', 'inventory', 'financial', 'parties', 'tax'];
+// Category render order on the hub. Outstanding first (checked daily —
+// these are the bills currently bleeding cash). Then Sales, Purchase,
+// Inventory (largest group), Financial, Parties, Tax last.
+export const CATEGORY_ORDER = ['outstanding', 'sales', 'purchase', 'inventory', 'financial', 'parties', 'tax'];
 
 export const REPORTS = [
+  // ── Outstanding ──────────────────────────────────────────────────
+  // Bill-LEVEL outstanding (cf. Aging which is party-level). Checked
+  // daily — surfaced first on the hub.
+  {
+    id: 'bills_receivable',
+    name: 'Bills Receivable',
+    subtitle: 'Unpaid customer bills · bill-level',
+    category: 'outstanding',
+    route: '/reports/bills-receivable',
+    perm: 'reports.view',
+    aliases: ['receivable', 'br', 'unpaid sales', 'debtors bills'],
+    isNew: true,
+  },
+  {
+    id: 'bills_payable',
+    name: 'Bills Payable',
+    subtitle: 'Unpaid supplier bills · bill-level',
+    category: 'outstanding',
+    route: '/reports/bills-payable',
+    perm: 'reports.view',
+    aliases: ['payable', 'bp', 'unpaid purchases', 'creditors bills'],
+    isNew: true,
+  },
+
   // ── Sales ────────────────────────────────────────────────────────
   {
     id: 'sales_report',
@@ -166,11 +192,11 @@ export const REPORTS = [
   {
     id: 'aging_report',
     name: 'Aging Report',
-    subtitle: '0-30 / 30-60 / 60-90 / 90+ buckets',
-    category: 'parties',
+    subtitle: 'Party-level bucketed outstanding · 0-30/30-60/60-90/90+',
+    category: 'outstanding',
     route: '/reports/aging',
     perm: 'reports.view',
-    aliases: ['outstanding'],
+    aliases: ['outstanding', 'receivables aging', 'payables aging'],
   },
 
   // ── Tax / GST ────────────────────────────────────────────────────

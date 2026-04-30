@@ -4,6 +4,7 @@ const reportController = require('../controllers/reportController');
 const financialReports = require('../controllers/financialReportsController');
 const operationalReports = require('../controllers/operationalReportsController');
 const dayBookController = require('../controllers/dayBookController');
+const billsOutstandingController = require('../controllers/billsOutstandingController');
 const { authenticateToken } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 
@@ -42,6 +43,18 @@ router.get('/purchases',         requirePermission('reports.view'),  reportContr
 router.get('/stock',             requirePermission('reports.view'),  reportController.stockReport);
 router.get('/party-outstanding', requirePermission('reports.view'),  reportController.partyOutstanding);
 router.get('/aging',             requirePermission('reports.view'),  reportController.agingReport);
+// Bill-level outstanding lists (cf. Aging which is party-level). Cursor-
+// paginated via page/limit so the frontend can virtualize 10k+ rows.
+router.get('/bills-receivable',  requirePermission('reports.view'),  billsOutstandingController.billsReceivable);
+router.get('/bills-payable',     requirePermission('reports.view'),  billsOutstandingController.billsPayable);
+router.get('/bills-receivable/export', requirePermission('reports.view'), (req, res) => {
+  req.query = { ...req.query, party_type: 'Customer' };
+  return billsOutstandingController.exportBills(req, res);
+});
+router.get('/bills-payable/export',    requirePermission('reports.view'), (req, res) => {
+  req.query = { ...req.query, party_type: 'Supplier' };
+  return billsOutstandingController.exportBills(req, res);
+});
 router.get('/gstr1',             requirePermission('reports.view'),  reportController.gstr1Report);
 router.get('/gstr3b',            requirePermission('reports.view'),  reportController.gstr3bReport);
 

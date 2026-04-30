@@ -36,6 +36,8 @@ import StockReportPage from './pages/reports/StockReportPage';
 import PartyLedger from './pages/reports/PartyLedger';
 import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
+import BillsReceivable from './pages/reports/BillsReceivable';
+import BillsPayable from './pages/reports/BillsPayable';
 import GSTR1Report from './pages/reports/GSTR1Report';
 import GSTR3BReport from './pages/reports/GSTR3BReport';
 import TrialBalance from './pages/reports/TrialBalance';
@@ -193,6 +195,8 @@ export default function App() {
           <Route path="reports/party-ledger"  element={<RoleRoute perm="accounts.view"><PartyLedger /></RoleRoute>} />
           <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
           <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
+          <Route path="reports/bills-receivable" element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
+          <Route path="reports/bills-payable"    element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
           <Route path="reports/gstr1"         element={<RoleRoute perm="reports.view"><GSTR1Report /></RoleRoute>} />
           <Route path="reports/gstr3b"        element={<RoleRoute perm="reports.view"><GSTR3BReport /></RoleRoute>} />
           <Route path="reports/trial-balance"     element={<RoleRoute perm="accounts.view"><TrialBalance /></RoleRoute>} />

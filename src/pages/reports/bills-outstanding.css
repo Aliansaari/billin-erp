@@ -1,0 +1,172 @@
+/*
+ * Bills Outstanding (Receivable / Payable)
+ *
+ * Sticky-shell layout matching the financial-reports family:
+ *   .bo-page is a flex column inside the AppLayout full-page wrapper.
+ *   Toolbar + banners + KPIs + filter bar are all flex-shrink:0 (fixed
+ *   height); the .bo-tablewrap below them grows to fill the remaining
+ *   viewport height and hosts the VirtualReportTable's own sticky
+ *   header + summary.
+ */
+
+.bo-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Title bar ─────────────────────────────────────────────────── */
+.bo-hd {
+  flex-shrink: 0;
+  padding: 14px 24px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+.bo-title {
+  display: flex; align-items: baseline; gap: 12px;
+  min-width: 0;
+}
+.bo-title h1 {
+  margin: 0;
+  font-size: 22px; font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary); line-height: 1;
+}
+.bo-as-of {
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+.bo-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* ── Banners (allocation-incomplete / reconciliation drift / OK) ── */
+.bo-banner {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 24px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+}
+.bo-banner-warn { background: var(--warning-bg, rgba(181,135,43,0.08)); color: var(--warning, #B5872B); }
+.bo-banner-warn .anticon { font-size: 14px; }
+.bo-banner-ok   { background: var(--success-bg, rgba(16,185,129,0.06)); color: var(--success, #10B981); }
+.bo-banner code { background: rgba(0,0,0,0.06); padding: 0 4px; border-radius: 3px; font-family: 'Geist Mono','JetBrains Mono', monospace; font-size: 11.5px; }
+.bo-banner > :nth-child(2) { flex: 1; }
+.bo-recon-tt { font-family: 'Geist Mono','JetBrains Mono', monospace; font-size: 11px; line-height: 1.55; }
+
+/* ── KPI tiles ──────────────────────────────────────────────────── */
+.bo-kpis {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border-subtle);
+  border-bottom: 1px solid var(--border);
+}
+.bo-kpi {
+  background: var(--bg-panel);
+  padding: 10px 16px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.bo-kpi-clickable { cursor: pointer; transition: background .12s; }
+.bo-kpi-clickable:hover { background: var(--bg-hover); }
+.bo-kpi-active   { box-shadow: inset 0 -2px 0 var(--accent); }
+.bo-kpi-label    { font-size: 10.5px; letter-spacing: 0.4px; text-transform: uppercase; color: var(--fg-tertiary); font-weight: 600; }
+.bo-kpi-value    { font-size: 16px; font-weight: 600; color: var(--fg-primary); }
+.bo-kpi-strong   { font-weight: 700; color: var(--accent); }
+.bo-kpi-warn     { color: var(--warning, #B5872B); }
+
+/* ── Filter bar ─────────────────────────────────────────────────── */
+.bo-filterbar {
+  flex-shrink: 0;
+  padding: 8px 24px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.bo-filterbar-adv {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+/* Bucket chips — multi-select */
+.bo-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; padding: 0 4px; }
+.bo-chip {
+  height: 24px; padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--fg-secondary);
+  font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  transition: all .12s;
+}
+.bo-chip:hover { border-color: var(--border-strong); color: var(--fg-primary); }
+.bo-chip-on    { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+
+/* ── Table wrapper ──────────────────────────────────────────────── */
+.bo-tablewrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 24px 12px;
+  background: var(--bg-app);
+}
+.bo-tablewrap .ant-table-wrapper { background: var(--bg-panel); border-radius: 6px; overflow: hidden; }
+
+/* Cell typography */
+.bo-num         { font-family: 'Geist Mono','JetBrains Mono', monospace; }
+.bo-num-strong  { font-weight: 700; color: var(--fg-primary); }
+.bo-num-muted   { color: var(--fg-secondary); }
+.bo-mono        { font-family: 'Geist Mono','JetBrains Mono', monospace; font-size: 12px; }
+.bo-bill-link   { color: var(--accent); cursor: pointer; font-weight: 500; }
+.bo-bill-link:hover { text-decoration: underline; }
+.bo-party-link  { color: var(--fg-primary); cursor: pointer; }
+.bo-party-link:hover { color: var(--accent); }
+.bo-due-soon    { color: var(--success, #10B981); font-weight: 500; }
+.bo-overdue-mild{ color: var(--warning, #B5872B); }
+.bo-overdue-mid { color: #d97706; font-weight: 600; }
+.bo-overdue-bad { color: var(--danger, #ef4444); font-weight: 700; }
+.bo-over-limit  { color: var(--danger, #ef4444); font-weight: 600; }
+
+/* Bucket cell tags */
+.bo-bucket          { font-size: 11px; padding: 0 8px; line-height: 18px; }
+.bo-bucket-current  { background: var(--success-bg, rgba(16,185,129,0.10)); color: var(--success, #10B981); border: none; }
+.bo-bucket-b1       { background: rgba(245, 158, 11, 0.12);  color: #b45309; border: none; }
+.bo-bucket-b2       { background: rgba(217, 119, 6, 0.16);   color: #b45309; border: none; }
+.bo-bucket-b3       { background: rgba(220, 38, 38, 0.12);   color: #b91c1c; border: none; }
+.bo-bucket-b4       { background: rgba(220, 38, 38, 0.20);   color: #991b1b; border: none; font-weight: 600; }
+
+/* Empty / loading state */
+.bo-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--fg-tertiary);
+  font-size: 14px;
+  background: var(--bg-panel);
+  border-radius: 6px;
+}
+
+/* Column-picker popover content */
+.bo-col-picker { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 16px; min-width: 320px; }
+
+/* Print — hide chrome, full-page table */
+@media print {
+  .bo-actions, .bo-filterbar, .bo-banner { display: none !important; }
+  .bo-page { height: auto; overflow: visible; }
+  .bo-tablewrap { padding: 0; overflow: visible; }
+}
+
+/* Responsive — collapse KPI grid on narrower viewports */
+@media (max-width: 1280px) {
+  .bo-kpis { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 768px) {
+  .bo-kpis { grid-template-columns: repeat(2, 1fr); }
+}
