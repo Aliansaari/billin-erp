@@ -1,16 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Input, Typography, Tag, Empty, DatePicker } from 'antd';
+import { Input, Typography, Tag, Empty } from 'antd';
 import {
   RiseOutlined, ShoppingCartOutlined, InboxOutlined,
   PieChartOutlined, TeamOutlined, FileTextOutlined,
   SearchOutlined, StarFilled,
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import { REPORTS, CATEGORY_META, CATEGORY_ORDER, matchReport, resolveReports } from '../../config/reports';
 import useFavoritesStore from '../../store/favoritesStore';
 import useAuthStore from '../../store/authStore';
-import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { hasPermission } from '../../utils/perms';
 import FavoriteStar from '../../components/FavoriteStar';
 
@@ -78,7 +76,6 @@ export default function ReportsHub() {
   const favIds   = useFavoritesStore((s) => s.ids);
   const favLoad  = useFavoritesStore((s) => s.load);
   const favLoaded= useFavoritesStore((s) => s.loaded);
-  const { fyStart, fyEnd } = useFinancialYear();
   // Query lives in the URL (?q=…) so the browser-back button restores
   // the same search state when returning from a report. ESC on a
   // report page fires history.back() (handled by AppLayout) which
@@ -96,15 +93,6 @@ export default function ReportsHub() {
     else if (searchParams.get('q')) setSearchParams({}, { replace: true });
     // eslint-disable-next-line
   }, [query]);
-
-  const [range, setRange] = useState(() => ({
-    from: fyStart || dayjs().startOf('year').format('YYYY-MM-DD'),
-    to:   fyEnd   || dayjs().endOf('year').format('YYYY-MM-DD'),
-  }));
-  // When the FY hook resolves later, update the range once.
-  useEffect(() => {
-    if (fyStart && fyEnd) setRange({ from: fyStart, to: fyEnd });
-  }, [fyStart, fyEnd]);
 
   useEffect(() => { if (!favLoaded) favLoad(); }, [favLoaded, favLoad]);
 
@@ -161,33 +149,16 @@ export default function ReportsHub() {
     return resolveReports(favIds.filter((id) => visibleIds.has(id)));
   }, [favIds, visibleReports]);
 
-  const fmtRangeLabel = `${dayjs(range.from).format('DD MMM YYYY')} — ${dayjs(range.to).format('DD MMM YYYY')}`;
-
   return (
     <div style={{ padding: '20px 24px', maxWidth: 1280, margin: '0 auto' }}>
 
       {/* ── Header ──────────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-        flexWrap: 'wrap', gap: 16, marginBottom: 14,
-      }}>
-        <div>
-          <Title level={2} style={{ margin: 0, fontWeight: 700, letterSpacing: '-0.02em' }}>Reports</Title>
-          <Text type="secondary" style={{ fontSize: 13.5 }}>
-            All financial, sales, and operational reports · {visibleReports.length} total
-            {pinned.length > 0 && <> · <b style={{ color: 'var(--fg-secondary)' }}>{pinned.length}</b> pinned</>}
-          </Text>
-        </div>
-        <DatePicker.RangePicker
-          value={[dayjs(range.from), dayjs(range.to)]}
-          onChange={(r) => r && r[0] && r[1] && setRange({
-            from: r[0].format('YYYY-MM-DD'),
-            to:   r[1].format('YYYY-MM-DD'),
-          })}
-          format="DD MMM YYYY"
-          allowClear={false}
-          style={{ minWidth: 280 }}
-        />
+      <div style={{ marginBottom: 14 }}>
+        <Title level={2} style={{ margin: 0, fontWeight: 700, letterSpacing: '-0.02em' }}>Reports</Title>
+        <Text type="secondary" style={{ fontSize: 13.5 }}>
+          All financial, sales, and operational reports · {visibleReports.length} total
+          {pinned.length > 0 && <> · <b style={{ color: 'var(--fg-secondary)' }}>{pinned.length}</b> pinned</>}
+        </Text>
       </div>
 
       {/* ── Search ──────────────────────────────────────────────── */}
