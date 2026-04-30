@@ -1235,19 +1235,25 @@ async function _agingReconciliation(partyType, asOf) {
   const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
   // Bill side — restrict to bills whose party leg actually posts to
-  // Sundry Debtors / Creditors. Cash sales (customer_id=NULL) and cash
-  // purchases (supplier the canonical "Cash Purchases" stub system
-  // party — its ledger lives outside Sundry Creditors) are excluded
-  // by the customer_id IS NOT NULL filter (sales) and by joining on
-  // the supplier's ledger sub_group (purchase).
+  // Sundry Debtors / Creditors. Cash sales / cash purchases settle at
+  // point-of-sale and post to the Cash ledger, NOT Sundry Debtors/
+  // Creditors. We exclude them by joining to parties and filtering on
+  // is_system_cash. The previous filter (customer_id IS NOT NULL alone)
+  // missed cash sales whose customer_id was set to the system Cash
+  // party — those bills' balance_amounts inflated bill_outstanding
+  // by an amount that never appeared on the party-ledger side,
+  // surfacing as a drift on the reconciliation banner (the long-
+  // standing -₹85 in the seed data was a single ₹85 cash sale).
   const [billRow] = await sequelize.query(
     isCustomer
       ? `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
                 COALESCE(SUM(b.paid_amount), 0)::float paid_in_bills
            FROM sales_bills b
+           JOIN parties p ON p.party_id = b.customer_id
           WHERE b.is_cancelled = false
             AND b.customer_id IS NOT NULL
-            AND b.bill_date <= :as_of`
+            AND b.bill_date <= :as_of
+            AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`
       : `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
                 COALESCE(SUM(b.paid_amount), 0)::float paid_in_bills
            FROM purchase_bills b
@@ -1256,7 +1262,8 @@ async function _agingReconciliation(partyType, asOf) {
           WHERE b.is_cancelled = false
             AND b.supplier_id IS NOT NULL
             AND la.sub_group = 'Sundry Creditors'
-            AND b.bill_date <= :as_of`,
+            AND b.bill_date <= :as_of
+            AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`,
     { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT },
   );
   const billOutstanding = r2(billRow.outstanding);

@@ -445,15 +445,23 @@ function _normaliseRow(r) {
 // together. (The Aging report's tests already cover the math; this
 // re-runs the same SQL with the same inputs and gets the same answer.)
 async function _reconcile(isCustomer, asOf, subGroup) {
-  // Bills' contribution.
+  // Bills' contribution. Joins to parties and excludes the system
+  // Cash party — cash sales/purchases settle at point-of-sale and
+  // post to the Cash ledger, NOT Sundry Debtors/Creditors. Without
+  // this filter, a cash bill with balance_amount > 0 (rare; usually
+  // a half-saved entry) inflates bill_outstanding by an amount that
+  // never appears on the party-ledger side, surfacing as a drift on
+  // the reconciliation banner.
   const [billRow] = await sequelize.query(
     isCustomer
       ? `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
                 COALESCE(SUM(b.paid_amount),    0)::float paid_in_bills
            FROM sales_bills b
+           JOIN parties p ON p.party_id = b.customer_id
           WHERE b.is_cancelled = false
             AND b.customer_id IS NOT NULL
-            AND b.bill_date <= :as_of`
+            AND b.bill_date <= :as_of
+            AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`
       : `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
                 COALESCE(SUM(b.paid_amount),    0)::float paid_in_bills
            FROM purchase_bills b
@@ -462,7 +470,8 @@ async function _reconcile(isCustomer, asOf, subGroup) {
           WHERE b.is_cancelled = false
             AND b.supplier_id IS NOT NULL
             AND la.sub_group = 'Sundry Creditors'
-            AND b.bill_date <= :as_of`,
+            AND b.bill_date <= :as_of
+            AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`,
     { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT },
   );
 
