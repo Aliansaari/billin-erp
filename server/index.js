@@ -992,6 +992,83 @@ async function startServer() {
       console.error('[P&L sub_group reclassification] Error:', err.message);
     });
 
+    // ── Two-way ledger schema (Phase 1, R8) ──────────────────────────
+    //
+    // Auto-generated Receipt/Payment vouchers from embedded bill
+    // payments. Adds:
+    //   · payments_receipts.source        — manual | auto_from_bill
+    //   · payments_receipts.source_bill_id — FK to source bill (null
+    //                                       on manual entries)
+    //   · bill_payment_allocations TABLE   — links a receipt/payment
+    //                                       row to one or more bills
+    //                                       with allocated_amount
+    //
+    // The voucher builders ALREADY emit a separate Receipt voucher for
+    // paid credit sales (source_type='sales_bill_receipt'); what was
+    // missing was the corresponding payments_receipts row + an
+    // allocation linking it to the source bill. Phase 2 (separate
+    // commit) wires the auto-row insertion into the voucher pipeline
+    // and the cancel/edit cascade.
+    //
+    // All idempotent — wrapped in DO/IF NOT EXISTS blocks so re-runs
+    // are no-ops on a migrated DB.
+    await sequelize.query(`
+      DO $$ BEGIN
+        -- payments_receipts.source — distinguishes auto-generated
+        -- bill receipts from operator-entered standalone receipts.
+        -- The Receipts list filters on this; auto rows are read-only
+        -- (must be edited via the source bill).
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name='payments_receipts' AND column_name='source'
+        ) THEN
+          CREATE TYPE enum_payments_receipts_source AS ENUM ('manual', 'auto_from_bill');
+          ALTER TABLE payments_receipts ADD COLUMN source enum_payments_receipts_source DEFAULT 'manual';
+        END IF;
+        -- payments_receipts.source_bill_id — points at the originating
+        -- sales_bill_id or purchase_bill_id (which is implied by
+        -- transaction_type='Receipt'/'Payment'). Polymorphic FK
+        -- isn't enforced at DB level (the table is unified across
+        -- both sales + purchase); the Phase 2 voucher logic guarantees
+        -- the pairing's correct.
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name='payments_receipts' AND column_name='source_bill_id'
+        ) THEN
+          ALTER TABLE payments_receipts ADD COLUMN source_bill_id INTEGER;
+          CREATE INDEX idx_payments_receipts_source_bill ON payments_receipts(source_bill_id) WHERE source_bill_id IS NOT NULL;
+        END IF;
+
+        -- bill_payment_allocations — links a payments_receipts row
+        -- (transaction_id) to one or more bills (sales_bill_id /
+        -- purchase_bill_id) with an allocated_amount. Polymorphic via
+        -- bill_type ENUM since payments_receipts itself is unified.
+        --
+        -- ON DELETE: allocation rows are dependent on the receipt —
+        -- cascade-delete with the receipt (CASCADE). The bill side
+        -- is the source-of-truth for outstanding (RESTRICT — can't
+        -- delete a bill that has live receipt allocations).
+        IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                       WHERE table_name='bill_payment_allocations') THEN
+          CREATE TYPE enum_bill_payment_allocations_bill_type AS ENUM ('Sales', 'Purchase');
+          CREATE TYPE enum_bill_payment_allocations_method   AS ENUM ('fifo_auto', 'manual', 'auto_from_bill');
+          CREATE TABLE bill_payment_allocations (
+            allocation_id      SERIAL PRIMARY KEY,
+            transaction_id     INTEGER NOT NULL REFERENCES payments_receipts(transaction_id) ON DELETE CASCADE,
+            bill_type          enum_bill_payment_allocations_bill_type NOT NULL,
+            bill_id            INTEGER NOT NULL,
+            allocated_amount   NUMERIC(15,2) NOT NULL CHECK (allocated_amount > 0),
+            allocation_method  enum_bill_payment_allocations_method NOT NULL DEFAULT 'manual',
+            created_at         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+          );
+          CREATE INDEX idx_bpa_transaction ON bill_payment_allocations(transaction_id);
+          CREATE INDEX idx_bpa_bill        ON bill_payment_allocations(bill_type, bill_id);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Two-way ledger schema] Error:', err.message);
+    });
+
     // Seed default data
     await seedDefaultData();
 

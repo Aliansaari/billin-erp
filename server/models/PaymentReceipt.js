@@ -65,6 +65,18 @@ const PaymentReceipt = sequelize.define('PaymentReceipt', {
     type: DataTypes.JSONB,
     defaultValue: null,
   },
+  // Two-way ledger (R8): distinguishes operator-entered receipts/
+  // payments from rows auto-generated when a bill is saved with
+  // paid_amount > 0. Auto rows are read-only in the Receipts/Payments
+  // UI — the source bill is the editable surface.
+  source: {
+    type: DataTypes.ENUM('manual', 'auto_from_bill'),
+    defaultValue: 'manual',
+  },
+  source_bill_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
 }, {
   tableName: 'payments_receipts',
   timestamps: true,
