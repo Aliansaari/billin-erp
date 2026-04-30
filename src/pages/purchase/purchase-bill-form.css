@@ -238,6 +238,222 @@
   justify-content: start;
 }
 
+/* ── ENTRY ROW — Editorial Ledger (mirror of sales-bill-form.css) ───
+ *
+ * One bordered strip — top + left + right hairlines via per-cell
+ * borders on the first/last cells, no internal rectangles. Cells
+ * separated by dotted hairlines so column boundaries stay legible
+ * without 12 individual borders piling up. AntD controls inside cells
+ * lose their own border + bg via the .pbf-page overrides being
+ * defeated by higher-specificity selectors below — same approach as
+ * sales-bill-form.css's .sbf-entry-ledger block.
+ *
+ * Grid is 12 tracks (one more than sales — purchase carries P/Box,
+ * Margin%, Sale ₹ between Rate and GST%) plus the +ADD terminator.
+ * ──────────────────────────────────────────────────────────────── */
+.pbf-entry-ledger {
+  margin: 0 0 4px;
+  /* Background + bottom rule moved onto each .pbf-cell so they end
+   * exactly at the +ADD cell's right edge instead of extending into
+   * the empty space past +ADD (the grid's columns sum to ~1650px
+   * max; on a wider viewport the entry-ledger's panel bg used to
+   * show through the leftover ~300px as a visible strip). */
+  border-top: 0;
+  border-bottom: 0;
+  background: transparent;
+  position: relative;
+}
+.pbf-entry-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(130px, 170px)   /* Barcode  */
+    minmax(180px, 250px)   /* Category — wider; long names like "Men's
+                              Casual Wear" don't ellipsis here either */
+    minmax(220px, 380px)   /* Product  */
+    minmax(64px,  80px)    /* Size     */
+    minmax(70px,  90px)    /* Art #    */
+    minmax(72px,  90px)    /* Qty      */
+    minmax(94px,  110px)   /* Rate     */
+    minmax(64px,  80px)    /* P/Box    */
+    minmax(70px,  90px)    /* Margin%  */
+    minmax(90px,  110px)   /* Sale ₹   */
+    minmax(72px,  90px)    /* GST%     */
+    minmax(96px, 110px);   /* +ADD     */
+}
+.pbf-cell {
+  display: flex;
+  flex-direction: column;
+  /* Compact vertical rhythm — 4px top + 4px bottom + 14px label line +
+   * 22px input = ~38px total cell height, matching sales. */
+  padding: 4px 12px 4px;
+  /* Top + bottom hairlines + cell background all live PER-CELL so the
+   * row's visual frame ends exactly at the +ADD cell's right edge.
+   * Putting any of these on the wrapper makes the strip past +ADD
+   * (300px+ on a wide viewport) inherit the bg/border. */
+  border-top: 1.5px solid var(--fg-primary);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  position: relative;
+  min-width: 0;                                  /* let inputs shrink */
+  transition: background .14s;
+  justify-content: center;
+}
+/* Close the top-left + top-right corners with short vertical strokes
+ * so the row reads as a properly-framed L on each end (instead of
+ * hairlines floating against the page background). */
+.pbf-entry-grid > .pbf-cell:first-child { border-left: 1.5px solid var(--fg-primary); }
+.pbf-entry-grid > .pbf-cell.add { border-right: 1.5px solid var(--fg-primary); }
+.pbf-cell + .pbf-cell { border-left: 1px dotted var(--border-subtle); }
+.pbf-cell:hover { background: var(--bg-muted); }
+.pbf-cell:focus-within { background: var(--bg-muted); }
+.pbf-cell:focus-within::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  z-index: 1;
+}
+.pbf-cell-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 700;
+  color: var(--fg-tertiary);
+  margin-bottom: 0;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* AntD control overrides — selectors carry .pbf-cell so they hit
+ * specificity 0,3,0 and beat the older .pbf-page rules at the top of
+ * this file. Same pattern as the sales form's overrides. */
+.pbf-entry-ledger .pbf-cell .ant-input,
+.pbf-entry-ledger .pbf-cell .ant-input-number,
+.pbf-entry-ledger .pbf-cell .ant-input-number-input,
+.pbf-entry-ledger .pbf-cell .ant-input-affix-wrapper,
+.pbf-entry-ledger .pbf-cell .ant-select,
+.pbf-entry-ledger .pbf-cell .ant-select .ant-select-selector,
+.pbf-entry-ledger .pbf-cell .ant-picker {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  line-height: 22px !important;
+  font-size: 13px !important;
+  color: var(--fg-primary) !important;
+}
+.pbf-entry-ledger .pbf-cell .ant-input-number,
+.pbf-entry-ledger .pbf-cell .ant-input-number-input { width: 100% !important; }
+.pbf-entry-ledger .pbf-cell .ant-input-number-handler-wrap { display: none !important; }
+.pbf-entry-ledger .pbf-cell .ant-select-selection-search-input,
+.pbf-entry-ledger .pbf-cell .ant-select-selection-item,
+.pbf-entry-ledger .pbf-cell .ant-select-selection-placeholder {
+  height: 22px !important;
+  line-height: 22px !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+}
+.pbf-entry-ledger .pbf-cell .ant-select-arrow,
+.pbf-entry-ledger .pbf-cell .ant-select-clear { display: none !important; }
+.pbf-entry-ledger .pbf-cell .ant-input::placeholder,
+.pbf-entry-ledger .pbf-cell .ant-input-number-input::placeholder,
+.pbf-entry-ledger .pbf-cell .ant-select-selection-placeholder {
+  color: var(--fg-tertiary) !important;
+  opacity: .8;
+}
+/* Strip default browser/AntD focus + hover rings — the only "you are
+ * here" cue is our cell-level under-rule. */
+.pbf-entry-ledger .pbf-cell .ant-input:focus,
+.pbf-entry-ledger .pbf-cell .ant-input-focused,
+.pbf-entry-ledger .pbf-cell .ant-input-number-focused,
+.pbf-entry-ledger .pbf-cell .ant-select-focused .ant-select-selector,
+.pbf-entry-ledger .pbf-cell .ant-picker-focused,
+.pbf-entry-ledger .pbf-cell .ant-input:hover,
+.pbf-entry-ledger .pbf-cell .ant-input-number:hover,
+.pbf-entry-ledger .pbf-cell .ant-picker:hover,
+.pbf-entry-ledger .pbf-cell .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+/* Numeric cells right-align in tabular Geist Mono so digits column-
+ * align with the items table beneath. */
+.pbf-entry-ledger .pbf-cell.numeric .ant-input,
+.pbf-entry-ledger .pbf-cell.numeric .ant-input-number-input {
+  text-align: right !important;
+  font-family: 'Geist Mono', ui-monospace, 'SF Mono', monospace !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: -0.01em !important;
+}
+.pbf-entry-grid > .pbf-cell:first-child .ant-input {
+  font-family: 'Geist Mono', ui-monospace, 'SF Mono', monospace !important;
+  font-size: 12.5px !important;
+  letter-spacing: -0.005em !important;
+}
+.pbf-cell.has-arrow { padding-right: 22px; }
+.pbf-cell.has-arrow::after {
+  content: '';
+  position: absolute;
+  right: 12px; top: 50%;
+  width: 6px; height: 6px;
+  border-right: 1.5px solid var(--fg-tertiary);
+  border-bottom: 1.5px solid var(--fg-tertiary);
+  transform: translateY(-30%) rotate(45deg);
+  pointer-events: none;
+}
+
+/* +ADD terminator — INK fill, not accent (accent stays reserved for
+ * the active cell so the eye chases the field being typed in, not the
+ * commit button). */
+.pbf-cell.add {
+  background: var(--fg-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background .14s;
+  border-top: 1.5px solid var(--fg-primary);     /* keeps top edge solid */
+}
+.pbf-cell.add + .pbf-cell { border-left: 0; }
+.pbf-cell.add:hover { background: #2C2821; }
+.pbf-cell.add:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.pbf-cell.add:focus-within::before { display: none; }
+.pbf-cell-add-text {
+  font-family: 'Source Sans 3', 'Inter', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  color: var(--bg-panel);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pbf-cell-add-text::before {
+  content: '+';
+  font-family: 'Source Sans 3', 'Inter', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Narrow viewports — same wrap pattern as sales: 6 columns at ≤1200px,
+ * 2 columns at ≤760px, +ADD spans full width. */
+@media (max-width: 1200px) {
+  .pbf-entry-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .pbf-entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pbf-cell + .pbf-cell { border-left: 0; border-top: 1px dotted var(--border-subtle); }
+  .pbf-cell.add { grid-column: 1 / -1; padding: 12px 0; }
+}
+
 .pbf-add-btn {
   height: 38px;
   padding: 0 20px;

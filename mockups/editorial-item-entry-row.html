@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Item Entry Row — Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/*
+ * Item Entry Row — editorial mockup
+ *
+ * THE PROBLEM:
+ *   The current Sales Bill form's entry row is 11 individual rounded
+ *   boxes side-by-side (Barcode · Category · Product · Size · Art# ·
+ *   Rate · Qty · Disc% · GST% · Unit · +ADD). Each input has its own
+ *   border, its own padding, its own placeholder. Scanning left to
+ *   right the eye has to re-anchor at every box edge — visually
+ *   noisy, and every cell looks like it might require an action.
+ *
+ * THE FIX (this mockup):
+ *   Treat the whole row as ONE strip — a single rounded container
+ *   with internal cell dividers, like a spreadsheet row. Each cell
+ *   carries (a) a tiny uppercase label inside the cell (top), so
+ *   the field's purpose is always visible without taking a separate
+ *   header row, and (b) its value/placeholder below.
+ *
+ *   The active cell (the one the operator is currently typing in)
+ *   gets a subtle accent ring + warmer background; everything else
+ *   stays quiet. Hover highlights the cell border-edge so keyboard
+ *   tabbers see where they're moving.
+ *
+ *   The "+ ADD" button is still the row's terminus, but reskinned
+ *   as the right-most cell — same height as the rest, accent fill,
+ *   keeps its keyboard prominence (Enter from Qty fires it).
+ *
+ * Three variants below, ranked by my recommendation:
+ *   1. SPREADSHEET ROW   — recommended; cells share borders, labels
+ *      inside. Highest information density, lowest visual noise.
+ *   2. BANDED STRIP      — softer; faint dividers, no internal
+ *      borders. Good middle-ground if "cell" feels too rigid.
+ *   3. SEGMENTED PILL    — connected pills, single rounded shape.
+ *      Cleanest silhouette but tighter — works at 1280px but can
+ *      cramp at 1024px.
+ *
+ * Pick ONE; the rest exist so you can see them side-by-side and
+ * call the trade-off.
+ */
+
+:root {
+  /* Surface — same palette as editorial-sales-report mockup so this
+     drops into the same Sales Bill page without drift */
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+  --bg-chip:     #F0E8D4;
+  --bg-cell:     #FBF6E9;
+  --bg-cell-active: #FFFFFF;
+
+  /* Ink */
+  --ink:         #1D1A15;
+  --ink-2:       #4F4434;
+  --ink-3:       #7A6E5A;
+  --ink-4:       #A79C88;
+  --ink-5:       #CABFA8;
+
+  /* Rules */
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+  --rule-strong: #D4C7AC;
+
+  /* Accents */
+  --accent:        #B1472F;
+  --accent-hover:  #8B2E1F;
+  --accent-soft:   rgba(177,71,47,0.10);
+  --accent-border: rgba(177,71,47,0.24);
+
+  --indigo:        #4F46E5;
+  --indigo-soft:   rgba(79,70,229,0.10);
+  --indigo-border: rgba(79,70,229,0.30);
+
+  /* Semantic */
+  --ok:          #5A7C4A;
+  --ok-soft:     rgba(90,124,74,0.14);
+  --warn:        #B5872B;
+  --warn-soft:   rgba(181,135,43,0.14);
+  --danger:      #B1472F;
+  --danger-soft: rgba(177,71,47,0.12);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  padding: 32px;
+}
+
+h1 {
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  font-size: 28px;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+}
+.sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  max-width: 720px;
+  line-height: 1.5;
+  margin: 0 0 28px;
+}
+
+.section-label {
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-3);
+  margin: 36px 0 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.section-label .tag {
+  background: var(--ink);
+  color: var(--bg-panel);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  font-weight: 700;
+}
+.section-label .tag.recommended {
+  background: var(--ok);
+}
+.section-label .tag.tradeoff {
+  background: var(--warn);
+}
+.section-label .note {
+  font-size: 11px;
+  color: var(--ink-4);
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+
+/* Wrap each variant in a "page" surface to mimic the bill form's bg */
+.page {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 22px 24px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 0 var(--rule-soft) inset;
+}
+
+.page-header-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--rule-soft);
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+.page-header-strip .lhs {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.page-header-strip h3 {
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  font-size: 18px;
+  margin: 0;
+  letter-spacing: -0.005em;
+}
+.page-header-strip .meta {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* ── Variant 0 — current state (BEFORE) ───────────────────────────── */
+/*
+ * Faithful reproduction of the live form so the comparison is honest.
+ * Same 11 fields; each is its own bordered box. */
+.entry-current {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px)
+    minmax(130px, 180px)
+    minmax(220px, 380px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(94px,  110px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(80px,  110px)
+    auto;
+  gap: 8px;
+  align-items: end;
+}
+.entry-current .cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.entry-current .lbl-current {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.entry-current input,
+.entry-current select {
+  height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.entry-current input::placeholder { color: var(--ink-4); }
+.entry-current .add-btn {
+  height: 38px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 7px;
+  background: var(--indigo);
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
+
+/* ── Variant 1 — SPREADSHEET ROW (recommended) ────────────────────── */
+/*
+ * Rationale:
+ *   • One outer rounded container, one border. The eye reads it as
+ *     a single unit, like a row in a ledger book — which is exactly
+ *     the mental model for "this is one product line".
+ *   • Internal vertical dividers (1px var(--rule)) between cells —
+ *     keep cell boundaries visible without the noise of 11 individual
+ *     borders. Borders share between adjacent cells (no double rule).
+ *   • Each cell is a stacked layout: tiny uppercase label on top,
+ *     value/input on the bottom. The label takes ~13px of vertical
+ *     space; the input gets a comfortable ~28px. Total cell height
+ *     ~46px — slightly taller than the current 38px row but the
+ *     LABEL is now visible at all times (no "what does this column
+ *     mean again?" pause).
+ *   • Active cell: white background, accent ring drawn with an
+ *     inset box-shadow (so it doesn't push pixels). Hover: warmer
+ *     bg fill, no ring. Focus-visible mirrors active.
+ *   • Inputs are borderless — the cell IS the border. Caret + value
+ *     sit naturally in the cell.
+ *   • +ADD lives in the right-most cell, same height, accent fill —
+ *     keeps the row a single shape.
+ */
+.entry-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px)
+    minmax(130px, 180px)
+    minmax(220px, 380px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(94px,  110px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(80px,  110px)
+    minmax(96px, 110px);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.6) inset,
+    0 1px 2px rgba(45,31,21,0.04);
+}
+.entry-grid .cell {
+  display: flex;
+  flex-direction: column;
+  padding: 7px 11px 8px;
+  border-right: 1px solid var(--rule);
+  background: var(--bg-cell);
+  transition: background .14s;
+  position: relative;
+  min-width: 0;
+}
+.entry-grid .cell:last-child { border-right: none; }
+.entry-grid .cell:hover {
+  background: var(--bg-panel);
+}
+.entry-grid .cell.active {
+  background: var(--bg-cell-active);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  z-index: 1;
+}
+.entry-grid .cell.active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 0;
+  pointer-events: none;
+}
+.entry-grid .cell .lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: var(--ink-3);
+  margin-bottom: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.entry-grid .cell .val {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  outline: 0;
+  width: 100%;
+  font-family: inherit;
+  min-height: 22px;
+}
+.entry-grid .cell .val.mono {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+.entry-grid .cell .val::placeholder { color: var(--ink-4); }
+.entry-grid .cell.numeric .val { text-align: right; font-family: 'Geist Mono', ui-monospace, monospace; }
+.entry-grid .cell.has-arrow .val { padding-right: 14px; }
+.entry-grid .cell.has-arrow::before {
+  content: '';
+  position: absolute;
+  right: 10px; top: 50%;
+  width: 7px; height: 7px;
+  border-right: 2px solid var(--ink-3);
+  border-bottom: 2px solid var(--ink-3);
+  transform: translateY(-25%) rotate(45deg);
+}
+.entry-grid .cell.add {
+  background: var(--indigo);
+  border-right: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: background .14s;
+}
+.entry-grid .cell.add:hover { background: #3F38C2; }
+.entry-grid .cell.add .add-text {
+  color: white;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.entry-grid .cell.add .add-text::before {
+  content: '+';
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* ── Variant 2 — BANDED STRIP (soft cells, faint dividers) ────────── */
+.entry-band {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px)
+    minmax(130px, 180px)
+    minmax(220px, 380px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(94px,  110px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(80px,  110px)
+    minmax(96px, 110px);
+  background: var(--bg-cell);
+  border-radius: 14px;
+  padding: 6px;
+  gap: 4px;
+  border: 1px solid var(--rule-soft);
+}
+.entry-band .cell {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: transparent;
+  position: relative;
+  min-width: 0;
+  transition: background .14s, box-shadow .14s;
+}
+.entry-band .cell + .cell::before {
+  content: '';
+  position: absolute;
+  left: -2px; top: 12px; bottom: 12px;
+  width: 1px; background: var(--rule);
+}
+.entry-band .cell:hover { background: rgba(255,255,255,0.55); }
+.entry-band .cell.active {
+  background: var(--bg-panel);
+  box-shadow: 0 0 0 1.5px var(--accent), 0 1px 3px rgba(177,71,47,0.18);
+}
+.entry-band .cell.active + .cell::before,
+.entry-band .cell:hover + .cell::before { opacity: 0; }
+.entry-band .cell .lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: var(--ink-3);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.entry-band .cell .val {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  background: transparent;
+  border: 0; padding: 0; outline: 0;
+  width: 100%;
+  font-family: inherit;
+  min-height: 22px;
+}
+.entry-band .cell .val::placeholder { color: var(--ink-4); }
+.entry-band .cell.numeric .val { text-align: right; font-family: 'Geist Mono', ui-monospace, monospace; }
+.entry-band .cell.has-arrow .val { padding-right: 14px; }
+.entry-band .cell.has-arrow::after {
+  content: '';
+  position: absolute;
+  right: 12px; top: 50%;
+  width: 7px; height: 7px;
+  border-right: 2px solid var(--ink-3);
+  border-bottom: 2px solid var(--ink-3);
+  transform: translateY(-25%) rotate(45deg);
+}
+.entry-band .cell.add {
+  background: var(--indigo);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: background .14s;
+}
+.entry-band .cell.add::before { display: none; }
+.entry-band .cell.add:hover { background: #3F38C2; box-shadow: none; }
+.entry-band .cell.add .add-text {
+  color: white;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.entry-band .cell.add .add-text::before {
+  content: '+';
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* ── Variant 3 — SEGMENTED PILL (connected) ───────────────────────── */
+.entry-pill {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px)
+    minmax(130px, 180px)
+    minmax(220px, 380px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(94px,  110px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(80px,  110px)
+    minmax(96px, 110px);
+  background: var(--bg-panel);
+  border: 1.5px solid var(--rule-strong);
+  border-radius: 999px;
+  height: 56px;
+}
+.entry-pill .cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 14px;
+  border-right: 1px solid var(--rule);
+  background: transparent;
+  position: relative;
+  min-width: 0;
+  transition: background .14s;
+}
+.entry-pill .cell:first-child {
+  padding-left: 22px;
+  border-top-left-radius: 999px;
+  border-bottom-left-radius: 999px;
+}
+.entry-pill .cell:last-child {
+  padding-right: 22px;
+  border-right: 0;
+  border-top-right-radius: 999px;
+  border-bottom-right-radius: 999px;
+}
+.entry-pill .cell:hover { background: var(--bg-muted); }
+.entry-pill .cell.active { background: var(--bg-cell-active); }
+.entry-pill .cell.active { box-shadow: inset 0 0 0 2px var(--accent); }
+.entry-pill .cell .lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: var(--ink-3);
+  margin-bottom: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.entry-pill .cell .val {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  background: transparent;
+  border: 0; padding: 0; outline: 0;
+  width: 100%;
+  font-family: inherit;
+}
+.entry-pill .cell .val::placeholder { color: var(--ink-4); }
+.entry-pill .cell.numeric .val { text-align: right; font-family: 'Geist Mono', ui-monospace, monospace; }
+.entry-pill .cell.add {
+  background: var(--indigo);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  border-top-right-radius: 999px;
+  border-bottom-right-radius: 999px;
+}
+.entry-pill .cell.add:hover { background: #3F38C2; }
+.entry-pill .cell.add .add-text {
+  color: white;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  font-size: 13px;
+}
+.entry-pill .cell.add .add-text::before {
+  content: '+ ';
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* ── Sample row hint (table preview underneath) ───────────────────── */
+.sample-table {
+  margin-top: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-panel);
+  font-size: 13px;
+}
+.sample-table .row {
+  display: grid;
+  grid-template-columns: 28px 130px 1.4fr 60px 60px 70px 70px 60px 60px 70px 100px 36px;
+  align-items: center;
+  border-bottom: 1px solid var(--rule-soft);
+  height: 38px;
+  padding: 0 6px;
+  color: var(--ink-2);
+}
+.sample-table .row.thead {
+  background: var(--bg-muted);
+  color: var(--ink-3);
+  font-size: 10px;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.sample-table .row > div { padding: 0 8px; }
+.sample-table .row .num { font-family: 'Geist Mono', monospace; text-align: right; }
+
+/* ── Spec callout ─────────────────────────────────────────────────── */
+.spec {
+  background: var(--bg-cell);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-top: 28px;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.spec h4 {
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  font-size: 16px;
+  margin: 0 0 10px;
+  color: var(--ink);
+}
+.spec ul { margin: 0; padding-left: 18px; }
+.spec li { margin-bottom: 5px; }
+.spec code {
+  font-family: 'Geist Mono', monospace;
+  background: var(--bg-panel);
+  padding: 1px 6px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.kbd {
+  display: inline-block;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: var(--ink-2);
+}
+</style>
+</head>
+<body>
+
+<h1>Item Entry Row — cell-style redesign</h1>
+<p class="sub">
+  Today: 11 individual rounded boxes side-by-side, each with its own border + placeholder.
+  Visually noisy and the column meanings disappear behind generic placeholders the moment
+  the first character is typed. Below: three cell-strip variants, ranked. Pick one and I'll
+  wire it into <code>SalesBillForm.jsx</code> and mirror it in <code>PurchaseBillForm.jsx</code>.
+</p>
+
+<!-- ── Current state ── -->
+<div class="section-label">
+  <span class="tag tradeoff">BEFORE</span>
+  Current production layout
+  <span class="note">— shipped today; all 11 fields are bordered AntD inputs in a flex row.</span>
+</div>
+<div class="page">
+  <div class="page-header-strip">
+    <div class="lhs">
+      <h3>Sales Invoice · Bill 1003</h3>
+      <span class="meta">Reliable Enterprises · Pune · Balance ₹1,496 · Credit allowed</span>
+    </div>
+    <span class="meta">29-04-2026</span>
+  </div>
+
+  <div class="entry-current">
+    <div class="cell"><label class="lbl-current">Barcode</label><input placeholder="Barcode / scan" /></div>
+    <div class="cell"><label class="lbl-current">Category</label><input placeholder="Category" /></div>
+    <div class="cell"><label class="lbl-current">Product</label><input placeholder="Product name" /></div>
+    <div class="cell"><label class="lbl-current">Size</label><input placeholder="Size" /></div>
+    <div class="cell"><label class="lbl-current">Art#</label><input placeholder="Art #" /></div>
+    <div class="cell"><label class="lbl-current">Rate</label><input placeholder="Rate ₹" /></div>
+    <div class="cell"><label class="lbl-current">Qty</label><input placeholder="Qty" /></div>
+    <div class="cell"><label class="lbl-current">Disc%</label><input placeholder="Disc%" /></div>
+    <div class="cell"><label class="lbl-current">GST%</label><input placeholder="GST%" /></div>
+    <div class="cell"><label class="lbl-current">Unit</label><input placeholder="Pcs" /></div>
+    <button class="add-btn">+ ADD</button>
+  </div>
+</div>
+
+<!-- ── Variant 1 — Spreadsheet Row (recommended) ── -->
+<div class="section-label">
+  <span class="tag recommended">PICK</span>
+  Variant 1 · Spreadsheet row
+  <span class="note">— one container, one border, internal cell dividers. Active cell shown 6th from left (Rate).</span>
+</div>
+<div class="page">
+  <div class="page-header-strip">
+    <div class="lhs">
+      <h3>Sales Invoice · Bill 1003</h3>
+      <span class="meta">Reliable Enterprises · Pune · Balance ₹1,496 · Credit allowed</span>
+    </div>
+    <span class="meta">29-04-2026</span>
+  </div>
+
+  <div class="entry-grid">
+    <div class="cell">
+      <div class="lbl">Barcode</div>
+      <input class="val mono" placeholder="Scan or type" />
+    </div>
+    <div class="cell has-arrow">
+      <div class="lbl">Category</div>
+      <input class="val" value="Apparel" />
+    </div>
+    <div class="cell has-arrow">
+      <div class="lbl">Product</div>
+      <input class="val" value="Cotton Solid Shirt" />
+    </div>
+    <div class="cell">
+      <div class="lbl">Size</div>
+      <input class="val" value="XL" />
+    </div>
+    <div class="cell">
+      <div class="lbl">Art #</div>
+      <input class="val mono" value="A-2034" />
+    </div>
+    <div class="cell numeric active">
+      <div class="lbl">Rate ₹</div>
+      <input class="val" value="450.00" />
+    </div>
+    <div class="cell numeric">
+      <div class="lbl">Qty</div>
+      <input class="val" value="2" />
+    </div>
+    <div class="cell numeric">
+      <div class="lbl">Disc %</div>
+      <input class="val" value="5" />
+    </div>
+    <div class="cell numeric">
+      <div class="lbl">GST %</div>
+      <input class="val" value="12" />
+    </div>
+    <div class="cell has-arrow">
+      <div class="lbl">Unit</div>
+      <input class="val" value="Pcs" />
+    </div>
+    <div class="cell add"><span class="add-text">ADD</span></div>
+  </div>
+
+  <!-- preview rows so you can see how the entry row sits above the line items table -->
+  <div class="sample-table">
+    <div class="row thead">
+      <div>#</div><div>Barcode</div><div>Product</div><div>Size</div><div>Art#</div><div class="num">Qty</div><div class="num">Rate</div><div class="num">Disc%</div><div class="num">GST%</div><div class="num">Unit</div><div class="num">Amount ₹</div><div></div>
+    </div>
+    <div class="row">
+      <div>1</div><div>8901234567890</div><div>Cotton Solid Shirt</div><div>XL</div><div>A-2034</div><div class="num">2</div><div class="num">450.00</div><div class="num">5</div><div class="num">12</div><div class="num">Pcs</div><div class="num">956.40</div><div></div>
+    </div>
+    <div class="row">
+      <div>2</div><div>8901234567891</div><div>Linen Half-Sleeve</div><div>L</div><div>A-2110</div><div class="num">1</div><div class="num">680.00</div><div class="num">0</div><div class="num">12</div><div class="num">Pcs</div><div class="num">761.60</div><div></div>
+    </div>
+  </div>
+</div>
+
+<div class="spec">
+  <h4>Why this one</h4>
+  <ul>
+    <li><strong>One shape, one outline.</strong> The whole entry row reads as a single object — like a row in the line-items table beneath it. The eye doesn't have to re-anchor at every box edge.</li>
+    <li><strong>Labels stay visible.</strong> Tiny uppercase label sits inside each cell (top edge), so the operator never has to remember which cell is Disc% vs GST% mid-keystroke. Today's placeholders disappear the moment you type a character.</li>
+    <li><strong>Active cell is unmistakable.</strong> White fill + 2px accent inset ring on the focused cell; everything else stays in the cream cell-tone. Keyboard tabbing telegraphs itself.</li>
+    <li><strong>Same vertical real estate as today.</strong> Cell height ~46px (label 13px + input 28px + padding). The current row is 38px without labels; adding the label is a 8px trade for permanent column legibility.</li>
+    <li><strong>+ADD is part of the strip.</strong> Right-most cell, accent fill, same height. Visually it's the row's terminator — the "I'm done with this line" affordance — instead of a button hanging off the end.</li>
+    <li><strong>Numeric cells right-align with mono digits.</strong> Rate / Qty / Disc% / GST% all use <code>Geist Mono</code> with right alignment, so amounts column-align across both the entry row and the table beneath.</li>
+    <li><strong>Hover discoverability.</strong> Hovering any cell warms its bg (cell→panel) so a mouse user sees the cell as clickable without a border change.</li>
+    <li><strong>Keyboard ergonomics unchanged.</strong> <span class="kbd">Tab</span> still walks left-to-right; <span class="kbd">Enter</span> on Qty still fires +ADD. Cell <code>:focus-within</code> drives the active-state ring so no JS is required.</li>
+  </ul>
+</div>
+
+<!-- ── Variant 2 — Banded Strip ── -->
+<div class="section-label">
+  <span class="tag">ALT</span>
+  Variant 2 · Banded strip
+  <span class="note">— softer; cells are radius-9 rounded sub-pills inside a cream band. Dividers are hairline only between non-active cells.</span>
+</div>
+<div class="page">
+  <div class="page-header-strip">
+    <div class="lhs">
+      <h3>Sales Invoice · Bill 1003</h3>
+      <span class="meta">Reliable Enterprises · Pune · Balance ₹1,496 · Credit allowed</span>
+    </div>
+    <span class="meta">29-04-2026</span>
+  </div>
+
+  <div class="entry-band">
+    <div class="cell">
+      <div class="lbl">Barcode</div>
+      <input class="val" placeholder="Scan or type" />
+    </div>
+    <div class="cell has-arrow">
+      <div class="lbl">Category</div>
+      <input class="val" value="Apparel" />
+    </div>
+    <div class="cell has-arrow">
+      <div class="lbl">Product</div>
+      <input class="val" value="Cotton Solid Shirt" />
+    </div>
+    <div class="cell">
+      <div class="lbl">Size</div>
+      <input class="val" value="XL" />
+    </div>
+    <div class="cell">
+      <div class="lbl">Art #</div>
+      <input class="val" value="A-2034" />
+    </div>
+    <div class="cell numeric active">
+      <div class="lbl">Rate ₹</div>
+      <input class="val" value="450.00" />
+    </div>
+    <div class="cell numeric">
+      <div class="lbl">Qty</div>
+      <input class="val" value="2" />
+    </div>
+    <div class="cell numeric">
+      <div class="lbl">Disc %</div>
+      <input class="val" value="5" />
+    </div>
+    <div class="cell numeric">
+      <div class="lbl">GST %</div>
+      <input class="val" value="12" />
+    </div>
+    <div class="cell has-arrow">
+      <div class="lbl">Unit</div>
+      <input class="val" value="Pcs" />
+    </div>
+    <div class="cell add"><span class="add-text">ADD</span></div>
+  </div>
+</div>
+
+<div class="spec">
+  <h4>Trade-off vs Variant 1</h4>
+  <ul>
+    <li>+ Softer feel — the band is more "input area" and less "spreadsheet row". Pairs nicely if you go editorial-warm everywhere.</li>
+    <li>− Active state has to fight a busier background (the band's fill plus the cell's pill). Variant 1's flat cell-tone reads the focus ring more clearly.</li>
+    <li>− Slightly less dense — the 6px outer padding on the band steals 12px of horizontal width that goes nowhere useful.</li>
+  </ul>
+</div>
+
+<!-- ── Variant 3 — Segmented Pill ── -->
+<div class="section-label">
+  <span class="tag">ALT</span>
+  Variant 3 · Segmented pill
+  <span class="note">— full <code>border-radius: 999px</code>, single horizontal ribbon, internal dividers between cells.</span>
+</div>
+<div class="page">
+  <div class="page-header-strip">
+    <div class="lhs">
+      <h3>Sales Invoice · Bill 1003</h3>
+      <span class="meta">Reliable Enterprises · Pune · Balance ₹1,496 · Credit allowed</span>
+    </div>
+    <span class="meta">29-04-2026</span>
+  </div>
+
+  <div class="entry-pill">
+    <div class="cell">
+      <div class="lbl">Barcode</div>
+      <input class="val" placeholder="Scan or type" />
+    </div>
+    <div class="cell">
+      <div class="lbl">Category</div>
+      <input class="val" value="Apparel" />
+    </div>
+    <div class="cell">
+      <div class="lbl">Product</div>
+      <input class="val" value="Cotton Solid Shirt" />
+    </div>
+    <div class="cell">
+      <div class="lbl">Size</div>
+      <input class="val" value="XL" />
+    </div>
+    <div class="cell">
+      <div class="lbl">Art #</div>
+      <input class="val" value="A-2034" />
+    </div>
+    <div class="cell numeric active">
+      <div class="lbl">Rate ₹</div>
+      <input class="val" value="450.00" />
+    </div>
+    <div class="cell numeric">
+      <div class="lbl">Qty</div>
+      <input class="val" value="2" />
+    </div>
+    <div class="cell numeric">
+      <div class="lbl">Disc %</div>
+      <input class="val" value="5" />
+    </div>
+    <div class="cell numeric">
+      <div class="lbl">GST %</div>
+      <input class="val" value="12" />
+    </div>
+    <div class="cell">
+      <div class="lbl">Unit</div>
+      <input class="val" value="Pcs" />
+    </div>
+    <div class="cell add"><span class="add-text">ADD</span></div>
+  </div>
+</div>
+
+<div class="spec">
+  <h4>Trade-off vs Variant 1</h4>
+  <ul>
+    <li>+ Cleanest silhouette — one ribbon, one curve, very modern.</li>
+    <li>− Cramped at &lt; 1280px. The 999px radius eats horizontal width at both ends and the labels start to truncate. Today's form already squeezes 11 fields; this gets tight.</li>
+    <li>− A pill reads as a "control" (button group / toggle) more than a "data row". For a row that the operator types into for hours a day, the spreadsheet metaphor is kinder than the toggle metaphor.</li>
+  </ul>
+</div>
+
+<!-- ── Implementation notes for whichever you pick ── -->
+<div class="section-label">
+  <span class="tag">SPEC</span>
+  Implementation notes
+  <span class="note">— shared between all three variants; only the container CSS swaps.</span>
+</div>
+
+<div class="spec">
+  <h4>To wire any variant</h4>
+  <ul>
+    <li><strong>Files:</strong>
+      <code>src/pages/sales/SalesBillForm.jsx</code>
+      (the JSX block currently labelled "Entry row — only in itemised mode" near
+      <code>className="sbf-top-row-2"</code>) and the matching block in
+      <code>src/pages/purchase/PurchaseBillForm.jsx</code>
+      (<code>className="pbf-top-row-2"</code>).
+    </li>
+    <li><strong>Markup change.</strong> Replace each <code>&lt;Form.Item noStyle&gt;&lt;Input ... /&gt;&lt;/Form.Item&gt;</code>
+      with a <code>&lt;div className="cell"&gt;</code> wrapping a tiny <code>&lt;div className="lbl"&gt;</code>
+      and the existing AntD control. The control uses the borderless <code>val</code> class (transparent
+      bg, no border, full-width). Form.Item still owns the value binding — only the visual chrome changes.</li>
+    <li><strong>Active state.</strong> CSS-only via <code>:focus-within</code> on <code>.cell</code> — no React state, no extra render. The active-cell ring follows the caret automatically as Tab walks the row.</li>
+    <li><strong>AntD overrides.</strong> Add to <code>sales-bill-form.css</code> a scoped block:
+      <code>.entry-grid .ant-input, .entry-grid .ant-select-selector { border: 0 !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; }</code>
+      so AntD's own border/bg doesn't fight the cell.</li>
+    <li><strong>Keyboard semantics unchanged.</strong> <span class="kbd">Tab</span> walks left-to-right;
+      <span class="kbd">Enter</span> on Qty still fires <code>+ADD</code>; <span class="kbd">Shift+Tab</span> walks back. The barcode auto-fill flow that fills Product/Rate/Size/etc on a successful scan keeps working — those Form.Item bindings don't move.</li>
+    <li><strong>Sizes.</strong> Cell height 46px (label 13 + input 28 + padding 5). Total row height 46px — 8px taller than today's 38px row, in exchange for permanently visible column labels.</li>
+    <li><strong>Mobile / narrow viewport.</strong> The grid template stays the same on desktop;
+      at <code>max-width: 1100px</code> you can wrap the grid into 2 rows
+      (<code>grid-template-columns: repeat(6, 1fr)</code> first row, <code>repeat(5, 1fr)</code> second)
+      via the existing <code>@media</code> block in <code>sales-bill-form.css</code>.</li>
+    <li><strong>Themes.</strong> All colors flow through the existing CSS vars
+      (<code>--bg-panel</code>, <code>--rule</code>, <code>--accent</code>) so the strip re-skins
+      under the user's classic / modern / dark theme switch without further work.</li>
+  </ul>
+</div>
+
+</body>
+</html>

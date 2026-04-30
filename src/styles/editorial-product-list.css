@@ -744,7 +744,20 @@
   border-bottom: 1px solid var(--ed-rule-sub);
   gap: 14px;
   font-size: 13px;
-  min-width: max-content;
+}
+.ed-prod .sm-c-party {
+  overflow: hidden;
+}
+.ed-prod .sm-c-party .sm-party {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-prod .sm-c-party .sm-party .r {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ed-prod .sm-row.head {
   background: var(--ed-muted);

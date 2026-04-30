@@ -1,0 +1,1854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Bill Form — Editorial v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════
+ * SALES BILL FORM — editorial v2
+ *
+ * BRIEF (paraphrased):
+ *   • Long bills should not feel stressful — they should feel enjoyable.
+ *   • Tally-minimal in spirit (keyboard-first, dense, fast) but warmer
+ *     and more readable (editorial type, breathing room, semantic colour).
+ *   • Redesign the entry row, the totals, and the information panels.
+ *
+ * PRINCIPLES applied throughout this file:
+ *   1. CALM SURFACE.   Cream / beige background; bordered chrome only
+ *      where the eye actually needs an edge. Stress in long sessions
+ *      comes from saturated borders piling up — soften the rules,
+ *      keep the typography sharp.
+ *   2. RHYTHM > COMMAND.  An invoice is a 50-line task, not a one-shot
+ *      form. The page should feel like writing in a ledger book —
+ *      each item lands with a satisfying confirmation, the running
+ *      totals tick up beside you, the page never re-laps you.
+ *   3. NUMBERS IN MONO.  All money / quantity / pct values use Geist
+ *      Mono, right-aligned. The eye column-aligns digits without help
+ *      and small drifts (₹1,996.00 vs ₹19,960.00) jump out.
+ *   4. TYPOGRAPHIC HIERARCHY.  Fraunces (display serif) for hero
+ *      numbers — the totals should feel like an accountant's ink. Inter
+ *      for body. Geist Mono for digits.
+ *   5. ACTIVE STATE WITHOUT JS.  Every focus / active state is driven by
+ *      :focus-within / :hover so the form never re-renders to show "I'm
+ *      typing here" — no React state churn, no animation jank.
+ *   6. LABELS DON'T DISAPPEAR.  Placeholders evaporate on first
+ *      keystroke. Stress comes from operators forgetting which cell is
+ *      Disc% vs GST% mid-keystroke. Labels live ABOVE values, always
+ *      visible, always 9px uppercase.
+ *
+ * Sections:
+ *   §0  Mood board — palette + type scale + spacing
+ *   §1  Five new entry-row variants (4 → 8) — 5 new on top of the 3 from v1
+ *   §2  Best three (4, 5, 6) — picked + reasoned
+ *   §3  Full Sales Bill Form — using the picked variant, redesigned
+ *       totals, redesigned information boxes
+ *   §4  Implementation notes
+ * ════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Surface — same warm editorial palette as v1; preserved so the form
+     drops into the existing app without a separate theme. */
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+  --bg-chip:     #F0E8D4;
+  --bg-cell:     #FBF6E9;
+  --bg-active:   #FFFFFF;
+  --bg-deep:     #ECE2CD;
+
+  /* Ink — five steps so secondary chrome (labels, dividers) recedes
+     without disappearing. */
+  --ink:         #1D1A15;
+  --ink-2:       #4F4434;
+  --ink-3:       #7A6E5A;
+  --ink-4:       #A79C88;
+  --ink-5:       #CABFA8;
+
+  /* Rules */
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+  --rule-strong: #D4C7AC;
+  --rule-ink:    #2D241B;
+
+  /* Accents */
+  --accent:        #B1472F;
+  --accent-hover:  #8B2E1F;
+  --accent-soft:   rgba(177,71,47,0.10);
+  --accent-border: rgba(177,71,47,0.24);
+
+  --indigo:        #4F46E5;
+  --indigo-hover:  #3F38C2;
+  --indigo-soft:   rgba(79,70,229,0.10);
+  --indigo-border: rgba(79,70,229,0.30);
+
+  /* Semantic */
+  --ok:          #5A7C4A;
+  --ok-soft:     rgba(90,124,74,0.14);
+  --warn:        #B5872B;
+  --warn-soft:   rgba(181,135,43,0.14);
+  --danger:      #B1472F;
+  --danger-soft: rgba(177,71,47,0.12);
+
+  /* Sidebar */
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-3:    #8A7F6C;
+  --sb-w:        72px;
+
+  /* Typography scale */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body:    'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono:    'Geist Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* Radii */
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 12px;
+  --r-xl: 18px;
+  --r-pill: 999px;
+
+  /* Shadows — soft, low-spread, never blue */
+  --shadow-sm:  0 1px 2px rgba(45,31,21,0.05);
+  --shadow-md:  0 2px 6px rgba(45,31,21,0.06), 0 1px 2px rgba(45,31,21,0.04);
+  --shadow-lg:  0 6px 18px rgba(45,31,21,0.10), 0 2px 6px rgba(45,31,21,0.06);
+  --shadow-active: 0 0 0 2px var(--accent), 0 4px 12px rgba(177,71,47,0.18);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  padding: 32px;
+}
+
+/* ── Type ────────────────────────────────────────────────────────── */
+h1 { font-family: var(--font-display); font-weight: 600; font-size: 36px; letter-spacing: -0.02em; margin: 0 0 8px; line-height: 1.05; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 22px; letter-spacing: -0.01em; margin: 0 0 6px; }
+h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter-spacing: -0.005em; margin: 0; }
+.eyebrow {
+  font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase;
+  font-weight: 700; color: var(--ink-3);
+}
+.lead {
+  color: var(--ink-2); font-size: 15px; line-height: 1.55; max-width: 760px;
+  margin: 0 0 28px;
+}
+.note { font-size: 12px; color: var(--ink-4); line-height: 1.55; }
+
+/* ── Layout helpers ─────────────────────────────────────────────── */
+.section-label {
+  display: flex; align-items: baseline; gap: 12px;
+  margin: 56px 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.section-label .pill {
+  font-family: var(--font-mono);
+  font-size: 10px; padding: 3px 8px; border-radius: 4px;
+  background: var(--ink); color: var(--bg-panel);
+  font-weight: 600; letter-spacing: 0.4px;
+}
+.section-label .pill.recommended { background: var(--ok); }
+.section-label .pill.alt { background: var(--ink-3); }
+.section-label .pill.tradeoff { background: var(--warn); }
+.section-label .pill.hero { background: var(--accent); }
+.section-label h2 { flex: 1; }
+.section-label .meta { font-size: 12px; color: var(--ink-4); }
+
+.page-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: 22px 24px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.page-card .strip {
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--rule-soft);
+  padding-bottom: 14px; margin-bottom: 18px;
+  gap: 16px;
+}
+.page-card .strip .lhs { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+.page-card .strip h3 { font-family: var(--font-display); font-weight: 600; font-size: 17px; margin: 0; }
+.page-card .strip .meta { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-card .strip .right { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+
+.spec {
+  background: var(--bg-cell);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: 18px 22px;
+  margin: 14px 0 8px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.65;
+}
+.spec h4 {
+  font-family: var(--font-display); font-weight: 600; font-size: 15.5px;
+  margin: 0 0 10px; color: var(--ink);
+}
+.spec ul { margin: 0; padding-left: 18px; }
+.spec li { margin-bottom: 6px; }
+.spec li strong { color: var(--ink); font-weight: 600; }
+.spec code {
+  font-family: var(--font-mono); font-size: 12.5px; background: var(--bg-panel);
+  padding: 1px 6px; border-radius: 4px; border: 1px solid var(--rule); color: var(--ink);
+}
+.kbd {
+  font-family: var(--font-mono); font-size: 11px; padding: 1px 6px;
+  background: var(--bg-panel); border: 1px solid var(--rule);
+  border-bottom-width: 2px; border-radius: 4px; color: var(--ink-2);
+  display: inline-block;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ *  §0  MOOD BOARD
+ * ═══════════════════════════════════════════════════════════════════════ */
+.mood {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr;
+  gap: 14px;
+  margin-top: 18px;
+}
+.mood .card {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+}
+.mood .card h4 { font-family: var(--font-display); font-weight: 600; font-size: 15px; margin: 0 0 12px; color: var(--ink); }
+
+.swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.swatches .sw { height: 56px; border-radius: 8px; position: relative; border: 1px solid var(--rule); display: flex; align-items: flex-end; justify-content: flex-start; padding: 6px 8px; }
+.swatches .sw .nm { font-size: 9.5px; font-family: var(--font-mono); color: rgba(0,0,0,0.6); background: rgba(255,255,255,0.7); padding: 1px 4px; border-radius: 3px; }
+.swatches .sw.ink-on .nm { color: rgba(255,255,255,0.85); background: rgba(0,0,0,0.4); }
+
+.type-scale .row { display: flex; align-items: baseline; gap: 14px; padding: 8px 0; border-bottom: 1px dashed var(--rule-soft); }
+.type-scale .row:last-child { border-bottom: 0; }
+.type-scale .row .label { width: 80px; font-size: 10px; color: var(--ink-3); letter-spacing: 0.6px; text-transform: uppercase; font-weight: 700; }
+.type-scale .row .sample { flex: 1; color: var(--ink); }
+
+.spacing-scale { display: grid; grid-template-columns: 56px 1fr; gap: 4px 12px; align-items: center; }
+.spacing-scale .lbl { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+.spacing-scale .bar { height: 8px; background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: 3px; }
+
+/* ════════════════════════════════════════════════════════════════════════
+ *  §1  ENTRY ROW VARIANTS (5 new)
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* Shared inside-cell input style — borderless, transparent,
+   right-aligned for numerics. */
+.cell-input {
+  font-size: 13.5px; font-weight: 500; color: var(--ink);
+  background: transparent; border: 0; padding: 0; outline: 0;
+  width: 100%; min-height: 22px; font-family: inherit;
+}
+.cell-input::placeholder { color: var(--ink-4); }
+.cell-input.mono { font-family: var(--font-mono); font-size: 13px; letter-spacing: -0.01em; }
+.cell.numeric .cell-input { text-align: right; font-family: var(--font-mono); }
+.cell-lbl {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px;
+  font-weight: 700; color: var(--ink-3); margin-bottom: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cell.has-arrow { position: relative; padding-right: 24px !important; }
+.cell.has-arrow::after {
+  content: ''; position: absolute; right: 12px; top: 50%;
+  width: 6px; height: 6px;
+  border-right: 1.5px solid var(--ink-3);
+  border-bottom: 1.5px solid var(--ink-3);
+  transform: translateY(-25%) rotate(45deg);
+}
+
+/* Common 11-column template */
+.entry-cols-11 {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px)   /* Barcode */
+    minmax(130px, 180px)   /* Category */
+    minmax(220px, 380px)   /* Product */
+    minmax(72px,  90px)    /* Size */
+    minmax(72px,  90px)    /* Art# */
+    minmax(94px,  110px)   /* Rate */
+    minmax(72px,  90px)    /* Qty */
+    minmax(72px,  90px)    /* Disc% */
+    minmax(72px,  90px)    /* GST% */
+    minmax(80px,  110px)   /* Unit */
+    minmax(96px, 110px);   /* +ADD */
+}
+
+/* ── Variant 4 — EDITORIAL LEDGER ROW (recommended for long sessions) ─
+ *
+ * Mood: an accountant's open ledger book. Two horizontal hairlines
+ * (top + bottom) frame the row; cells are separated only by typography
+ * and column alignment, not by vertical borders. The active cell warms
+ * its background to the colour of aged paper. Numbers settle on a
+ * thin numeric baseline-rule.
+ *
+ * Why this is the most enjoyable for long sessions:
+ *   - Zero vertical noise — no 11 mini-rectangles for the eye to count.
+ *   - The double hairline reads as a single unit, like a row in a book.
+ *   - Active state is a warm fill, not a saturated ring — easier to look
+ *     at across 50 line items.
+ *   - Numbers sit on a baseline rule, the way ledger columns do; small
+ *     drifts (1,996.00 vs 19,960.00) jump out without alarm colour.
+ *   - Labels are 9px uppercase, persistent, slightly recessed in colour.
+ *     They're there but they don't shout.
+ */
+.entry-ledger {
+  border-top: 1.5px solid var(--rule-ink);
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-panel);
+  padding: 0;
+}
+.entry-ledger .grid {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px)
+    minmax(130px, 180px)
+    minmax(220px, 380px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(94px,  110px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(72px,  90px)
+    minmax(80px,  110px)
+    minmax(96px, 110px);
+}
+.entry-ledger .cell {
+  display: flex; flex-direction: column;
+  padding: 10px 14px;
+  background: transparent;
+  position: relative;
+  min-width: 0;
+  transition: background .14s;
+}
+.entry-ledger .cell + .cell { border-left: 1px dotted var(--rule-soft); }
+.entry-ledger .cell:hover { background: var(--bg-cell); }
+.entry-ledger .cell.active { background: var(--bg-cell); }
+.entry-ledger .cell.active::before {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 2px; background: var(--accent);
+}
+.entry-ledger .cell.numeric .cell-input { border-bottom: 1px dotted var(--rule-strong); padding-bottom: 1px; }
+.entry-ledger .cell.add {
+  background: var(--ink); border-left: none;
+  align-items: center; justify-content: center;
+  cursor: pointer; transition: background .14s;
+}
+.entry-ledger .cell.add:hover { background: var(--rule-ink); }
+.entry-ledger .cell.add .add-text {
+  font-family: var(--font-display); font-weight: 600; font-size: 14px;
+  color: var(--bg-panel); letter-spacing: 0.3px;
+  display: flex; align-items: center; gap: 6px;
+}
+.entry-ledger .cell.add .add-text::before { content: '+'; font-size: 18px; line-height: 1; font-weight: 500; }
+
+/* ── Variant 5 — KEYBOARD-OPTIC ROW (Tally-spirit, for power users) ─
+ *
+ * Each cell's label gets a tiny serif-ish ordinal (1–11) that doubles
+ * as the Tab-stop number. A progress bar across the top fills as the
+ * caret moves through the cells, so the operator always knows
+ * "I'm at 6 of 11 in this line item". Active cell gets a warm halo
+ * and a tiny "↵ to commit" hint when on Qty (the last numeric
+ * before +ADD).
+ *
+ * Mood: a Tally muscle-memory user feels at home. Visual feedback
+ * gives the keyboard-driven flow a rhythm and a finish line.
+ */
+.entry-keys {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.entry-keys .progress {
+  height: 3px; background: var(--rule-soft); position: relative;
+}
+.entry-keys .progress::after {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 55%;  /* example: 6 of 11 ≈ 55% */
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+}
+.entry-keys .grid {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px) minmax(130px, 180px) minmax(220px, 380px)
+    minmax(72px,  90px)  minmax(72px,  90px)  minmax(94px,  110px)
+    minmax(72px,  90px)  minmax(72px,  90px)  minmax(72px,  90px)
+    minmax(80px,  110px) minmax(96px, 110px);
+}
+.entry-keys .cell {
+  display: flex; flex-direction: column;
+  padding: 9px 12px 10px; min-width: 0; position: relative;
+  border-right: 1px solid var(--rule);
+}
+.entry-keys .cell:last-child { border-right: 0; }
+.entry-keys .cell:hover { background: var(--bg-cell); }
+.entry-keys .cell.active {
+  background: var(--bg-active);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  z-index: 1;
+}
+.entry-keys .cell .lbl-row {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 1px;
+}
+.entry-keys .cell .ord {
+  font-family: var(--font-mono);
+  font-size: 9px; font-weight: 700;
+  background: var(--ink); color: var(--bg-panel);
+  padding: 1px 4px; border-radius: 3px;
+  letter-spacing: 0.2px;
+}
+.entry-keys .cell.active .ord { background: var(--accent); }
+.entry-keys .cell .lbl {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px;
+  font-weight: 700; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.entry-keys .cell.active .commit-hint {
+  position: absolute; right: 8px; top: 6px;
+  font-family: var(--font-mono); font-size: 9.5px;
+  color: var(--accent); opacity: .8;
+}
+.entry-keys .cell.add {
+  background: var(--accent); border-right: 0;
+  align-items: center; justify-content: center; cursor: pointer;
+  transition: background .14s;
+}
+.entry-keys .cell.add:hover { background: var(--accent-hover); }
+.entry-keys .cell.add .add-text {
+  color: white; font-weight: 700; letter-spacing: 0.5px; font-size: 13px;
+  display: flex; align-items: center; gap: 5px;
+}
+.entry-keys .cell.add .add-text::before { content: '↵'; font-family: var(--font-mono); font-size: 13px; }
+
+/* ── Variant 6 — FLOATING CARET ROW (most minimal) ──────────────────
+ *
+ * No borders anywhere. Each cell is just a label-stack + value, with a
+ * 1px caret-line that lights up under the active cell. Vertical
+ * separators are subtle dots between columns (•). The whole row is
+ * defined by typography + a single horizontal hairline beneath.
+ *
+ * Mood: calm, almost paper-thin. Best when the entry row sits on a
+ * generous panel of negative space.
+ */
+.entry-caret {
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--rule);
+}
+.entry-caret .grid {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px) minmax(130px, 180px) minmax(220px, 380px)
+    minmax(72px,  90px)  minmax(72px,  90px)  minmax(94px,  110px)
+    minmax(72px,  90px)  minmax(72px,  90px)  minmax(72px,  90px)
+    minmax(80px,  110px) minmax(96px, 110px);
+  gap: 0;
+}
+.entry-caret .cell {
+  position: relative; padding: 10px 16px;
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+.entry-caret .cell + .cell::before {
+  content: '·'; position: absolute; left: -3px; top: 50%; transform: translateY(-50%);
+  color: var(--ink-5); font-size: 14px;
+}
+.entry-caret .cell::after {
+  content: ''; position: absolute; left: 16px; right: 16px; bottom: 6px;
+  height: 1px; background: transparent; transition: background .12s;
+}
+.entry-caret .cell:hover::after { background: var(--rule-strong); }
+.entry-caret .cell.active::after { background: var(--accent); height: 2px; bottom: 5px; }
+.entry-caret .cell.add {
+  align-items: center; justify-content: center; padding: 0 18px;
+}
+.entry-caret .cell.add::before { display: none; }
+.entry-caret .cell.add::after { display: none; }
+.entry-caret .cell.add .add-btn {
+  background: var(--accent); color: white;
+  font-weight: 600; font-size: 13px; letter-spacing: 0.4px;
+  padding: 8px 18px; border-radius: var(--r-pill); border: 0;
+  cursor: pointer; transition: background .14s, transform .12s;
+}
+.entry-caret .cell.add .add-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+
+/* ── Variant 7 — BENTO CELLS ─────────────────────────────────────────
+ *
+ * Each cell as a soft elevated tile inside a calm container. Active
+ * cell lifts 2-3px with a stronger shadow, like picking it up off
+ * the page. Playful, slightly tactile.
+ *
+ * Mood: friendlier than the spreadsheet, riskier for accountants
+ * who may find it "designed". Best for retailers / apparel shops
+ * who use the form as a POS-light.
+ */
+.entry-bento {
+  background: var(--bg-deep);
+  padding: 10px;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--rule);
+}
+.entry-bento .grid {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 200px) minmax(130px, 180px) minmax(220px, 380px)
+    minmax(72px,  90px)  minmax(72px,  90px)  minmax(94px,  110px)
+    minmax(72px,  90px)  minmax(72px,  90px)  minmax(72px,  90px)
+    minmax(80px,  110px) minmax(96px, 110px);
+  gap: 8px;
+}
+.entry-bento .cell {
+  display: flex; flex-direction: column;
+  padding: 9px 12px 10px; min-width: 0;
+  background: var(--bg-panel);
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm);
+  transition: transform .15s, box-shadow .15s, border-color .15s, background .15s;
+}
+.entry-bento .cell:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.entry-bento .cell.active {
+  background: var(--bg-active);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-active);
+  transform: translateY(-2px);
+}
+.entry-bento .cell.add {
+  background: var(--indigo);
+  align-items: center; justify-content: center;
+  cursor: pointer;
+  border-color: transparent;
+}
+.entry-bento .cell.add:hover { background: var(--indigo-hover); }
+.entry-bento .cell.add .add-text { color: white; font-weight: 700; font-size: 13px; letter-spacing: 0.4px; }
+.entry-bento .cell.add .add-text::before { content: '+ '; font-size: 16px; }
+
+/* ── Variant 8 — COMPACT INLINE ROW (densest, most Tally-like) ────
+ *
+ * Single line — no labels above, just values flowing left to right.
+ * Hover or focus reveals the column name as a small floating badge
+ * over the cell. Lightest visual chrome, highest information density,
+ * closest to the dense grid Tally power users love.
+ *
+ * Risk: if the operator is new, the missing labels make discovery
+ * harder. Variant 5 (keyboard-optic) is the safer Tally-translation.
+ */
+.entry-inline {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-pill);
+  height: 44px;
+  display: flex;
+  align-items: stretch;
+}
+.entry-inline .cell {
+  display: flex; align-items: center;
+  padding: 0 16px;
+  border-right: 1px solid var(--rule);
+  position: relative;
+  min-width: 0;
+  flex-grow: 0;
+}
+.entry-inline .cell:first-child { padding-left: 22px; border-radius: var(--r-pill) 0 0 var(--r-pill); }
+.entry-inline .cell:nth-child(1) { width: 200px; }
+.entry-inline .cell:nth-child(2) { width: 160px; }
+.entry-inline .cell:nth-child(3) { width: 280px; }
+.entry-inline .cell:nth-child(4) { width: 86px; }
+.entry-inline .cell:nth-child(5) { width: 86px; }
+.entry-inline .cell:nth-child(6) { width: 100px; }
+.entry-inline .cell:nth-child(7) { width: 86px; }
+.entry-inline .cell:nth-child(8) { width: 86px; }
+.entry-inline .cell:nth-child(9) { width: 86px; }
+.entry-inline .cell:nth-child(10) { width: 92px; }
+.entry-inline .cell:hover, .entry-inline .cell.active {
+  background: var(--bg-cell);
+}
+.entry-inline .cell.active { background: var(--bg-active); box-shadow: inset 0 0 0 2px var(--accent); z-index: 1; }
+.entry-inline .cell .floating-label {
+  position: absolute; left: 14px; top: -10px;
+  font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px;
+  font-weight: 700; color: var(--ink-3);
+  background: var(--bg-panel); padding: 0 6px;
+  opacity: 0; transform: translateY(4px);
+  transition: opacity .14s, transform .14s;
+  pointer-events: none;
+  border-radius: 3px;
+}
+.entry-inline .cell:hover .floating-label,
+.entry-inline .cell.active .floating-label {
+  opacity: 1; transform: translateY(0);
+}
+.entry-inline .cell .val {
+  font-size: 13.5px; font-weight: 500; color: var(--ink);
+  background: transparent; border: 0; outline: 0; padding: 0;
+  width: 100%; font-family: inherit;
+}
+.entry-inline .cell .val::placeholder { color: var(--ink-4); }
+.entry-inline .cell.numeric .val { text-align: right; font-family: var(--font-mono); }
+.entry-inline .cell.add {
+  border-right: 0; padding: 0 22px;
+  background: var(--accent); color: white;
+  align-items: center; justify-content: center;
+  cursor: pointer; flex-grow: 1;
+  border-radius: 0 var(--r-pill) var(--r-pill) 0;
+  transition: background .14s;
+}
+.entry-inline .cell.add:hover { background: var(--accent-hover); }
+.entry-inline .cell.add .add-text { color: white; font-weight: 700; letter-spacing: 0.5px; font-size: 13px; }
+
+/* ════════════════════════════════════════════════════════════════════════
+ *  §3  FULL SALES BILL FORM
+ *
+ *  Built around Variant 4 (Editorial Ledger Row).
+ *  Three redesigns layered on top:
+ *    A. Top strip — keyboard-friendly mode toggle, customer info inline
+ *    B. Items table — paginated ledger feel with bottom sticky totals
+ *    C. Footer — replaces 3 cluttered cards with 2 clean panes:
+ *       a "Compose" pane (notes, type, salesman) and a "Math + Pay"
+ *       pane (sub-total breakdown → grand total → settle).
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* Frame */
+.sales-form {
+  display: grid;
+  grid-template-columns: var(--sb-w) 1fr;
+  background: var(--bg);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--rule);
+}
+
+.sb-side {
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 18px 0;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 22px;
+}
+.sb-side .logo {
+  width: 36px; height: 36px;
+  background: var(--accent); border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-family: var(--font-display); font-weight: 700; font-size: 18px;
+}
+.sb-side .nav-icn {
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 9px;
+  color: var(--sb-ink-3); font-size: 18px;
+  cursor: pointer;
+}
+.sb-side .nav-icn.active { background: var(--accent); color: white; }
+.sb-side .nav-icn:hover:not(.active) { background: var(--sb-hover, rgba(245,238,226,0.06)); color: var(--sb-ink); }
+
+.sb-main { display: flex; flex-direction: column; min-height: 720px; background: var(--bg); }
+
+/* Top strip */
+.sf-top {
+  background: var(--bg-panel);
+  padding: 14px 28px 12px;
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 18px;
+  align-items: center;
+}
+.sf-doc {
+  display: flex; align-items: baseline; gap: 14px;
+}
+.sf-doc .pill {
+  background: var(--accent); color: white;
+  padding: 6px 12px; border-radius: var(--r-md);
+  font-weight: 700; font-size: 11px; letter-spacing: 1.4px;
+}
+.sf-doc h2 {
+  font-family: var(--font-display); font-weight: 600; font-size: 22px;
+  margin: 0; letter-spacing: -0.005em; color: var(--ink);
+}
+.sf-doc .billno {
+  font-family: var(--font-mono); font-size: 14px; color: var(--ink-2);
+  background: var(--bg-cell); padding: 3px 9px; border-radius: 5px;
+  border: 1px solid var(--rule);
+}
+
+.sf-mode {
+  display: inline-flex; align-items: center;
+  background: var(--bg-cell); border: 1px solid var(--rule);
+  border-radius: var(--r-pill); padding: 3px;
+}
+.sf-mode .opt {
+  padding: 5px 14px; font-size: 12px; font-weight: 600;
+  border-radius: var(--r-pill); cursor: pointer; color: var(--ink-3);
+  transition: all .12s;
+}
+.sf-mode .opt.on { background: var(--ink); color: var(--bg-panel); }
+
+.sf-meta {
+  display: flex; align-items: center; gap: 10px;
+}
+.sf-meta .field {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg-cell); border: 1px solid var(--rule);
+  padding: 6px 10px; border-radius: var(--r-md);
+  font-size: 12px; color: var(--ink-2);
+}
+.sf-meta .field .lab { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); font-weight: 700; }
+.sf-meta .field .val { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
+.sf-meta .salesman {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--indigo); color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 12px; letter-spacing: 0.4px;
+  border: 2px solid var(--bg-panel);
+  box-shadow: 0 0 0 1px var(--rule);
+}
+
+/* Customer strip */
+.sf-cust {
+  background: var(--bg-panel);
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--rule-soft);
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  align-items: center;
+}
+.sf-cust .picker {
+  position: relative;
+  height: 42px;
+  display: flex; align-items: center;
+  background: var(--bg-cell);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: 0 14px;
+  font-weight: 600; font-size: 14px; color: var(--ink);
+  cursor: pointer;
+}
+.sf-cust .picker::after {
+  content: ''; position: absolute; right: 14px; top: 50%;
+  width: 7px; height: 7px;
+  border-right: 2px solid var(--ink-3);
+  border-bottom: 2px solid var(--ink-3);
+  transform: translateY(-25%) rotate(45deg);
+}
+.sf-cust .info {
+  display: flex; align-items: center; gap: 18px;
+  font-size: 13px; color: var(--ink-2);
+}
+.sf-cust .info .dot { color: var(--ink-5); font-size: 14px; }
+.sf-cust .info b { font-weight: 600; color: var(--ink); }
+.sf-cust .info b.amount { font-family: var(--font-mono); }
+.sf-cust .info .pos { color: var(--ok); }
+.sf-cust .info .neg { color: var(--danger); }
+.sf-cust .info .pill-ok {
+  padding: 3px 10px; background: var(--ok-soft); color: var(--ok);
+  border-radius: var(--r-sm); font-size: 11px; font-weight: 700;
+  border: 1px solid rgba(90,124,74,0.22);
+}
+.sf-cust .info .pill-no {
+  padding: 3px 10px; background: var(--danger-soft); color: var(--danger);
+  border-radius: var(--r-sm); font-size: 11px; font-weight: 700;
+  border: 1px solid rgba(177,71,47,0.22);
+}
+
+/* Entry row block */
+.sf-entry-wrap {
+  background: var(--bg-panel);
+  padding: 0 28px;
+}
+.sf-entry-wrap .frame {
+  border: 1.5px solid var(--rule-ink);
+  border-radius: 0;
+  background: transparent;
+  border-top: 1.5px solid var(--rule-ink);
+  border-bottom: 1px solid var(--rule);
+  border-left: 0; border-right: 0;
+  margin: 6px -28px 0;
+  padding: 0;
+}
+
+/* Items table — ledger */
+.sf-items-wrap {
+  flex: 1; min-height: 0;
+  background: var(--bg-panel);
+  padding: 0 0 0 0;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.sf-items {
+  flex: 1;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--rule);
+}
+.sf-items table {
+  width: 100%; border-collapse: collapse;
+  font-size: 13.5px;
+}
+.sf-items thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-deep);
+  text-align: left; font-size: 9.5px;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 700;
+  padding: 9px 14px; border-bottom: 1px solid var(--rule);
+}
+.sf-items thead th.num { text-align: right; }
+.sf-items tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--ink);
+  font-weight: 500;
+}
+.sf-items tbody tr:nth-child(odd) td { background: var(--bg-cell); }
+.sf-items tbody tr:hover td { background: var(--bg-active); }
+.sf-items tbody td.num { text-align: right; font-family: var(--font-mono); font-size: 13px; letter-spacing: -0.01em; }
+.sf-items tbody td.idx { color: var(--ink-4); font-family: var(--font-mono); width: 36px; text-align: right; padding-right: 8px; }
+.sf-items tbody td.bc { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+.sf-items tbody td.del { width: 32px; }
+.sf-items tbody td.del button {
+  border: 0; background: transparent; color: var(--ink-4); cursor: pointer; font-size: 16px;
+  padding: 2px 6px; border-radius: 4px;
+}
+.sf-items tbody td.del button:hover { color: var(--danger); background: var(--danger-soft); }
+
+.sf-items-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 60px 0; color: var(--ink-3);
+}
+
+/* Footer — Compose + Math+Pay (replaces the 3 cluttered cards) */
+.sf-footer {
+  background: var(--bg-muted);
+  border-top: 1px solid var(--rule);
+  padding: 18px 28px 22px;
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: 22px;
+}
+
+/* — Compose pane (Notes / Sale type / Salesman) */
+.compose {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.compose-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.compose-head h4 {
+  font-family: var(--font-display); font-weight: 600; font-size: 14px;
+  color: var(--ink); margin: 0; letter-spacing: -0.005em;
+}
+.compose-head .stats {
+  display: flex; gap: 8px;
+}
+.compose-head .stats .stat {
+  font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);
+  padding: 2px 8px; background: var(--bg-cell); border: 1px solid var(--rule); border-radius: 999px;
+}
+.compose-head .stats .stat b { color: var(--ink); font-weight: 700; }
+.compose .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.compose .field-stack {
+  display: flex; flex-direction: column;
+}
+.compose .field-stack .lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700; color: var(--ink-3); margin-bottom: 4px; }
+.compose .field-stack .ctl {
+  height: 34px; padding: 0 10px;
+  background: var(--bg-cell); border: 1px solid var(--rule);
+  border-radius: var(--r-sm); font-size: 13px; color: var(--ink);
+  display: flex; align-items: center;
+}
+.compose textarea {
+  resize: vertical; min-height: 70px;
+  padding: 10px;
+  background: var(--bg-cell);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  font-family: inherit; font-size: 13px; color: var(--ink);
+  outline: 0;
+}
+
+/* — Math + Pay pane */
+.mathpay {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: 16px 18px 18px;
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  gap: 18px;
+  align-items: stretch;
+}
+.mathpay .vrule { background: var(--rule); width: 1px; }
+.math-head, .pay-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.math-head h4, .pay-head h4 {
+  font-family: var(--font-display); font-weight: 600; font-size: 14px;
+  color: var(--ink); margin: 0;
+}
+.math-head .meta, .pay-head .meta { font-size: 11px; color: var(--ink-3); }
+
+.math-list {
+  display: flex; flex-direction: column;
+}
+.math-list .ln {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 5px 0;
+  font-size: 13.2px;
+  color: var(--ink-2);
+}
+.math-list .ln .lab { display: flex; gap: 8px; align-items: baseline; }
+.math-list .ln .lab .pct { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+.math-list .ln .v { font-family: var(--font-mono); color: var(--ink); }
+.math-list .ln .v.minus { color: var(--ink-3); }
+.math-list .rule { height: 1px; background: var(--rule); margin: 6px 0; }
+.math-list .grand {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding-top: 6px;
+}
+.math-list .grand .lab {
+  font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--ink);
+  letter-spacing: 0.4px;
+}
+.math-list .grand .v {
+  font-family: var(--font-display); font-weight: 600; font-size: 26px;
+  color: var(--ink); letter-spacing: -0.01em;
+  font-feature-settings: 'tnum' 1, 'lnum' 1;
+}
+
+/* Pay column */
+.pay-grid { display: flex; flex-direction: column; gap: 10px; }
+.pay-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+.pay-row .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700; color: var(--ink-3); }
+.pay-row .seg {
+  display: inline-flex; background: var(--bg-cell); border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 2px;
+}
+.pay-row .seg .opt { padding: 4px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; color: var(--ink-3); cursor: pointer; }
+.pay-row .seg .opt.on { background: var(--ink); color: var(--bg-panel); }
+.pay-row .input {
+  height: 32px; padding: 0 10px;
+  border: 1px solid var(--rule); border-radius: var(--r-sm);
+  background: var(--bg-cell); display: flex; align-items: center;
+  font-family: var(--font-mono); font-size: 13px; color: var(--ink);
+  width: 140px; justify-content: flex-end;
+}
+.pay-row .input.input-active { background: var(--bg-active); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.pay-row .display {
+  font-family: var(--font-mono); font-size: 13px; color: var(--ink); font-weight: 600;
+}
+.pay-pip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: var(--r-sm);
+  background: var(--ok-soft); color: var(--ok);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
+  border: 1px solid rgba(90,124,74,0.22);
+  margin-top: 6px;
+  width: fit-content;
+}
+.pay-pip::before { content: '✓'; font-weight: 700; }
+
+/* Action bar */
+.sf-actions {
+  background: var(--bg-panel);
+  border-top: 1px solid var(--rule);
+  padding: 12px 28px;
+  display: flex; align-items: center; gap: 10px;
+}
+.sf-actions .grp { display: flex; gap: 6px; }
+.sf-actions .spacer { flex: 1; }
+.sf-actions .btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: var(--r-sm);
+  background: var(--bg-cell); border: 1px solid var(--rule);
+  font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.sf-actions .btn:hover { background: var(--bg-active); border-color: var(--rule-strong); }
+.sf-actions .btn .kk {
+  font-family: var(--font-mono); font-size: 10px; padding: 1px 5px;
+  background: var(--bg-panel); border: 1px solid var(--rule);
+  border-bottom-width: 2px; border-radius: 3px; color: var(--ink-3);
+}
+.sf-actions .btn.warn { color: var(--warn); }
+.sf-actions .btn.draft {
+  background: var(--warn-soft); border-color: rgba(181,135,43,0.30);
+  color: var(--warn);
+}
+.sf-actions .btn.credit {
+  background: rgba(181,135,43,0.10); border-color: rgba(181,135,43,0.30);
+  color: var(--warn);
+}
+.sf-actions .btn.primary {
+  background: var(--indigo); border-color: var(--indigo); color: white;
+  padding: 9px 20px;
+}
+.sf-actions .btn.primary:hover { background: var(--indigo-hover); border-color: var(--indigo-hover); }
+.sf-actions .btn.primary .kk { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.30); color: white; }
+
+</style>
+</head>
+<body>
+
+<header style="margin-bottom: 32px;">
+  <div class="eyebrow">Editorial v2 · Sales Bill Form</div>
+  <h1>Long bills should feel like writing in a book.</h1>
+  <p class="lead">
+    Five new entry-row variants below, picking up where v1 left off.
+    Each is judged against one bar: <em>does an operator entering 30+ line items
+    finish the day energised, or worn down?</em> The principles — calm surface,
+    monospace numerics, persistent labels, JS-free focus state — come from
+    the editorial palette already used by Sales Report and Day Book, so any
+    pick drops straight into the running app's design language.
+    Below the variants, my pick of three. Below that, a complete Sales Bill
+    Form built around variant 4 (Editorial Ledger Row) — with the totals,
+    information panels, and action bar redesigned alongside.
+  </p>
+</header>
+
+<!-- ── §0 Mood board ────────────────────────────────────────────── -->
+<div class="section-label">
+  <span class="pill alt">§0</span><h2>Mood</h2>
+  <span class="meta">palette · type scale · spacing — same primitives all variants share</span>
+</div>
+
+<div class="mood">
+  <div class="card">
+    <h4>Surface palette</h4>
+    <div class="swatches">
+      <div class="sw" style="background:#F5EFE3"><span class="nm">bg</span></div>
+      <div class="sw" style="background:#FDFAF2"><span class="nm">panel</span></div>
+      <div class="sw" style="background:#F8F2E4"><span class="nm">muted</span></div>
+      <div class="sw" style="background:#F0E8D4"><span class="nm">chip</span></div>
+      <div class="sw" style="background:#FBF6E9"><span class="nm">cell</span></div>
+    </div>
+    <div class="swatches" style="margin-top:8px">
+      <div class="sw ink-on" style="background:#1D1A15"><span class="nm">ink</span></div>
+      <div class="sw ink-on" style="background:#4F4434"><span class="nm">ink-2</span></div>
+      <div class="sw" style="background:#7A6E5A"><span class="nm">ink-3</span></div>
+      <div class="sw" style="background:#A79C88"><span class="nm">ink-4</span></div>
+      <div class="sw" style="background:#CABFA8"><span class="nm">ink-5</span></div>
+    </div>
+    <div class="swatches" style="margin-top:8px">
+      <div class="sw ink-on" style="background:#B1472F"><span class="nm">accent</span></div>
+      <div class="sw ink-on" style="background:#4F46E5"><span class="nm">indigo</span></div>
+      <div class="sw" style="background:#5A7C4A"><span class="nm">ok</span></div>
+      <div class="sw" style="background:#B5872B"><span class="nm">warn</span></div>
+      <div class="sw" style="background:#E3D9C5"><span class="nm">rule</span></div>
+    </div>
+  </div>
+
+  <div class="card type-scale">
+    <h4>Typography</h4>
+    <div class="row"><div class="label">Display</div><div class="sample" style="font-family:'Fraunces',serif; font-weight:600; font-size:24px; letter-spacing:-.01em;">₹1,737.00</div></div>
+    <div class="row"><div class="label">Hero</div><div class="sample" style="font-family:'Fraunces',serif; font-weight:600; font-size:18px;">Sales Invoice</div></div>
+    <div class="row"><div class="label">Body</div><div class="sample" style="font-family:'Inter',sans-serif; font-size:14px;">Reliable Enterprises · Pune</div></div>
+    <div class="row"><div class="label">Mono</div><div class="sample" style="font-family:'Geist Mono',monospace; font-size:13px;">956.40 · 12% · ₹1,996.00</div></div>
+    <div class="row"><div class="label">Eyebrow</div><div class="sample eyebrow">Sub-total · Discount · Tax</div></div>
+  </div>
+
+  <div class="card">
+    <h4>Spacing rhythm</h4>
+    <div class="spacing-scale" style="margin-top:6px">
+      <div class="lbl">4</div><div class="bar" style="width:4px"></div>
+      <div class="lbl">8</div><div class="bar" style="width:8px"></div>
+      <div class="lbl">12</div><div class="bar" style="width:12px"></div>
+      <div class="lbl">16</div><div class="bar" style="width:16px"></div>
+      <div class="lbl">22</div><div class="bar" style="width:22px"></div>
+      <div class="lbl">28</div><div class="bar" style="width:28px"></div>
+      <div class="lbl">44</div><div class="bar" style="width:44px"></div>
+    </div>
+    <p class="note" style="margin-top:14px">
+      Vertical rhythm sticks to multiples of 4 — keeps the eye on a calm
+      grid even at 30+ rows. Touch / click targets land at ≥38px so a
+      mouse-led operator never aims at a 24px sliver.
+    </p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- ── §1 Five new variants ───────────────────────────────────────── -->
+
+<!-- Variant 4 -->
+<div class="section-label">
+  <span class="pill recommended">PICK · LEAD</span><h2>Variant 4 · Editorial Ledger Row</h2>
+  <span class="meta">two hairlines, no internal borders. The most enjoyable for long sessions.</span>
+</div>
+<div class="page-card">
+  <div class="strip">
+    <div class="lhs">
+      <h3>Sales Invoice · Bill 1003</h3>
+      <span class="meta">Reliable Enterprises · Pune · Balance ₹1,496 · Credit allowed</span>
+    </div>
+    <span class="right">29-04-2026</span>
+  </div>
+
+  <div class="entry-ledger">
+    <div class="grid">
+      <div class="cell">
+        <div class="cell-lbl">Barcode</div>
+        <input class="cell-input mono" placeholder="Scan or type" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="cell-lbl">Category</div>
+        <input class="cell-input" value="Apparel" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="cell-lbl">Product</div>
+        <input class="cell-input" value="Cotton Solid Shirt" />
+      </div>
+      <div class="cell">
+        <div class="cell-lbl">Size</div>
+        <input class="cell-input" value="XL" />
+      </div>
+      <div class="cell">
+        <div class="cell-lbl">Art #</div>
+        <input class="cell-input mono" value="A-2034" />
+      </div>
+      <div class="cell numeric active">
+        <div class="cell-lbl">Rate ₹</div>
+        <input class="cell-input" value="450.00" />
+      </div>
+      <div class="cell numeric">
+        <div class="cell-lbl">Qty</div>
+        <input class="cell-input" value="2" />
+      </div>
+      <div class="cell numeric">
+        <div class="cell-lbl">Disc %</div>
+        <input class="cell-input" value="5" />
+      </div>
+      <div class="cell numeric">
+        <div class="cell-lbl">GST %</div>
+        <input class="cell-input" value="12" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="cell-lbl">Unit</div>
+        <input class="cell-input" value="Pcs" />
+      </div>
+      <div class="cell add"><span class="add-text">ADD</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="spec">
+  <h4>Why this for long sessions</h4>
+  <ul>
+    <li><strong>Two hairlines, no rectangles.</strong> The row is bounded by a 1.5px ink rule on top and a 1px cream rule on bottom — a single horizontal shape, not 11 stacked boxes. The eye reads it as one line of a ledger book.</li>
+    <li><strong>Active state warms instead of shouting.</strong> Active cell tones up to <code>--bg-cell</code> (warm cream) with a 2px accent underline — no saturated ring, no shadow. Across 30 line items the visual cost of a focus change is near-zero.</li>
+    <li><strong>Numeric baseline rule.</strong> Numeric cells get a thin dotted bottom rule under the digits — accountant's habit. Drifts (1,996.00 vs 19,960.00) line up vertically.</li>
+    <li><strong>Labels recede correctly.</strong> 9px / 1.2px tracking / <code>--ink-3</code> — present at all times, never compete with the value.</li>
+    <li><strong>+ADD is INK, not accent.</strong> The terminator cell uses the page's darkest ink, not the saturated accent. After commit you don't get hit with a colour change every line. The accent stays reserved for "active cell" — the only thing the eye should chase.</li>
+    <li><strong>Cost.</strong> 46px row height (8px taller than today) in exchange for permanent column legibility + rest. Net positive at 5+ items, decisive at 30+.</li>
+  </ul>
+</div>
+
+<!-- Variant 5 -->
+<div class="section-label">
+  <span class="pill recommended">PICK</span><h2>Variant 5 · Keyboard-Optic Row</h2>
+  <span class="meta">Tally-spirit, modern surface. Progress bar + ordinal-pills make the keyboard flow legible.</span>
+</div>
+<div class="page-card">
+  <div class="strip">
+    <div class="lhs">
+      <h3>Sales Invoice · Bill 1003</h3>
+      <span class="meta">Reliable Enterprises · Pune · Balance ₹1,496 · Credit allowed</span>
+    </div>
+    <span class="right">29-04-2026</span>
+  </div>
+
+  <div class="entry-keys">
+    <div class="progress"></div>
+    <div class="grid">
+      <div class="cell">
+        <div class="lbl-row"><span class="ord">1</span><span class="lbl">Barcode</span></div>
+        <input class="cell-input mono" placeholder="Scan or type" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="lbl-row"><span class="ord">2</span><span class="lbl">Category</span></div>
+        <input class="cell-input" value="Apparel" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="lbl-row"><span class="ord">3</span><span class="lbl">Product</span></div>
+        <input class="cell-input" value="Cotton Solid Shirt" />
+      </div>
+      <div class="cell">
+        <div class="lbl-row"><span class="ord">4</span><span class="lbl">Size</span></div>
+        <input class="cell-input" value="XL" />
+      </div>
+      <div class="cell">
+        <div class="lbl-row"><span class="ord">5</span><span class="lbl">Art #</span></div>
+        <input class="cell-input mono" value="A-2034" />
+      </div>
+      <div class="cell numeric active">
+        <span class="commit-hint">↹ next</span>
+        <div class="lbl-row"><span class="ord">6</span><span class="lbl">Rate ₹</span></div>
+        <input class="cell-input" value="450.00" />
+      </div>
+      <div class="cell numeric">
+        <div class="lbl-row"><span class="ord">7</span><span class="lbl">Qty</span></div>
+        <input class="cell-input" value="2" />
+      </div>
+      <div class="cell numeric">
+        <div class="lbl-row"><span class="ord">8</span><span class="lbl">Disc %</span></div>
+        <input class="cell-input" value="5" />
+      </div>
+      <div class="cell numeric">
+        <div class="lbl-row"><span class="ord">9</span><span class="lbl">GST %</span></div>
+        <input class="cell-input" value="12" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="lbl-row"><span class="ord">10</span><span class="lbl">Unit</span></div>
+        <input class="cell-input" value="Pcs" />
+      </div>
+      <div class="cell add"><span class="add-text">ADD</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="spec">
+  <h4>Why this for keyboard-first power users</h4>
+  <ul>
+    <li><strong>Tab-stop is visible.</strong> Each cell carries an ordinal pill (1–11) — Tally users mentally count cells; here we count for them.</li>
+    <li><strong>Progress bar = finish line.</strong> The 3px bar on top fills as the caret advances. By the 30th line the operator has built muscle memory of the bar's slide; entering Qty (cell 7) feels close to "done", not stranded somewhere in the middle.</li>
+    <li><strong>Commit hint where it belongs.</strong> The "↵ next" badge sits on the active cell only — no permanent visual weight, but the moment you're at cell 7 (Qty) it whispers <em>Enter to commit + jump to next item</em>. Reduces the "what do I press now" hesitation that breaks rhythm.</li>
+    <li><strong>+ADD uses the accent (not ink).</strong> Different from Variant 4 — here +ADD is also the keyboard "submit", so it earns the accent colour. The progress bar above it ties them visually.</li>
+    <li><strong>Trade-off vs Variant 4.</strong> Slightly busier (the ordinal pills carry visual weight). Worth it for a Tally-trained operator; possibly noisy for a first-time user.</li>
+  </ul>
+</div>
+
+<!-- Variant 6 -->
+<div class="section-label">
+  <span class="pill recommended">PICK</span><h2>Variant 6 · Floating Caret Row</h2>
+  <span class="meta">no borders, just type. The caret line is the only chrome.</span>
+</div>
+<div class="page-card">
+  <div class="strip">
+    <div class="lhs">
+      <h3>Sales Invoice · Bill 1003</h3>
+      <span class="meta">Reliable Enterprises · Pune · Balance ₹1,496 · Credit allowed</span>
+    </div>
+    <span class="right">29-04-2026</span>
+  </div>
+
+  <div class="entry-caret">
+    <div class="grid">
+      <div class="cell">
+        <div class="cell-lbl">Barcode</div>
+        <input class="cell-input mono" placeholder="Scan or type" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="cell-lbl">Category</div>
+        <input class="cell-input" value="Apparel" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="cell-lbl">Product</div>
+        <input class="cell-input" value="Cotton Solid Shirt" />
+      </div>
+      <div class="cell">
+        <div class="cell-lbl">Size</div>
+        <input class="cell-input" value="XL" />
+      </div>
+      <div class="cell">
+        <div class="cell-lbl">Art #</div>
+        <input class="cell-input mono" value="A-2034" />
+      </div>
+      <div class="cell numeric active">
+        <div class="cell-lbl">Rate ₹</div>
+        <input class="cell-input" value="450.00" />
+      </div>
+      <div class="cell numeric">
+        <div class="cell-lbl">Qty</div>
+        <input class="cell-input" value="2" />
+      </div>
+      <div class="cell numeric">
+        <div class="cell-lbl">Disc %</div>
+        <input class="cell-input" value="5" />
+      </div>
+      <div class="cell numeric">
+        <div class="cell-lbl">GST %</div>
+        <input class="cell-input" value="12" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="cell-lbl">Unit</div>
+        <input class="cell-input" value="Pcs" />
+      </div>
+      <div class="cell add"><button class="add-btn">+ ADD</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="spec">
+  <h4>Why this for the most minimal aesthetic</h4>
+  <ul>
+    <li><strong>One hairline below.</strong> That's it. The row dissolves into the page — most calm option of all five.</li>
+    <li><strong>Caret line is the only chrome.</strong> Hover lights a faint underline (rule-strong); active brightens it to accent and thickens to 2px. The caret's position is unmistakable, the field itself is invisible.</li>
+    <li><strong>Subtle column separators.</strong> A single <code>·</code> centred between cells, in <code>--ink-5</code>. It's there for orientation, not for decoration.</li>
+    <li><strong>+ADD is a pill, off the strip.</strong> Because there's no row container to sit inside, the +ADD button stays as a discrete pill — the only visually dense object on the row.</li>
+    <li><strong>Trade-off.</strong> Reads beautifully in a wide page. At narrow viewports the absence of borders makes adjacent labels visually merge — Variant 4's hairlines win there.</li>
+  </ul>
+</div>
+
+<!-- Variant 7 -->
+<div class="section-label">
+  <span class="pill alt">ALT</span><h2>Variant 7 · Bento Cells</h2>
+  <span class="meta">soft cards in a calm container. Each cell lifts on focus.</span>
+</div>
+<div class="page-card">
+  <div class="strip">
+    <div class="lhs">
+      <h3>Sales Invoice · Bill 1003</h3>
+      <span class="meta">Reliable Enterprises · Pune · Balance ₹1,496 · Credit allowed</span>
+    </div>
+    <span class="right">29-04-2026</span>
+  </div>
+
+  <div class="entry-bento">
+    <div class="grid">
+      <div class="cell">
+        <div class="cell-lbl">Barcode</div>
+        <input class="cell-input mono" placeholder="Scan or type" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="cell-lbl">Category</div>
+        <input class="cell-input" value="Apparel" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="cell-lbl">Product</div>
+        <input class="cell-input" value="Cotton Solid Shirt" />
+      </div>
+      <div class="cell">
+        <div class="cell-lbl">Size</div>
+        <input class="cell-input" value="XL" />
+      </div>
+      <div class="cell">
+        <div class="cell-lbl">Art #</div>
+        <input class="cell-input mono" value="A-2034" />
+      </div>
+      <div class="cell numeric active">
+        <div class="cell-lbl">Rate ₹</div>
+        <input class="cell-input" value="450.00" />
+      </div>
+      <div class="cell numeric">
+        <div class="cell-lbl">Qty</div>
+        <input class="cell-input" value="2" />
+      </div>
+      <div class="cell numeric">
+        <div class="cell-lbl">Disc %</div>
+        <input class="cell-input" value="5" />
+      </div>
+      <div class="cell numeric">
+        <div class="cell-lbl">GST %</div>
+        <input class="cell-input" value="12" />
+      </div>
+      <div class="cell has-arrow">
+        <div class="cell-lbl">Unit</div>
+        <input class="cell-input" value="Pcs" />
+      </div>
+      <div class="cell add"><span class="add-text">ADD</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="spec">
+  <h4>Trade-off vs the picks</h4>
+  <ul>
+    <li>+ Tactile. The 2px lift on focus is satisfying once. Across 30 items it can feel busy — every line item shifts pixels.</li>
+    <li>+ Clear hover affordance for mouse-led operators (a real win in mixed POS / desk-billing setups).</li>
+    <li>− More chrome per cell (border + shadow). The visual cost is hard to keep calm at 30 rows beneath.</li>
+    <li>− Shadows + animation = more re-paint. Negligible on M-series Macs, noticeable on older Windows POS hardware (a fair share of the user base).</li>
+  </ul>
+</div>
+
+<!-- Variant 8 -->
+<div class="section-label">
+  <span class="pill alt">ALT</span><h2>Variant 8 · Compact Inline Row</h2>
+  <span class="meta">single-pill ribbon, no labels above. Floating labels appear on hover/focus.</span>
+</div>
+<div class="page-card">
+  <div class="strip">
+    <div class="lhs">
+      <h3>Sales Invoice · Bill 1003</h3>
+      <span class="meta">Reliable Enterprises · Pune · Balance ₹1,496 · Credit allowed</span>
+    </div>
+    <span class="right">29-04-2026</span>
+  </div>
+
+  <div style="padding-top: 10px">
+    <div class="entry-inline">
+      <div class="cell">
+        <span class="floating-label">Barcode</span>
+        <input class="val" placeholder="Scan or type" style="font-family:var(--font-mono)" />
+      </div>
+      <div class="cell">
+        <span class="floating-label">Category</span>
+        <input class="val" value="Apparel" />
+      </div>
+      <div class="cell">
+        <span class="floating-label">Product</span>
+        <input class="val" value="Cotton Solid Shirt" />
+      </div>
+      <div class="cell">
+        <span class="floating-label">Size</span>
+        <input class="val" value="XL" />
+      </div>
+      <div class="cell">
+        <span class="floating-label">Art #</span>
+        <input class="val" value="A-2034" />
+      </div>
+      <div class="cell numeric active">
+        <span class="floating-label">Rate ₹</span>
+        <input class="val" value="450.00" />
+      </div>
+      <div class="cell numeric">
+        <span class="floating-label">Qty</span>
+        <input class="val" value="2" />
+      </div>
+      <div class="cell numeric">
+        <span class="floating-label">Disc %</span>
+        <input class="val" value="5" />
+      </div>
+      <div class="cell numeric">
+        <span class="floating-label">GST %</span>
+        <input class="val" value="12" />
+      </div>
+      <div class="cell">
+        <span class="floating-label">Unit</span>
+        <input class="val" value="Pcs" />
+      </div>
+      <div class="cell add"><span class="add-text">+ ADD</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="spec">
+  <h4>Trade-off vs the picks</h4>
+  <ul>
+    <li>+ Highest information density. Closest to the Tally classical row.</li>
+    <li>+ Smallest visual footprint — the row shrinks to 44px including the <code>+ADD</code>.</li>
+    <li>− Labels come and go. For a new operator (or a trained operator on a new bill type) the missing labels are a real friction. Variant 5 (keyboard-optic) gets 80% of the density with 100% of the labels.</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- ── §2 Best three ─────────────────────────────────────────────── -->
+<div class="section-label">
+  <span class="pill hero">§2 · BEST THREE</span><h2>Pick of the litter</h2>
+  <span class="meta">ranked for the brief: long bills, enjoyable, Tally-minimal-but-warmer.</span>
+</div>
+
+<div class="spec" style="background:var(--bg-panel)">
+  <h4 style="margin-bottom:14px">Ranking + why</h4>
+  <div style="display:grid; grid-template-columns: 60px 1.4fr 1fr 1fr 1fr; gap: 16px 18px; font-size: 13px;">
+    <div></div>
+    <div class="eyebrow">Variant</div>
+    <div class="eyebrow">Strength</div>
+    <div class="eyebrow">Cost</div>
+    <div class="eyebrow">Use it when</div>
+
+    <div style="font-family:var(--font-display); font-size:22px; font-weight:600; color: var(--accent);">1.</div>
+    <div><strong>Variant 4 — Editorial Ledger Row</strong><br><span class="note">Two hairlines · no internal borders · numeric baseline rule · ink +ADD.</span></div>
+    <div>Calmest at 30+ rows. Strongest "ledger book" metaphor. Sub-zero cost on focus changes (a warm fill, no ring, no shadow).</div>
+    <div>+8px row height vs today. Nothing else.</div>
+    <div>Default. Especially for credit / wholesale shops where a single bill runs 20–60 lines.</div>
+
+    <div style="font-family:var(--font-display); font-size:22px; font-weight:600; color: var(--accent);">2.</div>
+    <div><strong>Variant 5 — Keyboard-Optic Row</strong><br><span class="note">Ordinal pills 1–11 · progress bar · ↵ commit hint on Qty.</span></div>
+    <div>Best fit for ex-Tally power users. The progress bar gives the keyboard flow a finish line — addresses the "where am I" hesitation.</div>
+    <div>Slightly busier — ordinal pills carry weight. ~5px taller than v4.</div>
+    <div>Operators migrating from Tally Prime / older accounting tools.</div>
+
+    <div style="font-family:var(--font-display); font-size:22px; font-weight:600; color: var(--accent);">3.</div>
+    <div><strong>Variant 6 — Floating Caret Row</strong><br><span class="note">No borders · single hairline below · caret-line is the only chrome.</span></div>
+    <div>Most minimal. The page that lets the operator's data speak. Beautiful when the form sits in a generous panel.</div>
+    <div>Reads less well at narrow viewports — labels drift toward each other without dividers.</div>
+    <div>Owners / managers who want a "clean modern look" first; volume operators second.</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- ── §3 Full Sales Bill Form mockup ─────────────────────────────── -->
+<div class="section-label">
+  <span class="pill hero">§3 · FULL FORM</span><h2>The complete Sales Bill page</h2>
+  <span class="meta">built around variant 4 · totals + information panels redesigned alongside</span>
+</div>
+
+<div class="sales-form">
+  <!-- Sidebar -->
+  <aside class="sb-side">
+    <div class="logo">B</div>
+    <div class="nav-icn">⌂</div>
+    <div class="nav-icn active">📄</div>
+    <div class="nav-icn">📦</div>
+    <div class="nav-icn">👥</div>
+    <div class="nav-icn">💸</div>
+    <div class="nav-icn">📊</div>
+    <div style="flex:1"></div>
+    <div class="nav-icn">⚙</div>
+  </aside>
+
+  <!-- Main -->
+  <section class="sb-main">
+
+    <!-- Top strip -->
+    <div class="sf-top">
+      <div class="sf-doc">
+        <span class="pill">SALES INVOICE</span>
+        <h2>Bill</h2>
+        <span class="billno">#1003</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:14px; justify-content:center;">
+        <span class="sf-mode">
+          <span class="opt on">Items</span>
+          <span class="opt">Amount</span>
+        </span>
+      </div>
+      <div class="sf-meta">
+        <div class="field"><span class="lab">Date</span><span class="val">29-04-2026</span></div>
+        <div class="field"><span class="lab">Due</span><span class="val">—</span></div>
+        <div class="salesman" title="Suresh Dawale">SD</div>
+      </div>
+    </div>
+
+    <!-- Customer strip -->
+    <div class="sf-cust">
+      <div class="picker">Reliable Enterprises</div>
+      <div class="info">
+        <span>Pune</span>
+        <span class="dot">·</span>
+        <span>📞 <b>9890011223</b></span>
+        <span class="dot">·</span>
+        <span>Balance <b class="amount pos">₹1,496</b></span>
+        <span class="pill-ok">Credit allowed</span>
+      </div>
+    </div>
+
+    <!-- Entry row (Variant 4) -->
+    <div class="sf-entry-wrap">
+      <div class="entry-ledger" style="margin: 0 -28px;">
+        <div class="grid">
+          <div class="cell">
+            <div class="cell-lbl">Barcode</div>
+            <input class="cell-input mono" placeholder="Scan or type" />
+          </div>
+          <div class="cell has-arrow">
+            <div class="cell-lbl">Category</div>
+            <input class="cell-input" placeholder="Category" />
+          </div>
+          <div class="cell has-arrow">
+            <div class="cell-lbl">Product</div>
+            <input class="cell-input" placeholder="Product name" />
+          </div>
+          <div class="cell">
+            <div class="cell-lbl">Size</div>
+            <input class="cell-input" placeholder="—" />
+          </div>
+          <div class="cell">
+            <div class="cell-lbl">Art #</div>
+            <input class="cell-input mono" placeholder="—" />
+          </div>
+          <div class="cell numeric">
+            <div class="cell-lbl">Rate ₹</div>
+            <input class="cell-input" placeholder="0.00" />
+          </div>
+          <div class="cell numeric active">
+            <div class="cell-lbl">Qty</div>
+            <input class="cell-input" placeholder="0" />
+          </div>
+          <div class="cell numeric">
+            <div class="cell-lbl">Disc %</div>
+            <input class="cell-input" placeholder="0" />
+          </div>
+          <div class="cell numeric">
+            <div class="cell-lbl">GST %</div>
+            <input class="cell-input" placeholder="0" />
+          </div>
+          <div class="cell has-arrow">
+            <div class="cell-lbl">Unit</div>
+            <input class="cell-input" value="Pcs" />
+          </div>
+          <div class="cell add"><span class="add-text">ADD</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Items table -->
+    <div class="sf-items-wrap">
+      <div class="sf-items">
+        <table>
+          <thead>
+            <tr>
+              <th class="num">#</th>
+              <th>Barcode</th>
+              <th>Product</th>
+              <th>Size</th>
+              <th>Art #</th>
+              <th class="num">Qty</th>
+              <th class="num">Rate</th>
+              <th class="num">Disc%</th>
+              <th class="num">GST%</th>
+              <th class="num">Amount</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="idx">1</td>
+              <td class="bc">8901234567890</td>
+              <td>Cotton Solid Shirt</td>
+              <td>XL</td>
+              <td>A-2034</td>
+              <td class="num">2</td>
+              <td class="num">450.00</td>
+              <td class="num">5</td>
+              <td class="num">12</td>
+              <td class="num"><strong>956.40</strong></td>
+              <td class="del"><button>×</button></td>
+            </tr>
+            <tr>
+              <td class="idx">2</td>
+              <td class="bc">8901234567891</td>
+              <td>Linen Half-Sleeve Shirt</td>
+              <td>L</td>
+              <td>A-2110</td>
+              <td class="num">1</td>
+              <td class="num">680.00</td>
+              <td class="num">0</td>
+              <td class="num">12</td>
+              <td class="num"><strong>761.60</strong></td>
+              <td class="del"><button>×</button></td>
+            </tr>
+            <tr>
+              <td class="idx">3</td>
+              <td class="bc">8901234567892</td>
+              <td>Denim Trouser Slim Fit</td>
+              <td>32</td>
+              <td>A-3041</td>
+              <td class="num">1</td>
+              <td class="num">1,250.00</td>
+              <td class="num">10</td>
+              <td class="num">12</td>
+              <td class="num"><strong>1,260.00</strong></td>
+              <td class="del"><button>×</button></td>
+            </tr>
+            <tr>
+              <td class="idx">4</td>
+              <td class="bc">8901234567893</td>
+              <td>Crew-neck T-Shirt</td>
+              <td>M</td>
+              <td>A-1205</td>
+              <td class="num">3</td>
+              <td class="num">320.00</td>
+              <td class="num">0</td>
+              <td class="num">5</td>
+              <td class="num"><strong>1,008.00</strong></td>
+              <td class="del"><button>×</button></td>
+            </tr>
+            <tr>
+              <td class="idx">5</td>
+              <td class="bc">8901234567894</td>
+              <td>Wool Pullover</td>
+              <td>L</td>
+              <td>A-4011</td>
+              <td class="num">1</td>
+              <td class="num">2,400.00</td>
+              <td class="num">5</td>
+              <td class="num">12</td>
+              <td class="num"><strong>2,553.60</strong></td>
+              <td class="del"><button>×</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Footer: Compose + MathPay -->
+    <div class="sf-footer">
+
+      <!-- Compose pane -->
+      <div class="compose">
+        <div class="compose-head">
+          <h4>Compose</h4>
+          <div class="stats">
+            <span class="stat">Items <b>5</b></span>
+            <span class="stat">Qty <b>8</b></span>
+            <span class="stat">Boxes <b>0</b></span>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field-stack">
+            <span class="lbl">Sale type</span>
+            <span class="ctl">Retail</span>
+          </div>
+          <div class="field-stack">
+            <span class="lbl">Salesman</span>
+            <span class="ctl">Suresh Dawale</span>
+          </div>
+        </div>
+        <div class="field-stack">
+          <span class="lbl">Notes</span>
+          <textarea placeholder="Delivery instructions, reference, internal note…">Pickup tomorrow 11:00 AM, gate B.</textarea>
+        </div>
+      </div>
+
+      <!-- Math + Pay pane -->
+      <div class="mathpay">
+        <div>
+          <div class="math-head">
+            <h4>Bill math</h4>
+            <span class="meta">5 items · 8 pcs</span>
+          </div>
+          <div class="math-list">
+            <div class="ln"><div class="lab">Sub-total</div><div class="v">6,650.00</div></div>
+            <div class="ln"><div class="lab">Discount <span class="pct">avg 4.0%</span></div><div class="v minus">−268.00</div></div>
+            <div class="ln"><div class="lab">CGST + SGST <span class="pct">12% / 5%</span></div><div class="v">+649.10</div></div>
+            <div class="ln"><div class="lab">Other charges</div><div class="v">0.00</div></div>
+            <div class="ln"><div class="lab">Freight</div><div class="v">0.00</div></div>
+            <div class="ln"><div class="lab">Round-off</div><div class="v minus">−0.50</div></div>
+            <div class="rule"></div>
+            <div class="grand">
+              <div class="lab">TOTAL</div>
+              <div class="v">₹7,030.60</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="vrule"></div>
+
+        <div>
+          <div class="pay-head">
+            <h4>Pay & settle</h4>
+            <span class="meta"><span class="kbd">F1</span> save & receive</span>
+          </div>
+          <div class="pay-grid">
+            <div class="pay-row">
+              <span class="lab">Mode</span>
+              <span class="seg">
+                <span class="opt on">Cash</span>
+                <span class="opt">Bank</span>
+                <span class="opt">UPI</span>
+              </span>
+            </div>
+            <div class="pay-row">
+              <span class="lab">Cash received</span>
+              <span class="input input-active">7,100.00</span>
+            </div>
+            <div class="pay-row">
+              <span class="lab">Return</span>
+              <span class="display">₹69.40</span>
+            </div>
+            <div class="pay-row">
+              <span class="lab">Balance after</span>
+              <span class="display" style="color: var(--ok)">₹0.00</span>
+            </div>
+            <div class="pay-pip">Paid in full</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Action bar -->
+    <div class="sf-actions">
+      <div class="grp">
+        <div class="btn"><span class="kk">Esc</span> Back</div>
+        <div class="btn warn"><span class="kk">F5</span> Reset</div>
+        <div class="btn"><span class="kk">F4</span> Hold</div>
+        <div class="btn draft">📁 Drafts <strong style="margin-left:4px">1</strong></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="btn credit"><span class="kk">F8</span> Save credit</div>
+      <div class="btn primary"><span class="kk">F1</span> Save & Receive</div>
+    </div>
+
+  </section>
+</div>
+
+<!-- Implementation notes -->
+<div class="spec" style="margin-top: 28px; background: var(--bg-panel)">
+  <h4>What changed in the form (vs today's production page)</h4>
+  <ul>
+    <li><strong>Top strip is now a 3-band grid</strong> (doc · mode · meta) instead of a single flex row. The mode toggle (<em>Items / Amount</em>) becomes a centred segmented pill — the only tap target the operator needs to flip; everything else either reads or is editable in place.</li>
+    <li><strong>Customer strip has the info inline.</strong> The dropdown stays at 320px, the entire info row (City · Phone · Balance · Credit pill) flows beside it on the same row. Replaces today's stacked "info strip" beneath the dropdown.</li>
+    <li><strong>Three footer cards collapse into two panes</strong>:
+      <ul>
+        <li><em>Compose</em> — sale type + salesman + notes — a calm composition surface with item/qty/box stats as small chips in the panel header.</li>
+        <li><em>Math + Pay</em> — bill-math breakdown (sub-total, discount %, GST split, freight, round-off) on the left; payment mode + cash received + return + paid-in-full pill on the right; a 1px vertical rule between. The grand total renders in display-serif at 26px — a hero number.</li>
+      </ul>
+    </li>
+    <li><strong>Items table is striped + sticky-header.</strong> Every other row picks up <code>--bg-cell</code> so a 30-line bill stays scannable. The header row sticks to the top of the scroll container so the operator sees Qty / Rate / GST% labels even at row 28.</li>
+    <li><strong>Action bar is keyboard-first.</strong> Each action carries its <code>kbd</code> hint inline, the destructive (<em>Reset</em>) is muted-warn, the credit-only path is muted-warn-soft, and the primary <em>Save &amp; Receive</em> is the only saturated button on the page (indigo). Visual hierarchy = behavioural hierarchy.</li>
+    <li><strong>Sidebar is icon-only at 72px.</strong> The form earns the page width; chrome doesn't.</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- ── §4 Implementation notes ─────────────────────────────────────── -->
+<div class="section-label">
+  <span class="pill alt">§4 · WIRING</span><h2>How to land this in code</h2>
+  <span class="meta">touchpoints · CSS shape · React-state cost</span>
+</div>
+
+<div class="spec">
+  <h4>Files</h4>
+  <ul>
+    <li><code>src/pages/sales/SalesBillForm.jsx</code> — entry row (replace the <code>sbf-top-row-2</code> block with the cell grid; each <code>&lt;Form.Item noStyle&gt;&lt;Input/&gt;&lt;/Form.Item&gt;</code> becomes a <code>&lt;div className="cell"&gt;&lt;div className="cell-lbl"&gt;&lt;/div&gt;{existing AntD control}&lt;/div&gt;</code>) + a small footer rewrite (the 3 cards become 2 panes — Compose + MathPay).</li>
+    <li><code>src/pages/sales/sales-bill-form.css</code> — add the <code>.entry-ledger</code> styles + the <code>.compose</code> / <code>.mathpay</code> footer styles. The existing <code>.sbf-page .ant-input</code> / <code>.ant-select-selector</code> overrides stay; we add a scoped <em>borderless</em> override under <code>.entry-ledger .cell .ant-input</code> so AntD's own border drops out inside cells.</li>
+    <li><code>src/pages/purchase/PurchaseBillForm.jsx</code> + <code>purchase-bill-form.css</code> — mirror the same change so the two flows stay symmetric.</li>
+  </ul>
+
+  <h4>CSS strategy</h4>
+  <ul>
+    <li><strong>Active state via <code>:focus-within</code>.</strong> No React state; the cell that contains the focused input <em>becomes</em> the active cell. Caret moves → active state moves. Zero re-renders.</li>
+    <li><strong>AntD borderless inside cells.</strong>
+      <code>.entry-ledger .cell .ant-input,
+            .entry-ledger .cell .ant-select-selector
+            { border: 0 !important; background: transparent !important;
+              box-shadow: none !important; padding: 0 !important; }</code></li>
+    <li><strong>Numeric mono right-align.</strong>
+      <code>.entry-ledger .cell.numeric .ant-input
+            { font-family: var(--font-mono); text-align: right; }</code>
+      Same on the items table cells (already half-applied — <code>.report-editorial .ant-table-tbody</code> uses <code>tabular-nums</code>; we extend to the bill form's table).</li>
+    <li><strong>Sticky table header.</strong> <code>position: sticky; top: 0;</code> on <code>thead th</code> with the table inside an <code>overflow-y: auto</code> wrapper. Already the pattern in the new Day Book / Sales Report — keeps the codebase consistent.</li>
+  </ul>
+
+  <h4>What we DON'T change</h4>
+  <ul>
+    <li>The Form.Item bindings — value flow stays exactly as today; only chrome moves.</li>
+    <li>Keyboard semantics. <span class="kbd">Tab</span> walks left-to-right, <span class="kbd">Enter</span> on Qty fires +ADD, <span class="kbd">F1</span> saves &amp; receives.</li>
+    <li>The barcode-scan flow (auto-fills Product/Rate/Size).</li>
+    <li>The hold/draft flow.</li>
+    <li>Permissions, validation rules, the customer-required logic added in the cash-sales feature.</li>
+  </ul>
+
+  <h4>Estimated diff</h4>
+  <p style="margin: 6px 0 0; color: var(--ink-2)">
+    Roughly 180 lines added (SalesBillForm + PurchaseBillForm) and 200 lines of CSS,
+    mostly mechanical — markup re-shaping, no behaviour change. Single commit
+    feasible. Verifiable by opening any in-progress bill: the layout updates,
+    the values stay where they were.
+  </p>
+</div>
+
+</body>
+</html>

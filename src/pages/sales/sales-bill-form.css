@@ -333,12 +333,18 @@
 
 .sbf-top-row {
   display: grid;
+  /* Tracks sized for what they actually carry, not the page width.
+   * Col 1 — Customer Select (shows just the picked party's name).
+   * Col 2 — Walk-in name (only visible when Cash is the selection;
+   *         empty for credit sales).
+   * Col 3 — reserved for future fields; stays empty today. */
   grid-template-columns:
-    minmax(260px, 480px)
-    minmax(160px, 200px)
-    minmax(160px, 200px);
+    minmax(200px, 260px)
+    minmax(200px, 260px)
+    minmax(120px, 160px);
   gap: 14px;
   margin-bottom: 12px;
+  justify-content: start;
 }
 
 .sbf-top-row-2 {
@@ -393,6 +399,293 @@
   color: var(--danger);
   background: var(--danger-bg);
   border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+/* ── (1.5) ENTRY ROW — Editorial Ledger ──────────────────────────────
+ *
+ * One bordered strip — 1.5px ink hairline on top, 1px rule on bottom,
+ * no internal rectangles. Cells are separated by dotted hairlines so
+ * column boundaries stay legible without 11 individual borders piling
+ * up. AntD controls inside cells lose their own border + bg so the
+ * cell IS the visible boundary. Active cell warms to bg-cell with a
+ * 2px accent under-rule — calm enough for 30+ line items, sharp
+ * enough to track Tab focus.
+ *
+ * The grid is 11 tracks: matches the source-of-truth field order
+ * (Barcode · Category · Product · Size · Art # · Qty · Rate · Disc% ·
+ * GST% · Unit · +ADD). Track widths preserve the existing
+ * .sbf-top-row-2 minmax sizing so a >38px legacy POS terminal that
+ * fits the old row also fits this one.
+ * ──────────────────────────────────────────────────────────────── */
+.sbf-entry-ledger {
+  margin: 0 0 4px;
+  /* Top hairline lives on each cell (see .sbf-cell { border-top: ... }
+   * below) instead of on this wrapper. Reason: when the wrapper carries
+   * the top border, it spans the wrapper's full width — which can run
+   * past the leftmost cell's start (and past the rightmost cell's end)
+   * if the grid template doesn't perfectly match the wrapper width.
+   * Putting the border on each cell guarantees the ink line starts
+   * exactly where the BARCODE cell begins and ends exactly where +ADD
+   * does, with no overshoot. */
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  position: relative;
+}
+.sbf-entry-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(130px, 170px)   /* Barcode — 13-digit mono numbers (e.g.
+                              8901234567890) fit in ~130px; we don't need
+                              the extra 30px taken from the old 200px max. */
+    minmax(180px, 250px)   /* Category — picks up the width donated by the
+                              barcode cell. Names like "Men's Casual Wear"
+                              / "Women's Ethnic Wear" / "Kids — Winter
+                              Collection" now sit on a single line at any
+                              desktop viewport without ellipsis. */
+    minmax(220px, 380px)   /* Product  */
+    minmax(72px,  90px)    /* Size     */
+    minmax(72px,  90px)    /* Art #    */
+    minmax(72px,  90px)    /* Qty      */
+    minmax(94px,  110px)   /* Rate     */
+    minmax(72px,  90px)    /* Disc %   */
+    minmax(72px,  90px)    /* GST %    */
+    minmax(80px,  110px)   /* Unit     */
+    minmax(96px, 110px);   /* +ADD     */
+}
+.sbf-cell {
+  display: flex;
+  flex-direction: column;
+  /* Compact vertical rhythm — 4px top, 4px bottom, plus a 20px line of
+   * label + a 22px line of input = ~38px total cell height. Roughly
+   * the same height as the old bordered row, but now carrying the
+   * permanent label as a dividend. */
+  padding: 4px 12px 4px;
+  /* Top hairline lives here (per-cell, not on the wrapper) so the line
+   * starts exactly at the first cell's left edge and ends exactly at
+   * the +ADD cell's right edge — the cells together compose a single
+   * continuous line with no overshoot at either end. */
+  border-top: 1.5px solid var(--fg-primary);
+  background: transparent;
+  position: relative;
+  min-width: 0;                                  /* let inputs shrink */
+  transition: background .14s;
+  justify-content: center;
+}
+/* Close the top-left corner — without this the left side reads as
+ * "open" against the page background; a short vertical stroke meeting
+ * the top hairline gives the row a proper L-shaped frame at its
+ * starting edge. Mirrored on the +ADD cell's right side below for
+ * symmetry — both ends of the row are now visibly anchored. */
+.sbf-entry-grid > .sbf-cell:first-child { border-left: 1.5px solid var(--fg-primary); }
+.sbf-entry-grid > .sbf-cell.add { border-right: 1.5px solid var(--fg-primary); }
+/* Dotted column separator between adjacent cells (cheaper than per-cell
+ * borders + auto-de-duplicates at the row edges). */
+.sbf-cell + .sbf-cell { border-left: 1px dotted var(--border-subtle); }
+/* Hover warms the cell — gives a mouse-led operator a clickable
+ * affordance without a border change.  */
+.sbf-cell:hover { background: var(--bg-muted); }
+/* Active cell — driven by :focus-within so any AntD control gaining
+ * focus bubbles the active state up to the cell. No React state, no
+ * extra renders. */
+.sbf-cell:focus-within {
+  background: var(--bg-muted);
+}
+.sbf-cell:focus-within::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  z-index: 1;
+}
+.sbf-cell-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 700;
+  color: var(--fg-tertiary);
+  margin-bottom: 0;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── AntD control overrides ────────────────────────────────────────
+ *
+ * Why the long selector lists — the older `.sbf-page .ant-input` /
+ * `.sbf-page .ant-select-selector` rules at the top of this file
+ * paint EVERY AntD control on the bill page with a 1px border, a
+ * panel background, and a soft shadow. Inside our cells that
+ * produces the "box inside the box" the operator just flagged.
+ *
+ * Single-class `.sbf-entry-ledger .ant-input` ties on specificity with
+ * `.sbf-page .ant-input` (both 0,2,0) so the cascade is order-
+ * dependent and fragile. Adding `.sbf-cell` gives us 0,3,0 — beats
+ * .sbf-page deterministically without resorting to id selectors or
+ * inline style.
+ *
+ * We also hit the OUTER wrappers (.ant-input-number,
+ * .ant-input-affix-wrapper, the Select root) — not just the inner
+ * `.ant-input` — because each wrapper carries its own AntD chrome
+ * (border on .ant-input-number, padding on .ant-input-affix-wrapper).
+ * If we strip only the inner element the outer's border still shows
+ * = box-in-box.
+ *
+ * `!important` because the older `.sbf-page` rules use it; same-
+ * specificity + !important lets later-source-order win. */
+.sbf-entry-ledger .sbf-cell .ant-input,
+.sbf-entry-ledger .sbf-cell .ant-input-number,
+.sbf-entry-ledger .sbf-cell .ant-input-number-input,
+.sbf-entry-ledger .sbf-cell .ant-input-affix-wrapper,
+.sbf-entry-ledger .sbf-cell .ant-select,
+.sbf-entry-ledger .sbf-cell .ant-select .ant-select-selector,
+.sbf-entry-ledger .sbf-cell .ant-picker {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  line-height: 22px !important;
+  font-size: 13px !important;
+  color: var(--fg-primary) !important;
+}
+.sbf-entry-ledger .sbf-cell .ant-input-number,
+.sbf-entry-ledger .sbf-cell .ant-input-number-input { width: 100% !important; }
+.sbf-entry-ledger .sbf-cell .ant-input-number-handler-wrap { display: none !important; }
+.sbf-entry-ledger .sbf-cell .ant-select-selection-search-input,
+.sbf-entry-ledger .sbf-cell .ant-select-selection-item,
+.sbf-entry-ledger .sbf-cell .ant-select-selection-placeholder {
+  height: 22px !important;
+  line-height: 22px !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+}
+/* Hide AntD Select's chevron — we render our own via .has-arrow::after,
+ * which sits in the right gutter we already reserve for it. */
+.sbf-entry-ledger .sbf-cell .ant-select-arrow,
+.sbf-entry-ledger .sbf-cell .ant-select-clear { display: none !important; }
+.sbf-entry-ledger .sbf-cell .ant-input::placeholder,
+.sbf-entry-ledger .sbf-cell .ant-input-number-input::placeholder,
+.sbf-entry-ledger .sbf-cell .ant-select-selection-placeholder {
+  color: var(--fg-tertiary) !important;
+  opacity: .8;
+}
+/* Focused-input default browser ring — kill it so the only "you are
+ * here" cue is our cell-level under-rule. */
+.sbf-entry-ledger .sbf-cell .ant-input:focus,
+.sbf-entry-ledger .sbf-cell .ant-input-focused,
+.sbf-entry-ledger .sbf-cell .ant-input-number-focused,
+.sbf-entry-ledger .sbf-cell .ant-select-focused .ant-select-selector,
+.sbf-entry-ledger .sbf-cell .ant-picker-focused {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+/* Hover ring on the AntD control itself — also strip; hover lives on
+ * the cell, not on the inner control. */
+.sbf-entry-ledger .sbf-cell .ant-input:hover,
+.sbf-entry-ledger .sbf-cell .ant-input-number:hover,
+.sbf-entry-ledger .sbf-cell .ant-picker:hover,
+.sbf-entry-ledger .sbf-cell .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+/* Numeric cells — right-align + tabular monospace so values column-align
+ * with the items table beneath. */
+.sbf-entry-ledger .sbf-cell.numeric .ant-input,
+.sbf-entry-ledger .sbf-cell.numeric .ant-input-number-input {
+  text-align: right !important;
+  font-family: 'Geist Mono', ui-monospace, 'SF Mono', monospace !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: -0.01em !important;
+}
+/* Mono barcode for scan readability. */
+.sbf-entry-grid > .sbf-cell:first-child .ant-input {
+  font-family: 'Geist Mono', ui-monospace, 'SF Mono', monospace !important;
+  font-size: 12.5px !important;
+  letter-spacing: -0.005em !important;
+}
+/* Dropdown chevron rendered as a CSS triangle in the right gutter of
+ * cells that have one. Position is identical to the AntD chevron the
+ * Select would have shown, so the row's optical balance stays. */
+.sbf-cell.has-arrow { padding-right: 22px; }
+.sbf-cell.has-arrow::after {
+  content: '';
+  position: absolute;
+  right: 12px; top: 50%;
+  width: 6px; height: 6px;
+  border-right: 1.5px solid var(--fg-tertiary);
+  border-bottom: 1.5px solid var(--fg-tertiary);
+  transform: translateY(-30%) rotate(45deg);
+  pointer-events: none;
+}
+
+/* +ADD terminator — an inkblock that closes the row. INK (not accent)
+ * because the accent is reserved for "active cell"; we never want the
+ * eye to be drawn to the terminator over the field the operator is
+ * actually typing in. */
+.sbf-cell.add {
+  background: var(--fg-primary);
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background .14s;
+}
+.sbf-cell.add + .sbf-cell { border-left: 0; }
+.sbf-cell.add:hover { background: #2C2821; }   /* slightly warmer ink */
+.sbf-cell.add:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.sbf-cell.add:focus-within::before { display: none; }
+.sbf-cell-add-text {
+  font-family: 'Source Sans 3', 'Inter', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  color: var(--bg-panel);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sbf-cell-add-text::before {
+  content: '+';
+  font-family: 'Source Sans 3', 'Inter', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Stock chip floats on the right edge below the row — out of the grid
+ * so it never disturbs the 11-track template. */
+.sbf-entry-ledger .sbf-stock-chip {
+  position: absolute;
+  right: 12px;
+  bottom: -28px;
+  margin: 0;
+  z-index: 2;
+}
+
+/* Narrow-viewport: 1200px and below already wraps top-row-2 to a
+ * single column via the existing @media block; we mirror that for the
+ * ledger so a 1024px tablet POS doesn't get a horizontally-clipped
+ * row. The dotted left-border between cells loses meaning when cells
+ * stack vertically, so we drop it and add a top divider instead. */
+@media (max-width: 1200px) {
+  .sbf-entry-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .sbf-entry-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sbf-cell + .sbf-cell { border-left: 0; border-top: 1px dotted var(--border-subtle); }
+  .sbf-cell.add { grid-column: 1 / -1; padding: 12px 0; }
 }
 
 /* ── (2) MIDDLE — edge to edge items card ───────────────────────────── */

@@ -222,11 +222,17 @@ export default function StockMovement() {
     });
   }, [groupedTx, txType, txSearch]);
 
-  /* Stats for the header */
+  /* Stats for the header — Opening Stock is its own bucket, NOT a "Total In"
+   * event, so the four numbers add up cleanly:
+   *   Opening + Total In − Total Out = Closing
+   */
   const stats = useMemo(() => {
     let totIn = 0, totOut = 0, openQty = 0;
     for (const g of groupedTx) {
-      if (g.transaction_type === 'Opening Stock') openQty += parseFloat(g.quantity_in || 0);
+      if (g.transaction_type === 'Opening Stock') {
+        openQty += parseFloat(g.quantity_in || 0);
+        continue;
+      }
       totIn  += parseFloat(g.quantity_in  || 0);
       totOut += parseFloat(g.quantity_out || 0);
     }
@@ -351,15 +357,15 @@ export default function StockMovement() {
                 </div>
                 <div className="sm-stat">
                   <div className="k">Opening Stock</div>
-                  <div className="v">{fmtQty(stats.openQty)}</div>
+                  <div className="v">{fmtQty(stats.openQty)} {selected.unit_of_measurement || 'pcs'}</div>
                 </div>
                 <div className="sm-stat">
                   <div className="k">Total In</div>
-                  <div className="v ok">+{fmtQty(stats.totIn)}</div>
+                  <div className="v ok">+{fmtQty(stats.totIn)} {selected.unit_of_measurement || 'pcs'}</div>
                 </div>
                 <div className="sm-stat">
                   <div className="k">Total Out</div>
-                  <div className="v out">−{fmtQty(stats.totOut)}</div>
+                  <div className="v out">−{fmtQty(stats.totOut)} {selected.unit_of_measurement || 'pcs'}</div>
                 </div>
                 <div className="sm-stat">
                   <div className="k">Purchase Rate</div>
@@ -466,7 +472,7 @@ export default function StockMovement() {
                             <span className="sm-party">
                               {tx.party_name || tx.remarks || '—'}
                               {tx._count > 1 && <span className="r">{tx._count} items bundled</span>}
-                              {tx.remarks && tx.party_name && <span className="r">{tx.remarks}</span>}
+                              {tx.remarks && tx.party_name && tx.remarks !== tx.party_name && <span className="r">{tx.remarks}</span>}
                             </span>
                           </div>
                           <div className="sm-c-qty">

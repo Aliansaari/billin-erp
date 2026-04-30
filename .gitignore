@@ -13,3 +13,4 @@ backup_*.json
 # Phase 4-6 import worker artifacts
 uploads/
 Wire_Imports_Prompt.md
+.DS_Store
