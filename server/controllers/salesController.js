@@ -95,7 +95,47 @@ exports.getAll = async (req, res) => {
       distinct: true,
     });
 
-    res.json({ total: count, page, limit, data: rows });
+    // Summary aggregates over the ENTIRE filtered set — used by the
+    // KPI cards and the bottom totals strip. Without this, KPIs would
+    // sum only the chunks the user has scrolled past, drifting from
+    // what the page count claims. Only `is_cancelled = false` bills
+    // contribute to financial totals (cancelled bills are kept for
+    // audit trail but shouldn't inflate "total sales").
+    const totals = await SalesBill.findAll({
+      where,
+      attributes: [
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('total_amount')),    0), 'total_amount'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('paid_amount')),     0), 'total_paid'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('balance_amount')),  0), 'total_balance'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('discount_amount')), 0), 'total_discount'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('cgst_amount')),     0), 'total_cgst'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('sgst_amount')),     0), 'total_sgst'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('igst_amount')),     0), 'total_igst'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('return_amount')),   0), 'total_return'],
+        [sequelize.fn('COUNT', sequelize.col('sales_bill_id')), 'count'],
+        [sequelize.fn('COUNT', sequelize.literal('CASE WHEN balance_amount > 0.01 THEN 1 END')), 'open_count'],
+      ],
+      // Same join (with subQuery:false + distinct from the count call
+      // above) so $customer.party_name$ in the search WHERE clause
+      // resolves correctly.
+      include: [{ model: Party, as: 'customer', attributes: [] }],
+      raw: true,
+      subQuery: false,
+    });
+    const t = totals[0] || {};
+    const total_gst = +(parseFloat(t.total_cgst || 0) + parseFloat(t.total_sgst || 0) + parseFloat(t.total_igst || 0)).toFixed(2);
+    const summary = {
+      total_amount:   +parseFloat(t.total_amount   || 0).toFixed(2),
+      total_paid:     +parseFloat(t.total_paid     || 0).toFixed(2),
+      total_balance:  +parseFloat(t.total_balance  || 0).toFixed(2),
+      total_discount: +parseFloat(t.total_discount || 0).toFixed(2),
+      total_gst,
+      total_return:   +parseFloat(t.total_return   || 0).toFixed(2),
+      count:          parseInt(t.count || 0, 10),
+      open_count:     parseInt(t.open_count || 0, 10),
+    };
+
+    res.json({ total: count, page, limit, data: rows, summary });
   } catch (error) {
     console.error('Get sales error:', error);
     res.status(500).json({ error: 'Server error' });

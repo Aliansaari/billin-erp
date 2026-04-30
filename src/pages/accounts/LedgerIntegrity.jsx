@@ -6,8 +6,8 @@
 //   • Drill-in: list of unposted source rows for manual investigation.
 
 import React, { useEffect, useState } from 'react';
-import { Card, Button, Space, Typography, Table, Tag, message, Alert, Row, Col, Statistic, Collapse } from 'antd';
-import { ReloadOutlined, ThunderboltOutlined, EyeOutlined } from '@ant-design/icons';
+import { Card, Button, Space, Typography, Table, Tag, message, Alert, Row, Col, Statistic, Collapse, Modal } from 'antd';
+import { ReloadOutlined, ThunderboltOutlined, EyeOutlined, SyncOutlined } from '@ant-design/icons';
 import { ledgerAPI } from '../../api';
 
 const { Title, Text } = Typography;
@@ -28,6 +28,7 @@ export default function LedgerIntegrity() {
   const [data, setData]         = useState(null);
   const [unposted, setUnposted] = useState(null);
   const [loading, setLoading]   = useState(false);
+  const [reconciling, setReconciling] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -40,6 +41,58 @@ export default function LedgerIntegrity() {
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
+
+  // Run the backfill on the server, then refresh the integrity report so
+  // the per-source-type counts reflect the new state. The backend wraps
+  // each voucher in its own transaction, so partial success is normal —
+  // surface failures in a modal for triage rather than a toast (errors
+  // can run into the dozens on legacy imports with bad party links).
+  const runReconcile = async () => {
+    setReconciling(true);
+    try {
+      const r = await ledgerAPI.reconcile();
+      const summary = r.data?.summary || {};
+      const errors  = r.data?.errors  || [];
+      const totals = Object.values(summary).reduce(
+        (acc, s) => ({
+          found:  acc.found  + (s.found  || 0),
+          posted: acc.posted + (s.posted || 0),
+          failed: acc.failed + (s.failed || 0),
+        }),
+        { found: 0, posted: 0, failed: 0 },
+      );
+
+      if (totals.found === 0) {
+        message.success('Books are already reconciled — nothing to post.');
+      } else if (totals.failed === 0) {
+        message.success(`Reconciled ${totals.posted} voucher${totals.posted === 1 ? '' : 's'}.`);
+      } else {
+        Modal.warning({
+          title: 'Reconciliation finished with errors',
+          width: 720,
+          content: (
+            <div>
+              <p style={{ marginTop: 0 }}>
+                Posted <b>{totals.posted}</b> of <b>{totals.found}</b> unposted vouchers.{' '}
+                <b>{totals.failed}</b> failed (showing first {Math.min(errors.length, 100)}):
+              </p>
+              <pre style={{
+                maxHeight: 320, overflow: 'auto', background: '#fafafa',
+                padding: 12, fontSize: 12, fontFamily: 'Geist Mono, monospace',
+                border: '1px solid #f0f0f0', borderRadius: 4,
+              }}>
+                {errors.map((e) => `${e.source_type}#${e.source_id}: ${e.reason}`).join('\n')}
+              </pre>
+            </div>
+          ),
+        });
+      }
+      await load();
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Reconciliation failed.');
+    }
+    setReconciling(false);
+  };
 
   const loadUnposted = async () => {
     try {
@@ -78,7 +131,18 @@ export default function LedgerIntegrity() {
         <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
           <Title level={4} style={{ margin: 0 }}>Ledger Integrity</Title>
           <Space>
-            <Button icon={<ReloadOutlined />} loading={loading} onClick={load}>Run Reconciliation</Button>
+            <Button
+              icon={<SyncOutlined />}
+              type="primary"
+              loading={reconciling}
+              onClick={runReconcile}
+              disabled={loading}
+            >
+              Run Reconciliation
+            </Button>
+            <Button icon={<ReloadOutlined />} loading={loading} onClick={load} disabled={reconciling}>
+              Refresh
+            </Button>
           </Space>
         </Space>
 

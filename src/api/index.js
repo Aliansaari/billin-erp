@@ -332,6 +332,7 @@ export const ledgerAPI = {
   listAccounts: (params = {}) => api.get('/ledger/accounts', { params }),
   integrity:    () => api.get('/ledger/integrity'),
   unposted:     () => api.get('/ledger/unposted'),
+  reconcile:    () => api.post('/ledger/reconcile'),
 };
 
 export const importsAPI = {

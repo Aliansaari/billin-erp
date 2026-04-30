@@ -304,6 +304,10 @@ exports.cleanupData = async (req, res) => {
       await del('DELETE FROM sales_return_bills');
       await del('DELETE FROM sales_bill_items');
       await del('DELETE FROM sales_bills');
+      // Held sales drafts belong to the sales scope — wiping sales must
+      // drop them too, otherwise recalling a draft after a wipe would
+      // resurrect product/party references that no longer exist.
+      await del('DELETE FROM sales_bill_drafts');
       // Also drop payment splits / receipts tied to sales — leaving them would
       // reference bills that no longer exist, breaking ledger reports.
       await del("DELETE FROM payment_splits WHERE transaction_id IN (SELECT transaction_id FROM payments_receipts WHERE transaction_type = 'Receipt')");
@@ -336,6 +340,9 @@ exports.cleanupData = async (req, res) => {
       await del('DELETE FROM purchase_return_bills');
       await del('DELETE FROM purchase_bill_items');
       await del('DELETE FROM purchase_bills');
+      // Held purchase drafts belong to the purchases scope — see sales
+      // scope above for rationale (recalling stale drafts after a wipe).
+      await del('DELETE FROM purchase_bill_drafts');
       await del("DELETE FROM payment_splits WHERE transaction_id IN (SELECT transaction_id FROM payments_receipts WHERE transaction_type = 'Payment')");
       await del("DELETE FROM payments_receipts WHERE transaction_type = 'Payment'");
       await del(`
@@ -476,6 +483,11 @@ exports.cleanupData = async (req, res) => {
       await del('DELETE FROM purchase_return_bills');
       await del('DELETE FROM purchase_bill_items');
       await del('DELETE FROM purchase_bills');
+      // Drafts embed product_ids in their JSONB payload — keeping them
+      // around after products are dropped would let a recall pull invalid
+      // product references back into a new bill.
+      await del('DELETE FROM sales_bill_drafts');
+      await del('DELETE FROM purchase_bill_drafts');
       await del('DELETE FROM products');
     }
 
@@ -487,6 +499,12 @@ exports.cleanupData = async (req, res) => {
       await del('DELETE FROM payments_receipts');
       await del('DELETE FROM ledger_entries');
       await del('DELETE FROM journal_vouchers');
+      // Drafts reference customer_id/supplier_id (FK now SET NULL) and
+      // embed party data in their payload. A full parties wipe means
+      // every held draft is now disconnected from the customer/supplier
+      // it was held for — drop them rather than leave walk-in orphans.
+      await del('DELETE FROM sales_bill_drafts');
+      await del('DELETE FROM purchase_bill_drafts');
       // Null the FK first so dropping ledger_accounts doesn't leave dangling
       // references on parties rows that survive (none should — parties are
       // deleted below — but defensive against future schema changes).

@@ -1,12 +1,12 @@
-import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Table, Tag, Typography, message, DatePicker, Select, Tooltip,
-  Modal, Descriptions, Divider, Dropdown,
+  Tag, Typography, message, DatePicker, Select, Tooltip,
+  Modal, Descriptions, Divider, Dropdown, Table,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, StopOutlined,
   PrinterOutlined, EditOutlined, MoreOutlined,
-  DollarOutlined, AppstoreOutlined, FilePdfOutlined, WhatsAppOutlined,
+  DollarOutlined, SettingOutlined, FilePdfOutlined, WhatsAppOutlined,
   PauseCircleOutlined, DeleteOutlined, RollbackOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -14,19 +14,32 @@ import dayjs from 'dayjs';
 import { salesAPI, salesDraftAPI, settingsAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
+import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import VirtualReportTable from '../../components/VirtualReportTable';
 import '../../styles/bill-list.css';
 
-// Optional columns the user can toggle via the Columns picker. Keys match
-// the state shape persisted to localStorage.
+// Optional columns the user can toggle via the Customize popover. Keys
+// match the state shape persisted to localStorage.
 const SALES_OPTIONAL_COLS = [
+  { key: 'time',     label: 'Time' },
   { key: 'items',    label: 'Items (count · pcs)' },
   { key: 'gst',      label: 'GST amount' },
   { key: 'discount', label: 'Discount' },
   { key: 'return',   label: 'Return amount' },
 ];
-const COLS_STORAGE_KEY = 'salesList_cols_v1';
-const BILLS_PAGE_SIZE = 100;
-const DEFAULT_COLS = { items: true, gst: false, discount: false, return: false };
+// Toggleable page sections (not data columns) — currently just the
+// sticky bottom "Total (N bills)" strip. Default on. Stored alongside
+// the column prefs so the Customize popover can show both groups.
+const SALES_SECTIONS = [
+  { key: 'totalRow', label: 'Total row (sticky bottom)' },
+];
+// v3 introduces the `totalRow` section toggle. Existing users on v2
+// get the new key with its default value (true) merged in.
+const COLS_STORAGE_KEY = 'salesList_cols_v3';
+const DEFAULT_COLS = {
+  time: true, items: true, gst: false, discount: false, return: false,
+  totalRow: true,
+};
 
 const { Text } = Typography;
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -35,90 +48,6 @@ const fmtShort = (v) => {
   if (n === 0) return '₹ 0';
   return `₹ ${Math.round(n).toLocaleString('en-IN')}`;
 };
-
-// ── Invoice printer (iframe) ───────────────────────────────────────────────────
-function printBill(bill, companyName) {
-  const items = bill.items || [];
-  const rows = items.map((it, i) => `
-    <tr>
-      <td>${i + 1}</td>
-      <td>${it.product_name || ''}</td>
-      <td>${it.barcode || ''}</td>
-      <td>${it.size || ''}</td>
-      <td style="text-align:right">${parseFloat(it.quantity || 0)}</td>
-      <td style="text-align:right">₹${parseFloat(it.sale_rate || 0).toFixed(2)}</td>
-      <td style="text-align:right">₹${(parseFloat(it.quantity || 0) * parseFloat(it.sale_rate || 0)).toFixed(2)}</td>
-    </tr>`).join('');
-
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sales Bill</title>
-<style>
-  @page{margin:12mm}
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:Arial,sans-serif;font-size:12px;color:#111}
-  h2{font-size:18px;text-align:center;margin-bottom:2px}
-  .title{text-align:center;font-size:14px;font-weight:700;letter-spacing:1px;
-    border-top:2px solid #000;border-bottom:2px solid #000;padding:4px 0;margin:8px 0}
-  .meta{display:flex;justify-content:space-between;margin-bottom:10px}
-  .meta div{line-height:1.8}
-  table{width:100%;border-collapse:collapse;margin-top:8px}
-  th{background:#f3f4f6;padding:5px 6px;border:1px solid #ddd;font-size:11px;text-align:left}
-  td{padding:4px 6px;border:1px solid #ddd;font-size:11px}
-  .totals{margin-top:12px;display:flex;justify-content:flex-end}
-  .totals table{width:220px}
-  .totals td{border:none;padding:2px 6px}
-  .totals .grand{font-weight:700;font-size:13px;border-top:2px solid #000}
-  .footer{margin-top:24px;display:flex;justify-content:space-between;font-size:11px}
-</style></head>
-<body>
-  <h2>${companyName || 'Sales Bill'}</h2>
-  <div class="title">SALES BILL / INVOICE</div>
-  <div class="meta">
-    <div>
-      <b>Bill No:</b> ${bill.bill_number}<br>
-      <b>Date:</b> ${dayjs(bill.bill_date).format('DD-MMM-YYYY')}<br>
-    </div>
-    <div style="text-align:right">
-      <b>Customer:</b> ${
-        (() => {
-          const n = bill.customer?.party_name;
-          const isCash = !n || bill.customer?.is_system_cash;
-          const w = String(bill.walk_in_name || '').trim();
-          return isCash ? `Cash${w ? ` — ${w}` : ''}` : n;
-        })()
-      }<br>
-      <b>Status:</b> ${bill.payment_status}<br>
-    </div>
-  </div>
-  <table>
-    <thead><tr><th>#</th><th>Product</th><th>Barcode</th><th>Size</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="totals"><table>
-    <tr><td>Sub Total</td><td style="text-align:right">${fmt(bill.sub_total)}</td></tr>
-    ${bill.discount_amount > 0 ? `<tr><td>Discount</td><td style="text-align:right">- ${fmt(bill.discount_amount)}</td></tr>` : ''}
-    ${bill.gst_amount > 0 ? `<tr><td>GST</td><td style="text-align:right">${fmt(bill.gst_amount)}</td></tr>` : ''}
-    ${bill.round_off ? `<tr><td>Round Off</td><td style="text-align:right">${parseFloat(bill.round_off).toFixed(2)}</td></tr>` : ''}
-    <tr class="grand"><td>Total</td><td style="text-align:right">${fmt(bill.total_amount)}</td></tr>
-    <tr><td>Paid</td><td style="text-align:right">${fmt(bill.paid_amount)}</td></tr>
-    <tr><td><b>Balance</b></td><td style="text-align:right"><b>${fmt(bill.balance_amount)}</b></td></tr>
-  </table></div>
-  <div class="footer">
-    <div>Customer Signature: _______________</div>
-    <div>Authorised Signature: _______________</div>
-  </div>
-</body></html>`;
-
-  const iframe = document.createElement('iframe');
-  iframe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;border:none;visibility:hidden;';
-  document.body.appendChild(iframe);
-  iframe.contentDocument.open();
-  iframe.contentDocument.write(html);
-  iframe.contentDocument.close();
-  setTimeout(() => {
-    try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch (_) {}
-    setTimeout(() => document.body.removeChild(iframe), 2000);
-  }, 400);
-}
 
 // ── View Modal ─────────────────────────────────────────────────────────────────
 function SummaryRow({ label, value, color, bold, borderTop }) {
@@ -237,30 +166,32 @@ function Ring({ pct, tone = 'ok' }) {
 // ── Main list ──────────────────────────────────────────────────────────────────
 export default function SalesList() {
   const { fyStart, fyEnd } = useFinancialYear();
-  const [bills, setBills]           = useState([]);
-  const [loading, setLoading]       = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage]             = useState(1);
-  const [total, setTotal]           = useState(0);
   // `searchInput` is the raw value in the box — updates on every keystroke
   // so the caret doesn't lag. `filters.search` is the debounced value that
-  // actually hits the API. Debouncing cuts 6 network calls for "balaji"
-  // down to 1 and keeps the list stable while the user is typing.
+  // actually hits the API.
   const [searchInput, setSearchInput] = useState('');
-  // Date defaults to the company FY — same as every other period
-  // selector. User can clear/override.
-  const [filters, setFilters]       = useState({ search: '', payment_status: null, from_date: fyStart, to_date: fyEnd });
-  const listEndRef = useRef(null);
-
+  // Date defaults to the company FY — same as every other period selector.
+  const [filters, setFilters] = useState({ search: '', payment_status: null, from_date: fyStart, to_date: fyEnd });
   useEffect(() => {
     const t = setTimeout(() => {
       setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });
     }, 250);
     return () => clearTimeout(t);
   }, [searchInput]);
+
   const [viewBill, setViewBill]     = useState(null);
   const [actionLoading, setActionLoading] = useState({});
   const [companyName, setCompanyName] = useState('');
+
+  // ── Virtualized data layer. Server returns paginated chunks +
+  // summary aggregates for the full filtered set — KPIs and footer
+  // totals stay accurate as the user scrolls because they read from
+  // `summary`, not from the loaded chunks.
+  const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
+    fetcher: (params) => salesAPI.getAll(params),
+    filters,
+    chunkSize: 200,
+  });
 
   // Drafts (held bills) — separate fetch from sales_bills, never affects
   // counts/totals. Modal opens on click of the Drafts pill.
@@ -273,6 +204,7 @@ export default function SalesList() {
     } catch { /* silent — drafts pill just shows 0 */ }
   }, []);
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
+
   // Column visibility — persisted so user's choice survives reload.
   const [cols, setCols] = useState(() => {
     try {
@@ -283,49 +215,22 @@ export default function SalesList() {
   useEffect(() => {
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(cols)); } catch {}
   }, [cols]);
-  const visibleOptionalCount = Object.values(cols).filter(Boolean).length;
+  // Count of toggled-on optional COLUMNS only — sections (e.g. totalRow)
+  // are excluded so the badge on the Customize button reflects column
+  // additions, not page sections.
+  const visibleOptionalCount = SALES_OPTIONAL_COLS.filter((c) => cols[c.key]).length;
 
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadBills(1);
     settingsAPI.getSystem().then(({ data }) => setCompanyName(data?.data?.company_name || '')).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
-
-  const loadBills = async (pageArg = 1) => {
-    if (pageArg === 1) setLoading(true); else setLoadingMore(true);
-    try {
-      const { data } = await salesAPI.getAll({ ...filters, page: pageArg, limit: BILLS_PAGE_SIZE });
-      const list = data.data || [];
-      if (pageArg === 1) setBills(list); else setBills(prev => [...prev, ...list]);
-      setPage(pageArg);
-      setTotal(data.total || 0);
-    } catch (e) { message.error('Failed to load'); }
-    if (pageArg === 1) setLoading(false); else setLoadingMore(false);
-  };
-
-  const handleLoadMore = useCallback(() => {
-    if (loadingMore || loading) return;
-    if (bills.length >= total) return;
-    loadBills(page + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadingMore, loading, bills.length, total, page]);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) handleLoadMore(); },
-      { threshold: 0.1 }
-    );
-    if (listEndRef.current) observer.observe(listEndRef.current);
-    return () => observer.disconnect();
-  }, [handleLoadMore]);
+  }, []);
 
   const handleCancel = async (id) => {
     try {
       await salesAPI.cancel(id);
       message.success('Bill cancelled');
-      loadBills();
+      refresh();
     } catch (e) {
       const reason = e.response?.data?.error || 'Failed to cancel bill';
       const isReceiptBlock = reason.toLowerCase().includes('receipt');
@@ -358,19 +263,12 @@ export default function SalesList() {
     }
   }, []);
 
-  const handleView  = async (id) => { const b = await fetchBill(id); if (b) setViewBill(b); };
-  // Route through the new unified printer service so the user-configured
-  // default profile for Sales Invoice (Settings → Print Settings) is used.
-  // Falls back to a built-in A4 template on a fresh install.
-  const handlePrint    = (id)   => printDocument({ docType: 'sales', id });
-  const handleEdit     = (id)   => navigate(`/sale/edit/${id}`);
+  const handleView      = async (id) => { const b = await fetchBill(id); if (b) setViewBill(b); };
+  const handlePrint     = (id)   => printDocument({ docType: 'sales', id });
+  const handleEdit      = (id)   => navigate(`/sale/edit/${id}`);
   const handleExportPDF = (bill) => exportBillPDF({ docType: 'sales', bill });
   const handleWhatsApp  = (bill) => shareBillViaWhatsApp({ docType: 'sales', bill });
   const handleRecordReceipt = (bill) => {
-    // Pre-select this customer + bill when opening receipt entry. Use the
-    // bill's own customer_id FK — the included customer object only has
-    // party_name/mobile_1 for the list view, so customer.party_id is undefined
-    // and would send a null preselect that ReceiptEntry can't act on.
     navigate('/receipt/new', {
       state: {
         preselect: {
@@ -381,29 +279,248 @@ export default function SalesList() {
     });
   };
 
-  // ── KPI computation (excludes cancelled bills) ──
-  const kpis = useMemo(() => {
-    const active = bills.filter(b => !b.is_cancelled);
-    const totalAmount = active.reduce((s, b) => s + parseFloat(b.total_amount || 0), 0);
-    const received = active.reduce((s, b) => s + parseFloat(b.paid_amount || 0), 0);
-    const outstanding = active.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
-    const openBills = active.filter(b => parseFloat(b.balance_amount || 0) > 0.01).length;
-    const avg = active.length > 0 ? totalAmount / active.length : 0;
-    return { totalAmount, received, outstanding, openBills, count: active.length, avg };
-  }, [bills]);
+  // KPI values come from server-aggregated `summary` so they reflect the
+  // full filtered set, not just what's been scrolled into view.
+  const totalAmount = parseFloat(summary?.total_amount || 0);
+  const received    = parseFloat(summary?.total_paid || 0);
+  const outstanding = parseFloat(summary?.total_balance || 0);
+  const openBills   = summary?.open_count || 0;
+  const billCount   = summary?.count || totalCount;
+  const avg         = billCount > 0 ? totalAmount / billCount : 0;
+  const receivedPct    = totalAmount > 0 ? (received / totalAmount) * 100 : 0;
+  const outstandingPct = totalAmount > 0 ? (outstanding / totalAmount) * 100 : 0;
 
-  const receivedPct = kpis.totalAmount > 0 ? (kpis.received / kpis.totalAmount) * 100 : 0;
-  const outstandingPct = kpis.totalAmount > 0 ? (kpis.outstanding / kpis.totalAmount) * 100 : 0;
+  // ── Antd columns — render funcs preserve the editorial visual
+  // treatment (dual-line cells, status pills, Settled/Voided tags,
+  // colored amounts). Only the action group migrates from
+  // hover-overlay to a fixed-right column.
+  const columns = [
+    {
+      key: 'sr', title: '#', width: 56, align: 'center', fixed: 'left',
+      render: (_, __, idx) => <span className="sr-n">{String(idx + 1).padStart(2, '0')}</span>,
+    },
+    {
+      key: 'bill', title: 'Bill #', dataIndex: 'bill_number', width: 130,
+      render: (v, r) => (
+        <span className="bill-no">
+          {v}
+          {r.godown && (
+            <span title={`Godown: ${r.godown.name}`} style={{
+              marginLeft: 6, padding: '1px 5px', fontSize: 10, fontWeight: 600,
+              border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
+              color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
+              fontFamily: 'var(--font-mono, monospace)', verticalAlign: 'middle',
+            }}>{r.godown.code}</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'date', title: 'Date', dataIndex: 'bill_date', width: 120,
+      render: (v) => v ? dayjs(v).format('DD MMM YYYY') : '—',
+    },
+    cols.time && {
+      key: 'time', title: 'Time', width: 90,
+      render: (_v, r) => {
+        // Prefer createdAt (when the bill was actually entered) so
+        // back-dated bills still show the entry time.
+        const timeSource = r.createdAt || r.created_date || null;
+        const t = timeSource ? dayjs(timeSource) : null;
+        return t
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>{t.format('h:mm a')}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
+    },
+    {
+      key: 'cust', title: 'Customer', dataIndex: ['customer', 'party_name'], width: 220,
+      render: (v, r) => {
+        const isSystemCash = !!r.customer?.is_system_cash;
+        const isCash = !v || isSystemCash;
+        const walkInName = String(r.walk_in_name || '').trim();
+        const customerGstin = r.customer?.gstin;
+        const rawMobile = r.customer?.mobile_1;
+        const cleanMobile = rawMobile && !/^TLY/i.test(rawMobile) ? rawMobile : null;
+        const customerSecondary = isCash
+          ? (walkInName || 'Walk-in')
+          : (customerGstin || cleanMobile || null);
+        return (
+          <div className={`stk${isCash ? ' cash' : ''}`}>
+            <span className="m">{isCash ? 'Cash' : v}</span>
+            <span className="s">{customerSecondary || '—'}</span>
+          </div>
+        );
+      },
+    },
+    cols.items && {
+      key: 'items', title: 'Items', width: 90, align: 'right',
+      render: (_, r) => {
+        const itemCount = r._item_count ?? r.items?.length ?? null;
+        const pcsTotal = r._pcs_total ?? (r.items ? r.items.reduce((s, it) => s + parseFloat(it.quantity || 0), 0) : null);
+        return (
+          <div className="stk">
+            <span className="m">{itemCount != null ? itemCount : '—'}</span>
+            <span className="s">{pcsTotal != null ? `${pcsTotal} pcs` : ' '}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'total', title: 'Total', dataIndex: 'total_amount', width: 120, align: 'right',
+      render: (v, r) => (
+        <span className={`amt${r.is_cancelled ? ' muted' : ''}`}>
+          <span className="rs">₹</span>{Math.round(parseFloat(v || 0)).toLocaleString('en-IN')}
+        </span>
+      ),
+    },
+    cols.gst && {
+      key: 'gst', title: 'GST', dataIndex: 'gst_amount', width: 100, align: 'right',
+      render: (v, r) => {
+        const amt = parseFloat(v || 0) ||
+                    (parseFloat(r.cgst_amount || 0) + parseFloat(r.sgst_amount || 0) + parseFloat(r.igst_amount || 0));
+        return amt > 0.01
+          ? <span className="amt"><span className="rs">₹</span>{Math.round(amt).toLocaleString('en-IN')}</span>
+          : <span className="amt zero">—</span>;
+      },
+    },
+    cols.discount && {
+      key: 'discount', title: 'Discount', dataIndex: 'discount_amount', width: 110, align: 'right',
+      render: (v) => parseFloat(v || 0) > 0.01
+        ? <span className="amt"><span className="rs">₹</span>{Math.round(parseFloat(v)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>,
+    },
+    {
+      key: 'paid', title: 'Paid', dataIndex: 'paid_amount', width: 110, align: 'right',
+      render: (v) => parseFloat(v || 0) > 0.01
+        ? <span className="amt paid"><span className="rs">₹</span>{Math.round(parseFloat(v)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>,
+    },
+    {
+      key: 'balance', title: 'Balance', dataIndex: 'balance_amount', width: 130, align: 'right',
+      render: (v, r) => {
+        const balance = parseFloat(v || 0);
+        if (r.is_cancelled) return <span className="voided-tag">Voided</span>;
+        if (balance < 0.01) return <span className="settled-tag">Settled</span>;
+        return <span className="amt due"><span className="rs">₹</span>{Math.round(balance).toLocaleString('en-IN')}</span>;
+      },
+    },
+    cols.return && {
+      key: 'return', title: 'Return', dataIndex: 'return_amount', width: 100, align: 'right',
+      render: (v) => parseFloat(v || 0) > 0.01
+        ? <span className="amt"><span className="rs">₹</span>{Math.round(parseFloat(v)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>,
+    },
+    {
+      key: 'actions', title: '', width: 130, align: 'center', fixed: 'right',
+      render: (_, r) => {
+        const cancelled = !!r.is_cancelled;
+        const balance = parseFloat(r.balance_amount || 0);
+        const openBill = !cancelled && balance > 0.01;
+        const customerGstin = r.customer?.gstin;
+        const rawMobile = r.customer?.mobile_1;
+        const cleanMobile = rawMobile && !/^TLY/i.test(rawMobile) ? rawMobile : null;
+        const isSystemCash = !!r.customer?.is_system_cash;
+        const isCash = !r.customer?.party_name || isSystemCash;
+        const customerPhone = isCash ? null : cleanMobile;
+        const moreMenu = {
+          items: [
+            ...(openBill ? [{
+              key: 'receipt', icon: <DollarOutlined />, label: 'Record receipt',
+              onClick: () => handleRecordReceipt(r),
+            }, { type: 'divider' }] : []),
+            { key: 'edit',    icon: <EditOutlined />,    label: 'Edit',           onClick: () => handleEdit(r.sales_bill_id),     disabled: cancelled },
+            { key: 'pdf',     icon: <FilePdfOutlined />, label: 'Export PDF',     onClick: () => handleExportPDF(r),               disabled: cancelled },
+            {
+              key: 'wa', icon: <WhatsAppOutlined />,
+              label: customerPhone ? 'Send via WhatsApp' : 'Send via WhatsApp (no phone)',
+              onClick: () => handleWhatsApp(r),
+              disabled: cancelled || !customerPhone,
+            },
+            { type: 'divider' },
+            {
+              key: 'cancel', icon: <StopOutlined />,
+              label: cancelled ? 'Already cancelled' : 'Cancel bill',
+              danger: true, disabled: cancelled,
+              onClick: () => {
+                Modal.confirm({
+                  title: `Cancel bill ${r.bill_number}?`,
+                  content: 'Cancelling is permanent. Stock and ledger entries will be reversed.',
+                  okText: 'Cancel this bill', okButtonProps: { danger: true },
+                  cancelText: 'Keep it',
+                  onOk: () => handleCancel(r.sales_bill_id),
+                });
+              },
+            },
+          ],
+        };
+        const isLoading = !!actionLoading[r.sales_bill_id];
+        // Override the legacy `.act-box .group { opacity:0 }` hover-reveal
+        // — that styling depended on `.brow.data:hover` which doesn't
+        // match in an Antd table cell. We want actions always visible
+        // in this new layout.
+        const groupStyle = { justifyContent: 'center', opacity: 1, transform: 'none', pointerEvents: 'auto' };
+        return (
+          <div className="act-box">
+            <div className="group" style={groupStyle}>
+              <Tooltip title="View">
+                <button className="abtn" onClick={(e) => { e.stopPropagation(); handleView(r.sales_bill_id); }} disabled={isLoading}>
+                  <EyeOutlined />
+                </button>
+              </Tooltip>
+              <Tooltip title="Print">
+                <button className="abtn" onClick={(e) => { e.stopPropagation(); handlePrint(r.sales_bill_id); }} disabled={isLoading}>
+                  <PrinterOutlined />
+                </button>
+              </Tooltip>
+              <Dropdown menu={moreMenu} trigger={['click']} placement="bottomRight">
+                <button className="abtn" onClick={(e) => e.stopPropagation()} disabled={isLoading}>
+                  <MoreOutlined />
+                </button>
+              </Dropdown>
+            </div>
+          </div>
+        );
+      },
+    },
+  ].filter(Boolean);
 
-  // ── Page totals (what's currently shown after filters) ──
-  const pageTotals = useMemo(() => {
-    const active = bills.filter(b => !b.is_cancelled);
-    return {
-      total: active.reduce((s, b) => s + parseFloat(b.total_amount || 0), 0),
-      paid:  active.reduce((s, b) => s + parseFloat(b.paid_amount  || 0), 0),
-      bal:   active.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0),
-    };
-  }, [bills]);
+  // Bottom Total strip — driven by server-aggregated `summary` so the
+  // numbers reflect the entire filtered set, not just the chunks the
+  // user has scrolled past. Toggled by the `Total row` section in the
+  // Customize popover. Same colSpan-merge pattern as Sales Report:
+  // leading non-aggregable columns merge into one cell holding the
+  // "Total (N bills)" label.
+  const SUMMABLE_KEYS = new Set(['total', 'paid', 'balance', 'gst', 'discount', 'return']);
+  const firstAggIdx = (() => {
+    const idx = columns.findIndex((c) => SUMMABLE_KEYS.has(c.key));
+    return idx === -1 ? columns.length : idx;
+  })();
+  const totalForKey = (k) => {
+    switch (k) {
+      case 'total':    return <strong><span className="rs">₹</span>{Math.round(parseFloat(summary?.total_amount   || 0)).toLocaleString('en-IN')}</strong>;
+      case 'paid':     return <span className="amt paid"><span className="rs">₹</span>{Math.round(parseFloat(summary?.total_paid    || 0)).toLocaleString('en-IN')}</span>;
+      case 'balance':  return <span className="amt due"><span className="rs">₹</span>{Math.round(parseFloat(summary?.total_balance || 0)).toLocaleString('en-IN')}</span>;
+      case 'gst':      return parseFloat(summary?.total_gst      || 0) > 0.01
+        ? <span className="amt"><span className="rs">₹</span>{Math.round(parseFloat(summary.total_gst)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>;
+      case 'discount': return parseFloat(summary?.total_discount || 0) > 0.01
+        ? <span className="amt"><span className="rs">₹</span>{Math.round(parseFloat(summary.total_discount)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>;
+      case 'return':   return parseFloat(summary?.total_return   || 0) > 0.01
+        ? <span className="amt"><span className="rs">₹</span>{Math.round(parseFloat(summary.total_return)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>;
+      default:         return null;
+    }
+  };
+  const summaryCells = (col, idx) => {
+    if (idx === 0) return totalCount > 0 ? `Total (${totalCount} bill${totalCount === 1 ? '' : 's'})` : null;
+    if (idx > 0 && idx < firstAggIdx) return null;
+    return totalForKey(col.key);
+  };
+  const summaryColSpan = (col, idx) => {
+    if (idx === 0) return Math.max(1, firstAggIdx);
+    if (idx > 0 && idx < firstAggIdx) return 0;
+    return 1;
+  };
 
   return (
     <div className="blist-page">
@@ -412,7 +529,7 @@ export default function SalesList() {
       <div className="blist-hd">
         <div className="blist-title">
           <h1>Sales Bills</h1>
-          <div className="sub"><b>{total}</b> bills total</div>
+          <div className="sub"><b>{totalCount}</b> bills total</div>
         </div>
         <div className="blist-ctrl">
           <div className="blist-search">
@@ -462,6 +579,18 @@ export default function SalesList() {
                   </label>
                 ))}
                 <div className="sep" />
+                <div className="mh">Sections</div>
+                {SALES_SECTIONS.map(s => (
+                  <label key={s.key} className="opt">
+                    <input
+                      type="checkbox"
+                      checked={!!cols[s.key]}
+                      onChange={(e) => setCols(prev => ({ ...prev, [s.key]: e.target.checked }))}
+                    />
+                    {s.label}
+                  </label>
+                ))}
+                <div className="sep" />
                 <div className="mh" style={{ paddingBottom: 2 }}>Always shown</div>
                 <label className="opt"><span>Bill · Date · Customer</span><span className="pin">Pinned</span></label>
                 <label className="opt"><span>Total · Paid · Balance</span><span className="pin">Pinned</span></label>
@@ -469,7 +598,7 @@ export default function SalesList() {
             )}
           >
             <button className={`blist-chip${visibleOptionalCount > 0 ? ' on' : ''}`}>
-              <AppstoreOutlined /> Columns
+              <SettingOutlined /> Customize
               {visibleOptionalCount > 0 && <span className="col-count">{visibleOptionalCount}</span>}
             </button>
           </Dropdown>
@@ -505,112 +634,47 @@ export default function SalesList() {
         <div className="kpi-card total">
           <div className="kpi-text">
             <div className="k">Total Sale · This View</div>
-            <div className="v">{fmt(kpis.totalAmount)}</div>
-            <div className="sub">{kpis.count} bills · avg {fmtShort(kpis.avg)}</div>
+            <div className="v">{fmt(totalAmount)}</div>
+            <div className="sub">{billCount} bills · avg {fmtShort(avg)}</div>
           </div>
         </div>
         <div className="kpi-card received">
           <div className="kpi-text">
             <div className="k">Received</div>
-            <div className="v">{fmt(kpis.received)}</div>
-            <div className="sub">of {fmtShort(kpis.totalAmount)} sold</div>
+            <div className="v">{fmt(received)}</div>
+            <div className="sub">of {fmtShort(totalAmount)} sold</div>
           </div>
           <Ring pct={receivedPct} tone="ok" />
         </div>
         <div className="kpi-card outstanding">
           <div className="kpi-text">
             <div className="k">Outstanding</div>
-            <div className="v">{fmt(kpis.outstanding)}</div>
-            <div className="sub">from {kpis.openBills} open bills</div>
+            <div className="v">{fmt(outstanding)}</div>
+            <div className="sub">from {openBills} open bills</div>
           </div>
           <Ring pct={outstandingPct} tone="bad" />
         </div>
       </div>
 
-      {/* Bill list — fixed chrome, internal scroll */}
+      {/* Bill list — virtualized table; row treatment preserved via column renders */}
       <div className="blist-wrap">
-        <div className="blist">
-
-          <div className="brow head">
-            <div className="c-sr">#</div>
-            <div className="c-bill">Bill #</div>
-            <div className="c-date">Date · Time</div>
-            <div className="c-cust">Customer</div>
-            {cols.items    && <div className="c-items">Items</div>}
-            <div className="c-total">Total</div>
-            {cols.gst      && <div className="c-gst">GST</div>}
-            {cols.discount && <div className="c-discount">Discount</div>}
-            <div className="c-paid">Paid</div>
-            <div className="c-bal">Balance</div>
-            {cols.return   && <div className="c-return">Return</div>}
-            <div className="c-act"></div>
-          </div>
-
-          <div className="bscroll" style={{ position: 'relative' }}>
-            {/* Top progress strip — stays while the list refetches (search or
-                filter change) so the rows underneath don't unmount. Without
-                this the list would blink to "Loading…" on every keystroke
-                and feel laggy even when the network was fast. */}
-            {loading && bills.length > 0 && (
-              <div style={{
-                position: 'sticky', top: 0, left: 0, right: 0,
-                height: 2, overflow: 'hidden', zIndex: 3,
-                background: 'transparent',
-              }}>
-                <div style={{
-                  width: '40%', height: '100%',
-                  background: 'var(--accent, #4F46E5)',
-                  animation: 'sm-loading-bar 1.1s ease-in-out infinite',
-                }} />
-              </div>
-            )}
-            {loading && bills.length === 0 ? (
-              <div className="brow empty">Loading bills…</div>
-            ) : !loading && bills.length === 0 ? (
-              <div className="brow empty">No bills match the current filters.</div>
-            ) : (
-              <>
-                {bills.map((bill, i) => (
-                  <BillRow
-                    key={bill.sales_bill_id}
-                    bill={bill}
-                    index={i}
-                    cols={cols}
-                    actionLoading={!!actionLoading[bill.sales_bill_id]}
-                    onView={() => handleView(bill.sales_bill_id)}
-                    onPrint={() => handlePrint(bill.sales_bill_id)}
-                    onEdit={() => handleEdit(bill.sales_bill_id)}
-                    onCancel={() => handleCancel(bill.sales_bill_id)}
-                    onReceipt={() => handleRecordReceipt(bill)}
-                    onExportPDF={() => handleExportPDF(bill)}
-                    onWhatsApp={() => handleWhatsApp(bill)}
-                  />
-                ))}
-                <div ref={listEndRef} style={{ padding: 12, textAlign: 'center', color: 'var(--fg-tertiary)', fontSize: 12 }}>
-                  {loadingMore
-                    ? 'Loading more…'
-                    : bills.length >= total
-                      ? (total > 0 ? `All ${total} bills loaded` : '')
-                      : 'Scroll to load more'}
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="bfoot">
-            <span>Shown: <b>{bills.length} of {total}</b></span>
-            <span>Page total: <b>{fmt(pageTotals.total)}</b></span>
-            <span>Paid: <b style={{ color: 'var(--success)' }}>{fmt(pageTotals.paid)}</b></span>
-            <span>Balance: <b style={{ color: 'var(--danger)' }}>{fmt(pageTotals.bal)}</b></span>
-          </div>
-        </div>
+        <VirtualReportTable
+          columns={columns}
+          rows={rows}
+          totalCount={totalCount}
+          ensureChunk={ensureChunk}
+          loading={loading}
+          rowKey="sales_bill_id"
+          scroll={{ x: 1100 }}
+          rowClassName={(r) => r && r.is_cancelled ? 'blist-row-cancelled' : ''}
+          summaryCells={cols.totalRow ? summaryCells : undefined}
+          summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
+        />
       </div>
 
       <ViewModal bill={viewBill} onClose={() => setViewBill(null)} />
 
-      {/* Drafts modal — list of held bills with Recall / Discard.
-          MUST live in SalesList scope (not BillRow) because it references
-          drafts/draftsModalOpen/loadDrafts state from this component. */}
+      {/* Drafts modal — list of held bills with Recall / Discard. */}
       <Modal
         open={draftsModalOpen}
         onCancel={() => setDraftsModalOpen(false)}
@@ -695,221 +759,6 @@ export default function SalesList() {
           </table>
         )}
       </Modal>
-    </div>
-  );
-}
-
-// ── Row component ─────────────────────────────────────────────────────────────
-function BillRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, onCancel, onReceipt, onExportPDF, onWhatsApp }) {
-  const cancelled = !!bill.is_cancelled;
-  const total = parseFloat(bill.total_amount || 0);
-  const paid = parseFloat(bill.paid_amount || 0);
-  const balance = parseFloat(bill.balance_amount || 0);
-
-  // Item count + total pieces come pre-computed from the list endpoint
-  // (_item_count / _pcs_total). Fall back to counting loaded items if
-  // the bill object happens to have them (e.g. after a detail fetch).
-  const itemCount = bill._item_count ?? bill.items?.length ?? null;
-  const pcsTotal = bill._pcs_total ?? (bill.items
-    ? bill.items.reduce((s, it) => s + parseFloat(it.quantity || 0), 0)
-    : null);
-
-  const billDate = bill.bill_date ? dayjs(bill.bill_date) : null;
-  const timeSource = bill.createdAt || bill.created_date || bill.bill_date;
-  const billTime = timeSource ? dayjs(timeSource) : null;
-  const isSameDay = billDate && billTime && billDate.isSame(billTime, 'day');
-
-  const customerName = bill.customer?.party_name;
-  // Cash sale = either no customer (legacy NULL pattern) or the system
-  // Cash party. Either way, the row renders "Cash" on the primary line
-  // and the operator-captured walk-in name on the secondary line.
-  const isSystemCash = !!bill.customer?.is_system_cash;
-  const isCash = !customerName || isSystemCash;
-  const walkInName = String(bill.walk_in_name || '').trim();
-  // Secondary identifier: prefer GSTIN (real, externally meaningful),
-  // fall back to mobile, suppress legacy Tally-importer stubs that
-  // start with "TLY" (those used to fill the NOT NULL mobile_1
-  // when a Tally LEDGER had no phone — they leak nothing useful and
-  // look like fake GUIDs to the user).
-  const customerGstin = bill.customer?.gstin;
-  const rawMobile = bill.customer?.mobile_1;
-  const cleanMobile = rawMobile && !/^TLY/i.test(rawMobile) ? rawMobile : null;
-  const customerSecondary = isCash
-    ? (walkInName || 'Walk-in')
-    : (customerGstin || cleanMobile || null);
-  // WhatsApp action still needs a real phone — never the GSTIN, and
-  // never for cash (the system Cash party's mobile_1 is the literal
-  // sentinel "CASH").
-  const customerPhone = isCash ? null : cleanMobile;
-
-  // Optional amounts
-  const gstAmt = parseFloat(bill.gst_amount || 0) ||
-                 (parseFloat(bill.cgst_amount || 0) + parseFloat(bill.sgst_amount || 0) + parseFloat(bill.igst_amount || 0));
-  const discAmt = parseFloat(bill.discount_amount || 0);
-  const retAmt = parseFloat(bill.return_amount || 0);
-
-  const openBill = !cancelled && balance > 0.01;
-
-  // Menu items — the longer-tail actions live here. Record Receipt is in
-  // this menu (no longer the primary hover button) so the row's hover
-  // cluster stays quiet: just View + Print.
-  const moreMenu = {
-    items: [
-      ...(openBill ? [{
-        key: 'receipt', icon: <DollarOutlined />, label: 'Record receipt',
-        onClick: onReceipt,
-      }, { type: 'divider' }] : []),
-      { key: 'edit',    icon: <EditOutlined />,   label: 'Edit',           onClick: onEdit,      disabled: cancelled },
-      { key: 'pdf',     icon: <FilePdfOutlined />, label: 'Export PDF',     onClick: onExportPDF, disabled: cancelled },
-      {
-        key: 'wa',
-        icon: <WhatsAppOutlined />,
-        // Disabled for Cash Sales (no phone) — tooltip explains why via the
-        // dropdown's native hover behavior on the label text.
-        label: customerPhone ? 'Send via WhatsApp' : 'Send via WhatsApp (no phone)',
-        onClick: onWhatsApp,
-        disabled: cancelled || !customerPhone,
-      },
-      { type: 'divider' },
-      {
-        key: 'cancel',
-        icon: <StopOutlined />,
-        label: cancelled ? 'Already cancelled' : 'Cancel bill',
-        danger: true, disabled: cancelled,
-        onClick: () => {
-          Modal.confirm({
-            title: `Cancel bill ${bill.bill_number}?`,
-            content: 'Cancelling is permanent. Stock and ledger entries will be reversed.',
-            okText: 'Cancel this bill', okButtonProps: { danger: true },
-            cancelText: 'Keep it',
-            onOk: onCancel,
-          });
-        },
-      },
-    ],
-  };
-
-  return (
-    <div className={`brow data${cancelled ? ' cancelled' : ''}`}>
-      <div className="c-sr"><span className="sr-n">{String(index + 1).padStart(2, '0')}</span></div>
-      <div className="c-bill">
-        <span className="bill-no">{bill.bill_number}</span>
-        {bill.godown && (
-          <span title={`Godown: ${bill.godown.name}`} style={{
-            marginLeft: 6, padding: '1px 5px', fontSize: 10, fontWeight: 600,
-            border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
-            color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
-            fontFamily: 'var(--font-mono, monospace)', verticalAlign: 'middle',
-          }}>{bill.godown.code}</span>
-        )}
-      </div>
-
-      <div className="c-date">
-        <div className="stk">
-          <span className="m">{billDate ? billDate.format('DD MMM YYYY') : '—'}</span>
-          {billTime && isSameDay
-            ? <span className="s">{billTime.format('h:mm a')}</span>
-            : <span className="s">&nbsp;</span>}
-        </div>
-      </div>
-
-      <div className="c-cust">
-        <div className={`stk${isCash ? ' cash' : ''}`}>
-          <span className="m">{isCash ? 'Cash' : customerName}</span>
-          <span className="s">{customerSecondary || '—'}</span>
-        </div>
-      </div>
-
-      {cols.items && (
-        <div className="c-items">
-          <div className="stk">
-            <span className="m">{itemCount != null ? itemCount : '—'}</span>
-            <span className="s">{pcsTotal != null ? `${pcsTotal} pcs` : '\u00A0'}</span>
-          </div>
-        </div>
-      )}
-
-      <div className="c-total">
-        <span className={`amt${cancelled ? ' muted' : ''}`}>
-          <span className="rs">₹</span>{Math.round(total).toLocaleString('en-IN')}
-        </span>
-      </div>
-
-      {cols.gst && (
-        <div className="c-gst">
-          {gstAmt > 0.01
-            ? <span className="amt"><span className="rs">₹</span>{Math.round(gstAmt).toLocaleString('en-IN')}</span>
-            : <span className="amt zero">—</span>}
-        </div>
-      )}
-
-      {cols.discount && (
-        <div className="c-discount">
-          {discAmt > 0.01
-            ? <span className="amt"><span className="rs">₹</span>{Math.round(discAmt).toLocaleString('en-IN')}</span>
-            : <span className="amt zero">—</span>}
-        </div>
-      )}
-
-      <div className="c-paid">
-        {paid > 0.01 ? (
-          <span className="amt paid"><span className="rs">₹</span>{Math.round(paid).toLocaleString('en-IN')}</span>
-        ) : (
-          <span className="amt zero">—</span>
-        )}
-      </div>
-
-      <div className="c-bal">
-        {cancelled ? (
-          <span className="voided-tag">Voided</span>
-        ) : balance < 0.01 ? (
-          <span className="settled-tag">Settled</span>
-        ) : (
-          <span className="amt due"><span className="rs">₹</span>{Math.round(balance).toLocaleString('en-IN')}</span>
-        )}
-      </div>
-
-      {cols.return && (
-        <div className="c-return">
-          {retAmt > 0.01
-            ? <span className="amt"><span className="rs">₹</span>{Math.round(retAmt).toLocaleString('en-IN')}</span>
-            : <span className="amt zero">—</span>}
-        </div>
-      )}
-
-      <div className="c-act">
-        <div className="act-box">
-          <div className="group">
-            <Tooltip title="View">
-              <button
-                className="abtn"
-                onClick={(e) => { e.stopPropagation(); onView(); }}
-                disabled={actionLoading}
-              >
-                <EyeOutlined />
-              </button>
-            </Tooltip>
-            <Tooltip title="Print">
-              <button
-                className="abtn"
-                onClick={(e) => { e.stopPropagation(); onPrint(); }}
-                disabled={actionLoading}
-              >
-                <PrinterOutlined />
-              </button>
-            </Tooltip>
-            <Dropdown menu={moreMenu} trigger={['click']} placement="bottomRight">
-              <button
-                className="abtn"
-                onClick={(e) => e.stopPropagation()}
-                disabled={actionLoading}
-              >
-                <MoreOutlined />
-              </button>
-            </Dropdown>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

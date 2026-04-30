@@ -1,67 +1,66 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Tag, Typography, message, Card, Space, DatePicker, Select, Popconfirm, Tooltip } from 'antd';
+import { Button, Tag, Typography, message, Card, Space, DatePicker, Select, Popconfirm, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, PrinterOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument } from '../../services/printer';
+import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import VirtualReportTable from '../../components/VirtualReportTable';
 
 const { Title } = Typography;
+const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
 export default function PaymentList() {
   const { fyStart, fyEnd } = useFinancialYear();
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   // Default to company FY for consistency.
   const [filters, setFilters] = useState({ transaction_type: null, from_date: fyStart, to_date: fyEnd });
   const navigate = useNavigate();
 
-  useEffect(() => { loadData(); }, [filters]);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const res = await paymentAPI.getAll({ ...filters, page: 1, limit: 99999 });
-      setData(res.data.data);
-    } catch (e) { message.error('Failed to load'); }
-    setLoading(false);
-  };
+  // ── Virtualized data layer ────────────────────────────────────────
+  // Server endpoint already returns { total, page, data }. Hook holds
+  // a sparse Map of chunks so the user can scroll all 99,999+ rows
+  // without front-loading them. `refresh()` invalidates the cache and
+  // re-fetches the first chunk after a cancel.
+  const { rows, totalCount, ensureChunk, loading, refresh } = useVirtualizedReport({
+    fetcher: (params) => paymentAPI.getAll(params),
+    filters,
+    chunkSize: 200,
+  });
 
   const handleDelete = async (id) => {
     setDeletingId(id);
     try {
       await paymentAPI.cancel(id);
       message.success('Transaction cancelled successfully');
-      loadData();
+      refresh();
     } catch (e) {
       message.error(e.response?.data?.error || 'Failed to cancel');
     } finally { setDeletingId(null); }
   };
 
-  const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-
   const columns = [
-    { title: 'Txn No', dataIndex: 'transaction_number', width: 130,
+    { title: 'Txn No', dataIndex: 'transaction_number', width: 130, key: 'txn_no',
       render: (v) => <span style={{ fontSize: 12 }}>{v}</span> },
-    { title: 'Type', dataIndex: 'transaction_type', width: 90,
+    { title: 'Type', dataIndex: 'transaction_type', width: 90, key: 'type',
       render: (t) => <Tag color={t === 'Receipt' ? 'green' : 'volcano'}>{t}</Tag> },
-    { title: 'Date', dataIndex: 'transaction_date', width: 110,
+    { title: 'Date', dataIndex: 'transaction_date', width: 110, key: 'date',
       render: (v) => dayjs(v).format('DD/MM/YYYY') },
-    { title: 'Party', dataIndex: ['party', 'party_name'], width: 180, ellipsis: true },
-    { title: 'Amount', dataIndex: 'total_amount', width: 120, align: 'right',
+    { title: 'Party', dataIndex: ['party', 'party_name'], width: 180, key: 'party', ellipsis: true },
+    { title: 'Amount', dataIndex: 'total_amount', width: 120, align: 'right', key: 'amount',
       render: (v, r) => (
         <span style={{ fontWeight: 700, color: r.transaction_type === 'Receipt' ? '#059669' : '#dc2626' }}>
           {fmt(v)}
         </span>
       )},
-    { title: 'Mode', dataIndex: 'splits', width: 160,
+    { title: 'Mode', dataIndex: 'splits', width: 160, key: 'mode',
       render: (splits) => splits?.map(s => <Tag key={s.split_id} style={{ fontSize: 11 }}>{s.payment_mode}: {fmt(s.amount)}</Tag>) },
-    { title: 'Remarks', dataIndex: 'remarks', width: 180, ellipsis: true,
+    { title: 'Remarks', dataIndex: 'remarks', width: 180, ellipsis: true, key: 'remarks',
       render: (v) => <span style={{ fontSize: 12, color: '#6b7280' }}>{v || '—'}</span> },
     {
-      title: '', width: 110, align: 'center', fixed: 'right',
+      title: '', width: 110, align: 'center', fixed: 'right', key: 'actions',
       render: (_, record) => (
         <Space size={4}>
           <Tooltip title="Print voucher / receipt">
@@ -106,7 +105,7 @@ export default function PaymentList() {
       <div className="erp-page-header" style={{ padding: '12px 20px', marginBottom: 0, background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
         <div className="erp-page-header-title">
           <Title level={3} style={{ margin: 0, fontWeight: 700, color: '#1f2937' }}>Payments & Receipts</Title>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>{data.length} transactions total</span>
+          <span style={{ fontSize: 13, color: '#6b7280' }}>{totalCount} transactions total</span>
         </div>
         <Space>
           <Button icon={<PlusOutlined />} onClick={() => navigate('/payment/new')}
@@ -134,16 +133,16 @@ export default function PaymentList() {
           </Select>
         </div>
 
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          <Table
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <VirtualReportTable
             columns={columns}
-            dataSource={data}
-            rowKey="transaction_id"
+            rows={rows}
+            totalCount={totalCount}
+            ensureChunk={ensureChunk}
             loading={loading}
-            size="small"
+            rowKey="transaction_id"
             scroll={{ x: 1000 }}
-            rowClassName={(r) => r.is_cancelled ? 'erp-row-cancelled' : ''}
-            pagination={false}
+            rowClassName={(r) => r && r.is_cancelled ? 'erp-row-cancelled' : ''}
           />
         </div>
       </Card>

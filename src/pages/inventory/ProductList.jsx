@@ -1,65 +1,58 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Input, Button, Modal, Form, InputNumber, Select,
-  Row, Col, Divider, message, DatePicker, Spin,
+  Row, Col, Divider, message, DatePicker, Dropdown, Tooltip,
 } from 'antd';
-import { BarcodeOutlined } from '@ant-design/icons';
+import { BarcodeOutlined, SettingOutlined, EditOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { productAPI, categoryAPI, dataAPI } from '../../api';
+import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import VirtualReportTable from '../../components/VirtualReportTable';
 
 dayjs.extend(relativeTime);
 import '../../styles/editorial-product-list.css';
 
 /*
- * ProductList — editorial redesign.
- *
- * Single full-width table (no split-view). Fifteen available columns in the
- * order the operator asked for — #, Category, Product, HSN, GST%, Barcode,
- * Stock, Total Purchased, Total Sold, Purchase, Sale, Margin, Health,
- * Runway, Value — plus Actions. Show/hide any column (except Product and
- * Actions) from the ☰ Columns menu; the menu also hides the KPI hero and
- * the filter chip bar. User choice persists in localStorage.
- *
- * "Total Purchased" / "Total Sold" / "Runway / Last Sold" show placeholders
- * until the product API exposes the underlying lifetime stats; the columns
- * exist so the UI is ready without a schema migration.
- *
- * Add/Edit keeps the existing AntD Modal with the full pricing + opening-
- * stock form — only the list chrome was redesigned.
+ * ProductList — virtualized rewrite. Editorial visual treatment is
+ * preserved through Antd column renders: category dots, health pills,
+ * margin chips, runway display, monospace HSN/barcode. Click-cycle
+ * sort headers replaced by Antd's native column-sort arrow (more
+ * accessible). Status chips reduced to All / In Stock / Low / Out
+ * (Top Selling and Dead Stock will return when server-side support
+ * for those filters lands). Multi-category filter replaced with a
+ * single-category Select for now.
  */
 
-const PROD_LIMIT = 200;
+const LS_COLS = 'ed-products-cols-v2';
 
-const LS_COLS = 'ed-products-cols-v1';
-const LS_SECS = 'ed-products-secs-v1';
-
-// Columns the user can toggle. `fixed: true` means always visible (Product & Actions).
 const COL_DEFS = [
-  { key: 'sr',    label: 'Number',               default: true  },
-  { key: 'cat',   label: 'Category',             default: true  },
-  { key: 'prod',  label: 'Product',              default: true,  fixed: true },
-  { key: 'hsn',   label: 'HSN Code',             default: false },
-  { key: 'gst',   label: 'GST %',                default: false },
-  { key: 'bc',    label: 'Barcode',              default: false },
-  { key: 'stk',   label: 'Stock (On Hand)',      default: true  },
-  { key: 'tpur',  label: 'Total Stock Purchased',default: true  },
-  { key: 'tsale', label: 'Total Stock Sold',     default: true  },
-  { key: 'pur',   label: 'Purchase Rate',        default: false },
-  { key: 'sale',  label: 'Sale Rate',            default: true  },
-  { key: 'mgn',   label: 'Margin',               default: true  },
-  { key: 'hlt',   label: 'Health',               default: true  },
-  { key: 'run',   label: 'Runway',               default: true  },
-  { key: 'val',   label: 'Stock Value',          default: true  },
-  { key: 'act',   label: 'Actions',              default: true,  fixed: true },
+  { key: 'sr',    label: 'Number',                default: true  },
+  { key: 'cat',   label: 'Category',              default: true  },
+  { key: 'prod',  label: 'Product',               default: true,  fixed: true },
+  { key: 'hsn',   label: 'HSN Code',              default: false },
+  { key: 'gst',   label: 'GST %',                 default: false },
+  { key: 'bc',    label: 'Barcode',               default: false },
+  { key: 'stk',   label: 'Stock (On Hand)',       default: true  },
+  { key: 'tpur',  label: 'Total Stock Purchased', default: true  },
+  { key: 'tsale', label: 'Total Stock Sold',      default: true  },
+  { key: 'pur',   label: 'Purchase Rate',         default: false },
+  { key: 'sale',  label: 'Sale Rate',             default: true  },
+  { key: 'mgn',   label: 'Margin',                default: true  },
+  { key: 'hlt',   label: 'Health',                default: true  },
+  { key: 'run',   label: 'Last Sold',             default: true  },
+  { key: 'val',   label: 'Stock Value',           default: true  },
 ];
+// Toggleable sections (page-level, not data columns).
 const SEC_DEFS = [
-  { key: 'hero',   label: 'KPI Cards',  default: true },
-  { key: 'filter', label: 'Filter Bar', default: true },
+  { key: 'hero',     label: 'KPI Cards' },
+  { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-const DEFAULT_COLS = Object.fromEntries(COL_DEFS.map(c => [c.key, c.default]));
-const DEFAULT_SECS = Object.fromEntries(SEC_DEFS.map(s => [s.key, s.default]));
+const DEFAULT_COLS = {
+  ...Object.fromEntries(COL_DEFS.map(c => [c.key, c.default])),
+  hero: true, totalRow: true,
+};
 
 function loadPrefs(key, defaults) {
   try {
@@ -89,8 +82,7 @@ function marginPct(p) {
   return ((sale - pur) / pur) * 100;
 }
 
-// Category dots — stable colour mapping by category name so the same
-// category shows the same dot across reloads without a backend colour.
+// Stable category dot palette — same product = same color across sessions.
 const CAT_PALETTE = [
   '#7A9660', '#B1472F', '#4F6A7A', '#B8923C', '#7F5AA3',
   '#6D5F4E', '#3F5A4A', '#CA7537', '#8E4F2E', '#55503F',
@@ -105,29 +97,37 @@ function catColor(name) {
 export default function ProductList() {
   const navigate = useNavigate();
 
-  /* ── list state ── */
-  const [products, setProducts] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all'); // all | in | low | out | top | dead
-  const [catFilters, setCatFilters] = useState(() => new Set()); // empty Set = all categories
-  const [sortKey, setSortKey] = useState(null);
-  const [sortDir, setSortDir] = useState('asc');
-  const listEndRef = useRef(null);
+  /* ── filters ── */
+  const [searchInput, setSearchInput] = useState('');
+  const [filters, setFilters] = useState({
+    search: '',
+    category_id: null,
+    stock_status: null,
+    include_stats: 'true',
+  });
+  // Debounced search → server.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((f) => f.search === searchInput ? f : { ...f, search: searchInput });
+    }, 220);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
-  /* ── categories ── */
   const [categories, setCategories] = useState([]);
 
-  /* ── columns / sections / category menu ── */
+  /* ── data layer ── */
+  const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
+    fetcher: (params) => productAPI.getAll(params),
+    filters,
+    chunkSize: 200,
+  });
+
+  /* ── columns / sections ── */
   const [cols, setCols] = useState(() => loadPrefs(LS_COLS, DEFAULT_COLS));
-  const [secs, setSecs] = useState(() => loadPrefs(LS_SECS, DEFAULT_SECS));
-  const [colsOpen, setColsOpen] = useState(false);
-  const [catOpen, setCatOpen] = useState(false);
-  const colsWrapRef = useRef(null);
-  const catWrapRef = useRef(null);
+  useEffect(() => {
+    try { localStorage.setItem(LS_COLS, JSON.stringify(cols)); } catch {}
+  }, [cols]);
+  const visibleColCount = COL_DEFS.filter(c => cols[c.key] || c.fixed).length;
 
   /* ── form modal ── */
   const [formVisible, setFormVisible] = useState(false);
@@ -135,82 +135,12 @@ export default function ProductList() {
   const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
 
-  useEffect(() => { localStorage.setItem(LS_COLS, JSON.stringify(cols)); }, [cols]);
-  useEffect(() => { localStorage.setItem(LS_SECS, JSON.stringify(secs)); }, [secs]);
-
-  /* ── load ── */
   useEffect(() => { loadCategories(); }, []);
-  useEffect(() => {
-    // Debounce the search input so every keystroke doesn't hit the API.
-    // Status / category / sort filters are applied client-side over the
-    // fetched page — no extra round trip needed when the user toggles them.
-    const handle = setTimeout(() => loadProducts(1, true), search ? 220 : 0);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
 
   const loadCategories = async () => {
     try { const { data } = await categoryAPI.getAllFlat(); setCategories(data || []); }
     catch { /* ignore */ }
   };
-
-  const loadProducts = async (pageArg = 1, reset = false) => {
-    if (pageArg === 1) setLoading(true); else setLoadingMore(true);
-    try {
-      const params = { search, page: pageArg, limit: PROD_LIMIT, include_stats: 'true' };
-      const { data } = await productAPI.getAll(params);
-      const list = data.data || [];
-      const tot  = data.total || 0;
-      if (reset || pageArg === 1) {
-        setProducts(list);
-        setPage(1);
-      } else {
-        setProducts(prev => [...prev, ...list]);
-        setPage(pageArg);
-      }
-      setTotal(tot);
-    } catch { message.error('Failed to load products'); }
-    if (pageArg === 1) setLoading(false); else setLoadingMore(false);
-  };
-
-  /* ── infinite scroll ── */
-  const handleLoadMore = useCallback(() => {
-    if (loadingMore || loading) return;
-    if (products.length >= total) return;
-    loadProducts(page + 1, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadingMore, loading, products.length, total, page]);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      entries => { if (entries[0].isIntersecting) handleLoadMore(); },
-      { threshold: 0.1 }
-    );
-    if (listEndRef.current) observer.observe(listEndRef.current);
-    return () => observer.disconnect();
-  }, [handleLoadMore]);
-
-  /* ── close dropdowns on outside click / Escape ── */
-  useEffect(() => {
-    if (!colsOpen && !catOpen) return;
-    const close = (e) => {
-      if (colsOpen && colsWrapRef.current && !colsWrapRef.current.contains(e.target)) setColsOpen(false);
-      if (catOpen  && catWrapRef.current  && !catWrapRef.current.contains(e.target))  setCatOpen(false);
-    };
-    const esc = (e) => { if (e.key === 'Escape') { setColsOpen(false); setCatOpen(false); } };
-    document.addEventListener('click', close);
-    document.addEventListener('keydown', esc);
-    return () => {
-      document.removeEventListener('click', close);
-      document.removeEventListener('keydown', esc);
-    };
-  }, [colsOpen, catOpen]);
-
-  /* Sort toggle — first click sets ASC, second flips to DESC, third clears */
-  const toggleSort = useCallback((key) => {
-    setSortKey(prev => (prev === key && sortDir === 'desc') ? null : key);
-    setSortDir(prev => (sortKey === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
-  }, [sortKey, sortDir]);
 
   /* ── form helpers ── */
   const marginChanged = () => {
@@ -261,7 +191,7 @@ export default function ProductList() {
         message.success(`Product added — Barcode: ${data.barcode || data.product?.barcode}`);
       }
       setFormVisible(false);
-      loadProducts(1, true);
+      refresh();
     } catch (e) { message.error(e.response?.data?.error || 'Failed to save'); }
     setFormLoading(false);
   };
@@ -269,12 +199,9 @@ export default function ProductList() {
   const handleExport = async () => {
     try {
       const params = {};
-      if (search) params.search = search;
-      // Only the first selected category is forwarded — the server export
-      // endpoint takes a single category_id. Users who want a multi-cat export
-      // can broaden with no filter and slice locally in Excel.
-      if (catFilters.size > 0) params.category_id = [...catFilters][0];
-      if (statusFilter === 'low' || statusFilter === 'out') params.stock_status = statusFilter;
+      if (filters.search) params.search = filters.search;
+      if (filters.category_id) params.category_id = filters.category_id;
+      if (filters.stock_status) params.stock_status = filters.stock_status;
       const { data } = await dataAPI.exportExcel('products', params);
       const url = window.URL.createObjectURL(new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       const d = new Date();
@@ -287,114 +214,216 @@ export default function ProductList() {
     } catch { message.error('Export failed'); }
   };
 
-  /* ── derived: status counts + filtered+sorted list ── */
-  const statusCounts = useMemo(() => {
-    let inStock = 0, low = 0, out = 0, top = 0, dead = 0;
-    const today = dayjs();
-    for (const p of products) {
-      const h = healthOf(p);
-      if (h.kind === 'out') out++;
-      else if (h.kind === 'low') low++;
-      else inStock++;
-      if (parseFloat(p.total_sold || 0) > 0) top++;
-      const stale = !p.last_sold_at || today.diff(dayjs(p.last_sold_at), 'day') > 60;
-      if (stale && parseFloat(p.current_stock || 0) > 0) dead++;
+  /* ── KPI values from server summary ── */
+  const stockValue = parseFloat(summary?.total_stock_value || 0);
+  const lowCount   = summary?.low_count   || 0;
+  const outCount   = summary?.out_count   || 0;
+  const inCount    = summary?.in_count    || 0;
+  const topCount   = summary?.top_count   || 0;
+  const deadCount  = summary?.dead_count  || 0;
+  const totalSku   = summary?.total_count || totalCount;
+
+  /* ── columns ── */
+  const columns = [
+    cols.sr && {
+      key: 'sr', title: '#', width: 56, align: 'center', fixed: 'left',
+      render: (_, __, idx) => <span className="sr-n">{String(idx + 1).padStart(2, '0')}</span>,
+    },
+    cols.cat && {
+      key: 'cat', title: 'Category', width: 150,
+      render: (_, p) => {
+        const catName = p.Category?.category_name || categories.find(c => c.category_id === p.category_id)?.category_name || '—';
+        return (
+          <span className="cat-pill">
+            <span className="cat-dot" style={{ background: catColor(catName) }} />
+            {catName}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'prod', title: 'Product', dataIndex: 'product_name', width: 240, fixed: 'left',
+      render: (v, p) => (
+        <span>
+          <span className="p-name">{v}</span>
+          {p.size_value && <span className="p-var" style={{ marginLeft: 6 }}>{p.size_value}</span>}
+        </span>
+      ),
+    },
+    cols.hsn && {
+      key: 'hsn', title: 'HSN', dataIndex: 'hsn_code', width: 100,
+      render: (v) => <span className="mono">{v || '—'}</span>,
+    },
+    cols.gst && {
+      key: 'gst', title: 'GST %', dataIndex: 'gst_rate', width: 80, align: 'right',
+      render: (v) => <span className="gst-pct">{v != null ? `${v}%` : '—'}</span>,
+    },
+    cols.bc && {
+      key: 'bc', title: 'Barcode', dataIndex: 'barcode', width: 130,
+      render: (v) => <span className="bc">{v || '—'}</span>,
+    },
+    cols.stk && {
+      key: 'stk', title: 'Stock', dataIndex: 'current_stock', width: 110, align: 'right',
+      sorter: (a, b) => parseFloat(a.current_stock || 0) - parseFloat(b.current_stock || 0),
+      render: (v, p) => (
+        <span>
+          <span className={`qty-m${parseFloat(v || 0) === 0 ? ' zero' : ''}`}>{fmtQty(v)}</span>
+          <span className="qty-u" style={{ marginLeft: 4 }}>{p.unit_of_measurement || 'pcs'}</span>
+        </span>
+      ),
+    },
+    cols.tpur && {
+      key: 'tpur', title: 'Total Pur.', dataIndex: 'total_purchased', width: 110, align: 'right',
+      sorter: (a, b) => parseFloat(a.total_purchased || 0) - parseFloat(b.total_purchased || 0),
+      render: (v, p) => v != null
+        ? <span><span className="qty-m">{fmtQty(v)}</span><span className="qty-u" style={{ marginLeft: 4 }}>{p.unit_of_measurement || 'pcs'}</span></span>
+        : <span className="qty-m">—</span>,
+    },
+    cols.tsale && {
+      key: 'tsale', title: 'Total Sold', dataIndex: 'total_sold', width: 110, align: 'right',
+      sorter: (a, b) => parseFloat(a.total_sold || 0) - parseFloat(b.total_sold || 0),
+      render: (v, p) => v != null
+        ? <span><span className="qty-m">{fmtQty(v)}</span><span className="qty-u" style={{ marginLeft: 4 }}>{p.unit_of_measurement || 'pcs'}</span></span>
+        : <span className="qty-m">—</span>,
+    },
+    cols.pur && {
+      key: 'pur', title: 'Purchase', dataIndex: 'purchase_rate', width: 110, align: 'right',
+      sorter: (a, b) => parseFloat(a.purchase_rate || 0) - parseFloat(b.purchase_rate || 0),
+      render: (v) => <span className="mon-m"><span className="rs">₹</span>{fmtMoney(v)}</span>,
+    },
+    cols.sale && {
+      key: 'sale', title: 'Sale', dataIndex: 'sale_rate', width: 110, align: 'right',
+      sorter: (a, b) => parseFloat(a.sale_rate || 0) - parseFloat(b.sale_rate || 0),
+      render: (v) => <span className="mon-m"><span className="rs">₹</span>{fmtMoney(v)}</span>,
+    },
+    cols.mgn && {
+      key: 'mgn', title: 'Margin', width: 90, align: 'right',
+      sorter: (a, b) => (marginPct(a) ?? -Infinity) - (marginPct(b) ?? -Infinity),
+      render: (_, p) => {
+        const m = marginPct(p);
+        return m != null
+          ? <span className="mg-chip">{m >= 0 ? '+' : ''}{m.toFixed(0)}%</span>
+          : <span className="mg-chip muted">—</span>;
+      },
+    },
+    cols.hlt && {
+      key: 'hlt', title: 'Health', width: 110,
+      sorter: (a, b) => ({ out: 0, low: 1, ok: 2 }[healthOf(a).kind] ?? 3) - ({ out: 0, low: 1, ok: 2 }[healthOf(b).kind] ?? 3),
+      render: (_, p) => {
+        const h = healthOf(p);
+        return <span className={`health ${h.kind}`}><span className="dot" />{h.label}</span>;
+      },
+    },
+    cols.run && {
+      key: 'run', title: 'Last Sold', dataIndex: 'last_sold_at', width: 140,
+      sorter: (a, b) => new Date(a.last_sold_at || 0) - new Date(b.last_sold_at || 0),
+      render: (v) => {
+        if (!v) return <span><span className="rw-m none">never sold</span><span className="rw-s">no sales yet</span></span>;
+        const days = dayjs().diff(dayjs(v), 'day');
+        const cls = days > 60 ? 'urgent' : days > 14 ? 'soon' : 'calm';
+        const label = days === 0 ? 'today'
+                    : days === 1 ? 'yesterday'
+                    : days < 30  ? `${days}d ago`
+                    : days < 365 ? `${Math.round(days/30)}mo ago`
+                    :              `${Math.round(days/365)}y ago`;
+        return (
+          <span>
+            <span className={`rw-m ${cls}`}>{label}</span>
+            <span className="rw-s" style={{ marginLeft: 6 }}>on {dayjs(v).format('DD MMM YYYY')}</span>
+          </span>
+        );
+      },
+    },
+    cols.val && {
+      key: 'val', title: 'Stock Value', width: 130, align: 'right',
+      sorter: (a, b) =>
+        (parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0)) -
+        (parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0)),
+      render: (_, p) => {
+        const v = parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0);
+        return v > 0
+          ? <span className="mon-m"><span className="rs">₹</span>{fmtMoney(v)}</span>
+          : <span className="mon-m zero">—</span>;
+      },
+    },
+    {
+      key: 'act', title: '', width: 110, align: 'center', fixed: 'right',
+      render: (_, p) => {
+        const groupStyle = { display: 'inline-flex', gap: 4, opacity: 1, pointerEvents: 'auto' };
+        return (
+          <div style={groupStyle}>
+            <Tooltip title="Stock movement">
+              <button className="abtn primary" onClick={(e) => { e.stopPropagation(); navigate(`/stock-movement/${p.product_id}`); }}>
+                <ArrowRightOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Edit">
+              <button className="abtn" onClick={(e) => { e.stopPropagation(); openForm(p); }}>
+                <EditOutlined />
+              </button>
+            </Tooltip>
+          </div>
+        );
+      },
+    },
+  ].filter(Boolean);
+
+  /* ── Total strip ── */
+  const SUMMABLE_KEYS = new Set(['val']);
+  const firstAggIdx = (() => {
+    const idx = columns.findIndex((c) => SUMMABLE_KEYS.has(c.key));
+    return idx === -1 ? columns.length : idx;
+  })();
+  const summaryCells = (col, idx) => {
+    if (idx === 0) return totalCount > 0 ? `Total (${totalCount} SKU${totalCount === 1 ? '' : 's'})` : null;
+    if (idx > 0 && idx < firstAggIdx) return null;
+    if (col.key === 'val') {
+      return <strong><span className="rs">₹</span>{fmtMoney(stockValue)}</strong>;
     }
-    return { all: products.length, in: inStock, low, out, top, dead };
-  }, [products]);
-
-  const filtered = useMemo(() => {
-    const today = dayjs();
-
-    // 1. Filter
-    let result = products.filter(p => {
-      if (catFilters.size > 0 && !catFilters.has(p.category_id)) return false;
-      if (statusFilter === 'all') return true;
-      const h = healthOf(p);
-      if (statusFilter === 'in')   return h.kind === 'ok';
-      if (statusFilter === 'low')  return h.kind === 'low';
-      if (statusFilter === 'out')  return h.kind === 'out';
-      if (statusFilter === 'top')  return parseFloat(p.total_sold || 0) > 0;
-      if (statusFilter === 'dead') {
-        const stale = !p.last_sold_at || today.diff(dayjs(p.last_sold_at), 'day') > 60;
-        return stale && parseFloat(p.current_stock || 0) > 0;
-      }
-      return true;
-    });
-
-    // 2. Sort — explicit user sort takes precedence; otherwise Top Selling
-    //    implies "by total_sold desc" so the chip shows its name-sake order.
-    const getters = {
-      cat:   p => (p.Category?.category_name || categories.find(c => c.category_id === p.category_id)?.category_name || '').toLowerCase(),
-      prod:  p => (p.product_name || '').toLowerCase(),
-      hsn:   p => (p.hsn_code || '').toString().toLowerCase(),
-      gst:   p => parseFloat(p.gst_rate || 0),
-      stk:   p => parseFloat(p.current_stock || 0),
-      tpur:  p => parseFloat(p.total_purchased || 0),
-      tsale: p => parseFloat(p.total_sold || 0),
-      pur:   p => parseFloat(p.purchase_rate || 0),
-      sale:  p => parseFloat(p.sale_rate || 0),
-      mgn:   p => marginPct(p) ?? -Infinity,
-      hlt:   p => ({ out: 0, low: 1, ok: 2 }[healthOf(p).kind] ?? 3),
-      run:   p => p.last_sold_at ? new Date(p.last_sold_at).getTime() : 0,
-      val:   p => parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0),
-    };
-    if (sortKey && getters[sortKey]) {
-      const g = getters[sortKey];
-      result = [...result].sort((a, b) => {
-        const va = g(a), vb = g(b);
-        if (va < vb) return sortDir === 'asc' ? -1 : 1;
-        if (va > vb) return sortDir === 'asc' ? 1 : -1;
-        return 0;
-      });
-    } else if (statusFilter === 'top') {
-      result = [...result].sort((a, b) => parseFloat(b.total_sold || 0) - parseFloat(a.total_sold || 0));
-    }
-
-    return result;
-  }, [products, statusFilter, catFilters, sortKey, sortDir, categories]);
-
-  /* ── totals for hero cards ── */
-  const heroStats = useMemo(() => {
-    let value = 0, low = 0, out = 0;
-    for (const p of products) {
-      const stk = parseFloat(p.current_stock || 0);
-      const pur = parseFloat(p.purchase_rate || 0);
-      value += stk * pur;
-      const h = healthOf(p);
-      if (h.kind === 'low') low++;
-      if (h.kind === 'out') out++;
-    }
-    return { value, low, out };
-  }, [products]);
-
-  /* ── page totals ── */
-  const pageValue = useMemo(
-    () => filtered.reduce((a, p) => a + parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0), 0),
-    [filtered]
-  );
-
-  const visibleColCount = useMemo(
-    () => COL_DEFS.filter(c => cols[c.key] || c.fixed).length,
-    [cols]
-  );
-
-  /* ── render helpers ── */
-  const colClass = (key) => `ed-c-${key}${cols[key] || COL_DEFS.find(c => c.key === key)?.fixed ? '' : ' col-off'}`;
-
-  const sortHeader = (key, label) => {
-    const active = sortKey === key;
-    return (
-      <span
-        data-sortable={key}
-        className={active ? 'active' : ''}
-        onClick={(e) => { e.stopPropagation(); toggleSort(key); }}
-      >
-        {label}
-        <span className="sort-arrow">{active ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
-      </span>
-    );
+    return null;
   };
+  const summaryColSpan = (col, idx) => {
+    if (idx === 0) return Math.max(1, firstAggIdx);
+    if (idx > 0 && idx < firstAggIdx) return 0;
+    return 1;
+  };
+
+  /* ── Customize popover content ── */
+  const customizePopoverContent = (
+    <div className="cols-menu" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 0 }}>
+      <div className="grp">
+        <div className="gh">
+          <span>Columns</span>
+          <button className="gh-reset" type="button" onClick={() => setCols(DEFAULT_COLS)}>Reset</button>
+        </div>
+        {COL_DEFS.map(c => (
+          <label key={c.key} className={`opt${c.fixed ? ' fixed' : ''}`}>
+            <input
+              type="checkbox"
+              checked={!!cols[c.key] || !!c.fixed}
+              disabled={!!c.fixed}
+              onChange={(e) => setCols(prev => ({ ...prev, [c.key]: e.target.checked }))}
+            />
+            <span>{c.label}</span>
+            {c.fixed && <span className="pin">Fixed</span>}
+          </label>
+        ))}
+      </div>
+      <div className="grp">
+        <div className="gh"><span>Page Sections</span></div>
+        {SEC_DEFS.map(s => (
+          <label key={s.key} className="opt">
+            <input
+              type="checkbox"
+              checked={!!cols[s.key]}
+              onChange={(e) => setCols(prev => ({ ...prev, [s.key]: e.target.checked }))}
+            />
+            <span>{s.label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="ed-prod">
@@ -403,7 +432,7 @@ export default function ProductList() {
       <div className="ed-hd">
         <div className="ed-title">
           <h1>Products</h1>
-          <div className="sub"><b>{total}</b> items · {categories.length} categor{categories.length === 1 ? 'y' : 'ies'}</div>
+          <div className="sub"><b>{totalSku}</b> items · {categories.length} categor{categories.length === 1 ? 'y' : 'ies'}</div>
         </div>
         <div className="ed-ctrl">
           <div className="ed-search">
@@ -411,56 +440,17 @@ export default function ProductList() {
             <input
               type="text"
               placeholder="Search name, barcode, HSN"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
             />
           </div>
 
-          <div className="ed-cols-wrap" ref={colsWrapRef}>
-            <button
-              className={`ed-cols-btn${colsOpen ? ' open' : ''}`}
-              onClick={(e) => { e.stopPropagation(); setColsOpen(v => !v); }}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-              Columns <span className="badge">{visibleColCount} / {COL_DEFS.length}</span>
+          <Dropdown trigger={['click']} placement="bottomRight" dropdownRender={() => customizePopoverContent}>
+            <button className="ed-cols-btn">
+              <SettingOutlined /> Customize
+              <span className="badge">{visibleColCount} / {COL_DEFS.length}</span>
             </button>
-            {colsOpen && (
-              <div className="ed-cols-menu open" role="menu">
-                <div className="grp">
-                  <div className="gh">
-                    <span>Columns</span>
-                    <button className="gh-reset" type="button"
-                      onClick={() => { setCols({ ...DEFAULT_COLS }); setSecs({ ...DEFAULT_SECS }); }}>Reset</button>
-                  </div>
-                  {COL_DEFS.map(c => (
-                    <label key={c.key} className={`opt${c.fixed ? ' fixed' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={!!cols[c.key] || !!c.fixed}
-                        disabled={!!c.fixed}
-                        onChange={(e) => setCols(prev => ({ ...prev, [c.key]: e.target.checked }))}
-                      />
-                      <span>{c.label}</span>
-                      {c.fixed && <span className="pin">Fixed</span>}
-                    </label>
-                  ))}
-                </div>
-                <div className="grp">
-                  <div className="gh"><span>Page Sections</span></div>
-                  {SEC_DEFS.map(s => (
-                    <label key={s.key} className="opt">
-                      <input
-                        type="checkbox"
-                        checked={!!secs[s.key]}
-                        onChange={(e) => setSecs(prev => ({ ...prev, [s.key]: e.target.checked }))}
-                      />
-                      <span>{s.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          </Dropdown>
 
           <span className="ed-divider" />
           <button className="ed-cta ghost" onClick={() => navigate('/stock-movement')}>
@@ -479,27 +469,27 @@ export default function ProductList() {
       </div>
 
       {/* ── KPI cards ── */}
-      {secs.hero && (
+      {cols.hero && (
         <div className="ed-hero">
           <div className="ed-hero-row">
             <div className="ed-kpi value">
               <div className="txt">
                 <div className="k">Stock Value · On Hand</div>
-                <div className="v">₹ {fmtMoney(heroStats.value)}</div>
-                <div className="s">at purchase cost · {total} SKUs</div>
+                <div className="v">₹ {fmtMoney(stockValue)}</div>
+                <div className="s">at purchase cost · {totalSku} SKUs</div>
               </div>
             </div>
             <div className="ed-kpi low">
               <div className="txt">
                 <div className="k">Low Stock</div>
-                <div className="v">{heroStats.low} items</div>
+                <div className="v">{lowCount} items</div>
                 <div className="s">at or below reorder level</div>
               </div>
             </div>
             <div className="ed-kpi out">
               <div className="txt">
                 <div className="k">Out of Stock</div>
-                <div className="v">{heroStats.out} items</div>
+                <div className="v">{outCount} items</div>
                 <div className="s">zero on hand · reorder urgent</div>
               </div>
             </div>
@@ -507,255 +497,64 @@ export default function ProductList() {
         </div>
       )}
 
-      {/* ── Filter chips + Categories dropdown ── */}
-      {secs.filter && (
-        <div className="ed-filter">
-          <span className="ed-filter-lbl">Filter</span>
-          <button className={`ed-lens${statusFilter === 'all' ? ' on' : ''}`} onClick={() => setStatusFilter('all')}>
-            All <span className="n">{statusCounts.all}</span>
-          </button>
-          <button className={`ed-lens${statusFilter === 'in' ? ' on' : ''}`} onClick={() => setStatusFilter('in')}>
-            In Stock <span className="n">{statusCounts.in}</span>
-          </button>
-          <button className={`ed-lens warn${statusFilter === 'low' ? ' on' : ''}`} onClick={() => setStatusFilter('low')}>
-            Low <span className="n">{statusCounts.low}</span>
-          </button>
-          <button className={`ed-lens danger${statusFilter === 'out' ? ' on' : ''}`} onClick={() => setStatusFilter('out')}>
-            Out <span className="n">{statusCounts.out}</span>
-          </button>
-          <button className={`ed-lens${statusFilter === 'top' ? ' on' : ''}`} onClick={() => setStatusFilter('top')}>
-            Top Selling <span className="n">{statusCounts.top}</span>
-          </button>
-          <button className={`ed-lens danger${statusFilter === 'dead' ? ' on' : ''}`} onClick={() => setStatusFilter('dead')}>
-            Dead Stock <span className="n">{statusCounts.dead}</span>
-          </button>
+      {/* ── Filter chips + Category multi-select ── */}
+      <div className="ed-filter">
+        <span className="ed-filter-lbl">Filter</span>
+        <button className={`ed-lens${!filters.stock_status ? ' on' : ''}`} onClick={() => setFilters(f => ({ ...f, stock_status: null }))}>
+          All <span className="n">{totalSku}</span>
+        </button>
+        <button className={`ed-lens${filters.stock_status === 'in' ? ' on' : ''}`} onClick={() => setFilters(f => ({ ...f, stock_status: 'in' }))}>
+          In Stock <span className="n">{inCount}</span>
+        </button>
+        <button className={`ed-lens warn${filters.stock_status === 'low' ? ' on' : ''}`} onClick={() => setFilters(f => ({ ...f, stock_status: 'low' }))}>
+          Low <span className="n">{lowCount}</span>
+        </button>
+        <button className={`ed-lens danger${filters.stock_status === 'out' ? ' on' : ''}`} onClick={() => setFilters(f => ({ ...f, stock_status: 'out' }))}>
+          Out <span className="n">{outCount}</span>
+        </button>
+        <button className={`ed-lens${filters.stock_status === 'top' ? ' on' : ''}`} onClick={() => setFilters(f => ({ ...f, stock_status: 'top' }))}>
+          Top Selling <span className="n">{topCount}</span>
+        </button>
+        <button className={`ed-lens danger${filters.stock_status === 'dead' ? ' on' : ''}`} onClick={() => setFilters(f => ({ ...f, stock_status: 'dead' }))}>
+          Dead Stock <span className="n">{deadCount}</span>
+        </button>
 
-          <span className="ed-divider" />
+        <span className="ed-divider" />
 
-          {/* Categories: multi-select dropdown */}
-          <div className="ed-cols-wrap" ref={catWrapRef}>
-            <button
-              className={`ed-cols-btn${catOpen ? ' open' : ''}${catFilters.size > 0 ? ' on' : ''}`}
-              onClick={(e) => { e.stopPropagation(); setCatOpen(v => !v); }}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 7h-4l-2-2H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg>
-              {catFilters.size === 0 ? 'Categories' : `${catFilters.size} categor${catFilters.size === 1 ? 'y' : 'ies'}`}
-              {catFilters.size > 0 && <span className="badge">{catFilters.size}</span>}
-            </button>
-            {catOpen && (
-              <div className="ed-cols-menu open" role="menu">
-                <div className="grp">
-                  <div className="gh">
-                    <span>Show categories</span>
-                    <button className="gh-reset" type="button" onClick={() => setCatFilters(new Set())}>Clear</button>
-                  </div>
-                  <label className="opt">
-                    <input
-                      type="checkbox"
-                      checked={catFilters.size === 0}
-                      onChange={() => setCatFilters(new Set())}
-                    />
-                    <span>All categories</span>
-                    <span className="pin">{categories.length}</span>
-                  </label>
-                  {categories.map(c => (
-                    <label key={c.category_id} className="opt">
-                      <input
-                        type="checkbox"
-                        checked={catFilters.has(c.category_id)}
-                        onChange={(e) => {
-                          setCatFilters(prev => {
-                            const next = new Set(prev);
-                            if (e.target.checked) next.add(c.category_id); else next.delete(c.category_id);
-                            return next;
-                          });
-                        }}
-                      />
-                      <span>{c.category_name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Active sort indicator + clear */}
-          {sortKey && (
-            <button
-              className="ed-lens"
-              onClick={() => { setSortKey(null); setSortDir('asc'); }}
-              title="Clear sort"
-            >
-              Sort: {COL_DEFS.find(c => c.key === sortKey)?.label || sortKey} {sortDir === 'asc' ? '↑' : '↓'} ✕
-            </button>
-          )}
-        </div>
-      )}
+        <Select
+          mode="multiple"
+          allowClear
+          placeholder="All categories"
+          style={{ minWidth: 220, maxWidth: 420 }}
+          value={filters.category_id || []}
+          onChange={(v) => setFilters(f => ({ ...f, category_id: (v && v.length) ? v : null }))}
+          options={categories.map(c => ({ value: c.category_id, label: c.category_name }))}
+          showSearch
+          optionFilterProp="label"
+          maxTagCount="responsive"
+        />
+      </div>
 
       {/* ── Table ── */}
       <div className="ed-list-wrap">
-        <div className="ed-list">
-
-          <div className="ed-row head">
-            <div className={colClass('sr')}>#</div>
-            <div className={colClass('cat')}>{sortHeader('cat', 'Category')}</div>
-            <div className={colClass('prod')}>{sortHeader('prod', 'Product')}</div>
-            <div className={colClass('hsn')}>{sortHeader('hsn', 'HSN')}</div>
-            <div className={colClass('gst')}>{sortHeader('gst', 'GST %')}</div>
-            <div className={colClass('bc')}>Barcode</div>
-            <div className={colClass('stk')}>{sortHeader('stk', 'Stock')}</div>
-            <div className={colClass('tpur')}>{sortHeader('tpur', 'Total Pur.')}</div>
-            <div className={colClass('tsale')}>{sortHeader('tsale', 'Total Sold')}</div>
-            <div className={colClass('pur')}>{sortHeader('pur', 'Purchase')}</div>
-            <div className={colClass('sale')}>{sortHeader('sale', 'Sale')}</div>
-            <div className={colClass('mgn')}>{sortHeader('mgn', 'Margin')}</div>
-            <div className={colClass('hlt')}>{sortHeader('hlt', 'Health')}</div>
-            <div className={colClass('run')}>{sortHeader('run', 'Last Sold')}</div>
-            <div className={colClass('val')}>{sortHeader('val', 'Value')}</div>
-            <div className={colClass('act')} />
-          </div>
-
-          <div className="ed-scroll">
-            {loading ? (
-              <div className="ed-empty"><Spin /></div>
-            ) : filtered.length === 0 ? (
-              <div className="ed-empty">
-                {search ? `No products match "${search}"` : 'No products yet — click New Item to add one.'}
-              </div>
-            ) : (
-              <>
-                {filtered.map((p, idx) => {
-                  const h = healthOf(p);
-                  const m = marginPct(p);
-                  const stockVal = parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0);
-                  const catName = p.Category?.category_name || categories.find(c => c.category_id === p.category_id)?.category_name || '—';
-                  return (
-                    <div
-                      key={p.product_id}
-                      className="ed-row data"
-                      onClick={() => navigate(`/stock-movement/${p.product_id}`)}
-                    >
-                      <div className={colClass('sr')}>
-                        <span className="sr-n">{String(idx + 1).padStart(2, '0')}</span>
-                      </div>
-                      <div className={colClass('cat')}>
-                        <span className="cat-pill">
-                          <span className="cat-dot" style={{ background: catColor(catName) }} />
-                          {catName}
-                        </span>
-                      </div>
-                      <div className={colClass('prod')}>
-                        <span className="p-name">{p.product_name}</span>
-                        {p.size_value && <span className="p-var">{p.size_value}</span>}
-                      </div>
-                      <div className={colClass('hsn')}>
-                        <span className="mono">{p.hsn_code || '—'}</span>
-                      </div>
-                      <div className={colClass('gst')}>
-                        <span className="gst-pct">{p.gst_rate != null ? `${p.gst_rate}%` : '—'}</span>
-                      </div>
-                      <div className={colClass('bc')}>
-                        <span className="bc">{p.barcode || '—'}</span>
-                      </div>
-                      <div className={colClass('stk')}>
-                        <span className={`qty-m${parseFloat(p.current_stock || 0) === 0 ? ' zero' : ''}`}>
-                          {fmtQty(p.current_stock)}
-                        </span>
-                        <span className="qty-u">{p.unit_of_measurement || 'pcs'}</span>
-                      </div>
-                      <div className={colClass('tpur')}>
-                        <span className="qty-m">{p.total_purchased != null ? fmtQty(p.total_purchased) : '—'}</span>
-                        {p.total_purchased != null && <span className="qty-u">{p.unit_of_measurement || 'pcs'}</span>}
-                      </div>
-                      <div className={colClass('tsale')}>
-                        <span className="qty-m">{p.total_sold != null ? fmtQty(p.total_sold) : '—'}</span>
-                        {p.total_sold != null && <span className="qty-u">{p.unit_of_measurement || 'pcs'}</span>}
-                      </div>
-                      <div className={colClass('pur')}>
-                        <span className="mon-m"><span className="rs">₹</span>{fmtMoney(p.purchase_rate)}</span>
-                      </div>
-                      <div className={colClass('sale')}>
-                        <span className="mon-m"><span className="rs">₹</span>{fmtMoney(p.sale_rate)}</span>
-                      </div>
-                      <div className={colClass('mgn')}>
-                        {m != null
-                          ? <span className="mg-chip">{m >= 0 ? '+' : ''}{m.toFixed(0)}%</span>
-                          : <span className="mg-chip muted">—</span>}
-                      </div>
-                      <div className={colClass('hlt')}>
-                        <span className={`health ${h.kind}`}><span className="dot" />{h.label}</span>
-                      </div>
-                      <div className={colClass('run')}>
-                        {p.last_sold_at ? (() => {
-                          const days = dayjs().diff(dayjs(p.last_sold_at), 'day');
-                          const cls = days > 60 ? 'urgent' : days > 14 ? 'soon' : 'calm';
-                          const label = days === 0 ? 'today'
-                                      : days === 1 ? 'yesterday'
-                                      : days < 30  ? `${days}d ago`
-                                      : days < 365 ? `${Math.round(days/30)}mo ago`
-                                      :              `${Math.round(days/365)}y ago`;
-                          return (
-                            <>
-                              <span className={`rw-m ${cls}`}>{label}</span>
-                              <span className="rw-s">on {dayjs(p.last_sold_at).format('DD MMM YYYY')}</span>
-                            </>
-                          );
-                        })() : (
-                          <>
-                            <span className="rw-m none">never sold</span>
-                            <span className="rw-s">no sales yet</span>
-                          </>
-                        )}
-                      </div>
-                      <div className={colClass('val')}>
-                        {stockVal > 0
-                          ? <span className="mon-m"><span className="rs">₹</span>{fmtMoney(stockVal)}</span>
-                          : <span className="mon-m zero">—</span>}
-                      </div>
-                      <div className={colClass('act')}>
-                        <div className="act-box">
-                          <div className="act-group">
-                            <button
-                              className="abtn primary"
-                              data-tip="Stock movement"
-                              onClick={(e) => { e.stopPropagation(); navigate(`/stock-movement/${p.product_id}`); }}
-                            >
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M13 5l7 7-7 7"/></svg>
-                            </button>
-                            <button
-                              className="abtn"
-                              data-tip="Edit"
-                              onClick={(e) => { e.stopPropagation(); openForm(p); }}
-                            >
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                <div ref={listEndRef} style={{ padding: 8, textAlign: 'center' }}>
-                  {loadingMore
-                    ? <Spin size="small" />
-                    : products.length < total
-                      ? <span style={{ fontSize: 12, color: 'var(--ed-fg-3)' }}>Scroll for more…</span>
-                      : null}
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="ed-foot">
-            <span>Shown: <b>{filtered.length}{products.length < total ? ` of ${total}` : ''}</b></span>
-            <span>Page value: <b>₹ {fmtMoney(pageValue)}</b></span>
-            <span>Low: <b style={{ color: 'var(--ed-warn)' }}>{statusCounts.low}</b></span>
-            <span>Out: <b style={{ color: 'var(--ed-danger)' }}>{statusCounts.out}</b></span>
-          </div>
-        </div>
+        <VirtualReportTable
+          columns={columns}
+          rows={rows}
+          totalCount={totalCount}
+          ensureChunk={ensureChunk}
+          loading={loading}
+          rowKey="product_id"
+          scroll={{ x: 1400 }}
+          onRow={(record) => ({
+            onClick: () => { if (record && record.product_id) navigate(`/stock-movement/${record.product_id}`); },
+            style: record && record.product_id ? { cursor: 'pointer' } : undefined,
+          })}
+          summaryCells={cols.totalRow ? summaryCells : undefined}
+          summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
+        />
       </div>
 
-      {/* ── Add / Edit modal (unchanged AntD form) ── */}
+      {/* ── Add / Edit modal — unchanged from the editorial version ── */}
       <Modal
         title={editing ? `Edit — ${editing.product_name}` : 'Add New Product'}
         open={formVisible}

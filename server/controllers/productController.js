@@ -74,7 +74,16 @@ exports.getAll = async (req, res) => {
         ];
       }
     }
-    if (category_id) where.category_id = category_id;
+    // category_id: accept either a single value (legacy callers) or an
+    // array (the multi-category Select on the Products page). Filter
+    // out non-numeric junk so a tampered query can't smuggle SQL.
+    if (category_id != null && category_id !== '') {
+      const ids = (Array.isArray(category_id) ? category_id : [category_id])
+        .map((x) => parseInt(x, 10))
+        .filter(Number.isFinite);
+      if (ids.length === 1) where.category_id = ids[0];
+      else if (ids.length > 1) where.category_id = { [Op.in]: ids };
+    }
     // "Low stock" means BELOW a configured reorder level — products with no level set (0)
     // should never count as "low" just because current_stock also happens to be 0.
     // Without the > 0 guard, every freshly imported product with 0 opening stock and
@@ -84,6 +93,41 @@ exports.getAll = async (req, res) => {
       where.minimum_stock_level = { [Op.gt]: 0 };
     }
     if (stock_status === 'out') where.current_stock = { [Op.lte]: 0 };
+    // Top Selling: any product that has at least one Sales row in
+    // stock_ledger. Correlated subquery — relies on the standard
+    // (product_id, transaction_type) index for speed.
+    if (stock_status === 'top') {
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        require('sequelize').literal(
+          `EXISTS (
+            SELECT 1 FROM stock_ledger sl
+             WHERE sl.product_id = "Product"."product_id"
+               AND sl.transaction_type = 'Sales'
+               AND sl.quantity_out > 0
+          )`
+        ),
+      ];
+    }
+    // Dead Stock: has on-hand stock but no Sales row in the last 60
+    // days (covers both "never sold" and "stale" cases). Mirror of the
+    // editorial healthOf() definition. NOT EXISTS short-circuits on
+    // the first qualifying row, so this stays cheap even for shops
+    // with millions of stock-ledger rows.
+    if (stock_status === 'dead') {
+      where.current_stock = { [Op.gt]: 0 };
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        require('sequelize').literal(
+          `NOT EXISTS (
+            SELECT 1 FROM stock_ledger sl
+             WHERE sl.product_id = "Product"."product_id"
+               AND sl.transaction_type = 'Sales'
+               AND sl.transaction_date >= NOW() - INTERVAL '60 days'
+          )`
+        ),
+      ];
+    }
 
     // When searching by name: prioritise "starts with" results over "contains" results
     const { literal } = require('sequelize');
@@ -135,7 +179,64 @@ exports.getAll = async (req, res) => {
       });
     }
 
-    res.json({ total: count, page, limit, data });
+    // Summary aggregates over the FULL filtered set — KPI cards and the
+    // sticky bottom Total strip on the product list read these so they
+    // stay correct regardless of which chunks the user has scrolled
+    // past. Stock value uses purchase_rate (cost basis) — same formula
+    // the editorial product list used client-side.
+    const totals = await Product.findAll({
+      where,
+      attributes: [
+        [fn('COUNT', col('Product.product_id')), 'total_count'],
+        [fn('COALESCE', fn('SUM', literal('current_stock * purchase_rate')), 0), 'total_stock_value'],
+        // "Out of stock" — current_stock <= 0
+        [fn('COUNT', literal('CASE WHEN current_stock <= 0 THEN 1 END')), 'out_count'],
+        // "Low" — 0 < current_stock <= minimum_stock_level (and a min is set)
+        [fn('COUNT', literal(
+          'CASE WHEN current_stock > 0 AND minimum_stock_level > 0 AND current_stock <= minimum_stock_level THEN 1 END'
+        )), 'low_count'],
+        // "Top selling" — has at least one Sales row in stock_ledger.
+        // Correlated EXISTS so the count stays cheap with the standard
+        // (product_id, transaction_type) index.
+        [fn('COUNT', literal(
+          `CASE WHEN EXISTS (
+             SELECT 1 FROM stock_ledger sl
+              WHERE sl.product_id = "Product"."product_id"
+                AND sl.transaction_type = 'Sales'
+                AND sl.quantity_out > 0
+           ) THEN 1 END`
+        )), 'top_count'],
+        // "Dead stock" — has on-hand stock but no Sales in the last 60
+        // days (covers never-sold and stale cases). Mirror of the
+        // healthOf() definition the client used.
+        [fn('COUNT', literal(
+          `CASE WHEN current_stock > 0 AND NOT EXISTS (
+             SELECT 1 FROM stock_ledger sl
+              WHERE sl.product_id = "Product"."product_id"
+                AND sl.transaction_type = 'Sales'
+                AND sl.transaction_date >= NOW() - INTERVAL '60 days'
+           ) THEN 1 END`
+        )), 'dead_count'],
+      ],
+      raw: true,
+    });
+    const t = totals[0] || {};
+    const total_count       = parseInt(t.total_count || 0, 10);
+    const out_count         = parseInt(t.out_count || 0, 10);
+    const low_count         = parseInt(t.low_count || 0, 10);
+    const summary = {
+      total_count,
+      total_stock_value: +parseFloat(t.total_stock_value || 0).toFixed(2),
+      out_count,
+      low_count,
+      // "In stock" = total minus low minus out (kept consistent with the
+      // editorial healthOf() classification on the client).
+      in_count:  Math.max(0, total_count - low_count - out_count),
+      top_count: parseInt(t.top_count || 0, 10),
+      dead_count: parseInt(t.dead_count || 0, 10),
+    };
+
+    res.json({ total: count, page, limit, data, summary });
   } catch (error) {
     console.error('Get products error:', error);
     res.status(500).json({ error: 'Server error' });

@@ -1,24 +1,21 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Table, DatePicker, Button, message, Spin, Checkbox, Popover, Input } from 'antd';
+import { DatePicker, Button, message, Checkbox, Popover, Input } from 'antd';
 import { SettingOutlined, PrinterOutlined, DownloadOutlined, SearchOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import VirtualReportTable from '../../components/VirtualReportTable';
 
 /*
  * Day Book — Tally-style chronological voucher list.
  *
- * Layout (matches Sales Report chrome — single editorial language across reports):
- *   - Header: title + voucher-count subtitle + date pill + Sort / Customize /
- *     Excel / Print buttons (no period preset segmented control — Day Book is
- *     a daily-operations view, not a fiscal-period report)
- *   - KPI strip: voucher count, total Dr/Cr, type-specific counts (customizable)
- *   - Filter bar: search + voucher-type chips
- *   - Table panel: sticky thead + sticky Total footer; inner body scrolls,
- *     so the page never overflows (totals always pinned to the bottom edge)
- *
- * Click a voucher row to drill into the source bill/voucher edit page.
+ * Data is loaded in one shot (the dayBook endpoint returns the full set
+ * for the date range — no server-side pagination yet); voucher-type
+ * filtering, free-text search, and the bottom Total are all computed
+ * client-side over the loaded set. Virtualization in the wrapper keeps
+ * the DOM bounded even when a wide date range loads tens of thousands
+ * of vouchers.
  */
 
 const VOUCHER_TYPES = [
@@ -27,13 +24,14 @@ const VOUCHER_TYPES = [
 ];
 
 const ALL_COLS = [
-  { key: 'date',      label: 'Date',         default: true  },
-  { key: 'type',      label: 'Voucher Type', default: true  },
-  { key: 'no',        label: 'Voucher No',   default: true  },
-  { key: 'party',     label: 'Party / Account', default: true },
-  { key: 'debit',     label: 'Debit',        default: true  },
-  { key: 'credit',    label: 'Credit',       default: true  },
-  { key: 'narration', label: 'Narration',    default: false },
+  { key: 'sr_no',     label: 'Sr No',           default: true  },
+  { key: 'date',      label: 'Date',            default: true  },
+  { key: 'type',      label: 'Voucher Type',    default: true  },
+  { key: 'no',        label: 'Voucher No',      default: true  },
+  { key: 'party',     label: 'Party / Account', default: true  },
+  { key: 'debit',     label: 'Debit',           default: true  },
+  { key: 'credit',    label: 'Credit',          default: true  },
+  { key: 'narration', label: 'Narration',       default: false },
 ];
 const COLS_STORAGE_KEY = 'dayBook_cols_v1';
 const DEFAULT_COLS = ALL_COLS.reduce((o, c) => ({ ...o, [c.key]: c.default }), {});
@@ -121,38 +119,12 @@ export default function DayBook() {
       return saved && typeof saved === 'object' ? { ...DEFAULT_KPIS, ...saved } : DEFAULT_KPIS;
     } catch { return DEFAULT_KPIS; }
   });
-  // Measured height of the table body's scroll area. AntD's `sticky` prop
-  // pins headers/summary to the *page* viewport, but our layout scrolls
-  // inside the table panel — so sticky never engages and with real data the
-  // thead and summary row got clipped right out of the visible panel. Setting
-  // a numeric `scroll.y` switches AntD into fixed-header mode where the
-  // thead and `Table.Summary fixed` footer stay pinned to the panel edges
-  // and only the data rows scroll. The value is the panel height minus
-  // ~80px reserved for thead + summary + the 1px borders.
-  const tblPanelRef = useRef(null);
-  const [bodyMaxH, setBodyMaxH] = useState(undefined);
-  useEffect(() => {
-    const el = tblPanelRef.current;
-    if (!el) return;
-    const update = () => {
-      const h = el.clientHeight;
-      // Min 120 so the body never collapses on the smallest viewport;
-      // the 80px reserve covers thead (~38) + summary (~38) + borders.
-      setBodyMaxH(Math.max(120, h - 80));
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // Hydrate the date window from FY when it arrives async (first paint may
   // happen before the settings call resolves; pickers default to "today" then).
   useEffect(() => {
     if (!fyStart || !fyEnd) return;
     setFilters((f) => {
-      // Don't clobber an operator-chosen window — only fill in if still
-      // sitting on the synchronous fallback (dayjs().startOf('month') etc).
       const todayMonthStart = dayjs().startOf('month').format('YYYY-MM-DD');
       const todayMonthEnd   = dayjs().endOf('month').format('YYYY-MM-DD');
       if (f.from_date === todayMonthStart && f.to_date === todayMonthEnd) {
@@ -235,6 +207,8 @@ export default function DayBook() {
   const typeCounts = summary.counts_by_type || {};
 
   const COL_SPECS = useMemo(() => ({
+    sr_no: { title: 'Sr', width: 56, align: 'center',
+             render: (_v, _r, idx) => <span style={{ color: 'var(--fg-tertiary)', fontFamily: 'Geist Mono, monospace' }}>{idx + 1}</span> },
     date:  { title: 'Date', dataIndex: 'entry_date', width: 110,
              render: (v) => dayjs(v).format('DD/MM/YYYY') },
     type:  { title: 'Voucher Type', dataIndex: 'voucher_type', width: 130,
@@ -259,8 +233,6 @@ export default function DayBook() {
     return ALL_COLS.filter(c => colsVisible[c.key]).map(c => ({ key: c.key, ...COL_SPECS[c.key] }));
   }, [colsVisible, COL_SPECS]);
 
-  // Customize popover — KPI cards (top) + columns (bottom). Same shape as Sales
-  // Report so the operator's mental model carries across reports.
   const customizePopoverContent = (
     <div style={{ width: 360, maxHeight: '70vh', overflowY: 'auto' }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>KPI Cards</div>
@@ -292,19 +264,35 @@ export default function DayBook() {
     });
   };
 
+  // Bottom Total — uses client-filtered totals (totals reflect what's
+  // currently visible, not the full loaded set). Same colSpan-merge
+  // pattern as Sales/Purchase: leading non-aggregable columns merge
+  // into one wide cell holding the "Total (N)" label.
+  const SUMMABLE_KEYS = useMemo(() => new Set(['debit', 'credit']), []);
+  const firstAggIdx = useMemo(() => {
+    const idx = columns.findIndex((c) => SUMMABLE_KEYS.has(c.key));
+    return idx === -1 ? columns.length : idx;
+  }, [columns, SUMMABLE_KEYS]);
+
+  const summaryCells = (col, idx) => {
+    if (idx === 0) return filteredData.length > 0 ? `Total (${filteredData.length})` : null;
+    if (idx > 0 && idx < firstAggIdx) return null;
+    if (col.key === 'debit')  return fmt(filteredTotals.dr);
+    if (col.key === 'credit') return fmt(filteredTotals.cr);
+    return null;
+  };
+
+  const summaryColSpan = (col, idx) => {
+    if (idx === 0) return Math.max(1, firstAggIdx);
+    if (idx > 0 && idx < firstAggIdx) return 0;
+    return 1;
+  };
+
   const fyLabel = fyStart ? `FY ${dayjs(fyStart).format('YYYY')}-${dayjs(fyEnd).format('YY')}` : '';
   const voucherCount = summary.voucher_count || 0;
 
   return (
     <div className="report-editorial" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* ─── HEADER — title + date pill + actions
-       *
-       * Same .rpt-page-hd structure Sales Report uses; only the alignment is
-       * tightened to center so the right-side controls sit on the optical
-       * centerline of the title block (flex-end leaves a small hollow band
-       * above the controls because Day Book has no period segmented control
-       * to match the title's two-line height).
-       * ─────────────────────────────────────────────────────────────────── */}
       <div className="rpt-page-hd" style={{ alignItems: 'center' }}>
         <div className="rpt-title">
           <h1>Day Book</h1>
@@ -339,7 +327,6 @@ export default function DayBook() {
         </div>
       </div>
 
-      {/* ─── KPI STRIP ─── */}
       {ALL_KPIS.some((k) => kpisVisible[k.key]) && (
         <div className="rpt-kpis">
           {ALL_KPIS.filter((k) => kpisVisible[k.key]).map((k) => (
@@ -351,7 +338,6 @@ export default function DayBook() {
         </div>
       )}
 
-      {/* ─── FILTER BAR — search + voucher-type chips ─── */}
       <div className="rpt-filter">
         <Input
           className="rpt-search"
@@ -381,43 +367,21 @@ export default function DayBook() {
         })}
       </div>
 
-      {/* ─── TABLE ─── */}
       <div className="rpt-tbl-wrap">
-        <div ref={tblPanelRef} className="report-table-scroll rpt-tbl">
-          <Table
-            columns={columns}
-            dataSource={filteredData}
-            rowKey="entry_number"
-            loading={loading}
-            size="small"
-            scroll={{ x: 1100, y: bodyMaxH }}
-            pagination={false}
-            onRow={(record) => ({
-              onClick: () => { if (record.drill_route) navigate(record.drill_route); },
-              style: record.drill_route ? { cursor: 'pointer' } : undefined,
-            })}
-            summary={() => {
-              if (filteredData.length === 0) return null;
-              const totalForKey = (k) => {
-                if (k === 'debit')  return fmt(filteredTotals.dr);
-                if (k === 'credit') return fmt(filteredTotals.cr);
-                return null;
-              };
-              return (
-                <Table.Summary fixed>
-                  <Table.Summary.Row>
-                    {columns.map((c, i) => (
-                      <Table.Summary.Cell key={c.key || i} index={i} align={c.align || 'left'}>
-                        {i === 0 ? `Total (${filteredData.length})` : totalForKey(c.key)}
-                      </Table.Summary.Cell>
-                    ))}
-                  </Table.Summary.Row>
-                </Table.Summary>
-              );
-            }}
-            locale={{ emptyText: loading ? <Spin /> : 'No vouchers posted in this period.' }}
-          />
-        </div>
+        <VirtualReportTable
+          columns={columns}
+          rows={filteredData}
+          totalCount={filteredData.length}
+          loading={loading}
+          rowKey="entry_number"
+          scroll={{ x: 1100 }}
+          summaryCells={summaryCells}
+          summaryColSpan={summaryColSpan}
+          onRow={(record) => ({
+            onClick: () => { if (record && record.drill_route) navigate(record.drill_route); },
+            style: record && record.drill_route ? { cursor: 'pointer' } : undefined,
+          })}
+        />
       </div>
     </div>
   );
