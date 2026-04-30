@@ -69,6 +69,11 @@ export default function AppLayout() {
     '/reports/sales', '/reports/purchases', '/reports/stock',
     '/reports/party-ledger', '/reports/profit-loss', '/reports/aging',
     '/reports/gstr1', '/reports/day-book',
+    // Editorial financial reports — full-page shells with sticky
+    // total bar + F-bar pinned to viewport bottom. Without these
+    // listed, the wrapper paints them as a padded card and the
+    // sticky bottom drifts up into the middle of the page.
+    '/reports/balance-sheet', '/reports/trial-balance',
   ].includes(location.pathname);
 
   // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.
