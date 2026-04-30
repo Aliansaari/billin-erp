@@ -392,8 +392,10 @@ export default function BalanceSheet() {
               <span className={'bs-chev ' + (p.synthetic ? 'hidden' : (pCollapsed ? 'collapsed' : ''))}>▾</span>
               <span className="name">
                 {p.name}
-                {p.synthetic === 'pnl'   && <span className="pnl-tag">Computed</span>}
-                {p.synthetic === 'stock' && <span className="info-tag">Computed</span>}
+                {/* COMPUTED badges removed — redundant (everything in
+                    a software is computed). The accent / warning row
+                    tint still differentiates synthetic rows from real
+                    ledger groups at a glance. */}
               </span>
               {p.synthetic && <span className="arrow">→</span>}
             </div>

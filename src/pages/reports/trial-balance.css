@@ -503,14 +503,38 @@
   transition: opacity .12s, color .12s, transform .12s;
 }
 
-/* Keyboard-selected row highlight (arrow-key navigation) */
-.tb-row-group.tb-active,
-.tb-row-mid.tb-active,
-.tb-row-sub.tb-active,
-.tb-row-ledger.tb-active {
+/* Keyboard-selected row highlight (arrow-key navigation) — single
+ * continuous border via inset box-shadow on each cell, since outline
+ * on a <tr> renders per-cell in many browsers and produces a broken
+ * box at column boundaries. */
+.tb-row-group.tb-active td,
+.tb-row-mid.tb-active td,
+.tb-row-sub.tb-active td,
+.tb-row-ledger.tb-active td {
   background: var(--accent-bg) !important;
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+}
+.tb-row-group.tb-active td:first-child,
+.tb-row-mid.tb-active td:first-child,
+.tb-row-sub.tb-active td:first-child,
+.tb-row-ledger.tb-active td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent),
+              inset 0  2px 0 var(--accent),
+              inset 0 -2px 0 var(--accent);
+}
+.tb-row-group.tb-active td:last-child,
+.tb-row-mid.tb-active td:last-child,
+.tb-row-sub.tb-active td:last-child,
+.tb-row-ledger.tb-active td:last-child {
+  box-shadow: inset -2px 0 0 var(--accent),
+              inset 0   2px 0 var(--accent),
+              inset 0  -2px 0 var(--accent);
+}
+.tb-row-group.tb-active td:not(:first-child):not(:last-child),
+.tb-row-mid.tb-active td:not(:first-child):not(:last-child),
+.tb-row-sub.tb-active td:not(:first-child):not(:last-child),
+.tb-row-ledger.tb-active td:not(:first-child):not(:last-child) {
+  box-shadow: inset 0  2px 0 var(--accent),
+              inset 0 -2px 0 var(--accent);
 }
 .tb-row-group.tb-active .tb-arrow,
 .tb-row-mid.tb-active .tb-arrow,

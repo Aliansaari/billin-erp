@@ -308,12 +308,30 @@
   transition: opacity .12s, color .12s, transform .12s;
 }
 
-/* Keyboard-active row highlight */
-.bs-row-group.bs-active,
-.bs-row-sub.bs-active {
+/* Keyboard-active row highlight — single continuous border that
+ * spans the whole row. Using inset box-shadow on each cell (instead of
+ * outline on <tr>) because outline on table rows renders per-cell in
+ * many browsers, producing a broken-up box at column boundaries. */
+.bs-row-group.bs-active td,
+.bs-row-sub.bs-active td {
   background: var(--accent-bg) !important;
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+}
+.bs-row-group.bs-active td:first-child,
+.bs-row-sub.bs-active td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent),
+              inset 0  2px 0 var(--accent),
+              inset 0 -2px 0 var(--accent);
+}
+.bs-row-group.bs-active td:last-child,
+.bs-row-sub.bs-active td:last-child {
+  box-shadow: inset -2px 0 0 var(--accent),
+              inset 0   2px 0 var(--accent),
+              inset 0  -2px 0 var(--accent);
+}
+.bs-row-group.bs-active td:not(:first-child):not(:last-child),
+.bs-row-sub.bs-active td:not(:first-child):not(:last-child) {
+  box-shadow: inset 0  2px 0 var(--accent),
+              inset 0 -2px 0 var(--accent);
 }
 .bs-row-group.bs-active .name,
 .bs-row-sub.bs-active .name {
