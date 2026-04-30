@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Input, Typography, Tag, Empty, DatePicker } from 'antd';
 import {
   RiseOutlined, ShoppingCartOutlined, InboxOutlined,
@@ -79,8 +79,23 @@ export default function ReportsHub() {
   const favLoad  = useFavoritesStore((s) => s.load);
   const favLoaded= useFavoritesStore((s) => s.loaded);
   const { fyStart, fyEnd } = useFinancialYear();
-  const [query, setQuery] = useState('');
+  // Query lives in the URL (?q=…) so the browser-back button restores
+  // the same search state when returning from a report. ESC on a
+  // report page fires history.back() (handled by AppLayout) which
+  // brings the user here with the query already populated.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [query, setQuery] = useState(searchParams.get('q') || '');
+  const [selectedIdx, setSelectedIdx] = useState(-1);
   const searchRef = useRef(null);
+  const rowRefs = useRef([]);
+
+  // Keep the URL in sync. `replace: true` so each keystroke doesn't
+  // pollute history with 17 entries when typing "profit & loss".
+  useEffect(() => {
+    if (query) setSearchParams({ q: query }, { replace: true });
+    else if (searchParams.get('q')) setSearchParams({}, { replace: true });
+    // eslint-disable-next-line
+  }, [query]);
 
   const [range, setRange] = useState(() => ({
     from: fyStart || dayjs().startOf('year').format('YYYY-MM-DD'),
@@ -102,6 +117,29 @@ export default function ReportsHub() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Reset selection on query change. -1 = no row highlighted; first
+  // ↓ keypress moves it to 0.
+  useEffect(() => { setSelectedIdx(-1); }, [query]);
+
+  // Scroll the selected row into view when keyboard nav moves it
+  // off-screen. `block: 'nearest'` keeps the page from jumping when
+  // the row is already visible.
+  useEffect(() => {
+    if (selectedIdx < 0) return;
+    const el = rowRefs.current[selectedIdx];
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [selectedIdx]);
+
+  // Restore the search if we returned from a report via ESC. The
+  // URL ?q= already carries the query, but the searchRef needs to
+  // be focused so the operator can keep typing without clicking.
+  useEffect(() => {
+    if (sessionStorage.getItem('reports_hub_back') === '1') {
+      sessionStorage.removeItem('reports_hub_back');
+      setTimeout(() => searchRef.current?.focus(), 60);
+    }
   }, []);
 
   const visibleReports = useMemo(
@@ -168,6 +206,38 @@ export default function ReportsHub() {
         placeholder="Search reports — type a name like 'p&l' or 'gstr'"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          // Keyboard nav inside search: ↓ ↑ Enter Esc.
+          // Only active when the search has text — otherwise the keys
+          // do nothing here (no rows to navigate).
+          if (!query) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedIdx((i) => Math.min(filtered.length - 1, i + 1));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedIdx((i) => Math.max(0, i - 1));
+          } else if (e.key === 'Enter') {
+            // Default to first match if no explicit selection yet —
+            // matches the "type-and-Enter" pattern of command palettes.
+            const target = filtered[selectedIdx >= 0 ? selectedIdx : 0];
+            if (target) {
+              e.preventDefault();
+              // Mark hub as the back-target so ESC on the report
+              // page returns here (handled by AppLayout). Including
+              // the query so the URL ?q=… restores naturally too.
+              sessionStorage.setItem('reports_hub_back', '1');
+              nav(target.route);
+            }
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            // First Esc: clear selection if any. Second Esc (already
+            // cleared): clear query. Mirrors how command palettes back
+            // out one step at a time.
+            if (selectedIdx >= 0) setSelectedIdx(-1);
+            else setQuery('');
+          }
+        }}
         style={{ marginBottom: 14 }}
       />
 
@@ -288,23 +358,37 @@ export default function ReportsHub() {
                 </div>
 
                 {/* Rows — typographic, no row borders, just generous
-                    padding. Hover warms the row but no chrome around it. */}
-                {reports.map((r) => (
+                    padding. Hover warms the row but no chrome around it.
+                    When the operator is keyboard-driving via search,
+                    the matching row is highlighted via `selected`
+                    (resolved by index in the `filtered` flat array). */}
+                {reports.map((r) => {
+                  const flatIdx = filtered.indexOf(r);
+                  const selected = query && selectedIdx === flatIdx;
+                  return (
                   <div
                     key={r.id}
-                    onClick={() => nav(r.route)}
+                    ref={(el) => { if (selected) rowRefs.current[flatIdx] = el; }}
+                    onClick={() => {
+                      sessionStorage.setItem('reports_hub_back', '1');
+                      nav(r.route);
+                    }}
                     style={{
                       display: 'flex', alignItems: 'baseline', gap: 10,
-                      padding: '10px 0',
+                      padding: selected ? '10px 8px' : '10px 0',
                       cursor: 'pointer',
+                      background: selected ? 'var(--bg-subtle, #fafafa)' : '',
+                      borderLeft: selected ? `3px solid ${tone.fg}` : '3px solid transparent',
                       borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
                       transition: 'background .12s, padding .12s',
                     }}
                     onMouseEnter={(e) => {
+                      if (selected) return;
                       e.currentTarget.style.background = 'var(--bg-subtle, #fafafa)';
                       e.currentTarget.style.padding = '10px 8px';
                     }}
                     onMouseLeave={(e) => {
+                      if (selected) return;
                       e.currentTarget.style.background = '';
                       e.currentTarget.style.padding = '10px 0';
                     }}
@@ -327,7 +411,8 @@ export default function ReportsHub() {
                       {r.subtitle}
                     </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })}

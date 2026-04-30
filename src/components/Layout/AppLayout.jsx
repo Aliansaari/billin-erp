@@ -26,6 +26,35 @@ export default function AppLayout() {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed));
   }, [collapsed]);
 
+  // Global ESC-back when on a report page that was opened from the
+  // /reports hub. The hub sets sessionStorage 'reports_hub_back' = '1'
+  // when it navigates the operator into a report; ESC then triggers
+  // history.back() which lands on /reports?q=<previous-search>, with
+  // the URL query intact + the hub's mount effect refocusing the
+  // search input.
+  //
+  // Guard: only fires for /reports/<slug>, never on the hub itself
+  // (the hub's own onKeyDown owns ESC there to clear search).
+  // Guard: only when the flag is set, so ESC on a directly-opened
+  // report URL (bookmark, deep link from sidebar) does nothing.
+  // Guard: ignore ESC when the user is typing in an input/textarea,
+  // since most report pages use ESC to dismiss modals/search inputs
+  // of their own — we shouldn't override that.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      const path = location.pathname;
+      if (!path.startsWith('/reports/') || path === '/reports/') return;
+      if (sessionStorage.getItem('reports_hub_back') !== '1') return;
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) return;
+      e.preventDefault();
+      window.history.back();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [location.pathname]);
+
   // Full-page views: bill forms, lists, reports. The regex below matches
   // new/edit routes that need the full viewport (height: 100vh, overflow:
   // hidden). ORDER MATTERS: sales-return must come before sale and
@@ -39,7 +68,7 @@ export default function AppLayout() {
     '/sales-returns', '/purchase-returns',
     '/reports/sales', '/reports/purchases', '/reports/stock',
     '/reports/party-ledger', '/reports/profit-loss', '/reports/aging',
-    '/reports/gstr1',
+    '/reports/gstr1', '/reports/day-book',
   ].includes(location.pathname);
 
   // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.
