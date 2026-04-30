@@ -28,7 +28,7 @@
   font-variant-numeric: tabular-nums;
 }
 .pl-row .pl-cell-comp {
-  color: var(--fg-secondary);
+  color: var(--fg-primary);
 }
 
 .pl-row .pl-name {
@@ -41,7 +41,7 @@
 .pl-row .pl-name-sub {
   padding-left: 18px;
   font-size: 12.5px;
-  color: var(--fg-secondary);
+  color: var(--fg-primary);
   position: relative;
 }
 .pl-row .pl-name-sub::before {
@@ -89,12 +89,13 @@
 .pl-row-aggregate-header:hover { background: transparent; }
 
 /* Sub-row (Sales Account / Purchase Account ledger lines under header) */
-.pl-row-sub .pl-cell-num { font-size: 12.5px; color: var(--fg-secondary); }
+.pl-row-sub .pl-cell-num { font-size: 12.5px; color: var(--fg-primary); }
 
 /* Deduction row (Less: Sales Return / Less: Purchase Return).
- * Italic so the eye reads it as a deduction line at a glance. */
-.pl-row-sub-deduction .pl-name { font-style: italic; color: var(--fg-secondary); }
-.pl-row-sub-deduction .pl-cell-num { color: var(--fg-secondary); font-style: italic; }
+ * Italic so the eye still reads it as a deduction line at a glance,
+ * but at full primary text colour (not muted). */
+.pl-row-sub-deduction .pl-name { font-style: italic; color: var(--fg-primary); }
+.pl-row-sub-deduction .pl-cell-num { color: var(--fg-primary); font-style: italic; }
 
 /* Aggregate net (Net Sales / Net Purchases) — slightly emphasised
  * subtotal closing the Sales/Purchase block. */
@@ -146,19 +147,21 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px; font-weight: 600;
   letter-spacing: 0.6px;
-  color: var(--fg-tertiary);
+  color: var(--fg-primary);
   text-transform: uppercase;
 }
 
-/* Active row (keyboard nav) — accent highlight + outline. Same idiom
- * as .bs-row-group.bs-active in balance-sheet.css. */
-.pl-active td {
-  background: var(--accent-bg) !important;
+/* Active row (keyboard nav) — single continuous highlight that spans
+ * the whole row. Outlining each <td> separately produces a broken
+ * box at cell boundaries; applying the outline to the <tr> itself
+ * (works in Chromium/Electron) keeps the box continuous across cells. */
+.pl-active {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-.pl-active .pl-name      { color: var(--accent); }
-.pl-active .pl-arrow     { opacity: 1; color: var(--accent); }
+.pl-active td        { background: var(--accent-bg) !important; }
+.pl-active .pl-name  { color: var(--accent); }
+.pl-active .pl-arrow { opacity: 1; color: var(--accent); }
 
 /* ── Banner (reconciliation drift) ───────────────────────────────── */
 .pl-banner {
@@ -191,7 +194,7 @@
 /* ── F-bar summary ───────────────────────────────────────────────── */
 .bs-fbar .pl-summary {
   font-size: 12px;
-  color: var(--fg-secondary);
+  color: var(--fg-primary);
   font-family: 'JetBrains Mono', monospace;
   margin-left: 12px;
 }

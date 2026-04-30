@@ -79,6 +79,18 @@ function unionByLedger(curLines, cmpLines, kind) {
 // "FY" boundaries come from the company-configured FY (useFinancialYear)
 // rather than hardcoded April–March, so installations on a different
 // fiscal calendar get correct presets.
+// Persistent expand/collapse preference shared with Balance Sheet +
+// Trial Balance (single key so all three reports follow the same
+// preference). 'collapsed' = only show aggregate Net rows; 'expanded'
+// = show all the constituent ledger sub-rows.
+const EXPAND_PREF_KEY = 'erp_report_expand_default';
+function loadExpandPref() {
+  try { return localStorage.getItem(EXPAND_PREF_KEY) === 'expanded'; } catch { return false; }
+}
+function saveExpandPref(v) {
+  try { localStorage.setItem(EXPAND_PREF_KEY, v ? 'expanded' : 'collapsed'); } catch {}
+}
+
 function buildPresets(fyStart, fyEnd) {
   const today = dayjs();
   const fy   = fyStart && fyEnd ? { from: dayjs(fyStart), to: dayjs(fyEnd) } : null;
@@ -107,6 +119,12 @@ export default function ProfitLoss() {
   // Comparative column toggle. Default off — P&L is single-period most
   // of the time; the toggle is one click for users who want YoY/QoQ.
   const [showComparative, setShowComparative] = useState(false);
+
+  // Expand/Collapse preference (synced with BS + TB via shared key).
+  // Collapsed = only show the aggregate Net rows for Sales / Purchase
+  // sections (Net Sales, Net Purchases). Constituent ledger rows and
+  // the section header are hidden.
+  const [expandAllDefault, setExpandAllDefault] = useState(loadExpandPref);
 
   // Snap to FY when it arrives (if user hasn't manually picked yet).
   useEffect(() => {
@@ -147,21 +165,38 @@ export default function ProfitLoss() {
   useEffect(() => { loadData(); }, [loadData]);
 
   // Drill helpers — kept as functions the row builder closes over.
+  // Per-section destinations:
+  //   · Sales Account / Sales Return     →  /reports/sales
+  //   · Purchase Account / Purchase Ret. →  /reports/purchases
+  //   · Opening Stock / Closing Stock    →  /reports/stock-summary
+  //   · Anything else (Direct/Indirect Income/Expense ledgers, Round
+  //     Off, Discount Allowed/Received)  →  /reports/day-book
+  //
+  // Period (from/to) is propagated as a query string on every drill so
+  // the destination report can preserve the same window. Destination
+  // reports that don't yet parse these params will just open at their
+  // default period — non-fatal.
+  const periodQs = useCallback(() => {
+    return new URLSearchParams({ from, to }).toString();
+  }, [from, to]);
+
+  const drillSales    = useCallback(() => navigate(`/reports/sales?${periodQs()}`), [navigate, periodQs]);
+  const drillPurchase = useCallback(() => navigate(`/reports/purchases?${periodQs()}`), [navigate, periodQs]);
+  const drillStock    = useCallback(() => navigate(`/reports/stock-summary`), [navigate]);
+
+  // Generic ledger drill — for ledgers without a dedicated report
+  // (Round Off, Discount Allowed/Received, Direct/Indirect Income/
+  // Expense). Lands on Day Book filtered to this ledger over the same
+  // period; that's the chronological voucher list (Tally calls it
+  // "Ledger Vouchers").
   const drillLedger = useCallback((ledgerId, ledgerName) => {
-    // Trial Balance's ledger drill route. Pre-fills the ledger filter
-    // so users land on the same period's activity for that ledger.
     const qs = new URLSearchParams({
       ledger_id: String(ledgerId),
       ledger_name: ledgerName,
-      from: from,
-      to: to,
+      from, to,
     });
-    navigate(`/reports/trial-balance?${qs.toString()}`);
+    navigate(`/reports/day-book?${qs.toString()}`);
   }, [from, to, navigate]);
-
-  const drillStock = useCallback(() => {
-    navigate('/reports/stock-summary');
-  }, [navigate]);
 
   // Build per-side row arrays. Each row carries:
   //   { kind, label, amount, compAmount?, computed?, drill? }
@@ -179,7 +214,6 @@ export default function ProfitLoss() {
     D.push({
       kind: 'simple',
       label: 'Opening Stock',
-      computed: true,
       amount: N(cur.debit.opening_stock),
       compAmount: cmp ? N(cmp.debit.opening_stock) : null,
       drill: drillStock,
@@ -200,7 +234,7 @@ export default function ProfitLoss() {
           label: u.ledger_name,
           amount: N(u.amount),
           compAmount: cmp ? N(u.compAmount) : null,
-          drill: () => drillLedger(u.ledger_id, u.ledger_name),
+          drill: drillPurchase,
         });
       }
       const retUnion = unionByLedger(pa.lines, cmpPa?.lines, 'return');
@@ -210,7 +244,7 @@ export default function ProfitLoss() {
           label: `Less: ${u.ledger_name}`,
           amount: N(u.amount),
           compAmount: cmp ? N(u.compAmount) : null,
-          drill: () => drillLedger(u.ledger_id, u.ledger_name),
+          drill: drillPurchase,
         });
       }
       D.push({
@@ -218,6 +252,7 @@ export default function ProfitLoss() {
         label: 'Net Purchases',
         amount: N(pa.net),
         compAmount: cmpPa ? N(cmpPa.net) : null,
+        drill: drillPurchase,
       });
     }
 
@@ -302,7 +337,7 @@ export default function ProfitLoss() {
           label: u.ledger_name,
           amount: N(u.amount),
           compAmount: cmp ? N(u.compAmount) : null,
-          drill: () => drillLedger(u.ledger_id, u.ledger_name),
+          drill: drillSales,
         });
       }
       const retUnion = unionByLedger(sa.lines, cmpSa?.lines, 'return');
@@ -312,7 +347,7 @@ export default function ProfitLoss() {
           label: `Less: ${u.ledger_name}`,
           amount: N(u.amount),
           compAmount: cmp ? N(u.compAmount) : null,
-          drill: () => drillLedger(u.ledger_id, u.ledger_name),
+          drill: drillSales,
         });
       }
       C.push({
@@ -320,13 +355,13 @@ export default function ProfitLoss() {
         label: 'Net Sales',
         amount: N(sa.net),
         compAmount: cmpSa ? N(cmpSa.net) : null,
+        drill: drillSales,
       });
     }
 
     C.push({
       kind: 'simple',
       label: 'Closing Stock',
-      computed: true,
       amount: N(cur.credit.closing_stock),
       compAmount: cmp ? N(cmp.credit.closing_stock) : null,
       drill: drillStock,
@@ -394,8 +429,20 @@ export default function ProfitLoss() {
       });
     }
 
+    // Collapse pass — when expandAllDefault=false, drop the constituent
+    // ledger rows + section headers under Sales/Purchase Accounts so
+    // only the aggregate Net rows remain. Stage divider, balancing
+    // figures, and Direct/Indirect single lines are always kept (they
+    // carry the report's headline numbers).
+    if (!expandAllDefault) {
+      const drop = (k) => k === 'sub' || k === 'sub-deduction' || k === 'aggregate-header';
+      return {
+        debit:  D.filter((r) => !drop(r.kind)),
+        credit: C.filter((r) => !drop(r.kind)),
+      };
+    }
     return { debit: D, credit: C };
-  }, [data, drillLedger, drillStock]);
+  }, [data, expandAllDefault, drillLedger, drillStock, drillSales, drillPurchase]);
 
   // Per-side navigable index for keyboard nav. Skips dividers and
   // headers so Enter always lands on something useful.
@@ -416,7 +463,9 @@ export default function ProfitLoss() {
 
       if (e.key === 'F5') {
         e.preventDefault();
-        setShowComparative((v) => !v);
+        const next = !expandAllDefault;
+        setExpandAllDefault(next);
+        saveExpandPref(next);
         return;
       }
       const list = activeSide === 'D' ? navD : navC;
@@ -453,7 +502,7 @@ export default function ProfitLoss() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navD, navC, activeSide, activeIdx]);
+  }, [navD, navC, activeSide, activeIdx, expandAllDefault]);
 
   // Period label for the picker button.
   const periodLabel = useMemo(() => {
@@ -479,9 +528,12 @@ export default function ProfitLoss() {
   // Render a single row across both sides' shared layout (1 + (1|2) cols).
   const renderRow = (row, sideKey, sideRowIdx) => {
     if (row.kind === 'stage-divider') {
+      // Stage 1 / Stage 2 boundary — drawn as a thin line only. The
+      // GP c/o (Dr) + GP b/d (Cr) rows above already announce the
+      // stage transition; an extra label is jargon-clutter.
       return (
         <tr key={`${sideKey}-divider-${sideRowIdx}`} className="pl-stage-divider">
-          <td colSpan={showComparative ? 3 : 2}><span className="lbl">— Stage 2 (P&amp;L A/c) —</span></td>
+          <td colSpan={showComparative ? 3 : 2}></td>
         </tr>
       );
     }
@@ -535,6 +587,16 @@ export default function ProfitLoss() {
           <h1>Profit &amp; Loss</h1>
         </div>
         <div className="bs-actions">
+          <button className={'bs-btn ' + (!expandAllDefault ? 'on' : '')}
+                  onClick={() => { setExpandAllDefault(false); saveExpandPref(false); }}
+                  title="Show only the aggregate Net rows (Net Sales, Net Purchases)">
+            Collapsed
+          </button>
+          <button className={'bs-btn ' + (expandAllDefault ? 'on' : '')}
+                  onClick={() => { setExpandAllDefault(true); saveExpandPref(true); }}
+                  title="Show all sub-rows (sale/return ledgers under Sales/Purchase Accounts)">
+            Expanded
+          </button>
           <button className={'bs-btn ' + (showComparative ? 'on' : '')}
                   onClick={() => setShowComparative((v) => !v)}
                   title="Toggle previous-period comparison column">
@@ -545,22 +607,24 @@ export default function ProfitLoss() {
               {periodLabel} <DownOutlined style={{ fontSize: 9 }} />
             </button>
           </Dropdown>
-          {presetKey === 'custom' && (
-            <RangePicker
-              size="small"
-              format="DD-MMM-YY"
-              suffixIcon={<CalendarOutlined />}
-              allowClear={false}
-              value={[from ? dayjs(from) : null, to ? dayjs(to) : null]}
-              onChange={(v) => {
-                if (!v || !v[0] || !v[1]) return;
-                setFrom(v[0].format('YYYY-MM-DD'));
-                setTo(v[1].format('YYYY-MM-DD'));
-                setUserPicked(true);
-              }}
-              variant="borderless"
-            />
-          )}
+          {/* Always-visible range picker. Reflects the current period,
+              regardless of whether it came from a preset or a manual
+              pick. Editing the dates here flips the preset to 'custom'
+              so the dropdown label reads honestly. */}
+          <RangePicker
+            size="small"
+            format="DD-MMM-YY"
+            suffixIcon={<CalendarOutlined />}
+            allowClear={false}
+            value={[from ? dayjs(from) : null, to ? dayjs(to) : null]}
+            onChange={(v) => {
+              if (!v || !v[0] || !v[1]) return;
+              setFrom(v[0].format('YYYY-MM-DD'));
+              setTo(v[1].format('YYYY-MM-DD'));
+              setPresetKey('custom');
+              setUserPicked(true);
+            }}
+          />
           <button className="bs-btn bs-btn-icon" onClick={loadData} title="Refresh">
             <ReloadOutlined />
           </button>
@@ -705,7 +769,7 @@ export default function ProfitLoss() {
 
       {/* F-bar */}
       <div className="bs-fbar">
-        <span className="fkey"><kbd>F5</kbd> Toggle comparative</span>
+        <span className="fkey"><kbd>F5</kbd> Collapse / Expand all</span>
         <span className="fkey"><kbd>↑</kbd> <kbd>↓</kbd> Navigate</span>
         <span className="fkey"><kbd>Enter</kbd> Drill into ledger</span>
         <span className="fkey"><kbd>Esc</kbd> Back</span>
