@@ -82,9 +82,16 @@ export default function ReportsHub() {
   // brings the user here with the query already populated.
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get('q') || '');
+  // Selection is tracked as (categoryId, idx) — not a flat index —
+  // because the categories render as separate columns in the grid.
+  // ↓/↑ walks WITHIN a category column; →/← jumps to the equivalent
+  // row of the next/previous category column. (cat=null means no
+  // selection yet; the first arrow keypress lands on the first row
+  // of the first category that has matches.)
+  const [selectedCat, setSelectedCat] = useState(null);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const searchRef = useRef(null);
-  const rowRefs = useRef([]);
+  const rowRefs = useRef({});  // keyed by `${cat}:${idx}`
 
   // Keep the URL in sync. `replace: true` so each keystroke doesn't
   // pollute history with 17 entries when typing "profit & loss".
@@ -107,18 +114,18 @@ export default function ReportsHub() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Reset selection on query change. -1 = no row highlighted; first
-  // ↓ keypress moves it to 0.
-  useEffect(() => { setSelectedIdx(-1); }, [query]);
+  // Reset selection on query change. cat=null + idx=-1 means no row
+  // highlighted; first ↓ keypress lands on the first match.
+  useEffect(() => { setSelectedCat(null); setSelectedIdx(-1); }, [query]);
 
   // Scroll the selected row into view when keyboard nav moves it
-  // off-screen. `block: 'nearest'` keeps the page from jumping when
-  // the row is already visible.
+  // off-screen. block:'nearest' keeps the page from jumping when the
+  // row is already visible.
   useEffect(() => {
-    if (selectedIdx < 0) return;
-    const el = rowRefs.current[selectedIdx];
+    if (!selectedCat || selectedIdx < 0) return;
+    const el = rowRefs.current[`${selectedCat}:${selectedIdx}`];
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [selectedIdx]);
+  }, [selectedCat, selectedIdx]);
 
   // Restore the search if we returned from a report via ESC. The
   // URL ?q= already carries the query, but the searchRef needs to
@@ -178,34 +185,87 @@ export default function ReportsHub() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
-          // Keyboard nav inside search: ↓ ↑ Enter Esc.
-          // Only active when the search has text — otherwise the keys
-          // do nothing here (no rows to navigate).
+          // Keyboard nav inside search: ↓ ↑ → ← Enter Esc.
+          // Only active when the search has text. Categories render as
+          // separate columns in the grid; ↓/↑ walks within a column,
+          // →/← jumps between columns at the same row index.
           if (!query) return;
+          const presentCats = CATEGORY_ORDER.filter((c) => (byCategory[c] || []).length > 0);
+          if (presentCats.length === 0) return;
+
+          // Resolve the current selection (or land on first match).
+          const ensure = () => {
+            if (selectedCat) return { cat: selectedCat, idx: Math.max(0, selectedIdx) };
+            return { cat: presentCats[0], idx: 0 };
+          };
+
           if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setSelectedIdx((i) => Math.min(filtered.length - 1, i + 1));
+            if (!selectedCat) {
+              setSelectedCat(presentCats[0]);
+              setSelectedIdx(0);
+              return;
+            }
+            const items = byCategory[selectedCat] || [];
+            if (selectedIdx + 1 < items.length) {
+              setSelectedIdx(selectedIdx + 1);
+            } else {
+              // Past the bottom of this column → jump to the top of
+              // the next category column (down-and-right reading flow).
+              const ci = presentCats.indexOf(selectedCat);
+              const next = presentCats[ci + 1];
+              if (next) { setSelectedCat(next); setSelectedIdx(0); }
+            }
           } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            setSelectedIdx((i) => Math.max(0, i - 1));
+            if (!selectedCat) return;
+            if (selectedIdx > 0) {
+              setSelectedIdx(selectedIdx - 1);
+            } else {
+              // Above the top of this column → jump to the bottom of
+              // the previous category column.
+              const ci = presentCats.indexOf(selectedCat);
+              const prev = presentCats[ci - 1];
+              if (prev) {
+                setSelectedCat(prev);
+                setSelectedIdx((byCategory[prev] || []).length - 1);
+              }
+            }
+          } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            const { cat, idx } = ensure();
+            const ci = presentCats.indexOf(cat);
+            const next = presentCats[ci + 1];
+            if (!next) return;
+            // Preserve row index across columns, clamping to the new
+            // column's length so we don't land on a missing row.
+            const len = (byCategory[next] || []).length;
+            setSelectedCat(next);
+            setSelectedIdx(Math.min(idx, len - 1));
+          } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const { cat, idx } = ensure();
+            const ci = presentCats.indexOf(cat);
+            const prev = presentCats[ci - 1];
+            if (!prev) return;
+            const len = (byCategory[prev] || []).length;
+            setSelectedCat(prev);
+            setSelectedIdx(Math.min(idx, len - 1));
           } else if (e.key === 'Enter') {
-            // Default to first match if no explicit selection yet —
-            // matches the "type-and-Enter" pattern of command palettes.
-            const target = filtered[selectedIdx >= 0 ? selectedIdx : 0];
+            // Default to first item of first present category if no
+            // explicit selection yet (command-palette default).
+            const { cat, idx } = ensure();
+            const target = (byCategory[cat] || [])[idx];
             if (target) {
               e.preventDefault();
-              // Mark hub as the back-target so ESC on the report
-              // page returns here (handled by AppLayout). Including
-              // the query so the URL ?q=… restores naturally too.
               sessionStorage.setItem('reports_hub_back', '1');
               nav(target.route);
             }
           } else if (e.key === 'Escape') {
             e.preventDefault();
-            // First Esc: clear selection if any. Second Esc (already
-            // cleared): clear query. Mirrors how command palettes back
-            // out one step at a time.
-            if (selectedIdx >= 0) setSelectedIdx(-1);
+            // First Esc: clear selection. Second Esc (already cleared):
+            // clear query.
+            if (selectedCat) { setSelectedCat(null); setSelectedIdx(-1); }
             else setQuery('');
           }
         }}
@@ -330,16 +390,14 @@ export default function ReportsHub() {
 
                 {/* Rows — typographic, no row borders, just generous
                     padding. Hover warms the row but no chrome around it.
-                    When the operator is keyboard-driving via search,
-                    the matching row is highlighted via `selected`
-                    (resolved by index in the `filtered` flat array). */}
-                {reports.map((r) => {
-                  const flatIdx = filtered.indexOf(r);
-                  const selected = query && selectedIdx === flatIdx;
+                    When keyboard-driving via search, the row that
+                    matches (selectedCat, selectedIdx) is highlighted. */}
+                {reports.map((r, rowIdx) => {
+                  const selected = query && selectedCat === cat && selectedIdx === rowIdx;
                   return (
                   <div
                     key={r.id}
-                    ref={(el) => { if (selected) rowRefs.current[flatIdx] = el; }}
+                    ref={(el) => { rowRefs.current[`${cat}:${rowIdx}`] = el; }}
                     onClick={() => {
                       sessionStorage.setItem('reports_hub_back', '1');
                       nav(r.route);
