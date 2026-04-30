@@ -269,6 +269,10 @@ export default function SalesList() {
   const handleExportPDF = (bill) => exportBillPDF({ docType: 'sales', bill });
   const handleWhatsApp  = (bill) => shareBillViaWhatsApp({ docType: 'sales', bill });
   const handleRecordReceipt = (bill) => {
+    // Pre-select this customer + bill when opening receipt entry. Use the
+    // bill's own customer_id FK — the included customer object only has
+    // party_name/mobile_1 for the list view, so customer.party_id is undefined
+    // and would send a null preselect that ReceiptEntry can't act on.
     navigate('/receipt/new', {
       state: {
         preselect: {
