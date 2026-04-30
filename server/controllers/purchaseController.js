@@ -142,7 +142,40 @@ exports.getAll = async (req, res) => {
       distinct: true,
     });
 
-    res.json({ total: count, page, limit, data: rows });
+    // Summary aggregates over the FULL filtered set — KPIs and footer
+    // totals on the purchase list use these so they stay correct
+    // regardless of which chunks the user has scrolled past. Mirrors
+    // the salesController.getAll summary block.
+    const totals = await PurchaseBill.findAll({
+      where,
+      attributes: [
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('total_amount')),    0), 'total_amount'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('paid_amount')),     0), 'total_paid'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('balance_amount')),  0), 'total_balance'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('discount_amount')), 0), 'total_discount'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('cgst_amount')),     0), 'total_cgst'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('sgst_amount')),     0), 'total_sgst'],
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('igst_amount')),     0), 'total_igst'],
+        [sequelize.fn('COUNT', sequelize.col('purchase_bill_id')), 'count'],
+        [sequelize.fn('COUNT', sequelize.literal('CASE WHEN balance_amount > 0.01 THEN 1 END')), 'open_count'],
+      ],
+      include: [{ model: Party, as: 'supplier', attributes: [] }],
+      raw: true,
+      subQuery: false,
+    });
+    const t = totals[0] || {};
+    const total_gst = +(parseFloat(t.total_cgst || 0) + parseFloat(t.total_sgst || 0) + parseFloat(t.total_igst || 0)).toFixed(2);
+    const summary = {
+      total_amount:   +parseFloat(t.total_amount   || 0).toFixed(2),
+      total_paid:     +parseFloat(t.total_paid     || 0).toFixed(2),
+      total_balance:  +parseFloat(t.total_balance  || 0).toFixed(2),
+      total_discount: +parseFloat(t.total_discount || 0).toFixed(2),
+      total_gst,
+      count:          parseInt(t.count || 0, 10),
+      open_count:     parseInt(t.open_count || 0, 10),
+    };
+
+    res.json({ total: count, page, limit, data: rows, summary });
   } catch (error) {
     console.error('Get purchases error:', error);
     res.status(500).json({ error: 'Server error' });

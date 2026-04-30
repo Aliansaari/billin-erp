@@ -21,6 +21,17 @@ const { SystemSettings, Party, Product, SalesBill, SalesBillItem,
         PurchaseBill, PurchaseBillItem, PaymentReceipt, StockLedger } = require('../models');
 const { Op } = require('sequelize');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
+// Tally imports posting to the ledger run through the same posting service
+// + builders as every other create path. Without these calls, imported
+// bills land in sales_bills/purchase_bills/payments_receipts but never
+// reach ledger_entries — Trial Balance / Balance Sheet / P&L go silently
+// blind to imported data. Wired in inline so a posting failure rolls
+// back the bill row in the same transaction (atomic ingest).
+const { postVoucher } = require('../services/ledgerPostingService');
+const {
+  buildSalesBillVouchers, buildPurchaseBillVouchers,
+  buildPaymentReceiptVouchers,
+} = require('../services/voucherBuilders');
 
 // Round "half away from zero" — matches the Indian GST convention used
 // elsewhere in this codebase. Tally stores amounts, not percentages;
@@ -998,6 +1009,17 @@ async function ingestVouchersFromXml(xml, userId) {
           // Recalculate the customer's outstanding balance so imported
           // bills contribute to party ledgers like native ones do.
           await recalculatePartyBalance(customer.party_id, t);
+
+          // Post to ledger_entries via the same builder + posting service
+          // every UI path uses. Attaches `customer` so the builder skips a
+          // round-trip to look it up. If posting throws (missing system
+          // ledgers, party without a ledger_account_id, etc.) the whole
+          // transaction rolls back — bill, items, stock, balance — and the
+          // outer catch records the failure in the errors array.
+          bill.customer = customer;
+          for (const v of await buildSalesBillVouchers(bill, { transaction: t })) {
+            await postVoucher({ ...v, userId, transaction: t });
+          }
         });
         existingSales.add(voucherNumber);
         imported++;
@@ -1103,6 +1125,12 @@ async function ingestVouchersFromXml(xml, userId) {
           }
 
           await recalculatePartyBalance(supplier.party_id, t);
+
+          // Post to ledger_entries — same rationale as the sales branch.
+          bill.supplier = supplier;
+          for (const v of await buildPurchaseBillVouchers(bill, { transaction: t })) {
+            await postVoucher({ ...v, userId, transaction: t });
+          }
         });
         existingPurchase.add(voucherNumber);
         imported++;
@@ -1134,14 +1162,28 @@ async function ingestVouchersFromXml(xml, userId) {
           errors.push({ type: 'voucher', reason: `${txnType} voucher ${voucherNumber}: zero amount on party ledger` });
           continue;
         }
-        await PaymentReceipt.create({
-          transaction_number: key,
-          transaction_type: txnType,
-          transaction_date: billDate,
-          party_id: party.party_id,
-          total_amount: amount,
-          remarks: narration || null,
-          created_by: userId,
+        // Wrap in a transaction so the row + its ledger entries commit
+        // together. Previously the receipt row was created bare and the
+        // ledger leg was skipped entirely, leaving payments_receipts
+        // populated but Cash/Bank and party ledgers blind to them.
+        await sequelize.transaction(async (t) => {
+          const receipt = await PaymentReceipt.create({
+            transaction_number: key,
+            transaction_type: txnType,
+            transaction_date: billDate,
+            party_id: party.party_id,
+            total_amount: amount,
+            remarks: narration || null,
+            created_by: userId,
+          }, { transaction: t });
+
+          // Tally voucher → single payment method, no splits. Attach the
+          // pre-resolved party so the builder doesn't re-fetch it.
+          receipt.party = party;
+          receipt.splits = [];
+          for (const v of await buildPaymentReceiptVouchers(receipt, { transaction: t })) {
+            await postVoucher({ ...v, userId, transaction: t });
+          }
         });
         existingTxn.add(key);
         imported++;

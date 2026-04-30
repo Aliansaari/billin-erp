@@ -1,18 +1,19 @@
-import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { Table, DatePicker, Select, Button, Tag, message, Spin, Checkbox, Popover, Input } from 'antd';
-import { DownloadOutlined, SettingOutlined, PrinterOutlined, SearchOutlined, CloseOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useState } from 'react';
+import { DatePicker, Button, Tag, message, Checkbox, Popover, Input } from 'antd';
+import { DownloadOutlined, SettingOutlined, PrinterOutlined, SearchOutlined, CloseOutlined, WarningOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { reportAPI, partyAPI } from '../../api';
+import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import VirtualReportTable from '../../components/VirtualReportTable';
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-
-const PAGE_SIZE = 200;
 
 // Every column toggleable. `default: true` ships visible. supplier_bill
 // is unique to purchase (matters for ITC matching against supplier's
 // own document number).
 const ALL_COLS = [
+  { key: 'sr_no',         label: 'Sr No',            default: true  },
   { key: 'bill_no',       label: 'Bill No',          default: true  },
   { key: 'date',          label: 'Date',             default: true  },
   { key: 'supplier',      label: 'Supplier',         default: true  },
@@ -71,14 +72,7 @@ function presetRange(key, fyStart, fyEnd) {
 
 export default function PurchaseReport() {
   const { fyStart, fyEnd } = useFinancialYear();
-  const [data, setData] = useState([]);
-  const [totalCount, setTotalCount] = useState(0); // full filtered count across all pages
-  const [summary, setSummary] = useState({});
-  const [suppliers, setSuppliers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [serverPage, setServerPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+
   // Defaults to the company FY for consistency with every other
   // period selector. Falls back to current month on first install.
   const [filters, setFilters] = useState({
@@ -88,9 +82,20 @@ export default function PurchaseReport() {
     payment_status: null,
     search: '',
   });
+  // Local search input — debounced into filters.search so we don't fire
+  // a server request on every keystroke. Server-side search is
+  // mandatory under virtualization (the client can't filter rows it
+  // hasn't loaded).
+  const [searchInput, setSearchInput] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((f) => f.search === searchInput ? f : { ...f, search: searchInput });
+    }, 220);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const [reconDismissed, setReconDismissed] = useState(false);
   const [preset, setPreset] = useState('this_fy');
-  const [reconciliation, setReconciliation] = useState(null);
   const [colsVisible, setColsVisible] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
@@ -103,8 +108,16 @@ export default function PurchaseReport() {
       return saved && typeof saved === 'object' ? { ...DEFAULT_KPIS, ...saved } : DEFAULT_KPIS;
     } catch { return DEFAULT_KPIS; }
   });
-  const loaderRef = useRef(null);
-  const scrollRef = useRef(null);
+
+  // ── Virtualized data layer ────────────────────────────────────────
+  // The hook owns chunked fetching, in-flight dedupe, sparse rows,
+  // and meta passthrough (for the reconciliation banner).
+  const { rows, totalCount, summary, meta, ensureChunk, loading } = useVirtualizedReport({
+    fetcher: (params) => reportAPI.getPurchaseReport(params),
+    filters,
+    chunkSize: 200,
+  });
+  const reconciliation = meta?.reconciliation || null;
 
   useEffect(() => {
     if (preset === 'custom') return;
@@ -127,71 +140,10 @@ export default function PurchaseReport() {
     try { localStorage.setItem(KPIS_STORAGE_KEY, JSON.stringify(kpisVisible)); } catch {}
   }, [kpisVisible]);
 
-  useEffect(() => {
-    loadSuppliers();
-  }, []);
-
-  useEffect(() => {
-    loadFirstPage();
-  }, [filters]);
-
-  const loadSuppliers = async () => {
-    try {
-      const { data } = await partyAPI.getSuppliers();
-      setSuppliers(data.data || data);
-    } catch (e) { /* ignore */ }
-  };
-
-  const loadFirstPage = async () => {
-    setLoading(true);
-    setData([]);
-    setServerPage(1);
-    setHasMore(true);
-    try {
-      // Paginate. Summary totals come from backend aggregate over the full
-      // filtered dataset, so numbers stay correct as the user scrolls.
-      const res = await reportAPI.getPurchaseReport({ ...filters, page: 1, limit: PAGE_SIZE });
-      setData(res.data.data || []);
-      setTotalCount(res.data.total || 0);
-      setSummary(res.data.summary || {});
-      setReconciliation(res.data.reconciliation || null);
-      setHasMore((res.data.data || []).length < (res.data.total || 0));
-    } catch (e) {
-      message.error('Failed to load purchase report');
-    }
-    setLoading(false);
-  };
-
-  const loadNextPage = useCallback(async () => {
-    if (loadingMore || !hasMore || loading) return;
-    setLoadingMore(true);
-    const next = serverPage + 1;
-    try {
-      const res = await reportAPI.getPurchaseReport({ ...filters, page: next, limit: PAGE_SIZE });
-      const rows = res.data.data || [];
-      setData(prev => [...prev, ...rows]);
-      setTotalCount(res.data.total || 0);
-      setServerPage(next);
-      setHasMore(next * PAGE_SIZE < (res.data.total || 0));
-    } catch (e) {
-      message.error('Failed to load more bills');
-    }
-    setLoadingMore(false);
-  }, [loadingMore, hasMore, loading, serverPage, filters]);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadNextPage(); },
-      { root: scrollRef.current || null, threshold: 0.1 }
-    );
-    if (loaderRef.current) observer.observe(loaderRef.current);
-    return () => observer.disconnect();
-  }, [loadNextPage]);
-
   const handleExport = async () => {
     try {
       // Honor on-screen filters (date, supplier, payment status) — server streams
-      // the full filtered dataset. Old call dumped every purchase ever entered.
+      // the full filtered dataset.
       const res = await reportAPI.exportPurchaseReport(filters);
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       const a = document.createElement('a');
@@ -219,6 +171,10 @@ export default function PurchaseReport() {
   };
 
   const COL_SPECS = useMemo(() => ({
+    // Sr No is purely positional — driven by row index, no backing field.
+    // The summary row's "Total (count)" label colSpans to start here.
+    sr_no:         { title: 'Sr',          width: 56, align: 'center',
+                     render: (_v, _row, idx) => <span style={{ color: 'var(--fg-tertiary)', fontFamily: 'Geist Mono, monospace' }}>{idx + 1}</span> },
     bill_no:       { title: 'Bill No',      dataIndex: 'bill_number', width: 130,
                      render: (v) => <span className="rpt-bill-no">{v}</span> },
     date:          { title: 'Date',         dataIndex: 'bill_date',   width: 110, render: (v) => dayjs(v).format('DD/MM/YYYY') },
@@ -264,6 +220,48 @@ export default function PurchaseReport() {
     return ALL_COLS.filter((c) => colsVisible[c.key]).map((c) => ({ key: c.key, ...COL_SPECS[c.key] }));
   }, [colsVisible, COL_SPECS]);
 
+  // Per-column summary content + colSpan. Same pattern as SalesReport:
+  // the leading non-aggregable columns (Sr/Bill No/Date/Supplier/etc.)
+  // merge into one wide cell holding the "Total (N)" label, and each
+  // numeric column carries its own server-aggregated value.
+  const SUMMABLE_KEYS = useMemo(() => new Set([
+    'sub_total', 'discount', 'cgst', 'sgst', 'igst', 'cess', 'gst',
+    'total', 'paid', 'balance',
+  ]), []);
+
+  const firstAggIdx = useMemo(() => {
+    const idx = columns.findIndex((c) => SUMMABLE_KEYS.has(c.key));
+    return idx === -1 ? columns.length : idx;
+  }, [columns, SUMMABLE_KEYS]);
+
+  const totalForKey = (k) => {
+    switch (k) {
+      case 'sub_total': return fmt(summary.total_sub);
+      case 'discount':  return fmt(summary.total_discount);
+      case 'cgst':      return fmt(summary.total_cgst);
+      case 'sgst':      return fmt(summary.total_sgst);
+      case 'igst':      return fmt(summary.total_igst);
+      case 'cess':      return fmt(summary.total_cess);
+      case 'gst':       return fmt(summary.total_gst);
+      case 'total':     return fmt(summary.total_amount);
+      case 'paid':      return fmt(summary.total_paid);
+      case 'balance':   return fmt(summary.total_balance);
+      default:          return null;
+    }
+  };
+
+  const summaryCells = (col, idx) => {
+    if (idx === 0) return totalCount > 0 ? `Total (${totalCount})` : null;
+    if (idx > 0 && idx < firstAggIdx) return null;          // merged into idx 0
+    return totalForKey(col.key);
+  };
+
+  const summaryColSpan = (col, idx) => {
+    if (idx === 0) return Math.max(1, firstAggIdx);
+    if (idx > 0 && idx < firstAggIdx) return 0;
+    return 1;
+  };
+
   const customizePopoverContent = (
     <div style={{ width: 360, maxHeight: '70vh', overflowY: 'auto' }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary, #6b7280)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>KPI Cards</div>
@@ -300,7 +298,6 @@ export default function PurchaseReport() {
           <div className="rpt-sub">
             <b>{totalCount}</b> bill{totalCount === 1 ? '' : 's'}
             {fyLabel && <><span className="sep">·</span>{fyLabel}</>}
-            {data.length < totalCount && <><span className="sep">·</span>showing <b>{data.length}</b></>}
           </div>
         </div>
         <div className="rpt-hd-ctrl">
@@ -371,8 +368,8 @@ export default function PurchaseReport() {
           className="rpt-search"
           prefix={<SearchOutlined />}
           placeholder="Search bill no, supplier, GSTIN, or supplier-bill…"
-          value={filters.search}
-          onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           allowClear
         />
         <span className="rpt-sep" />
@@ -390,59 +387,17 @@ export default function PurchaseReport() {
       </div>
 
       <div className="rpt-tbl-wrap">
-        <div ref={scrollRef} className="report-table-scroll rpt-tbl">
-          <Table
-            columns={columns}
-            dataSource={(filters.search ? data.filter((r) => {
-              const q = filters.search.toLowerCase();
-              return (r.bill_number || '').toLowerCase().includes(q)
-                  || (r.supplier?.party_name || '').toLowerCase().includes(q)
-                  || (r.supplier_bill_number || '').toLowerCase().includes(q)
-                  || String(r.total_amount || '').includes(q);
-            }) : data)}
-            rowKey="purchase_bill_id"
-            loading={loading}
-            size="small"
-            scroll={{ x: 1300 }}
-            sticky={{ offsetHeader: 0, offsetSummary: 0 }}
-            pagination={false}
-            summary={() => {
-              if (data.length === 0) return null;
-              const totalForKey = (k) => {
-                switch (k) {
-                  case 'sub_total': return fmt(summary.total_sub);
-                  case 'discount':  return fmt(summary.total_discount);
-                  case 'cgst':      return fmt(summary.total_cgst);
-                  case 'sgst':      return fmt(summary.total_sgst);
-                  case 'igst':      return fmt(summary.total_igst);
-                  case 'cess':      return fmt(summary.total_cess);
-                  case 'gst':       return fmt(summary.total_gst);
-                  case 'total':     return fmt(summary.total_amount);
-                  case 'paid':      return fmt(summary.total_paid);
-                  case 'balance':   return fmt(summary.total_balance);
-                  default:          return null;
-                }
-              };
-              return (
-                <Table.Summary fixed>
-                  <Table.Summary.Row style={{ background: '#fafafa', fontWeight: 'bold' }}>
-                    {columns.map((c, i) => (
-                      <Table.Summary.Cell key={c.key || i} index={i} align={c.align || 'left'}>
-                        {i === 0 ? `Total (${totalCount})` : totalForKey(c.key)}
-                      </Table.Summary.Cell>
-                    ))}
-                  </Table.Summary.Row>
-                </Table.Summary>
-              );
-            }}
-          />
-          {hasMore && (
-            <div ref={loaderRef} style={{ textAlign: 'center', padding: '12px 0' }}>
-              {loadingMore ? <Spin size="small" /> : <span style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>Scroll for more…</span>}
-            </div>
-          )}
-        </div>
-
+        <VirtualReportTable
+          columns={columns}
+          rows={rows}
+          totalCount={totalCount}
+          ensureChunk={ensureChunk}
+          loading={loading}
+          rowKey="purchase_bill_id"
+          scroll={{ x: 1300 }}
+          summaryCells={summaryCells}
+          summaryColSpan={summaryColSpan}
+        />
       </div>
     </div>
   );

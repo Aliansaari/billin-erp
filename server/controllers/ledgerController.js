@@ -4,13 +4,25 @@
 // the Ledger Integrity admin screen.
 //
 // Endpoints:
-//   GET /api/ledger/accounts   — chart of accounts (system + party ledgers)
-//   GET /api/ledger/integrity  — totals tie-out + per-source-type counts
-//   GET /api/ledger/unposted   — bills/payments without ledger entries
+//   GET  /api/ledger/accounts   — chart of accounts (system + party ledgers)
+//   GET  /api/ledger/integrity  — totals tie-out + per-source-type counts
+//   GET  /api/ledger/unposted   — bills/payments without ledger entries
+//   POST /api/ledger/reconcile  — backfill ledger entries for any source row
+//                                 missing one (idempotent — safe to re-run)
 
 const sequelize = require('../config/database');
 const { Op } = require('sequelize');
-const { LedgerAccount, LedgerEntry, Party } = require('../models');
+const {
+  LedgerAccount, LedgerEntry, Party,
+  SalesBill, PurchaseBill, SalesReturnBill, PurchaseReturnBill,
+  PaymentReceipt, PaymentSplit,
+} = require('../models');
+const { postVoucher } = require('../services/ledgerPostingService');
+const {
+  buildSalesBillVouchers, buildPurchaseBillVouchers,
+  buildSalesReturnVouchers, buildPurchaseReturnVouchers,
+  buildPaymentReceiptVouchers,
+} = require('../services/voucherBuilders');
 
 exports.listAccounts = async (req, res) => {
   try {
@@ -190,6 +202,143 @@ exports.integrity = async (req, res) => {
   } catch (err) {
     console.error('integrity error:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ── Reconcile ──────────────────────────────────────────────────────────
+//
+// Iterates each source table, finds rows that have no live forward entry
+// in `ledger_entries`, and posts them via the same voucherBuilders +
+// postVoucher path the live controllers use. Each voucher commits in its
+// own transaction so a single bad row doesn't block the rest.
+//
+// Idempotent: postVoucher rejects a re-post when a live entry already
+// exists, so re-running this endpoint after a partial run only retries
+// the still-unposted rows. Cancelled rows are skipped (they should NOT
+// have live entries, by design).
+//
+// Used by the "Run Reconciliation" button on the Ledger Integrity screen
+// and as the post-import healing step for any path that wrote bills
+// directly without going through the posting service (legacy Tally
+// live-pull, legacy file XML import).
+exports.reconcile = async (req, res) => {
+  const SOURCES = [
+    {
+      sourceType: 'sales_bill',
+      table: 'sales_bills',
+      idCol: 'sales_bill_id',
+      cancelCol: 'is_cancelled',
+      load: (id) => SalesBill.findByPk(id, { include: [{ model: Party, as: 'customer' }] }),
+      build: (row) => buildSalesBillVouchers(row),
+    },
+    {
+      sourceType: 'purchase_bill',
+      table: 'purchase_bills',
+      idCol: 'purchase_bill_id',
+      cancelCol: 'is_cancelled',
+      load: (id) => PurchaseBill.findByPk(id, { include: [{ model: Party, as: 'supplier' }] }),
+      build: (row) => buildPurchaseBillVouchers(row),
+    },
+    {
+      sourceType: 'sales_return_bill',
+      table: 'sales_return_bills',
+      idCol: 'sales_return_id',
+      cancelCol: 'is_cancelled',
+      load: (id) => SalesReturnBill.findByPk(id, { include: [{ model: Party, as: 'customer' }] }),
+      build: (row) => buildSalesReturnVouchers(row),
+    },
+    {
+      sourceType: 'purchase_return_bill',
+      table: 'purchase_return_bills',
+      idCol: 'purchase_return_id',
+      cancelCol: 'is_cancelled',
+      load: (id) => PurchaseReturnBill.findByPk(id, { include: [{ model: Party, as: 'supplier' }] }),
+      build: (row) => buildPurchaseReturnVouchers(row),
+    },
+    {
+      sourceType: 'payment_receipt',
+      table: 'payments_receipts',
+      idCol: 'transaction_id',
+      cancelCol: 'is_cancelled',
+      load: async (id) => {
+        const row = await PaymentReceipt.findByPk(id, {
+          include: [{ model: Party, as: 'party' }],
+        });
+        if (row) {
+          // Splits ride on a separate FK column (transaction_id), not in the
+          // standard association map; load them by hand so the builder sees
+          // multi-method receipts as one voucher with N cash/bank legs.
+          row.splits = await PaymentSplit.findAll({ where: { transaction_id: id } });
+        }
+        return row;
+      },
+      build: (row) => buildPaymentReceiptVouchers(row),
+    },
+  ];
+
+  const summary = {};
+  const errors = [];
+
+  try {
+    for (const src of SOURCES) {
+      // Same un-posted detection used by GET /unposted, plus an
+      // is_cancelled = false guard. A cancelled bill that was previously
+      // posted has its forward entry paired with a mirror — the "live
+      // forward" filter already excludes it — but we never want to
+      // re-post a cancelled row, so guard explicitly.
+      const cancelClause = src.cancelCol
+        ? `AND (t.${src.cancelCol} = false OR t.${src.cancelCol} IS NULL)`
+        : '';
+      const rows = await sequelize.query(
+        `SELECT t.${src.idCol} AS id
+           FROM ${src.table} t
+          WHERE NOT EXISTS (
+            SELECT 1 FROM ledger_entries le
+             WHERE le.source_type = :st AND le.reference_id = t.${src.idCol}
+               AND le.reversal_of_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM ledger_entries m
+                  WHERE m.reversal_of_id = le.entry_id
+               )
+          )
+          ${cancelClause}
+          ORDER BY t.${src.idCol} ASC`,
+        { replacements: { st: src.sourceType }, type: sequelize.QueryTypes.SELECT },
+      );
+
+      let posted = 0;
+      let failed = 0;
+      for (const r of rows) {
+        const t = await sequelize.transaction();
+        try {
+          const row = await src.load(r.id, t);
+          if (!row) { failed++; await t.rollback(); continue; }
+          const vouchers = await src.build(row);
+          for (const v of vouchers) {
+            await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+          }
+          await t.commit();
+          posted++;
+        } catch (err) {
+          await t.rollback();
+          failed++;
+          // Cap errors so the response stays bounded even if every row fails.
+          if (errors.length < 100) {
+            errors.push({
+              source_type: src.sourceType,
+              source_id: r.id,
+              reason: err.message || String(err),
+            });
+          }
+        }
+      }
+      summary[src.sourceType] = { found: rows.length, posted, failed };
+    }
+
+    res.json({ ok: true, summary, errors });
+  } catch (err) {
+    console.error('reconcile error:', err);
+    res.status(500).json({ error: err.message || 'Reconcile failed' });
   }
 };
 

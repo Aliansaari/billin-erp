@@ -37,9 +37,14 @@ const SalesBillDraft = sequelize.define('SalesBillDraft', {
     allowNull: false,
   },
   // Nullable — a walk-in customer may have no party_id at hold time.
+  // ON DELETE SET NULL: deleting a party converts any held drafts into
+  // walk-in drafts rather than blocking the delete. Drafts have no
+  // business invariants tied to party_id (no GST math, no balance, no
+  // stock), so this is a safe, lossless transition.
   customer_id: {
     type: DataTypes.INTEGER,
     references: { model: 'parties', key: 'party_id' },
+    onDelete: 'SET NULL',
   },
   draft_date: {
     type: DataTypes.DATEONLY,

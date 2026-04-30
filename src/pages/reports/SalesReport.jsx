@@ -1,15 +1,16 @@
-import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { Table, DatePicker, Select, Button, Tag, message, Spin, Checkbox, Popover, Input } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { DatePicker, Button, Tag, message, Checkbox, Popover, Input } from 'antd';
 import { DownloadOutlined, SettingOutlined, PrinterOutlined, SearchOutlined, CloseOutlined, WarningOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { reportAPI, partyAPI } from '../../api';
+import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import VirtualReportTable from '../../components/VirtualReportTable';
 
-const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-
-// Rows per server request. Keep moderate so the first paint is fast; an
-// IntersectionObserver pulls the next page when the user scrolls near the end.
-const PAGE_SIZE = 200;
+// Non-breaking space between ₹ and the number so narrow cells can never
+// split the glyph onto its own line. Affects every place fmt() is used
+// — data cells, summary cells, and KPI tiles.
+const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
 // Every column in the table is toggleable from the Customize popover.
 // `default: true` columns ship visible; the rest are off by default
@@ -17,6 +18,7 @@ const PAGE_SIZE = 200;
 // into when they need them). Persisted to localStorage so a user's
 // column choice survives page reloads.
 const ALL_COLS = [
+  { key: 'sr_no',         label: 'Sr No',            default: true  },
   { key: 'bill_no',       label: 'Bill No',          default: true  },
   { key: 'date',          label: 'Date',             default: true  },
   { key: 'customer',      label: 'Customer',         default: true  },
@@ -87,14 +89,7 @@ function presetRange(key, fyStart, fyEnd) {
 
 export default function SalesReport() {
   const { fyStart, fyEnd } = useFinancialYear();
-  const [data, setData] = useState([]);
-  const [totalCount, setTotalCount] = useState(0); // full filtered count across all pages
-  const [summary, setSummary] = useState({});
-  const [customers, setCustomers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [serverPage, setServerPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+
   // Defaults to the company FY — every period selector across the
   // app uses the same window. Falls back to current month on first
   // install before settings are loaded.
@@ -105,9 +100,20 @@ export default function SalesReport() {
     payment_status: null,
     search: '',
   });
+  // Local search input — debounced into filters.search so we don't fire
+  // a server request on every keystroke. Server-side search is
+  // mandatory under virtualization (the client can't filter rows it
+  // hasn't loaded).
+  const [searchInput, setSearchInput] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((f) => f.search === searchInput ? f : { ...f, search: searchInput });
+    }, 220);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const [reconDismissed, setReconDismissed] = useState(false);
   const [preset, setPreset] = useState('this_fy');
-  const [reconciliation, setReconciliation] = useState(null);
   const [colsVisible, setColsVisible] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
@@ -120,8 +126,18 @@ export default function SalesReport() {
       return saved && typeof saved === 'object' ? { ...DEFAULT_KPIS, ...saved } : DEFAULT_KPIS;
     } catch { return DEFAULT_KPIS; }
   });
-  const loaderRef = useRef(null);
-  const scrollRef = useRef(null);
+
+  // ── Virtualized data layer ────────────────────────────────────────
+  // The hook owns chunked fetching, in-flight dedupe, sparse rows,
+  // and meta passthrough (for the reconciliation banner). Filters are
+  // a stable object — when any value changes, the cache resets and
+  // chunk 0 re-fetches automatically.
+  const { rows, totalCount, summary, meta, ensureChunk, loading } = useVirtualizedReport({
+    fetcher: (params) => reportAPI.getSalesReport(params),
+    filters,
+    chunkSize: 200,
+  });
+  const reconciliation = meta?.reconciliation || null;
 
   // Sync filters dates when preset changes (and FY arrives async).
   useEffect(() => {
@@ -145,70 +161,6 @@ export default function SalesReport() {
   useEffect(() => {
     try { localStorage.setItem(KPIS_STORAGE_KEY, JSON.stringify(kpisVisible)); } catch {}
   }, [kpisVisible]);
-
-  useEffect(() => {
-    loadCustomers();
-  }, []);
-
-  useEffect(() => {
-    loadFirstPage();
-  }, [filters]);
-
-  const loadCustomers = async () => {
-    try {
-      const { data } = await partyAPI.getCustomers();
-      setCustomers(data.data || data);
-    } catch (e) { /* ignore */ }
-  };
-
-  const loadFirstPage = async () => {
-    setLoading(true);
-    setData([]);
-    setServerPage(1);
-    setHasMore(true);
-    try {
-      // Paginate so firms with years of bills (10k+) don't hit a 1000-row wall.
-      // Summary comes from the backend aggregate (full filtered dataset) — it
-      // stays accurate regardless of how many pages are currently materialized.
-      const res = await reportAPI.getSalesReport({ ...filters, page: 1, limit: PAGE_SIZE });
-      setData(res.data.data || []);
-      setTotalCount(res.data.total || 0);
-      setSummary(res.data.summary || {});
-      setReconciliation(res.data.reconciliation || null);
-      setHasMore((res.data.data || []).length < (res.data.total || 0));
-    } catch (e) {
-      message.error('Failed to load sales report');
-    }
-    setLoading(false);
-  };
-
-  const loadNextPage = useCallback(async () => {
-    if (loadingMore || !hasMore || loading) return;
-    setLoadingMore(true);
-    const next = serverPage + 1;
-    try {
-      const res = await reportAPI.getSalesReport({ ...filters, page: next, limit: PAGE_SIZE });
-      const rows = res.data.data || [];
-      setData(prev => [...prev, ...rows]);
-      setTotalCount(res.data.total || 0);
-      setServerPage(next);
-      setHasMore(next * PAGE_SIZE < (res.data.total || 0));
-    } catch (e) {
-      message.error('Failed to load more bills');
-    }
-    setLoadingMore(false);
-  }, [loadingMore, hasMore, loading, serverPage, filters]);
-
-  useEffect(() => {
-    // Use the inner scroll container as the IO root so the sentinel triggers
-    // when the user scrolls within the table box (not the page).
-    const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadNextPage(); },
-      { root: scrollRef.current || null, threshold: 0.1 }
-    );
-    if (loaderRef.current) observer.observe(loaderRef.current);
-    return () => observer.disconnect();
-  }, [loadNextPage]);
 
   const handleExport = async () => {
     try {
@@ -256,6 +208,11 @@ export default function SalesReport() {
   // colsVisible. Adding/removing/renaming a column happens in one
   // place — no fragile push/spread chain.
   const COL_SPECS = useMemo(() => ({
+    // Sr No is purely positional — driven by row index, no backing field.
+    // The summary row replaces this cell with the "Total (count)" label
+    // (see the summary renderer below) so the column header stays clean.
+    sr_no:        { title: 'Sr',          width: 56, align: 'center',
+                    render: (_v, _row, idx) => <span style={{ color: 'var(--fg-tertiary)', fontFamily: 'Geist Mono, monospace' }}>{idx + 1}</span> },
     bill_no:      { title: 'Bill No',     dataIndex: 'bill_number', width: 130,
                     render: (v) => <span className="rpt-bill-no">{v}</span> },
     date:         { title: 'Date',        dataIndex: 'bill_date',   width: 110, render: (v) => dayjs(v).format('DD/MM/YYYY') },
@@ -313,6 +270,58 @@ export default function SalesReport() {
     return ALL_COLS.filter((c) => colsVisible[c.key]).map((c) => ({ key: c.key, ...COL_SPECS[c.key] }));
   }, [colsVisible, COL_SPECS]);
 
+  // Per-column summary content for VirtualReportTable. Driven by
+  // server-aggregated `summary` over the full filtered set, so totals
+  // stay correct regardless of how many chunks have streamed in.
+  // Aggregable column keys are tracked here so the wrapper can also
+  // determine where the leading "Total (N)" label should end (it spans
+  // every leading non-aggregable column so the label has space and the
+  // first numeric total sits directly under its column header).
+  const SUMMABLE_KEYS = useMemo(() => new Set([
+    'sub_total', 'discount', 'cgst', 'sgst', 'igst', 'cess', 'gst',
+    'cogs', 'profit', 'margin', 'total', 'paid', 'balance',
+  ]), []);
+
+  // Index of the first visible column that has an aggregate. The
+  // "Total (N)" label colSpans up to (but not including) this index,
+  // so columns like Sr / Bill No / Date / Customer / Items merge into
+  // one wide cell holding the label.
+  const firstAggIdx = useMemo(() => {
+    const idx = columns.findIndex((c) => SUMMABLE_KEYS.has(c.key));
+    return idx === -1 ? columns.length : idx;
+  }, [columns, SUMMABLE_KEYS]);
+
+  const totalForKey = (k) => {
+    switch (k) {
+      case 'sub_total': return fmt(summary.total_sub);
+      case 'discount':  return fmt(summary.total_discount);
+      case 'cgst':      return fmt(summary.total_cgst);
+      case 'sgst':      return fmt(summary.total_sgst);
+      case 'igst':      return fmt(summary.total_igst);
+      case 'cess':      return fmt(summary.total_cess);
+      case 'gst':       return fmt(summary.total_gst);
+      case 'cogs':      return fmt(summary.total_cogs);
+      case 'profit':    return <span style={{ color: (summary.total_profit || 0) >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(summary.total_profit)}</span>;
+      case 'margin':    return `${(summary.margin_pct || 0).toFixed(1)}%`;
+      case 'total':     return fmt(summary.total_amount);
+      case 'paid':      return fmt(summary.total_paid);
+      case 'balance':   return fmt(summary.total_balance);
+      default:          return null;
+    }
+  };
+
+  const summaryCells = (col, idx) => {
+    if (idx === 0) return totalCount > 0 ? `Total (${totalCount})` : null;
+    if (idx > 0 && idx < firstAggIdx) return null;          // merged into idx 0
+    return totalForKey(col.key);
+  };
+
+  const summaryColSpan = (col, idx) => {
+    if (idx === 0) return Math.max(1, firstAggIdx);         // span leading non-aggregables
+    if (idx > 0 && idx < firstAggIdx) return 0;             // hidden — merged
+    return 1;
+  };
+
   // Customize popover — two sections: KPI cards (top) + table columns (bottom).
   // Two-column grid so the toggles don't push the popover off-screen.
   const customizePopoverContent = (
@@ -352,7 +361,6 @@ export default function SalesReport() {
           <div className="rpt-sub">
             <b>{totalCount}</b> bill{totalCount === 1 ? '' : 's'}
             {fyLabel && <><span className="sep">·</span>{fyLabel}</>}
-            {data.length < totalCount && <><span className="sep">·</span>showing <b>{data.length}</b></>}
           </div>
         </div>
         <div className="rpt-hd-ctrl">
@@ -427,8 +435,8 @@ export default function SalesReport() {
           className="rpt-search"
           prefix={<SearchOutlined />}
           placeholder="Search bill no, customer, or amount…"
-          value={filters.search}
-          onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           allowClear
         />
         <span className="rpt-sep" />
@@ -447,68 +455,17 @@ export default function SalesReport() {
 
       {/* ─── TABLE ─── */}
       <div className="rpt-tbl-wrap">
-        <div ref={scrollRef} className="report-table-scroll rpt-tbl">
-          <Table
-            columns={columns}
-            dataSource={(filters.search ? data.filter((r) => {
-              const q = filters.search.toLowerCase();
-              return (r.bill_number || '').toLowerCase().includes(q)
-                  || (r.customer?.party_name || '').toLowerCase().includes(q)
-                  || String(r.total_amount || '').includes(q);
-            }) : data)}
-            rowKey="sales_bill_id"
-            loading={loading}
-            size="small"
-            scroll={{ x: 1300 }}
-            sticky={{ offsetHeader: 0, offsetSummary: 0 }}
-            pagination={false}
-            summary={() => {
-              if (data.length === 0) return null;
-              // Each column key maps to its backend summary aggregate. Non-
-              // numeric columns (Bill No / Date / Customer / GSTIN / State /
-              // City / Salesperson / Items count / Status / etc.) get blank
-              // cells; numeric columns pull from the backend summary
-              // aggregate (NOT data.reduce — that would only sum the visible
-              // page and drift from the bill-count label).
-              const totalForKey = (k) => {
-                switch (k) {
-                  case 'sub_total': return fmt(summary.total_sub);
-                  case 'discount':  return fmt(summary.total_discount);
-                  case 'cgst':      return fmt(summary.total_cgst);
-                  case 'sgst':      return fmt(summary.total_sgst);
-                  case 'igst':      return fmt(summary.total_igst);
-                  case 'cess':      return fmt(summary.total_cess);
-                  case 'gst':       return fmt(summary.total_gst);
-                  case 'cogs':      return fmt(summary.total_cogs);
-                  case 'profit':    return <span style={{ color: (summary.total_profit || 0) >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(summary.total_profit)}</span>;
-                  case 'margin':    return `${(summary.margin_pct || 0).toFixed(1)}%`;
-                  case 'total':     return fmt(summary.total_amount);
-                  case 'paid':      return fmt(summary.total_paid);
-                  case 'balance':   return fmt(summary.total_balance);
-                  default:          return null;
-                }
-              };
-              return (
-                <Table.Summary fixed>
-                  <Table.Summary.Row style={{ background: '#fafafa', fontWeight: 'bold' }}>
-                    {columns.map((c, i) => (
-                      <Table.Summary.Cell key={c.key || i} index={i} align={c.align || 'left'}>
-                        {i === 0 ? `Total (${totalCount})` : totalForKey(c.key)}
-                      </Table.Summary.Cell>
-                    ))}
-                  </Table.Summary.Row>
-                </Table.Summary>
-              );
-            }}
-          />
-          {/* Infinite-scroll sentinel — when visible, fetch the next page. */}
-          {hasMore && (
-            <div ref={loaderRef} style={{ textAlign: 'center', padding: '12px 0' }}>
-              {loadingMore ? <Spin size="small" /> : <span style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>Scroll for more…</span>}
-            </div>
-          )}
-        </div>
-
+        <VirtualReportTable
+          columns={columns}
+          rows={rows}
+          totalCount={totalCount}
+          ensureChunk={ensureChunk}
+          loading={loading}
+          rowKey="sales_bill_id"
+          scroll={{ x: 1300 }}
+          summaryCells={summaryCells}
+          summaryColSpan={summaryColSpan}
+        />
       </div>
     </div>
   );

@@ -279,7 +279,7 @@ function r2(v) { return Math.round((Number(v) || 0) * 100) / 100; }
 
 exports.salesReport = async (req, res) => {
   try {
-    const { from_date, to_date, customer_id, payment_status } = req.query;
+    const { from_date, to_date, customer_id, payment_status, search } = req.query;
     // Reports allow larger pages (maxLimit 1000) because exports fetch page=1&limit=10000 is common;
     // still capped so an attacker can't request limit=10^9 and hang the worker.
     const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit, { maxLimit: 1000 });
@@ -288,6 +288,39 @@ exports.salesReport = async (req, res) => {
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (customer_id) where.customer_id = customer_id;
     if (payment_status) where.payment_status = payment_status;
+
+    // Server-side search across bill_number / total_amount / customer.party_name.
+    //
+    // Strategy: when a search term is present, we resolve the matching
+    // sales_bill_ids upfront with a single raw query (one join, one
+    // pass over the index), then inject `sales_bill_id IN (...)` into
+    // the existing `where`. This keeps every downstream query (rows,
+    // totals, cogs, reconciliation) join-free — they all just see an
+    // ID list, no `customer` reference, no Sequelize `subQuery:false`
+    // gymnastics. Strips thousand-separator commas so "9,097.20"
+    // matches a bill of 9097.20.
+    const trimmedSearch = (search || '').toString().trim();
+    if (trimmedSearch) {
+      const like = `%${trimmedSearch}%`;
+      const numericRaw = parseFloat(trimmedSearch.replace(/,/g, ''));
+      const numeric = Number.isFinite(numericRaw) ? numericRaw : null;
+      const conds = [
+        'sb.bill_number ILIKE :like',
+        'c.party_name ILIKE :like',
+      ];
+      if (numeric !== null) conds.push('sb.total_amount = :numeric');
+      const idRows = await sequelize.query(
+        `SELECT sb.sales_bill_id
+           FROM sales_bills sb
+           LEFT JOIN parties c ON c.party_id = sb.customer_id
+          WHERE (${conds.join(' OR ')})`,
+        { replacements: { like, numeric: numeric ?? 0 }, type: sequelize.QueryTypes.SELECT },
+      );
+      const ids = idRows.map((r) => r.sales_bill_id);
+      // Empty IN () is invalid SQL — use a sentinel that matches no
+      // rows so the page renders "0 bills" instead of erroring.
+      where.sales_bill_id = { [Op.in]: ids.length ? ids : [-1] };
+    }
 
     const { count, rows } = await SalesBill.findAndCountAll({
       where,
@@ -335,19 +368,41 @@ exports.salesReport = async (req, res) => {
 
     // COGS aggregate over the same filtered set. Joined SQL query
     // because Sequelize aggregate via include is awkward when the
-    // outer where filter is on the parent.
+    // outer where filter is on the parent. Mirrors every filter the
+    // findAndCountAll above applies — including the search-derived
+    // sales_bill_id IN list, otherwise total_profit would be sub_total
+    // (search-scoped) − COGS (full-period), going wildly negative.
+    const searchIdsForCogs = trimmedSearch
+      ? (where.sales_bill_id?.[Op.in] || [])
+      : null;
     const cogsWhereSql = [
       'b.is_cancelled = false',
       from_date && to_date ? 'b.bill_date BETWEEN :from_date AND :to_date' : null,
       customer_id ? 'b.customer_id = :customer_id' : null,
       payment_status ? 'b.payment_status = :payment_status' : null,
+      // IN (:array) is the Sequelize-friendly array form; `= ANY(...)`
+      // splats the array as bare comma-separated values without the
+      // required `ARRAY[...]` wrapper and Postgres rejects it as a
+      // syntax error. The empty-list guard upstream already replaced
+      // an empty searchIds with the [-1] sentinel, so IN never
+      // generates an invalid `IN ()`.
+      searchIdsForCogs ? 'b.sales_bill_id IN (:searchIds)' : null,
     ].filter(Boolean).join(' AND ');
     const [cogsRow] = await sequelize.query(
       `SELECT COALESCE(SUM(it.quantity * it.cost_rate), 0)::float AS total_cogs
          FROM sales_bill_items it
          JOIN sales_bills b ON b.sales_bill_id = it.sales_bill_id
         WHERE ${cogsWhereSql}`,
-      { replacements: { from_date, to_date, customer_id, payment_status }, type: sequelize.QueryTypes.SELECT },
+      {
+        replacements: {
+          from_date, to_date, customer_id, payment_status,
+          // IN (:searchIds) needs at least one element; pass [-1]
+          // (matches no rows) when there's no search rather than
+          // omitting the replacement, which would crash on missing key.
+          searchIds: searchIdsForCogs && searchIdsForCogs.length ? searchIdsForCogs : [-1],
+        },
+        type: sequelize.QueryTypes.SELECT,
+      },
     );
     const total_cogs = r2(cogsRow.total_cogs);
 
@@ -380,11 +435,13 @@ exports.salesReport = async (req, res) => {
     };
 
     // Ledger reconciliation — only meaningful when filtering by date
-    // range. Sales Account Cr (period) should equal
-    //   sub_total − discount + other_charges + freight_charges
-    // summed across the same filtered set. Drift surfaces a banner.
+    // range AND viewing the full result set. When a search is narrowing
+    // results, the bill aggregate would compare apples-to-oranges
+    // against the full-period Sales Account ledger — banner falsely
+    // triggers. Skip in that case; the next un-searched view restores
+    // the correct comparison.
     let reconciliation = null;
-    if (from_date && to_date) {
+    if (from_date && to_date && !trimmedSearch) {
       const reconWhere = { ...where };
       const breakdown = await SalesBill.findAll({
         where: reconWhere,
@@ -426,13 +483,39 @@ exports.salesReport = async (req, res) => {
 
 exports.purchaseReport = async (req, res) => {
   try {
-    const { from_date, to_date, supplier_id, payment_status } = req.query;
+    const { from_date, to_date, supplier_id, payment_status, search } = req.query;
     const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit, { maxLimit: 1000 });
     const where = { is_cancelled: false };
 
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (supplier_id) where.supplier_id = supplier_id;
     if (payment_status) where.payment_status = payment_status;
+
+    // Server-side search across bill_number / total_amount / supplier.party_name.
+    // Pre-resolve matching purchase_bill_ids in one raw query, then inject as
+    // an Op.in filter so the totals + reconciliation queries below can apply
+    // the search filter without needing to also include the parties join.
+    // Same approach used for salesReport.
+    const trimmedSearch = (search || '').toString().trim();
+    if (trimmedSearch) {
+      const like = `%${trimmedSearch}%`;
+      const numericRaw = parseFloat(trimmedSearch.replace(/,/g, ''));
+      const numeric = Number.isFinite(numericRaw) ? numericRaw : null;
+      const conds = [
+        'pb.bill_number ILIKE :like',
+        's.party_name ILIKE :like',
+      ];
+      if (numeric !== null) conds.push('pb.total_amount = :numeric');
+      const idRows = await sequelize.query(
+        `SELECT pb.purchase_bill_id
+           FROM purchase_bills pb
+           LEFT JOIN parties s ON s.party_id = pb.supplier_id
+          WHERE (${conds.join(' OR ')})`,
+        { replacements: { like, numeric: numeric ?? 0 }, type: sequelize.QueryTypes.SELECT },
+      );
+      const ids = idRows.map((r) => r.purchase_bill_id);
+      where.purchase_bill_id = { [Op.in]: ids.length ? ids : [-1] };
+    }
 
     const { count, rows } = await PurchaseBill.findAndCountAll({
       where,
@@ -481,9 +564,12 @@ exports.purchaseReport = async (req, res) => {
     };
 
     // Ledger reconciliation — Purchase Account Dr (period) should equal
-    // the same Net-Purchase formula as the voucher builder uses.
+    // the same Net-Purchase formula as the voucher builder uses. Skip
+    // when a search is narrowing the result set: comparing a
+    // search-scoped bill aggregate against the full-period Purchase
+    // Account ledger would falsely trigger the drift banner.
     let reconciliation = null;
-    if (from_date && to_date) {
+    if (from_date && to_date && !trimmedSearch) {
       const reconWhere = { ...where };
       const breakdown = await PurchaseBill.findAll({
         where: reconWhere,

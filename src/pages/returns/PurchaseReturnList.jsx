@@ -1,46 +1,49 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Table, Tag, Typography, message, DatePicker, Select, Tooltip,
-  Modal, Descriptions, Divider, Dropdown,
+  Tag, Typography, message, DatePicker, Select, Tooltip,
+  Modal, Descriptions, Divider, Dropdown, Table,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, StopOutlined,
   PrinterOutlined, EditOutlined, MoreOutlined,
-  CopyOutlined, AppstoreOutlined, FileTextOutlined, LinkOutlined,
+  CopyOutlined, SettingOutlined, FileTextOutlined, LinkOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseReturnAPI, settingsAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument } from '../../services/printer';
+import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import VirtualReportTable from '../../components/VirtualReportTable';
 import '../../styles/bill-list.css';
 import './return-list.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
- *  PurchaseReturnList — mirror of SalesReturnList on the supplier side.
- *
- *    · bill_number        → return_number (PR-xxxx)
- *    · payment_status     → refund_status (Refunded / Partial / Pending)
- *    · paid_amount        → refund_amount (cash supplier paid back to us)
- *    · balance_amount     → debit still owed TO US by the supplier
- *    · total_amount       → debit-note value (supplier owes us this)
- *
- *  KPI cards: "Refunded" = money supplier has already returned; "Debit
- *  pending" = how much they still owe on open debit notes.
- *
- *  Same editorial chrome as SalesList / PurchaseList (bill-list.css) so the
- *  whole software reads visually consistent — only the DATA semantics flip.
+ *  PurchaseReturnList — virtualized list with editorial visual treatment
+ *  preserved via column renders. Mirrors SalesReturnList on the supplier side.
+ *    · bill_number     → return_number (PR-xxxx)
+ *    · payment_status  → refund_status (Refunded / Partial / Pending)
+ *    · paid_amount     → refund_amount (cash supplier paid back to us)
+ *    · balance_amount  → debit still owed TO US by the supplier
+ *    · total_amount    → debit-note value (supplier owes us this)
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 const OPTIONAL_COLS = [
+  { key: 'time',     label: 'Time' },
   { key: 'ref',      label: 'Reference bill' },
   { key: 'mode',     label: 'Return mode' },
   { key: 'reason',   label: 'Reason' },
   { key: 'gst',      label: 'GST amount' },
   { key: 'discount', label: 'Discount' },
 ];
-const COLS_STORAGE_KEY = 'purchaseReturnList_cols_v1';
-const DEFAULT_COLS = { ref: true, mode: true, reason: false, gst: false, discount: false };
+const SECTIONS = [
+  { key: 'totalRow', label: 'Total row (sticky bottom)' },
+];
+const COLS_STORAGE_KEY = 'purchaseReturnList_cols_v2';
+const DEFAULT_COLS = {
+  time: true, ref: true, mode: true, reason: false, gst: false, discount: false,
+  totalRow: true,
+};
 
 const { Text } = Typography;
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -49,86 +52,6 @@ const fmtShort = (v) => {
   if (n === 0) return '₹ 0';
   return `₹ ${Math.round(n).toLocaleString('en-IN')}`;
 };
-
-function printReturn(bill, companyName) {
-  const items = bill.items || [];
-  const rows = items.map((it, i) => `
-    <tr>
-      <td>${i + 1}</td>
-      <td>${it.product_name || ''}</td>
-      <td>${it.barcode || ''}</td>
-      <td>${it.size || ''}</td>
-      <td style="text-align:right">${parseFloat(it.quantity || 0)}</td>
-      <td style="text-align:right">₹${parseFloat(it.rate || 0).toFixed(2)}</td>
-      <td style="text-align:right">₹${parseFloat(it.total_amount || 0).toFixed(2)}</td>
-    </tr>`).join('');
-
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Purchase Return</title>
-<style>
-  @page{margin:12mm}
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:Arial,sans-serif;font-size:12px;color:#111}
-  h2{font-size:18px;text-align:center;margin-bottom:2px}
-  .title{text-align:center;font-size:14px;font-weight:700;letter-spacing:1px;
-    border-top:2px solid #000;border-bottom:2px solid #000;padding:4px 0;margin:8px 0}
-  .meta{display:flex;justify-content:space-between;margin-bottom:10px}
-  .meta div{line-height:1.8}
-  table{width:100%;border-collapse:collapse;margin-top:8px}
-  th{background:#f3f4f6;padding:5px 6px;border:1px solid #ddd;font-size:11px;text-align:left}
-  td{padding:4px 6px;border:1px solid #ddd;font-size:11px}
-  .totals{margin-top:12px;display:flex;justify-content:flex-end}
-  .totals table{width:240px}
-  .totals td{border:none;padding:2px 6px}
-  .totals .grand{font-weight:700;font-size:13px;border-top:2px solid #000}
-  .footer{margin-top:24px;display:flex;justify-content:space-between;font-size:11px}
-</style></head>
-<body>
-  <h2>${companyName || 'Purchase Return'}</h2>
-  <div class="title">PURCHASE RETURN · DEBIT NOTE</div>
-  <div class="meta">
-    <div>
-      <b>Return No:</b> ${bill.return_number}<br>
-      <b>Date:</b> ${dayjs(bill.return_date).format('DD-MMM-YYYY')}<br>
-      ${bill.reference_bill_number ? `<b>Against Bill:</b> ${bill.reference_bill_number}<br>` : ''}
-    </div>
-    <div style="text-align:right">
-      <b>Supplier:</b> ${bill.supplier?.party_name || '—'}<br>
-      <b>Status:</b> ${bill.refund_status}<br>
-      <b>Mode:</b> ${bill.return_mode}<br>
-    </div>
-  </div>
-  ${bill.return_mode === 'Amount' ? '' : `<table>
-    <thead><tr><th>#</th><th>Product</th><th>Barcode</th><th>Size</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`}
-  <div class="totals"><table>
-    <tr><td>Sub Total</td><td style="text-align:right">${fmt(bill.sub_total)}</td></tr>
-    ${bill.discount_amount > 0 ? `<tr><td>Discount</td><td style="text-align:right">- ${fmt(bill.discount_amount)}</td></tr>` : ''}
-    ${parseFloat(bill.cgst_amount||0) > 0 ? `<tr><td>CGST</td><td style="text-align:right">${fmt(bill.cgst_amount)}</td></tr>` : ''}
-    ${parseFloat(bill.sgst_amount||0) > 0 ? `<tr><td>SGST</td><td style="text-align:right">${fmt(bill.sgst_amount)}</td></tr>` : ''}
-    ${parseFloat(bill.igst_amount||0) > 0 ? `<tr><td>IGST</td><td style="text-align:right">${fmt(bill.igst_amount)}</td></tr>` : ''}
-    ${parseFloat(bill.round_off||0) !== 0 ? `<tr><td>Round Off</td><td style="text-align:right">${parseFloat(bill.round_off).toFixed(2)}</td></tr>` : ''}
-    <tr class="grand"><td>Debit Total</td><td style="text-align:right">${fmt(bill.total_amount)}</td></tr>
-    <tr><td>Refunded</td><td style="text-align:right">${fmt(bill.refund_amount)}</td></tr>
-    <tr><td><b>Debit Pending</b></td><td style="text-align:right"><b>${fmt(bill.balance_amount)}</b></td></tr>
-  </table></div>
-  <div class="footer">
-    <div>Supplier Signature: _______________</div>
-    <div>Authorised Signature: _______________</div>
-  </div>
-</body></html>`;
-
-  const iframe = document.createElement('iframe');
-  iframe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;border:none;visibility:hidden;';
-  document.body.appendChild(iframe);
-  iframe.contentDocument.open();
-  iframe.contentDocument.write(html);
-  iframe.contentDocument.close();
-  setTimeout(() => {
-    try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch (_) {}
-    setTimeout(() => document.body.removeChild(iframe), 2000);
-  }, 400);
-}
 
 function SummaryRow({ label, value, color, bold, borderTop }) {
   return (
@@ -237,13 +160,25 @@ function Ring({ pct, tone = 'ok' }) {
 
 export default function PurchaseReturnList() {
   const { fyStart, fyEnd } = useFinancialYear();
-  const [bills, setBills]             = useState([]);
-  const [loading, setLoading]         = useState(false);
-  const [total, setTotal]             = useState(0);
-  const [filters, setFilters]         = useState({ search: '', refund_status: null, from_date: fyStart, to_date: fyEnd });
+  const [searchInput, setSearchInput] = useState('');
+  const [filters, setFilters] = useState({ search: '', refund_status: null, from_date: fyStart, to_date: fyEnd });
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const [viewBill, setViewBill]       = useState(null);
   const [actionLoading, setActionLoading] = useState({});
   const [companyName, setCompanyName] = useState('');
+
+  const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
+    fetcher: (params) => purchaseReturnAPI.getAll(params),
+    filters,
+    chunkSize: 200,
+  });
+
   const [cols, setCols] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
@@ -253,31 +188,19 @@ export default function PurchaseReturnList() {
   useEffect(() => {
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(cols)); } catch {}
   }, [cols]);
-  const visibleOptionalCount = Object.values(cols).filter(Boolean).length;
+  const visibleOptionalCount = OPTIONAL_COLS.filter((c) => cols[c.key]).length;
 
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadBills();
     settingsAPI.getSystem().then(({ data }) => setCompanyName(data?.data?.company_name || '')).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
-
-  const loadBills = async () => {
-    setLoading(true);
-    try {
-      const { data } = await purchaseReturnAPI.getAll({ ...filters, page: 1, limit: 10000 });
-      setBills(data.data);
-      setTotal(data.total);
-    } catch (e) { message.error('Failed to load'); }
-    setLoading(false);
-  };
+  }, []);
 
   const handleCancel = async (id) => {
     try {
       await purchaseReturnAPI.cancel(id);
       message.success('Return cancelled');
-      loadBills();
+      refresh();
     } catch (e) {
       Modal.error({
         title: 'Cannot cancel return', icon: null, width: 500,
@@ -287,7 +210,7 @@ export default function PurchaseReturnList() {
               {e.response?.data?.error || 'Failed to cancel'}
             </div>
             <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'10px 14px', fontSize:12, color:'#1e40af', lineHeight:1.6 }}>
-              💡 Cancelling adds the returned stock back into inventory and reverses the supplier debit.
+              💡 Cancelling restores the returned stock and reverses the supplier debit.
             </div>
           </div>
         ),
@@ -313,27 +236,201 @@ export default function PurchaseReturnList() {
   const handlePrint = (id) => printDocument({ docType: 'purchase_return', id });
   const handleEdit  = (id) => navigate(`/purchase-return/edit/${id}`);
 
-  const kpis = useMemo(() => {
-    const active = bills.filter(b => !b.is_cancelled);
-    const totalAmount = active.reduce((s, b) => s + parseFloat(b.total_amount    || 0), 0);
-    const refunded    = active.reduce((s, b) => s + parseFloat(b.refund_amount   || 0), 0);
-    const pending     = active.reduce((s, b) => s + parseFloat(b.balance_amount  || 0), 0);
-    const openDebits  = active.filter(b => parseFloat(b.balance_amount || 0) > 0.01).length;
-    const avg = active.length > 0 ? totalAmount / active.length : 0;
-    return { totalAmount, refunded, pending, openDebits, count: active.length, avg };
-  }, [bills]);
+  const totalAmount = parseFloat(summary?.total_amount || 0);
+  const refunded    = parseFloat(summary?.total_refund || 0);
+  const pending     = parseFloat(summary?.total_pending || 0);
+  const openDebits  = summary?.open_count || 0;
+  const returnCount = summary?.count || totalCount;
+  const avg         = returnCount > 0 ? totalAmount / returnCount : 0;
+  const refundedPct = totalAmount > 0 ? (refunded / totalAmount) * 100 : 0;
+  const pendingPct  = totalAmount > 0 ? (pending  / totalAmount) * 100 : 0;
 
-  const refundedPct = kpis.totalAmount > 0 ? (kpis.refunded / kpis.totalAmount) * 100 : 0;
-  const pendingPct  = kpis.totalAmount > 0 ? (kpis.pending  / kpis.totalAmount) * 100 : 0;
+  const columns = [
+    {
+      key: 'sr', title: '#', width: 56, align: 'center', fixed: 'left',
+      render: (_, __, idx) => <span className="sr-n">{String(idx + 1).padStart(2, '0')}</span>,
+    },
+    {
+      key: 'bill', title: 'Return #', dataIndex: 'return_number', width: 130,
+      render: (v, r) => (
+        <span className="bill-no">
+          {v}
+          {r.godown && (
+            <span title={`Godown: ${r.godown.name}`} style={{
+              marginLeft: 6, padding: '1px 5px', fontSize: 10, fontWeight: 600,
+              border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
+              color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
+              fontFamily: 'var(--font-mono, monospace)', verticalAlign: 'middle',
+            }}>{r.godown.code}</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'date', title: 'Date', dataIndex: 'return_date', width: 120,
+      render: (v) => v ? dayjs(v).format('DD MMM YYYY') : '—',
+    },
+    cols.time && {
+      key: 'time', title: 'Time', width: 90,
+      render: (_v, r) => {
+        const timeSource = r.createdAt || r.created_date || null;
+        const t = timeSource ? dayjs(timeSource) : null;
+        return t
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>{t.format('h:mm a')}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
+    },
+    {
+      key: 'sup', title: 'Supplier', dataIndex: ['supplier', 'party_name'], width: 200,
+      render: (v, r) => (
+        <div className="stk">
+          <span className="m">{v || '—'}</span>
+          <span className="s">{r.supplier?.mobile_1 || ' '}</span>
+        </div>
+      ),
+    },
+    cols.ref && {
+      key: 'ref', title: 'Ref bill', dataIndex: 'reference_bill_number', width: 160,
+      render: (v) => v
+        ? <div className="stk">
+            <span className="m ref-num"><LinkOutlined /> {v}</span>
+            <span className="s">Linked invoice</span>
+          </div>
+        : <span className="amt zero" style={{ fontStyle: 'italic' }}>Standalone</span>,
+    },
+    cols.mode && {
+      key: 'mode', title: 'Mode', dataIndex: 'return_mode', width: 110,
+      render: (v) => (
+        <span className={`mode-pill mode-${(v || 'items').toLowerCase()}`}>
+          {v === 'Amount' ? <FileTextOutlined /> : null}
+          {v}
+        </span>
+      ),
+    },
+    cols.reason && {
+      key: 'reason', title: 'Reason', dataIndex: 'reason', width: 200,
+      render: (v) => <span className="reason-text" title={v || ''}>{v || '—'}</span>,
+    },
+    {
+      key: 'total', title: 'Total', dataIndex: 'total_amount', width: 120, align: 'right',
+      render: (v, r) => (
+        <span className={`amt${r.is_cancelled ? ' muted' : ''}`}>
+          <span className="rs">₹</span>{Math.round(parseFloat(v || 0)).toLocaleString('en-IN')}
+        </span>
+      ),
+    },
+    cols.gst && {
+      key: 'gst', title: 'GST', width: 100, align: 'right',
+      render: (_, r) => {
+        const amt = parseFloat(r.cgst_amount || 0) + parseFloat(r.sgst_amount || 0) + parseFloat(r.igst_amount || 0);
+        return amt > 0.01
+          ? <span className="amt"><span className="rs">₹</span>{Math.round(amt).toLocaleString('en-IN')}</span>
+          : <span className="amt zero">—</span>;
+      },
+    },
+    cols.discount && {
+      key: 'discount', title: 'Discount', dataIndex: 'discount_amount', width: 110, align: 'right',
+      render: (v) => parseFloat(v || 0) > 0.01
+        ? <span className="amt"><span className="rs">₹</span>{Math.round(parseFloat(v)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>,
+    },
+    {
+      key: 'refunded', title: 'Refunded', dataIndex: 'refund_amount', width: 110, align: 'right',
+      render: (v) => parseFloat(v || 0) > 0.01
+        ? <span className="amt paid"><span className="rs">₹</span>{Math.round(parseFloat(v)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>,
+    },
+    {
+      key: 'pending', title: 'Pending', dataIndex: 'balance_amount', width: 130, align: 'right',
+      render: (v, r) => {
+        const balance = parseFloat(v || 0);
+        if (r.is_cancelled) return <span className="voided-tag">Voided</span>;
+        if (balance < 0.01) return <span className="settled-tag">Settled</span>;
+        return <span className="amt due"><span className="rs">₹</span>{Math.round(balance).toLocaleString('en-IN')}</span>;
+      },
+    },
+    {
+      key: 'actions', title: '', width: 130, align: 'center', fixed: 'right',
+      render: (_, r) => {
+        const cancelled = !!r.is_cancelled;
+        const moreMenu = {
+          items: [
+            { key: 'edit',  icon: <EditOutlined />, label: 'Edit return', onClick: () => handleEdit(r.purchase_return_id), disabled: cancelled },
+            { key: 'dup',   icon: <CopyOutlined />, label: 'Duplicate to new return', onClick: () => handleEdit(r.purchase_return_id), disabled: cancelled },
+            { type: 'divider' },
+            {
+              key: 'cancel', icon: <StopOutlined />,
+              label: cancelled ? 'Already cancelled' : 'Cancel return',
+              danger: true, disabled: cancelled,
+              onClick: () => {
+                Modal.confirm({
+                  title: `Cancel return ${r.return_number}?`,
+                  content: 'Cancelling reverses the supplier debit and pulls the returned stock back into inventory.',
+                  okText: 'Cancel this return', okButtonProps: { danger: true },
+                  cancelText: 'Keep it',
+                  onOk: () => handleCancel(r.purchase_return_id),
+                });
+              },
+            },
+          ],
+        };
+        const isLoading = !!actionLoading[r.purchase_return_id];
+        const groupStyle = { justifyContent: 'center', opacity: 1, transform: 'none', pointerEvents: 'auto' };
+        return (
+          <div className="act-box">
+            <div className="group" style={groupStyle}>
+              <Tooltip title="View">
+                <button className="abtn" onClick={(e) => { e.stopPropagation(); handleView(r.purchase_return_id); }} disabled={isLoading}>
+                  <EyeOutlined />
+                </button>
+              </Tooltip>
+              <Tooltip title="Print">
+                <button className="abtn" onClick={(e) => { e.stopPropagation(); handlePrint(r.purchase_return_id); }} disabled={isLoading}>
+                  <PrinterOutlined />
+                </button>
+              </Tooltip>
+              <Dropdown menu={moreMenu} trigger={['click']} placement="bottomRight">
+                <button className="abtn" onClick={(e) => e.stopPropagation()} disabled={isLoading}>
+                  <MoreOutlined />
+                </button>
+              </Dropdown>
+            </div>
+          </div>
+        );
+      },
+    },
+  ].filter(Boolean);
 
-  const pageTotals = useMemo(() => {
-    const active = bills.filter(b => !b.is_cancelled);
-    return {
-      total:   active.reduce((s, b) => s + parseFloat(b.total_amount    || 0), 0),
-      refund:  active.reduce((s, b) => s + parseFloat(b.refund_amount   || 0), 0),
-      pending: active.reduce((s, b) => s + parseFloat(b.balance_amount  || 0), 0),
-    };
-  }, [bills]);
+  // Bottom Total strip — driven by server-aggregated summary.
+  const SUMMABLE_KEYS = new Set(['total', 'refunded', 'pending', 'gst', 'discount']);
+  const firstAggIdx = (() => {
+    const idx = columns.findIndex((c) => SUMMABLE_KEYS.has(c.key));
+    return idx === -1 ? columns.length : idx;
+  })();
+  const totalForKey = (k) => {
+    switch (k) {
+      case 'total':    return <strong><span className="rs">₹</span>{Math.round(parseFloat(summary?.total_amount  || 0)).toLocaleString('en-IN')}</strong>;
+      case 'refunded': return <span className="amt paid"><span className="rs">₹</span>{Math.round(parseFloat(summary?.total_refund || 0)).toLocaleString('en-IN')}</span>;
+      case 'pending':  return <span className="amt due"><span className="rs">₹</span>{Math.round(parseFloat(summary?.total_pending || 0)).toLocaleString('en-IN')}</span>;
+      case 'gst':      return parseFloat(summary?.total_gst      || 0) > 0.01
+        ? <span className="amt"><span className="rs">₹</span>{Math.round(parseFloat(summary.total_gst)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>;
+      case 'discount': return parseFloat(summary?.total_discount || 0) > 0.01
+        ? <span className="amt"><span className="rs">₹</span>{Math.round(parseFloat(summary.total_discount)).toLocaleString('en-IN')}</span>
+        : <span className="amt zero">—</span>;
+      default:         return null;
+    }
+  };
+  const summaryCells = (col, idx) => {
+    if (idx === 0) return totalCount > 0 ? `Total (${totalCount} return${totalCount === 1 ? '' : 's'})` : null;
+    if (idx > 0 && idx < firstAggIdx) return null;
+    return totalForKey(col.key);
+  };
+  const summaryColSpan = (col, idx) => {
+    if (idx === 0) return Math.max(1, firstAggIdx);
+    if (idx > 0 && idx < firstAggIdx) return 0;
+    return 1;
+  };
 
   return (
     <div className="blist-page rlist-page">
@@ -341,7 +438,7 @@ export default function PurchaseReturnList() {
       <div className="blist-hd">
         <div className="blist-title">
           <h1>Purchase Returns</h1>
-          <div className="sub"><b>{total}</b> debit note{total === 1 ? '' : 's'}</div>
+          <div className="sub"><b>{totalCount}</b> debit note{totalCount === 1 ? '' : 's'}</div>
         </div>
         <div className="blist-ctrl">
           <div className="blist-search">
@@ -349,8 +446,8 @@ export default function PurchaseReturnList() {
             <input
               type="text"
               placeholder="Search return no or ref bill"
-              value={filters.search}
-              onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <DatePicker.RangePicker
@@ -391,6 +488,18 @@ export default function PurchaseReturnList() {
                   </label>
                 ))}
                 <div className="sep" />
+                <div className="mh">Sections</div>
+                {SECTIONS.map(s => (
+                  <label key={s.key} className="opt">
+                    <input
+                      type="checkbox"
+                      checked={!!cols[s.key]}
+                      onChange={(e) => setCols(prev => ({ ...prev, [s.key]: e.target.checked }))}
+                    />
+                    {s.label}
+                  </label>
+                ))}
+                <div className="sep" />
                 <div className="mh" style={{ paddingBottom: 2 }}>Always shown</div>
                 <label className="opt"><span>Return # · Date · Supplier</span><span className="pin">Pinned</span></label>
                 <label className="opt"><span>Total · Refunded · Pending</span><span className="pin">Pinned</span></label>
@@ -398,7 +507,7 @@ export default function PurchaseReturnList() {
             )}
           >
             <button className={`blist-chip${visibleOptionalCount > 0 ? ' on' : ''}`}>
-              <AppstoreOutlined /> Columns
+              <SettingOutlined /> Customize
               {visibleOptionalCount > 0 && <span className="col-count">{visibleOptionalCount}</span>}
             </button>
           </Dropdown>
@@ -412,239 +521,45 @@ export default function PurchaseReturnList() {
       <div className="blist-kpi">
         <div className="kpi-card total">
           <div className="kpi-text">
-            <div className="k">Total Returns · This View</div>
-            <div className="v">{fmt(kpis.totalAmount)}</div>
-            <div className="sub">{kpis.count} returns · avg {fmtShort(kpis.avg)}</div>
+            <div className="k">Total Debits · This View</div>
+            <div className="v">{fmt(totalAmount)}</div>
+            <div className="sub">{returnCount} returns · avg {fmtShort(avg)}</div>
           </div>
         </div>
         <div className="kpi-card received">
           <div className="kpi-text">
             <div className="k">Refunded</div>
-            <div className="v">{fmt(kpis.refunded)}</div>
-            <div className="sub">of {fmtShort(kpis.totalAmount)} debited</div>
+            <div className="v">{fmt(refunded)}</div>
+            <div className="sub">of {fmtShort(totalAmount)} debited</div>
           </div>
           <Ring pct={refundedPct} tone="ok" />
         </div>
         <div className="kpi-card outstanding">
           <div className="kpi-text">
             <div className="k">Debit Pending</div>
-            <div className="v">{fmt(kpis.pending)}</div>
-            <div className="sub">from {kpis.openDebits} open debit note{kpis.openDebits === 1 ? '' : 's'}</div>
+            <div className="v">{fmt(pending)}</div>
+            <div className="sub">from {openDebits} open debit note{openDebits === 1 ? '' : 's'}</div>
           </div>
           <Ring pct={pendingPct} tone="bad" />
         </div>
       </div>
 
       <div className="blist-wrap">
-        <div className="blist">
-
-          <div className="brow head">
-            <div className="c-sr">#</div>
-            <div className="c-bill">Return #</div>
-            <div className="c-date">Date</div>
-            <div className="c-cust">Supplier</div>
-            {cols.ref      && <div className="c-ref">Ref bill</div>}
-            {cols.mode     && <div className="c-mode">Mode</div>}
-            {cols.reason   && <div className="c-reason">Reason</div>}
-            <div className="c-total">Total</div>
-            {cols.gst      && <div className="c-gst">GST</div>}
-            {cols.discount && <div className="c-discount">Discount</div>}
-            <div className="c-paid">Refunded</div>
-            <div className="c-bal">Pending</div>
-            <div className="c-act"></div>
-          </div>
-
-          <div className="bscroll">
-            {loading ? (
-              <div className="brow empty">Loading returns…</div>
-            ) : bills.length === 0 ? (
-              <div className="brow empty">No returns match the current filters.</div>
-            ) : (
-              bills.map((bill, i) => (
-                <ReturnRow
-                  key={bill.purchase_return_id}
-                  bill={bill}
-                  index={i}
-                  cols={cols}
-                  actionLoading={!!actionLoading[bill.purchase_return_id]}
-                  onView={() => handleView(bill.purchase_return_id)}
-                  onPrint={() => handlePrint(bill.purchase_return_id)}
-                  onEdit={() => handleEdit(bill.purchase_return_id)}
-                  onCancel={() => handleCancel(bill.purchase_return_id)}
-                />
-              ))
-            )}
-          </div>
-
-          <div className="bfoot">
-            <span>Shown: <b>{bills.length} of {total}</b></span>
-            <span>Page debit: <b>{fmt(pageTotals.total)}</b></span>
-            <span>Refunded: <b style={{ color: 'var(--success)' }}>{fmt(pageTotals.refund)}</b></span>
-            <span>Pending: <b style={{ color: 'var(--danger)' }}>{fmt(pageTotals.pending)}</b></span>
-          </div>
-        </div>
+        <VirtualReportTable
+          columns={columns}
+          rows={rows}
+          totalCount={totalCount}
+          ensureChunk={ensureChunk}
+          loading={loading}
+          rowKey="purchase_return_id"
+          scroll={{ x: 1200 }}
+          rowClassName={(r) => r && r.is_cancelled ? 'blist-row-cancelled' : ''}
+          summaryCells={cols.totalRow ? summaryCells : undefined}
+          summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
+        />
       </div>
 
       <ViewModal bill={viewBill} onClose={() => setViewBill(null)} />
-    </div>
-  );
-}
-
-function ReturnRow({ bill, index, cols, actionLoading, onView, onPrint, onEdit, onCancel }) {
-  const cancelled = !!bill.is_cancelled;
-  const total     = parseFloat(bill.total_amount    || 0);
-  const refunded  = parseFloat(bill.refund_amount   || 0);
-  const pending   = parseFloat(bill.balance_amount  || 0);
-
-  const billDate = bill.return_date ? dayjs(bill.return_date) : null;
-
-  const supplierName  = bill.supplier?.party_name;
-  const supplierPhone = bill.supplier?.mobile_1;
-
-  const gstAmt  = parseFloat(bill.cgst_amount || 0) + parseFloat(bill.sgst_amount || 0) + parseFloat(bill.igst_amount || 0);
-  const discAmt = parseFloat(bill.discount_amount || 0);
-
-  const moreMenu = {
-    items: [
-      { key: 'edit', icon: <EditOutlined />, label: 'Edit return', onClick: onEdit, disabled: cancelled },
-      { key: 'dup',  icon: <CopyOutlined />, label: 'Duplicate to new return', onClick: onEdit, disabled: cancelled },
-      { type: 'divider' },
-      {
-        key: 'cancel',
-        icon: <StopOutlined />,
-        label: cancelled ? 'Already cancelled' : 'Cancel return',
-        danger: true, disabled: cancelled,
-        onClick: () => {
-          Modal.confirm({
-            title: `Cancel return ${bill.return_number}?`,
-            content: 'Cancelling reverses the supplier debit, removes the stock-ledger "Purchase Return" row, and adds the returned stock back into inventory.',
-            okText: 'Cancel this return', okButtonProps: { danger: true },
-            cancelText: 'Keep it',
-            onOk: onCancel,
-          });
-        },
-      },
-    ],
-  };
-
-  return (
-    <div className={`brow data${cancelled ? ' cancelled' : ''}`}>
-      <div className="c-sr"><span className="sr-n">{String(index + 1).padStart(2, '0')}</span></div>
-      <div className="c-bill">
-        <span className="bill-no">{bill.return_number}</span>
-        {bill.godown && (
-          <span title={`Godown: ${bill.godown.name}`} style={{
-            marginLeft: 6, padding: '1px 5px', fontSize: 10, fontWeight: 600,
-            border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
-            color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
-            fontFamily: 'var(--font-mono, monospace)', verticalAlign: 'middle',
-          }}>{bill.godown.code}</span>
-        )}
-      </div>
-
-      <div className="c-date">
-        <div className="stk">
-          <span className="m">{billDate ? billDate.format('DD MMM YYYY') : '—'}</span>
-          <span className="s">{billDate ? billDate.format('dddd') : '\u00A0'}</span>
-        </div>
-      </div>
-
-      <div className="c-cust">
-        <div className="stk">
-          <span className="m">{supplierName || '—'}</span>
-          <span className="s">{supplierPhone || '\u00A0'}</span>
-        </div>
-      </div>
-
-      {cols.ref && (
-        <div className="c-ref">
-          {bill.reference_bill_number ? (
-            <div className="stk">
-              <span className="m ref-num"><LinkOutlined /> {bill.reference_bill_number}</span>
-              <span className="s">Linked purchase</span>
-            </div>
-          ) : (
-            <span className="amt zero" style={{ fontStyle: 'italic' }}>Standalone</span>
-          )}
-        </div>
-      )}
-
-      {cols.mode && (
-        <div className="c-mode">
-          <span className={`mode-pill mode-${bill.return_mode?.toLowerCase() || 'items'}`}>
-            {bill.return_mode === 'Amount' ? <FileTextOutlined /> : null}
-            {bill.return_mode}
-          </span>
-        </div>
-      )}
-
-      {cols.reason && (
-        <div className="c-reason">
-          <span className="reason-text" title={bill.reason || ''}>{bill.reason || '—'}</span>
-        </div>
-      )}
-
-      <div className="c-total">
-        <span className={`amt${cancelled ? ' muted' : ''}`}>
-          <span className="rs">₹</span>{Math.round(total).toLocaleString('en-IN')}
-        </span>
-      </div>
-
-      {cols.gst && (
-        <div className="c-gst">
-          {gstAmt > 0.01
-            ? <span className="amt"><span className="rs">₹</span>{Math.round(gstAmt).toLocaleString('en-IN')}</span>
-            : <span className="amt zero">—</span>}
-        </div>
-      )}
-
-      {cols.discount && (
-        <div className="c-discount">
-          {discAmt > 0.01
-            ? <span className="amt"><span className="rs">₹</span>{Math.round(discAmt).toLocaleString('en-IN')}</span>
-            : <span className="amt zero">—</span>}
-        </div>
-      )}
-
-      <div className="c-paid">
-        {refunded > 0.01 ? (
-          <span className="amt paid"><span className="rs">₹</span>{Math.round(refunded).toLocaleString('en-IN')}</span>
-        ) : (
-          <span className="amt zero">—</span>
-        )}
-      </div>
-
-      <div className="c-bal">
-        {cancelled ? (
-          <span className="voided-tag">Voided</span>
-        ) : pending < 0.01 ? (
-          <span className="settled-tag">Settled</span>
-        ) : (
-          <span className="amt due"><span className="rs">₹</span>{Math.round(pending).toLocaleString('en-IN')}</span>
-        )}
-      </div>
-
-      <div className="c-act">
-        <div className="act-box">
-          <div className="group">
-            <Tooltip title="View">
-              <button className="abtn" onClick={(e) => { e.stopPropagation(); onView(); }} disabled={actionLoading}>
-                <EyeOutlined />
-              </button>
-            </Tooltip>
-            <Tooltip title="Print">
-              <button className="abtn" onClick={(e) => { e.stopPropagation(); onPrint(); }} disabled={actionLoading}>
-                <PrinterOutlined />
-              </button>
-            </Tooltip>
-            <Dropdown menu={moreMenu} trigger={['click']} placement="bottomRight">
-              <button className="abtn" onClick={(e) => e.stopPropagation()} disabled={actionLoading}>
-                <MoreOutlined />
-              </button>
-            </Dropdown>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

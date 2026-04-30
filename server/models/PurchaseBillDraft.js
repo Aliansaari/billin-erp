@@ -32,9 +32,14 @@ const PurchaseBillDraft = sequelize.define('PurchaseBillDraft', {
     allowNull: false,
   },
   // Nullable — operator may hold a draft before picking a supplier.
+  // ON DELETE SET NULL: deleting a party converts any held drafts into
+  // supplier-less drafts rather than blocking the delete. Drafts have no
+  // business invariants tied to supplier_id (no GST math, no balance, no
+  // stock), so this is a safe, lossless transition.
   supplier_id: {
     type: DataTypes.INTEGER,
     references: { model: 'parties', key: 'party_id' },
+    onDelete: 'SET NULL',
   },
   draft_date: {
     type: DataTypes.DATEONLY,

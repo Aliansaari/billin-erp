@@ -515,6 +515,33 @@ async function startServer() {
           ALTER TABLE purchase_bills ADD COLUMN description TEXT;
         END IF;
       END $$;
+      -- Repair drafts→parties FK on installs where Sequelize sync built the
+      -- table before the DO $$ block (sync omits ON DELETE clauses, so the
+      -- FK ends up NO ACTION and blocks party deletion). The intent is
+      -- SET NULL: a deleted party converts held drafts to walk-in. Idempotent
+      -- — only fires when confdeltype is anything other than 'n' (SET NULL).
+      DO $$ BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sales_bill_drafts_customer_id_fkey'
+            AND confdeltype <> 'n'
+        ) THEN
+          ALTER TABLE sales_bill_drafts DROP CONSTRAINT sales_bill_drafts_customer_id_fkey;
+          ALTER TABLE sales_bill_drafts
+            ADD CONSTRAINT sales_bill_drafts_customer_id_fkey
+            FOREIGN KEY (customer_id) REFERENCES parties(party_id) ON DELETE SET NULL;
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'purchase_bill_drafts_supplier_id_fkey'
+            AND confdeltype <> 'n'
+        ) THEN
+          ALTER TABLE purchase_bill_drafts DROP CONSTRAINT purchase_bill_drafts_supplier_id_fkey;
+          ALTER TABLE purchase_bill_drafts
+            ADD CONSTRAINT purchase_bill_drafts_supplier_id_fkey
+            FOREIGN KEY (supplier_id) REFERENCES parties(party_id) ON DELETE SET NULL;
+        END IF;
+      END $$;
 
       -- ── System "Cash" party + walk-in name columns ────────────────────
       -- Replace the old NULL-customer / per-import "Cash Sales" stub
