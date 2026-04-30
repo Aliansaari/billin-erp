@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Input, Typography, Tag, Empty, DatePicker, Spin } from 'antd';
+import { Input, Typography, Tag, Empty, DatePicker } from 'antd';
 import {
   RiseOutlined, ShoppingCartOutlined, InboxOutlined,
   PieChartOutlined, TeamOutlined, FileTextOutlined,
-  SearchOutlined, StarFilled, WarningFilled,
+  SearchOutlined, StarFilled,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { REPORTS, CATEGORY_META, CATEGORY_ORDER, matchReport, resolveReports } from '../../config/reports';
@@ -12,7 +12,6 @@ import useFavoritesStore from '../../store/favoritesStore';
 import useAuthStore from '../../store/authStore';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { hasPermission } from '../../utils/perms';
-import { reportAPI, partyAPI } from '../../api';
 import FavoriteStar from '../../components/FavoriteStar';
 
 const { Title, Text } = Typography;
@@ -66,227 +65,13 @@ const TONE = {
   teal:    { bg: 'rgba(13,148,136,0.12)', fg: '#14B8A6' },
 };
 
-// Format helpers for the metric values on Pinned cards.
-const fmtINR = (v) => {
-  const n = parseFloat(v || 0);
-  if (Math.abs(n) >= 10000000) return `₹${(n / 10000000).toFixed(2)} Cr`;
-  if (Math.abs(n) >= 100000)   return `₹${(n / 100000).toFixed(2)} L`;
-  return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
-};
-const fmtCount = (v) => parseInt(v || 0, 10).toLocaleString('en-IN');
-const fmtDays  = (v) => `${parseInt(v || 0, 10)}d`;
-
-// Days until the next GSTR-1 filing deadline (11th of the month).
-function daysUntilNextGstr1() {
-  const today = dayjs();
-  let due = today.date() < 11 ? today.date(11) : today.add(1, 'month').date(11);
-  return Math.max(0, due.diff(today, 'day'));
-}
-
-// Per-report metric loader. Returns a function that, given a date
-// range, fetches the headline number for that report. Map keyed by
-// report.id; reports without a fetcher get a static "—" treatment
-// (still useful for "ready to open").
-const METRICS = {
-  profit_loss: {
-    label: 'Net profit',
-    sub:   'Revenue minus expenses',
-    fetch: ({ from, to }) => reportAPI.getProfitLoss({ from_date: from, to_date: to })
-      .then((r) => ({ value: r.data?.net_profit, format: fmtINR, tone: (r.data?.net_profit || 0) >= 0 ? 'good' : 'bad' })),
-  },
-  sales_report: {
-    label: 'YTD revenue',
-    sub:   'Sum of net sales',
-    fetch: ({ from, to }) => reportAPI.getSalesReport({ from_date: from, to_date: to, page: 1, limit: 1 })
-      .then((r) => ({ value: r.data?.totals?.total ?? r.data?.summary?.total_amount, format: fmtINR, tone: 'good' })),
-  },
-  purchase_report: {
-    label: 'YTD spend',
-    sub:   'Sum of purchases',
-    fetch: ({ from, to }) => reportAPI.getPurchaseReport({ from_date: from, to_date: to, page: 1, limit: 1 })
-      .then((r) => ({ value: r.data?.totals?.total ?? r.data?.summary?.total_amount, format: fmtINR, tone: 'neutral' })),
-  },
-  stock_report: {
-    label: 'Stock value',
-    sub:   'At purchase rate',
-    fetch: () => reportAPI.getStockReport({ page: 1, limit: 1 })
-      .then((r) => ({ value: r.data?.summary?.total_purchase_value, format: fmtINR, tone: 'neutral' })),
-  },
-  godown_valuation: {
-    label: 'Total value',
-    sub:   'Across all godowns',
-    fetch: () => reportAPI.godownValuation()
-      .then((r) => ({ value: r.data?.totals?.total_value, format: fmtINR, tone: 'neutral' })),
-  },
-  aging_report: {
-    label: 'Outstanding',
-    sub:   'Across all parties',
-    fetch: () => partyAPI.getAging({ party_type: 'Customer' })
-      .then((r) => {
-        const d = r.data?.totals || r.data?.summary || {};
-        return { value: d.total || d.balance || 0, format: fmtINR, tone: 'warning' };
-      }),
-  },
-  gstr1: {
-    label: 'Until filing due',
-    sub:   'Ready to file',
-    fetch: () => Promise.resolve({ value: daysUntilNextGstr1(), format: fmtDays, tone: 'warning' }),
-  },
-  gstr3b: {
-    label: 'Until filing due',
-    sub:   'Ready to file',
-    fetch: () => Promise.resolve({ value: daysUntilNextGstr1() + 9, format: fmtDays, tone: 'warning' }),
-  },
-};
-
-const TONE_TEXT = {
-  good:    '#10B981',
-  bad:     '#EF4444',
-  warning: '#F59E0B',
-  neutral: 'var(--fg-primary)',
-};
-
-// ── Pinned card — fetches its own metric ─────────────────────────────
-function PinnedCard({ report, range, onOpen }) {
-  const tone = TONE[CATEGORY_META[report.category]?.tone] || TONE.info;
-  const metric = METRICS[report.id];
-  const [state, setState] = useState({ loading: !!metric, error: false, data: null });
-
-  useEffect(() => {
-    if (!metric) { setState({ loading: false, error: false, data: null }); return; }
-    let cancelled = false;
-    setState((s) => ({ ...s, loading: true, error: false }));
-    metric.fetch(range)
-      .then((d) => { if (!cancelled) setState({ loading: false, error: false, data: d }); })
-      .catch(() => { if (!cancelled) setState({ loading: false, error: true, data: null }); });
-    return () => { cancelled = true; };
-  }, [report.id, range.from, range.to]);
-
-  const valueColor = state.data ? (TONE_TEXT[state.data.tone] || TONE_TEXT.neutral) : 'var(--fg-primary)';
-  const display = state.error ? '—'
-    : state.loading ? <Spin size="small" />
-    : state.data ? state.data.format(state.data.value)
-    : '—';
-
-  return (
-    <div
-      onClick={onOpen}
-      style={{
-        padding: '16px 18px',
-        background: 'var(--bg-elevated, #fff)',
-        border: '1px solid var(--border, #e5e7eb)',
-        borderRadius: 10,
-        cursor: 'pointer',
-        position: 'relative',
-        transition: 'transform .15s, border-color .15s, box-shadow .15s',
-        minHeight: 110,
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = tone.fg;
-        e.currentTarget.style.transform = 'translateY(-1px)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = '';
-        e.currentTarget.style.transform = '';
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{
-            width: 22, height: 22, borderRadius: 5,
-            background: tone.bg, color: tone.fg,
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 12,
-          }}>{ICON_BY_NAME[CATEGORY_META[report.category]?.icon]}</span>
-          <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--fg-primary)' }}>{report.name}</span>
-        </div>
-        <FavoriteStar reportId={report.id} size={14} />
-      </div>
-      <div style={{
-        fontSize: 26, fontWeight: 700, lineHeight: 1.1,
-        fontVariantNumeric: 'tabular-nums',
-        color: valueColor,
-        letterSpacing: '-0.02em',
-        marginBottom: 4,
-      }}>
-        {display}
-      </div>
-      <div style={{ fontSize: 11.5, color: 'var(--fg-tertiary, #9ca3af)' }}>
-        {metric ? `${metric.label} · ${metric.sub}` : report.subtitle}
-      </div>
-    </div>
-  );
-}
-
-// ── Needs Attention strip ────────────────────────────────────────────
-function NeedsAttention({ onJump }) {
-  const [items, setItems] = useState([]);
-
-  useEffect(() => {
-    const collect = async () => {
-      const out = [];
-      // GSTR-1 deadline countdown — always shown when within 14 days.
-      const days = daysUntilNextGstr1();
-      if (days <= 14) {
-        out.push({
-          id: 'gstr1',
-          msg: `GSTR-1 due in ${days} day${days === 1 ? '' : 's'}`,
-          route: '/reports/gstr1',
-        });
-      }
-      // Parties >60 days overdue from aging.
-      try {
-        const r = await partyAPI.getAging({ party_type: 'Customer' });
-        const buckets = r.data?.parties || r.data?.data || [];
-        const stale = buckets.filter((p) =>
-          parseFloat(p.bucket_60_90 || 0) > 0 || parseFloat(p.bucket_90_plus || 0) > 0,
-        );
-        if (stale.length > 0) {
-          out.push({
-            id: 'aging',
-            msg: `${stale.length} part${stale.length === 1 ? 'y' : 'ies'} overdue >60 days`,
-            route: '/reports/aging',
-          });
-        }
-      } catch { /* silent — strip just hides this item */ }
-      setItems(out);
-    };
-    collect();
-  }, []);
-
-  if (items.length === 0) return null;
-  return (
-    <div style={{
-      padding: '10px 14px', marginBottom: 14,
-      background: 'rgba(245,158,11,0.08)',
-      border: '1px solid rgba(245,158,11,0.30)',
-      borderRadius: 10,
-      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-    }}>
-      <WarningFilled style={{ color: '#D97706', fontSize: 16 }} />
-      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg-primary)' }}>Needs attention</span>
-      <span style={{ color: 'var(--fg-tertiary)', fontSize: 13 }}>·</span>
-      {items.map((it, idx) => (
-        <React.Fragment key={it.id}>
-          {idx > 0 && <span style={{ color: 'var(--fg-tertiary)', fontSize: 13 }}>·</span>}
-          <a
-            onClick={(e) => { e.preventDefault(); onJump(it.route); }}
-            style={{
-              fontSize: 13, color: '#B45309', fontWeight: 500,
-              cursor: 'pointer', textDecoration: 'none',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
-          >
-            {it.msg}
-          </a>
-        </React.Fragment>
-      ))}
-    </div>
-  );
-}
-
 // ── Main hub ─────────────────────────────────────────────────────────
+//
+// Pinned section is a compact pill strip (one row, wraps as needed);
+// no live metrics, no per-card chrome — operator wanted it collapsed.
+// Needs Attention strip removed entirely. Categories below are
+// borderless, typographic sections (icon + label + count + hairline,
+// then rows).
 export default function ReportsHub() {
   const nav = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -386,28 +171,65 @@ export default function ReportsHub() {
         style={{ marginBottom: 14 }}
       />
 
-      {/* ── Needs Attention ─────────────────────────────────────── */}
-      {!query && <NeedsAttention onJump={(route) => nav(route)} />}
-
-      {/* ── Pinned ──────────────────────────────────────────────── */}
+      {/* ── Pinned strip — compact pill row ──────────────────────
+       *
+       * Was a row of metric-bearing cards; user feedback was the
+       * cards bloated the page above the categories. Now: a single
+       * horizontal strip of pills with the star + name only.
+       * Hover lights the pill in the category's tone color; click
+       * navigates. Subtitle moves to the title attribute (hover
+       * tooltip). Strip wraps on narrow viewports; no scroll bar. */}
       {pinned.length > 0 && !query && (
-        <div style={{ marginBottom: 18 }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            marginBottom: 10, fontSize: 13, fontWeight: 600,
-            color: 'var(--fg-primary)',
+        <div style={{
+          marginBottom: 18, padding: '8px 10px',
+          background: 'var(--bg-subtle, #fafafa)',
+          border: '1px solid var(--border, #e5e7eb)',
+          borderRadius: 8,
+          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            color: 'var(--fg-secondary, #6b7280)',
+            textTransform: 'uppercase', fontSize: 10, letterSpacing: 1, fontWeight: 600,
+            paddingRight: 8, borderRight: '1px solid var(--border, #e5e7eb)',
           }}>
-            <StarFilled style={{ color: '#F59E0B' }} /> Pinned
-          </div>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${Math.min(pinned.length, 3)}, 1fr)`,
-            gap: 12,
-          }}>
-            {pinned.slice(0, 3).map((r) => (
-              <PinnedCard key={r.id} report={r} range={range} onOpen={() => nav(r.route)} />
-            ))}
-          </div>
+            <StarFilled style={{ color: '#F59E0B', fontSize: 11 }} /> Pinned
+          </span>
+          {pinned.map((r) => {
+            const tone = TONE[CATEGORY_META[r.category]?.tone] || TONE.info;
+            return (
+              <span
+                key={r.id}
+                onClick={() => nav(r.route)}
+                title={r.subtitle}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '4px 10px 4px 7px', borderRadius: 16,
+                  background: 'var(--bg-elevated, #fff)',
+                  border: '1px solid var(--border, #e5e7eb)',
+                  cursor: 'pointer', fontSize: 12.5, fontWeight: 500,
+                  color: 'var(--fg-primary)',
+                  transition: 'border-color .12s, color .12s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = tone.fg;
+                  e.currentTarget.style.color = tone.fg;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '';
+                  e.currentTarget.style.color = '';
+                }}
+              >
+                <span style={{
+                  width: 16, height: 16, borderRadius: 4,
+                  background: tone.bg, color: tone.fg,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 10, flexShrink: 0,
+                }}>{ICON_BY_NAME[CATEGORY_META[r.category]?.icon]}</span>
+                {r.name}
+              </span>
+            );
+          })}
         </div>
       )}
 
