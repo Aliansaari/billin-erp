@@ -71,36 +71,48 @@ export const REPORTS = [
   },
 
   // ── Periodic Summary (R10) ───────────────────────────────────────
-  // Monthly trends. Operators look here for "is the business growing
-  // / shrinking / shifting product mix month over month?"
+  // Tally-style monthly registers. Each row = month, columns = Dr / Cr
+  // / Closing-Balance with running ledger total. Each register has a
+  // "Compare with…" toggle to overlay a second register's columns
+  // alongside the primary (Sales↔Purchase, Receipt↔Payment, etc).
   {
-    id: 'monthly_sales_summary',
-    name: 'Monthly Sales Summary',
-    subtitle: 'Sales totals by month · with returns',
+    id: 'monthly_sales_register',
+    name: 'Sales Register',
+    subtitle: 'Monthly summary · Sales Account',
     category: 'periodic_summary',
     route: '/reports/monthly-sales',
     perm: 'reports.view',
-    aliases: ['monthly sales', 'sales by month', 'mtd sales', 'sales trend'],
+    aliases: ['monthly sales', 'sales register', 'sales by month'],
     isNew: true,
   },
   {
-    id: 'monthly_purchase_summary',
-    name: 'Monthly Purchase Summary',
-    subtitle: 'Purchase totals by month · with returns',
+    id: 'monthly_purchase_register',
+    name: 'Purchase Register',
+    subtitle: 'Monthly summary · Purchase Account',
     category: 'periodic_summary',
     route: '/reports/monthly-purchases',
     perm: 'reports.view',
-    aliases: ['monthly purchase', 'purchase by month', 'purchase trend'],
+    aliases: ['monthly purchase', 'purchase register', 'purchase by month'],
     isNew: true,
   },
   {
-    id: 'sales_purchase_summary',
-    name: 'Sales vs Purchase Summary',
-    subtitle: 'Cash-flow direction by month · invoice level',
+    id: 'monthly_payment_register',
+    name: 'Payment Register',
+    subtitle: 'Monthly summary · Payment vouchers',
     category: 'periodic_summary',
-    route: '/reports/sales-vs-purchase',
+    route: '/reports/monthly-payments',
     perm: 'reports.view',
-    aliases: ['sales vs purchase', 'margin by month', 'cash flow direction'],
+    aliases: ['monthly payment', 'payment register', 'payments by month'],
+    isNew: true,
+  },
+  {
+    id: 'monthly_receipt_register',
+    name: 'Receipt Register',
+    subtitle: 'Monthly summary · Receipt vouchers',
+    category: 'periodic_summary',
+    route: '/reports/monthly-receipts',
+    perm: 'reports.view',
+    aliases: ['monthly receipt', 'receipt register', 'receipts by month'],
     isNew: true,
   },
 
