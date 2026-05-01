@@ -237,6 +237,45 @@ async function validateAndPreview(job, parsed) {
   const stockItemKnown = (name) =>
     !!name && (stagedStockNames.has(name) || existingStockNames.has(name));
 
+  // Bill-reference index for the validate phase. For each Receipt/Payment
+  // voucher, BILLALLOCATIONS.LIST entries (other than 'On Account') name
+  // the local Sales/Purchase bills to allocate against. A bill is "known"
+  // if it already exists in the DB (party + bill_number) OR appears in
+  // this XML as an in-batch Sales/Purchase voucher.
+  //
+  // Same shape as the party + stock-item guards above — reject in preview
+  // so the user fixes the XML / pre-imports the bill rather than getting
+  // a commit-phase failure.
+  const dbBillKey = new Set();
+  for (const b of existingSales)     dbBillKey.add(`Sales:${b.bill_number}`);
+  for (const b of existingPurchases) dbBillKey.add(`Purchase:${b.bill_number}`);
+  const inBatchBillKey = new Set();
+  for (const v of parsed.vouchers) {
+    if (v.voucher_type === 'Sales')    inBatchBillKey.add(`Sales:${v.voucher_number}`);
+    if (v.voucher_type === 'Purchase') inBatchBillKey.add(`Purchase:${v.voucher_number}`);
+  }
+  const billKnown = (billType, billNumber) => {
+    const k = `${billType}:${billNumber}`;
+    return dbBillKey.has(k) || inBatchBillKey.has(k);
+  };
+
+  // Helper — collect the BILLALLOCATIONS entries for a Receipt/Payment
+  // voucher, skipping On-Account (no bill linkage). Tally puts the
+  // allocations on the party-side ledger entry, but we walk all entries
+  // defensively in case the export shape varies.
+  const extractBillAllocs = (v) => {
+    const out = [];
+    for (const le of (v.ledger_entries || [])) {
+      for (const ba of (le.bill_allocations || [])) {
+        const t = String(ba.type || '').toLowerCase();
+        if (t.includes('on account')) continue;
+        if (!ba.name) continue;
+        out.push({ name: String(ba.name).trim(), amount: Number(ba.amount) || 0 });
+      }
+    }
+    return out;
+  };
+
   const buckets = { create: [], update: [], skip: [], reject: [] };
 
   for (const v of parsed.vouchers) {
@@ -305,6 +344,26 @@ async function validateAndPreview(job, parsed) {
           reason: `Stock item '${unknown.name}' not found. Include it as a <STOCKITEM> in the XML or create the product first.`,
         });
         continue;
+      }
+    }
+
+    // BILLALLOCATIONS guard for Receipt / Payment.
+    if (v.voucher_type === 'Receipt' || v.voucher_type === 'Payment') {
+      const allocs = extractBillAllocs(v);
+      if (allocs.length > 0) {
+        const billType = v.voucher_type === 'Receipt' ? 'Sales' : 'Purchase';
+        const unknownNames = allocs
+          .filter((a) => !billKnown(billType, a.name))
+          .map((a) => a.name);
+        if (unknownNames.length > 0) {
+          buckets.reject.push({
+            voucher: v,
+            reason: `Bill reference(s) not found in DB or this XML batch: ${[...new Set(unknownNames)].join(', ')}. Import the matching ${billType} voucher first or remove the BILLALLOCATIONS.LIST entry.`,
+          });
+          continue;
+        }
+        // Stash so commit doesn't re-walk the ledger entries.
+        v._bill_allocs = allocs;
       }
     }
 
@@ -894,6 +953,27 @@ async function commitOne(job, v, totals, partiesByName, productsByName, action) 
       for (const vch of vouchers) {
         await postVoucher({ ...vch, userId: job.created_by, transaction: t });
       }
+
+      // Bill-payment allocations (R9 Phase 1). Tally's BILLALLOCATIONS.LIST
+      // (parsed in validate, stashed on v._bill_allocs) wins; otherwise
+      // FIFO against the party's outstanding bills as of voucher_date.
+      // The shared service is idempotent on transaction_id, so re-imports
+      // don't double-write.
+      const { allocateForReceipt } = require('./billAllocationService');
+      const refs = Array.isArray(v._bill_allocs) && v._bill_allocs.length > 0
+        ? v._bill_allocs.map((a) => ({ bill_number: a.name, amount: a.amount }))
+        : null;
+      await allocateForReceipt({
+        receiptId:       row.transaction_id,
+        partyId:         partyId,
+        transactionType: v.voucher_type,
+        asOfDate:        v.voucher_date,
+        totalAmount:     totals.total_amount,
+        references:      refs,
+        method:          'import_tally',
+        t,
+      });
+
       await ImportBatch.create({
         import_job_id: job.id, entity_type: 'payment_receipt', entity_id: row.transaction_id,
         external_ref: v.voucher_number, action: action === 'update' ? 'updated' : 'created',
@@ -1261,4 +1341,35 @@ function computeVoucherTotals(v, gstEnabled) {
   };
 }
 
-module.exports = { run, _commit: commit, _validateAndPreview: validateAndPreview, _computeVoucherTotals: computeVoucherTotals, isCashClassPartyName };
+// ── __test__validateAllocations ──────────────────────────────────────
+// Test hook for server/scripts/test-phase-r9.js. Mirrors the validate-
+// phase BILLALLOCATIONS guard on a single voucher with no in-batch
+// dependencies — bills are looked up only in the DB. Returns
+// { ok: bool, unknown: string[] }.
+async function __test__validateAllocations({ voucher }) {
+  if (voucher.voucher_type !== 'Receipt' && voucher.voucher_type !== 'Payment') {
+    return { ok: true, unknown: [] };
+  }
+  const billType = voucher.voucher_type === 'Receipt' ? 'Sales' : 'Purchase';
+  const allocs = [];
+  for (const le of (voucher.ledger_entries || [])) {
+    for (const ba of (le.bill_allocations || [])) {
+      const t = String(ba.type || '').toLowerCase();
+      if (t.includes('on account')) continue;
+      if (!ba.name) continue;
+      allocs.push(String(ba.name).trim());
+    }
+  }
+  if (allocs.length === 0) return { ok: true, unknown: [] };
+  const Model = billType === 'Sales' ? SalesBill : PurchaseBill;
+  const rows = await Model.findAll({ where: { bill_number: allocs }, attributes: ['bill_number'] });
+  const known = new Set(rows.map((r) => r.bill_number));
+  const unknown = allocs.filter((n) => !known.has(n));
+  return { ok: unknown.length === 0, unknown };
+}
+
+module.exports = {
+  run, _commit: commit, _validateAndPreview: validateAndPreview, _computeVoucherTotals: computeVoucherTotals, isCashClassPartyName,
+  // Test hook — server/scripts/test-phase-r9.js
+  __test__validateAllocations,
+};

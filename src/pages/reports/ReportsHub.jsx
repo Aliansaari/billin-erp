@@ -4,7 +4,7 @@ import { Input, Typography, Tag, Empty } from 'antd';
 import {
   RiseOutlined, ShoppingCartOutlined, InboxOutlined,
   PieChartOutlined, TeamOutlined, FileTextOutlined,
-  SearchOutlined, StarFilled, AlertOutlined,
+  SearchOutlined, StarFilled, AlertOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import { REPORTS, CATEGORY_META, CATEGORY_ORDER, matchReport, resolveReports } from '../../config/reports';
 import useFavoritesStore from '../../store/favoritesStore';
@@ -51,6 +51,7 @@ const ICON_BY_NAME = {
   TeamOutlined: <TeamOutlined />,
   FileTextOutlined: <FileTextOutlined />,
   AlertOutlined: <AlertOutlined />,
+  CalendarOutlined: <CalendarOutlined />,
 };
 
 // Category tone → icon backdrop + accent. Matches the AntD palette

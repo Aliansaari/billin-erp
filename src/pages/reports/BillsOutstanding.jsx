@@ -8,7 +8,8 @@
 // Pairs with /api/reports/bills-receivable + /api/reports/bills-payable
 // in billsOutstandingController.js. Server returns paginated chunks
 // matching the useVirtualizedReport contract: { data, total, summary,
-// reconciliation, filter_meta, bucket_labels, allocation_complete }.
+// reconciliation, filter_meta, bucket_labels, allocation_complete,
+// unallocated_count }.
 //
 // What's on the page (top → bottom):
 //   1. Toolbar    — title, comparative-style preset chips for buckets,
@@ -241,7 +242,11 @@ export default function BillsOutstanding({ side }) {
     chunkSize: 200,
   });
   const reconciliation     = meta?.reconciliation || null;
-  const allocationComplete = meta?.allocation_complete ?? true;
+  // After R8, allocation completeness is a runtime count (0 → no
+  // banner). The legacy boolean is still emitted by the API but we
+  // drive the UI off the count so the message can include the actual
+  // number of stragglers.
+  const unallocatedCount   = Number.isFinite(meta?.unallocated_count) ? meta.unallocated_count : 0;
   const bucketLabels       = meta?.bucket_labels || { current: 'Not Due', b1: '1–30', b2: '31–60', b3: '61–90', b4: '90+' };
   const filterMeta         = meta?.filter_meta || { distinct_cities: [], distinct_states: [] };
   const bucketBounds       = useMemo(() => inferBoundsFromLabels(bucketLabels), [bucketLabels]);
@@ -481,17 +486,24 @@ export default function BillsOutstanding({ side }) {
 
       {/* ── Banners ─────────────────────────────────────────────────
         Allocation-incomplete (orange) — informational, dismissible
-        per session. Not silenced permanently because the limitation
-        is real until FIFO Receipt→Bill is fully wired.
+        per session. Driven by a runtime count of manual receipts that
+        haven't been FIFO-allocated to specific bills via
+        bill_payment_allocations. Hidden when the count is 0 (the
+        common case after R8 backfill if no manual on-account receipts
+        exist).
       */}
-      {!allocationComplete && !allocBannerDismissed && (
+      {unallocatedCount > 0 && !allocBannerDismissed && (
         <div className="bo-banner bo-banner-warn">
           <WarningOutlined />
           <span>
-            Bill-level allocation incomplete — outstanding shown is
-            <code> sales_bills.balance_amount</code> as a proxy. Some receipts
-            may not be FIFO-allocated to specific bills.
+            <b>{unallocatedCount}</b> {side === 'payable' ? 'payment' : 'receipt'}{unallocatedCount === 1 ? '' : 's'} not yet allocated to specific bills. Outstanding may differ from FIFO-correct amount.
           </span>
+          <a
+            className="bo-allocate-now"
+            onClick={(e) => { e.stopPropagation(); message.info('Allocation UI coming soon'); }}
+          >
+            Allocate now →
+          </a>
           <Button type="text" size="small" icon={<CloseOutlined />} onClick={() => setAllocBannerDismissed(true)} />
         </div>
       )}

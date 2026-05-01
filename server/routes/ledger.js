@@ -8,6 +8,9 @@ router.use(authenticateToken);
 
 router.get('/accounts',   requirePermission('accounts.view'), ctrl.listAccounts);
 router.get('/integrity',  requirePermission('accounts.view'), ctrl.integrity);
+// R8 Phase 2 — auto-receipt I1-I6 invariants for the admin
+// Integrity screen.
+router.get('/auto-receipt-integrity', requirePermission('accounts.view'), ctrl.autoReceiptIntegrity);
 router.get('/unposted',   requirePermission('accounts.view'), ctrl.unposted);
 // Reconcile is a write operation that posts to ledger_entries. Reuses the
 // same accounts.view perm as the rest of this router (the codebase has no

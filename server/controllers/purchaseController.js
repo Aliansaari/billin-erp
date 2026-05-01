@@ -6,6 +6,7 @@ const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPurchaseBillVouchers } = require('../services/voucherBuilders');
+const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
@@ -493,6 +494,11 @@ exports.create = async (req, res) => {
       for (const v of vouchers) {
         await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
       }
+      // Two-way ledger (R8 Phase 2) — mirror of Sales side. Inserts a
+      // payments_receipts row + allocation when paid_amount > 0 for a
+      // non-cash supplier so the Payments list + bill-detail Payments
+      // section see the auto-payment.
+      await syncAutoReceiptForBill({ kind: 'purchase', bill: billForPosting, t });
     }
 
     await t.commit();
@@ -862,6 +868,9 @@ exports.update = async (req, res) => {
       for (const v of vouchers) {
         await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
       }
+      // Two-way ledger sync — mirror of sales side. Handles edit
+      // cases A-D (amount/paid up/down/zero/account-change).
+      await syncAutoReceiptForBill({ kind: 'purchase', bill: refreshed, t });
     }
 
     await t.commit();
@@ -1003,6 +1012,15 @@ exports.cancel = async (req, res) => {
       sourceType: 'purchase_bill_payment', sourceId: bill.purchase_bill_id,
       reason: cancellationReason || 'Purchase bill cancelled',
       userId: req.user && req.user.user_id, transaction: t,
+    });
+    // Two-way ledger cancel cascade — soft-cancel the auto-payment
+    // row + drop its allocation. Mirror of sales side.
+    await reverseAutoReceiptForBill({
+      kind: 'purchase',
+      billId: bill.purchase_bill_id,
+      reason: cancellationReason || 'Purchase bill cancelled',
+      userId: req.user && req.user.user_id,
+      t,
     });
 
     await t.commit();

@@ -38,6 +38,12 @@ import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
 import BillsReceivable from './pages/reports/BillsReceivable';
 import BillsPayable from './pages/reports/BillsPayable';
+import MonthlySalesRegister    from './pages/reports/MonthlySalesSummary';
+import MonthlyPurchaseRegister from './pages/reports/MonthlyPurchaseSummary';
+import MonthlyPaymentRegister  from './pages/reports/MonthlyPaymentRegister';
+import MonthlyReceiptRegister  from './pages/reports/MonthlyReceiptRegister';
+import ProductSalesReport      from './pages/reports/ProductSalesReport';
+import ProductPurchaseReport   from './pages/reports/ProductPurchaseReport';
 import GSTR1Report from './pages/reports/GSTR1Report';
 import GSTR3BReport from './pages/reports/GSTR3BReport';
 import TrialBalance from './pages/reports/TrialBalance';
@@ -199,6 +205,12 @@ export default function App() {
           <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
           <Route path="reports/bills-receivable" element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
           <Route path="reports/bills-payable"    element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
+          <Route path="reports/monthly-sales"     element={<RoleRoute perm="reports.view"><MonthlySalesRegister /></RoleRoute>} />
+          <Route path="reports/monthly-purchases" element={<RoleRoute perm="reports.view"><MonthlyPurchaseRegister /></RoleRoute>} />
+          <Route path="reports/monthly-payments"  element={<RoleRoute perm="reports.view"><MonthlyPaymentRegister /></RoleRoute>} />
+          <Route path="reports/monthly-receipts"  element={<RoleRoute perm="reports.view"><MonthlyReceiptRegister /></RoleRoute>} />
+          <Route path="reports/product-sales"     element={<RoleRoute perm="reports.view"><ProductSalesReport /></RoleRoute>} />
+          <Route path="reports/product-purchases" element={<RoleRoute perm="reports.view"><ProductPurchaseReport /></RoleRoute>} />
           <Route path="reports/gstr1"         element={<RoleRoute perm="reports.view"><GSTR1Report /></RoleRoute>} />
           <Route path="reports/gstr3b"        element={<RoleRoute perm="reports.view"><GSTR3BReport /></RoleRoute>} />
           <Route path="reports/trial-balance"     element={<RoleRoute perm="accounts.view"><TrialBalance /></RoleRoute>} />

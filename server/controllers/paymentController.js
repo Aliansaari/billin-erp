@@ -44,12 +44,16 @@ exports.getNextNumber = async (req, res) => {
 
 exports.getAll = async (req, res) => {
   try {
-    const { transaction_type, from_date, to_date, party_id, search } = req.query;
+    const { transaction_type, source, from_date, to_date, party_id, search } = req.query;
     // Clamp page/limit (see helpers.sanitizePagination).
     const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
     const where = { is_cancelled: false };
 
     if (transaction_type) where.transaction_type = transaction_type;
+    // R8 Phase 2 — `source` filter lets the user see manual-entered
+    // receipts/payments separately from auto-generated bill-side ones.
+    // Whitelist values to avoid SQL injection via the enum cast.
+    if (source && ['manual', 'auto_from_bill'].includes(source)) where.source = source;
     if (from_date && to_date) where.transaction_date = { [Op.between]: [from_date, to_date] };
     if (party_id) where.party_id = party_id;
     if (search) {
@@ -142,6 +146,15 @@ exports.create = async (req, res) => {
     const lastNum = last ? parseInt(last.transaction_number.split('-').pop()) : 0;
     data.transaction_number = generateTransactionNumber(prefix, lastNum);
     data.created_by = req.user.user_id;
+
+    // Denormalised payment_method — drives the Mode chip in the
+    // Receipts/Payments list. If the user supplied a single split,
+    // that's the canonical mode; multiple distinct split modes leave
+    // payment_method NULL so the UI can render "Mixed" for it.
+    if (!data.payment_method && Array.isArray(splits) && splits.length > 0) {
+      const distinctModes = [...new Set(splits.map((s) => s.payment_mode).filter(Boolean))];
+      if (distinctModes.length === 1) data.payment_method = distinctModes[0];
+    }
 
     // ── Overpayment guard ─────────────────────────────────────────────────────
     // Safe to read outstanding now — party row is locked, so concurrent writers
@@ -255,6 +268,18 @@ exports.cancel = async (req, res) => {
     });
     if (!payment) { await t.rollback(); return res.status(404).json({ error: 'Transaction not found' }); }
     if (payment.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Already cancelled' }); }
+    // R8 Phase 2 — auto-receipts/payments are derivative of their
+    // source bill. Cancelling them in isolation would break the
+    // bill→receipt cascade invariant (the bill would still show
+    // paid_amount > 0 but the corresponding receipt is gone). Force
+    // the user to cancel/edit the source bill instead, where the
+    // cascade is wired up.
+    if (payment.source === 'auto_from_bill') {
+      await t.rollback();
+      return res.status(400).json({
+        error: `This ${payment.transaction_type.toLowerCase()} was auto-generated from bill ${payment.reference_bill_number || '#' + payment.source_bill_id}. To remove it, edit or cancel the source bill (paid_amount → 0).`,
+      });
+    }
 
     const { reason } = req.body || {};
 

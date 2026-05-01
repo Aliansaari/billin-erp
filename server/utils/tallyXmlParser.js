@@ -157,6 +157,13 @@ function parseVouchers(xml) {
     const partyName = readField(body, 'PARTYLEDGERNAME') || readField(body, 'PARTYNAME') || readField(body, 'BASICBUYERNAME') || '';
 
     // Flat list of ledger postings for this voucher.
+    //
+    // BILLALLOCATIONS.LIST is nested INSIDE each ledger entry (not at the
+    // voucher level) because Tally lets a single voucher post against
+    // multiple parties, each with its own bill linkage. Receipts/payments
+    // typically have one party-side ledger entry whose BILLALLOCATIONS
+    // carry the per-bill split — we collect all of them and let the
+    // caller filter to the party's side.
     const ledgerEntries = [];
     const lines = extractTag(body, 'LEDGERENTRIES.LIST').concat(extractTag(body, 'ALLLEDGERENTRIES.LIST'));
     for (const l of lines) {
@@ -164,11 +171,31 @@ function parseVouchers(xml) {
       if (!lname) continue;
       const amt   = parseTallyAmount(readField(l, 'AMOUNT'));
       const isDeemed = readField(l, 'ISDEEMEDPOSITIVE');
+      // BILLALLOCATIONS.LIST blocks (zero or more) → { name, amount, type }.
+      // `type` is Tally's own — typical values: 'Agst Ref' (against an
+      // existing bill), 'New Ref' (creating a new bill), 'On Account'
+      // (no bill). We treat 'Agst Ref' / 'New Ref' as a bill linkage and
+      // 'On Account' as no allocation. The orchestrator decides what to
+      // do with the parsed list.
+      const billAllocs = [];
+      const allocBlocks = extractTag(l, 'BILLALLOCATIONS.LIST');
+      for (const ab of allocBlocks) {
+        const billName = readField(ab, 'NAME');
+        if (!billName) continue;
+        const billAmt  = parseTallyAmount(readField(ab, 'AMOUNT'));
+        const billType = readField(ab, 'BILLTYPE');
+        billAllocs.push({
+          name: billName.trim(),
+          amount: Math.abs(billAmt),
+          type: billType || null,
+        });
+      }
       ledgerEntries.push({
         name: lname,
         amount: amt,
         isDeemedPositive: /yes/i.test(isDeemed),
         classification: classifyLedger(lname),
+        bill_allocations: billAllocs,
       });
     }
 

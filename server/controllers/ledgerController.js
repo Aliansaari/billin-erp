@@ -205,6 +205,28 @@ exports.integrity = async (req, res) => {
   }
 };
 
+// ── Auto-receipt integrity (R8 Phase 2) ────────────────────────────────
+//
+// I1-I6 invariants over the two-way ledger machinery: every paid bill
+// has matching allocations, every auto-receipt has exactly one alloc,
+// auto-receipts mirror their source bill on party/date/cancelled,
+// every auto row has a valid source_bill_id, and the per-side ledger
+// totals (Sundry Debtors / Creditors) match SUM(bill.balance_amount)
+// for non-cancelled non-cash bills.
+//
+// Surfaced via the admin Integrity screen — failing invariants render
+// as a red row with an expandable list of violating IDs.
+exports.autoReceiptIntegrity = async (req, res) => {
+  try {
+    const { checkIntegrity } = require('../services/autoReceiptService');
+    const result = await checkIntegrity();
+    res.json(result);
+  } catch (err) {
+    console.error('autoReceiptIntegrity error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+};
+
 // ── Reconcile ──────────────────────────────────────────────────────────
 //
 // Iterates each source table, finds rows that have no live forward entry

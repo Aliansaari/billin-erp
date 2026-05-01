@@ -191,6 +191,12 @@ export const reportAPI = {
   billsPayable:          (params) => api.get('/reports/bills-payable',    { params }),
   exportBillsReceivable: (params) => api.get('/reports/bills-receivable/export', { params, responseType: 'blob' }),
   exportBillsPayable:    (params) => api.get('/reports/bills-payable/export',    { params, responseType: 'blob' }),
+  // R10 — Monthly summary (sales | purchase | combined). Single endpoint,
+  // mode parameter selects shape. Frontend wrappers preset the mode.
+  monthlySummary:        (params) => api.get('/reports/monthly-summary', { params }),
+  // R11 — Product item-level detail. Two endpoints, mirror shape.
+  productSalesItems:     (params) => api.get('/reports/product-sales-items',    { params }),
+  productPurchaseItems:  (params) => api.get('/reports/product-purchase-items', { params }),
   getGstr1: (params) => api.get('/reports/gstr1', { params }),
   getGstr3b: (params) => api.get('/reports/gstr3b', { params }),
   // Phase R1 — Trial Balance + Balance Sheet + Profit & Loss
@@ -334,10 +340,11 @@ export const journalAPI = {
 };
 
 export const ledgerAPI = {
-  listAccounts: (params = {}) => api.get('/ledger/accounts', { params }),
-  integrity:    () => api.get('/ledger/integrity'),
-  unposted:     () => api.get('/ledger/unposted'),
-  reconcile:    () => api.post('/ledger/reconcile'),
+  listAccounts:           (params = {}) => api.get('/ledger/accounts', { params }),
+  integrity:              () => api.get('/ledger/integrity'),
+  autoReceiptIntegrity:   () => api.get('/ledger/auto-receipt-integrity'),
+  unposted:               () => api.get('/ledger/unposted'),
+  reconcile:              () => api.post('/ledger/reconcile'),
 };
 
 export const importsAPI = {

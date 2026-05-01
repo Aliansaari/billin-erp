@@ -247,8 +247,16 @@ async function main() {
   await sequelize.close();
 }
 
-main().catch(async (err) => {
-  console.error('Backfill error:', err);
-  try { await sequelize.close(); } catch {}
-  process.exit(2);
-});
+// Exports for in-process callers (server/index.js boot-time backfill).
+// CLI invocation flows through the require.main check below — running
+// `node server/scripts/backfill-auto-receipts.js [--apply]` still
+// drives main() exactly as before.
+module.exports = { planSide, applyPlan };
+
+if (require.main === module) {
+  main().catch(async (err) => {
+    console.error('Backfill error:', err);
+    try { await sequelize.close(); } catch {}
+    process.exit(2);
+  });
+}

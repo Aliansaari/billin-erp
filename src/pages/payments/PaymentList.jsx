@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Tag, Typography, message, Card, Space, DatePicker, Select, Popconfirm, Tooltip } from 'antd';
-import { PlusOutlined, DeleteOutlined, PrinterOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, PrinterOutlined, LinkOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI } from '../../api';
@@ -12,11 +12,50 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 const { Title } = Typography;
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
+// Per-mode chip styling — one row per enum value in
+// enum_payment_splits_payment_mode (Cash / Card / UPI / Cheque /
+// Bank Transfer / Credit) plus 'NEFT' / 'RTGS' as common synonyms a
+// user might type into the (free-text) bill payment_method column.
+// Lookup falls back to 'default' (grey) for anything unrecognised, so
+// surfacing a new mode never crashes the cell.
+const MODE_STYLE = {
+  'Cash':           { color: 'green',  label: 'Cash' },
+  'Bank Transfer':  { color: 'blue',   label: 'Bank Transfer' },
+  'Bank':           { color: 'blue',   label: 'Bank' },
+  'NEFT':           { color: 'blue',   label: 'NEFT' },
+  'RTGS':           { color: 'blue',   label: 'RTGS' },
+  'IMPS':           { color: 'blue',   label: 'IMPS' },
+  'Cheque':         { color: 'gold',   label: 'Cheque' },
+  'UPI':            { color: 'purple', label: 'UPI' },
+  'Card':           { color: 'cyan',   label: 'Card' },
+  'Credit':         { color: 'default', label: 'Credit' },
+  'Mixed':          { color: 'default', label: 'Mixed' },
+};
+function ModeChip({ method, splits }) {
+  // 1. The denormalised payment_method column is the source of truth
+  //    when populated (auto-receipts, manual-create with the new
+  //    column). Renders as a single coloured chip.
+  // 2. Fallback: legacy rows with NULL payment_method but split data
+  //    derive the mode from splits — single split → its mode; multi
+  //    splits with distinct modes → 'Mixed'.
+  // 3. Fallback²: nothing at all → render an em-dash.
+  let mode = method;
+  if (!mode && Array.isArray(splits) && splits.length > 0) {
+    const distinct = [...new Set(splits.map((s) => s.payment_mode).filter(Boolean))];
+    mode = distinct.length === 1 ? distinct[0] : 'Mixed';
+  }
+  if (!mode) return <span style={{ color: '#9ca3af' }}>—</span>;
+  const style = MODE_STYLE[mode] || { color: 'default', label: mode };
+  return <Tag color={style.color} style={{ fontSize: 11, fontWeight: 500, margin: 0 }}>{style.label}</Tag>;
+}
+
 export default function PaymentList() {
   const { fyStart, fyEnd } = useFinancialYear();
   const [deletingId, setDeletingId] = useState(null);
-  // Default to company FY for consistency.
-  const [filters, setFilters] = useState({ transaction_type: null, from_date: fyStart, to_date: fyEnd });
+  // Default to company FY for consistency. `source` filter (added in
+  // R8 Phase 2) lets the user view manual-entered receipts/payments
+  // separately from auto-generated bill-side ones.
+  const [filters, setFilters] = useState({ transaction_type: null, source: null, from_date: fyStart, to_date: fyEnd });
   const navigate = useNavigate();
 
   // ── Virtualized data layer ────────────────────────────────────────
@@ -42,21 +81,50 @@ export default function PaymentList() {
   };
 
   const columns = [
-    { title: 'Txn No', dataIndex: 'transaction_number', width: 130, key: 'txn_no',
-      render: (v) => <span style={{ fontSize: 12 }}>{v}</span> },
+    { title: 'Txn No', dataIndex: 'transaction_number', width: 180, key: 'txn_no',
+      // Auto-receipts get a "📎 From bill" badge linking to the source
+      // bill. Manual rows render plain. Bill-deep-link via the existing
+      // /sale/edit and /purchase/edit routes.
+      render: (v, r) => (
+        <Space size={4} style={{ alignItems: 'center' }}>
+          <span style={{ fontSize: 12 }}>{v}</span>
+          {r.source === 'auto_from_bill' && r.source_bill_id && (
+            <Tooltip title={`Auto-generated from ${r.transaction_type === 'Receipt' ? 'sales' : 'purchase'} bill ${r.reference_bill_number || r.source_bill_id}. Click to open.`}>
+              <Tag
+                color="blue"
+                style={{ fontSize: 10, cursor: 'pointer', margin: 0 }}
+                icon={<LinkOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const path = r.transaction_type === 'Receipt'
+                    ? `/sale/edit/${r.source_bill_id}`
+                    : `/purchase/edit/${r.source_bill_id}`;
+                  navigate(path);
+                }}
+              >
+                From bill
+              </Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ) },
     { title: 'Type', dataIndex: 'transaction_type', width: 90, key: 'type',
       render: (t) => <Tag color={t === 'Receipt' ? 'green' : 'volcano'}>{t}</Tag> },
     { title: 'Date', dataIndex: 'transaction_date', width: 110, key: 'date',
       render: (v) => dayjs(v).format('DD/MM/YYYY') },
     { title: 'Party', dataIndex: ['party', 'party_name'], width: 180, key: 'party', ellipsis: true },
+    // Mode column — sourced from payments_receipts.payment_method
+    // (denormalised by auto-receipt sync + manual create from splits).
+    // Falls back to deriving from splits[] for legacy rows where the
+    // column is still NULL. Coloured chip per mode; see MODE_STYLE.
+    { title: 'Mode', width: 110, key: 'mode',
+      render: (_v, r) => <ModeChip method={r.payment_method} splits={r.splits} /> },
     { title: 'Amount', dataIndex: 'total_amount', width: 120, align: 'right', key: 'amount',
       render: (v, r) => (
         <span style={{ fontWeight: 700, color: r.transaction_type === 'Receipt' ? '#059669' : '#dc2626' }}>
           {fmt(v)}
         </span>
       )},
-    { title: 'Mode', dataIndex: 'splits', width: 160, key: 'mode',
-      render: (splits) => splits?.map(s => <Tag key={s.split_id} style={{ fontSize: 11 }}>{s.payment_mode}: {fmt(s.amount)}</Tag>) },
     { title: 'Remarks', dataIndex: 'remarks', width: 180, ellipsis: true, key: 'remarks',
       render: (v) => <span style={{ fontSize: 12, color: '#6b7280' }}>{v || '—'}</span> },
     {
@@ -130,6 +198,12 @@ export default function PaymentList() {
             onChange={(v) => setFilters(f => ({ ...f, transaction_type: v }))}>
             <Select.Option value="Payment">Payment</Select.Option>
             <Select.Option value="Receipt">Receipt</Select.Option>
+          </Select>
+          <Select placeholder="All Sources" style={{ width: 170, height: 34 }} allowClear
+            value={filters.source}
+            onChange={(v) => setFilters(f => ({ ...f, source: v }))}>
+            <Select.Option value="manual">Manual entry</Select.Option>
+            <Select.Option value="auto_from_bill">Auto from bill</Select.Option>
           </Select>
         </div>
 

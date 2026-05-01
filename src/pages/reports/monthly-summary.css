@@ -1,0 +1,151 @@
+/* Monthly Register — modern dark-mode styling matching the BillsOutstanding
+   visual language. Same .bo-* shape: full-page flex column with a fixed-
+   bottom total row that's always visible regardless of scroll position. */
+
+.mr-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Header strip ─────────────────────────────────────────────────── */
+/* Reuses .rpt-page-hd / .rpt-period / .rpt-date / .rpt-btn from
+   global.css (the Sales Report's design system). The .mr-hd class
+   stays as a hook in case page-specific overrides are needed. */
+.mr-hd { flex-shrink: 0; }
+
+/* ── Scrollable rows area ─────────────────────────────────────────── */
+.mr-tablewrap {
+  flex: 1; min-height: 0;
+  overflow: auto;
+  padding: 0;
+}
+
+/* Both tables share table-layout: fixed so the colgroup widths
+   actually pin the columns — required for the body + total tables
+   to align on the same vertical edges regardless of content length. */
+.mr-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  color: var(--fg-primary);
+}
+.mr-col-particulars { width: 240px; }
+.mr-col-num         { width: 140px; }
+.mr-col-closing     { width: 180px; }
+
+/* ── Header rows ──────────────────────────────────────────────────── */
+.mr-th-grp th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg-panel);
+  padding: 10px 16px 4px;
+  font-weight: 500;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+/* Group label — pulled hard against the left edge so the ledger name
+   reads as a heading for the section, not as a column annotation. */
+.mr-grp-label {
+  color: var(--fg-secondary);
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding-left: 24px !important;
+}
+.mr-grp-primary { color: var(--accent, #6366F1); }
+.mr-grp-overlay {
+  border-left: 1px solid var(--border-subtle);
+  color: var(--warning, #B5872B);
+}
+/* Overlay group label sits inside the overlay block — left-padded
+   inside the block, not the page. */
+.mr-grp-label.mr-grp-overlay { padding-left: 16px !important; }
+.mr-grp-side {
+  color: var(--fg-tertiary, #6b7280);
+  font-weight: 400; text-transform: none; letter-spacing: 0;
+}
+
+.mr-th-cols th {
+  position: sticky; top: 36px; z-index: 2;
+  background: var(--bg-panel);
+  padding: 6px 16px 8px;
+  font-weight: 500; font-size: 11px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+.mr-th-particulars { text-align: left !important; padding-left: 24px !important; }
+
+/* ── Body rows ────────────────────────────────────────────────────── */
+.mr-table tbody td {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+.mr-particulars { padding-left: 24px !important; }
+.mr-num { text-align: right; font-family: inherit; }
+.mr-num-strong { color: var(--fg-primary); font-weight: 500; }
+.mr-side { font-size: 11px; color: var(--fg-tertiary, #6b7280); font-weight: 400; }
+.mr-side-cr { color: var(--success, #10B981); }
+.mr-side-dr { color: var(--accent, #6366F1); }
+.mr-zero { color: var(--fg-tertiary, #6b7280); }
+
+.mr-row { cursor: pointer; transition: background 0.12s ease, box-shadow 0.12s ease; }
+.mr-row:hover { background: var(--bg-hover, rgba(99,102,241,0.06)); }
+.mr-row-active {
+  background: var(--bg-hover, rgba(99,102,241,0.10));
+}
+.mr-row-active:hover { background: var(--bg-hover, rgba(99,102,241,0.14)); }
+/* Active row, no overlay → highlight pinned to leftmost cell. */
+.mr-row-active > td:first-child { box-shadow: inset 3px 0 0 0 var(--accent, #6366F1); }
+/* When overlay is active, the highlight bar sits on whichever side
+   is currently selected so the operator can see which Enter target
+   they're pointing at. */
+.mr-row-active.mr-row-active-primary > td:first-child { box-shadow: inset 3px 0 0 0 var(--accent, #6366F1); }
+.mr-row-active.mr-row-active-overlay > td:first-child { box-shadow: none; }
+.mr-row-active.mr-row-active-overlay > td.mr-grp-overlay:nth-child(5) { box-shadow: inset 3px 0 0 0 var(--warning, #B5872B); }
+
+/* Column-group header: clickable when overlay is on, with subtle
+   underline on the active side to mirror the row's accent bar. */
+.mr-grp-active { color: var(--fg-primary) !important; }
+.mr-grp-primary.mr-grp-active { color: var(--accent, #6366F1) !important; }
+.mr-grp-overlay.mr-grp-active { color: var(--warning, #B5872B) !important; }
+.mr-grp-arrow { font-size: 10px; margin-right: 2px; }
+
+.mr-row-opening td {
+  background: var(--bg-elevated, rgba(0,0,0,0.02));
+  font-style: italic;
+  color: var(--fg-secondary);
+}
+
+/* ── Always-visible total row ─────────────────────────────────────── */
+.mr-totalwrap {
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  border-top: 2px solid var(--border);
+  overflow-y: hidden;          /* never scrolls */
+  overflow-x: auto;            /* mirrors the body's horizontal scroll if any */
+}
+.mr-table-total {
+  /* Same colgroup, same widths — columns align with body table above. */
+}
+.mr-table-total tbody td {
+  padding: 10px 16px;
+  border-bottom: none;
+  font-weight: 600;
+  background: var(--bg-panel);
+}
+.mr-table-total tbody td:first-child { padding-left: 24px; }
+.mr-table-total tbody td:last-child  { padding-right: 24px; }
+
+.mr-skel { padding: 80px 24px; text-align: center; color: var(--fg-secondary); }
+
+@media print {
+  .mr-actions { display: none !important; }
+  .mr-page { height: auto; }
+  .mr-tablewrap { overflow: visible; }
+}

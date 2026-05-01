@@ -992,6 +992,55 @@ async function startServer() {
       console.error('[P&L sub_group reclassification] Error:', err.message);
     });
 
+    // ── payments_receipts.payment_method (R8 follow-up) ──────────────
+    //
+    // Denormalised mode field — Cash / Bank Transfer / Cheque / UPI /
+    // Card / Credit. Populated:
+    //   · auto-receipts → copied from source bill on sync
+    //   · manual receipts → from the first PaymentSplit at create time
+    //                       (or 'Mixed' for multi-split)
+    //
+    // Without this, the Receipts list "Mode" column reads from
+    // payment_splits — which was never populated for the existing
+    // 17 seed receipts AND can't represent mode for auto-receipts at
+    // all (they have no splits row by design). One-time backfill below
+    // recovers the value for existing rows.
+    //
+    // Idempotent: re-runs are no-ops once the column exists + backfill
+    // has run (UPDATE filters on payment_method IS NULL).
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='payments_receipts' AND column_name='payment_method') THEN
+          ALTER TABLE payments_receipts
+            ADD COLUMN payment_method VARCHAR(20);
+          CREATE INDEX idx_payments_receipts_method ON payments_receipts(payment_method) WHERE payment_method IS NOT NULL;
+        END IF;
+      END $$;
+      -- Backfill — auto-receipts copy from source bill
+      UPDATE payments_receipts pr
+         SET payment_method = b.payment_method
+        FROM sales_bills b
+       WHERE pr.payment_method IS NULL
+         AND pr.source = 'auto_from_bill'
+         AND pr.transaction_type = 'Receipt'
+         AND pr.source_bill_id = b.sales_bill_id
+         AND b.payment_method IS NOT NULL;
+      -- For manual receipts/payments with exactly one PaymentSplit,
+      -- adopt the split's mode. Multi-split rows are left NULL and
+      -- render as 'Mixed' on the UI.
+      UPDATE payments_receipts pr
+         SET payment_method = ps.payment_mode
+        FROM payment_splits ps
+       WHERE pr.payment_method IS NULL
+         AND pr.source = 'manual'
+         AND pr.transaction_id = ps.transaction_id
+         AND (SELECT COUNT(*) FROM payment_splits ps2
+               WHERE ps2.transaction_id = pr.transaction_id) = 1;
+    `).catch((err) => {
+      console.error('[payments_receipts.payment_method] Error:', err.message);
+    });
+
     // ── Two-way ledger schema (Phase 1, R8) ──────────────────────────
     //
     // Auto-generated Receipt/Payment vouchers from embedded bill
@@ -1068,6 +1117,71 @@ async function startServer() {
     `).catch((err) => {
       console.error('[Two-way ledger schema] Error:', err.message);
     });
+
+    // ── R9: extend allocation_method enum for import + backfill paths ──
+    //
+    // Phase 1 of R9 wires Excel + Tally orchestrators to write allocations
+    // when receipts/payments come in via import. Phase 2 backfills the
+    // historical seeded rows that pre-date the auto-receipt service.
+    // Each writer tags its rows with a distinct method so audit + drift
+    // analysis can attribute each row to its source.
+    //
+    // Idempotent — IF NOT EXISTS on each ADD VALUE so re-runs are no-ops.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_enum
+                       WHERE enumtypid = 'enum_bill_payment_allocations_method'::regtype
+                         AND enumlabel = 'import_excel') THEN
+          ALTER TYPE enum_bill_payment_allocations_method ADD VALUE 'import_excel';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum
+                       WHERE enumtypid = 'enum_bill_payment_allocations_method'::regtype
+                         AND enumlabel = 'import_tally') THEN
+          ALTER TYPE enum_bill_payment_allocations_method ADD VALUE 'import_tally';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum
+                       WHERE enumtypid = 'enum_bill_payment_allocations_method'::regtype
+                         AND enumlabel = 'backfill_fifo') THEN
+          ALTER TYPE enum_bill_payment_allocations_method ADD VALUE 'backfill_fifo';
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[R9 enum extension] Error:', err.message);
+    });
+
+    // ── R8 Phase 3: auto-receipt backfill (boot-time) ────────────────
+    //
+    // Inserts the missing payments_receipts row + bill_payment_alloc-
+    // ations row for any paid credit-sale bill that already has a
+    // sales_bill_receipt voucher in the journal but no corresponding
+    // entry in payments_receipts. Mirror logic for purchase side.
+    //
+    // Same code path as `node server/scripts/backfill-auto-receipts.js
+    // --apply`, but called inline so production environments clear the
+    // legacy rows on next deploy without an extra ops step. Idempotent
+    // — the planSide() lookup excludes already-migrated rows, so
+    // every subsequent boot is a no-op.
+    //
+    // Out-of-scope, never touched: system Cash party bills (cash sales,
+    // single voucher) and bills with NULL party (legacy cash-without-
+    // party rows; need a separate migration to attach to system Cash).
+    try {
+      const { planSide, applyPlan } = require('./scripts/backfill-auto-receipts');
+      if (typeof planSide === 'function' && typeof applyPlan === 'function') {
+        for (const kind of ['sales', 'purchase']) {
+          const plan = await planSide(kind);
+          if (plan.in_scope.length > 0) {
+            const res = await applyPlan(plan);
+            console.log(`[R8 backfill] ${kind}: inserted ${res.inserted} auto-${kind === 'sales' ? 'receipt' : 'payment'}(s)`);
+          }
+        }
+      }
+    } catch (err) {
+      // Non-fatal: log + continue. The legacy rows will keep showing
+      // I1.sales / I5 violations on the integrity screen, which is
+      // visible enough that an admin will notice and re-run manually.
+      console.warn('[R8 backfill] Skipped:', err.message);
+    }
 
     // Seed default data
     await seedDefaultData();

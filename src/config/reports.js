@@ -29,19 +29,21 @@
 // names — actual icon components are imported by the consumer to
 // avoid pulling icon weight into the registry itself.
 export const CATEGORY_META = {
-  outstanding: { label: 'Outstanding', icon: 'AlertOutlined',       tone: 'danger'  },
-  sales:       { label: 'Sales',       icon: 'RiseOutlined',         tone: 'info'    },
-  purchase:    { label: 'Purchase',    icon: 'ShoppingCartOutlined', tone: 'warning' },
-  inventory:   { label: 'Inventory',   icon: 'InboxOutlined',        tone: 'success' },
-  financial:   { label: 'Financial',   icon: 'PieChartOutlined',     tone: 'danger'  },
-  parties:     { label: 'Parties',     icon: 'TeamOutlined',         tone: 'purple'  },
-  tax:         { label: 'Tax / GST',   icon: 'FileTextOutlined',     tone: 'teal'    },
+  outstanding:       { label: 'Outstanding',       icon: 'AlertOutlined',       tone: 'danger'  },
+  periodic_summary:  { label: 'Periodic Summary',  icon: 'CalendarOutlined',    tone: 'info'    },
+  sales:             { label: 'Sales',             icon: 'RiseOutlined',        tone: 'info'    },
+  purchase:          { label: 'Purchase',          icon: 'ShoppingCartOutlined',tone: 'warning' },
+  inventory:         { label: 'Inventory',         icon: 'InboxOutlined',       tone: 'success' },
+  financial:         { label: 'Financial',         icon: 'PieChartOutlined',    tone: 'danger'  },
+  parties:           { label: 'Parties',           icon: 'TeamOutlined',        tone: 'purple'  },
+  tax:               { label: 'Tax / GST',         icon: 'FileTextOutlined',    tone: 'teal'    },
 };
 
 // Category render order on the hub. Outstanding first (checked daily —
-// these are the bills currently bleeding cash). Then Sales, Purchase,
-// Inventory (largest group), Financial, Parties, Tax last.
-export const CATEGORY_ORDER = ['outstanding', 'sales', 'purchase', 'inventory', 'financial', 'parties', 'tax'];
+// these are the bills currently bleeding cash). Periodic Summary next
+// (monthly trends — operators check pulse here). Then per-domain
+// reports.
+export const CATEGORY_ORDER = ['outstanding', 'periodic_summary', 'sales', 'purchase', 'inventory', 'financial', 'parties', 'tax'];
 
 export const REPORTS = [
   // ── Outstanding ──────────────────────────────────────────────────
@@ -68,6 +70,52 @@ export const REPORTS = [
     isNew: true,
   },
 
+  // ── Periodic Summary (R10) ───────────────────────────────────────
+  // Tally-style monthly registers. Each row = month, columns = Dr / Cr
+  // / Closing-Balance with running ledger total. Each register has a
+  // "Compare with…" toggle to overlay a second register's columns
+  // alongside the primary (Sales↔Purchase, Receipt↔Payment, etc).
+  {
+    id: 'monthly_sales_register',
+    name: 'Sales Register',
+    subtitle: 'Monthly summary · Sales Account',
+    category: 'periodic_summary',
+    route: '/reports/monthly-sales',
+    perm: 'reports.view',
+    aliases: ['monthly sales', 'sales register', 'sales by month'],
+    isNew: true,
+  },
+  {
+    id: 'monthly_purchase_register',
+    name: 'Purchase Register',
+    subtitle: 'Monthly summary · Purchase Account',
+    category: 'periodic_summary',
+    route: '/reports/monthly-purchases',
+    perm: 'reports.view',
+    aliases: ['monthly purchase', 'purchase register', 'purchase by month'],
+    isNew: true,
+  },
+  {
+    id: 'monthly_payment_register',
+    name: 'Payment Register',
+    subtitle: 'Monthly summary · Payment vouchers',
+    category: 'periodic_summary',
+    route: '/reports/monthly-payments',
+    perm: 'reports.view',
+    aliases: ['monthly payment', 'payment register', 'payments by month'],
+    isNew: true,
+  },
+  {
+    id: 'monthly_receipt_register',
+    name: 'Receipt Register',
+    subtitle: 'Monthly summary · Receipt vouchers',
+    category: 'periodic_summary',
+    route: '/reports/monthly-receipts',
+    perm: 'reports.view',
+    aliases: ['monthly receipt', 'receipt register', 'receipts by month'],
+    isNew: true,
+  },
+
   // ── Sales ────────────────────────────────────────────────────────
   {
     id: 'sales_report',
@@ -77,6 +125,16 @@ export const REPORTS = [
     route: '/reports/sales',
     perm: 'reports.view',
     aliases: ['sales register', 'invoice'],
+  },
+  {
+    id: 'product_sales_detail',
+    name: 'Product Sales Detail',
+    subtitle: 'Per-line item · with profit',
+    category: 'sales',
+    route: '/reports/product-sales',
+    perm: 'reports.view',
+    aliases: ['product sales', 'item sales', 'sales by product', 'sales line items'],
+    isNew: true,
   },
 
   // ── Purchase ─────────────────────────────────────────────────────
@@ -88,6 +146,16 @@ export const REPORTS = [
     route: '/reports/purchases',
     perm: 'reports.view',
     aliases: ['purchase register'],
+  },
+  {
+    id: 'product_purchase_detail',
+    name: 'Product Purchase Detail',
+    subtitle: 'Per-line item · with line value',
+    category: 'purchase',
+    route: '/reports/product-purchases',
+    perm: 'reports.view',
+    aliases: ['product purchase', 'item purchase', 'purchase by product', 'purchase line items'],
+    isNew: true,
   },
 
   // ── Inventory ────────────────────────────────────────────────────
