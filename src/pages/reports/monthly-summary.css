@@ -115,9 +115,23 @@
 .mr-row:hover { background: var(--bg-hover, rgba(99,102,241,0.06)); }
 .mr-row-active {
   background: var(--bg-hover, rgba(99,102,241,0.10));
-  box-shadow: inset 3px 0 0 0 var(--accent, #6366F1);
 }
 .mr-row-active:hover { background: var(--bg-hover, rgba(99,102,241,0.14)); }
+/* Active row, no overlay → highlight pinned to leftmost cell. */
+.mr-row-active > td:first-child { box-shadow: inset 3px 0 0 0 var(--accent, #6366F1); }
+/* When overlay is active, the highlight bar sits on whichever side
+   is currently selected so the operator can see which Enter target
+   they're pointing at. */
+.mr-row-active.mr-row-active-primary > td:first-child { box-shadow: inset 3px 0 0 0 var(--accent, #6366F1); }
+.mr-row-active.mr-row-active-overlay > td:first-child { box-shadow: none; }
+.mr-row-active.mr-row-active-overlay > td.mr-grp-overlay:nth-child(5) { box-shadow: inset 3px 0 0 0 var(--warning, #B5872B); }
+
+/* Column-group header: clickable when overlay is on, with subtle
+   underline on the active side to mirror the row's accent bar. */
+.mr-grp-active { color: var(--fg-primary) !important; }
+.mr-grp-primary.mr-grp-active { color: var(--accent, #6366F1) !important; }
+.mr-grp-overlay.mr-grp-active { color: var(--warning, #B5872B) !important; }
+.mr-grp-arrow { font-size: 10px; margin-right: 2px; }
 
 .mr-row-opening td {
   background: var(--bg-elevated, rgba(0,0,0,0.02));
