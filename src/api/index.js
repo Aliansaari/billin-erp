@@ -194,6 +194,9 @@ export const reportAPI = {
   // R10 — Monthly summary (sales | purchase | combined). Single endpoint,
   // mode parameter selects shape. Frontend wrappers preset the mode.
   monthlySummary:        (params) => api.get('/reports/monthly-summary', { params }),
+  // R11 — Product item-level detail. Two endpoints, mirror shape.
+  productSalesItems:     (params) => api.get('/reports/product-sales-items',    { params }),
+  productPurchaseItems:  (params) => api.get('/reports/product-purchase-items', { params }),
   getGstr1: (params) => api.get('/reports/gstr1', { params }),
   getGstr3b: (params) => api.get('/reports/gstr3b', { params }),
   // Phase R1 — Trial Balance + Balance Sheet + Profit & Loss

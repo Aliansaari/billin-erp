@@ -51,6 +51,13 @@ router.get('/aging',             requirePermission('reports.view'),  reportContr
 const monthlySummaryController = require('../controllers/monthlySummaryController');
 router.get('/monthly-summary',   requirePermission('reports.view'),  monthlySummaryController.monthlySummary);
 
+// Product item-level detail (R11) — one row per (bill, line item) with
+// party, product, price, tax, profit (sales side). Paginated for the
+// virtualized table on the frontend.
+const productItemsController = require('../controllers/productItemsController');
+router.get('/product-sales-items',    requirePermission('reports.view'), productItemsController.productSalesItems);
+router.get('/product-purchase-items', requirePermission('reports.view'), productItemsController.productPurchaseItems);
+
 router.get('/bills-receivable',  requirePermission('reports.view'),  billsOutstandingController.billsReceivable);
 router.get('/bills-payable',     requirePermission('reports.view'),  billsOutstandingController.billsPayable);
 router.get('/bills-receivable/export', requirePermission('reports.view'), (req, res) => {

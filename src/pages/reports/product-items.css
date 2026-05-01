@@ -1,0 +1,34 @@
+/* Product Items Detail — uses bills-outstanding.css for layout
+   skeleton + .rpt-* from global.css for the header. Overrides here
+   are tighter row density (line-item lists are typically denser than
+   bill lists) and per-side semantic color for Profit. */
+
+.pi-page .bo-tablewrap { padding-top: 0; }
+.pi-hd { border-bottom: 1px solid var(--border-subtle); }
+
+.pi-num { text-align: right; }
+.pi-num-strong { font-weight: 600; color: var(--fg-primary); }
+.pi-num-muted  { color: var(--fg-secondary); }
+.pi-mono { font-family: 'Geist Mono','JetBrains Mono', monospace; font-size: 11.5px; }
+
+.pi-profit-pos { color: var(--success, #10B981); font-weight: 500; }
+.pi-profit-neg { color: var(--danger,  #EF4444); font-weight: 500; }
+
+.pi-kpis { padding: 0; }
+
+/* Customize popover — 2-column grid of column toggles + a header row
+   for All / Default presets. */
+.pi-customize { width: 280px; }
+.pi-customize-row {
+  display: flex; gap: 6px; padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pi-customize-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.pi-customize-grid .ant-checkbox-wrapper { font-size: 12.5px; }
