@@ -172,16 +172,10 @@ export default function MonthlyRegister({ mode }) {
 
   return (
     <div className="mr-page">
-      {/* Header — same shape as Bills Outstanding */}
+      {/* Header */}
       <div className="mr-hd">
         <div className="mr-title">
           <h1>{cfg.label}</h1>
-          <span className="mr-sub">{cfg.sub}</span>
-          {data?.period && (
-            <Tag className="mr-period-chip" icon={<CalendarOutlined />}>
-              {dayjs(data.period.from_date).format('MMM YYYY')} – {dayjs(data.period.to_date).format('MMM YYYY')}
-            </Tag>
-          )}
         </div>
         <div className="mr-actions">
           {[
@@ -222,12 +216,10 @@ export default function MonthlyRegister({ mode }) {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="mr-tablewrap">
-        {data
-          ? <RegisterTable primary={data.primary} overlay={data.overlay} onRowClick={drillRow} />
-          : <div className="mr-skel">Loading…</div>}
-      </div>
+      {/* Scrollable table area + always-visible total footer below */}
+      {data
+        ? <RegisterTable primary={data.primary} overlay={data.overlay} onRowClick={drillRow} />
+        : <div className="mr-skel">Loading…</div>}
     </div>
   );
 }
@@ -238,90 +230,122 @@ export default function MonthlyRegister({ mode }) {
 // Sticky header, hover-highlighted rows, opening-balance row when
 // non-zero, double-line total separator.
 function RegisterTable({ primary, overlay, onRowClick }) {
-  const groupCols = overlay ? 2 : 1;
   const hasOpening = primary.opening_balance > 0 || (overlay && overlay.opening_balance > 0);
+  // Total cols including the Particulars column. Used by the
+  // group-label row's colSpan so the label spans Particulars + Dr +
+  // Cr + Closing of the primary section. (Overlay groups pick up the
+  // remaining 3 columns.)
+  const primarySpan = 1 + 3;          // Particulars + Dr + Cr + Closing
+  const lastClosing = primary.rows.length > 0
+    ? fmtClosing(primary.rows[primary.rows.length-1].closing, primary.rows[primary.rows.length-1].closing_side)
+    : '—';
+  const lastOverlayClosing = overlay && overlay.rows.length > 0
+    ? fmtClosing(overlay.rows[overlay.rows.length-1].closing, overlay.rows[overlay.rows.length-1].closing_side)
+    : '—';
+
+  // Shared colgroup so the scrollable body table + the fixed-bottom
+  // total table align column-for-column. Particulars has a fixed
+  // width so the columns don't drift between the two tables when
+  // monthly amounts vary in length.
+  const Cols = () => (
+    <colgroup>
+      <col className="mr-col-particulars" />
+      <col className="mr-col-num" />
+      <col className="mr-col-num" />
+      <col className="mr-col-closing" />
+      {overlay && (<>
+        <col className="mr-col-num" />
+        <col className="mr-col-num" />
+        <col className="mr-col-closing" />
+      </>)}
+    </colgroup>
+  );
 
   return (
-    <table className="mr-table">
-      <colgroup>
-        <col className="mr-col-particulars" />
-        <col /><col /><col className="mr-col-closing" />
-        {overlay && (<><col /><col /><col className="mr-col-closing" /></>)}
-      </colgroup>
-      <thead>
-        <tr className="mr-th-grp">
-          <th></th>
-          <th colSpan={3} className="mr-grp-label mr-grp-primary">
-            {primary.ledger_name}
-            <span className="mr-grp-side"> · {primary.natural_side}-natural</span>
-          </th>
-          {overlay && (
-            <th colSpan={3} className="mr-grp-label mr-grp-overlay">
-              {overlay.ledger_name}
-              <span className="mr-grp-side"> · {overlay.natural_side}-natural</span>
-            </th>
-          )}
-        </tr>
-        <tr className="mr-th-cols">
-          <th className="mr-th-particulars">Particulars</th>
-          <th className="mr-th-num">Debit</th>
-          <th className="mr-th-num">Credit</th>
-          <th className="mr-th-num mr-th-closing">Closing Balance</th>
-          {overlay && <>
-            <th className="mr-th-num mr-grp-overlay">Debit</th>
-            <th className="mr-th-num mr-grp-overlay">Credit</th>
-            <th className="mr-th-num mr-th-closing mr-grp-overlay">Closing Balance</th>
-          </>}
-        </tr>
-      </thead>
-      <tbody>
-        {hasOpening && (
-          <tr className="mr-row-opening">
-            <td>Opening Balance</td>
-            <td className="mr-num"></td>
-            <td className="mr-num"></td>
-            <td className="mr-num">{fmtClosing(primary.opening_balance, primary.opening_side)}</td>
-            {overlay && <>
-              <td className="mr-num mr-grp-overlay"></td>
-              <td className="mr-num mr-grp-overlay"></td>
-              <td className="mr-num mr-grp-overlay">{fmtClosing(overlay.opening_balance, overlay.opening_side)}</td>
-            </>}
-          </tr>
-        )}
-        {primary.rows.map((r, i) => {
-          const ovr = overlay ? overlay.rows[i] : null;
-          return (
-            <tr key={r.month_iso} className="mr-row" onClick={() => onRowClick(r.month_iso)}>
-              <td className="mr-particulars">{r.month_label}</td>
-              <td className="mr-num">{fmtAmt(r.dr)}</td>
-              <td className="mr-num">{fmtAmt(r.cr)}</td>
-              <td className="mr-num">{fmtClosing(r.closing, r.closing_side)}</td>
+    <>
+      {/* Scrollable rows area */}
+      <div className="mr-tablewrap">
+        <table className="mr-table">
+          <Cols />
+          <thead>
+            <tr className="mr-th-grp">
+              <th colSpan={primarySpan} className="mr-grp-label mr-grp-primary">
+                {primary.ledger_name}
+                <span className="mr-grp-side"> · {primary.natural_side}-natural</span>
+              </th>
+              {overlay && (
+                <th colSpan={3} className="mr-grp-label mr-grp-overlay">
+                  {overlay.ledger_name}
+                  <span className="mr-grp-side"> · {overlay.natural_side}-natural</span>
+                </th>
+              )}
+            </tr>
+            <tr className="mr-th-cols">
+              <th className="mr-th-particulars">Particulars</th>
+              <th className="mr-th-num">Debit</th>
+              <th className="mr-th-num">Credit</th>
+              <th className="mr-th-num mr-th-closing">Closing Balance</th>
               {overlay && <>
-                <td className="mr-num mr-grp-overlay">{fmtAmt(ovr?.dr)}</td>
-                <td className="mr-num mr-grp-overlay">{fmtAmt(ovr?.cr)}</td>
-                <td className="mr-num mr-grp-overlay">{fmtClosing(ovr?.closing, ovr?.closing_side)}</td>
+                <th className="mr-th-num mr-grp-overlay">Debit</th>
+                <th className="mr-th-num mr-grp-overlay">Credit</th>
+                <th className="mr-th-num mr-th-closing mr-grp-overlay">Closing Balance</th>
               </>}
             </tr>
-          );
-        })}
-      </tbody>
-      <tfoot>
-        <tr className="mr-row-total">
-          <td>Total</td>
-          <td className="mr-num">{fmtAmt(primary.totals.dr)}</td>
-          <td className="mr-num">{fmtAmt(primary.totals.cr)}</td>
-          <td className="mr-num">{primary.rows.length > 0
-            ? fmtClosing(primary.rows[primary.rows.length-1].closing, primary.rows[primary.rows.length-1].closing_side)
-            : '—'}</td>
-          {overlay && <>
-            <td className="mr-num mr-grp-overlay">{fmtAmt(overlay.totals.dr)}</td>
-            <td className="mr-num mr-grp-overlay">{fmtAmt(overlay.totals.cr)}</td>
-            <td className="mr-num mr-grp-overlay">{overlay.rows.length > 0
-              ? fmtClosing(overlay.rows[overlay.rows.length-1].closing, overlay.rows[overlay.rows.length-1].closing_side)
-              : '—'}</td>
-          </>}
-        </tr>
-      </tfoot>
-    </table>
+          </thead>
+          <tbody>
+            {hasOpening && (
+              <tr className="mr-row-opening">
+                <td>Opening Balance</td>
+                <td className="mr-num"></td>
+                <td className="mr-num"></td>
+                <td className="mr-num">{fmtClosing(primary.opening_balance, primary.opening_side)}</td>
+                {overlay && <>
+                  <td className="mr-num mr-grp-overlay"></td>
+                  <td className="mr-num mr-grp-overlay"></td>
+                  <td className="mr-num mr-grp-overlay">{fmtClosing(overlay.opening_balance, overlay.opening_side)}</td>
+                </>}
+              </tr>
+            )}
+            {primary.rows.map((r, i) => {
+              const ovr = overlay ? overlay.rows[i] : null;
+              return (
+                <tr key={r.month_iso} className="mr-row" onClick={() => onRowClick(r.month_iso)}>
+                  <td className="mr-particulars">{r.month_label}</td>
+                  <td className="mr-num">{fmtAmt(r.dr)}</td>
+                  <td className="mr-num">{fmtAmt(r.cr)}</td>
+                  <td className="mr-num">{fmtClosing(r.closing, r.closing_side)}</td>
+                  {overlay && <>
+                    <td className="mr-num mr-grp-overlay">{fmtAmt(ovr?.dr)}</td>
+                    <td className="mr-num mr-grp-overlay">{fmtAmt(ovr?.cr)}</td>
+                    <td className="mr-num mr-grp-overlay">{fmtClosing(ovr?.closing, ovr?.closing_side)}</td>
+                  </>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Always-visible total — separate table pinned below the scroll area.
+          Same colgroup so columns align with the body table above. */}
+      <div className="mr-totalwrap">
+        <table className="mr-table mr-table-total">
+          <Cols />
+          <tbody>
+            <tr className="mr-row-total">
+              <td>Total</td>
+              <td className="mr-num">{fmtAmt(primary.totals.dr)}</td>
+              <td className="mr-num">{fmtAmt(primary.totals.cr)}</td>
+              <td className="mr-num">{lastClosing}</td>
+              {overlay && <>
+                <td className="mr-num mr-grp-overlay">{fmtAmt(overlay.totals.dr)}</td>
+                <td className="mr-num mr-grp-overlay">{fmtAmt(overlay.totals.cr)}</td>
+                <td className="mr-num mr-grp-overlay">{lastOverlayClosing}</td>
+              </>}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
