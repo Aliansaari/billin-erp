@@ -54,7 +54,10 @@
 //     },
 //     filter_meta: { distinct_cities, distinct_states },
 //     bucket_labels: { current, b1, b2, b3, b4 },
-//     allocation_complete: bool   // false → show banner
+//     allocation_complete: bool,        // unallocated_count === 0
+//     unallocated_count: int            // number of manual receipts/payments
+//                                       // not yet FIFO-allocated; banner
+//                                       // hides at 0.
 //   }
 //
 // Reconciliation: reuses the 6-term invariant from reportController
@@ -115,7 +118,7 @@ const SORTABLE_COLS = {
   party_name:   'party_name',
   bill_amount:  'total_amount',
   paid_amount:  'paid_amount',
-  outstanding:  'balance_amount',
+  outstanding:  'effective_outstanding',
   overdue:      'overdue_days',
 };
 
@@ -184,18 +187,14 @@ async function _billsList(req, partyType) {
   ];
   const params = { as_of: asOf, limit, offset };
 
-  if (!showZero) where.push(`b.balance_amount > 0`);
+  // Outstanding-side filters (showZero / min / max / credit limit) move
+  // to the outer SELECT so they reference `effective_outstanding` —
+  // which prefers SUM(bill_payment_allocations.allocated_amount) over
+  // the raw `balance_amount` proxy. Inner WHERE keeps only bill-table-
+  // and party-table-side conditions.
   if (partyIds.length) {
     where.push(`b.${partyFK} IN (:party_ids)`);
     params.party_ids = partyIds;
-  }
-  if (minAmount != null) {
-    where.push(`b.balance_amount >= :min_amount`);
-    params.min_amount = minAmount;
-  }
-  if (maxAmount != null) {
-    where.push(`b.balance_amount <= :max_amount`);
-    params.max_amount = maxAmount;
   }
   if (cities.length) {
     where.push(`p.city IN (:cities)`);
@@ -205,11 +204,7 @@ async function _billsList(req, partyType) {
     where.push(`p.state IN (:states)`);
     params.states = states;
   }
-  if (credit === 'over') {
-    where.push(`p.credit_limit > 0 AND b.balance_amount > p.credit_limit`);
-  } else if (credit === 'within') {
-    where.push(`p.credit_limit > 0 AND b.balance_amount <= p.credit_limit`);
-  } else if (credit === 'none') {
+  if (credit === 'none') {
     where.push(`(p.credit_limit IS NULL OR p.credit_limit = 0)`);
   }
   if (isCustomer && salespersons.length) {
@@ -250,7 +245,27 @@ async function _billsList(req, partyType) {
     return parts.length ? parts.join(' AND ') : null;
   })();
 
-  const computedFilters = [bucketSql, overdueRangeSql].filter(Boolean).join(' AND ');
+  // Outstanding-amount filters — applied on the CTE column so they
+  // honor allocation-aware values (after R8 backfill these match
+  // balance_amount; once FIFO is wired they may diverge for bills with
+  // partial manual allocations).
+  const outstandingFilters = [];
+  if (!showZero)              outstandingFilters.push(`effective_outstanding > 0`);
+  if (minAmount != null) {
+    outstandingFilters.push(`effective_outstanding >= :min_amount`);
+    params.min_amount = minAmount;
+  }
+  if (maxAmount != null) {
+    outstandingFilters.push(`effective_outstanding <= :max_amount`);
+    params.max_amount = maxAmount;
+  }
+  if (credit === 'over') {
+    outstandingFilters.push(`party_credit_limit > 0 AND effective_outstanding > party_credit_limit`);
+  } else if (credit === 'within') {
+    outstandingFilters.push(`party_credit_limit > 0 AND effective_outstanding <= party_credit_limit`);
+  }
+
+  const computedFilters = [bucketSql, overdueRangeSql, ...outstandingFilters].filter(Boolean).join(' AND ');
   const havingSql = computedFilters ? `WHERE ${computedFilters}` : '';
 
   // The CTE has every column the page might want; the outer SELECT
@@ -261,6 +276,18 @@ async function _billsList(req, partyType) {
   //   COALESCE(due_date, bill_date + party.credit_days)
   // overdue_days:
   //   GREATEST(0, as_of - effective_due_date)
+  // alloc_total:
+  //   SUM of bill_payment_allocations rows pointing at this bill via
+  //   live (non-cancelled) payments_receipts. NULL when no allocations
+  //   exist (legacy / not-yet-FIFO bills).
+  // effective_outstanding:
+  //   total_amount − alloc_total when allocations exist; balance_amount
+  //   otherwise. After R8 backfill, alloc_total == paid_amount on every
+  //   in-scope paid bill, so the two paths agree numerically. The new
+  //   column moves the source-of-truth from the bill's stored proxy to
+  //   the actual allocation table — once FIFO Receipt→Bill is fully
+  //   wired, the fallback is the only path that still uses the proxy.
+  const allocBillType = isCustomer ? 'Sales' : 'Purchase';
   const cteSql = `
     WITH bill_rows AS (
       SELECT
@@ -288,11 +315,26 @@ async function _billsList(req, partyType) {
         u.full_name               AS created_by_name,
         ${isCustomer ? 'sp.full_name' : 'NULL::text'}          AS salesperson_name,
         COALESCE(b.due_date, (b.bill_date + (COALESCE(p.credit_days, 0) || ' days')::interval)::date) AS effective_due_date,
-        GREATEST(0, (DATE :as_of - COALESCE(b.due_date, (b.bill_date + (COALESCE(p.credit_days, 0) || ' days')::interval)::date))) AS overdue_days
+        GREATEST(0, (DATE :as_of - COALESCE(b.due_date, (b.bill_date + (COALESCE(p.credit_days, 0) || ' days')::interval)::date))) AS overdue_days,
+        bpa_sum.alloc_total,
+        CASE
+          WHEN bpa_sum.alloc_total IS NOT NULL
+            THEN GREATEST(0, b.total_amount - bpa_sum.alloc_total)
+          ELSE b.balance_amount
+        END                       AS effective_outstanding,
+        (bpa_sum.alloc_total IS NOT NULL) AS has_allocation
       FROM ${billTable} b
       JOIN parties p   ON p.party_id = b.${partyFK}
       LEFT JOIN users u  ON u.user_id  = b.created_by
       ${isCustomer ? 'LEFT JOIN users sp ON sp.user_id = b.sales_person' : ''}
+      LEFT JOIN LATERAL (
+        SELECT SUM(bpa.allocated_amount)::float AS alloc_total
+          FROM bill_payment_allocations bpa
+          JOIN payments_receipts pr ON pr.transaction_id = bpa.transaction_id
+         WHERE bpa.bill_type = '${allocBillType}'
+           AND bpa.bill_id   = b.${billPK}
+           AND pr.is_cancelled = false
+      ) bpa_sum ON true
       WHERE ${whereSql}
     )
   `;
@@ -327,20 +369,22 @@ async function _billsList(req, partyType) {
   );
 
   // Aggregates over the FULL filtered set (not the page). Used for KPI
-  // tiles and the totals row in the virtual table.
+  // tiles and the totals row in the virtual table. Uses
+  // `effective_outstanding` so KPI totals match the per-row column the
+  // user sees.
   const [agg] = await sequelize.query(
     `${cteSql}
      SELECT
-       COALESCE(SUM(balance_amount), 0)::float                                      AS total_outstanding,
-       COUNT(*)::int                                                                AS bill_count,
-       COUNT(DISTINCT party_id)::int                                                AS party_count,
-       COALESCE(SUM(CASE WHEN overdue_days > 0 THEN balance_amount ELSE 0 END), 0)::float AS overdue_amount,
-       COALESCE(MAX(overdue_days), 0)::int                                          AS oldest_days,
-       CASE WHEN SUM(CASE WHEN overdue_days > 0 THEN balance_amount ELSE 0 END) > 0
-            THEN SUM(overdue_days * CASE WHEN overdue_days > 0 THEN balance_amount ELSE 0 END)::float
-                 / SUM(CASE WHEN overdue_days > 0 THEN balance_amount ELSE 0 END)
+       COALESCE(SUM(effective_outstanding), 0)::float                                      AS total_outstanding,
+       COUNT(*)::int                                                                       AS bill_count,
+       COUNT(DISTINCT party_id)::int                                                       AS party_count,
+       COALESCE(SUM(CASE WHEN overdue_days > 0 THEN effective_outstanding ELSE 0 END), 0)::float AS overdue_amount,
+       COALESCE(MAX(overdue_days), 0)::int                                                 AS oldest_days,
+       CASE WHEN SUM(CASE WHEN overdue_days > 0 THEN effective_outstanding ELSE 0 END) > 0
+            THEN SUM(overdue_days * CASE WHEN overdue_days > 0 THEN effective_outstanding ELSE 0 END)::float
+                 / SUM(CASE WHEN overdue_days > 0 THEN effective_outstanding ELSE 0 END)
             ELSE 0
-       END                                                                          AS avg_days_overdue
+       END                                                                                 AS avg_days_overdue
      FROM bill_rows
      ${havingSql}`,
     { replacements: params, type: sequelize.QueryTypes.SELECT },
@@ -369,15 +413,35 @@ async function _billsList(req, partyType) {
   // reports never disagree on the formula).
   const reconciliation = await _reconcile(isCustomer, asOf, subGroup);
 
-  // Allocation-completeness check. If sales_bill_receipt entries exist,
-  // FIFO Receipt→Bill allocation is partially wired and the bill-level
-  // outstanding is more accurate. Until then, the UI banner warns that
-  // outstanding ≈ sales_bills.balance_amount (proxy).
-  const [{ alloc_count }] = await sequelize.query(
-    `SELECT COUNT(*)::int AS alloc_count
-       FROM ledger_entries WHERE source_type = :st`,
+  // Allocation-completeness — runtime check.
+  //
+  // After R8 (auto-receipt service + boot-time backfill), every paid
+  // bill in scope has a `bill_payment_allocations` row tying it to its
+  // auto-generated receipt. The remaining gap is *manual* receipts —
+  // operator-entered Receipt/Payment vouchers that haven't been
+  // FIFO-allocated to specific bills via `bill_payment_allocations`.
+  //
+  // We count manual rows whose total exceeds the sum of their
+  // allocations (i.e. fully unallocated OR partial). When the count is
+  // 0, the UI hides the banner entirely; when > 0, the banner shows
+  // the actual count + an "Allocate now" CTA (UI placeholder until the
+  // FIFO allocation screen is built).
+  const txType = isCustomer ? 'Receipt' : 'Payment';
+  const [{ unallocated_count }] = await sequelize.query(
+    `SELECT COUNT(*)::int AS unallocated_count
+       FROM payments_receipts pr
+      WHERE pr.source = 'manual'
+        AND pr.transaction_type = :tx
+        AND pr.is_cancelled = false
+        AND pr.transaction_date <= :as_of
+        AND pr.total_amount > COALESCE(
+          (SELECT SUM(bpa.allocated_amount)
+             FROM bill_payment_allocations bpa
+            WHERE bpa.transaction_id = pr.transaction_id),
+          0
+        )`,
     {
-      replacements: { st: isCustomer ? 'sales_bill_receipt' : 'purchase_bill_payment' },
+      replacements: { tx: txType, as_of: asOf },
       type: sequelize.QueryTypes.SELECT,
     },
   );
@@ -400,7 +464,10 @@ async function _billsList(req, partyType) {
       distinct_states: [...new Set(distinctRows.map((r) => r.state).filter(Boolean))].sort(),
     },
     bucket_labels: labels,
-    allocation_complete: alloc_count > 0,
+    // Boolean retained for backwards-compat (test 8.1 / 9.4); derived
+    // from the new count so callers still get the same flag.
+    allocation_complete: unallocated_count === 0,
+    unallocated_count,
     as_of: asOf,
     party_type: partyType,
   };
@@ -409,6 +476,12 @@ async function _billsList(req, partyType) {
 // Normalise a raw row to the shape the frontend renders. Numbers come
 // back as strings from pg DECIMAL columns; convert to float here so the
 // frontend's totals sum cleanly without per-cell coercion.
+//
+// `outstanding` reads from the CTE's `effective_outstanding` column —
+// total_amount minus SUM(bill_payment_allocations.allocated_amount)
+// when allocations exist; balance_amount otherwise. `has_allocation`
+// is exposed so a future per-row chip can mark which bills are
+// allocation-backed vs proxy-backed.
 function _normaliseRow(r) {
   return {
     bill_id:           r.bill_id,
@@ -420,7 +493,8 @@ function _normaliseRow(r) {
     bucket_key:        null,   // filled in by frontend from overdue_days + bounds
     bill_amount:       r2(r.total_amount),
     paid_amount:       r2(r.paid_amount),
-    outstanding:       r2(r.balance_amount),
+    outstanding:       r2(r.effective_outstanding),
+    has_allocation:    !!r.has_allocation,
     payment_status:    r.payment_status,
     payment_method:    r.payment_method,
     remarks:           r.remarks || null,
