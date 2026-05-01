@@ -12,27 +12,10 @@
 }
 
 /* ── Header strip ─────────────────────────────────────────────────── */
-.mr-hd {
-  flex-shrink: 0;
-  padding: 14px 24px 10px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-panel);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-}
-.mr-title {
-  display: flex; align-items: baseline; gap: 12px;
-  min-width: 0; flex-wrap: wrap;
-}
-.mr-title h1 {
-  margin: 0;
-  font-size: 20px; font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--fg-primary); line-height: 1.2;
-}
-.mr-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* Reuses .rpt-page-hd / .rpt-period / .rpt-date / .rpt-btn from
+   global.css (the Sales Report's design system). The .mr-hd class
+   stays as a hook in case page-specific overrides are needed. */
+.mr-hd { flex-shrink: 0; }
 
 /* ── Scrollable rows area ─────────────────────────────────────────── */
 .mr-tablewrap {
