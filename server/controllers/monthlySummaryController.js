@@ -193,6 +193,106 @@ async function _ledgerRows({ ledgerName, naturalSide, from, to }) {
   };
 }
 
+// ── _billTotalRows ───────────────────────────────────────────────────
+//
+// "With Tax" view for Sales / Purchase. Uses the bill's total_amount
+// (sub_total − discount + freight + other + GST) instead of the
+// ledger-net values. Sales bills go in the credit column (still
+// Cr-natural), sales returns in the debit column. Mirror for
+// purchase. Cancelled bills excluded.
+//
+// The closing balance under this view represents the cumulative
+// invoice volume — a useful "money invoiced over time" view that
+// complements the ledger view's "amount that hit the books".
+async function _billTotalRows({ side, naturalSide, from, to }) {
+  const isSales = side === 'sales';
+  const billTable    = isSales ? 'sales_bills'        : 'purchase_bills';
+  const returnTable  = isSales ? 'sales_return_bills' : 'purchase_return_bills';
+  const billDateCol  = 'bill_date';
+  const returnDateCol = 'return_date';
+
+  // Opening balance: sum of bills minus returns before `from`. For
+  // sales (Cr-natural): bills credit, returns debit, opening = bills − returns.
+  // For purchase (Dr-natural): bills debit, returns credit, opening = bills − returns.
+  const [openingBills] = await sequelize.query(
+    `SELECT COALESCE(SUM(total_amount), 0)::float v
+       FROM ${billTable}
+      WHERE is_cancelled = false AND ${billDateCol} < :from`,
+    { replacements: { from }, type: sequelize.QueryTypes.SELECT },
+  );
+  const [openingReturns] = await sequelize.query(
+    `SELECT COALESCE(SUM(total_amount), 0)::float v
+       FROM ${returnTable}
+      WHERE is_cancelled = false AND ${returnDateCol} < :from`,
+    { replacements: { from }, type: sequelize.QueryTypes.SELECT },
+  );
+  const openingNet = r2(openingBills.v - openingReturns.v);
+
+  const rows = await sequelize.query(
+    `WITH month_series AS (
+       SELECT generate_series(
+         DATE_TRUNC('month', :from::date),
+         DATE_TRUNC('month', :to::date),
+         INTERVAL '1 month'
+       )::date AS month_start
+     ),
+     bills AS (
+       SELECT DATE_TRUNC('month', ${billDateCol})::date AS m,
+              COALESCE(SUM(total_amount), 0)::float    AS amount
+         FROM ${billTable}
+        WHERE is_cancelled = false
+          AND ${billDateCol} >= :from AND ${billDateCol} <= :to
+        GROUP BY DATE_TRUNC('month', ${billDateCol})
+     ),
+     rets AS (
+       SELECT DATE_TRUNC('month', ${returnDateCol})::date AS m,
+              COALESCE(SUM(total_amount), 0)::float       AS amount
+         FROM ${returnTable}
+        WHERE is_cancelled = false
+          AND ${returnDateCol} >= :from AND ${returnDateCol} <= :to
+        GROUP BY DATE_TRUNC('month', ${returnDateCol})
+     )
+     SELECT TO_CHAR(ms.month_start, 'YYYY-MM-DD')   AS month_iso,
+            TO_CHAR(ms.month_start, 'Mon YYYY')     AS month_label,
+            TO_CHAR(ms.month_start, 'FMMonth')      AS month_name,
+            COALESCE(b.amount, 0)::float            AS bill_amount,
+            COALESCE(r.amount, 0)::float            AS return_amount
+       FROM month_series ms
+       LEFT JOIN bills b ON b.m = ms.month_start
+       LEFT JOIN rets  r ON r.m = ms.month_start
+      ORDER BY ms.month_start ASC`,
+    { replacements: { from, to }, type: sequelize.QueryTypes.SELECT },
+  );
+
+  let runningClosing = openingNet;
+  let totalDr = 0, totalCr = 0;
+  const out = rows.map((r) => {
+    const billAmt = r2(r.bill_amount);
+    const retAmt  = r2(r.return_amount);
+    // Sales: bills → Cr, returns → Dr. Purchase: bills → Dr, returns → Cr.
+    const dr = naturalSide === 'Cr' ? retAmt  : billAmt;
+    const cr = naturalSide === 'Cr' ? billAmt : retAmt;
+    const monthNet = naturalSide === 'Cr' ? cr - dr : dr - cr;
+    runningClosing = r2(runningClosing + monthNet);
+    totalDr = r2(totalDr + dr);
+    totalCr = r2(totalCr + cr);
+    return {
+      month_iso:    r.month_iso,
+      month_label:  r.month_label,
+      month_name:   r.month_name,
+      dr, cr,
+      closing:      Math.abs(runningClosing),
+      closing_side: runningClosing >= 0 ? naturalSide : (naturalSide === 'Cr' ? 'Dr' : 'Cr'),
+    };
+  });
+  return {
+    opening_balance: Math.abs(openingNet),
+    opening_side:    openingNet >= 0 ? naturalSide : (naturalSide === 'Cr' ? 'Dr' : 'Cr'),
+    rows:            out,
+    totals:          { dr: totalDr, cr: totalCr },
+  };
+}
+
 // ── _voucherRows ─────────────────────────────────────────────────────
 //
 // For Payment / Receipt modes. Aggregates payments_receipts.total_amount
@@ -268,19 +368,27 @@ async function _voucherRows({ voucherType, naturalSide, from, to }) {
 }
 
 // ── _buildSection ────────────────────────────────────────────────────
-async function _buildSection(modeKey, from, to) {
+//
+// `withTax` only affects ledger-backed modes (sales, purchase). For
+// payment / receipt the voucher total IS the with-tax figure already,
+// so the toggle is a no-op there.
+async function _buildSection(modeKey, from, to, withTax) {
   const cfg = MODE[modeKey];
   if (!cfg) throw new Error(`Unknown mode: ${modeKey}`);
-  const data = await cfg.rowsFn({
-    ledgerName:   cfg.ledgerName,
-    voucherType:  cfg.voucherType,
-    naturalSide:  cfg.naturalSide,
-    from, to,
-  });
+  const useBillTotals = withTax && (modeKey === 'sales' || modeKey === 'purchase');
+  const data = useBillTotals
+    ? await _billTotalRows({ side: modeKey, naturalSide: cfg.naturalSide, from, to })
+    : await cfg.rowsFn({
+        ledgerName:   cfg.ledgerName,
+        voucherType:  cfg.voucherType,
+        naturalSide:  cfg.naturalSide,
+        from, to,
+      });
   return {
     label:           cfg.label,
     ledger_name:     cfg.ledgerName || cfg.label.replace(' Register', '') + 's',
     natural_side:    cfg.naturalSide,
+    with_tax:        !!useBillTotals,
     opening_balance: data.opening_balance,
     opening_side:    data.opening_side,
     rows:            data.rows,
@@ -302,8 +410,9 @@ exports.monthlySummary = async (req, res) => {
     const settings = await SystemSettings.findOne({ where: { setting_id: 1 } });
     const companyName = (settings && settings.company_name) || 'Company';
 
-    const primary = await _buildSection(mode, from_date, to_date);
-    const overlaySection = overlay ? await _buildSection(overlay, from_date, to_date) : null;
+    const withTax = q.with_tax === 'true' || q.with_tax === '1';
+    const primary = await _buildSection(mode, from_date, to_date, withTax);
+    const overlaySection = overlay ? await _buildSection(overlay, from_date, to_date, withTax) : null;
 
     res.json({
       period: {

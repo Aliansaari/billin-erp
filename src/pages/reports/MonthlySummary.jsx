@@ -78,6 +78,20 @@ export default function MonthlyRegister({ mode }) {
   const [fromDate, setFromDate] = useState(() => searchParams.get('from_date') || '');
   const [toDate, setToDate]     = useState(() => searchParams.get('to_date') || '');
   const [presetKey, setPresetKey] = useState(() => searchParams.get('preset') || 'this_fy');
+  // "With Tax" view — bill total_amount instead of ledger Cr/Dr.
+  // Persisted per-mode so toggling on Sales doesn't flip Purchase.
+  // Only meaningful for sales/purchase modes (payment/receipt always
+  // use voucher totals, which are already the with-tax figure).
+  const WITH_TAX_KEY = `erp_monthly_register_with_tax_${mode}`;
+  const [withTax, setWithTax] = useState(() => {
+    const url = searchParams.get('with_tax');
+    if (url === 'true' || url === '1') return true;
+    if (url === 'false' || url === '0') return false;
+    try { return localStorage.getItem(WITH_TAX_KEY) === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(WITH_TAX_KEY, String(withTax)); } catch {}
+  }, [withTax, WITH_TAX_KEY]);
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(false);
   const [activeIdx, setActiveIdx]   = useState(0);            // keyboard-selected month row
@@ -90,8 +104,9 @@ export default function MonthlyRegister({ mode }) {
     if (fromDate)  next.from_date = fromDate;
     if (toDate)    next.to_date   = toDate;
     if (presetKey) next.preset    = presetKey;
+    if (withTax)   next.with_tax  = 'true';
     setSearchParams(next, { replace: true });
-  }, [overlay, fromDate, toDate, presetKey, setSearchParams]);
+  }, [overlay, fromDate, toDate, presetKey, withTax, setSearchParams]);
 
   // ── Data fetch ───────────────────────────────────────────────────
   const fetcher = useCallback(async () => {
@@ -101,6 +116,7 @@ export default function MonthlyRegister({ mode }) {
       if (overlay)  params.overlay   = overlay;
       if (fromDate) params.from_date = fromDate;
       if (toDate)   params.to_date   = toDate;
+      if (withTax)  params.with_tax  = 'true';
       const r = await reportAPI.monthlySummary(params);
       setData(r.data);
       if (!fromDate && r.data?.period?.from_date) setFromDate(r.data.period.from_date);
@@ -109,7 +125,7 @@ export default function MonthlyRegister({ mode }) {
       message.error('Failed to load register');
     }
     setLoading(false);
-  }, [mode, overlay, fromDate, toDate]);
+  }, [mode, overlay, fromDate, toDate, withTax]);
 
   useEffect(() => { fetcher(); }, [fetcher]);
 
@@ -287,6 +303,19 @@ export default function MonthlyRegister({ mode }) {
               suffixIcon={<SwapOutlined />}
             />
           </Tooltip>
+          {(mode === 'sales' || mode === 'purchase') && (
+            <Tooltip title={withTax
+              ? 'Showing bill total_amount (sub_total − discount + freight + other + GST). Closing balance is cumulative invoice volume.'
+              : 'Showing the ledger-net values (post-discount, pre-tax). Closing balance ties to the live ledger.'}>
+              <Button
+                size="small"
+                type={withTax ? 'primary' : 'default'}
+                onClick={() => setWithTax((v) => !v)}
+              >
+                {withTax ? 'With Tax' : 'Net'}
+              </Button>
+            </Tooltip>
+          )}
           <Button size="small" icon={<ReloadOutlined />} onClick={fetcher} loading={loading}>Refresh</Button>
           <Button size="small" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
           <Button size="small" icon={<DownloadOutlined />} onClick={handleExportCsv} type="primary">Excel</Button>

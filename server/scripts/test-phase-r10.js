@@ -155,6 +155,50 @@ async function t_opening_balance() {
     r.body.period.from_date === '2025-09-01' && r.body.period.to_date === '2025-12-31');
 }
 
+async function t_with_tax() {
+  // Net view: per-bill SUM(sub_total - discount + freight + other) ≈ ledger Cr − Dr
+  // With-tax view: per-bill SUM(total_amount) — strictly larger when GST > 0.
+  const net = await call({ mode: 'sales', from_date: '2025-04-01', to_date: '2026-03-31' });
+  const tax = await call({ mode: 'sales', from_date: '2025-04-01', to_date: '2026-03-31', with_tax: 'true' });
+  const netTotalCr = net.body.primary.totals.cr;
+  const taxTotalCr = tax.body.primary.totals.cr;
+  check('with_tax.1 Sales: with_tax flag echoed', tax.body.primary.with_tax === true && net.body.primary.with_tax === false);
+  check('with_tax.2 Sales: with-tax credit total ≥ net credit total (GST included)',
+    taxTotalCr >= netTotalCr - 0.01,
+    `tax=${taxTotalCr} net=${netTotalCr}`);
+
+  // Closing balance under with_tax = SUM(total_amount of bills − returns) over period.
+  // Verify directly.
+  const [{ expected }] = await sequelize.query(
+    `SELECT (
+       (SELECT COALESCE(SUM(total_amount), 0) FROM sales_bills
+         WHERE is_cancelled = false AND bill_date BETWEEN '2025-04-01' AND '2026-03-31')
+       - (SELECT COALESCE(SUM(total_amount), 0) FROM sales_return_bills
+         WHERE is_cancelled = false AND return_date BETWEEN '2025-04-01' AND '2026-03-31')
+     )::float AS expected`,
+    { type: sequelize.QueryTypes.SELECT },
+  );
+  // Final closing = opening + cumulative net. Opening should be 0 if no
+  // bills before from_date. We compare final closing to expected sum.
+  const finalClosing = tax.body.primary.rows.length > 0
+    ? tax.body.primary.rows[tax.body.primary.rows.length - 1].closing
+    : 0;
+  // Add opening (if any) to compare apples-to-apples — opening_balance
+  // is the magnitude; closing has same sign.
+  const opening = tax.body.primary.opening_balance || 0;
+  check('with_tax.3 Sales: closing matches SUM(total_amount) bills − returns',
+    Math.abs((finalClosing - opening) - r2(expected)) < 0.01 || Math.abs(finalClosing - r2(expected) - opening) < 0.01,
+    `closing=${finalClosing} expected_in_period=${expected} opening=${opening}`);
+
+  // Payment register: with_tax should be a no-op (already total).
+  const payNet = await call({ mode: 'payment', from_date: '2025-04-01', to_date: '2026-03-31' });
+  const payTax = await call({ mode: 'payment', from_date: '2025-04-01', to_date: '2026-03-31', with_tax: 'true' });
+  check('with_tax.4 Payment: with_tax flag false (voucher already total)',
+    payTax.body.primary.with_tax === false);
+  check('with_tax.5 Payment: totals identical with/without with_tax',
+    Math.abs(payTax.body.primary.totals.dr - payNet.body.primary.totals.dr) < 0.01);
+}
+
 async function t_edges() {
   // Unknown mode → controller defaults to sales rather than 500.
   const r = await call({ mode: 'banana', from_date: '2025-04-01', to_date: '2026-03-31' });
@@ -179,6 +223,7 @@ async function t_edges() {
     await t_receipt();
     await t_overlay();
     await t_opening_balance();
+    await t_with_tax();
     await t_edges();
   } catch (err) {
     console.error('Test runner error:', err);
