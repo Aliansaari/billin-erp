@@ -417,41 +417,135 @@ async function checkIntegrity() {
     sample: i4.slice(0, 10),
   });
 
-  // I5 + I6 — Sundry Debtors / Creditors ledger == SUM(bills.balance_amount)
+  // I5 + I6 — Sundry Debtors / Creditors ledger reconciles via the
+  // 6-term invariant the BR + Aging banners already use:
+  //
+  //   bill_outstanding + paid_in_bills − unallocated_receipts
+  //     − returns_offset + opening_dr − opening_cr  ==  ledger_outstanding
+  //
+  // The original brief framed I5/I6 as a strict
+  //   ledger == SUM(bill.balance_amount)
+  // — that's only true on a clean install where bills are the SOLE
+  // source of debtor/creditor activity. Any DB with opening-balance
+  // JVs, returns, or on-account receipts has structural drift between
+  // the two sides that isn't a defect to fix; it's data the 6-term
+  // invariant accounts for. Mirroring the BR/Aging banner formula
+  // here means a green I5/I6 implies a green banner and vice versa.
+  // The balanced flag uses ±0.01 tolerance for paisa rounding.
+  const asOf = new Date().toISOString().slice(0, 10);
   for (const kind of ['sales', 'purchase']) {
-    const isSales = kind === 'sales';
-    const billTbl = isSales ? 'sales_bills'    : 'purchase_bills';
-    const partyFK = isSales ? 'customer_id'    : 'supplier_id';
-    const subGroup = isSales ? 'Sundry Debtors' : 'Sundry Creditors';
+    const isCustomer = kind === 'sales';
+    const billTbl  = isCustomer ? 'sales_bills'        : 'purchase_bills';
+    const partyFK  = isCustomer ? 'customer_id'        : 'supplier_id';
+    const subGroup = isCustomer ? 'Sundry Debtors'     : 'Sundry Creditors';
 
-    const [billRow] = await sequelize.query(
-      `SELECT COALESCE(SUM(b.balance_amount), 0)::float v
-         FROM ${billTbl} b
-         JOIN parties p ON p.party_id = b.${partyFK}
-        WHERE b.is_cancelled = false
-          AND b.${partyFK} IS NOT NULL
-          AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`,
-      { type: sequelize.QueryTypes.SELECT },
-    );
+    // Bill side: outstanding + paid_in_bills, restricted to non-cash
+    // parties whose ledger sits in the right sub_group.
+    const billSql = isCustomer
+      ? `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
+                COALESCE(SUM(b.paid_amount),    0)::float paid_in_bills
+           FROM sales_bills b
+           JOIN parties p ON p.party_id = b.customer_id
+          WHERE b.is_cancelled = false
+            AND b.customer_id IS NOT NULL
+            AND b.bill_date <= :as_of
+            AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`
+      : `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
+                COALESCE(SUM(b.paid_amount),    0)::float paid_in_bills
+           FROM purchase_bills b
+           JOIN parties p ON p.party_id = b.supplier_id
+           JOIN ledger_accounts la ON la.ledger_id = p.ledger_account_id
+          WHERE b.is_cancelled = false
+            AND b.supplier_id IS NOT NULL
+            AND la.sub_group = 'Sundry Creditors'
+            AND b.bill_date <= :as_of
+            AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`;
+    const [billRow] = await sequelize.query(billSql,
+      { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT });
+
+    // Returns offset, on-account receipts, opening JV pair, ledger net
+    // — same queries as billsOutstandingController._reconcile and
+    // reportController._agingReconciliation.
+    const [returnsRow] = await sequelize.query(
+      isCustomer
+        ? `SELECT COALESCE(SUM(le.credit_amount), 0)::float v FROM ledger_entries le
+             JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+            WHERE la.sub_group = 'Sundry Debtors' AND le.source_type = 'sales_return_bill'
+              AND le.reversal_of_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+              AND le.entry_date <= :as_of`
+        : `SELECT COALESCE(SUM(le.debit_amount), 0)::float v FROM ledger_entries le
+             JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+            WHERE la.sub_group = 'Sundry Creditors' AND le.source_type = 'purchase_return_bill'
+              AND le.reversal_of_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+              AND le.entry_date <= :as_of`,
+      { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT });
+
+    const [unallocRow] = await sequelize.query(
+      isCustomer
+        ? `SELECT COALESCE(SUM(le.credit_amount), 0)::float v FROM ledger_entries le
+             JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+            WHERE la.sub_group = 'Sundry Debtors'
+              AND le.source_type IN ('payment_receipt', 'sales_bill_receipt')
+              AND le.reversal_of_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+              AND le.entry_date <= :as_of`
+        : `SELECT COALESCE(SUM(le.debit_amount), 0)::float v FROM ledger_entries le
+             JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+            WHERE la.sub_group = 'Sundry Creditors'
+              AND le.source_type IN ('payment_receipt', 'purchase_bill_payment')
+              AND le.reversal_of_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+              AND le.entry_date <= :as_of`,
+      { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT });
+
+    const [openingRow] = await sequelize.query(
+      `SELECT COALESCE(SUM(le.debit_amount), 0)::float opening_dr,
+              COALESCE(SUM(le.credit_amount), 0)::float opening_cr
+         FROM ledger_entries le
+         JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+        WHERE la.sub_group = :sg
+          AND le.source_type = 'party_opening'
+          AND le.reversal_of_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+          AND le.entry_date <= :as_of`,
+      { replacements: { sg: subGroup, as_of: asOf }, type: sequelize.QueryTypes.SELECT });
+
     const [ledgerRow] = await sequelize.query(
       `SELECT COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float v
          FROM ledger_entries le
          JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
         WHERE la.sub_group = :sg
           AND le.reversal_of_id IS NULL
-          AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)`,
-      { replacements: { sg: subGroup }, type: sequelize.QueryTypes.SELECT },
-    );
-    const billSum = r2(billRow.v);
-    const ledgerSum = r2(isSales ? ledgerRow.v : -ledgerRow.v);
+          AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+          AND le.entry_date <= :as_of`,
+      { replacements: { sg: subGroup, as_of: asOf }, type: sequelize.QueryTypes.SELECT });
+
+    const billOut    = r2(billRow.outstanding);
+    const paidInBill = r2(billRow.paid_in_bills);
+    const unalloc    = r2(unallocRow.v);
+    const returns    = r2(returnsRow.v);
+    const openingDr  = r2(isCustomer ? openingRow.opening_dr : openingRow.opening_cr);
+    const openingCr  = r2(isCustomer ? openingRow.opening_cr : openingRow.opening_dr);
+    const ledgerNet  = r2(isCustomer ? ledgerRow.v : -ledgerRow.v);
+    const expected   = r2(billOut + paidInBill - unalloc - returns + openingDr - openingCr);
+    const diff       = r2(ledgerNet - expected);
+
     out.invariants.push({
-      id: isSales ? 'I5' : 'I6',
-      name: `${isSales ? 'I5' : 'I6'} ${subGroup} ledger == SUM(bill.balance_amount)`,
-      ok: r2cmp(billSum, ledgerSum),
-      bill_sum: billSum,
-      ledger_sum: ledgerSum,
-      difference: r2(ledgerSum - billSum),
-      sample: r2cmp(billSum, ledgerSum) ? [] : [{ note: `bill_sum=${billSum} ledger_sum=${ledgerSum}` }],
+      id: isCustomer ? 'I5' : 'I6',
+      name: `${isCustomer ? 'I5' : 'I6'} ${subGroup} 6-term ledger reconciliation`,
+      ok: Math.abs(diff) < 0.01,
+      bill_outstanding: billOut,
+      paid_in_bills:    paidInBill,
+      unallocated_receipts: unalloc,
+      returns_offset:   returns,
+      opening_dr:       openingDr,
+      opening_cr:       openingCr,
+      expected_ledger:  expected,
+      ledger_outstanding: ledgerNet,
+      difference:       diff,
+      sample: Math.abs(diff) < 0.01 ? [] : [{ note: `expected=${expected} ledger=${ledgerNet} diff=${diff}` }],
     });
   }
 

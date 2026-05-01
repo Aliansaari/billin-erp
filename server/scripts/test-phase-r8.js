@@ -29,6 +29,7 @@ const { postVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill,
         getAutoReceiptForBill, checkIntegrity } = require('../services/autoReceiptService');
+const { reverseVoucher } = require('../services/ledgerPostingService');
 const paymentController = require('../controllers/paymentController');
 
 let pass = 0, fail = 0;
@@ -237,11 +238,21 @@ async function main() {
     await reverseAutoReceiptForBill({
       kind: 'sales', billId: bill1.sales_bill_id, userId: 1, reason: 'test cancel', t,
     });
-    // Mark the bill cancelled too — invariant I3 expects auto-receipt
-    // is_cancelled to mirror the source bill, so production callers
-    // (salesController.cancel) always cancel both. Mirror that here so
-    // we exercise the realistic post-cancel state.
-    await SalesBill.update({ is_cancelled: true },
+    // Mirror the production cancel cascade exactly: reverse both the
+    // bill voucher AND the embedded receipt voucher, then mark the
+    // bill cancelled. Without reversing the bill voucher, its Dr leg
+    // stays live on Sundry Debtors and creates artificial drift in
+    // I5/I6 (the bill is excluded from bill_outstanding via
+    // is_cancelled but still contributes to the ledger sum).
+    await reverseVoucher({
+      sourceType: 'sales_bill', sourceId: bill1.sales_bill_id,
+      reason: 'test cancel', userId: 1, transaction: t,
+    });
+    await reverseVoucher({
+      sourceType: 'sales_bill_receipt', sourceId: bill1.sales_bill_id,
+      reason: 'test cancel', userId: 1, transaction: t,
+    });
+    await SalesBill.update({ is_cancelled: true, balance_amount: 0, paid_amount: 0 },
       { where: { sales_bill_id: bill1.sales_bill_id }, transaction: t });
   });
   const [{ cnt }] = await sequelize.query(
@@ -287,22 +298,14 @@ async function main() {
     `status=${cancelRes.status} err=${cancelRes.body?.error || '(none)'}`);
 
   // ── Test 9: integrity I1-I6 ─────────────────────────────────────
-  // I1.sales / I5 / I6 hold paisa-exact only AFTER Phase 3 backfill
-  // runs on legacy paid bills. Pre-Phase-3, they will report
-  // violations on bills that have paid_amount > 0 but no allocation
-  // (the entire purpose of the backfill). We acknowledge the pre-
-  // Phase-3 state here: Phase 2 only requires that the invariants
-  // EXIST and report sensibly; Phase 3's commit gates the green pass.
+  // After Phase 3 (apply backfill) all eight invariants pass on the
+  // seed DB. I5/I6 mirror the 6-term reconciliation the BR/Aging
+  // banners use, so a green I5/I6 implies a green banner and vice
+  // versa.
   const integ = await checkIntegrity();
-  const PRE_P3_TOLERANT = new Set(['I1.sales', 'I5', 'I6']);
   for (const inv of integ.invariants) {
-    if (PRE_P3_TOLERANT.has(inv.id) && !inv.ok) {
-      check(`9.${inv.id} ${inv.name}: pre-Phase-3 violation acknowledged`, true,
-        `${inv.violation_count || ''}${inv.difference != null ? `, diff=${inv.difference}` : ''} — clears after Phase 3 backfill`);
-    } else {
-      check(`9.${inv.id} ${inv.name}: ok`, inv.ok,
-        inv.ok ? '' : `${inv.violation_count || ''} violations${inv.difference != null ? `, diff=${inv.difference}` : ''}`);
-    }
+    check(`9.${inv.id} ${inv.name}: ok`, inv.ok,
+      inv.ok ? '' : `${inv.violation_count || ''} violations${inv.difference != null ? `, diff=${inv.difference}` : ''}`);
   }
 
   // ── Test 10: PaymentList endpoint honors source filter ───────────

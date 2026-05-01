@@ -1118,6 +1118,40 @@ async function startServer() {
       console.error('[Two-way ledger schema] Error:', err.message);
     });
 
+    // ── R8 Phase 3: auto-receipt backfill (boot-time) ────────────────
+    //
+    // Inserts the missing payments_receipts row + bill_payment_alloc-
+    // ations row for any paid credit-sale bill that already has a
+    // sales_bill_receipt voucher in the journal but no corresponding
+    // entry in payments_receipts. Mirror logic for purchase side.
+    //
+    // Same code path as `node server/scripts/backfill-auto-receipts.js
+    // --apply`, but called inline so production environments clear the
+    // legacy rows on next deploy without an extra ops step. Idempotent
+    // — the planSide() lookup excludes already-migrated rows, so
+    // every subsequent boot is a no-op.
+    //
+    // Out-of-scope, never touched: system Cash party bills (cash sales,
+    // single voucher) and bills with NULL party (legacy cash-without-
+    // party rows; need a separate migration to attach to system Cash).
+    try {
+      const { planSide, applyPlan } = require('./scripts/backfill-auto-receipts');
+      if (typeof planSide === 'function' && typeof applyPlan === 'function') {
+        for (const kind of ['sales', 'purchase']) {
+          const plan = await planSide(kind);
+          if (plan.in_scope.length > 0) {
+            const res = await applyPlan(plan);
+            console.log(`[R8 backfill] ${kind}: inserted ${res.inserted} auto-${kind === 'sales' ? 'receipt' : 'payment'}(s)`);
+          }
+        }
+      }
+    } catch (err) {
+      // Non-fatal: log + continue. The legacy rows will keep showing
+      // I1.sales / I5 violations on the integrity screen, which is
+      // visible enough that an admin will notice and re-run manually.
+      console.warn('[R8 backfill] Skipped:', err.message);
+    }
+
     // Seed default data
     await seedDefaultData();
 
