@@ -437,6 +437,36 @@ export default function SalesBillForm() {
           return;
         }
       }
+      // Blacklist block (client-side fast-fail). Backend enforces this too,
+      // but catching it here avoids a round-trip and keeps the offending
+      // bill visible on screen so the operator can cancel or switch party.
+      if (selectedParty?.party_status === 'Blacklist') {
+        message.error(`"${selectedParty.party_name}" is Blacklisted. Remove the flag on the party record before transacting.`);
+        return;
+      }
+      // Credit-limit pre-check. Computed against projected outstanding:
+      //   current balance + (total − paid at billing − return).
+      // Backend enforces as the last word; this is purely to warn before the
+      // round-trip and let the operator adjust Paid / Discount first.
+      if (selectedParty) {
+        const limit = parseFloat(selectedParty.credit_limit || 0);
+        if (limit > 0) {
+          const currentBal = parseFloat(selectedParty.current_balance || 0);
+          const paid = payFull ? roundedTotal : (parseFloat(vals.paid_amount) || 0);
+          const ret  = parseFloat(vals.return_amount || 0);
+          const thisBillOutstanding = +(roundedTotal - paid - ret).toFixed(2);
+          const projected = +(currentBal + thisBillOutstanding).toFixed(2);
+          if (projected > limit + 0.01) {
+            message.error(
+              `Credit limit exceeded for "${selectedParty.party_name}": ` +
+              `₹${currentBal.toFixed(2)} of ₹${limit.toFixed(2)} already owed; this bill would take it to ₹${projected.toFixed(2)}. ` +
+              `Take part-payment or raise the limit on the party record.`,
+              6
+            );
+            return;
+          }
+        }
+      }
       submittingRef.current=true;
       setLoading(true);
       const body={
@@ -634,18 +664,46 @@ export default function SalesBillForm() {
             </div>
 
             {/* Party info strip */}
-            {selectedParty && (
-              <div className="sbf-party-info">
-                {selectedParty.city && <span>{selectedParty.city}</span>}
-                {selectedParty.mobile_1 && <span>📞 <b>{selectedParty.mobile_1}</b></span>}
-                <span>Balance <b className={parseFloat(selectedParty.current_balance||0) >= 0 ? 'pos' : 'neg'}>
-                  ₹{parseFloat(selectedParty.current_balance||0).toFixed(2)}
-                </b></span>
-                <span className={selectedParty.credit_allowed ? 'credit-ok' : 'credit-no'}>
-                  Credit {selectedParty.credit_allowed ? 'allowed' : 'not allowed'}
-                </span>
-              </div>
-            )}
+            {selectedParty && (() => {
+              const bal = parseFloat(selectedParty.current_balance || 0);
+              const limit = parseFloat(selectedParty.credit_limit || 0);
+              const status = selectedParty.party_status || 'Regular';
+              const isBlacklist = status === 'Blacklist';
+              // Credit headroom is "limit minus current outstanding" — so a
+              // user creating a bill can see at a glance how much more the
+              // customer can owe before the server hard-blocks the save.
+              const available = limit > 0 ? Math.max(0, +(limit - bal).toFixed(2)) : null;
+              const overLimit = limit > 0 && bal > limit + 0.01;
+              return (
+                <div className="sbf-party-info">
+                  {selectedParty.city && <span>{selectedParty.city}</span>}
+                  {selectedParty.mobile_1 && <span>📞 <b>{selectedParty.mobile_1}</b></span>}
+                  <span>Balance <b className={bal >= 0 ? 'pos' : 'neg'}>
+                    ₹{bal.toFixed(2)}
+                  </b></span>
+                  {limit > 0 && (
+                    <span>
+                      Limit <b>₹{limit.toFixed(2)}</b>{' '}
+                      <span style={{ color: overLimit ? 'var(--danger)' : available === 0 ? 'var(--warning)' : 'var(--success)', fontWeight: 700 }}>
+                        {overLimit ? `(₹${(bal - limit).toFixed(2)} over)` : `· ₹${available.toFixed(2)} available`}
+                      </span>
+                    </span>
+                  )}
+                  <span className={selectedParty.credit_allowed ? 'credit-ok' : 'credit-no'}>
+                    Credit {selectedParty.credit_allowed ? 'allowed' : 'not allowed'}
+                  </span>
+                  {status !== 'Regular' && (
+                    <span style={{
+                      padding: '1px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700,
+                      background: isBlacklist ? 'var(--danger-bg)' : status === 'VIP' ? 'rgba(127,90,163,0.14)' : 'rgba(177,71,47,0.10)',
+                      color:      isBlacklist ? 'var(--danger)'    : status === 'VIP' ? '#7F5AA3'                : 'var(--warning)',
+                    }}>
+                      {status}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Entry row */}
             <div className="sbf-top-row-2">

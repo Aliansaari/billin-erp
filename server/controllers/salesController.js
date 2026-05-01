@@ -3,6 +3,7 @@ const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, Party, Product, StockLedger, SystemSettings } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
+const { checkPartyForBillSave } = require('../utils/partyGuards');
 
 exports.getAll = async (req, res) => {
   try {
@@ -225,8 +226,9 @@ exports.create = async (req, res) => {
 
     // Enforce full payment if customer has credit_not_allowed
     let finalPaidAmount = parseFloat(paid_amount);
+    let customer = null;
     if (billData.customer_id) {
-      const customer = await Party.findByPk(billData.customer_id, { transaction: t });
+      customer = await Party.findByPk(billData.customer_id, { transaction: t });
       if (customer && !customer.credit_allowed) {
         finalPaidAmount = totalAmount;
       }
@@ -240,6 +242,20 @@ exports.create = async (req, res) => {
 
     const effectivePaid = +(finalPaidAmount + rawReturn).toFixed(2);
     const balanceAmount = +(totalAmount - effectivePaid).toFixed(2);
+
+    // Blacklist + credit-limit hard block. Runs AFTER we know the bill's
+    // final balance (totalAmount − effectivePaid) so the guard can reject
+    // with an accurate "would take outstanding to ₹X" message. Guard
+    // returns null when the save is allowed.
+    const guard = checkPartyForBillSave({
+      party: customer,
+      newBillOutstanding: balanceAmount,
+      enforceCreditLimit: true,
+    });
+    if (guard) {
+      await t.rollback();
+      return res.status(guard.status).json({ error: guard.error });
+    }
     let paymentStatus = 'Unpaid';
     if (effectivePaid >= totalAmount) paymentStatus = 'Paid';
     else if (effectivePaid > 0) paymentStatus = 'Partial';
@@ -496,9 +512,10 @@ exports.update = async (req, res) => {
 
     // Enforce full payment if customer has credit not allowed
     let finalPaidAmount2 = parseFloat(paid_amount);
+    let customer2 = null;
     if (billData.customer_id) {
-      const customer = await Party.findByPk(billData.customer_id, { transaction: t });
-      if (customer && !customer.credit_allowed) {
+      customer2 = await Party.findByPk(billData.customer_id, { transaction: t });
+      if (customer2 && !customer2.credit_allowed) {
         finalPaidAmount2 = totalAmount;
       }
     }
@@ -519,6 +536,25 @@ exports.update = async (req, res) => {
     let paymentStatus = 'Unpaid';
     if (totalEffectivePaid2 >= totalAmount) paymentStatus = 'Paid';
     else if (totalEffectivePaid2 > 0)       paymentStatus = 'Partial';
+
+    // Blacklist + credit-limit block on edit. The customer's current_balance
+    // already reflects the OLD bill's balance, so we pass it through as
+    // oldBillOutstanding — otherwise an edit that just keeps the same total
+    // would falsely trip the limit. Skipping the limit check when the bill's
+    // customer changes isn't safe either, so for cross-customer edits the
+    // guard conservatively enforces against the new customer as if this
+    // were a fresh bill.
+    const isSameCustomer = existingBill.customer_id === billData.customer_id;
+    const guard2 = checkPartyForBillSave({
+      party: customer2,
+      newBillOutstanding: balanceAmount,
+      oldBillOutstanding: isSameCustomer ? oldBalance2 : 0,
+      enforceCreditLimit: true,
+    });
+    if (guard2) {
+      await t.rollback();
+      return res.status(guard2.status).json({ error: guard2.error });
+    }
 
     await existingBill.update({
       ...billData,
