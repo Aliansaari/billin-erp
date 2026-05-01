@@ -1,59 +1,52 @@
-// ── Monthly Register (Sales / Purchase / Payment / Receipt) — R10 v2 ─
+// ── Monthly Register (Sales / Purchase / Payment / Receipt) — R10 v3 ─
 //
-// Tally-faithful monthly register. Four wrappers preset `mode`:
+// Tally's monthly-register data shape (Particulars / Debit / Credit /
+// Closing Balance with running cumulative + Dr/Cr suffix), dressed in
+// our modern dark-mode design system. Visual language matches Bills
+// Outstanding (.bo-* family) so it sits naturally next to the rest of
+// the Reports family.
+//
+// Four wrappers preset `mode`:
 //   MonthlySalesRegister     → mode='sales'
 //   MonthlyPurchaseRegister  → mode='purchase'
 //   MonthlyPaymentRegister   → mode='payment'
 //   MonthlyReceiptRegister   → mode='receipt'
 //
-// Layout matches the Tally screenshot exactly:
-//
-//   ┌───────────────────────────────────────────────────────────┐
-//   │ Sales Register                Sabina Dresses        ✕    │  ← title strip
-//   ├───────────────────────────────────────────────────────────┤
-//   │                                  Sales                    │  ← ledger label
-//   │ Particulars              Sabina Dresses                   │
-//   │                          1-Apr-25 to 31-Mar-26            │
-//   │                          Transactions   │ Closing         │
-//   │                          Debit  | Credit│ Balance         │
-//   ├──────────────────────────────────────────┼────────────────┤
-//   │ April                          5,20,010.50 │ 5,20,010.50 Cr│  ← month rows
-//   │ May                            5,82,691.00 │ 11,02,701.50 Cr│
-//   │ ...                                                       │
-//   └───────────────────────────────────────────────────────────┘
-//
-// Compare-with toggle at top-right lays a SECOND register's columns
-// alongside the primary so operators can scan Sales vs Purchase or
-// Receipt vs Payment month-by-month.
+// Compare-with toggle overlays a SECOND register's columns alongside
+// the primary so operators can scan Sales↔Purchase or Receipt↔Payment
+// month-by-month in one view.
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { Button, Select, Space, message, DatePicker } from 'antd';
-import { ReloadOutlined, PrinterOutlined, DownloadOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { Button, Select, Space, message, DatePicker, Tag, Tooltip } from 'antd';
+import {
+  ReloadOutlined, PrinterOutlined, DownloadOutlined,
+  SwapOutlined, CalendarOutlined,
+} from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 
-// Indian-style number format with two decimals, italic per Tally.
 const fmtAmt = (v) => {
   const n = Number(v) || 0;
-  if (n === 0) return '';   // Tally blanks out zero cells
+  if (n === 0) return '—';
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 const fmtClosing = (closing, side) => {
   const n = Number(closing) || 0;
-  if (n === 0) return '';
-  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + side;
-};
-const fmtTallyDate = (iso) => {
-  const d = dayjs(iso);
-  return d.format('D-MMM-YY');
+  if (n === 0) return <span className="mr-zero">—</span>;
+  return (
+    <>
+      <span className="mr-num-strong">{n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      <span className={`mr-side mr-side-${side.toLowerCase()}`}>{' '}{side}</span>
+    </>
+  );
 };
 
-const MODE_LABEL = {
-  sales:    'Sales Register',
-  purchase: 'Purchase Register',
-  payment:  'Payment Register',
-  receipt:  'Receipt Register',
+const MODE_META = {
+  sales:    { label: 'Sales Register',    sub: 'Sales Account · monthly summary',     short: 'Sales' },
+  purchase: { label: 'Purchase Register', sub: 'Purchase Account · monthly summary',  short: 'Purchase' },
+  payment:  { label: 'Payment Register',  sub: 'Payment vouchers · monthly summary',  short: 'Payment' },
+  receipt:  { label: 'Receipt Register',  sub: 'Receipt vouchers · monthly summary',  short: 'Receipt' },
 };
 
 // Last day of a month for drill-down.
@@ -61,28 +54,44 @@ function lastDayOf(monthIso) {
   return dayjs(monthIso).endOf('month').format('YYYY-MM-DD');
 }
 
+// Period presets mirror the Bills Outstanding pattern.
+function presetRange(key) {
+  const today = dayjs();
+  const fyStartYear = today.month() >= 3 ? today.year() : today.year() - 1;
+  if (key === 'this_fy')  return { from: dayjs(`${fyStartYear}-04-01`),   to: dayjs(`${fyStartYear+1}-03-31`) };
+  if (key === 'last_fy')  return { from: dayjs(`${fyStartYear-1}-04-01`), to: dayjs(`${fyStartYear}-03-31`) };
+  if (key === 'last_12m') return { from: today.subtract(11, 'month').startOf('month'), to: today.endOf('month') };
+  if (key === 'this_q') {
+    const qStart = Math.floor(today.month() / 3) * 3;
+    return { from: today.month(qStart).startOf('month'), to: today.endOf('month') };
+  }
+  return null;
+}
+
 export default function MonthlyRegister({ mode }) {
-  if (!MODE_LABEL[mode]) throw new Error(`MonthlyRegister: unknown mode "${mode}"`);
+  if (!MODE_META[mode]) throw new Error(`MonthlyRegister: unknown mode "${mode}"`);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const cfg = MODE_META[mode];
 
-  // ── State ─────────────────────────────────────────────────────────
   const [overlay, setOverlay]   = useState(() => searchParams.get('overlay') || '');
   const [fromDate, setFromDate] = useState(() => searchParams.get('from_date') || '');
   const [toDate, setToDate]     = useState(() => searchParams.get('to_date') || '');
+  const [presetKey, setPresetKey] = useState(() => searchParams.get('preset') || 'this_fy');
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(false);
 
   // URL sync.
   useEffect(() => {
     const next = {};
-    if (overlay)  next.overlay   = overlay;
-    if (fromDate) next.from_date = fromDate;
-    if (toDate)   next.to_date   = toDate;
+    if (overlay)   next.overlay   = overlay;
+    if (fromDate)  next.from_date = fromDate;
+    if (toDate)    next.to_date   = toDate;
+    if (presetKey) next.preset    = presetKey;
     setSearchParams(next, { replace: true });
-  }, [overlay, fromDate, toDate, setSearchParams]);
+  }, [overlay, fromDate, toDate, presetKey, setSearchParams]);
 
-  // ── Data fetch ────────────────────────────────────────────────────
+  // ── Data fetch ───────────────────────────────────────────────────
   const fetcher = useCallback(async () => {
     setLoading(true);
     try {
@@ -92,8 +101,6 @@ export default function MonthlyRegister({ mode }) {
       if (toDate)   params.to_date   = toDate;
       const r = await reportAPI.monthlySummary(params);
       setData(r.data);
-      // If we didn't pass dates, hydrate from server defaults so the
-      // picker shows the period actually rendered.
       if (!fromDate && r.data?.period?.from_date) setFromDate(r.data.period.from_date);
       if (!toDate   && r.data?.period?.to_date)   setToDate(r.data.period.to_date);
     } catch (e) {
@@ -104,27 +111,29 @@ export default function MonthlyRegister({ mode }) {
 
   useEffect(() => { fetcher(); }, [fetcher]);
 
-  // Drill-down: click a month row → existing detailed report for that
-  // month's range. Sales/Purchase route to the existing Sales/Purchase
-  // Report; Payment/Receipt route to the Payments list filtered by
-  // type + date.
+  // ── Period preset click ──────────────────────────────────────────
+  const applyPreset = useCallback((k) => {
+    const r = presetRange(k);
+    if (!r) return;
+    setFromDate(r.from.format('YYYY-MM-DD'));
+    setToDate(r.to.format('YYYY-MM-DD'));
+    setPresetKey(k);
+  }, []);
+
+  // ── Drill-down: a month → existing detailed report ───────────────
   const drillRow = useCallback((monthIso) => {
     const from = monthIso;
     const to   = lastDayOf(monthIso);
     if (mode === 'sales')    return navigate(`/reports/sales?from_date=${from}&to_date=${to}`);
     if (mode === 'purchase') return navigate(`/reports/purchases?from_date=${from}&to_date=${to}`);
-    // Payment / Receipt → Payments list — existing screen accepts a
-    // type filter via query string. Keep this drill best-effort; the
-    // list page handles unrecognised params gracefully.
     return navigate(`/payments?type=${mode === 'payment' ? 'Payment' : 'Receipt'}&from_date=${from}&to_date=${to}`);
   }, [mode, navigate]);
 
-  // CSV export — matches the on-screen layout (overlay columns
-  // included when toggled).
+  // CSV export.
   const handleExportCsv = useCallback(() => {
     if (!data) return;
     const p = data.primary, o = data.overlay;
-    const header = ['Particulars',
+    const header = ['Month',
                     `${p.label} Debit`,  `${p.label} Credit`,  `${p.label} Closing`,
                     ...(o ? [`${o.label} Debit`, `${o.label} Credit`, `${o.label} Closing`] : [])];
     const lines = p.rows.map((r, i) => {
@@ -153,183 +162,163 @@ export default function MonthlyRegister({ mode }) {
     window.URL.revokeObjectURL(url);
   }, [data, mode, fromDate, toDate]);
 
-  if (!data) {
-    return <div className="mr-page"><div className="mr-skel">Loading…</div></div>;
-  }
-
-  const { primary, overlay: overlayData, period, company_name } = data;
+  const overlayOptions = useMemo(() => ([
+    { value: '', label: 'Compare with…' },
+    ...Object.entries(MODE_META).filter(([k]) => k !== mode).map(([k, m]) => ({ value: k, label: m.label })),
+  ]), [mode]);
 
   return (
     <div className="mr-page">
-      {/* ── Title strip — Sales Register | Sabina Dresses | ✕ ────── */}
-      <div className="mr-titlebar">
-        <div className="mr-title-left">{MODE_LABEL[mode]}</div>
-        <div className="mr-title-center">{company_name}</div>
-        <div className="mr-title-right">
-          <button className="mr-close" onClick={() => navigate('/reports')} aria-label="Close">×</button>
+      {/* Header — same shape as Bills Outstanding */}
+      <div className="mr-hd">
+        <div className="mr-title">
+          <h1>{cfg.label}</h1>
+          <span className="mr-sub">{cfg.sub}</span>
+          {data?.period && (
+            <Tag className="mr-period-chip" icon={<CalendarOutlined />}>
+              {dayjs(data.period.from_date).format('MMM YYYY')} – {dayjs(data.period.to_date).format('MMM YYYY')}
+            </Tag>
+          )}
         </div>
-      </div>
-
-      {/* ── Toolbar (period + compare-with + export) ─────────────── */}
-      <div className="mr-toolbar">
-        <Space size={6} wrap>
+        <div className="mr-actions">
+          {[
+            ['this_fy',  'This FY'],
+            ['last_fy',  'Last FY'],
+            ['last_12m', 'Last 12 Months'],
+            ['this_q',   'This Quarter'],
+          ].map(([k, label]) => (
+            <Button key={k} size="small"
+              type={presetKey === k ? 'primary' : 'default'}
+              onClick={() => applyPreset(k)}>
+              {label}
+            </Button>
+          ))}
           <DatePicker.RangePicker
-            size="small"
-            picker="month"
+            size="small" picker="month"
             value={[fromDate ? dayjs(fromDate) : null, toDate ? dayjs(toDate) : null]}
             onChange={(vals) => {
               if (!vals) return;
               setFromDate(vals[0].format('YYYY-MM-01'));
               setToDate(vals[1].endOf('month').format('YYYY-MM-DD'));
+              setPresetKey('custom');
             }}
-            format="MMM YYYY"
-            allowClear={false}
-            style={{ width: 230 }}
+            format="MMM YYYY" allowClear={false}
+            style={{ width: 220 }}
           />
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Compare with:</span>
-          <Select
-            size="small"
-            value={overlay || ''}
-            onChange={(v) => setOverlay(v || '')}
-            style={{ width: 180 }}
-            options={[
-              { value: '',         label: 'None' },
-              ...Object.entries(MODE_LABEL)
-                .filter(([k]) => k !== mode)
-                .map(([k, label]) => ({ value: k, label })),
-            ]}
-          />
+          <Tooltip title="Overlay a second register's columns next to this one — useful for Sales↔Purchase or Receipt↔Payment">
+            <Select
+              size="small" value={overlay || ''} onChange={(v) => setOverlay(v || '')}
+              style={{ width: 200 }}
+              options={overlayOptions}
+              suffixIcon={<SwapOutlined />}
+            />
+          </Tooltip>
           <Button size="small" icon={<ReloadOutlined />} onClick={fetcher} loading={loading}>Refresh</Button>
           <Button size="small" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
-          <Button size="small" icon={<DownloadOutlined />} onClick={handleExportCsv}>Excel</Button>
-        </Space>
+          <Button size="small" icon={<DownloadOutlined />} onClick={handleExportCsv} type="primary">Excel</Button>
+        </div>
       </div>
 
-      {/* ── Tally-style table ───────────────────────────────────── */}
-      <RegisterTable primary={primary} overlay={overlayData} period={period} companyName={company_name} onRowClick={drillRow} />
+      {/* Table */}
+      <div className="mr-tablewrap">
+        {data
+          ? <RegisterTable primary={data.primary} overlay={data.overlay} onRowClick={drillRow} />
+          : <div className="mr-skel">Loading…</div>}
+      </div>
     </div>
   );
 }
 
-// ── RegisterTable ─────────────────────────────────────────────────────
+// ── RegisterTable ────────────────────────────────────────────────────
 //
-// Tally-faithful table render. Two layers of headers — primary column
-// group always present; overlay column group appended when `overlay`
-// is non-null.
-function RegisterTable({ primary, overlay, period, companyName, onRowClick }) {
-  const [activeRow, setActiveRow] = useState(0);  // April highlighted by default
-  const groupSpan = overlay ? 6 : 3;
+// Modern dark-mode table with running closing balance + Dr/Cr suffix.
+// Sticky header, hover-highlighted rows, opening-balance row when
+// non-zero, double-line total separator.
+function RegisterTable({ primary, overlay, onRowClick }) {
+  const groupCols = overlay ? 2 : 1;
+  const hasOpening = primary.opening_balance > 0 || (overlay && overlay.opening_balance > 0);
 
   return (
-    <div className="mr-tablewrap">
-      <table className="mr-table">
-        <colgroup>
-          <col className="mr-col-particulars" />
-          <col /><col /><col />
-          {overlay && (<><col /><col /><col /></>)}
-        </colgroup>
-        <thead>
-          {/* Row 1: ledger-label group header (italic, like Tally) */}
-          <tr className="mr-th-group">
-            <th></th>
-            <th className="mr-grp-label" colSpan={3}>
-              <span className="mr-grp-italic">{primary.ledger_name}</span>
+    <table className="mr-table">
+      <colgroup>
+        <col className="mr-col-particulars" />
+        <col /><col /><col className="mr-col-closing" />
+        {overlay && (<><col /><col /><col className="mr-col-closing" /></>)}
+      </colgroup>
+      <thead>
+        <tr className="mr-th-grp">
+          <th></th>
+          <th colSpan={3} className="mr-grp-label mr-grp-primary">
+            {primary.ledger_name}
+            <span className="mr-grp-side"> · {primary.natural_side}-natural</span>
+          </th>
+          {overlay && (
+            <th colSpan={3} className="mr-grp-label mr-grp-overlay">
+              {overlay.ledger_name}
+              <span className="mr-grp-side"> · {overlay.natural_side}-natural</span>
             </th>
-            {overlay && (
-              <th className="mr-grp-label mr-grp-overlay" colSpan={3}>
-                <span className="mr-grp-italic">{overlay.ledger_name}</span>
-              </th>
-            )}
-          </tr>
-          {/* Row 2: company name */}
-          <tr className="mr-th-sub">
-            <th></th>
-            <th colSpan={3} className="mr-grp-label"><b>{companyName}</b></th>
-            {overlay && <th colSpan={3} className="mr-grp-label mr-grp-overlay"><b>{companyName}</b></th>}
-          </tr>
-          {/* Row 3: period */}
-          <tr className="mr-th-sub">
-            <th></th>
-            <th colSpan={3} className="mr-grp-label">{period.fy_label}</th>
-            {overlay && <th colSpan={3} className="mr-grp-label mr-grp-overlay">{period.fy_label}</th>}
-          </tr>
-          {/* Row 4: Transactions / Closing-Balance group */}
-          <tr className="mr-th-sub">
-            <th></th>
-            <th colSpan={2} className="mr-grp-label"><b>Transactions</b></th>
-            <th rowSpan={2} className="mr-th-cb"><b>Closing<br/>Balance</b></th>
+          )}
+        </tr>
+        <tr className="mr-th-cols">
+          <th className="mr-th-particulars">Particulars</th>
+          <th className="mr-th-num">Debit</th>
+          <th className="mr-th-num">Credit</th>
+          <th className="mr-th-num mr-th-closing">Closing Balance</th>
+          {overlay && <>
+            <th className="mr-th-num mr-grp-overlay">Debit</th>
+            <th className="mr-th-num mr-grp-overlay">Credit</th>
+            <th className="mr-th-num mr-th-closing mr-grp-overlay">Closing Balance</th>
+          </>}
+        </tr>
+      </thead>
+      <tbody>
+        {hasOpening && (
+          <tr className="mr-row-opening">
+            <td>Opening Balance</td>
+            <td className="mr-num"></td>
+            <td className="mr-num"></td>
+            <td className="mr-num">{fmtClosing(primary.opening_balance, primary.opening_side)}</td>
             {overlay && <>
-              <th colSpan={2} className="mr-grp-label mr-grp-overlay"><b>Transactions</b></th>
-              <th rowSpan={2} className="mr-th-cb mr-grp-overlay"><b>Closing<br/>Balance</b></th>
+              <td className="mr-num mr-grp-overlay"></td>
+              <td className="mr-num mr-grp-overlay"></td>
+              <td className="mr-num mr-grp-overlay">{fmtClosing(overlay.opening_balance, overlay.opening_side)}</td>
             </>}
           </tr>
-          {/* Row 5: Particulars / Debit | Credit (per group) */}
-          <tr className="mr-th-cols">
-            <th className="mr-th-particulars"><b>Particulars</b></th>
-            <th className="mr-th-num"><b>Debit</b></th>
-            <th className="mr-th-num"><b>Credit</b></th>
-            {overlay && <>
-              <th className="mr-th-num mr-grp-overlay"><b>Debit</b></th>
-              <th className="mr-th-num mr-grp-overlay"><b>Credit</b></th>
-            </>}
-          </tr>
-        </thead>
-        <tbody>
-          {/* Opening balance row — italic, like Tally */}
-          {(primary.opening_balance > 0 || (overlay && overlay.opening_balance > 0)) && (
-            <tr className="mr-row-opening">
-              <td><i>Opening Balance</i></td>
-              <td className="mr-num"></td>
-              <td className="mr-num"></td>
-              <td className="mr-num"><i>{fmtClosing(primary.opening_balance, primary.opening_side)}</i></td>
+        )}
+        {primary.rows.map((r, i) => {
+          const ovr = overlay ? overlay.rows[i] : null;
+          return (
+            <tr key={r.month_iso} className="mr-row" onClick={() => onRowClick(r.month_iso)}>
+              <td className="mr-particulars">{r.month_label}</td>
+              <td className="mr-num">{fmtAmt(r.dr)}</td>
+              <td className="mr-num">{fmtAmt(r.cr)}</td>
+              <td className="mr-num">{fmtClosing(r.closing, r.closing_side)}</td>
               {overlay && <>
-                <td className="mr-num mr-grp-overlay"></td>
-                <td className="mr-num mr-grp-overlay"></td>
-                <td className="mr-num mr-grp-overlay"><i>{fmtClosing(overlay.opening_balance, overlay.opening_side)}</i></td>
+                <td className="mr-num mr-grp-overlay">{fmtAmt(ovr?.dr)}</td>
+                <td className="mr-num mr-grp-overlay">{fmtAmt(ovr?.cr)}</td>
+                <td className="mr-num mr-grp-overlay">{fmtClosing(ovr?.closing, ovr?.closing_side)}</td>
               </>}
             </tr>
-          )}
-          {primary.rows.map((r, i) => {
-            const ovr = overlay ? overlay.rows[i] : null;
-            const isActive = i === activeRow;
-            return (
-              <tr
-                key={r.month_iso}
-                className={'mr-row' + (isActive ? ' mr-row-active' : '')}
-                onMouseEnter={() => setActiveRow(i)}
-                onClick={() => onRowClick(r.month_iso)}
-              >
-                <td>{r.month_name}</td>
-                <td className="mr-num"><i>{fmtAmt(r.dr)}</i></td>
-                <td className="mr-num"><i>{fmtAmt(r.cr)}</i></td>
-                <td className="mr-num">{fmtClosing(r.closing, r.closing_side)}</td>
-                {overlay && <>
-                  <td className="mr-num mr-grp-overlay"><i>{fmtAmt(ovr?.dr)}</i></td>
-                  <td className="mr-num mr-grp-overlay"><i>{fmtAmt(ovr?.cr)}</i></td>
-                  <td className="mr-num mr-grp-overlay">{fmtClosing(ovr?.closing, ovr?.closing_side)}</td>
-                </>}
-              </tr>
-            );
-          })}
-          {/* Footer total row — sum of Dr + Cr columns. Closing column
-              shows the FINAL closing balance (last month's closing). */}
-          <tr className="mr-row-total">
-            <td><b>Total</b></td>
-            <td className="mr-num"><b>{fmtAmt(primary.totals.dr)}</b></td>
-            <td className="mr-num"><b>{fmtAmt(primary.totals.cr)}</b></td>
-            <td className="mr-num"><b>{primary.rows.length > 0
-              ? fmtClosing(primary.rows[primary.rows.length-1].closing, primary.rows[primary.rows.length-1].closing_side)
-              : ''}</b></td>
-            {overlay && <>
-              <td className="mr-num mr-grp-overlay"><b>{fmtAmt(overlay.totals.dr)}</b></td>
-              <td className="mr-num mr-grp-overlay"><b>{fmtAmt(overlay.totals.cr)}</b></td>
-              <td className="mr-num mr-grp-overlay"><b>{overlay.rows.length > 0
-                ? fmtClosing(overlay.rows[overlay.rows.length-1].closing, overlay.rows[overlay.rows.length-1].closing_side)
-                : ''}</b></td>
-            </>}
-          </tr>
-        </tbody>
-      </table>
-    </div>
+          );
+        })}
+      </tbody>
+      <tfoot>
+        <tr className="mr-row-total">
+          <td>Total</td>
+          <td className="mr-num">{fmtAmt(primary.totals.dr)}</td>
+          <td className="mr-num">{fmtAmt(primary.totals.cr)}</td>
+          <td className="mr-num">{primary.rows.length > 0
+            ? fmtClosing(primary.rows[primary.rows.length-1].closing, primary.rows[primary.rows.length-1].closing_side)
+            : '—'}</td>
+          {overlay && <>
+            <td className="mr-num mr-grp-overlay">{fmtAmt(overlay.totals.dr)}</td>
+            <td className="mr-num mr-grp-overlay">{fmtAmt(overlay.totals.cr)}</td>
+            <td className="mr-num mr-grp-overlay">{overlay.rows.length > 0
+              ? fmtClosing(overlay.rows[overlay.rows.length-1].closing, overlay.rows[overlay.rows.length-1].closing_side)
+              : '—'}</td>
+          </>}
+        </tr>
+      </tfoot>
+    </table>
   );
 }
