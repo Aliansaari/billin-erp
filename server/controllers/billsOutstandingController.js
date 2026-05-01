@@ -413,32 +413,66 @@ async function _billsList(req, partyType) {
   // reports never disagree on the formula).
   const reconciliation = await _reconcile(isCustomer, asOf, subGroup);
 
-  // Allocation-completeness — runtime check.
+  // Allocation-completeness — runtime check (R9).
   //
-  // After R8 (auto-receipt service + boot-time backfill), every paid
-  // bill in scope has a `bill_payment_allocations` row tying it to its
-  // auto-generated receipt. The remaining gap is *manual* receipts —
-  // operator-entered Receipt/Payment vouchers that haven't been
-  // FIFO-allocated to specific bills via `bill_payment_allocations`.
+  // After R8 (auto-receipt service) + R9 Phase 1 (orchestrator wiring) +
+  // R9 Phase 3 (historical backfill), every receipt that *could* have
+  // been allocated to a bill has been. What's left flagged here are
+  // manual receipts the operator should triage:
   //
-  // We count manual rows whose total exceeds the sum of their
-  // allocations (i.e. fully unallocated OR partial). When the count is
-  // 0, the UI hides the banner entirely; when > 0, the banner shows
-  // the actual count + an "Allocate now" CTA (UI placeholder until the
-  // FIFO allocation screen is built).
+  //   1. source = 'manual'                    — not auto-generated
+  //   2. party_id IS NOT NULL                 — has a counter-party
+  //   3. NOT system Cash party                — out of scope by convention
+  //   4. NOT EXISTS any bill_payment_allocations row — zero allocations
+  //                                              (a partial allocation
+  //                                              with leftover advance
+  //                                              still counts as
+  //                                              "allocated" for the
+  //                                              banner — the operator
+  //                                              made an explicit choice)
+  //   5. EXISTS an outstanding bill at receipt_date — there was actually
+  //                                              something to allocate to
+  //                                              at the time. Receipts
+  //                                              against parties whose
+  //                                              bills were all already
+  //                                              paid (or didn't exist
+  //                                              yet) are genuine
+  //                                              advances, not unallocated
+  //                                              mistakes.
+  //
+  // "Outstanding at receipt date" uses the historical snapshot:
+  //   bill.total_amount > SUM(allocations from receipts dated < this one).
+  // Strict-before so we ask "was there outstanding BEFORE this receipt's
+  // own allocations?" — important for self-consistency post-backfill.
   const txType = isCustomer ? 'Receipt' : 'Payment';
   const [{ unallocated_count }] = await sequelize.query(
     `SELECT COUNT(*)::int AS unallocated_count
        FROM payments_receipts pr
+       JOIN parties p ON p.party_id = pr.party_id
       WHERE pr.source = 'manual'
         AND pr.transaction_type = :tx
         AND pr.is_cancelled = false
+        AND pr.party_id IS NOT NULL
+        AND (p.is_system_cash IS NULL OR p.is_system_cash = false)
         AND pr.transaction_date <= :as_of
-        AND pr.total_amount > COALESCE(
-          (SELECT SUM(bpa.allocated_amount)
-             FROM bill_payment_allocations bpa
-            WHERE bpa.transaction_id = pr.transaction_id),
-          0
+        AND NOT EXISTS (
+          SELECT 1 FROM bill_payment_allocations bpa
+           WHERE bpa.transaction_id = pr.transaction_id
+        )
+        AND EXISTS (
+          SELECT 1 FROM ${billTable} b
+           WHERE b.${partyFK} = pr.party_id
+             AND b.is_cancelled = false
+             AND b.bill_date <= pr.transaction_date
+             AND b.total_amount > COALESCE((
+               SELECT SUM(bpa2.allocated_amount)
+                 FROM bill_payment_allocations bpa2
+                 JOIN payments_receipts pr2 ON pr2.transaction_id = bpa2.transaction_id
+                WHERE bpa2.bill_id   = b.${billPK}
+                  AND bpa2.bill_type = '${isCustomer ? 'Sales' : 'Purchase'}'
+                  AND pr2.is_cancelled = false
+                  AND pr2.transaction_date < pr.transaction_date
+             ), 0)
         )`,
     {
       replacements: { tx: txType, as_of: asOf },

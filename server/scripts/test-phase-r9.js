@@ -54,7 +54,16 @@ async function preClean() {
   await sequelize.query(`DELETE FROM sales_bills WHERE bill_number LIKE '${PFX}%'`);
   await sequelize.query(`DELETE FROM purchase_bill_items WHERE purchase_bill_id IN (SELECT purchase_bill_id FROM purchase_bills WHERE bill_number LIKE '${PFX}%')`);
   await sequelize.query(`DELETE FROM purchase_bills WHERE bill_number LIKE '${PFX}%'`);
+  // Test 8 (Excel e2e) posts vouchers via the orchestrator's commit
+  // path, which creates ledger_entries tied to the test party. Drop
+  // those before the party row so the FK doesn't block the delete.
+  await sequelize.query(`
+    DELETE FROM ledger_entries
+     WHERE party_id IN (SELECT party_id FROM parties WHERE party_name LIKE '${PFX}%')
+        OR ledger_id IN (SELECT ledger_id FROM ledger_accounts WHERE ledger_name LIKE '${PFX}%')
+  `);
   await sequelize.query(`UPDATE parties SET ledger_account_id = NULL WHERE party_name LIKE '${PFX}%'`);
+  await sequelize.query(`DELETE FROM ledger_accounts WHERE ledger_name LIKE '${PFX}%'`);
   await sequelize.query(`DELETE FROM parties WHERE party_name LIKE '${PFX}%'`);
 }
 

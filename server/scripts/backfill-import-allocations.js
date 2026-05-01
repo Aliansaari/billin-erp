@@ -366,6 +366,66 @@ async function readIntegrityState() {
   console.log(`  Inserted ${inserted} allocation row(s) across ${plans.length - totalSkipped} receipt(s).`);
   if (errors > 0) console.log(`  ⚠ ${errors} apply error(s) — see stderr above.`);
 
+  // ── Bill-column sync ──────────────────────────────────────────────
+  //
+  // Seed-data manual receipts were inserted directly into
+  // payments_receipts (bypassing paymentController + reconcileBillsFor-
+  // Party). Bills' paid_amount stayed at 0 and balance_amount stayed
+  // at total_amount, even though the 6-term reconciliation was clean
+  // (because unallocated_receipts compensated). After backfill
+  // INSERTs allocation rows, the bill columns are out of sync with
+  // SUM(allocations).
+  //
+  // Bring them into lock-step so:
+  //   bill.paid_amount   == SUM(non-cancelled allocations for this bill)
+  //   bill.balance_amount == total_amount - paid_amount
+  //   bill.payment_status reflects the new balance
+  //
+  // The 6-term reconciliation stays balanced because bill_outstanding
+  // and paid_in_bills both shift by the same delta — they cancel.
+  // Auto_from_bill bills already have paid_amount == SUM(alloc), so
+  // those rows are unaffected (the WHERE filter on the UPDATE skips
+  // already-consistent rows).
+  console.log('\n── Syncing bill columns to SUM(allocations) ──────────────');
+  const tSync = await sequelize.transaction();
+  try {
+    for (const sideKey of Object.keys(SIDE)) {
+      const cfg = SIDE[sideKey];
+      const enumType = `enum_${cfg.table}_payment_status`;
+      const [, meta] = await sequelize.query(
+        `WITH alloc_per_bill AS (
+           SELECT bpa.bill_id,
+                  SUM(bpa.allocated_amount)::numeric AS total_alloc
+             FROM bill_payment_allocations bpa
+             JOIN payments_receipts pr ON pr.transaction_id = bpa.transaction_id
+            WHERE bpa.bill_type = :bt
+              AND pr.is_cancelled = false
+            GROUP BY bpa.bill_id
+         )
+         UPDATE ${cfg.table} b
+            SET paid_amount    = LEAST(b.total_amount, a.total_alloc),
+                balance_amount = GREATEST(0, b.total_amount - a.total_alloc),
+                payment_status = (CASE
+                  WHEN b.total_amount - a.total_alloc <= 0.005 THEN 'Paid'
+                  WHEN a.total_alloc > 0                       THEN 'Partial'
+                  ELSE 'Unpaid'
+                END)::${enumType}
+           FROM alloc_per_bill a
+          WHERE b.${cfg.pk} = a.bill_id
+            AND b.is_cancelled = false
+            AND ABS(b.paid_amount - LEAST(b.total_amount, a.total_alloc)) > 0.005`,
+        { replacements: { bt: sideKey }, transaction: tSync },
+      );
+      const rows = (meta && meta.rowCount) || 0;
+      console.log(`  ${sideKey}: ${rows} bill row(s) re-synced`);
+    }
+    await tSync.commit();
+  } catch (err) {
+    await tSync.rollback();
+    console.error('  ⚠ Bill-sync failed:', err.message);
+    errors++;
+  }
+
   // Re-read banner + invariants for confirmation.
   const bannerAfter = await computeBannerProjection([]); // no in-flight plans
   const intAfter    = await readIntegrityState();
