@@ -121,12 +121,15 @@ export default function MonthlyRegister({ mode }) {
   }, []);
 
   // ── Drill-down: a month → existing detailed report ───────────────
+  // Param names match SalesReport / PurchaseReport's URL contract: they
+  // read `from` and `to` (NOT `from_date` / `to_date`). Without exact-
+  // matching keys the receiving report falls back to its default range.
   const drillRow = useCallback((monthIso) => {
     const from = monthIso;
     const to   = lastDayOf(monthIso);
-    if (mode === 'sales')    return navigate(`/reports/sales?from_date=${from}&to_date=${to}`);
-    if (mode === 'purchase') return navigate(`/reports/purchases?from_date=${from}&to_date=${to}`);
-    return navigate(`/payments?type=${mode === 'payment' ? 'Payment' : 'Receipt'}&from_date=${from}&to_date=${to}`);
+    if (mode === 'sales')    return navigate(`/reports/sales?from=${from}&to=${to}`);
+    if (mode === 'purchase') return navigate(`/reports/purchases?from=${from}&to=${to}`);
+    return navigate(`/payments?type=${mode === 'payment' ? 'Payment' : 'Receipt'}&from=${from}&to=${to}`);
   }, [mode, navigate]);
 
   // CSV export.
