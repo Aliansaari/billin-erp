@@ -1,0 +1,1411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reports — Editorial Hub v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+ *  Reports Hub — Editorial v2
+ *
+ *  This mockup takes the layout the user shipped (ReportsHub.jsx) and
+ *  re-renders it in the editorial visual language used across the rest of
+ *  the editorial mockup family (dashboard v3, party-ledger v4, sales-list v8).
+ *
+ *  Layout (top → bottom), mirrors the implementation:
+ *    1.  Header — title, sub-line, FY range picker + compare-to-LY toggle
+ *    2.  Search — full-width glass input, ⌘K hint
+ *    3.  Needs Attention — conditional alert strip with prioritised items
+ *    4.  Recently opened — quiet 4-card strip (uses last-visited from state)
+ *    5.  Pinned — 3 ledger-style tiles with LIVE metric value, FY trend
+ *        sparkline, and a delta vs last year
+ *    6.  Category grid — 6 P&L-style ledger panes (tinted header stripes,
+ *        hairline rows, name left + subtitle right). One pane per category.
+ *    7.  Foot — keyboard hints + audit/compliance footnote
+ *
+ *  Visual language:
+ *    Inter body · Fraunces for titles + big numbers · JetBrains Mono for
+ *    tabular figures. Warm cream canvas, dark sidebar, terracotta accent.
+ *    Light/dark toggle wired in the header.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Canvas + surfaces (warm cream) ── */
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-soft:     #FAF5E9;
+  --bg-muted:    #F8F2E4;
+  --bg-hover:    #EEE6D3;
+  --bg-inset:    #EFE8D9;
+
+  /* ── Ink + rules ── */
+  --ink:         #1D1A15;
+  --ink-2:       #5C5040;
+  --ink-3:       #8E8270;
+  --ink-4:       #BBAF98;
+  --rule:        #E5D9C0;
+  --rule-soft:   #ECE2CD;
+
+  /* ── Editorial accent + tier colours ── */
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177, 71, 47, 0.10);
+  --accent-border: rgba(177, 71, 47, 0.24);
+
+  --tier-s:      #B1472F;   /* terracotta — financial */
+  --tier-a:      #B8923C;   /* warm gold  — purchase  */
+  --tier-b:      #7A9660;   /* sage       — inventory */
+  --tier-c:      #6D6355;   /* warm slate — parties   */
+  --tier-d:      #2F6B7A;   /* deep teal  — tax       */
+  --tier-e:      #8B5E83;   /* mauve      — sales     */
+
+  --tier-s-soft: rgba(177,71,47,0.10);
+  --tier-a-soft: rgba(184,146,60,0.12);
+  --tier-b-soft: rgba(122,150,96,0.12);
+  --tier-c-soft: rgba(109,99,85,0.12);
+  --tier-d-soft: rgba(47,107,122,0.12);
+  --tier-e-soft: rgba(139,94,131,0.12);
+
+  --up:   #5F8852;
+  --down: #B1472F;
+  --flat: #8E8270;
+  --warn: #C68A1F;
+  --info: #2F6B7A;
+
+  /* ── Sidebar (always warm dark) ── */
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-2:    #B2A791;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:#B1472F;
+  --sb-active-ink:#FDFAF2;
+
+  /* ── Glass tints (warm) ── */
+  --glass-bg:     rgba(253, 250, 242, 0.55);
+  --glass-border: rgba(253, 250, 242, 0.72);
+  --glass-shadow: rgba(45, 31, 21, 0.08);
+
+  --sb-w: 224px;
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-panel:    #1A1713;
+  --bg-soft:     #15110D;
+  --bg-muted:    #14110D;
+  --bg-hover:    #24201B;
+  --bg-inset:    #211C16;
+
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+
+  --accent:      #E26A4C;
+  --accent-hover:#F08975;
+  --accent-soft: rgba(226,106,76,0.14);
+  --accent-border: rgba(226,106,76,0.32);
+
+  --tier-s:      #E26A4C;
+  --tier-a:      #D4A574;
+  --tier-b:      #94B885;
+  --tier-c:      #A89B85;
+  --tier-d:      #6BA9B8;
+  --tier-e:      #B587AB;
+
+  --tier-s-soft: rgba(226,106,76,0.14);
+  --tier-a-soft: rgba(212,165,116,0.14);
+  --tier-b-soft: rgba(148,184,133,0.14);
+  --tier-c-soft: rgba(168,155,133,0.14);
+  --tier-d-soft: rgba(107,169,184,0.14);
+  --tier-e-soft: rgba(181,135,171,0.14);
+
+  --up:   #94B885;
+  --down: #E26A4C;
+  --warn: #DCB46A;
+  --info: #6BA9B8;
+
+  --sb-bg:       #0B0807;
+  --sb-border:   #1A1713;
+  --sb-ink-3:    #6D6355;
+
+  --glass-bg:     rgba(26, 23, 19, 0.55);
+  --glass-border: rgba(178, 167, 145, 0.18);
+  --glass-shadow: rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  min-height: 100vh;
+  transition: background .25s, color .25s;
+}
+.serif { font-family: 'Fraunces', Georgia, serif; letter-spacing: -0.015em; }
+.mono  { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+.num   { font-variant-numeric: tabular-nums; }
+
+/* ══════════════ Sidebar ══════════════ */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 14px 10px 16px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  z-index: 20;
+  overflow-y: auto;
+}
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(245,238,226,0.10); border-radius: 3px; }
+.sb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 10px 14px;
+  border-bottom: 1px solid var(--sb-border);
+  margin-bottom: 8px;
+}
+.sb-brand-icon {
+  width: 26px; height: 26px; border-radius: 5px;
+  background: var(--accent); color: #FDFAF2;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 12px;
+}
+.sb-brand-name {
+  font-weight: 600; font-size: 13.5px;
+  letter-spacing: -0.01em; color: #F5EEE2;
+}
+.sb-section {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--sb-ink-3);
+  padding: 12px 10px 4px;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 10px; border-radius: 5px;
+  font-size: 12.5px; cursor: pointer; margin-bottom: 1px;
+  color: var(--sb-ink);
+  transition: background .12s, color .12s;
+}
+.sb-item:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-item.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+  box-shadow: 0 2px 10px rgba(177,71,47,0.32);
+}
+.sb-item .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-item.active .ic { color: var(--sb-active-ink); }
+.sb-item .pill {
+  margin-left: auto; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 1px 5px; border-radius: 3px;
+  background: rgba(245,238,226,0.10);
+  color: var(--sb-ink-2);
+}
+.sb-item.active .pill { background: rgba(255,255,255,0.18); color: #FDFAF2; }
+
+/* Reports — grouped, expandable */
+.sb-group { margin-bottom: 1px; }
+.sb-group-head {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 10px; border-radius: 5px;
+  font-size: 12.5px; cursor: pointer;
+  user-select: none; color: var(--sb-ink);
+  transition: background .12s;
+}
+.sb-group-head:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-group-head.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+  box-shadow: 0 2px 10px rgba(177,71,47,0.32);
+}
+.sb-group-head.active .ic,
+.sb-group-head.active .chev { color: var(--sb-active-ink); }
+.sb-group-head .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-group-head .label { flex: 1; }
+.sb-group-head .chev { font-size: 9px; color: var(--sb-ink-3); transition: transform .2s; }
+.sb-group.open > .sb-group-head .chev { transform: rotate(90deg); }
+.sb-group-children {
+  display: none;
+  padding: 2px 0 4px 8px;
+  border-left: 1px dashed var(--sb-border);
+  margin-left: 18px;
+}
+.sb-group.open > .sb-group-children { display: block; }
+.sb-leaf {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; margin-bottom: 1px;
+  border-radius: 4px;
+  font-size: 11.5px; color: var(--sb-ink-2);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.sb-leaf:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-leaf.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+}
+.sb-leaf .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--sb-ink-3); flex-shrink: 0; }
+.sb-leaf .star {
+  margin-left: auto; font-size: 10px;
+  color: var(--warn);
+}
+.sb-leaf .new-pill {
+  margin-left: auto; font-size: 8.5px; letter-spacing: 0.4px;
+  padding: 1px 4px; border-radius: 3px;
+  background: var(--accent); color: #FDFAF2; font-weight: 700;
+}
+
+.sb-spacer { flex: 1; min-height: 12px; }
+.sb-foot {
+  margin-top: auto;
+  padding: 12px 10px 4px;
+  border-top: 1px solid var(--sb-border);
+  display: flex; align-items: center; gap: 8px;
+}
+.sb-avatar {
+  width: 26px; height: 26px; border-radius: 5px;
+  background: rgba(245,238,226,0.10);
+  display: grid; place-items: center;
+  color: var(--sb-ink); font-weight: 600; font-size: 11px;
+  font-family: 'Fraunces', Georgia, serif;
+}
+.sb-foot-text { font-size: 11.5px; line-height: 1.25; min-width: 0; flex: 1; }
+.sb-foot-text b { color: #F5EEE2; font-weight: 600; display: block; }
+.sb-foot-text span { color: var(--sb-ink-3); font-size: 10.5px; }
+
+/* ══════════════ Page ══════════════ */
+.page {
+  margin-left: var(--sb-w);
+  padding: 22px clamp(20px, 3.5vw, 44px) 32px;
+  max-width: 1340px;
+}
+
+/* ── Crumb bar ── */
+.crumb-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; letter-spacing: 0.4px;
+  color: var(--ink-3); font-weight: 500;
+  margin-bottom: 14px; text-transform: uppercase;
+}
+.crumb-bar a { color: var(--ink-3); text-decoration: none; }
+.crumb-bar a:hover { color: var(--ink); }
+.crumb-bar b { color: var(--ink); font-weight: 700; }
+.crumb-bar .sep { color: var(--ink-4); margin: 0 6px; }
+
+/* Light/Dark toggle */
+.theme-toggle {
+  display: inline-flex; padding: 3px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: 99px; font-size: 11px;
+  letter-spacing: 0;
+}
+.theme-toggle button {
+  padding: 4px 10px; border: none; background: transparent;
+  font-family: inherit; color: var(--ink-2);
+  cursor: pointer; border-radius: 99px;
+  font-weight: 600; transition: all .2s;
+  text-transform: none;
+}
+.theme-toggle button:hover { color: var(--ink); }
+.theme-toggle button.on {
+  background: var(--accent); color: #FDFAF2;
+  box-shadow: 0 2px 10px rgba(177,71,47,0.32);
+}
+
+/* ── Hero header ── */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px; align-items: flex-end;
+  margin-bottom: 18px;
+}
+.hero-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600;
+  font-size: 36px;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+.hero-title .ampersand {
+  font-style: italic; font-weight: 500; color: var(--accent);
+}
+.hero-sub {
+  font-size: 13px; color: var(--ink-2);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.hero-sub b { color: var(--ink); font-weight: 600; }
+.hero-sub .dot-sep { color: var(--ink-4); }
+
+/* FY picker block */
+.fy-block {
+  display: flex; align-items: center; gap: 8px;
+}
+.fy-picker {
+  display: flex; align-items: center; gap: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.fy-picker .fy-label {
+  padding: 7px 11px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--ink-3);
+  border-right: 1px solid var(--rule);
+  background: var(--bg-muted);
+}
+.fy-picker .fy-range {
+  padding: 7px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; color: var(--ink);
+  font-weight: 500;
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer;
+}
+.fy-picker .fy-range:hover { color: var(--accent); }
+.fy-picker .fy-range .arrow {
+  color: var(--ink-3); font-size: 11px; margin: 0 2px;
+}
+.fy-picker .fy-range .caret { color: var(--ink-3); margin-left: 6px; font-size: 10px; }
+.fy-presets {
+  display: flex; align-items: center; gap: 0;
+  border-left: 1px solid var(--rule);
+}
+.fy-presets button {
+  border: none; background: transparent;
+  padding: 7px 9px; font-family: inherit;
+  font-size: 11px; font-weight: 500; color: var(--ink-3);
+  cursor: pointer; transition: color .12s, background .12s;
+}
+.fy-presets button:hover { color: var(--ink); background: var(--bg-muted); }
+.fy-presets button.on { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+
+.compare-toggle {
+  padding: 7px 11px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  font-size: 11.5px; font-weight: 500; color: var(--ink-2);
+  display: flex; align-items: center; gap: 7px;
+  cursor: pointer; transition: border-color .12s, color .12s;
+}
+.compare-toggle:hover { border-color: var(--ink-4); color: var(--ink); }
+.compare-toggle.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.compare-toggle .check {
+  width: 13px; height: 13px; border-radius: 3px;
+  border: 1.5px solid var(--ink-4); display: grid; place-items: center;
+  font-size: 9px; color: transparent; font-weight: 700;
+}
+.compare-toggle.on .check { border-color: var(--accent); background: var(--accent); color: #FDFAF2; }
+
+/* ── Search bar ── */
+.search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.search-wrap {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  transition: border-color .12s, box-shadow .12s;
+}
+.search-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.search-wrap .icon { color: var(--ink-3); font-size: 14px; }
+.search-wrap input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-family: inherit; font-size: 13.5px; color: var(--ink);
+}
+.search-wrap input::placeholder { color: var(--ink-3); }
+.search-wrap kbd {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  padding: 3px 6px; border-radius: 4px;
+  background: var(--bg-inset); color: var(--ink-2);
+  border: 1px solid var(--rule);
+  font-weight: 500;
+}
+.search-actions {
+  display: flex; align-items: center; gap: 6px;
+}
+.search-actions .icon-btn {
+  width: 38px; height: 38px;
+  display: grid; place-items: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  color: var(--ink-2); cursor: pointer;
+  font-size: 14px; transition: border-color .12s, color .12s;
+}
+.search-actions .icon-btn:hover { border-color: var(--ink-4); color: var(--ink); }
+
+/* ── Needs Attention strip ── */
+.needs {
+  background: linear-gradient(135deg, rgba(198,138,31,0.10) 0%, rgba(198,138,31,0.04) 100%);
+  border: 1px solid rgba(198,138,31,0.28);
+  border-radius: 10px;
+  padding: 12px 14px 12px 16px;
+  margin-bottom: 16px;
+  display: flex; align-items: stretch; gap: 16px;
+}
+.needs-head {
+  display: flex; align-items: center; gap: 8px;
+  padding-right: 16px;
+  border-right: 1px dashed rgba(198,138,31,0.32);
+  flex-shrink: 0;
+}
+.needs-head .glyph {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: var(--warn); color: #FDFAF2;
+  display: grid; place-items: center;
+  font-size: 13px; font-weight: 700;
+  box-shadow: 0 2px 8px rgba(198,138,31,0.32);
+}
+.needs-head-text {
+  display: flex; flex-direction: column;
+}
+.needs-head-text .label {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--warn);
+}
+.needs-head-text .count {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 16px;
+  color: var(--ink); line-height: 1;
+}
+.needs-list {
+  display: flex; align-items: center; gap: 0;
+  flex: 1; overflow-x: auto;
+}
+.needs-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 16px;
+  border-right: 1px dashed rgba(198,138,31,0.20);
+  cursor: pointer;
+  transition: opacity .12s;
+}
+.needs-item:last-child { border-right: none; }
+.needs-item:hover { opacity: 0.75; }
+.needs-item .sev {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.needs-item .sev.urgent { background: var(--accent); box-shadow: 0 0 0 3px rgba(177,71,47,0.18); }
+.needs-item .sev.warn   { background: var(--warn);   box-shadow: 0 0 0 3px rgba(198,138,31,0.18); }
+.needs-item .sev.info   { background: var(--info);   box-shadow: 0 0 0 3px rgba(47,107,122,0.18); }
+.needs-item .body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.needs-item .msg {
+  font-size: 12.5px; font-weight: 600; color: var(--ink);
+  white-space: nowrap;
+}
+.needs-item .meta {
+  font-size: 10.5px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.needs-item .arrow {
+  color: var(--ink-3); font-size: 12px;
+  margin-left: 4px;
+}
+
+/* ── Section headers ── */
+.section-hd {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 22px 0 10px;
+}
+.section-hd h2 {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 1.2px;
+  color: var(--ink-2);
+  display: flex; align-items: center; gap: 8px;
+}
+.section-hd h2 .glyph { font-size: 13px; color: var(--accent); }
+.section-hd .aside {
+  font-size: 11.5px; color: var(--ink-3); font-style: italic;
+}
+.section-hd .aside a { color: var(--accent); text-decoration: none; font-weight: 500; font-style: normal; }
+
+/* ── Recently opened — quiet 4 cards ── */
+.recent-strip {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 10px; margin-bottom: 4px;
+}
+@media (max-width: 1100px) { .recent-strip { grid-template-columns: repeat(2, 1fr); } }
+.recent-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: 10px 12px;
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer;
+  transition: border-color .15s, transform .15s;
+}
+.recent-card:hover {
+  border-color: var(--ink-4);
+  transform: translateY(-1px);
+}
+.recent-card .glyph {
+  width: 28px; height: 28px; border-radius: 6px;
+  display: grid; place-items: center;
+  font-size: 13px; flex-shrink: 0;
+}
+.recent-card .body { display: flex; flex-direction: column; min-width: 0; }
+.recent-card .name { font-size: 12.5px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recent-card .when { font-size: 10.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+/* ── Pinned — ledger tiles with metric + sparkline ── */
+.pinned-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 4px;
+}
+@media (max-width: 1100px) { .pinned-strip { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 720px)  { .pinned-strip { grid-template-columns: 1fr; } }
+
+.tile {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color .15s, transform .15s, box-shadow .15s;
+  display: flex; flex-direction: column;
+}
+.tile:hover {
+  border-color: var(--ink-4);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(45,31,21,0.08);
+}
+[data-mode="dark"] .tile:hover { box-shadow: 0 10px 28px rgba(0,0,0,0.45); }
+
+.tile-stripe {
+  padding: 8px 14px;
+  display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.tile-stripe .glyph {
+  width: 18px; height: 18px; border-radius: 4px;
+  display: grid; place-items: center;
+  font-size: 11px; flex-shrink: 0;
+}
+.tile-stripe .name {
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1.1px; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1;
+}
+.tile-stripe .star { color: var(--warn); font-size: 14px; flex-shrink: 0; }
+
+.tile-body { padding: 14px 16px 12px; flex: 1; display: flex; flex-direction: column; }
+.tile-label {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 4px;
+}
+.tile-value-row {
+  display: flex; align-items: baseline; gap: 10px;
+  margin-bottom: 8px;
+}
+.tile-value {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 28px; line-height: 1;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.tile-value.up   { color: var(--up); }
+.tile-value.down { color: var(--down); }
+.tile-value.warn { color: var(--warn); }
+
+.tile-delta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 6px; border-radius: 4px;
+}
+.tile-delta.up   { color: var(--up);   background: rgba(95,136,82,0.10); }
+.tile-delta.down { color: var(--down); background: rgba(177,71,47,0.10); }
+.tile-delta.flat { color: var(--flat); background: var(--bg-inset); }
+
+.tile-spark {
+  height: 28px; margin-bottom: 8px;
+}
+.tile-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule-soft);
+  font-size: 11px; color: var(--ink-3);
+}
+.tile-foot .open-arrow { color: var(--accent); font-weight: 600; font-size: 11px; }
+
+/* ── Category grid (P&L ledger style) ── */
+.cat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+@media (max-width: 880px) { .cat-grid { grid-template-columns: 1fr; } }
+
+.cat-pane {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cat-stripe {
+  padding: 10px 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.cat-stripe .glyph {
+  width: 22px; height: 22px; border-radius: 5px;
+  display: grid; place-items: center;
+  font-size: 12px; flex-shrink: 0;
+}
+.cat-stripe .label {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+}
+.cat-stripe .blurb {
+  font-size: 11.5px; font-style: italic;
+  color: var(--ink-3); margin-left: auto;
+  font-weight: 500;
+}
+.cat-stripe .count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  padding-left: 6px; margin-left: 6px;
+  border-left: 1px dashed var(--rule);
+}
+
+/* Category tone variants */
+.cat-stripe.s   { background: var(--tier-s-soft); color: var(--tier-s); }
+.cat-stripe.s   .glyph { background: rgba(255,255,255,0.6); color: var(--tier-s); }
+.cat-stripe.a   { background: var(--tier-a-soft); color: var(--tier-a); }
+.cat-stripe.a   .glyph { background: rgba(255,255,255,0.6); color: var(--tier-a); }
+.cat-stripe.b   { background: var(--tier-b-soft); color: var(--tier-b); }
+.cat-stripe.b   .glyph { background: rgba(255,255,255,0.6); color: var(--tier-b); }
+.cat-stripe.c   { background: var(--tier-c-soft); color: var(--tier-c); }
+.cat-stripe.c   .glyph { background: rgba(255,255,255,0.6); color: var(--tier-c); }
+.cat-stripe.d   { background: var(--tier-d-soft); color: var(--tier-d); }
+.cat-stripe.d   .glyph { background: rgba(255,255,255,0.6); color: var(--tier-d); }
+.cat-stripe.e   { background: var(--tier-e-soft); color: var(--tier-e); }
+.cat-stripe.e   .glyph { background: rgba(255,255,255,0.6); color: var(--tier-e); }
+
+[data-mode="dark"] .cat-stripe.s .glyph,
+[data-mode="dark"] .cat-stripe.a .glyph,
+[data-mode="dark"] .cat-stripe.b .glyph,
+[data-mode="dark"] .cat-stripe.c .glyph,
+[data-mode="dark"] .cat-stripe.d .glyph,
+[data-mode="dark"] .cat-stripe.e .glyph,
+[data-mode="dark"] .tile-stripe .glyph { background: rgba(0,0,0,0.30) !important; }
+
+/* Ledger rows */
+.row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1.1fr) auto auto;
+  gap: 10px; align-items: center;
+  padding: 9px 14px;
+  border-top: 1px solid var(--rule-soft);
+  cursor: pointer;
+  transition: background .12s;
+}
+.row:hover { background: var(--bg-muted); }
+.row .star {
+  color: var(--ink-4); font-size: 13px; cursor: pointer;
+  transition: color .12s;
+}
+.row:hover .star { color: var(--ink-3); }
+.row .star.on { color: var(--warn); }
+.row .name {
+  font-size: 13px; font-weight: 500; color: var(--ink);
+  display: flex; align-items: center; gap: 8px;
+  min-width: 0;
+}
+.row .name .new-pill {
+  font-size: 8.5px; letter-spacing: 0.6px; font-weight: 700;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--accent); color: #FDFAF2;
+  flex-shrink: 0;
+}
+.row .desc {
+  font-size: 11.5px; color: var(--ink-3);
+  font-style: italic;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: right;
+  min-width: 0; max-width: 240px;
+}
+.row .arrow {
+  color: var(--ink-4); font-size: 11px;
+  opacity: 0; transition: opacity .12s, color .12s;
+}
+.row:hover .arrow { opacity: 1; color: var(--accent); }
+
+/* ── Footer band ── */
+.foot-row {
+  margin-top: 24px;
+  padding: 14px 16px;
+  background: var(--bg-soft);
+  border: 1px dashed var(--rule);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px;
+}
+.foot-hints {
+  display: flex; align-items: center; gap: 18px;
+  font-size: 11.5px; color: var(--ink-3);
+  flex-wrap: wrap;
+}
+.foot-hints kbd {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  padding: 2px 5px; border-radius: 3px;
+  background: var(--bg-panel); color: var(--ink-2);
+  border: 1px solid var(--rule);
+  margin: 0 2px; font-weight: 500;
+}
+.foot-meta { font-size: 11px; color: var(--ink-3); font-style: italic; }
+.foot-meta b { color: var(--ink-2); font-weight: 600; font-style: normal; }
+
+/* ── Demo notes inset ── */
+.demo-notes {
+  margin-top: 24px;
+  padding: 14px 18px;
+  background: var(--bg-inset);
+  border: 1px dashed var(--rule);
+  border-radius: 10px;
+  font-size: 12px; color: var(--ink-2);
+  line-height: 1.55;
+}
+.demo-notes b { color: var(--ink); font-weight: 600; }
+
+</style>
+</head>
+<body data-mode="light">
+
+<!-- ─────────── Sidebar ─────────── -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-brand-icon">⚡</div>
+    <div class="sb-brand-name">Billing ERP</div>
+  </div>
+
+  <div class="sb-section">General</div>
+  <div class="sb-item"><span class="ic">⊟</span> Dashboard</div>
+
+  <div class="sb-section">Transact</div>
+  <div class="sb-item"><span class="ic">+</span> New sales bill</div>
+  <div class="sb-item"><span class="ic">≡</span> Sales list</div>
+  <div class="sb-item"><span class="ic">+</span> New purchase bill</div>
+  <div class="sb-item"><span class="ic">≡</span> Purchase list</div>
+  <div class="sb-item"><span class="ic">₹</span> Receipts &amp; payments</div>
+
+  <div class="sb-section">Masters</div>
+  <div class="sb-item"><span class="ic">●</span> Customers</div>
+  <div class="sb-item"><span class="ic">●</span> Suppliers</div>
+  <div class="sb-item"><span class="ic">□</span> Products</div>
+
+  <div class="sb-section">Insight</div>
+
+  <!-- Reports — active group, expanded -->
+  <div class="sb-group open">
+    <div class="sb-group-head active" onclick="this.parentElement.classList.toggle('open')">
+      <span class="ic">≋</span>
+      <span class="label">Reports</span>
+      <span class="chev">▸</span>
+    </div>
+    <div class="sb-group-children">
+
+      <div class="sb-group open" style="margin-bottom:0">
+        <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()" style="padding:5px 10px;font-size:11px;color:var(--sb-ink-2);background:transparent;box-shadow:none">
+          <span class="ic" style="font-size:8px">▢</span>
+          <span class="label">Sales</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+          <div class="sb-leaf"><span class="dot"></span> Sales Report <span class="star">★</span></div>
+        </div>
+      </div>
+
+      <div class="sb-group open" style="margin-bottom:0">
+        <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()" style="padding:5px 10px;font-size:11px;color:var(--sb-ink-2);background:transparent;box-shadow:none">
+          <span class="ic" style="font-size:8px">▢</span>
+          <span class="label">Purchase</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+          <div class="sb-leaf"><span class="dot"></span> Purchase Report</div>
+        </div>
+      </div>
+
+      <div class="sb-group open" style="margin-bottom:0">
+        <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()" style="padding:5px 10px;font-size:11px;color:var(--sb-ink-2);background:transparent;box-shadow:none">
+          <span class="ic" style="font-size:8px">▢</span>
+          <span class="label">Inventory</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+          <div class="sb-leaf"><span class="dot"></span> Stock Report <span class="star">★</span></div>
+          <div class="sb-leaf"><span class="dot"></span> Stock Summary</div>
+          <div class="sb-leaf"><span class="dot"></span> Fast / Slow Movers</div>
+          <div class="sb-leaf"><span class="dot"></span> Transfer Register <span class="new-pill">NEW</span></div>
+          <div class="sb-leaf"><span class="dot"></span> Godown Valuation <span class="new-pill">NEW</span></div>
+        </div>
+      </div>
+
+      <div class="sb-group open" style="margin-bottom:0">
+        <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()" style="padding:5px 10px;font-size:11px;color:var(--sb-ink-2);background:transparent;box-shadow:none">
+          <span class="ic" style="font-size:8px">▢</span>
+          <span class="label">Financial</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+          <div class="sb-leaf"><span class="dot"></span> Day Book</div>
+          <div class="sb-leaf"><span class="dot"></span> Profit &amp; Loss <span class="star">★</span></div>
+          <div class="sb-leaf"><span class="dot"></span> Balance Sheet</div>
+          <div class="sb-leaf"><span class="dot"></span> Trial Balance</div>
+          <div class="sb-leaf"><span class="dot"></span> Cash Flow</div>
+        </div>
+      </div>
+
+      <div class="sb-group open" style="margin-bottom:0">
+        <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()" style="padding:5px 10px;font-size:11px;color:var(--sb-ink-2);background:transparent;box-shadow:none">
+          <span class="ic" style="font-size:8px">▢</span>
+          <span class="label">Parties</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+          <div class="sb-leaf"><span class="dot"></span> Party Ledger</div>
+          <div class="sb-leaf"><span class="dot"></span> Aging Report <span class="star">★</span></div>
+        </div>
+      </div>
+
+      <div class="sb-group open" style="margin-bottom:0">
+        <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()" style="padding:5px 10px;font-size:11px;color:var(--sb-ink-2);background:transparent;box-shadow:none">
+          <span class="ic" style="font-size:8px">▢</span>
+          <span class="label">Tax / GST</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+          <div class="sb-leaf"><span class="dot"></span> GSTR-1</div>
+          <div class="sb-leaf"><span class="dot"></span> GSTR-3B</div>
+          <div class="sb-leaf"><span class="dot"></span> HSN Summary</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+
+  <div class="sb-spacer"></div>
+  <div class="sb-foot">
+    <div class="sb-avatar">A</div>
+    <div class="sb-foot-text">
+      <b>Ali Ansari</b>
+      <span>Admin · Acme Traders</span>
+    </div>
+  </div>
+
+</aside>
+
+<!-- ─────────── Page ─────────── -->
+<main class="page">
+
+  <div class="crumb-bar">
+    <span><a href="#">Insight</a> <span class="sep">/</span> <b>Reports</b></span>
+    <div class="theme-toggle">
+      <button class="on" onclick="document.body.dataset.mode='light';this.classList.add('on');this.nextElementSibling.classList.remove('on')">☀ Light</button>
+      <button onclick="document.body.dataset.mode='dark';this.classList.add('on');this.previousElementSibling.classList.remove('on')">☾ Dark</button>
+    </div>
+  </div>
+
+  <!-- ── Hero ── -->
+  <div class="hero">
+    <div>
+      <div class="hero-title">Reports <span class="ampersand">&amp;</span> ledgers</div>
+      <div class="hero-sub">
+        <span><b>17</b> reports across <b>6</b> categories</span>
+        <span class="dot-sep">·</span>
+        <span><b>4</b> pinned · <b>2</b> need attention</span>
+        <span class="dot-sep">·</span>
+        <span>FY <b>2025–26</b></span>
+      </div>
+    </div>
+
+    <div class="fy-block">
+      <div class="fy-picker">
+        <span class="fy-label">FY 2025–26</span>
+        <span class="fy-range">
+          01 Apr 2025 <span class="arrow">→</span> 31 Mar 2026 <span class="caret">▾</span>
+        </span>
+        <div class="fy-presets">
+          <button>This M</button>
+          <button>Last M</button>
+          <button>QTD</button>
+          <button class="on">YTD</button>
+        </div>
+      </div>
+      <div class="compare-toggle on" onclick="this.classList.toggle('on')">
+        <span class="check">✓</span>
+        Compare LY
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Search ── -->
+  <div class="search-row">
+    <div class="search-wrap">
+      <span class="icon">⌕</span>
+      <input id="search" placeholder="Search reports — try “p&amp;l”, “gstr”, “stock”, “overdue”…">
+      <kbd>⌘ K</kbd>
+    </div>
+    <div class="search-actions">
+      <span class="icon-btn" title="Filter by category">⫶</span>
+      <span class="icon-btn" title="Schedule a report">⏱</span>
+      <span class="icon-btn" title="Export queue">⇩</span>
+    </div>
+  </div>
+
+  <!-- ── Needs Attention ── -->
+  <div class="needs">
+    <div class="needs-head">
+      <div class="glyph">!</div>
+      <div class="needs-head-text">
+        <span class="label">Needs attention</span>
+        <span class="count">2 items</span>
+      </div>
+    </div>
+    <div class="needs-list">
+      <div class="needs-item">
+        <span class="sev urgent"></span>
+        <div class="body">
+          <span class="msg">GSTR-1 due in 11 days</span>
+          <span class="meta">Filing window opens 11 May · 168 invoices ready</span>
+        </div>
+        <span class="arrow">→</span>
+      </div>
+      <div class="needs-item">
+        <span class="sev warn"></span>
+        <div class="body">
+          <span class="msg">7 parties overdue &gt; 60 days</span>
+          <span class="meta">₹4,32,180 outstanding · oldest 142 days</span>
+        </div>
+        <span class="arrow">→</span>
+      </div>
+      <div class="needs-item">
+        <span class="sev info"></span>
+        <div class="body">
+          <span class="msg">Cash flow refresh failed</span>
+          <span class="meta">Last good snapshot 2h ago · click to retry</span>
+        </div>
+        <span class="arrow">↻</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Pinned ── -->
+  <div class="section-hd">
+    <h2><span class="glyph">★</span> Pinned reports</h2>
+    <span class="aside">live values for the selected period · <a href="#">manage favorites</a></span>
+  </div>
+
+  <div class="pinned-strip">
+
+    <!-- Net Profit -->
+    <div class="tile">
+      <div class="tile-stripe" style="background:var(--tier-s-soft);color:var(--tier-s)">
+        <span class="glyph" style="background:rgba(255,255,255,0.6);color:var(--tier-s)">▤</span>
+        <span class="name">Profit &amp; Loss</span>
+        <span class="star">★</span>
+      </div>
+      <div class="tile-body">
+        <div class="tile-label">Net profit · YTD</div>
+        <div class="tile-value-row">
+          <span class="tile-value serif up">₹ 18.42 L</span>
+          <span class="tile-delta up">↑ 8.4% LY</span>
+        </div>
+        <div class="tile-spark">
+          <svg viewBox="0 0 200 28" preserveAspectRatio="none" width="100%" height="100%">
+            <defs>
+              <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stop-color="var(--up)" stop-opacity="0.18"/>
+                <stop offset="100%" stop-color="var(--up)" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path d="M0,22 L18,20 L36,17 L54,18 L72,14 L90,11 L108,13 L126,9 L144,7 L162,8 L180,5 L200,3 L200,28 L0,28 Z" fill="url(#g1)"/>
+            <path d="M0,22 L18,20 L36,17 L54,18 L72,14 L90,11 L108,13 L126,9 L144,7 L162,8 L180,5 L200,3" fill="none" stroke="var(--up)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="tile-foot">
+          <span>Revenue minus expenses</span>
+          <span class="open-arrow">Open →</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aging -->
+    <div class="tile">
+      <div class="tile-stripe" style="background:var(--tier-c-soft);color:var(--tier-c)">
+        <span class="glyph" style="background:rgba(255,255,255,0.6);color:var(--tier-c)">⌗</span>
+        <span class="name">Aging Report</span>
+        <span class="star">★</span>
+      </div>
+      <div class="tile-body">
+        <div class="tile-label">Outstanding · all customers</div>
+        <div class="tile-value-row">
+          <span class="tile-value serif warn">₹ 12.86 L</span>
+          <span class="tile-delta down">↓ 4.1% LY</span>
+        </div>
+        <div class="tile-spark">
+          <svg viewBox="0 0 200 28" preserveAspectRatio="none" width="100%" height="100%">
+            <defs>
+              <linearGradient id="g2" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stop-color="var(--warn)" stop-opacity="0.18"/>
+                <stop offset="100%" stop-color="var(--warn)" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path d="M0,8 L18,11 L36,9 L54,13 L72,12 L90,15 L108,14 L126,17 L144,16 L162,18 L180,20 L200,22 L200,28 L0,28 Z" fill="url(#g2)"/>
+            <path d="M0,8 L18,11 L36,9 L54,13 L72,12 L90,15 L108,14 L126,17 L144,16 L162,18 L180,20 L200,22" fill="none" stroke="var(--warn)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="tile-foot">
+          <span><b style="color:var(--down);font-weight:600">7</b> &gt; 60d · 38 parties</span>
+          <span class="open-arrow">Open →</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stock value -->
+    <div class="tile">
+      <div class="tile-stripe" style="background:var(--tier-b-soft);color:var(--tier-b)">
+        <span class="glyph" style="background:rgba(255,255,255,0.6);color:var(--tier-b)">▥</span>
+        <span class="name">Stock Report</span>
+        <span class="star">★</span>
+      </div>
+      <div class="tile-body">
+        <div class="tile-label">Stock value · 3 godowns</div>
+        <div class="tile-value-row">
+          <span class="tile-value serif">₹ 47.12 L</span>
+          <span class="tile-delta flat">~ 0.6% LY</span>
+        </div>
+        <div class="tile-spark">
+          <svg viewBox="0 0 200 28" preserveAspectRatio="none" width="100%" height="100%">
+            <defs>
+              <linearGradient id="g3" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stop-color="var(--tier-b)" stop-opacity="0.18"/>
+                <stop offset="100%" stop-color="var(--tier-b)" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path d="M0,14 L18,15 L36,13 L54,16 L72,15 L90,17 L108,14 L126,12 L144,15 L162,13 L180,14 L200,12 L200,28 L0,28 Z" fill="url(#g3)"/>
+            <path d="M0,14 L18,15 L36,13 L54,16 L72,15 L90,17 L108,14 L126,12 L144,15 L162,13 L180,14 L200,12" fill="none" stroke="var(--tier-b)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="tile-foot">
+          <span>1,284 SKUs · 3 dead</span>
+          <span class="open-arrow">Open →</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Recently opened ── -->
+  <div class="section-hd">
+    <h2><span class="glyph">⌖</span> Recently opened</h2>
+    <span class="aside">last visited by you · cleared on logout</span>
+  </div>
+  <div class="recent-strip">
+    <div class="recent-card">
+      <div class="glyph" style="background:var(--tier-s-soft);color:var(--tier-s)">▤</div>
+      <div class="body">
+        <span class="name">Day Book</span>
+        <span class="when">Today · 2:14 pm</span>
+      </div>
+    </div>
+    <div class="recent-card">
+      <div class="glyph" style="background:var(--tier-e-soft);color:var(--tier-e)">⇗</div>
+      <div class="body">
+        <span class="name">Sales Report</span>
+        <span class="when">Today · 11:08 am</span>
+      </div>
+    </div>
+    <div class="recent-card">
+      <div class="glyph" style="background:var(--tier-d-soft);color:var(--tier-d)">⊞</div>
+      <div class="body">
+        <span class="name">GSTR-3B</span>
+        <span class="when">Yesterday · 6:42 pm</span>
+      </div>
+    </div>
+    <div class="recent-card">
+      <div class="glyph" style="background:var(--tier-b-soft);color:var(--tier-b)">⊟</div>
+      <div class="body">
+        <span class="name">Godown Valuation</span>
+        <span class="when">Mon · 28 Apr</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Browse all (P&L ledger style category panes) ── -->
+  <div class="section-hd">
+    <h2><span class="glyph">≡</span> Browse all reports</h2>
+    <span class="aside">click any row to open · hover for the open arrow</span>
+  </div>
+
+  <div class="cat-grid">
+
+    <!-- 1. Sales -->
+    <div class="cat-pane">
+      <div class="cat-stripe e">
+        <span class="glyph">⇗</span>
+        <span class="label">Sales</span>
+        <span class="blurb">Period registers, customer rollups, item profitability</span>
+        <span class="count">1 report</span>
+      </div>
+      <div class="row">
+        <span class="star on">★</span>
+        <span class="name">Sales Report</span>
+        <span class="desc">By date / customer / item · margin + tax breakup</span>
+        <span class="arrow">→</span>
+      </div>
+    </div>
+
+    <!-- 2. Purchase -->
+    <div class="cat-pane">
+      <div class="cat-stripe a">
+        <span class="glyph">⇙</span>
+        <span class="label">Purchase</span>
+        <span class="blurb">Supplier registers, item costing, supplier-bill matching</span>
+        <span class="count">1 report</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Purchase Report</span>
+        <span class="desc">By supplier / item · supplier bill no</span>
+        <span class="arrow">→</span>
+      </div>
+    </div>
+
+    <!-- 3. Inventory -->
+    <div class="cat-pane">
+      <div class="cat-stripe b">
+        <span class="glyph">▥</span>
+        <span class="label">Inventory</span>
+        <span class="blurb">Where stock sits today, what moved, godown transfers</span>
+        <span class="count">5 reports</span>
+      </div>
+      <div class="row">
+        <span class="star on">★</span>
+        <span class="name">Stock Report</span>
+        <span class="desc">Per-product current stock + value</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Stock Summary</span>
+        <span class="desc">Period opening / in / out / closing</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Fast / Slow Movers</span>
+        <span class="desc">Top &amp; bottom by quantity sold</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Transfer Register <span class="new-pill">NEW</span></span>
+        <span class="desc">Godown-to-godown movement log</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Godown Valuation <span class="new-pill">NEW</span></span>
+        <span class="desc">Per-godown stock value snapshot</span>
+        <span class="arrow">→</span>
+      </div>
+    </div>
+
+    <!-- 4. Financial -->
+    <div class="cat-pane">
+      <div class="cat-stripe s">
+        <span class="glyph">▤</span>
+        <span class="label">Financial</span>
+        <span class="blurb">Books of account · day book, P&amp;L, balance sheet, cash flow</span>
+        <span class="count">5 reports</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Day Book</span>
+        <span class="desc">Chronological voucher list</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star on">★</span>
+        <span class="name">Profit &amp; Loss</span>
+        <span class="desc">Revenue minus expenses</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Balance Sheet</span>
+        <span class="desc">Assets · liabilities · equity (as-of date)</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Trial Balance</span>
+        <span class="desc">Group / sub-group ledger balances</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Cash Flow</span>
+        <span class="desc">Cash in vs cash out</span>
+        <span class="arrow">→</span>
+      </div>
+    </div>
+
+    <!-- 5. Parties -->
+    <div class="cat-pane">
+      <div class="cat-stripe c">
+        <span class="glyph">⌗</span>
+        <span class="label">Parties</span>
+        <span class="blurb">Per-party statements and aged receivables / payables</span>
+        <span class="count">2 reports</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">Party Ledger</span>
+        <span class="desc">Per-customer / supplier statement</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star on">★</span>
+        <span class="name">Aging Report</span>
+        <span class="desc">0–30 / 30–60 / 60–90 / 90+ buckets</span>
+        <span class="arrow">→</span>
+      </div>
+    </div>
+
+    <!-- 6. Tax / GST -->
+    <div class="cat-pane">
+      <div class="cat-stripe d">
+        <span class="glyph">⊞</span>
+        <span class="label">Tax / GST</span>
+        <span class="blurb">Filing-ready exports for monthly GSTR returns</span>
+        <span class="count">3 reports</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">GSTR-1</span>
+        <span class="desc">Outward supplies · B2B / B2C / CDN / HSN</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">GSTR-3B</span>
+        <span class="desc">Monthly summary, ITC, liability</span>
+        <span class="arrow">→</span>
+      </div>
+      <div class="row">
+        <span class="star">★</span>
+        <span class="name">HSN Summary</span>
+        <span class="desc">HSN aggregation for GSTR-1 Table 12</span>
+        <span class="arrow">→</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Foot ── -->
+  <div class="foot-row">
+    <div class="foot-hints">
+      <span><kbd>⌘ K</kbd> search</span>
+      <span><kbd>↑</kbd> <kbd>↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> open</span>
+      <span><kbd>⇧</kbd> + <kbd>★</kbd> toggle pin</span>
+      <span><kbd>⌥</kbd> + <kbd>D</kbd> toggle dark</span>
+    </div>
+    <div class="foot-meta">
+      Last cached refresh <b>2 min ago</b> · auto-refresh every 5 min
+    </div>
+  </div>
+
+  <div class="demo-notes">
+    <b>Mockup notes —</b>
+    Same layout the user shipped (header + FY picker, search, needs-attention,
+    pinned live-metric tiles, P&amp;L-style category panes), re-rendered in the
+    editorial visual language. Additions on top of the implementation:
+    sparkline + LY delta on each pinned tile, prioritised severity dots in the
+    needs strip, a quiet "recently opened" cluster, FY presets next to the
+    range picker, a compare-LY toggle, and per-row open-arrows that fade in on
+    hover. Sidebar shows the grouped Reports tree with the pin-marked items
+    starred. Light/dark toggle wired in the breadcrumb bar.
+  </div>
+
+</main>
+
+<script>
+  // ⌘K / Ctrl+K to focus search.
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      document.getElementById('search').focus();
+    }
+    // ⌥+D to toggle dark mode.
+    if (e.altKey && e.key.toLowerCase() === 'd') {
+      e.preventDefault();
+      const m = document.body.dataset.mode === 'dark' ? 'light' : 'dark';
+      document.body.dataset.mode = m;
+      document.querySelectorAll('.theme-toggle button').forEach((b, i) => {
+        b.classList.toggle('on', (i === 0) === (m === 'light'));
+      });
+    }
+  });
+
+  // Star toggle on rows.
+  document.querySelectorAll('.row .star').forEach((s) => {
+    s.addEventListener('click', (e) => {
+      e.stopPropagation();
+      s.classList.toggle('on');
+    });
+  });
+</script>
+
+</body>
+</html>
