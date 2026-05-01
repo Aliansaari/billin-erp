@@ -1,111 +1,140 @@
-/* Monthly Register — Tally-faithful styling. White background, blue
-   title strip, serif text, italic numbers, yellow row highlight. */
+/* Monthly Register — modern dark-mode styling matching the BillsOutstanding
+   visual language. Same .bo-* shape: full-page flex column, sticky header,
+   tabular-nums numerics. The Tally-specific bits we keep are functional,
+   not visual: running closing balance + Dr/Cr suffix, and the column-group
+   header that names the ledger being summarized. */
 
 .mr-page {
-  display: flex; flex-direction: column;
-  height: 100%; min-height: 0;
-  background: #ffffff;
-  color: #000000;
-  font-family: 'Times New Roman', Georgia, serif;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
 }
 
-/* ── Title strip — Tally's blue header bar ───────────────────────── */
-.mr-titlebar {
+/* ── Header strip ─────────────────────────────────────────────────── */
+.mr-hd {
   flex-shrink: 0;
+  padding: 14px 24px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
   display: grid;
-  grid-template-columns: 1fr 2fr 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
-  padding: 4px 16px;
-  background: linear-gradient(to bottom, #5b8ac0, #80a8d4);
-  color: #000000;
-  font-weight: 700;
-  border-bottom: 1px solid #2c4a70;
 }
-.mr-title-left   { font-size: 13px; }
-.mr-title-center { font-size: 14px; text-align: center; }
-.mr-title-right  { text-align: right; }
-.mr-close {
-  border: none; background: transparent; cursor: pointer;
-  font-size: 18px; line-height: 1; padding: 2px 8px;
-  color: #1a1a1a; font-weight: 700;
+.mr-title {
+  display: flex; align-items: baseline; gap: 12px;
+  min-width: 0; flex-wrap: wrap;
 }
-.mr-close:hover { color: #b00020; }
+.mr-title h1 {
+  margin: 0;
+  font-size: 20px; font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary); line-height: 1.2;
+}
+.mr-sub {
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+.mr-period-chip {
+  font-family: 'Geist Mono','JetBrains Mono', monospace;
+  font-size: 11px;
+}
+.mr-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
-/* ── Toolbar (period + compare-with) ─────────────────────────────── */
-.mr-toolbar {
-  flex-shrink: 0;
-  padding: 6px 12px;
-  background: #f4f4f4;
-  border-bottom: 1px solid #d0d0d0;
-}
-
-/* ── Table ─────────────────────────────────────────────────────────── */
+/* ── Table wrap ───────────────────────────────────────────────────── */
 .mr-tablewrap {
   flex: 1; min-height: 0;
   overflow: auto;
-  padding: 12px 16px 24px 16px;
-  background: #ffffff;
+  padding: 0;
 }
 .mr-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
-  color: #000000;
+  color: var(--fg-primary);
 }
-.mr-table th, .mr-table td {
-  padding: 2px 8px;
-  vertical-align: top;
-}
-.mr-col-particulars { width: 32%; }
 
-/* Header rows — minimal borders, bold text, no background. */
-.mr-table thead th {
-  font-weight: 400;
+/* ── Header rows ──────────────────────────────────────────────────── */
+.mr-th-grp th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg-panel);
+  padding: 10px 16px 4px;
+  font-weight: 500;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.mr-grp-label {
+  color: var(--fg-secondary);
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.mr-grp-primary { color: var(--accent, #6366F1); }
+.mr-grp-overlay {
+  border-left: 1px solid var(--border-subtle);
+  color: var(--warning, #B5872B);
+}
+.mr-grp-side {
+  color: var(--fg-tertiary, #6b7280);
+  font-weight: 400; text-transform: none; letter-spacing: 0;
+}
+
+.mr-th-cols th {
+  position: sticky; top: 36px; z-index: 2;
+  background: var(--bg-panel);
+  padding: 6px 16px 8px;
+  font-weight: 500; font-size: 11px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border);
   text-align: right;
 }
-.mr-th-group  th { padding-top: 4px;   border-top: none; }
-.mr-th-cols   th { border-bottom: 1px solid #000; padding-bottom: 4px; }
-.mr-th-particulars { text-align: left;  letter-spacing: 0.08em; padding-left: 4px; }
-.mr-th-num         { text-align: right; min-width: 110px; }
-.mr-th-cb          { text-align: right; min-width: 130px; padding-right: 8px;
-                     border-bottom: 1px solid #000; }
-.mr-grp-label      { text-align: center; font-style: italic; }
-.mr-grp-italic     { font-style: italic; font-weight: 400; }
+.mr-th-particulars { text-align: left !important; padding-left: 24px !important; }
+.mr-th-num { min-width: 110px; }
+.mr-th-closing { min-width: 150px; padding-right: 24px !important; }
 
-/* Visual divider between primary + overlay column groups. */
-.mr-grp-overlay { border-left: 1px solid #b0b0b0; }
-.mr-table thead th.mr-grp-overlay { border-left: 1px solid #b0b0b0; }
+/* ── Body rows ────────────────────────────────────────────────────── */
+.mr-table tbody td,
+.mr-table tfoot td {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+.mr-particulars { padding-left: 24px !important; }
+.mr-num { text-align: right; font-family: 'Geist Mono','JetBrains Mono', monospace; }
+.mr-num-strong { color: var(--fg-primary); font-weight: 500; }
+.mr-side { font-size: 11px; color: var(--fg-tertiary, #6b7280); font-weight: 400; }
+.mr-side-cr { color: var(--success, #10B981); }
+.mr-side-dr { color: var(--accent, #6366F1); }
+.mr-zero { color: var(--fg-tertiary, #6b7280); }
 
-/* Row body */
-.mr-table tbody td { padding: 1px 8px; }
-.mr-num { text-align: right; font-variant-numeric: tabular-nums; }
-.mr-row { cursor: pointer; }
-.mr-row:hover, .mr-row-active { background: #ffd45c; }   /* Tally yellow */
+.mr-row { cursor: pointer; transition: background 0.1s; }
+.mr-row:hover { background: var(--bg-hover, rgba(99,102,241,0.06)); }
 
-.mr-row-opening { background: #f9f9f9; }
-.mr-row-opening td { padding: 4px 8px; border-bottom: 1px dashed #ccc; }
+.mr-row-opening td {
+  background: var(--bg-elevated, rgba(0,0,0,0.02));
+  font-style: italic;
+  color: var(--fg-secondary);
+}
+
+.mr-row-opening td:first-child,
+.mr-row-total   td:first-child { padding-left: 24px; }
+.mr-row-total td:last-child   { padding-right: 24px; }
 
 .mr-row-total td {
-  border-top: 1px solid #000;
-  border-bottom: 2px double #000;
-  padding: 4px 8px;
-  font-weight: 700;
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+  background: var(--bg-panel);
+  font-weight: 600;
+  position: sticky; bottom: 0;
 }
 
-.mr-skel { padding: 80px 24px; text-align: center; color: #6b6b6b; }
+.mr-skel { padding: 80px 24px; text-align: center; color: var(--fg-secondary); }
 
-/* Print: drop the toolbar; keep the table on a clean white page. */
 @media print {
-  .mr-toolbar, .mr-titlebar .mr-title-right { display: none !important; }
+  .mr-actions { display: none !important; }
   .mr-page { height: auto; }
-  .mr-tablewrap { padding: 0 12px; overflow: visible; }
+  .mr-tablewrap { overflow: visible; }
 }
-
-/* Dark-mode override — the screen mockup was rendered light-mode (Tally
-   only ships a light theme). Force light look regardless of the app's
-   theme so the register reads as Tally would. */
-.mr-page,
-.mr-page .mr-titlebar,
-.mr-page .mr-toolbar,
-.mr-page .mr-tablewrap,
-.mr-page .mr-table { color-scheme: light; }
