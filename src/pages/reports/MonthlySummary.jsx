@@ -244,7 +244,21 @@ export default function MonthlyRegister({ mode }) {
           />
           <Tooltip title="Overlay a second register's columns next to this one — useful for Sales↔Purchase or Receipt↔Payment">
             <Select
-              size="small" value={overlay || ''} onChange={(v) => setOverlay(v || '')}
+              size="small" value={overlay || ''}
+              onChange={(v) => {
+                setOverlay(v || '');
+                // Shift focus off the dropdown so ↑/↓ go to the row
+                // navigator immediately. setTimeout lets antd close
+                // the panel first; the Select itself is the active
+                // element after a click-select, so blur() returns
+                // focus to <body> and the window keydown listener
+                // takes over without another click.
+                setTimeout(() => {
+                  if (document.activeElement && typeof document.activeElement.blur === 'function') {
+                    document.activeElement.blur();
+                  }
+                }, 0);
+              }}
               style={{ width: 200 }}
               options={overlayOptions}
               suffixIcon={<SwapOutlined />}
