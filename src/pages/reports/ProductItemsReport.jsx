@@ -26,7 +26,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { reportAPI, partyAPI } from '../../api';
+import { reportAPI, partyAPI, productAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import './bills-outstanding.css';
@@ -146,23 +146,18 @@ export default function ProductItemsReport({ side }) {
   const [presetKey, setPresetKey] = useState(() => initialFromUrl('preset', 'this_month'));
   const [partyIds, setPartyIds]   = useState(() => initialArrFromUrl('party_ids').map(Number).filter(Number.isFinite));
   const [categoryIds, setCategoryIds] = useState(() => initialArrFromUrl('category_ids').map(Number).filter(Number.isFinite));
-  const [productSearchInput, setProductSearchInput] = useState(() => initialFromUrl('product_search'));
-  const [productSearch, setProductSearch] = useState(() => initialFromUrl('product_search'));
+  const [productIds, setProductIds] = useState(() => initialArrFromUrl('product_ids').map(Number).filter(Number.isFinite));
   const [barcode, setBarcode] = useState(() => initialFromUrl('barcode'));
   const [hsnCode, setHsnCode] = useState(() => initialFromUrl('hsn_code'));
   const [searchInput, setSearchInput] = useState(() => initialFromUrl('search'));
   const [search, setSearch] = useState(() => initialFromUrl('search'));
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  // Debounce free-text search inputs.
+  // Debounce free-text search.
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput), 300);
     return () => clearTimeout(t);
   }, [searchInput]);
-  useEffect(() => {
-    const t = setTimeout(() => setProductSearch(productSearchInput), 300);
-    return () => clearTimeout(t);
-  }, [productSearchInput]);
 
   // ── Column visibility — persisted per side ────────────────────────
   const COLS_KEY = colsKey(side);
@@ -191,24 +186,24 @@ export default function ProductItemsReport({ side }) {
     if (presetKey)       next.preset         = presetKey;
     if (partyIds.length) next.party_ids      = partyIds.join(',');
     if (categoryIds.length) next.category_ids = categoryIds.join(',');
-    if (productSearch)   next.product_search = productSearch;
+    if (productIds.length)  next.product_ids  = productIds.join(',');
     if (barcode)         next.barcode        = barcode;
     if (hsnCode)         next.hsn_code       = hsnCode;
     if (search)          next.search         = search;
     setSearchParams(next, { replace: true });
-  }, [fromDate, toDate, presetKey, partyIds, categoryIds, productSearch, barcode, hsnCode, search, setSearchParams]);
+  }, [fromDate, toDate, presetKey, partyIds, categoryIds, productIds, barcode, hsnCode, search, setSearchParams]);
 
   // ── Server filters → virtualized hook ────────────────────────────
   const filters = useMemo(() => ({
     from_date:      fromDate,
     to_date:        toDate,
-    party_ids:      partyIds.length ? partyIds.join(',') : undefined,
+    party_ids:      partyIds.length    ? partyIds.join(',')    : undefined,
     category_ids:   categoryIds.length ? categoryIds.join(',') : undefined,
-    product_search: productSearch || undefined,
+    product_ids:    productIds.length  ? productIds.join(',')  : undefined,
     barcode:        barcode || undefined,
     hsn_code:       hsnCode || undefined,
     search:         search || undefined,
-  }), [fromDate, toDate, partyIds, categoryIds, productSearch, barcode, hsnCode, search]);
+  }), [fromDate, toDate, partyIds, categoryIds, productIds, barcode, hsnCode, search]);
 
   const { rows, totalCount, summary, meta, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: cfg.fetcher,
@@ -233,6 +228,38 @@ export default function ProductItemsReport({ side }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [cfg.partyTypeQuery]);
+
+  // ── Product options — filtered by selected categories ────────────
+  // Mirrors the sales/purchase bill-entry form: when the operator
+  // narrows by category, the product dropdown shrinks to show only
+  // products in that category. Re-fetches when categoryIds changes.
+  // Single-category filter goes through productAPI.getAll's
+  // category_id param; multi-category falls back to client-side
+  // filtering on a wider fetch (no multi-cat support in the API yet).
+  const [productOptions, setProductOptions] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    const params = { limit: 5000 };
+    if (categoryIds.length === 1) params.category_id = categoryIds[0];
+    productAPI.getAll(params)
+      .then((r) => {
+        if (cancelled) return;
+        const list = r?.data?.data || r?.data || [];
+        const filtered = categoryIds.length > 1
+          ? list.filter((p) => categoryIds.includes(p.category_id))
+          : list;
+        setProductOptions(filtered.map((p) => ({
+          value: p.product_id,
+          label: p.product_name + (p.barcode ? ` · ${p.barcode}` : ''),
+        })));
+        // Drop product selections that no longer match the new
+        // category set so the chip list stays honest.
+        setProductIds((ids) => ids.filter((id) => filtered.some((p) => p.product_id === id)));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryIds.join(',')]);
 
   // ── Period preset handler ─────────────────────────────────────────
   const applyPreset = useCallback((k) => {
@@ -454,11 +481,15 @@ export default function ProductItemsReport({ side }) {
             allowClear maxTagCount="responsive"
             style={{ minWidth: 160, maxWidth: 240 }}
           />
-          <Input size="small" allowClear
-            placeholder="Product name" prefix={<SearchOutlined />}
-            value={productSearchInput}
-            onChange={(e) => setProductSearchInput(e.target.value)}
-            style={{ width: 200 }}
+          <Select size="small" mode="multiple"
+            placeholder={categoryIds.length
+              ? `Product (${productOptions.length} in category)`
+              : 'Product'}
+            value={productIds} onChange={setProductIds}
+            options={productOptions}
+            optionFilterProp="label" showSearch
+            allowClear maxTagCount="responsive"
+            style={{ minWidth: 220, maxWidth: 320 }}
           />
           <Input size="small" allowClear
             placeholder="Barcode" prefix={<BarcodeOutlined />}
@@ -485,10 +516,9 @@ export default function ProductItemsReport({ side }) {
       <div className="bo-tablewrap">
         {totalCount === 0 && !loading ? (
           <div className="bo-empty">
-            {(partyIds.length || categoryIds.length || productSearch || barcode || hsnCode || search)
+            {(partyIds.length || categoryIds.length || productIds.length || barcode || hsnCode || search)
               ? <>No matches — <a onClick={() => {
-                  setPartyIds([]); setCategoryIds([]);
-                  setProductSearchInput(''); setProductSearch('');
+                  setPartyIds([]); setCategoryIds([]); setProductIds([]);
                   setBarcode(''); setHsnCode('');
                   setSearchInput(''); setSearch('');
                 }}>clear filters</a></>

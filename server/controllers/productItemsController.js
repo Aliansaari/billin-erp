@@ -127,12 +127,19 @@ async function _itemsList(req, side) {
     // sales_bill_items has category_id; purchase_bill_items doesn't —
     // resolve via the products table on the purchase side. Sales path
     // stays direct so the index on (category_id) keeps working.
-    if (isSales) {
-      where.push('i.category_id IN (:categoryIds)');
-    } else {
-      where.push('EXISTS (SELECT 1 FROM products pp WHERE pp.product_id = i.product_id AND pp.category_id IN (:categoryIds))');
-    }
+    // Either way, we ALSO match items whose category_id is null but
+    // whose product currently belongs to one of the requested
+    // categories — covers seed rows where category_id wasn't snapshot
+    // on the line at bill-creation time.
+    where.push('('
+      + (isSales ? 'i.category_id IN (:categoryIds) OR ' : '')
+      + 'EXISTS (SELECT 1 FROM products pp WHERE pp.product_id = i.product_id AND pp.category_id IN (:categoryIds))'
+      + ')');
     params.categoryIds = categoryIds;
+  }
+  if (toIntArr(q.product_ids).length) {
+    where.push('i.product_id IN (:productIds)');
+    params.productIds = toIntArr(q.product_ids);
   }
   if (productSearch) {
     where.push('i.product_name ILIKE :productSearch');
@@ -169,8 +176,10 @@ async function _itemsList(req, side) {
       b.bill_date,
       i.product_id,
       i.product_name,
-      ${isSales ? 'i.category_id' : '(SELECT pp.category_id FROM products pp WHERE pp.product_id = i.product_id) AS category_id'},
-      i.category_name,
+      ${isSales
+        ? `COALESCE(i.category_id, pp.category_id) AS category_id`
+        : `pp.category_id AS category_id`},
+      COALESCE(NULLIF(i.category_name, ''), c.category_name, '—') AS category_name,
       i.hsn_code,
       i.barcode,
       i.size,
@@ -198,6 +207,8 @@ async function _itemsList(req, side) {
       FROM ${itemTbl} i
       JOIN ${billTbl} b ON b.${billPK} = i.${billPK}
       JOIN parties p   ON p.party_id  = b.${partyFK}
+      LEFT JOIN products pp  ON pp.product_id   = i.product_id
+      LEFT JOIN categories c ON c.category_id   = pp.category_id
      WHERE ${whereSql}
      ORDER BY ${sortCol} ${dir}, i.item_id ${dir}
      LIMIT :limit OFFSET :offset
