@@ -3,6 +3,7 @@ const router = express.Router();
 const reportController = require('../controllers/reportController');
 const financialReports = require('../controllers/financialReportsController');
 const operationalReports = require('../controllers/operationalReportsController');
+const dayBookController = require('../controllers/dayBookController');
 const { authenticateToken } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 
@@ -13,6 +14,7 @@ router.use(authenticateToken);
 router.get('/trial-balance',      requirePermission('accounts.view'), financialReports.trialBalance);
 router.get('/balance-sheet',      requirePermission('accounts.view'), financialReports.balanceSheet);
 router.get('/cash-flow',          requirePermission('accounts.view'), financialReports.cashFlow);
+router.get('/day-book',           requirePermission('accounts.view'), dayBookController.dayBook);
 // /receivables-aging + /payables-aging removed in Phase R5 follow-up.
 // Use /api/reports/aging?party_type=Customer|Supplier (single source).
 

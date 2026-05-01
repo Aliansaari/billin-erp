@@ -189,6 +189,7 @@ export const reportAPI = {
   balanceSheet: (params) => api.get('/reports/balance-sheet',  { params }),
   // Phase R2 — Cash Flow + Aging
   cashFlow:           (params) => api.get('/reports/cash-flow',          { params }),
+  dayBook:            (params) => api.get('/reports/day-book',           { params }),
   // Phase R3 — Operational summaries (Sales/Purchase Registers folded
   // into the canonical /reports/sales and /reports/purchases above).
   hsnSummary:         (params) => api.get('/reports/hsn-summary',        { params }),
