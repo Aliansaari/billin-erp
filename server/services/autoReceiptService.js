@@ -141,7 +141,8 @@ async function syncAutoReceiptForBill({ kind, bill, t }) {
 
   if (existingId) {
     // UPDATE in place — keeps history (created_date) intact while
-    // re-syncing date / amount / party in case the bill was edited.
+    // re-syncing date / amount / party / payment_method in case the
+    // bill was edited.
     await sequelize.query(
       `UPDATE payments_receipts
           SET transaction_date = :td,
@@ -150,6 +151,7 @@ async function syncAutoReceiptForBill({ kind, bill, t }) {
               reference_bill_id     = :bid,
               reference_bill_type   = :rbt,
               reference_bill_number = :bn,
+              payment_method   = :pm,
               remarks          = :rem,
               modified_date    = NOW()
         WHERE transaction_id = :id`,
@@ -157,6 +159,7 @@ async function syncAutoReceiptForBill({ kind, bill, t }) {
         replacements: {
           id: existingId, td: billDate, pid: partyId, amt: paid,
           bid: billId, rbt: cfg.billType, bn: billNo,
+          pm: bill.payment_method || null,
           rem: `Auto-generated from ${cfg.billType.toLowerCase()} bill ${billNo}`,
         },
         transaction: t,
@@ -186,10 +189,10 @@ async function syncAutoReceiptForBill({ kind, bill, t }) {
     `INSERT INTO payments_receipts
        (transaction_number, transaction_type, transaction_date,
         party_id, reference_bill_id, reference_bill_type, reference_bill_number,
-        total_amount, source, source_bill_id, remarks,
+        total_amount, source, source_bill_id, payment_method, remarks,
         is_cancelled, created_date, modified_date)
      VALUES (:tn, :tt, :td, :pid, :bid, :rbt, :bn,
-             :amt, 'auto_from_bill', :sbid, :rem,
+             :amt, 'auto_from_bill', :sbid, :pm, :rem,
              false, NOW(), NOW())
      RETURNING transaction_id`,
     {
@@ -198,6 +201,7 @@ async function syncAutoReceiptForBill({ kind, bill, t }) {
         tt: cfg.txType, td: billDate, pid: partyId,
         bid: billId, rbt: cfg.billType, bn: billNo,
         amt: paid, sbid: billId,
+        pm: bill.payment_method || null,
         rem: `Auto-generated from ${cfg.billType.toLowerCase()} bill ${billNo}`,
       },
       transaction: t,

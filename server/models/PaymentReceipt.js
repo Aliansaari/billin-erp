@@ -77,6 +77,14 @@ const PaymentReceipt = sequelize.define('PaymentReceipt', {
     type: DataTypes.INTEGER,
     allowNull: true,
   },
+  // Denormalised mode shown as a coloured chip in the Receipts/Payments
+  // list. Sourced from the bill's payment_method on auto-receipts and
+  // from the first PaymentSplit on manual single-split entries.
+  // Multi-split manual rows leave this NULL and the UI renders 'Mixed'.
+  payment_method: {
+    type: DataTypes.STRING(20),
+    allowNull: true,
+  },
 }, {
   tableName: 'payments_receipts',
   timestamps: true,

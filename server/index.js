@@ -992,6 +992,55 @@ async function startServer() {
       console.error('[P&L sub_group reclassification] Error:', err.message);
     });
 
+    // ── payments_receipts.payment_method (R8 follow-up) ──────────────
+    //
+    // Denormalised mode field — Cash / Bank Transfer / Cheque / UPI /
+    // Card / Credit. Populated:
+    //   · auto-receipts → copied from source bill on sync
+    //   · manual receipts → from the first PaymentSplit at create time
+    //                       (or 'Mixed' for multi-split)
+    //
+    // Without this, the Receipts list "Mode" column reads from
+    // payment_splits — which was never populated for the existing
+    // 17 seed receipts AND can't represent mode for auto-receipts at
+    // all (they have no splits row by design). One-time backfill below
+    // recovers the value for existing rows.
+    //
+    // Idempotent: re-runs are no-ops once the column exists + backfill
+    // has run (UPDATE filters on payment_method IS NULL).
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='payments_receipts' AND column_name='payment_method') THEN
+          ALTER TABLE payments_receipts
+            ADD COLUMN payment_method VARCHAR(20);
+          CREATE INDEX idx_payments_receipts_method ON payments_receipts(payment_method) WHERE payment_method IS NOT NULL;
+        END IF;
+      END $$;
+      -- Backfill — auto-receipts copy from source bill
+      UPDATE payments_receipts pr
+         SET payment_method = b.payment_method
+        FROM sales_bills b
+       WHERE pr.payment_method IS NULL
+         AND pr.source = 'auto_from_bill'
+         AND pr.transaction_type = 'Receipt'
+         AND pr.source_bill_id = b.sales_bill_id
+         AND b.payment_method IS NOT NULL;
+      -- For manual receipts/payments with exactly one PaymentSplit,
+      -- adopt the split's mode. Multi-split rows are left NULL and
+      -- render as 'Mixed' on the UI.
+      UPDATE payments_receipts pr
+         SET payment_method = ps.payment_mode
+        FROM payment_splits ps
+       WHERE pr.payment_method IS NULL
+         AND pr.source = 'manual'
+         AND pr.transaction_id = ps.transaction_id
+         AND (SELECT COUNT(*) FROM payment_splits ps2
+               WHERE ps2.transaction_id = pr.transaction_id) = 1;
+    `).catch((err) => {
+      console.error('[payments_receipts.payment_method] Error:', err.message);
+    });
+
     // ── Two-way ledger schema (Phase 1, R8) ──────────────────────────
     //
     // Auto-generated Receipt/Payment vouchers from embedded bill

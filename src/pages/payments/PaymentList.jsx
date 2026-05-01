@@ -12,6 +12,43 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 const { Title } = Typography;
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
+// Per-mode chip styling — one row per enum value in
+// enum_payment_splits_payment_mode (Cash / Card / UPI / Cheque /
+// Bank Transfer / Credit) plus 'NEFT' / 'RTGS' as common synonyms a
+// user might type into the (free-text) bill payment_method column.
+// Lookup falls back to 'default' (grey) for anything unrecognised, so
+// surfacing a new mode never crashes the cell.
+const MODE_STYLE = {
+  'Cash':           { color: 'green',  label: 'Cash' },
+  'Bank Transfer':  { color: 'blue',   label: 'Bank Transfer' },
+  'Bank':           { color: 'blue',   label: 'Bank' },
+  'NEFT':           { color: 'blue',   label: 'NEFT' },
+  'RTGS':           { color: 'blue',   label: 'RTGS' },
+  'IMPS':           { color: 'blue',   label: 'IMPS' },
+  'Cheque':         { color: 'gold',   label: 'Cheque' },
+  'UPI':            { color: 'purple', label: 'UPI' },
+  'Card':           { color: 'cyan',   label: 'Card' },
+  'Credit':         { color: 'default', label: 'Credit' },
+  'Mixed':          { color: 'default', label: 'Mixed' },
+};
+function ModeChip({ method, splits }) {
+  // 1. The denormalised payment_method column is the source of truth
+  //    when populated (auto-receipts, manual-create with the new
+  //    column). Renders as a single coloured chip.
+  // 2. Fallback: legacy rows with NULL payment_method but split data
+  //    derive the mode from splits — single split → its mode; multi
+  //    splits with distinct modes → 'Mixed'.
+  // 3. Fallback²: nothing at all → render an em-dash.
+  let mode = method;
+  if (!mode && Array.isArray(splits) && splits.length > 0) {
+    const distinct = [...new Set(splits.map((s) => s.payment_mode).filter(Boolean))];
+    mode = distinct.length === 1 ? distinct[0] : 'Mixed';
+  }
+  if (!mode) return <span style={{ color: '#9ca3af' }}>—</span>;
+  const style = MODE_STYLE[mode] || { color: 'default', label: mode };
+  return <Tag color={style.color} style={{ fontSize: 11, fontWeight: 500, margin: 0 }}>{style.label}</Tag>;
+}
+
 export default function PaymentList() {
   const { fyStart, fyEnd } = useFinancialYear();
   const [deletingId, setDeletingId] = useState(null);
@@ -76,14 +113,18 @@ export default function PaymentList() {
     { title: 'Date', dataIndex: 'transaction_date', width: 110, key: 'date',
       render: (v) => dayjs(v).format('DD/MM/YYYY') },
     { title: 'Party', dataIndex: ['party', 'party_name'], width: 180, key: 'party', ellipsis: true },
+    // Mode column — sourced from payments_receipts.payment_method
+    // (denormalised by auto-receipt sync + manual create from splits).
+    // Falls back to deriving from splits[] for legacy rows where the
+    // column is still NULL. Coloured chip per mode; see MODE_STYLE.
+    { title: 'Mode', width: 110, key: 'mode',
+      render: (_v, r) => <ModeChip method={r.payment_method} splits={r.splits} /> },
     { title: 'Amount', dataIndex: 'total_amount', width: 120, align: 'right', key: 'amount',
       render: (v, r) => (
         <span style={{ fontWeight: 700, color: r.transaction_type === 'Receipt' ? '#059669' : '#dc2626' }}>
           {fmt(v)}
         </span>
       )},
-    { title: 'Mode', dataIndex: 'splits', width: 160, key: 'mode',
-      render: (splits) => splits?.map(s => <Tag key={s.split_id} style={{ fontSize: 11 }}>{s.payment_mode}: {fmt(s.amount)}</Tag>) },
     { title: 'Remarks', dataIndex: 'remarks', width: 180, ellipsis: true, key: 'remarks',
       render: (v) => <span style={{ fontSize: 12, color: '#6b7280' }}>{v || '—'}</span> },
     {

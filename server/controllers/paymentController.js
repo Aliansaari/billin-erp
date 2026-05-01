@@ -147,6 +147,15 @@ exports.create = async (req, res) => {
     data.transaction_number = generateTransactionNumber(prefix, lastNum);
     data.created_by = req.user.user_id;
 
+    // Denormalised payment_method — drives the Mode chip in the
+    // Receipts/Payments list. If the user supplied a single split,
+    // that's the canonical mode; multiple distinct split modes leave
+    // payment_method NULL so the UI can render "Mixed" for it.
+    if (!data.payment_method && Array.isArray(splits) && splits.length > 0) {
+      const distinctModes = [...new Set(splits.map((s) => s.payment_mode).filter(Boolean))];
+      if (distinctModes.length === 1) data.payment_method = distinctModes[0];
+    }
+
     // ── Overpayment guard ─────────────────────────────────────────────────────
     // Safe to read outstanding now — party row is locked, so concurrent writers
     // are serialized behind us and can't cause a dirty read.
