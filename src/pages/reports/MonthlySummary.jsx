@@ -80,7 +80,8 @@ export default function MonthlyRegister({ mode }) {
   const [presetKey, setPresetKey] = useState(() => searchParams.get('preset') || 'this_fy');
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(false);
-  const [activeIdx, setActiveIdx] = useState(0);   // keyboard-selected month row
+  const [activeIdx, setActiveIdx]   = useState(0);            // keyboard-selected month row
+  const [activeSide, setActiveSide] = useState('primary');    // 'primary' | 'overlay' — drives Enter target
 
   // URL sync.
   useEffect(() => {
@@ -118,6 +119,13 @@ export default function MonthlyRegister({ mode }) {
     setActiveIdx(0);
   }, [mode, overlay, fromDate, toDate]);
 
+  // Reset active side to primary if overlay is removed (or mode
+  // changes). Without this, dropping the overlay leaves activeSide
+  // stuck on 'overlay' and Enter does nothing.
+  useEffect(() => {
+    if (!overlay && activeSide === 'overlay') setActiveSide('primary');
+  }, [overlay, activeSide]);
+
   // ── Period preset click ──────────────────────────────────────────
   const applyPreset = useCallback((k) => {
     const r = presetRange(k);
@@ -131,19 +139,28 @@ export default function MonthlyRegister({ mode }) {
   // Param names match SalesReport / PurchaseReport's URL contract: they
   // read `from` and `to` (NOT `from_date` / `to_date`). Without exact-
   // matching keys the receiving report falls back to its default range.
-  const drillRow = useCallback((monthIso) => {
+  // `drillMode` defaults to the page's `mode` (primary-side clicks
+  // and Enter on activeSide='primary'); when the overlay is active and
+  // Enter fires with activeSide='overlay', the keyboard handler passes
+  // the overlay's mode so the receipt report opens for that side.
+  const drillRow = useCallback((monthIso, drillMode) => {
     const from = monthIso;
     const to   = lastDayOf(monthIso);
-    if (mode === 'sales')    return navigate(`/reports/sales?from=${from}&to=${to}`);
-    if (mode === 'purchase') return navigate(`/reports/purchases?from=${from}&to=${to}`);
-    return navigate(`/payments?type=${mode === 'payment' ? 'Payment' : 'Receipt'}&from=${from}&to=${to}`);
+    const m    = drillMode || mode;
+    if (m === 'sales')    return navigate(`/reports/sales?from=${from}&to=${to}`);
+    if (m === 'purchase') return navigate(`/reports/purchases?from=${from}&to=${to}`);
+    return navigate(`/payments?type=${m === 'payment' ? 'Payment' : 'Receipt'}&from=${from}&to=${to}`);
   }, [mode, navigate]);
 
-  // Keyboard nav — ArrowUp / ArrowDown move the highlight, Enter
-  // drills into the active month. Listener is bound to window so the
-  // operator doesn't need to click the table to focus it first. Ignored
-  // when focus is inside a form field so the date-picker / overlay
-  // dropdown keep their arrow-key behaviour.
+  // Keyboard nav. Grid model:
+  //   ↑ / ↓        move row within the current side
+  //   ← / →        switch active side when overlay is on
+  //   Home / End   first / last row
+  //   Enter        open the detailed report for active month + side
+  // Listener bound to window so the operator doesn't need to click
+  // the table to focus it first. Ignored when focus is inside a form
+  // field so the date-picker / overlay dropdown keep their native
+  // arrow-key behaviour.
   useEffect(() => {
     if (!data?.primary?.rows?.length) return;
     const rowCount = data.primary.rows.length;
@@ -159,18 +176,24 @@ export default function MonthlyRegister({ mode }) {
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setActiveIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === 'ArrowLeft') {
+        if (overlay) { e.preventDefault(); setActiveSide('primary'); }
+      } else if (e.key === 'ArrowRight') {
+        if (overlay) { e.preventDefault(); setActiveSide('overlay'); }
       } else if (e.key === 'Home') {
         e.preventDefault(); setActiveIdx(0);
       } else if (e.key === 'End') {
         e.preventDefault(); setActiveIdx(rowCount - 1);
       } else if (e.key === 'Enter') {
         const row = data.primary.rows[activeIdx];
-        if (row) drillRow(row.month_iso);
+        if (!row) return;
+        const targetMode = activeSide === 'overlay' ? overlay : mode;
+        drillRow(row.month_iso, targetMode);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [data, activeIdx, drillRow]);
+  }, [data, activeIdx, activeSide, overlay, mode, drillRow]);
 
   // CSV export.
   const handleExportCsv = useCallback(() => {
@@ -278,6 +301,10 @@ export default function MonthlyRegister({ mode }) {
             onRowClick={drillRow}
             activeIdx={activeIdx}
             setActiveIdx={setActiveIdx}
+            activeSide={activeSide}
+            setActiveSide={setActiveSide}
+            primaryMode={mode}
+            overlayMode={overlay}
           />
         : <div className="mr-skel">Loading…</div>}
     </div>
@@ -289,7 +316,8 @@ export default function MonthlyRegister({ mode }) {
 // Modern dark-mode table with running closing balance + Dr/Cr suffix.
 // Sticky header, hover-highlighted rows, opening-balance row when
 // non-zero, double-line total separator.
-function RegisterTable({ primary, overlay, onRowClick, activeIdx, setActiveIdx }) {
+function RegisterTable({ primary, overlay, onRowClick, activeIdx, setActiveIdx,
+                         activeSide, setActiveSide, primaryMode, overlayMode }) {
   const hasOpening = primary.opening_balance > 0 || (overlay && overlay.opening_balance > 0);
   const activeRowRef = useRef(null);
   // Smooth-scroll the active row into view whenever activeIdx changes.
@@ -338,12 +366,24 @@ function RegisterTable({ primary, overlay, onRowClick, activeIdx, setActiveIdx }
           <Cols />
           <thead>
             <tr className="mr-th-grp">
-              <th colSpan={primarySpan} className="mr-grp-label mr-grp-primary">
+              <th
+                colSpan={primarySpan}
+                className={'mr-grp-label mr-grp-primary' + (overlay && activeSide === 'primary' ? ' mr-grp-active' : '')}
+                onClick={() => overlay && setActiveSide?.('primary')}
+                style={overlay ? { cursor: 'pointer' } : undefined}
+              >
+                {overlay && activeSide === 'primary' && <span className="mr-grp-arrow">▸ </span>}
                 {primary.ledger_name}
                 <span className="mr-grp-side"> · {primary.natural_side}-natural</span>
               </th>
               {overlay && (
-                <th colSpan={3} className="mr-grp-label mr-grp-overlay">
+                <th
+                  colSpan={3}
+                  className={'mr-grp-label mr-grp-overlay' + (activeSide === 'overlay' ? ' mr-grp-active' : '')}
+                  onClick={() => setActiveSide?.('overlay')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {activeSide === 'overlay' && <span className="mr-grp-arrow">▸ </span>}
                   {overlay.ledger_name}
                   <span className="mr-grp-side"> · {overlay.natural_side}-natural</span>
                 </th>
@@ -378,22 +418,41 @@ function RegisterTable({ primary, overlay, onRowClick, activeIdx, setActiveIdx }
             {primary.rows.map((r, i) => {
               const ovr = overlay ? overlay.rows[i] : null;
               const isActive = i === activeIdx;
+              // Side-aware drill: cells on the primary side open the
+              // primary report; cells on the overlay side open the
+              // overlay report. Clicking the row's particulars (Month)
+              // cell falls back to the active side.
+              const onPrimary = (e) => {
+                e.stopPropagation();
+                setActiveSide?.('primary');
+                onRowClick(r.month_iso, primaryMode);
+              };
+              const onOverlay = (e) => {
+                e.stopPropagation();
+                setActiveSide?.('overlay');
+                onRowClick(r.month_iso, overlayMode);
+              };
+              const onParticulars = () => {
+                const target = activeSide === 'overlay' ? overlayMode : primaryMode;
+                onRowClick(r.month_iso, target);
+              };
               return (
                 <tr
                   key={r.month_iso}
                   ref={isActive ? activeRowRef : null}
-                  className={'mr-row' + (isActive ? ' mr-row-active' : '')}
-                  onClick={() => onRowClick(r.month_iso)}
+                  className={'mr-row'
+                    + (isActive ? ' mr-row-active' : '')
+                    + (isActive && overlay ? ' mr-row-active-' + activeSide : '')}
                   onMouseEnter={() => setActiveIdx?.(i)}
                 >
-                  <td className="mr-particulars">{r.month_label}</td>
-                  <td className="mr-num">{fmtAmt(r.dr)}</td>
-                  <td className="mr-num">{fmtAmt(r.cr)}</td>
-                  <td className="mr-num">{fmtClosing(r.closing, r.closing_side)}</td>
+                  <td className="mr-particulars" onClick={onParticulars} style={{ cursor: 'pointer' }}>{r.month_label}</td>
+                  <td className="mr-num" onClick={onPrimary} style={{ cursor: 'pointer' }}>{fmtAmt(r.dr)}</td>
+                  <td className="mr-num" onClick={onPrimary} style={{ cursor: 'pointer' }}>{fmtAmt(r.cr)}</td>
+                  <td className="mr-num" onClick={onPrimary} style={{ cursor: 'pointer' }}>{fmtClosing(r.closing, r.closing_side)}</td>
                   {overlay && <>
-                    <td className="mr-num mr-grp-overlay">{fmtAmt(ovr?.dr)}</td>
-                    <td className="mr-num mr-grp-overlay">{fmtAmt(ovr?.cr)}</td>
-                    <td className="mr-num mr-grp-overlay">{fmtClosing(ovr?.closing, ovr?.closing_side)}</td>
+                    <td className="mr-num mr-grp-overlay" onClick={onOverlay} style={{ cursor: 'pointer' }}>{fmtAmt(ovr?.dr)}</td>
+                    <td className="mr-num mr-grp-overlay" onClick={onOverlay} style={{ cursor: 'pointer' }}>{fmtAmt(ovr?.cr)}</td>
+                    <td className="mr-num mr-grp-overlay" onClick={onOverlay} style={{ cursor: 'pointer' }}>{fmtClosing(ovr?.closing, ovr?.closing_side)}</td>
                   </>}
                 </tr>
               );
