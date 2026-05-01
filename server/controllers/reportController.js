@@ -1,6 +1,6 @@
 const { Op, fn, col, literal } = require('sequelize');
 const sequelize = require('../config/database');
-const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, SystemSettings } = require('../models');
+const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, SystemSettings, ProductGodownStock } = require('../models');
 const { sanitizePagination } = require('../utils/helpers');
 const { aggregateAging } = require('../utils/aging');
 
@@ -618,19 +618,42 @@ exports.stockReport = async (req, res) => {
     });
 
     const safeDir = sort_dir.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+    // Godown filter: when set, current_stock/opening_stock are sourced from
+    // product_godown_stock for that godown. When NULL, the products table's
+    // denormalized totals (sum across all godowns) are used.
+    const godownId = req.query.godown_id ? parseInt(req.query.godown_id) : null;
 
+    // Period for Inward / Outward — accepts an explicit `period_from`/
+    // `period_to` from the client. Default is ALL-TIME (no date floor)
+    // so the columns show every movement ever recorded unless the user
+    // narrows the range. We use a far-past sentinel rather than no WHERE
+    // because the query keeps a single shape.
+    const periodFrom = (req.query.period_from || req.query.from_date || '1900-01-01').slice(0, 10);
+    const periodTo   = (req.query.period_to   || req.query.to_date   || new Date().toISOString().slice(0, 10)).slice(0, 10);
+
+    // Status filters: when godown_id is set we can't push these into the
+    // Sequelize WHERE because the values come from product_godown_stock.
+    // We apply them in a post-fetch filter then. Without godown, push down.
     const where = { is_active: true };
     if (category_id) where.category_id = category_id;
-    if (stock_status === 'low') {
-      where.minimum_stock_level = { [Op.gt]: 0 };
-      where.current_stock = { [Op.lte]: col('minimum_stock_level') };
+    if (!godownId) {
+      if (stock_status === 'low') {
+        where.minimum_stock_level = { [Op.gt]: 0 };
+        where.current_stock = { [Op.lte]: col('minimum_stock_level') };
+      }
+      if (stock_status === 'out') where.current_stock = { [Op.lte]: 0 };
+      if (stock_status === 'neg') where.current_stock = { [Op.lt]: 0 };
     }
-    if (stock_status === 'out') where.current_stock = { [Op.lte]: 0 };
     if (search) {
       where[Op.or] = [
-        { product_name: { [Op.iLike]: `%${search}%` } },
-        { barcode: { [Op.iLike]: `%${search}%` } },
+        { product_name:   { [Op.iLike]: `%${search}%` } },
+        { barcode:        { [Op.iLike]: `%${search}%` } },
         { article_number: { [Op.iLike]: `%${search}%` } },
+        // Category name match. The Category include is added below; the
+        // $assoc.column$ syntax tells Sequelize to qualify against that
+        // join (subQuery: false is set on the include so the WHERE pushes
+        // into the outer query).
+        { '$Category.category_name$': { [Op.iLike]: `%${search}%` } },
       ];
     }
 
@@ -645,61 +668,212 @@ exports.stockReport = async (req, res) => {
     };
     const orderClause = SORT_ORDERS[sort_by] || SORT_ORDERS['product_name'];
 
-    // Build parameterized WHERE for raw category-breakdown query
+    // Base WHERE for raw queries — status is appended via rawStatusFrag
+    // below (so godown / non-godown paths can express it differently).
     const rawWhere = ['p.is_active = true'];
     const rawRepl  = {};
     if (category_id) { rawWhere.push('p.category_id = :category_id'); rawRepl.category_id = parseInt(category_id); }
-    if (stock_status === 'out') rawWhere.push('p.current_stock <= 0');
-    if (stock_status === 'low') rawWhere.push('p.minimum_stock_level > 0 AND p.current_stock <= p.minimum_stock_level');
-    if (search) { rawWhere.push('(p.product_name ILIKE :search OR p.barcode ILIKE :search OR p.article_number ILIKE :search)'); rawRepl.search = `%${search}%`; }
+    if (search) {
+      rawWhere.push(`(
+        p.product_name   ILIKE :search
+        OR p.barcode     ILIKE :search
+        OR p.article_number ILIKE :search
+        OR EXISTS (SELECT 1 FROM categories c2 WHERE c2.category_id = p.category_id AND c2.category_name ILIKE :search)
+      )`);
+      rawRepl.search = `%${search}%`;
+    }
 
-    // Run all three queries in parallel
-    const [products, [summaryRow], categoryBreakdown] = await Promise.all([
+    // Page-of-products query. Godown variant attaches the per-godown
+    // row via the `godownStock` association so we can swap stock values
+    // post-fetch — keeps Sequelize sort/page semantics intact.
+    //
+    // Category include is `required: false` (LEFT JOIN) so the
+    // $Category.category_name$ search filter doesn't drop uncategorised
+    // products from the rest of the report.
+    const productInclude = [{ model: Category, attributes: ['category_name'], required: false }];
+    if (godownId) {
+      productInclude.push({
+        model: ProductGodownStock,
+        as: 'godownStock',
+        where: { godown_id: godownId },
+        required: false,
+        attributes: ['current_stock', 'opening_stock'],
+      });
+    }
+
+    // Build summary + category-breakdown SQL fragments. Stock fields swap
+    // to product_godown_stock when a godown is selected, so totals match
+    // what the user sees row-by-row.
+    const stkExpr  = godownId ? 'COALESCE(pgs.current_stock, 0)' : 'p.current_stock';
+    const openExpr = godownId ? 'COALESCE(pgs.opening_stock, 0)' : 'p.opening_stock';
+    const stkJoin  = godownId
+      ? `LEFT JOIN product_godown_stock pgs ON pgs.product_id = p.product_id AND pgs.godown_id = :godown_id`
+      : '';
+
+    // Status filter pushed into raw queries. Mirrors the Sequelize where
+    // for the no-godown path; uses pgs.* values for the godown path.
+    const rawStatusFrag = (() => {
+      if (stock_status === 'low') return `AND p.minimum_stock_level > 0 AND ${stkExpr} > 0 AND ${stkExpr} <= p.minimum_stock_level`;
+      if (stock_status === 'out') return `AND ${stkExpr} = 0`;
+      if (stock_status === 'neg') return `AND ${stkExpr} < 0`;
+      return '';
+    })();
+
+    const summaryRepl = { ...rawRepl };
+    if (godownId) summaryRepl.godown_id = godownId;
+    summaryRepl.from = periodFrom;
+    summaryRepl.to   = periodTo;
+
+    const summarySql = `
+      SELECT
+        COUNT(*)::int                                          AS total_items,
+        COALESCE(SUM(${stkExpr} * p.purchase_rate), 0)::float  AS total_purchase_value,
+        COALESCE(SUM(${stkExpr} * p.sale_rate),     0)::float  AS total_sale_value,
+        COALESCE(SUM(${openExpr}),                  0)::float  AS total_opening,
+        COALESCE(SUM(${stkExpr}),                   0)::float  AS total_current_stock,
+        COUNT(*) FILTER (WHERE ${stkExpr} < 0)::int            AS negative_count,
+        COUNT(*) FILTER (WHERE ${stkExpr} = 0)::int            AS out_count,
+        COUNT(*) FILTER (WHERE p.minimum_stock_level > 0 AND ${stkExpr} > 0 AND ${stkExpr} <= p.minimum_stock_level)::int AS low_count,
+        COALESCE(SUM(CASE WHEN ${stkExpr} < 0 THEN ${stkExpr}                  ELSE 0 END), 0)::float AS negative_units,
+        COALESCE(SUM(CASE WHEN ${stkExpr} < 0 THEN ${stkExpr} * p.purchase_rate ELSE 0 END), 0)::float AS negative_value
+      FROM products p
+      ${stkJoin}
+      WHERE ${rawWhere.join(' AND ')} ${rawStatusFrag}
+    `;
+
+    // Period inward / outward totals — sum from stock_ledger, joined
+    // to the SAME filtered product set so the period totals match the
+    // visible rows.
+    const periodTotalsSql = `
+      WITH filtered AS (
+        SELECT p.product_id
+          FROM products p
+          ${stkJoin}
+         WHERE ${rawWhere.join(' AND ')} ${rawStatusFrag}
+      )
+      SELECT
+        COALESCE(SUM(quantity_in),  0)::float AS total_inward,
+        COALESCE(SUM(quantity_out), 0)::float AS total_outward
+      FROM stock_ledger sl
+      WHERE sl.product_id IN (SELECT product_id FROM filtered)
+        AND sl.transaction_date BETWEEN :from AND :to
+        ${godownId ? 'AND sl.godown_id = :godown_id' : ''}
+    `;
+
+    const categoryBreakdownSql = `
+      SELECT p.category_id, c.category_name,
+        COUNT(p.product_id)::int                                  AS item_count,
+        COALESCE(SUM(${stkExpr} * p.purchase_rate), 0)::float     AS stock_value
+      FROM products p
+      ${stkJoin}
+      LEFT JOIN categories c ON c.category_id = p.category_id
+      WHERE ${rawWhere.join(' AND ')} ${rawStatusFrag}
+      GROUP BY p.category_id, c.category_name
+      ORDER BY c.category_name ASC NULLS LAST
+    `;
+
+    // Run the page query, summary, period totals, and category breakdown
+    // in parallel. Per-row inward/outward come after we know the page IDs.
+    const [products, [summaryRow], [periodRow], categoryBreakdown] = await Promise.all([
       Product.findAll({
         where,
-        include: [{ model: Category, attributes: ['category_name'] }],
+        include: productInclude,
         order: orderClause,
         limit,
         offset,
+        // subQuery: false — push the WHERE into the outer SELECT so the
+        // $Category.category_name$ filter resolves against the JOINed
+        // table (and so LIMIT/OFFSET are applied AFTER the join, matching
+        // total count from the summary aggregate).
+        subQuery: false,
       }),
-      Product.findAll({
-        where,
-        attributes: [
-          [fn('COUNT', col('product_id')), 'total_items'],
-          [fn('COALESCE', fn('SUM', literal('"current_stock" * "purchase_rate"')), 0), 'total_purchase_value'],
-          [fn('COALESCE', fn('SUM', literal('"current_stock" * "sale_rate"')), 0), 'total_sale_value'],
-        ],
-        raw: true,
-      }),
-      sequelize.query(`
-        SELECT p.category_id, c.category_name,
-          COUNT(p.product_id)::int            AS item_count,
-          COALESCE(SUM(p.current_stock * p.purchase_rate), 0)::float AS stock_value
-        FROM products p
-        LEFT JOIN categories c ON c.category_id = p.category_id
-        WHERE ${rawWhere.join(' AND ')}
-        GROUP BY p.category_id, c.category_name
-        ORDER BY c.category_name ASC NULLS LAST
-      `, { replacements: rawRepl, type: sequelize.QueryTypes.SELECT }),
+      sequelize.query(summarySql,        { replacements: summaryRepl, type: sequelize.QueryTypes.SELECT }),
+      sequelize.query(periodTotalsSql,   { replacements: summaryRepl, type: sequelize.QueryTypes.SELECT }),
+      sequelize.query(categoryBreakdownSql, { replacements: summaryRepl, type: sequelize.QueryTypes.SELECT }),
     ]);
+
+    // For godown filter: low/out/neg push-down isn't possible at the
+    // Sequelize layer (the values live on the join), so re-filter the
+    // page rows here. Counts are already correct in `summaryRow`.
+    let pageProducts = products;
+    if (godownId && (stock_status === 'low' || stock_status === 'out' || stock_status === 'neg')) {
+      const pickStock = (p) => {
+        const g = p.godownStock?.[0];
+        return g ? parseFloat(g.current_stock) : 0;
+      };
+      pageProducts = products.filter((p) => {
+        const s   = pickStock(p);
+        const min = parseFloat(p.minimum_stock_level || 0);
+        if (stock_status === 'low') return min > 0 && s > 0 && s <= min;
+        if (stock_status === 'out') return s === 0;
+        if (stock_status === 'neg') return s < 0;
+        return true;
+      });
+    }
+
+    // Override per-product current_stock / opening_stock for godown
+    // filter so the listing matches the godown view.
+    if (godownId) {
+      for (const p of pageProducts) {
+        const g = p.godownStock?.[0];
+        p.dataValues.current_stock = g ? parseFloat(g.current_stock) : 0;
+        p.dataValues.opening_stock = g ? parseFloat(g.opening_stock) : 0;
+      }
+    }
+
+    // Per-row inward / outward over the period. One aggregate query for
+    // the page IDs; cheap (<= limit rows × stock_ledger group-by).
+    if (pageProducts.length > 0) {
+      const pageIds = pageProducts.map(p => p.product_id);
+      const movRows = await sequelize.query(`
+        SELECT product_id,
+               COALESCE(SUM(quantity_in),  0)::float AS qty_in,
+               COALESCE(SUM(quantity_out), 0)::float AS qty_out
+          FROM stock_ledger
+         WHERE product_id IN (:ids)
+           AND transaction_date BETWEEN :from AND :to
+           ${godownId ? 'AND godown_id = :godown_id' : ''}
+         GROUP BY product_id
+      `, {
+        replacements: { ids: pageIds, from: periodFrom, to: periodTo, ...(godownId ? { godown_id: godownId } : {}) },
+        type: sequelize.QueryTypes.SELECT,
+      });
+      const movMap = new Map(movRows.map(r => [r.product_id, r]));
+      for (const p of pageProducts) {
+        const m = movMap.get(p.product_id);
+        p.dataValues.inward_qty  = m ? +m.qty_in.toFixed(2)  : 0;
+        p.dataValues.outward_qty = m ? +m.qty_out.toFixed(2) : 0;
+      }
+    }
 
     const totalPV = parseFloat(summaryRow.total_purchase_value || 0);
     const totalSV = parseFloat(summaryRow.total_sale_value || 0);
 
     res.json({
-      data: products,
+      data: pageProducts,
       total: parseInt(summaryRow.total_items || 0),
       summary: {
-        total_items: parseInt(summaryRow.total_items || 0),
+        total_items:          parseInt(summaryRow.total_items || 0),
         total_purchase_value: +totalPV.toFixed(2),
-        total_sale_value: +totalSV.toFixed(2),
-        potential_profit: +(totalSV - totalPV).toFixed(2),
+        total_sale_value:     +totalSV.toFixed(2),
+        potential_profit:     +(totalSV - totalPV).toFixed(2),
+        total_opening:        +parseFloat(summaryRow.total_opening || 0).toFixed(2),
+        total_current_stock:  +parseFloat(summaryRow.total_current_stock || 0).toFixed(2),
+        total_inward:         +parseFloat(periodRow.total_inward || 0).toFixed(2),
+        total_outward:        +parseFloat(periodRow.total_outward || 0).toFixed(2),
+        negative_count:       parseInt(summaryRow.negative_count || 0),
+        out_count:            parseInt(summaryRow.out_count || 0),
+        low_count:            parseInt(summaryRow.low_count || 0),
+        negative_units:       +parseFloat(summaryRow.negative_units || 0).toFixed(2),
+        negative_value:       +parseFloat(summaryRow.negative_value || 0).toFixed(2),
+        period: { from: periodFrom, to: periodTo },
+        godown_id:            godownId,
       },
       category_breakdown: categoryBreakdown,
     });
   } catch (error) {
     console.error('Stock report error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error: ' + error.message });
   }
 };
 

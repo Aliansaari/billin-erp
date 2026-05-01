@@ -143,6 +143,15 @@ export default function PaymentList() {
             rowKey="transaction_id"
             scroll={{ x: 1000 }}
             rowClassName={(r) => r && r.is_cancelled ? 'erp-row-cancelled' : ''}
+            // ↑/↓ Home/End/PageUp/PageDown to move; Enter prints the
+            // voucher / receipt for the active row (the row's primary
+            // action — there is no "edit payment" page).
+            keyboardNav
+            persistKey="payments-list"
+            onRowEnter={(row) => row?.transaction_id && !row.is_cancelled && printDocument({
+              docType: row.transaction_type === 'Receipt' ? 'receipt' : 'payment',
+              id: row.transaction_id,
+            })}
           />
         </div>
       </Card>

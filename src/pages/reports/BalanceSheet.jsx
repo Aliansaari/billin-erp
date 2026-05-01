@@ -285,7 +285,7 @@ export default function BalanceSheet() {
   // empty (these aren't real ledger groups).
   const drillSynthetic = (kind) => {
     if (kind === 'pnl')   navigate('/reports/profit-loss');
-    if (kind === 'stock') navigate('/reports/stock');
+    if (kind === 'stock') navigate('/stock-report');
   };
 
   // Build per-side navigable lists for keyboard navigation. Each side

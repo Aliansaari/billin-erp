@@ -1,0 +1,743 @@
+/*
+ * Smart Stock — editorial layout, sibling of Stock Report.
+ *
+ * Same shell + KPI primitives + Excel-dropdown affordance as the
+ * Stock Report. The unique value of this page is the category-grouped
+ * list with an editable category-detail modal — both restyled to
+ * match the rest of the inventory family.
+ *
+ * Single font (Source Sans 3, inherited). Theme tokens only.
+ */
+
+.ss-page {
+  height: 100%;
+  display: flex; flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Header ────────────────────────────────────────────────────────── */
+.ss-hd {
+  flex-shrink: 0;
+  padding: 14px 24px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.ss-title h1 {
+  margin: 0;
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--fg-primary); line-height: 1;
+}
+.ss-ctrls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.ss-search {
+  display: flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 12px;
+  background: var(--bg-elevated, var(--bg-panel));
+  border: 1px solid var(--border); border-radius: 8px;
+  width: 280px; transition: all .15s;
+}
+.ss-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.ss-search input {
+  flex: 1; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 13px; color: var(--fg-primary); font-weight: 500;
+}
+.ss-search input::placeholder { color: var(--fg-tertiary); font-weight: 500; }
+.ss-search .anticon { color: var(--fg-tertiary); }
+
+.ss-btn {
+  height: 34px; padding: 0 13px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 7px;
+  color: var(--fg-secondary); font: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  transition: all .12s;
+}
+.ss-btn:hover:not(:disabled) { border-color: var(--accent-border); color: var(--accent); }
+.ss-btn:disabled { opacity: .55; cursor: not-allowed; }
+.ss-btn.primary {
+  background: var(--accent); color: var(--fg-inverse, #fff); border-color: var(--accent);
+}
+.ss-btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--fg-inverse, #fff); }
+.ss-btn .anticon { font-size: 13px; }
+
+/* ── KPI strip — rounded card style ────────────────────────────────── */
+.ss-kpis {
+  flex-shrink: 0;
+  padding: 14px 24px 0;
+  background: transparent;
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+.ss-kpi {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 13px 15px;
+  display: flex; flex-direction: column; gap: 3px;
+  position: relative; overflow: hidden;
+  cursor: pointer; transition: border-color .12s, box-shadow .12s;
+}
+.ss-kpi:hover {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.04));
+}
+.ss-kpi.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.ss-kpi-k {
+  font-size: 10px; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--fg-tertiary); font-weight: 700;
+}
+.ss-kpi-v {
+  font-size: 22px; font-weight: 700; color: var(--fg-primary);
+  line-height: 1.1; margin-top: 2px; letter-spacing: -0.025em;
+}
+.ss-kpi-sub { font-size: 11px; color: var(--fg-tertiary); margin-top: 1px; }
+.ss-kpi-sub b { color: var(--fg-secondary); font-weight: 700; }
+
+.ss-kpi.tot {
+  background: linear-gradient(135deg, var(--bg-muted) 0%, var(--bg-panel) 70%);
+}
+.ss-kpi.value-tone {
+  border-color: var(--accent-border);
+  background: linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-kpi.value-tone .ss-kpi-v { color: var(--accent); }
+.ss-kpi.sale-tone {
+  border-color: var(--success-bg);
+  background: linear-gradient(135deg, var(--success-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-kpi.sale-tone .ss-kpi-v { color: var(--success); }
+.ss-kpi.low-tone {
+  border-color: var(--warning-bg);
+  background: linear-gradient(135deg, var(--warning-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-kpi.low-tone .ss-kpi-v { color: var(--warning); }
+.ss-kpi.out-tone {
+  border-color: var(--danger-bg);
+  background: linear-gradient(135deg, var(--danger-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-kpi.out-tone .ss-kpi-v { color: var(--danger); }
+.ss-kpi.neg-tone {
+  border-color: var(--danger-bg);
+  background: linear-gradient(135deg, var(--danger-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-kpi.neg-tone .ss-kpi-v { color: var(--danger); }
+
+/* ── Filter chip row ───────────────────────────────────────────────── */
+.ss-filters {
+  flex-shrink: 0;
+  padding: 10px 24px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+.ss-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  background: var(--bg-app); border: 1px solid var(--border); border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--fg-secondary);
+  cursor: pointer; transition: all .12s; user-select: none;
+}
+.ss-chip:hover { border-color: var(--accent-border); color: var(--accent); }
+.ss-chip.on {
+  background: var(--fg-primary); color: var(--bg-panel); border-color: var(--fg-primary);
+}
+.ss-chip .dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--fg-tertiary);
+}
+.ss-chip .dot.ok  { background: var(--success); }
+.ss-chip .dot.low { background: var(--warning); }
+.ss-chip .dot.out { background: var(--danger); }
+.ss-chip .dot.neg { background: var(--danger); animation: ss-pulse 2s ease-in-out infinite; }
+@keyframes ss-pulse {
+  0%,100% { box-shadow: 0 0 0 0 var(--danger-bg); }
+  50%     { box-shadow: 0 0 0 4px transparent; }
+}
+
+/* ── Category list (table-like rows, click → opens detail modal) ───── */
+.ss-cat-hd {
+  flex-shrink: 0;
+  display: grid; grid-template-columns: 1fr 120px 160px;
+  gap: 12px;
+  padding: 9px 24px;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border);
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--fg-tertiary); text-transform: uppercase;
+}
+.ss-cat-hd .right { text-align: right; }
+
+.ss-cat-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-panel);
+}
+.ss-cat-row {
+  display: grid; grid-template-columns: 1fr 120px 160px;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background .12s;
+  align-items: center;
+}
+.ss-cat-row:hover { background: var(--bg-hover); }
+.ss-cat-name {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13.5px; font-weight: 600; color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.ss-cat-name .anticon { color: var(--fg-tertiary); font-size: 12px; }
+.ss-cat-items {
+  font-size: 12px; font-weight: 600; color: var(--fg-secondary);
+  background: var(--bg-muted); border-radius: 999px;
+  padding: 2px 10px; display: inline-block;
+  font-variant-numeric: tabular-nums;
+  width: fit-content;
+}
+.ss-cat-value {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.ss-cat-meta {
+  flex-shrink: 0;
+  padding: 10px 24px;
+  background: var(--bg-muted);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11.5px; color: var(--fg-tertiary);
+}
+.ss-cat-meta b { color: var(--fg-primary); font-weight: 700; }
+
+.ss-empty {
+  padding: 60px 24px; text-align: center;
+  color: var(--fg-tertiary); font-size: 13px;
+}
+
+/* ── Detail modal — editorial restyle ──────────────────────────────── */
+.ss-modal-title {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.ss-modal-title h2 {
+  margin: 0;
+  font-size: 16px; font-weight: 700; color: var(--fg-primary); letter-spacing: -0.01em;
+}
+.ss-modal-count {
+  font-size: 11px; font-weight: 600; color: var(--accent);
+  background: var(--accent-bg); border-radius: 999px;
+  padding: 2px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Stats cards on the category detail page — rounded individual cards
+   with tone-tinted gradients, mirroring the Stock Report KPI strip.
+   Auto-fit grid wraps gracefully on narrower viewports while keeping a
+   sensible minimum tile width (so the values never crush). */
+.ss-modal-stats {
+  flex-shrink: 0;
+  padding: 14px 24px 4px;
+  background: transparent;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.ss-modal-stat {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 2px;
+  position: relative; overflow: hidden;
+  transition: border-color .12s, box-shadow .12s;
+}
+.ss-modal-stat:hover {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.04));
+}
+.ss-modal-stat-v {
+  font-size: 19px; font-weight: 700; color: var(--fg-primary);
+  line-height: 1.15; letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+.ss-modal-stat-l {
+  font-size: 10px; font-weight: 700; letter-spacing: 1.1px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+  margin-top: 2px;
+}
+
+/* Tone variants — gradients keyed off theme tokens so the cards adapt
+   across all four themes without overrides. */
+.ss-modal-stat.qty {
+  background: linear-gradient(135deg, var(--bg-muted) 0%, var(--bg-panel) 70%);
+}
+.ss-modal-stat.qty .ss-modal-stat-v { color: var(--fg-primary); }
+.ss-modal-stat.pur {
+  border-color: var(--accent-border);
+  background: linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-modal-stat.pur .ss-modal-stat-v { color: var(--accent); }
+.ss-modal-stat.sale {
+  border-color: var(--success-bg);
+  background: linear-gradient(135deg, var(--success-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-modal-stat.sale .ss-modal-stat-v { color: var(--success); }
+.ss-modal-stat.profit {
+  border-color: var(--warning-bg);
+  background: linear-gradient(135deg, var(--warning-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-modal-stat.profit .ss-modal-stat-v { color: var(--warning); }
+.ss-modal-stat.profit.bad {
+  border-color: var(--danger-bg);
+  background: linear-gradient(135deg, var(--danger-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-modal-stat.profit.bad .ss-modal-stat-v { color: var(--danger); }
+.ss-modal-stat.neg {
+  border-color: var(--danger-bg);
+  background: linear-gradient(135deg, var(--danger-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-modal-stat.neg .ss-modal-stat-v { color: var(--danger); }
+.ss-modal-stat.out {
+  border-color: var(--danger-bg);
+  background: linear-gradient(135deg, var(--danger-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-modal-stat.out .ss-modal-stat-v { color: var(--danger); }
+.ss-modal-stat.low {
+  border-color: var(--warning-bg);
+  background: linear-gradient(135deg, var(--warning-bg) 0%, var(--bg-panel) 70%);
+}
+.ss-modal-stat.low .ss-modal-stat-v { color: var(--warning); }
+
+.ss-modal-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ss-cols-pop {
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(0,0,0,0.1));
+  padding: 6px 0;
+  min-width: 180px;
+}
+.ss-cols-pop label {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 14px; cursor: pointer;
+  font-size: 13px; color: var(--fg-secondary); font-weight: 500;
+  user-select: none;
+}
+.ss-cols-pop label:hover { background: var(--bg-hover); }
+.ss-cols-pop input[type=checkbox] { accent-color: var(--accent); }
+
+/* Grouped variant — sibling of Stock Report's .sr-cust-* pattern. */
+.ss-cust-grouped {
+  width: 280px; padding: 8px;
+}
+.ss-cust-grp { padding: 4px 0 6px; }
+.ss-cust-grp + .ss-cust-grp {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.ss-cust-gh {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+  padding: 2px 8px 6px;
+}
+.ss-cust-reset {
+  background: transparent; border: 0; color: var(--accent);
+  font: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
+  letter-spacing: 0;
+}
+.ss-cust-grouped label {
+  padding: 5px 8px;
+  border-radius: 5px;
+}
+/* Two-line radio (label + secondary hint) for the Display group. */
+.ss-cust-radio {
+  display: flex; align-items: flex-start; gap: 9px;
+}
+.ss-cust-radio input[type=radio] { accent-color: var(--accent); margin-top: 3px; }
+.ss-cust-radio b { display: block; color: var(--fg-primary); font-weight: 600; font-size: 12.5px; }
+.ss-cust-hint {
+  display: block;
+  font-size: 10.5px; color: var(--fg-tertiary); font-weight: 500;
+  margin-top: 1px; line-height: 1.35;
+}
+
+/* Modal table — CSS Grid */
+.ss-tbl-head {
+  display: grid; align-items: center;
+  padding: 8px 16px;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ss-tbl-th {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+  display: inline-flex; align-items: center; gap: 4px;
+  user-select: none;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+.ss-tbl-th.sortable { cursor: pointer; }
+.ss-tbl-th.sortable:hover { color: var(--fg-primary); }
+.ss-tbl-th.active { color: var(--accent); }
+.ss-tbl-th .arrow { font-size: 10px; opacity: 0.6; }
+.ss-tbl-th.active .arrow { opacity: 1; }
+
+.ss-tbl-body {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-panel);
+}
+.ss-tbl-row {
+  display: grid; align-items: center;
+  padding: 5px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  transition: background .12s;
+  min-height: 38px;
+}
+.ss-tbl-row:hover { background: var(--bg-hover); }
+.ss-tbl-row.editing { background: var(--warning-bg); }
+.ss-tbl-row.bulk-active { background: var(--accent-bg); }
+.ss-tbl-cell {
+  padding-right: 6px;
+  display: flex; align-items: center;
+  overflow: hidden;
+}
+
+.ss-cell-sno   { font-size: 11px; color: var(--fg-tertiary); font-weight: 600; }
+.ss-cell-bc    { font-size: 12px; color: var(--fg-secondary); }
+.ss-cell-prod  { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ss-cell-prod-name { font-size: 13px; font-weight: 600; color: var(--fg-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ss-cell-prod-meta { font-size: 10.5px; color: var(--success); background: var(--success-bg); border-radius: 4px; padding: 1px 6px; font-weight: 600; width: fit-content; }
+.ss-cell-size  { font-size: 12px; color: var(--fg-secondary); }
+.ss-cell-stk {
+  font-size: 12px; font-weight: 700;
+  border-radius: 6px; padding: 2px 7px;
+  font-variant-numeric: tabular-nums;
+}
+.ss-cell-stk.ok  { background: var(--success-bg); color: var(--success); }
+.ss-cell-stk.low { background: var(--warning-bg); color: var(--warning); }
+.ss-cell-stk.out { background: var(--danger-bg);  color: var(--danger); }
+.ss-cell-stk.neg { background: var(--danger-bg);  color: var(--danger); }
+.ss-cell-pur, .ss-cell-min { font-size: 13px; color: var(--fg-secondary); font-variant-numeric: tabular-nums; }
+.ss-cell-sale { font-size: 13px; color: var(--success); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ss-cell-val  { font-size: 13px; color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.ss-cell-input {
+  width: 100%;
+  border: 1px solid var(--border); border-radius: 5px;
+  padding: 3px 6px; font: inherit; font-size: 13px;
+  outline: none; box-sizing: border-box;
+  background: var(--bg-panel); color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.ss-cell-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+.ss-cell-input.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); background: var(--accent-bg); }
+
+.ss-row-action {
+  width: 28px; height: 28px; padding: 0;
+  background: transparent; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--fg-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .12s;
+}
+.ss-row-action:hover { border-color: var(--accent-border); color: var(--accent); }
+.ss-row-action.danger:hover { border-color: var(--danger); color: var(--danger); }
+.ss-row-action.save {
+  background: var(--success); color: var(--fg-inverse, #fff); border-color: var(--success);
+  width: auto; padding: 0 10px; font-size: 12px; font-weight: 600; gap: 4px;
+}
+
+.ss-modal-foot {
+  padding: 9px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-muted);
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; color: var(--fg-tertiary);
+}
+.ss-modal-foot b { color: var(--fg-primary); font-weight: 700; }
+.ss-modal-foot .bulk-active-tag {
+  margin-left: 8px; color: var(--warning); font-weight: 700;
+}
+
+/* Antd Modal: theme-token override so it matches the rest of the page. */
+.ss-detail-modal .ant-modal-content {
+  background: var(--bg-panel); padding: 0;
+}
+.ss-detail-modal .ant-modal-header {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 20px; margin: 0;
+}
+.ss-detail-modal .ant-modal-title { color: var(--fg-primary); }
+.ss-detail-modal .ant-modal-body {
+  padding: 0;
+  height: 85vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.ss-detail-modal .ant-modal-close { color: var(--fg-tertiary); }
+.ss-detail-modal .ant-modal-close:hover { color: var(--fg-primary); }
+
+/* ── Category detail page header (back + breadcrumbs) ─────────────── */
+.ss-hd-cat .ss-cat-back { display: flex; align-items: center; gap: 14px; }
+.ss-crumbs {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--fg-tertiary);
+}
+.ss-crumbs .crumb-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--fg-secondary); cursor: pointer; font-weight: 500;
+  transition: color .12s;
+}
+.ss-crumbs .crumb-link:hover { color: var(--accent); }
+.ss-crumbs .crumb-sep { color: var(--fg-tertiary); }
+.ss-crumbs .crumb-current {
+  color: var(--fg-primary); font-weight: 700; letter-spacing: -0.005em;
+  font-size: 15px;
+}
+
+/* ── Bulk-mode hint bar ───────────────────────────────────────────── */
+.xls-hint-bar {
+  flex-shrink: 0;
+  padding: 8px 24px;
+  background: var(--accent-bg);
+  border-bottom: 1px solid var(--accent-border);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12px; color: var(--fg-secondary);
+}
+.xls-hint-bar b { color: var(--accent); font-weight: 700; }
+.xls-hint-bar kbd {
+  display: inline-block;
+  font-family: inherit; font-size: 11px; font-weight: 700;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 7px; color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.xls-hint-bar .hint-sep { color: var(--fg-tertiary); margin: 0 4px; }
+.xls-hint-bar .hint-spacer { flex: 1; }
+.xls-hint-bar .hint-pending {
+  font-weight: 700; color: var(--warning);
+  background: var(--warning-bg); padding: 2px 10px; border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Excel-like grid ───────────────────────────────────────────────
+ *
+ * Sharp 1px borders between every cell (top + left only — head row
+ * supplies the outer top edge; the row's own top-border + each cell's
+ * left-border form the grid lines). Cells flush, no padding-on-input
+ * — input fills the cell. Active cell gets a 2px accent inset border
+ * like Excel's selected-cell outline, with no layout shift (ring is
+ * box-shadow, not a width change).
+ */
+.xls-wrap {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+  margin: 0 24px 12px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.xls-head {
+  display: grid;
+  background: var(--bg-muted);
+  border-bottom: 2px solid var(--border-strong, var(--border));
+  flex-shrink: 0;
+  position: sticky; top: 0; z-index: 2;
+}
+.xls-th {
+  padding: 9px 10px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+  border-left: 1px solid var(--border);
+  display: flex; align-items: center; gap: 4px;
+  user-select: none;
+  white-space: nowrap;
+}
+.xls-th:first-child { border-left: 0; }
+.xls-th.r { justify-content: flex-end; text-align: right; }
+.xls-th.c { justify-content: center; text-align: center; }
+.xls-th.sortable { cursor: pointer; }
+.xls-th.sortable:hover { color: var(--fg-primary); background: var(--bg-hover); }
+.xls-th.active { color: var(--accent); }
+.xls-th .arrow { font-size: 10px; opacity: 0.6; }
+.xls-th.active .arrow { opacity: 1; }
+
+.xls-body {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-panel);
+}
+.xls-row {
+  display: grid;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  transition: background .08s;
+  min-height: 32px;
+  position: relative;
+}
+.xls-row:first-child { border-top: 0; }
+.xls-row:hover { background: var(--bg-hover); }
+.xls-row.editing  { background: var(--warning-bg); }
+/* Active row in bulk-edit mode — accent tint plus a 2px accent ring
+   around the entire row (Excel-style row-selection outline). The
+   active cell sits ON TOP with z-index: 2 and a contrasting panel
+   background so the focus point pops. */
+.xls-row.bulk-row {
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  z-index: 1;
+}
+
+.xls-cell {
+  padding: 4px 10px;
+  border-left: 1px solid var(--border-subtle);
+  display: flex; align-items: center;
+  overflow: hidden;
+  min-height: 32px;
+  position: relative;
+}
+.xls-cell:first-child { border-left: 0; }
+.xls-cell.r { justify-content: flex-end; text-align: right; }
+.xls-cell.c { justify-content: center; text-align: center; }
+.xls-cell.editable { cursor: cell; }
+.xls-cell.editable:hover { background: var(--bg-hover); }
+/* Inside an active row, hover keeps the row tint instead of flipping
+   to the global hover bg — otherwise non-active cells in the active
+   row briefly look like they've been "selected" too. */
+.xls-row.bulk-row .xls-cell.editable:hover { background: transparent; }
+.xls-cell.active {
+  /* Panel background contrasts against the row's accent-bg tint, so
+     the focused cell reads as the focus point even within a tinted
+     row. The 2px inset ring is the Excel-style selected-cell outline
+     and doesn't shift adjacent cells (no width change). */
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  z-index: 2;
+}
+
+/* Excel-style cell input: fills the cell, no border, picks up the
+   active outline from .xls-cell.active. Subtle bg so the input area
+   reads as editable when entered. */
+.xls-input {
+  width: 100%; height: 100%;
+  border: 0; outline: 0; background: transparent;
+  padding: 0; margin: 0;
+  font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  letter-spacing: -0.01em;
+}
+.xls-input.active {
+  background: var(--bg-panel);
+  /* Inset highlight handled by cell border — input stays clean. */
+}
+/* Hide number-input spinners for a flat Excel look */
+.xls-input[type=number] { -moz-appearance: textfield; }
+.xls-input[type=number]::-webkit-outer-spin-button,
+.xls-input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.xls-row-actions { display: inline-flex; gap: 4px; }
+
+/* ── Clean-mode overrides ──────────────────────────────────────────
+ *
+ * Same XlsRow markup, lighter visual treatment — minimal borders, no
+ * cell focus ring, soft row highlight (a left accent stripe instead of
+ * a full ring). Arrow nav, scroll-into-view, and the per-row React.memo
+ * are all unchanged; only the painted look differs.
+ */
+.xls-wrap.clean-mode {
+  border: 1px solid var(--border);    /* lighter outer border */
+}
+.xls-wrap.clean-mode .xls-head {
+  border-bottom: 1px solid var(--border);
+}
+.xls-wrap.clean-mode .xls-th { border-left: 0; }
+
+.xls-wrap.clean-mode .xls-row { border-top: 1px solid var(--border-subtle); }
+.xls-wrap.clean-mode .xls-cell { border-left: 0; }
+/* Drop the cell focus ring — clean mode highlights row, not cell. */
+.xls-wrap.clean-mode .xls-cell.active {
+  background: transparent;
+  box-shadow: none;
+}
+/* Selected row reads via background tint + a 3px left stripe (the
+   cell-mode treatment used a full inset ring; the stripe is calmer
+   and more in line with read-mostly tables elsewhere in the app). */
+.xls-wrap.clean-mode .xls-row.bulk-row {
+  background: var(--accent-bg);
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+.xls-wrap.clean-mode .xls-foot { border-top: 1px solid var(--border); }
+.xls-wrap.clean-mode .xls-foot-cell { border-left: 0; }
+
+/* Sticky bottom totals row — last child of `.xls-wrap` (a flex column).
+   Visually mirrors the table head: same `--bg-muted` background, same
+   9px padding, same hairline column dividers, same `--fg-tertiary`
+   uppercase label tone. Numbers sit slightly bigger so they read as
+   values rather than headings, but stay in `--fg-primary` so the row
+   feels calm and on-key with the head. */
+.xls-foot {
+  display: grid;
+  background: var(--bg-muted);
+  border-top: 2px solid var(--border-strong, var(--border));
+  flex-shrink: 0;
+}
+.xls-foot-cell {
+  padding: 9px 10px;
+  font-size: 12.5px; font-weight: 700;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+  border-left: 1px solid var(--border);
+  display: flex; align-items: center;
+}
+.xls-foot-cell:first-child { border-left: 0; }
+.xls-foot-cell.r { justify-content: flex-end; text-align: right; }
+.xls-foot-cell.c { justify-content: center; text-align: center; }
+.xls-foot-cell.label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+}
+/* Tone classes left as no-ops so the JSX stays unchanged; switching
+   them on later (if you want a coloured-totals look) is one rule
+   each. Today they all read as the same calm `--fg-primary`. */
+.xls-foot-cell.qty,
+.xls-foot-cell.val,
+.xls-foot-cell.sale { color: var(--fg-primary); }
+
+/* Import-result modal cards (theme-token rewrite of the inline styles) */
+.ss-imp-grid { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.ss-imp-stat {
+  flex: 1; padding: 10px 18px; text-align: center;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-panel);
+}
+.ss-imp-stat-v { font-size: 22px; font-weight: 800; }
+.ss-imp-stat-l { font-size: 11px; font-weight: 600; }
+.ss-imp-stat.ok      { background: var(--success-bg); border-color: var(--success); color: var(--success); }
+.ss-imp-stat.skipped { background: var(--danger-bg);  border-color: var(--danger);  color: var(--danger); }
+.ss-imp-stat.total   { background: var(--accent-bg);  border-color: var(--accent);  color: var(--accent); }

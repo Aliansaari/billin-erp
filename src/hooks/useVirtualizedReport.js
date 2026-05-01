@@ -99,6 +99,16 @@ export function useVirtualizedReport({
   // value we send to the server is JSON-serialisable by construction.
   const cacheKey = useMemo(() => JSON.stringify(filters || {}), [filters]);
 
+  // Stale-while-revalidate display key: this is the cacheKey we are
+  // CURRENTLY rendering rows from — independent of `cacheKey` (the key
+  // the user wants). When filters change, displayKey lags until the new
+  // key's first chunk lands, at which point we swap atomically. Result:
+  // the old data stays on screen with no blink/flash; the table flips
+  // in one paint when the new data is ready (Tally-style "rock solid").
+  const [displayKey, setDisplayKey] = useState(cacheKey);
+  const displayKeyRef = useRef(displayKey);
+  useEffect(() => { displayKeyRef.current = displayKey; }, [displayKey]);
+
   // Latest values captured for the fetch loop (avoids re-creating
   // ensureChunk on every render and breaking the inFlight dedupe map).
   const fetcherRef  = useRef(fetcher);
@@ -167,6 +177,15 @@ export function useVirtualizedReport({
         // previous filter are kept warm in cache but don't trigger
         // re-renders against the current view.
         if (cacheKeyRef.current === key) {
+          // Stale-while-revalidate atomic swap: when chunk 0 of a NEW
+          // key lands (different from the displayed one), we promote
+          // displayKey + totalCount + summary + meta together in the
+          // same render. The rows useMemo (deps on displayKey + version)
+          // re-runs and renders the new data in a single paint. Until
+          // this point, the old rows are still on screen — no blink.
+          if (chunkIdx === 0 && displayKeyRef.current !== key) {
+            setDisplayKey(key);
+          }
           setTotalCount(total);
           setSummary(sum);
           setMeta(metaPayload);
@@ -205,17 +224,24 @@ export function useVirtualizedReport({
     }
   }, [chunkSize, totalCount, fetchChunk]);
 
-  // Filter change → reset visible state and kick off chunk 0. We DON'T
-  // wipe cacheRef — a recently-used filter that the user toggles back
-  // to is reused without re-fetching (within MAX_CACHED_KEYS).
+  // Filter change → kick off chunk 0 in the background. The visible
+  // state (totalCount, summary, displayed rows) is intentionally NOT
+  // reset here — keeping the old data on screen until the new chunk
+  // lands eliminates the white-flash that happens when totalCount
+  // briefly hits 0. The atomic swap happens inside fetchChunk's
+  // success branch.
+  //
+  // Cache hit on the new key: we can promote immediately (the data is
+  // already in memory).
   useEffect(() => {
     setError(null);
     const cached = cacheRef.current.get(cacheKey);
     const fresh  = cached && (Date.now() - cached.lastUsed < CACHE_TTL_MS);
 
     if (fresh) {
-      // Reuse: surface the cached values immediately.
       cached.lastUsed = Date.now();
+      // Atomic promote: displayKey + total + summary together.
+      setDisplayKey(cacheKey);
       setTotalCount(cached.total);
       setSummary(cached.summary);
       setMeta(cached.meta || {});
@@ -223,26 +249,25 @@ export function useVirtualizedReport({
       return;
     }
 
-    // Cold or stale — reset and fetch chunk 0.
-    setTotalCount(initialTotal);
-    setSummary({});
-    setMeta({});
-    setVersion((v) => v + 1);
-    setLoading(true);
+    // Cold/stale: only show the loading spinner if there is NO data
+    // currently displayed (true initial load). Otherwise keep the
+    // existing rows visible while fetch runs in the background — the
+    // success branch will swap atomically when chunk 0 lands.
+    const hasVisible = totalCount > 0;
+    if (!hasVisible) setLoading(true);
     fetchChunk(0).finally(() => {
-      // Only clear the spinner if the user hasn't filtered again.
       if (cacheKeyRef.current === cacheKey) setLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey]);
 
   // Sparse rows view — length === totalCount, missing slots === PLACEHOLDER_ROW.
-  // Rebuilt only when version / totalCount / chunkSize / cacheKey change
-  // (NOT on every render of the consuming component).
+  // Reads chunks from the DISPLAYED key (not the requested cacheKey) so
+  // the table keeps showing old data while a new filter loads.
   const rows = useMemo(() => {
     if (!totalCount) return [];
     const arr = new Array(totalCount);
-    const entry = cacheRef.current.get(cacheKey);
+    const entry = cacheRef.current.get(displayKey);
     const chunks = entry ? entry.chunks : null;
 
     for (let i = 0; i < totalCount; i++) {
@@ -253,20 +278,27 @@ export function useVirtualizedReport({
     }
     return arr;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, totalCount, chunkSize, cacheKey]);
+  }, [version, totalCount, chunkSize, displayKey]);
 
   // Force a full reload (ignores cache). Used by an explicit "Refresh"
   // button or after a mutation the page knows invalidates the data.
+  //
+  // No-flinch refresh: keep the existing rows on screen while we fetch.
+  // We discard chunks 1+ from the cache (so they refetch on next scroll)
+  // but leave chunk 0 + total + summary in place — the success branch
+  // overwrites chunk 0 atomically and bumps version, so the rows memo
+  // re-renders with the new chunk-0 data in a single paint.
   const refresh = useCallback(() => {
-    cacheRef.current.delete(cacheKeyRef.current);
     setError(null);
-    setTotalCount(initialTotal);
-    setSummary({});
-    setMeta({});
-    setVersion((v) => v + 1);
-    setLoading(true);
-    fetchChunk(0).finally(() => setLoading(false));
-  }, [fetchChunk, initialTotal]);
+    const e = cacheRef.current.get(cacheKeyRef.current);
+    if (e) {
+      const ch0 = e.chunks.get(0);
+      e.chunks = new Map();
+      if (ch0) e.chunks.set(0, ch0);   // keep visible chunk until new one lands
+      e.lastUsed = 0;                   // mark stale so cache-fresh path skips it
+    }
+    fetchChunk(0);
+  }, [fetchChunk]);
 
   return { rows, totalCount, summary, meta, ensureChunk, loading, error, refresh };
 }

@@ -673,6 +673,13 @@ export default function BillsOutstanding({ side }) {
               onClick: () => col.sorter && onSort(col.key === 'overdue' ? 'overdue' : col.dataIndex || col.key),
               style:   col.sorter ? { cursor: 'pointer' } : undefined,
             })}
+            // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens the
+            // bill via the same drill-down used by the bill-no link.
+            // persistKey varies by side (receivable / payable) so
+            // each list keeps its own cursor across round-trips.
+            keyboardNav
+            persistKey={`bills-${side}`}
+            onRowEnter={(row) => row?.bill_id && drillBill(row)}
           />
         )}
       </div>

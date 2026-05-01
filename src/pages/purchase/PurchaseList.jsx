@@ -598,6 +598,11 @@ export default function PurchaseList() {
           rowClassName={(r) => r && r.is_cancelled ? 'blist-row-cancelled' : ''}
           summaryCells={cols.totalRow ? summaryCells : undefined}
           summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
+          // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens the
+          // purchase-bill edit form for the active row.
+          keyboardNav
+          persistKey="purchase-list"
+          onRowEnter={(row) => row?.purchase_bill_id && navigate(`/purchase/edit/${row.purchase_bill_id}`)}
         />
       </div>
 

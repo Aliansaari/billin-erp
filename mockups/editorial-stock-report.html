@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock Report — Editorial v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
+<style>
+/*
+ * Stock Report — editorial mockup v2 (interactive).
+ *
+ * Changes from v1:
+ *   · Search moved into the page header (right-aligned, primary surface).
+ *   · Customize button uses the same gear icon the live app uses
+ *     (Ant Design's SettingOutlined silhouette), not a hamburger.
+ *   · Table uses CSS Grid with shared column-template — head, every
+ *     body row, and the sticky footer reference the same template
+ *     variable, so columns line up by construction.
+ *   · Stock column: colour-coded plain number, no pill chip — keeps
+ *     the right-edge of the numeric column aligned with the rest.
+ *   · Filter chips no longer show counts (cleaner; counts move to the
+ *     KPI strip and the bottom status bar).
+ *   · Wired-up interactivity: chip toggle, customize popover, density
+ *     toggle, search filter, header sort, density-aware row collapse,
+ *     dismiss banner. Plain JS — no framework — so it can be opened
+ *     and clicked through directly.
+ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-muted:    #F8F2E4;
+  --bg-chip:     #F0E8D4;
+
+  --ink:         #1D1A15;
+  --ink-2:       #4F4434;
+  --ink-3:       #7A6E5A;
+  --ink-4:       #A79C88;
+  --ink-5:       #CABFA8;
+
+  --rule:        #E3D9C5;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177,71,47,0.10);
+  --accent-border: rgba(177,71,47,0.24);
+
+  --indigo:      #4F46E5;
+  --indigo-soft: rgba(79,70,229,0.10);
+  --teal:        #1F7A6B;
+  --teal-soft:   rgba(31,122,107,0.12);
+
+  --ok:          #5A7C4A;
+  --ok-soft:     rgba(90,124,74,0.14);
+  --warn:        #B5872B;
+  --warn-soft:   rgba(181,135,43,0.14);
+  --danger:      #B1472F;
+  --danger-soft: rgba(177,71,47,0.12);
+  --neg:         #BE185D;
+  --neg-soft:    rgba(190,24,93,0.10);
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-w:        228px;
+
+  /*
+   * Single source of truth for column widths. Head, body and foot all
+   * reference --cols, so misalignment is structurally impossible.
+   * Order: sr | barcode | category | product | size | article | open |
+   *        in | out | stock | pur | sale | mrg | val | vals | mov
+   */
+  --cols: 40px 110px 130px minmax(220px, 1fr)
+          60px 100px 80px 70px 70px 100px
+          95px 95px 70px 110px 110px 90px;
+  --col-pad: 12px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13.5px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh; overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Sidebar ────────────────────────────────────────────────────────── */
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  padding: 16px 12px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  z-index: 20;
+  overflow-y: auto;
+}
+.sb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px 14px;
+  border-bottom: 1px solid var(--sb-border); margin-bottom: 10px;
+}
+.sb-logo {
+  width: 30px; height: 30px; border-radius: 7px;
+  background: var(--accent);
+  display: grid; place-items: center;
+  color: #FDFAF2; font-weight: 700; font-size: 14px;
+}
+.sb-logo-text { font-weight: 600; font-size: 14.5px; color: #F5EEE2; letter-spacing: -0.01em; }
+.sb-sec {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--sb-ink-3);
+  padding: 12px 12px 4px;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; border-radius: 6px;
+  color: var(--sb-ink); font-size: 13px;
+  cursor: pointer; margin-bottom: 1px;
+}
+.sb-item:hover { background: var(--sb-hover); }
+.sb-item.active { background: var(--accent); color: #FDFAF2; font-weight: 500; }
+.sb-item .ic { width: 14px; color: var(--sb-ink-3); }
+.sb-item.active .ic { color: #FDFAF2; }
+.sb-sub {
+  margin-left: 24px;
+  font-size: 12.5px; color: var(--sb-ink-3);
+  padding: 4px 12px; border-radius: 5px; cursor: pointer;
+}
+.sb-sub:hover { color: var(--sb-ink); background: var(--sb-hover); }
+.sb-sub.active { color: var(--sb-ink); font-weight: 600; background: var(--sb-hover); }
+
+.main {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* ── Header (search lives here, primary surface) ──────────────────── */
+.page-hd {
+  flex-shrink: 0;
+  padding: 16px 28px 12px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.page-title h1 {
+  font-size: 26px; font-weight: 700; letter-spacing: -0.025em;
+  color: var(--ink); line-height: 1; margin-bottom: 6px;
+}
+.page-title .sub { font-size: 12.5px; color: var(--ink-3); font-weight: 500; }
+.page-title .sub b { color: var(--ink); font-weight: 600; }
+.page-title .sub .sep { color: var(--ink-5); margin: 0 6px; }
+
+.hd-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Header search — primary surface, wide, with a soft accent ring */
+.search-hd {
+  display: flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 14px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 9px;
+  width: 320px;
+  transition: all .15s;
+}
+.search-hd:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.search-hd input {
+  flex: 1; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 13px; color: var(--ink); font-weight: 500;
+}
+.search-hd input::placeholder { color: var(--ink-4); font-weight: 500; }
+.search-hd svg { width: 14px; height: 14px; color: var(--ink-3); flex-shrink: 0; }
+.search-hd .clear {
+  width: 18px; height: 18px; border: 0; background: transparent;
+  color: var(--ink-4); cursor: pointer; display: none; align-items: center; justify-content: center;
+  border-radius: 4px;
+}
+.search-hd .clear:hover { color: var(--ink); background: var(--bg-muted); }
+.search-hd.has-text .clear { display: flex; }
+
+.btn {
+  height: 34px; padding: 0 13px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px;
+  color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  transition: all .12s;
+}
+.btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.btn.primary { background: var(--accent); color: #FDFAF2; border-color: var(--accent); }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #FDFAF2; }
+.btn svg { width: 13px; height: 13px; }
+
+.date-input {
+  display: flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 12px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px;
+  font-size: 12.5px; color: var(--ink-2); font-weight: 600;
+}
+.date-input .lbl { font-size: 10.5px; color: var(--ink-3); font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase; margin-right: 2px; }
+.date-input svg { width: 13px; height: 13px; color: var(--ink-3); }
+
+/* ── KPI strip ──────────────────────────────────────────────────────── */
+.kpis {
+  flex-shrink: 0;
+  padding: 14px 28px 0;
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;
+}
+.kpi {
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 13px 15px;
+  position: relative; overflow: hidden;
+}
+.kpi .kpi-k {
+  font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 700;
+}
+.kpi .kpi-v {
+  font-size: 22px; font-weight: 700; color: var(--ink);
+  line-height: 1.1; margin-top: 5px; letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+.kpi .kpi-sub { font-size: 11px; color: var(--ink-3); margin-top: 3px; }
+.kpi .kpi-sub b { color: var(--ink-2); font-weight: 700; }
+
+.kpi.tot      { background: linear-gradient(135deg, #F3EAD3 0%, var(--bg-panel) 70%); }
+.kpi.value    { border-color: var(--indigo-soft); background: linear-gradient(135deg, var(--indigo-soft) 0%, var(--bg-panel) 70%); }
+.kpi.value .kpi-v { color: var(--indigo); }
+.kpi.sale     { border-color: var(--teal-soft); background: linear-gradient(135deg, var(--teal-soft) 0%, var(--bg-panel) 70%); }
+.kpi.sale .kpi-v { color: var(--teal); }
+.kpi.low      { border-color: var(--warn-soft); background: linear-gradient(135deg, var(--warn-soft) 0%, var(--bg-panel) 70%); }
+.kpi.low .kpi-v { color: var(--warn); }
+.kpi.out      { border-color: var(--danger-soft); background: linear-gradient(135deg, var(--danger-soft) 0%, var(--bg-panel) 70%); }
+.kpi.out .kpi-v { color: var(--danger); }
+.kpi.neg      { border-color: var(--neg-soft); background: linear-gradient(135deg, var(--neg-soft) 0%, var(--bg-panel) 70%); }
+.kpi.neg .kpi-v { color: var(--neg); }
+
+/* ── Data-integrity banner ──────────────────────────────────────────── */
+.recon-bnr {
+  flex-shrink: 0;
+  margin: 12px 28px 0;
+  padding: 12px 16px;
+  background: linear-gradient(0deg, var(--neg-soft) 0%, transparent 100%), var(--bg-panel);
+  border: 1px solid var(--neg-soft);
+  border-left: 3px solid var(--neg);
+  border-radius: 10px;
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.recon-bnr.hidden { display: none; }
+.recon-bnr .ic-warn {
+  width: 30px; height: 30px; border-radius: 7px;
+  background: var(--neg); color: #FDFAF2;
+  display: grid; place-items: center; flex-shrink: 0;
+  font-weight: 800; font-size: 16px;
+}
+.recon-bnr .recon-body { flex: 1; min-width: 0; }
+.recon-bnr .recon-title { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+.recon-bnr .recon-formula { font-size: 12px; color: var(--ink-2); line-height: 1.7; }
+.recon-bnr .recon-formula b { color: var(--ink); font-weight: 700; }
+.recon-bnr .recon-formula .neg-link { color: var(--neg); font-weight: 700; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.recon-bnr .ml-auto { margin-left: auto; display: flex; gap: 6px; }
+
+/* ── Filter row ─────────────────────────────────────────────────────── */
+.filter-bar {
+  flex-shrink: 0;
+  padding: 14px 28px 8px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--ink-2);
+  cursor: pointer; transition: all .12s; user-select: none;
+}
+.chip:hover { border-color: var(--accent-border); }
+.chip.on { background: var(--ink); color: #FDFAF2; border-color: var(--ink); }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); }
+.chip .dot.ok      { background: var(--ok); }
+.chip .dot.low     { background: var(--warn); }
+.chip .dot.out     { background: var(--danger); }
+.chip .dot.neg     { background: var(--neg); animation: pulse 2s ease-in-out infinite; }
+.chip .dot.dead    { background: var(--ink-4); }
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 0 0 var(--neg-soft); }
+  50%     { box-shadow: 0 0 0 4px transparent; }
+}
+.filter-bar .sep { width: 1px; height: 18px; background: var(--rule); margin: 0 4px; }
+.filter-bar .ml-auto { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+/* Density segmented control */
+.density {
+  display: inline-flex; padding: 3px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 7px;
+}
+.density button {
+  border: 0; background: transparent;
+  padding: 4px 10px; font: inherit; font-size: 11.5px; font-weight: 600;
+  color: var(--ink-3); border-radius: 5px; cursor: pointer;
+}
+.density button:hover { color: var(--ink); }
+.density button.on { background: var(--ink); color: #FDFAF2; }
+
+/* Customize wraps to host the popover */
+.cust-wrap { position: relative; }
+.cols-btn {
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 12px; font: inherit; font-size: 12.5px; font-weight: 600;
+  color: var(--ink-2); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.cols-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.cols-btn .badge {
+  background: var(--accent); color: #FDFAF2;
+  font-size: 10.5px; font-weight: 700;
+  padding: 1px 6px; border-radius: 999px; margin-left: 4px;
+}
+.cols-btn svg { width: 14px; height: 14px; }
+
+/* Customize popover */
+.cols-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  width: 320px; padding: 12px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(29,26,21,0.14);
+  display: none;
+}
+.cols-pop.open { display: block; }
+.cols-pop .grp { padding: 4px 0 8px; }
+.cols-pop .gh {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: var(--ink-3);
+  padding: 2px 4px 6px;
+}
+.cols-pop .gh-reset {
+  background: transparent; border: 0; color: var(--accent);
+  font: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
+  letter-spacing: 0;
+}
+.cols-pop .opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 6px; border-radius: 5px; cursor: pointer;
+  font-size: 12.5px; color: var(--ink-2); font-weight: 500;
+}
+.cols-pop .opt:hover { background: var(--bg-muted); }
+.cols-pop .opt input[type=checkbox] { accent-color: var(--accent); }
+.cols-pop .opt.fixed { color: var(--ink-3); cursor: not-allowed; }
+.cols-pop .opt.fixed input { opacity: .5; }
+.cols-pop .pin {
+  margin-left: auto;
+  font-size: 9.5px; color: var(--ink-4);
+  background: var(--bg-muted); border-radius: 3px;
+  padding: 1px 5px; letter-spacing: 0.4px; text-transform: uppercase; font-weight: 700;
+}
+.cols-pop .grp + .grp { border-top: 1px solid var(--rule-soft); padding-top: 10px; }
+
+/* ── Table — CSS Grid for guaranteed alignment ──────────────────────── */
+.tbl-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 28px 0;
+  display: flex;
+}
+.tbl {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  border-bottom: 0;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+/* Single scroll container — VirtualReportTable mounts here */
+.tbl-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+/* Every row uses the SAME grid template — head, body, foot align by construction */
+.trow {
+  display: grid;
+  grid-template-columns: var(--cols);
+  column-gap: var(--col-pad);
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+  align-items: center;
+  font-size: 13px; color: var(--ink);
+}
+.trow.head {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg-muted);
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule);
+  padding-top: 11px; padding-bottom: 11px;
+}
+.trow.head .col-th {
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer; user-select: none;
+}
+.trow.head .col-th:hover { color: var(--ink); }
+.trow.head .col-th .sort {
+  font-size: 9px; color: var(--ink-4); transform: translateY(-1px);
+}
+.trow.head .col-th.asc .sort,
+.trow.head .col-th.desc .sort { color: var(--ink); }
+.trow.data { cursor: pointer; transition: background .1s; min-height: 52px; }
+.trow.data:hover { background: var(--bg-muted); }
+.trow.data.neg-row { background: linear-gradient(90deg, var(--neg-soft) 0%, transparent 50%); }
+.trow.data.out-row { background: linear-gradient(90deg, var(--danger-soft) 0%, transparent 50%); }
+.trow.data.hidden  { display: none; }
+.trow.foot {
+  position: sticky; bottom: 0; z-index: 2;
+  background: var(--bg-chip);
+  border-top: 2px solid var(--ink-4);
+  border-bottom: 0;
+  font-weight: 700;
+  font-size: 12.5px; color: var(--ink);
+}
+
+/* Compact density */
+.tbl.compact .trow.data { min-height: 36px; padding: 5px 18px; }
+.tbl.compact .trow.data .prod-meta { display: none; }
+.tbl.compact .trow.data .mov-meta  { display: none; }
+
+/* Cell alignment helpers — applied per column class */
+.cell-c { text-align: center; }
+.cell-r { text-align: right; }
+
+/* Cell content styles */
+.sr-num { font-size: 11px; color: var(--ink-4); font-weight: 600; }
+.bc-tag {
+  font-family: inherit;
+  font-size: 11px; font-weight: 500;
+  color: var(--ink-2);
+  background: var(--bg-muted);
+  padding: 2px 6px; border-radius: 4px;
+  letter-spacing: -0.02em;
+}
+.cat-tag { font-size: 11.5px; color: var(--ink-3); }
+.prod-stk { display: block; min-width: 0; }
+.prod-name {
+  display: block; font-size: 13.5px; color: var(--ink); font-weight: 600;
+  letter-spacing: -0.005em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.prod-meta {
+  display: block; font-size: 11px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.size-pill {
+  display: inline-block; font-size: 11px;
+  padding: 1px 7px; border-radius: 4px;
+  background: var(--bg-muted); color: var(--ink-2); font-weight: 600;
+}
+.art-mono { font-family: inherit; font-size: 11.5px; color: var(--ink-2); letter-spacing: -0.01em; }
+
+/* Quantity cells (right-aligned; tabular numerics keep them column-clean) */
+.qty {
+  font-size: 13px; font-weight: 600; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.qty.muted { color: var(--ink-4); font-weight: 500; }
+.qty.in    { color: var(--ok); }
+.qty.out   { color: var(--danger); }
+
+/* Stock cell — colour-coded text only (no chip), keeps right-edge clean */
+.stk-num {
+  font-size: 14px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.stk-num.ok   { color: var(--ok); }
+.stk-num.low  { color: var(--warn); }
+.stk-num.out  { color: var(--danger); }
+.stk-num.neg  { color: var(--neg); }
+
+/* Money cells */
+.amt {
+  font-weight: 600; font-size: 13px; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.amt .rs { color: var(--ink-3); margin-right: 1px; font-weight: 500; }
+.amt.muted { color: var(--ink-4); font-weight: 500; }
+.amt.val   { color: var(--indigo); font-weight: 700; }
+.amt.vals  { color: var(--teal); font-weight: 700; }
+.amt.neg-amt { color: var(--neg); font-weight: 700; }
+
+.mrg-pill {
+  display: inline-block; padding: 1px 7px; border-radius: 4px;
+  font-size: 11.5px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.mrg-pill.pos    { background: var(--ok-soft);     color: var(--ok); }
+.mrg-pill.warn   { background: var(--warn-soft);   color: var(--warn); }
+.mrg-pill.bad    { background: var(--danger-soft); color: var(--danger); }
+
+.mov-day { font-size: 12px; color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mov-meta { font-size: 10.5px; color: var(--ink-4); display: block; margin-top: 1px; }
+.mov-dead { color: var(--neg); font-weight: 700; }
+
+/* Footer */
+.foot-label { font-size: 11.5px; font-weight: 800; color: var(--ink-2); letter-spacing: 0.4px; text-transform: uppercase; }
+.foot-amt {
+  font-weight: 800; font-size: 14px; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.foot-amt.indigo { color: var(--indigo); }
+.foot-amt.teal   { color: var(--teal); }
+.foot-amt.warn   { color: var(--warn); }
+.foot-amt.danger { color: var(--danger); }
+
+/* Status bar */
+.tbl-status {
+  flex-shrink: 0;
+  margin: 0 28px 12px;
+  padding: 10px 18px;
+  border: 1px solid var(--rule);
+  border-top: 0;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  background: var(--bg-muted);
+  display: flex; gap: 18px;
+  font-size: 11.5px; color: var(--ink-3);
+  align-items: center;
+}
+.tbl-status b { color: var(--ink); font-weight: 700; }
+.tbl-status .sep { width: 1px; height: 12px; background: var(--rule); }
+.tbl-status .ml-auto { margin-left: auto; }
+.tbl-status .vrt-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok); margin-right: 4px;
+}
+
+/* Toast (refresh feedback) */
+.toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--ink); color: #FDFAF2;
+  padding: 9px 18px; border-radius: 8px;
+  font-size: 12.5px; font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  z-index: 100; opacity: 0; pointer-events: none;
+  transition: all .25s;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-logo">B</div>
+    <div class="sb-logo-text">Billing ERP</div>
+  </div>
+  <div class="sb-sec">Workspace</div>
+  <div class="sb-item"><span class="ic">◎</span> Dashboard</div>
+  <div class="sb-item"><span class="ic">◧</span> Sales</div>
+  <div class="sb-item"><span class="ic">◨</span> Purchase</div>
+  <div class="sb-item"><span class="ic">◐</span> Parties</div>
+  <div class="sb-item active"><span class="ic">⊡</span> Inventory</div>
+  <div class="sb-sub active">Stock Report</div>
+  <div class="sb-sub">Products</div>
+  <div class="sb-sub">Stock Movement</div>
+  <div class="sb-sub">Stock Transfer</div>
+  <div class="sb-sub">Godowns</div>
+  <div class="sb-item"><span class="ic">₹</span> Payments</div>
+  <div class="sb-item"><span class="ic">⊞</span> Accounts</div>
+  <div class="sb-item"><span class="ic">◫</span> Reports</div>
+  <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+</aside>
+
+<main class="main">
+
+  <!-- ── HEADER (search lives here) ─────────────────────────────── -->
+  <div class="page-hd">
+    <div class="page-title">
+      <h1>Stock Report</h1>
+      <div class="sub" id="page-sub">
+        <b id="visible-count">215</b> items <span class="sep">·</span>
+        as on <b>01 May 2026</b> <span class="sep">·</span>
+        Main Godown <span class="sep">·</span>
+        Last refreshed <b id="refresh-time">just now</b>
+      </div>
+    </div>
+    <div class="hd-ctrl">
+      <!-- Search moved up here, primary surface -->
+      <div class="search-hd" id="search-hd">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="search" placeholder="Search product, barcode, article, HSN…" autocomplete="off">
+        <button class="clear" id="search-clear" title="Clear">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="date-input">
+        <span class="lbl">As of</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        01 May 2026
+      </div>
+      <button class="btn" id="refresh-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Refresh
+      </button>
+      <button class="btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Import
+      </button>
+      <button class="btn primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export
+      </button>
+    </div>
+  </div>
+
+  <!-- ── KPI STRIP ──────────────────────────────────────────────── -->
+  <div class="kpis">
+    <div class="kpi tot">
+      <div class="kpi-k">Total Items</div>
+      <div class="kpi-v">215</div>
+      <div class="kpi-sub"><b>198</b> active · <b>17</b> archived</div>
+    </div>
+    <div class="kpi value">
+      <div class="kpi-k">Stock Value (Pur)</div>
+      <div class="kpi-v">₹ 44.85 L</div>
+      <div class="kpi-sub">avg <b>₹ 22,651</b> per item</div>
+    </div>
+    <div class="kpi sale">
+      <div class="kpi-k">Sale Potential</div>
+      <div class="kpi-v">₹ 44.41 L</div>
+      <div class="kpi-sub">margin <b style="color:var(--danger)">−0.99 %</b></div>
+    </div>
+    <div class="kpi low">
+      <div class="kpi-k">Low Stock</div>
+      <div class="kpi-v">12</div>
+      <div class="kpi-sub">at or below min level</div>
+    </div>
+    <div class="kpi out">
+      <div class="kpi-k">Out of Stock</div>
+      <div class="kpi-v">38</div>
+      <div class="kpi-sub"><b>17.7 %</b> of catalogue</div>
+    </div>
+    <div class="kpi neg">
+      <div class="kpi-k">Negative Stock</div>
+      <div class="kpi-v">9</div>
+      <div class="kpi-sub">data integrity flag</div>
+    </div>
+  </div>
+
+  <!-- ── DATA-INTEGRITY BANNER ──────────────────────────────────── -->
+  <div class="recon-bnr" id="banner">
+    <div class="ic-warn">!</div>
+    <div class="recon-body">
+      <div class="recon-title">9 products show negative stock</div>
+      <div class="recon-formula">
+        Sales recorded without matching purchase entries — most often
+        from imported Tally vouchers where opening balances weren't
+        seeded. Total exposure: <b>−1,892 units</b> · valued at
+        <b>−₹ 3,12,409</b>.
+        <span class="neg-link" onclick="filterToNegatives(); return false;">Filter to negatives →</span>
+      </div>
+    </div>
+    <div class="ml-auto">
+      <button class="btn" onclick="dismissBanner()">Dismiss</button>
+    </div>
+  </div>
+
+  <!-- ── FILTER ROW (chips, density, customize) ─────────────────── -->
+  <div class="filter-bar">
+    <span class="chip" data-filter="categories">All Categories</span>
+    <span class="chip" data-filter="godowns">All Godowns</span>
+    <span class="sep"></span>
+    <span class="chip" data-filter="status" data-status="all"><span class="dot"></span>All</span>
+    <span class="chip on" data-filter="status" data-status="ok"><span class="dot ok"></span>In Stock</span>
+    <span class="chip" data-filter="status" data-status="low"><span class="dot low"></span>Low</span>
+    <span class="chip" data-filter="status" data-status="out"><span class="dot out"></span>Out</span>
+    <span class="chip" data-filter="status" data-status="neg"><span class="dot neg"></span>Negative</span>
+    <span class="sep"></span>
+    <span class="chip" data-filter="dead"><span class="dot dead"></span>Dead Stock 90d+</span>
+
+    <div class="ml-auto">
+      <div class="density">
+        <button data-density="compact">Compact</button>
+        <button class="on" data-density="comfort">Comfort</button>
+      </div>
+      <div class="cust-wrap">
+        <button class="cols-btn" id="cust-btn">
+          <!-- Gear icon (matches Ant Design SettingOutlined the live app uses) -->
+          <svg viewBox="64 64 896 896" fill="currentColor">
+            <path d="M512 640a128 128 0 100-256 128 128 0 000 256zm364-242l-49.6-2.5a342.7 342.7 0 00-26.7-64.4l33-37a32 32 0 00-1.3-44.2l-46.4-46.4a32 32 0 00-44.2-1.3l-37 33a342.7 342.7 0 00-64.4-26.7L637.7 148a32 32 0 00-31.9-30h-65.6a32 32 0 00-31.9 30l-2.5 49.6a342.7 342.7 0 00-64.4 26.7l-37-33a32 32 0 00-44.2 1.3l-46.4 46.4a32 32 0 00-1.3 44.2l33 37a342.7 342.7 0 00-26.7 64.4L148 386.3a32 32 0 00-30 31.9v65.6a32 32 0 0030 31.9l49.6 2.5a342.7 342.7 0 0026.7 64.4l-33 37a32 32 0 001.3 44.2l46.4 46.4a32 32 0 0044.2 1.3l37-33a342.7 342.7 0 0064.4 26.7L386.3 876a32 32 0 0031.9 30h65.6a32 32 0 0031.9-30l2.5-49.6a342.7 342.7 0 0064.4-26.7l37 33a32 32 0 0044.2-1.3l46.4-46.4a32 32 0 001.3-44.2l-33-37a342.7 342.7 0 0026.7-64.4l49.6-2.5a32 32 0 0030-31.9v-65.6a32 32 0 00-30-31.9zM512 720a208 208 0 110-416 208 208 0 010 416z"/>
+          </svg>
+          Customize
+          <span class="badge" id="cols-count">14 / 18</span>
+        </button>
+
+        <div class="cols-pop" id="cust-pop">
+          <div class="grp">
+            <div class="gh"><span>Identifiers</span><button class="gh-reset" id="reset-cols">Reset</button></div>
+            <label class="opt fixed"><input type="checkbox" checked disabled><span>Sr No</span><span class="pin">Fixed</span></label>
+            <label class="opt"><input type="checkbox" data-col="bc" checked><span>Barcode</span></label>
+            <label class="opt"><input type="checkbox" data-col="cat" checked><span>Category</span></label>
+            <label class="opt fixed"><input type="checkbox" checked disabled><span>Product Name</span><span class="pin">Fixed</span></label>
+            <label class="opt"><input type="checkbox" data-col="size" checked><span>Size</span></label>
+            <label class="opt"><input type="checkbox" data-col="art" checked><span>Article No</span></label>
+            <label class="opt"><input type="checkbox" data-col="hsn"><span>HSN</span></label>
+          </div>
+          <div class="grp">
+            <div class="gh"><span>Quantity</span></div>
+            <label class="opt"><input type="checkbox" data-col="open" checked><span>Opening Stock</span></label>
+            <label class="opt"><input type="checkbox" data-col="in" checked><span>Inward (period)</span></label>
+            <label class="opt"><input type="checkbox" data-col="out" checked><span>Outward (period)</span></label>
+            <label class="opt fixed"><input type="checkbox" checked disabled><span>Current Stock</span><span class="pin">Fixed</span></label>
+            <label class="opt"><input type="checkbox" data-col="min"><span>Min Level</span></label>
+          </div>
+          <div class="grp">
+            <div class="gh"><span>Pricing &amp; Value</span></div>
+            <label class="opt"><input type="checkbox" data-col="pur" checked><span>Purchase Rate</span></label>
+            <label class="opt"><input type="checkbox" data-col="sale" checked><span>Sale Rate</span></label>
+            <label class="opt"><input type="checkbox" data-col="mrg" checked><span>Margin %</span></label>
+            <label class="opt"><input type="checkbox" data-col="val" checked><span>Stock Value (Pur)</span></label>
+            <label class="opt"><input type="checkbox" data-col="vals" checked><span>Stock Value (Sale)</span></label>
+          </div>
+          <div class="grp">
+            <div class="gh"><span>Activity</span></div>
+            <label class="opt"><input type="checkbox" data-col="mov" checked><span>Last Movement</span></label>
+          </div>
+          <div class="grp">
+            <div class="gh"><span>Page Sections</span></div>
+            <label class="opt"><input type="checkbox" data-section="kpis" checked><span>KPI strip (top tiles)</span></label>
+            <label class="opt"><input type="checkbox" data-section="banner" checked><span>Data integrity banner</span></label>
+            <label class="opt"><input type="checkbox" data-section="totals" checked><span>Total row (sticky bottom)</span></label>
+            <label class="opt"><input type="checkbox" data-section="status" checked><span>Status bar (bottom)</span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TABLE ──────────────────────────────────────────────────── -->
+  <div class="tbl-wrap">
+    <div class="tbl" id="tbl">
+      <div class="trow head" id="thead">
+        <div class="cell-c">#</div>
+        <div data-col="bc">Barcode</div>
+        <div data-col="cat">Category</div>
+        <div><span class="col-th asc" data-sort="name">Product <span class="sort">▲</span></span></div>
+        <div data-col="size" class="cell-c">Size</div>
+        <div data-col="art">Article</div>
+        <div data-col="open" class="cell-r"><span class="col-th" data-sort="open">Opening <span class="sort">▾</span></span></div>
+        <div data-col="in" class="cell-r">In</div>
+        <div data-col="out" class="cell-r">Out</div>
+        <div class="cell-r"><span class="col-th" data-sort="stock">Stock <span class="sort">▾</span></span></div>
+        <div data-col="pur" class="cell-r"><span class="col-th" data-sort="pur">Pur. Rate <span class="sort">▾</span></span></div>
+        <div data-col="sale" class="cell-r"><span class="col-th" data-sort="sale">Sale Rate <span class="sort">▾</span></span></div>
+        <div data-col="mrg" class="cell-r">Margin</div>
+        <div data-col="val" class="cell-r"><span class="col-th" data-sort="val">Stock Value <span class="sort">▾</span></span></div>
+        <div data-col="vals" class="cell-r">Sale Value</div>
+        <div data-col="mov" class="cell-r">Last Sold</div>
+      </div>
+
+      <div class="tbl-scroll" id="tbody">
+
+        <div class="trow data" data-status="ok" data-name="5914 SF PK">
+          <div class="cell-c"><span class="sr-num">1</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04863</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">5914 SF PK</span><span class="prod-meta">HSN 6109 · GST 12%</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">—</span></div>
+          <div data-col="art"><span class="art-mono">—</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">10.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty in">+22</span></div>
+          <div data-col="out" class="cell-r"><span class="qty out">−12</span></div>
+          <div class="cell-r"><span class="stk-num ok">20.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>128.00</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>126.46</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill bad">−1.2%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt val"><span class="rs">₹</span>2,560.00</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt vals"><span class="rs">₹</span>2,529.20</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day">28 Apr</span><span class="mov-meta">3 days ago</span></div>
+        </div>
+
+        <div class="trow data" data-status="ok" data-name="5915 SF ECO 103">
+          <div class="cell-c"><span class="sr-num">2</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04864</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">5915 SF ECO 103</span><span class="prod-meta">HSN 6109 · GST 12%</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">—</span></div>
+          <div data-col="art"><span class="art-mono">—</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">79.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty in">+120</span></div>
+          <div data-col="out" class="cell-r"><span class="qty out">−41</span></div>
+          <div class="cell-r"><span class="stk-num ok">158.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>119.00</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>119.00</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill warn">0.0%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt val"><span class="rs">₹</span>18,802.00</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt vals"><span class="rs">₹</span>18,802.00</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day">30 Apr</span><span class="mov-meta">yesterday</span></div>
+        </div>
+
+        <div class="trow data" data-status="ok" data-name="5945 SF JAQ CTS HS U2">
+          <div class="cell-c"><span class="sr-num">3</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04865</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">5945 SF JAQ CTS HS U2</span><span class="prod-meta">HSN 6109 · GST 12%</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">L</span></div>
+          <div data-col="art"><span class="art-mono">JAQ-U2</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">70.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty in">+140</span></div>
+          <div data-col="out" class="cell-r"><span class="qty out">−70</span></div>
+          <div class="cell-r"><span class="stk-num ok">140.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>204.00</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>248.00</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill pos">+21.6%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt val"><span class="rs">₹</span>28,560.00</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt vals"><span class="rs">₹</span>34,720.00</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day">01 May</span><span class="mov-meta">today</span></div>
+        </div>
+
+        <div class="trow data out-row" data-status="out" data-name="AFTER 9">
+          <div class="cell-c"><span class="sr-num">4</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04866</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">AFTER 9</span><span class="prod-meta">HSN 6109 · GST 12%</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">—</span></div>
+          <div data-col="art"><span class="art-mono">—</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">0.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty muted">0</span></div>
+          <div data-col="out" class="cell-r"><span class="qty muted">0</span></div>
+          <div class="cell-r"><span class="stk-num out">0.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>146.00</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>146.00</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill warn">0.0%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt muted"><span class="rs">₹</span>0.00</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt muted"><span class="rs">₹</span>0.00</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day mov-dead">—</span><span class="mov-meta">never sold</span></div>
+        </div>
+
+        <div class="trow data" data-status="low" data-name="AG MIX">
+          <div class="cell-c"><span class="sr-num">5</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04867</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">AG MIX</span><span class="prod-meta">HSN 6109 · GST 12% · min level 60</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">—</span></div>
+          <div data-col="art"><span class="art-mono">—</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">90.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty muted">0</span></div>
+          <div data-col="out" class="cell-r"><span class="qty out">−40</span></div>
+          <div class="cell-r"><span class="stk-num low">50.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>91.89</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>114.85</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill pos">+25.0%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt val"><span class="rs">₹</span>4,594.50</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt vals"><span class="rs">₹</span>5,742.50</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day">25 Apr</span><span class="mov-meta">6 days ago</span></div>
+        </div>
+
+        <div class="trow data neg-row" data-status="neg" data-name="Baba Suit 2-10">
+          <div class="cell-c"><span class="sr-num">6</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04869</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">Baba Suit 2-10</span><span class="prod-meta">HSN 6109 · likely missing opening</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">2-10</span></div>
+          <div data-col="art"><span class="art-mono">BS-2-10</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">90.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty muted">0</span></div>
+          <div data-col="out" class="cell-r"><span class="qty out">−260</span></div>
+          <div class="cell-r"><span class="stk-num neg">−170.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>71.97</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>71.97</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill warn">0.0%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt neg-amt"><span class="rs">−₹</span>12,234.90</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt neg-amt"><span class="rs">−₹</span>12,234.90</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day">15 Apr</span><span class="mov-meta">16 days ago</span></div>
+        </div>
+
+        <div class="trow data" data-status="low" data-name="BABA SUIT 8/10">
+          <div class="cell-c"><span class="sr-num">7</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04870</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">BABA SUIT 8/10</span><span class="prod-meta">HSN 6109 · min level 25</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">8/10</span></div>
+          <div data-col="art"><span class="art-mono">BS-8/10</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">90.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty muted">0</span></div>
+          <div data-col="out" class="cell-r"><span class="qty out">−85</span></div>
+          <div class="cell-r"><span class="stk-num low">5.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>308.10</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>385.00</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill pos">+25.0%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt val"><span class="rs">₹</span>1,540.50</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt vals"><span class="rs">₹</span>1,925.00</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day">29 Apr</span><span class="mov-meta">2 days ago</span></div>
+        </div>
+
+        <div class="trow data neg-row" data-status="neg" data-name="BABA SUIT F/L 2*4">
+          <div class="cell-c"><span class="sr-num">8</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04871</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">BABA SUIT F/L 2*4</span><span class="prod-meta">HSN 6109 · likely missing opening</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">2×4</span></div>
+          <div data-col="art"><span class="art-mono">BS-FL-2X4</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">30.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty muted">0</span></div>
+          <div data-col="out" class="cell-r"><span class="qty out">−696</span></div>
+          <div class="cell-r"><span class="stk-num neg">−666.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>260.00</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>325.00</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill pos">+25.0%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt neg-amt"><span class="rs">−₹</span>1,73,160.00</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt neg-amt"><span class="rs">−₹</span>2,16,450.00</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day">22 Apr</span><span class="mov-meta">9 days ago</span></div>
+        </div>
+
+        <div class="trow data" data-status="ok" data-name="BABALA">
+          <div class="cell-c"><span class="sr-num">9</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04868</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">BABALA</span><span class="prod-meta">HSN 6109 · fast mover</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">—</span></div>
+          <div data-col="art"><span class="art-mono">BBL</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">161.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty in">+340</span></div>
+          <div data-col="out" class="cell-r"><span class="qty out">−340</span></div>
+          <div class="cell-r"><span class="stk-num ok">161.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>170.27</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>212.84</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill pos">+25.0%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt val"><span class="rs">₹</span>27,413.47</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt vals"><span class="rs">₹</span>34,267.24</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day">01 May</span><span class="mov-meta">today · 12 sales</span></div>
+        </div>
+
+        <div class="trow data" data-status="ok" data-name="BC JEANS">
+          <div class="cell-c"><span class="sr-num">10</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04876</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">BC JEANS</span><span class="prod-meta">HSN 6203 · dead stock</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">—</span></div>
+          <div data-col="art"><span class="art-mono">BCJ</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">85.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty muted">0</span></div>
+          <div data-col="out" class="cell-r"><span class="qty muted">0</span></div>
+          <div class="cell-r"><span class="stk-num ok">85.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>420.00</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>525.00</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill pos">+25.0%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt val"><span class="rs">₹</span>35,700.00</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt vals"><span class="rs">₹</span>44,625.00</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day mov-dead">23 Jan</span><span class="mov-meta">98 days ago</span></div>
+        </div>
+
+        <div class="trow data out-row" data-status="out" data-name="BEACH BOY">
+          <div class="cell-c"><span class="sr-num">11</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04877</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">BEACH BOY</span><span class="prod-meta">HSN 6109 · zero movement</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">—</span></div>
+          <div data-col="art"><span class="art-mono">BB</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">0.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty muted">0</span></div>
+          <div data-col="out" class="cell-r"><span class="qty muted">0</span></div>
+          <div class="cell-r"><span class="stk-num out">0.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>31.50</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>39.40</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill pos">+25.1%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt muted"><span class="rs">₹</span>0.00</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt muted"><span class="rs">₹</span>0.00</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day mov-dead">—</span><span class="mov-meta">never sold</span></div>
+        </div>
+
+        <div class="trow data" data-status="ok" data-name="CHADDA">
+          <div class="cell-c"><span class="sr-num">12</span></div>
+          <div data-col="bc"><span class="bc-tag">8-04882</span></div>
+          <div data-col="cat"><span class="cat-tag">Imported · Tally</span></div>
+          <div><span class="prod-stk"><span class="prod-name">CHADDA</span><span class="prod-meta">HSN 6107 · regular mover</span></span></div>
+          <div data-col="size" class="cell-c"><span class="size-pill">M</span></div>
+          <div data-col="art"><span class="art-mono">CHD-M</span></div>
+          <div data-col="open" class="cell-r"><span class="qty">50.00</span></div>
+          <div data-col="in" class="cell-r"><span class="qty in">+60</span></div>
+          <div data-col="out" class="cell-r"><span class="qty out">−100</span></div>
+          <div class="cell-r"><span class="stk-num ok">10.00</span></div>
+          <div data-col="pur" class="cell-r"><span class="amt"><span class="rs">₹</span>157.00</span></div>
+          <div data-col="sale" class="cell-r"><span class="amt"><span class="rs">₹</span>196.25</span></div>
+          <div data-col="mrg" class="cell-r"><span class="mrg-pill pos">+25.0%</span></div>
+          <div data-col="val" class="cell-r"><span class="amt val"><span class="rs">₹</span>1,570.00</span></div>
+          <div data-col="vals" class="cell-r"><span class="amt vals"><span class="rs">₹</span>1,962.50</span></div>
+          <div data-col="mov" class="cell-r"><span class="mov-day">27 Apr</span><span class="mov-meta">4 days ago</span></div>
+        </div>
+
+      </div>
+
+      <div class="trow foot">
+        <div class="cell-c"></div>
+        <div data-col="bc"></div>
+        <div data-col="cat"></div>
+        <div><span class="foot-label">Total · 215 items</span></div>
+        <div data-col="size"></div>
+        <div data-col="art"></div>
+        <div data-col="open" class="cell-r"><span class="foot-amt">12,840</span></div>
+        <div data-col="in" class="cell-r"><span class="foot-amt teal">+8,420</span></div>
+        <div data-col="out" class="cell-r"><span class="foot-amt warn">−7,902</span></div>
+        <div class="cell-r"><span class="foot-amt">13,358</span></div>
+        <div data-col="pur" class="cell-r"></div>
+        <div data-col="sale" class="cell-r"></div>
+        <div data-col="mrg" class="cell-r"></div>
+        <div data-col="val" class="cell-r"><span class="foot-amt indigo">₹ 44,85,052.97</span></div>
+        <div data-col="vals" class="cell-r"><span class="foot-amt teal">₹ 44,40,969.76</span></div>
+        <div data-col="mov" class="cell-r"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tbl-status">
+    <span><span class="vrt-dot"></span><b>Virtualized</b> · rows <b id="row-range">1–12</b> of <b id="total-rows">12</b> rendered</span>
+    <span class="sep"></span>
+    <span>Sorted by <b id="sort-by">Product</b> ascending</span>
+    <span class="sep"></span>
+    <span>Filter: <b id="filter-text">In Stock</b></span>
+    <span class="sep"></span>
+    <span><b id="cols-status">14 / 18</b> columns visible</span>
+    <span class="ml-auto">
+      <b>↑↓</b> navigate · <b>Enter</b> open · <b>Esc</b> clear
+    </span>
+  </div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/*
+ * Light glue — no framework. Wires up:
+ *   · chip toggling (filter group: status, single-select; others toggle)
+ *   · search filter (live, name + barcode + article match)
+ *   · customize popover (open/close, click-outside dismiss, col toggling
+ *     drives template-column display via a `cols` map → updates the
+ *     grid-template variable so the columns hide cleanly)
+ *   · density toggle (.tbl.compact)
+ *   · sort header indicators
+ *   · refresh button (toast feedback)
+ *   · banner dismiss
+ *   · negative-stock filter via banner CTA
+ *
+ * Column hide/show is implemented by re-emitting the grid-template-
+ * columns string with `0px` for hidden columns. Cells that share
+ * `data-col` with a hidden column are also given `display: none` so
+ * the gap collapses cleanly. Head, body, and foot all pick this up
+ * because they share the same template variable.
+ */
+
+// All non-fixed columns (must match the customizer checkboxes)
+const ALL_COLS = ['bc','cat','size','art','hsn','open','in','out','min','pur','sale','mrg','val','vals','mov'];
+// Width per column (must match --cols order). Use null for fixed/non-toggleable
+// columns (sr=40, prod=1fr, stock=100). The renderer below splices these in.
+const COL_WIDTHS = {
+  sr: '40px',
+  bc: '110px', cat: '130px',
+  prod: 'minmax(220px, 1fr)',
+  size: '60px', art: '100px', hsn: '80px',
+  open: '80px', in: '70px', out: '70px',
+  stock: '100px',
+  pur: '95px', sale: '95px', mrg: '70px',
+  val: '110px', vals: '110px',
+  mov: '90px',
+};
+// Order matters — must match DOM cell order in head/body/foot
+const COL_ORDER = ['sr','bc','cat','prod','size','art','hsn','open','in','out','stock','pur','sale','mrg','val','vals','mov'];
+
+let visibleCols = new Set(['bc','cat','size','art','open','in','out','pur','sale','mrg','val','vals','mov']);
+let activeStatus = 'ok';
+let searchTerm = '';
+
+function applyCols() {
+  // Build grid-template-columns from order, omitting hidden ones
+  const tmpl = COL_ORDER
+    .filter(k => k === 'sr' || k === 'prod' || k === 'stock' || visibleCols.has(k))
+    .map(k => COL_WIDTHS[k])
+    .join(' ');
+  document.documentElement.style.setProperty('--cols', tmpl);
+
+  // Hide cells matching hidden columns (cells that have data-col attr)
+  document.querySelectorAll('[data-col]').forEach(el => {
+    const k = el.dataset.col;
+    el.style.display = visibleCols.has(k) ? '' : 'none';
+  });
+
+  const total = ALL_COLS.length + 3; // +3 for sr, prod, stock fixed
+  const shown = visibleCols.size + 3;
+  document.getElementById('cols-count').textContent = shown + ' / ' + total;
+  document.getElementById('cols-status').textContent = shown + ' / ' + total;
+}
+
+function applyFilter() {
+  const term = searchTerm.trim().toLowerCase();
+  let visible = 0;
+  document.querySelectorAll('.trow.data').forEach(row => {
+    const status = row.dataset.status;
+    const name = (row.dataset.name || '').toLowerCase();
+    const barcode = (row.querySelector('.bc-tag')?.textContent || '').toLowerCase();
+    const article = (row.querySelector('.art-mono')?.textContent || '').toLowerCase();
+
+    let show = true;
+    if (activeStatus !== 'all' && status !== activeStatus) show = false;
+    if (term && !(name.includes(term) || barcode.includes(term) || article.includes(term))) show = false;
+
+    row.classList.toggle('hidden', !show);
+    if (show) visible++;
+  });
+
+  document.getElementById('visible-count').textContent = visible;
+  document.getElementById('total-rows').textContent = visible;
+  document.getElementById('row-range').textContent = visible === 0 ? '0' : '1–' + visible;
+
+  const labels = { all:'All', ok:'In Stock', low:'Low', out:'Out', neg:'Negative' };
+  const filterParts = [];
+  filterParts.push(labels[activeStatus] || activeStatus);
+  if (term) filterParts.push('"' + term + '"');
+  document.getElementById('filter-text').textContent = filterParts.join(' + ');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+// ── Chip toggling ─────────────────────────────────────────────
+document.querySelectorAll('.chip[data-filter="status"]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip[data-filter="status"]').forEach(c => c.classList.remove('on'));
+    chip.classList.add('on');
+    activeStatus = chip.dataset.status;
+    applyFilter();
+  });
+});
+// Non-status chips just toggle on/off (visual)
+document.querySelectorAll('.chip:not([data-filter="status"])').forEach(chip => {
+  chip.addEventListener('click', () => chip.classList.toggle('on'));
+});
+
+// ── Search ────────────────────────────────────────────────────
+const searchInput = document.getElementById('search');
+const searchHd = document.getElementById('search-hd');
+const searchClear = document.getElementById('search-clear');
+searchInput.addEventListener('input', e => {
+  searchTerm = e.target.value;
+  searchHd.classList.toggle('has-text', !!searchTerm);
+  applyFilter();
+});
+searchClear.addEventListener('click', () => {
+  searchInput.value = '';
+  searchTerm = '';
+  searchHd.classList.remove('has-text');
+  applyFilter();
+  searchInput.focus();
+});
+// Esc clears
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (searchTerm) {
+      searchInput.value = '';
+      searchTerm = '';
+      searchHd.classList.remove('has-text');
+      applyFilter();
+    }
+    document.getElementById('cust-pop').classList.remove('open');
+  }
+  // ⌘K / Ctrl+K focuses search
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    searchInput.focus();
+    searchInput.select();
+  }
+});
+
+// ── Customize popover ─────────────────────────────────────────
+const custBtn = document.getElementById('cust-btn');
+const custPop = document.getElementById('cust-pop');
+custBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  custPop.classList.toggle('open');
+});
+custPop.addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', () => custPop.classList.remove('open'));
+
+custPop.querySelectorAll('input[data-col]').forEach(input => {
+  input.addEventListener('change', () => {
+    const k = input.dataset.col;
+    if (input.checked) visibleCols.add(k);
+    else visibleCols.delete(k);
+    applyCols();
+  });
+});
+// Section toggles (KPI strip, banner, totals, status bar)
+custPop.querySelectorAll('input[data-section]').forEach(input => {
+  input.addEventListener('change', () => {
+    const sec = input.dataset.section;
+    const map = {
+      kpis:   document.querySelector('.kpis'),
+      banner: document.getElementById('banner'),
+      status: document.querySelector('.tbl-status'),
+      totals: document.querySelector('.trow.foot'),
+    };
+    const el = map[sec];
+    if (el) el.style.display = input.checked ? '' : 'none';
+  });
+});
+
+document.getElementById('reset-cols').addEventListener('click', () => {
+  visibleCols = new Set(['bc','cat','size','art','open','in','out','pur','sale','mrg','val','vals','mov']);
+  custPop.querySelectorAll('input[data-col]').forEach(input => {
+    input.checked = visibleCols.has(input.dataset.col);
+  });
+  applyCols();
+});
+
+// ── Density toggle ────────────────────────────────────────────
+const tbl = document.getElementById('tbl');
+document.querySelectorAll('.density button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.density button').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    tbl.classList.toggle('compact', btn.dataset.density === 'compact');
+  });
+});
+
+// ── Sort headers ──────────────────────────────────────────────
+document.querySelectorAll('.col-th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const wasAsc = th.classList.contains('asc');
+    document.querySelectorAll('.col-th').forEach(t => t.classList.remove('asc','desc'));
+    th.classList.add(wasAsc ? 'desc' : 'asc');
+    th.querySelector('.sort').textContent = wasAsc ? '▼' : '▲';
+    document.getElementById('sort-by').textContent = th.textContent.replace(/[▲▼▾]/g,'').trim();
+  });
+});
+
+// ── Refresh ───────────────────────────────────────────────────
+document.getElementById('refresh-btn').addEventListener('click', () => {
+  document.getElementById('refresh-time').textContent = 'just now';
+  showToast('Refreshed · 215 items');
+});
+
+// ── Banner ────────────────────────────────────────────────────
+function dismissBanner() {
+  document.getElementById('banner').classList.add('hidden');
+  showToast('Banner dismissed');
+}
+function filterToNegatives() {
+  document.querySelectorAll('.chip[data-filter="status"]').forEach(c => c.classList.remove('on'));
+  document.querySelector('.chip[data-status="neg"]').classList.add('on');
+  activeStatus = 'neg';
+  applyFilter();
+  showToast('Filtered to negative stock');
+}
+
+// Initial render
+applyCols();
+applyFilter();
+</script>
+
+</body>
+</html>

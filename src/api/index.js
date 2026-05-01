@@ -205,7 +205,6 @@ export const reportAPI = {
   // Phase R3 — Operational summaries (Sales/Purchase Registers folded
   // into the canonical /reports/sales and /reports/purchases above).
   hsnSummary:         (params) => api.get('/reports/hsn-summary',        { params }),
-  stockSummary:       (params) => api.get('/reports/stock-summary',      { params }),
   movers:             (params) => api.get('/reports/movers',             { params }),
   // Phase Godown — multi-warehouse reports
   transferRegister:   (params) => api.get('/reports/transfer-register',  { params }),

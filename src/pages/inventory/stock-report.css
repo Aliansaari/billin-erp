@@ -1,0 +1,386 @@
+/*
+ * Stock Report — editorial layout, theme-aware.
+ *
+ * Single-font policy: every element inherits Source Sans 3 from the app
+ * shell. Hierarchy comes from weight (500/600/700/800), size, letter-
+ * spacing and `font-variant-numeric: tabular-nums` for column-aligned
+ * numerics. Barcodes/article numbers also use Source Sans 3 — tabular
+ * numerics keep them readable without a mono fallback.
+ *
+ * All colour comes from the global theme tokens
+ * (`var(--bg-app)`, `var(--accent)`, etc.) so the page adapts to all
+ * four themes (classic-light, classic-dark, editorial-light, editorial-
+ * dark) without overrides.
+ */
+
+.sr-page {
+  height: 100%;
+  display: flex; flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Page header (title left, search + actions right) ───────────────── */
+.sr-hd {
+  flex-shrink: 0;
+  padding: 14px 24px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.sr-title h1 {
+  margin: 0;
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--fg-primary); line-height: 1; margin-bottom: 5px;
+}
+.sr-sub { font-size: 12.5px; color: var(--fg-secondary); font-weight: 500; }
+.sr-sub b { color: var(--fg-primary); font-weight: 600; }
+.sr-sub .sep { color: var(--fg-tertiary); margin: 0 6px; }
+
+.sr-ctrls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Search lives in the header (primary surface) */
+.sr-search {
+  display: flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 12px;
+  background: var(--bg-elevated, var(--bg-panel));
+  border: 1px solid var(--border); border-radius: 8px;
+  width: 280px; transition: all .15s;
+}
+.sr-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.sr-search input {
+  flex: 1; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 13px; color: var(--fg-primary); font-weight: 500;
+}
+.sr-search input::placeholder { color: var(--fg-tertiary); font-weight: 500; }
+.sr-search .anticon { color: var(--fg-tertiary); }
+
+/* Buttons — theme-aware, sibling to BillsOutstanding's toolbar buttons */
+.sr-btn {
+  height: 34px; padding: 0 13px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 7px;
+  color: var(--fg-secondary); font: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  transition: all .12s;
+}
+.sr-btn:hover:not(:disabled) { border-color: var(--accent-border); color: var(--accent); }
+.sr-btn:disabled { opacity: .55; cursor: not-allowed; }
+.sr-btn.primary {
+  background: var(--accent); color: var(--fg-inverse, #fff); border-color: var(--accent);
+}
+.sr-btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--fg-inverse, #fff); }
+.sr-btn .anticon { font-size: 13px; }
+
+/* ── KPI strip — rounded-card style, matches editorial mockup ──────── */
+.sr-kpis {
+  flex-shrink: 0;
+  padding: 14px 24px 0;
+  background: transparent;
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+.sr-kpi {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 13px 15px;
+  display: flex; flex-direction: column; gap: 3px;
+  position: relative; overflow: hidden;
+  cursor: pointer; transition: border-color .12s, box-shadow .12s, transform .08s;
+}
+.sr-kpi:hover {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.04));
+}
+.sr-kpi.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.sr-kpi-k {
+  font-size: 10px; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--fg-tertiary); font-weight: 700;
+}
+.sr-kpi-v {
+  font-size: 22px; font-weight: 700; color: var(--fg-primary);
+  line-height: 1.1; margin-top: 2px; letter-spacing: -0.025em;
+}
+.sr-kpi-sub { font-size: 11px; color: var(--fg-tertiary); margin-top: 1px; }
+.sr-kpi-sub b { color: var(--fg-secondary); font-weight: 700; }
+
+/* Tone-tinted gradients — same palette tones as the mockup */
+.sr-kpi.tot {
+  background: linear-gradient(135deg, var(--bg-muted) 0%, var(--bg-panel) 70%);
+}
+.sr-kpi.value-tone {
+  border-color: var(--accent-border);
+  background: linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-panel) 70%);
+}
+.sr-kpi.value-tone .sr-kpi-v { color: var(--accent); }
+.sr-kpi.sale-tone {
+  border-color: var(--success-bg);
+  background: linear-gradient(135deg, var(--success-bg) 0%, var(--bg-panel) 70%);
+}
+.sr-kpi.sale-tone .sr-kpi-v { color: var(--success); }
+.sr-kpi.low-tone {
+  border-color: var(--warning-bg);
+  background: linear-gradient(135deg, var(--warning-bg) 0%, var(--bg-panel) 70%);
+}
+.sr-kpi.low-tone .sr-kpi-v { color: var(--warning); }
+.sr-kpi.out-tone {
+  border-color: var(--danger-bg);
+  background: linear-gradient(135deg, var(--danger-bg) 0%, var(--bg-panel) 70%);
+}
+.sr-kpi.out-tone .sr-kpi-v { color: var(--danger); }
+.sr-kpi.neg-tone {
+  border-color: var(--danger-bg);
+  background: linear-gradient(135deg, var(--danger-bg) 0%, var(--bg-panel) 70%);
+}
+.sr-kpi.neg-tone .sr-kpi-v { color: var(--danger); }
+
+/* ── Data integrity banner (negative stock) ────────────────────────── */
+.sr-banner {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 24px;
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--border);
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.sr-banner-ic {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: var(--danger); color: var(--fg-inverse, #fff);
+  display: grid; place-items: center; flex-shrink: 0;
+  font-weight: 800; font-size: 14px;
+}
+.sr-banner-body { flex: 1; min-width: 0; line-height: 1.55; }
+.sr-banner-body b { color: var(--danger); font-weight: 700; }
+.sr-banner-body .sr-banner-link {
+  color: var(--danger); font-weight: 700; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px;
+  background: none; border: 0; padding: 0; font: inherit;
+}
+.sr-banner-actions { display: flex; gap: 6px; }
+.sr-banner-actions .sr-btn { background: transparent; }
+
+/* ── Filter row (chips + density + customize) ──────────────────────── */
+.sr-filters {
+  flex-shrink: 0;
+  padding: 10px 24px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+.sr-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  background: var(--bg-app); border: 1px solid var(--border); border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--fg-secondary);
+  cursor: pointer; transition: all .12s; user-select: none;
+}
+.sr-chip:hover { border-color: var(--accent-border); color: var(--accent); }
+.sr-chip.on {
+  background: var(--fg-primary); color: var(--bg-panel); border-color: var(--fg-primary);
+}
+.sr-chip .dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--fg-tertiary);
+}
+.sr-chip .dot.ok      { background: var(--success); }
+.sr-chip .dot.low     { background: var(--warning); }
+.sr-chip .dot.out     { background: var(--danger); }
+.sr-chip .dot.neg     {
+  background: var(--danger);
+  animation: sr-pulse 2s ease-in-out infinite;
+}
+.sr-chip .dot.dead    { background: var(--fg-tertiary); }
+@keyframes sr-pulse {
+  0%,100% { box-shadow: 0 0 0 0 var(--danger-bg); }
+  50%     { box-shadow: 0 0 0 4px transparent; }
+}
+.sr-filters .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+.sr-filters .ml-auto { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+/* Movement-period inline label (sits before the RangePicker) */
+.sr-period-lbl {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; color: var(--fg-tertiary);
+  letter-spacing: 0.4px; text-transform: uppercase;
+}
+.sr-period-lbl .anticon { font-size: 12px; }
+.sr-period-val {
+  font-size: 11px; color: var(--fg-secondary); font-weight: 600;
+  padding: 2px 7px; border-radius: 4px;
+  background: var(--bg-muted);
+}
+.sr-filters-divider {
+  width: 1px; height: 22px; background: var(--border); margin: 0 6px;
+}
+
+/* Customize popover (rendered via Antd Dropdown) */
+.sr-cust-pop {
+  width: 320px; padding: 12px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,0.12));
+}
+.sr-cust-grp { padding: 4px 0 8px; }
+.sr-cust-grp + .sr-cust-grp { border-top: 1px solid var(--border-subtle); padding-top: 10px; }
+.sr-cust-gh {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+  padding: 2px 4px 6px;
+}
+.sr-cust-reset {
+  background: transparent; border: 0; color: var(--accent);
+  font: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
+  letter-spacing: 0;
+}
+.sr-cust-opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 6px; border-radius: 5px; cursor: pointer;
+  font-size: 12.5px; color: var(--fg-secondary); font-weight: 500;
+}
+.sr-cust-opt:hover { background: var(--bg-hover); }
+.sr-cust-opt input[type=checkbox] { accent-color: var(--accent); }
+.sr-cust-opt.fixed { color: var(--fg-tertiary); cursor: not-allowed; }
+.sr-cust-opt.fixed input { opacity: .5; }
+.sr-cust-pin {
+  margin-left: auto;
+  font-size: 9.5px; color: var(--fg-tertiary);
+  background: var(--bg-muted); border-radius: 3px;
+  padding: 1px 5px; letter-spacing: 0.4px; text-transform: uppercase; font-weight: 700;
+}
+
+/* ── Table host (VirtualReportTable mounts inside) ─────────────────── */
+.sr-tbl-wrap {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+}
+
+/*
+ * Editorial overlays for the Antd virtual table inside .sr-tbl-wrap.
+ * We don't replace VirtualReportTable — we restyle Antd's own DOM so
+ * the table picks up the same theme tokens and column-aligned numerics
+ * the rest of the page uses.
+ */
+.sr-tbl-wrap .ant-table-wrapper,
+.sr-tbl-wrap .ant-table {
+  background: var(--bg-panel);
+}
+.sr-tbl-wrap .ant-table-thead > tr > th {
+  background: var(--bg-muted) !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--fg-tertiary) !important;
+  font-size: 10.5px !important; font-weight: 700 !important;
+  letter-spacing: 0.5px !important; text-transform: uppercase;
+}
+.sr-tbl-wrap .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border-subtle) !important;
+  color: var(--fg-primary);
+  font-size: 13px;
+}
+.sr-tbl-wrap .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+/* Row tint for negative-stock rows (applied via rowClassName) */
+.sr-tbl-wrap .sr-row-neg > td {
+  background: var(--danger-bg) !important;
+}
+.sr-tbl-wrap .sr-row-out > td {
+  background: var(--warning-bg) !important;
+}
+
+/* Cell content classes */
+.sr-sr-num { font-size: 11px; color: var(--fg-tertiary); font-weight: 600; }
+.sr-bc {
+  display: inline-block;
+  font-size: 11.5px; font-weight: 600; color: var(--fg-secondary);
+  background: var(--bg-muted);
+  padding: 2px 7px; border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+.sr-cat { font-size: 12px; color: var(--fg-secondary); }
+.sr-prod-name {
+  font-weight: 600; color: var(--fg-primary);
+  letter-spacing: -0.005em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block;
+}
+.sr-prod-meta {
+  font-size: 11px; color: var(--fg-tertiary); margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block;
+}
+.sr-size-pill {
+  display: inline-block; font-size: 11px;
+  padding: 1px 7px; border-radius: 4px;
+  background: var(--bg-muted); color: var(--fg-secondary); font-weight: 600;
+}
+.sr-art { font-size: 12px; color: var(--fg-secondary); font-weight: 500; letter-spacing: 0.01em; }
+
+/* Quantity cells */
+.sr-qty {
+  font-size: 13px; font-weight: 600; color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.sr-qty.muted { color: var(--fg-tertiary); font-weight: 500; }
+
+/* Stock — colour-coded plain number, not a chip */
+.sr-stk {
+  font-size: 14px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+}
+.sr-stk.ok   { color: var(--success); }
+.sr-stk.low  { color: var(--warning); }
+.sr-stk.out  { color: var(--danger); }
+.sr-stk.neg  { color: var(--danger); }
+
+/* Money */
+.sr-amt {
+  font-weight: 600; font-size: 13px; color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.sr-amt .rs { color: var(--fg-tertiary); margin-right: 1px; font-weight: 500; }
+.sr-amt.muted { color: var(--fg-tertiary); font-weight: 500; }
+.sr-amt.val   { color: var(--info, #3B82F6); font-weight: 700; }
+.sr-amt.vals  { color: var(--success); font-weight: 700; }
+.sr-amt.neg-amt { color: var(--danger); font-weight: 700; }
+
+.sr-mrg {
+  display: inline-block; padding: 1px 7px; border-radius: 4px;
+  font-size: 11.5px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sr-mrg.pos  { background: var(--success-bg); color: var(--success); }
+.sr-mrg.warn { background: var(--warning-bg); color: var(--warning); }
+.sr-mrg.bad  { background: var(--danger-bg);  color: var(--danger); }
+
+/* Footer summary row inherits from VirtualReportTable's second Antd Table */
+.sr-tbl-wrap .ant-table-summary > tr > td {
+  background: var(--bg-muted) !important;
+  border-top: 2px solid var(--border-strong, var(--border)) !important;
+  font-weight: 700;
+}
+
+/* ── Import Result Modal — keep existing patterns, re-themed ──────── */
+.sr-imp-grid {
+  display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.sr-imp-stat {
+  flex: 1; padding: 10px 18px; text-align: center;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-panel);
+}
+.sr-imp-stat-v { font-size: 22px; font-weight: 800; }
+.sr-imp-stat-l { font-size: 11px; font-weight: 600; }
+.sr-imp-stat.ok      { background: var(--success-bg); border-color: var(--success); color: var(--success); }
+.sr-imp-stat.skipped { background: var(--danger-bg);  border-color: var(--danger);  color: var(--danger); }
+.sr-imp-stat.total   { background: var(--accent-bg);  border-color: var(--accent);  color: var(--accent); }
