@@ -16,7 +16,7 @@
 // the primary so operators can scan Sales↔Purchase or Receipt↔Payment
 // month-by-month in one view.
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Button, Select, Space, message, DatePicker, Tag, Tooltip } from 'antd';
 import {
   ReloadOutlined, PrinterOutlined, DownloadOutlined,
@@ -80,6 +80,7 @@ export default function MonthlyRegister({ mode }) {
   const [presetKey, setPresetKey] = useState(() => searchParams.get('preset') || 'this_fy');
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(false);
+  const [activeIdx, setActiveIdx] = useState(0);   // keyboard-selected month row
 
   // URL sync.
   useEffect(() => {
@@ -111,6 +112,12 @@ export default function MonthlyRegister({ mode }) {
 
   useEffect(() => { fetcher(); }, [fetcher]);
 
+  // Reset highlighted row whenever the dataset shape changes (mode /
+  // overlay / period change → first month becomes active again).
+  useEffect(() => {
+    setActiveIdx(0);
+  }, [mode, overlay, fromDate, toDate]);
+
   // ── Period preset click ──────────────────────────────────────────
   const applyPreset = useCallback((k) => {
     const r = presetRange(k);
@@ -131,6 +138,39 @@ export default function MonthlyRegister({ mode }) {
     if (mode === 'purchase') return navigate(`/reports/purchases?from=${from}&to=${to}`);
     return navigate(`/payments?type=${mode === 'payment' ? 'Payment' : 'Receipt'}&from=${from}&to=${to}`);
   }, [mode, navigate]);
+
+  // Keyboard nav — ArrowUp / ArrowDown move the highlight, Enter
+  // drills into the active month. Listener is bound to window so the
+  // operator doesn't need to click the table to focus it first. Ignored
+  // when focus is inside a form field so the date-picker / overlay
+  // dropdown keep their arrow-key behaviour.
+  useEffect(() => {
+    if (!data?.primary?.rows?.length) return;
+    const rowCount = data.primary.rows.length;
+    const onKey = (e) => {
+      const tag = (e.target?.tagName || '').toUpperCase();
+      const isFormField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+                       || e.target?.isContentEditable
+                       || e.target?.closest?.('.ant-select, .ant-picker');
+      if (isFormField) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveIdx((i) => Math.min(rowCount - 1, i + 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === 'Home') {
+        e.preventDefault(); setActiveIdx(0);
+      } else if (e.key === 'End') {
+        e.preventDefault(); setActiveIdx(rowCount - 1);
+      } else if (e.key === 'Enter') {
+        const row = data.primary.rows[activeIdx];
+        if (row) drillRow(row.month_iso);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [data, activeIdx, drillRow]);
 
   // CSV export.
   const handleExportCsv = useCallback(() => {
@@ -218,7 +258,13 @@ export default function MonthlyRegister({ mode }) {
 
       {/* Scrollable table area + always-visible total footer below */}
       {data
-        ? <RegisterTable primary={data.primary} overlay={data.overlay} onRowClick={drillRow} />
+        ? <RegisterTable
+            primary={data.primary}
+            overlay={data.overlay}
+            onRowClick={drillRow}
+            activeIdx={activeIdx}
+            setActiveIdx={setActiveIdx}
+          />
         : <div className="mr-skel">Loading…</div>}
     </div>
   );
@@ -229,8 +275,17 @@ export default function MonthlyRegister({ mode }) {
 // Modern dark-mode table with running closing balance + Dr/Cr suffix.
 // Sticky header, hover-highlighted rows, opening-balance row when
 // non-zero, double-line total separator.
-function RegisterTable({ primary, overlay, onRowClick }) {
+function RegisterTable({ primary, overlay, onRowClick, activeIdx, setActiveIdx }) {
   const hasOpening = primary.opening_balance > 0 || (overlay && overlay.opening_balance > 0);
+  const activeRowRef = useRef(null);
+  // Smooth-scroll the active row into view whenever activeIdx changes.
+  // block:'nearest' keeps the row in view without snapping the table to
+  // the top/bottom — feels natural under continuous arrow-key scrolling.
+  useEffect(() => {
+    if (activeRowRef.current) {
+      activeRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [activeIdx]);
   // Total cols including the Particulars column. Used by the
   // group-label row's colSpan so the label spans Particulars + Dr +
   // Cr + Closing of the primary section. (Overlay groups pick up the
@@ -308,8 +363,15 @@ function RegisterTable({ primary, overlay, onRowClick }) {
             )}
             {primary.rows.map((r, i) => {
               const ovr = overlay ? overlay.rows[i] : null;
+              const isActive = i === activeIdx;
               return (
-                <tr key={r.month_iso} className="mr-row" onClick={() => onRowClick(r.month_iso)}>
+                <tr
+                  key={r.month_iso}
+                  ref={isActive ? activeRowRef : null}
+                  className={'mr-row' + (isActive ? ' mr-row-active' : '')}
+                  onClick={() => onRowClick(r.month_iso)}
+                  onMouseEnter={() => setActiveIdx?.(i)}
+                >
                   <td className="mr-particulars">{r.month_label}</td>
                   <td className="mr-num">{fmtAmt(r.dr)}</td>
                   <td className="mr-num">{fmtAmt(r.cr)}</td>

@@ -111,8 +111,13 @@
 .mr-side-dr { color: var(--accent, #6366F1); }
 .mr-zero { color: var(--fg-tertiary, #6b7280); }
 
-.mr-row { cursor: pointer; transition: background 0.1s; }
+.mr-row { cursor: pointer; transition: background 0.12s ease, box-shadow 0.12s ease; }
 .mr-row:hover { background: var(--bg-hover, rgba(99,102,241,0.06)); }
+.mr-row-active {
+  background: var(--bg-hover, rgba(99,102,241,0.10));
+  box-shadow: inset 3px 0 0 0 var(--accent, #6366F1);
+}
+.mr-row-active:hover { background: var(--bg-hover, rgba(99,102,241,0.14)); }
 
 .mr-row-opening td {
   background: var(--bg-elevated, rgba(0,0,0,0.02));
