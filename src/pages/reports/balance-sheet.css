@@ -1,0 +1,428 @@
+/*
+ * Balance Sheet — TallyPrime two-column, drill-by-page.
+ *
+ * Carries forward every preference from the Trial Balance work:
+ *   · Default-collapsed primary groups
+ *   · Click on a primary expands inline; click on a mid/sub drills to
+ *     the shared Group Summary at /reports/trial-balance?group=…
+ *   · Source Sans 3 everywhere (no Mono on numbers, just tabular-nums)
+ *   · Theme tokens — adapts to all 4 themes automatically
+ *   · Sticky Total bar above the F-bar (never moves)
+ *
+ * BS-specific:
+ *   · Two equal-width sides (Liabilities | Assets)
+ *   · Synthetic rows (P&L A/c on Liab side, Stock-in-Hand on Asset side)
+ *     are rendered with a quiet tint to signal they're computed, not
+ *     posted ledger groups.
+ *   · Collapses to a stacked single column under 1024px.
+ */
+
+.bs-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Title bar ── */
+.bs-hd {
+  flex-shrink: 0;
+  padding: 14px 28px 12px;
+  border-bottom: 1px solid var(--border-strong);
+  /* Slight elevation so the action bar doesn't melt into the page —
+   * the column-header strip below stays at --bg-app. */
+  background: var(--bg-panel);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+.bs-title h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+  line-height: 1;
+}
+.bs-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Buttons (compact) */
+.bs-btn {
+  height: 30px;
+  padding: 0 11px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.bs-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--fg-primary);
+  background: var(--bg-hover);
+}
+.bs-btn .fk {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.4px;
+}
+.bs-btn:hover .fk { color: var(--accent); }
+.bs-btn.on {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.bs-btn.on .fk { color: var(--accent); }
+.bs-btn-icon { width: 30px; padding: 0; justify-content: center; }
+
+/* As-on date picker */
+.bs-dp {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.bs-dp .lbl {
+  /* App body font (Source Sans 3) — inherited so the label matches the
+   * rest of the UI. Mono was reading as a tag/code style which felt out
+   * of place against the title and section headers. */
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  padding: 0 9px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-muted);
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+}
+.bs-dp :global(.ant-picker) {
+  border: 0 !important;
+  height: 28px !important;
+  padding: 0 11px !important;
+  background: transparent !important;
+}
+
+/* ── Two-column body ── */
+.bs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 28px 0;
+  display: grid;
+  /* Visible vertical rule between the two sides. The gap is filled
+   * with --border (not --border-subtle) so the boundary reads at a
+   * glance even on dense rows. */
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.bs-side:first-child {
+  border-right: 1px solid var(--border-strong);
+  padding-right: 14px;
+}
+.bs-side:last-child {
+  border-left: 1px solid var(--border-strong);
+  padding-left: 14px;
+  margin-left: -1px; /* avoid double-rule when both sides set borders */
+}
+
+.bs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+/* Header bar — sits above the scrolling body so the underline is one
+ * continuous line across both sides (same trick as the total bar). */
+.bs-headbar {
+  flex-shrink: 0;
+  background: var(--bg-app);
+  border-bottom: 1.5px solid var(--fg-primary);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 0 28px;
+}
+.bs-headbar .hh {
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  padding: 12px 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--fg-primary);
+  white-space: nowrap;
+}
+.bs-headbar .hh .r { text-align: right; }
+.bs-headbar .hh .r .sub {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  letter-spacing: 0.4px;
+  margin-top: 2px;
+  text-transform: none;
+}
+
+/* Primary group rows (Capital Account, Current Assets, etc.) */
+.bs-row-group {
+  cursor: pointer;
+  transition: background .1s;
+}
+.bs-row-group:hover { background: var(--bg-hover); }
+.bs-row-group td {
+  padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.bs-row-group .gh { display: flex; align-items: center; gap: 10px; }
+.bs-row-group .name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+.bs-row-group td.num {
+  text-align: right;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--fg-primary);
+}
+
+/* Sub-group rows */
+.bs-row-sub {
+  cursor: pointer;
+  transition: background .1s;
+}
+.bs-row-sub:hover { background: var(--bg-hover); }
+.bs-row-sub:hover .name { color: var(--accent); }
+.bs-row-sub:hover .arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.bs-row-sub td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bs-row-sub .sh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 36px;
+  position: relative;
+}
+.bs-row-sub .sh::before {
+  content: '';
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: var(--border);
+}
+.bs-row-sub .name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  transition: color .12s;
+}
+.bs-row-sub td.num {
+  text-align: right;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+}
+.bs-row-sub.collapsed { display: none; }
+
+/* Synthetic rows — P&L A/c on Liab side, Stock-in-Hand on Asset side */
+.bs-row-pnl td { background: var(--accent-bg); }
+.bs-row-pnl .name { color: var(--accent); font-weight: 600; }
+.bs-row-pnl .pnl-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #fff;
+  text-transform: uppercase;
+  margin-left: 6px;
+}
+.bs-row-pnl td.num { color: var(--accent); font-weight: 700; }
+
+.bs-row-info td { background: var(--warning-bg); }
+.bs-row-info .name { color: var(--warning); font-weight: 600; }
+.bs-row-info .info-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--warning);
+  color: #fff;
+  text-transform: uppercase;
+  margin-left: 6px;
+}
+.bs-row-info td.num { color: var(--warning); font-weight: 600; }
+
+/* Chevron */
+.bs-chev {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  font-size: 9px;
+  color: var(--fg-tertiary);
+  transition: transform .15s;
+  user-select: none;
+}
+.bs-chev.collapsed { transform: rotate(-90deg); }
+.bs-chev.hidden { visibility: hidden; }
+
+/* Drill arrow */
+.arrow {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  opacity: 0;
+  transition: opacity .12s, color .12s, transform .12s;
+}
+
+/* Keyboard-active row highlight */
+.bs-row-group.bs-active,
+.bs-row-sub.bs-active {
+  background: var(--accent-bg) !important;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.bs-row-group.bs-active .name,
+.bs-row-sub.bs-active .name {
+  color: var(--accent);
+}
+.bs-row-group.bs-active .arrow,
+.bs-row-sub.bs-active .arrow {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* ── Total bar (sticky, both sides) ── */
+.bs-totalbar {
+  flex-shrink: 0;
+  background: var(--bg-app);
+  border-top: 1.5px solid var(--fg-primary);
+  border-bottom: 1.5px double var(--fg-primary);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 0 28px;
+}
+.bs-totalbar .bs-side:first-child {
+  border-right: 1px solid var(--border-strong);
+  padding-right: 14px;
+}
+.bs-totalbar .bs-side:last-child {
+  border-left: 1px solid var(--border-strong);
+  padding-left: 14px;
+  margin-left: -1px;
+  border-right: none;
+}
+.bs-totalbar table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.bs-totalbar .bs-row-total td { padding: 14px; }
+.bs-totalbar .bs-row-total .label {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-primary);
+}
+.bs-totalbar .bs-row-total td.num {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  text-align: right;
+}
+
+/* ── F-bar ── */
+.bs-fbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 28px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 11.5px;
+  overflow-x: auto;
+}
+.bs-fbar .fkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.bs-fbar .fkey:hover { background: var(--bg-hover); color: var(--fg-primary); }
+.bs-fbar .fkey kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--bg-muted);
+  color: var(--accent);
+  padding: 2px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--border);
+}
+.bs-fbar .grow { flex: 1; }
+
+/* Loading + empty */
+.bs-empty,
+.bs-loading {
+  padding: 60px 28px;
+  text-align: center;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+}
+
+/* Print */
+@media print {
+  .bs-actions, .bs-fbar { display: none !important; }
+  .bs-page { height: auto; overflow: visible; }
+  .bs-body { overflow: visible; padding: 0; }
+  .bs-hd { padding: 8mm 0 4mm; border-bottom: 1px solid #000; }
+  .bs-headbar { background: #fff; color: #000; border-bottom-color: #000; }
+}
+
+@media (max-width: 1024px) {
+  .bs-body, .bs-headbar, .bs-totalbar { grid-template-columns: 1fr; }
+  .bs-side { border-right: none; border-bottom: 1px solid var(--border-subtle); }
+  .bs-totalbar .bs-side { border-right: none; border-bottom: 1px solid var(--border-subtle); }
+  .bs-totalbar .bs-side:last-child { border-bottom: none; }
+  .bs-body, .bs-hd, .bs-fbar, .bs-headbar, .bs-totalbar { padding-left: 16px; padding-right: 16px; }
+}

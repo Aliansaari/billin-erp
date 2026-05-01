@@ -68,7 +68,8 @@ export default function AppLayout() {
     '/sales-returns', '/purchase-returns',
     '/reports/sales', '/reports/purchases', '/reports/stock',
     '/reports/party-ledger', '/reports/profit-loss', '/reports/aging',
-    '/reports/gstr1', '/reports/day-book',
+    '/reports/gstr1', '/reports/day-book', '/reports/trial-balance',
+    '/reports/balance-sheet',
   ].includes(location.pathname);
 
   // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.

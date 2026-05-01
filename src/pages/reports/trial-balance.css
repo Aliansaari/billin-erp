@@ -1,0 +1,671 @@
+/*
+ * Trial Balance — TallyPrime-style hierarchy with drill-into-page.
+ *
+ * Two pages live in this stylesheet, swapped via [data-page] on .tb-page:
+ *   1. Trial Balance (primary groups + Tally intermediate groups + sub-groups)
+ *   2. Group Summary (drill destination — lists ledgers under a group)
+ *
+ * Reads theme tokens from theme/themes.css so light/dark/classic/modern all
+ * adapt automatically. Source Sans 3 for body, JetBrains Mono for figures.
+ */
+
+.tb-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Page swap ── */
+.tb-page[data-page="tb"]    .tb-page-group    { display: none; }
+.tb-page[data-page="group"] .tb-page-tb       { display: none; }
+
+/* ─── Title bar ─────────────────────────────────────────── */
+
+.tb-hd {
+  flex-shrink: 0;
+  padding: 14px 28px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+/* Group Summary header — title left, search centered, actions right.
+ * Search is inline with the title (no separate search row below). */
+.tb-hd-group {
+  grid-template-columns: auto minmax(220px, 380px) auto;
+  justify-content: space-between;
+}
+.tb-hd-group .tb-search {
+  flex: 1;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 380px;
+}
+
+.tb-crumb {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--fg-tertiary);
+  margin-bottom: 4px;
+}
+.tb-crumb a {
+  color: var(--fg-tertiary);
+  text-decoration: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color .12s, background .12s;
+}
+.tb-crumb a:hover { color: var(--accent); background: var(--accent-bg); }
+.tb-crumb .sep { color: var(--fg-tertiary); margin: 0 2px; opacity: 0.6; }
+.tb-crumb b {
+  color: var(--fg-primary);
+  font-weight: 600;
+  padding: 2px 6px;
+  background: var(--accent-bg);
+  border-radius: 4px;
+}
+.tb-crumb .back-hint {
+  margin-left: 12px;
+  padding: 2px 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--fg-tertiary);
+}
+.tb-crumb .back-hint kbd {
+  font-weight: 700;
+  color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.tb-title {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+}
+.tb-title h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: -0.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.tb-title .meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tb-title .meta b { color: var(--fg-secondary); font-weight: 600; }
+.tb-title .meta .sep { color: var(--fg-tertiary); opacity: 0.6; margin: 0 6px; }
+.tb-title .meta .as-dr { color: var(--accent); font-weight: 600; }
+.tb-title .meta .as-cr { color: var(--success); font-weight: 600; }
+
+.tb-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Buttons (compact) */
+.tb-btn {
+  height: 30px;
+  padding: 0 11px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.tb-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--fg-primary);
+  background: var(--bg-panel);
+}
+.tb-btn .fk {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.4px;
+}
+.tb-btn:hover .fk { color: var(--accent); }
+.tb-btn.on {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.tb-btn.on .fk { color: var(--accent); }
+.tb-btn-icon { width: 30px; padding: 0; justify-content: center; }
+.tb-btn-back {
+  background: var(--bg-panel);
+  color: var(--fg-secondary);
+}
+.tb-btn-back:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Period picker */
+.tb-period {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.tb-period .lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  padding: 0 9px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-muted);
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+}
+.tb-period .range {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--fg-primary);
+  font-weight: 500;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.tb-period .range:hover { color: var(--accent); }
+.tb-period .range .arrow { color: var(--fg-tertiary); }
+
+/* Search row (group-summary page) */
+.tb-search-row {
+  flex-shrink: 0;
+  padding: 8px 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+}
+.tb-search {
+  flex: 0 0 320px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  height: 30px;
+}
+.tb-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.tb-search .anticon { color: var(--fg-tertiary); font-size: 12px; }
+.tb-search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--fg-primary);
+}
+.tb-search input::placeholder { color: var(--fg-tertiary); }
+
+.tb-summary {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: auto;
+}
+.tb-summary b { color: var(--fg-secondary); font-weight: 600; }
+.tb-summary .dr { color: var(--accent); font-weight: 600; }
+.tb-summary .cr { color: var(--success); font-weight: 600; }
+
+/* ─── Table ───────────────────────────────────────── */
+
+.tb-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 28px;
+}
+
+.tb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  /* Fixed layout so the scrolling table and the bottom Grand-Total bar
+   * (which lives in its own table) share the same column widths via
+   * matching <colgroup> widths below. */
+  table-layout: fixed;
+}
+
+/* Column widths — applied to both the scrolling table and the bottom
+ * Grand-Total strip (each has its own <colgroup>). */
+.tb-table .col-opening { width: 150px; }
+.tb-table .col-tx-dr   { width: 150px; }
+.tb-table .col-tx-cr   { width: 150px; }
+.tb-table colgroup col:nth-child(1)        { width: auto; }
+.tb-table colgroup col:nth-child(5),
+.tb-table colgroup col:nth-child(6)        { width: 160px; }
+.tb-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  padding: 10px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  text-align: right;
+  background: var(--bg-app);
+  border-bottom: 1.5px solid var(--fg-primary);
+  white-space: nowrap;
+}
+.tb-table thead th.l { text-align: left; }
+.tb-table thead th .sub {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+  text-transform: none;
+}
+
+/* Primary group rows (Assets / Liabilities / Income / Expenses / Capital) */
+.tb-row-group {
+  cursor: pointer;
+  transition: background .1s;
+}
+.tb-row-group:hover { background: var(--bg-hover); }
+.tb-row-group:hover .tb-arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.tb-row-group td {
+  padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.tb-row-group .gh { display: flex; align-items: center; gap: 10px; }
+.tb-row-group .name {
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--fg-primary);
+}
+.tb-row-group .meta {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 8px;
+  font-weight: 500;
+}
+.tb-row-group td.num {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--fg-primary);
+  text-align: right;
+}
+.tb-row-group td.num.dr { color: var(--accent); }
+.tb-row-group td.num.cr { color: var(--success); }
+
+/* Tally intermediate rows (Current Assets / Fixed Assets / Current Liabilities / Loans) */
+.tb-row-mid {
+  cursor: pointer;
+  transition: background .1s;
+}
+.tb-row-mid:hover { background: var(--bg-hover); }
+.tb-row-mid:hover .tb-arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.tb-row-mid:hover .name { color: var(--accent); }
+.tb-row-mid td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tb-row-mid .mh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 20px;
+}
+.tb-row-mid .name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  letter-spacing: 0.05px;
+  transition: color .12s;
+}
+.tb-row-mid .meta {
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 4px;
+}
+.tb-row-mid td.num {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  font-weight: 600;
+  text-align: right;
+}
+.tb-row-mid td.num.dr { color: var(--accent); }
+.tb-row-mid td.num.cr { color: var(--success); }
+
+/* Sub-group rows (Sundry Debtors / Bank Accounts / Cash / Stock / etc.) */
+.tb-row-sub {
+  cursor: pointer;
+  transition: background .1s;
+}
+.tb-row-sub:hover { background: var(--bg-hover); }
+.tb-row-sub:hover .tb-arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.tb-row-sub:hover .name { color: var(--accent); }
+.tb-row-sub td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tb-row-sub .sh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 44px;
+  position: relative;
+}
+.tb-row-sub .sh::before {
+  content: '';
+  position: absolute;
+  left: 30px;
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: var(--border);
+}
+.tb-row-sub .name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  transition: color .12s;
+}
+.tb-row-sub .meta {
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 4px;
+}
+.tb-row-sub td.num {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  font-weight: 500;
+  text-align: right;
+}
+.tb-row-sub td.num.dr { color: var(--accent); }
+.tb-row-sub td.num.cr { color: var(--success); }
+
+/* Ledger rows (Group Summary page) */
+.tb-row-ledger {
+  cursor: pointer;
+  transition: background .1s;
+}
+.tb-row-ledger:hover { background: var(--bg-hover); }
+.tb-row-ledger:hover .tb-arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.tb-row-ledger:hover .name { color: var(--accent); }
+.tb-row-ledger td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.tb-row-ledger .lh {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.tb-row-ledger .name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  transition: color .12s;
+}
+.tb-row-ledger .pill {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  text-transform: uppercase;
+}
+.tb-row-ledger td.num {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  text-align: right;
+  white-space: nowrap;
+}
+.tb-row-ledger td.num.dr { color: var(--accent); }
+.tb-row-ledger td.num.cr { color: var(--success); }
+.tb-row-ledger td.num.zero { color: var(--fg-tertiary); font-weight: 400; }
+
+/* Expand/collapse chevron */
+.tb-chev {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  font-size: 9px;
+  color: var(--fg-tertiary);
+  transition: transform .15s;
+  user-select: none;
+}
+.tb-chev.collapsed { transform: rotate(-90deg); }
+
+/* Hide collapsed children */
+.tb-row-mid.collapsed,
+.tb-row-sub.collapsed { display: none; }
+
+/* Drill arrow on hover */
+.tb-arrow {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  opacity: 0;
+  transition: opacity .12s, color .12s, transform .12s;
+}
+
+/* Keyboard-selected row highlight (arrow-key navigation) */
+.tb-row-group.tb-active,
+.tb-row-mid.tb-active,
+.tb-row-sub.tb-active,
+.tb-row-ledger.tb-active {
+  background: var(--accent-bg) !important;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.tb-row-group.tb-active .tb-arrow,
+.tb-row-mid.tb-active .tb-arrow,
+.tb-row-sub.tb-active .tb-arrow,
+.tb-row-ledger.tb-active .tb-arrow {
+  opacity: 1;
+  color: var(--accent);
+}
+.tb-row-group.tb-active .name,
+.tb-row-mid.tb-active .name,
+.tb-row-sub.tb-active .name,
+.tb-row-ledger.tb-active .name {
+  color: var(--accent);
+}
+.tb-row-group:hover .tb-arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+
+/* Grand-Total strip — fixed band that always sits at the bottom of the
+ * page, just above the F-bar. Lives in its own table outside the
+ * scroll area so it never moves regardless of how much content is
+ * above. Column widths align with the scrolling table via matching
+ * <colgroup>. */
+.tb-totalbar {
+  flex-shrink: 0;
+  background: var(--bg-app);
+  border-top: 1.5px solid var(--fg-primary);
+  border-bottom: 1.5px double var(--fg-primary);
+  padding: 0 28px;
+}
+.tb-totalbar .tb-table { width: 100%; }
+.tb-row-total td {
+  padding: 14px;
+}
+.tb-row-total .label {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.15px;
+  color: var(--fg-primary);
+  text-transform: uppercase;
+}
+.tb-row-total td.num {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  text-align: right;
+}
+.tb-row-total td.num.dr { color: var(--accent); }
+.tb-row-total td.num.cr { color: var(--success); }
+
+/* ─── Reconciliation banner (only when off-by-paisa) ─── */
+
+.tb-reco {
+  flex-shrink: 0;
+  margin: 12px 28px 0;
+  padding: 10px 14px;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+}
+.tb-reco-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  background: var(--danger);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.tb-reco-msg {
+  flex: 1;
+  color: var(--fg-primary);
+}
+.tb-reco-msg b {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--danger);
+}
+
+/* ─── F-key footer bar ─── */
+
+.tb-fbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 28px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 11.5px;
+  overflow-x: auto;
+}
+.tb-fbar::-webkit-scrollbar { height: 4px; }
+.tb-fbar .fkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.tb-fbar .fkey:hover { background: var(--bg-hover); color: var(--fg-primary); }
+.tb-fbar .fkey kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--bg-muted);
+  color: var(--accent);
+  padding: 2px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--border);
+}
+.tb-fbar .grow { flex: 1; }
+.tb-fbar .meta {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+.tb-fbar .meta b { color: var(--fg-secondary); font-weight: 600; }
+
+/* Hide columns in Condensed view */
+.tb-page[data-view="closing"] .col-opening,
+.tb-page[data-view="closing"] .col-tx-dr,
+.tb-page[data-view="closing"] .col-tx-cr { display: none; }
+
+/* Loading + empty states */
+.tb-empty,
+.tb-loading {
+  padding: 60px 28px;
+  text-align: center;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+}
+
+/* Print */
+@media print {
+  .tb-actions, .tb-fbar, .tb-search-row, .tb-crumb .back-hint { display: none !important; }
+  .tb-page { height: auto; overflow: visible; }
+  .tb-scroll { overflow: visible; padding: 0; }
+  .tb-hd { padding: 8mm 0 4mm; border-bottom: 1px solid #000; }
+  .tb-table thead th { background: #fff; color: #000; }
+  .tb-totalbar { padding: 0; border-top-color: #000; border-bottom-color: #000; }
+}
+
+@media (max-width: 900px) {
+  .tb-hd { grid-template-columns: 1fr; }
+  .tb-actions { flex-wrap: wrap; }
+  .tb-scroll, .tb-search-row, .tb-hd, .tb-fbar, .tb-totalbar { padding-left: 16px; padding-right: 16px; }
+  .tb-reco { margin-left: 16px; margin-right: 16px; }
+}
