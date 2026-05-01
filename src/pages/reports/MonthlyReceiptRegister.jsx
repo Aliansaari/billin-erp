@@ -2,4 +2,4 @@
 import React from 'react';
 import MonthlyRegister from './MonthlySummary';
 import './monthly-summary.css';
-export default function MonthlySalesRegister() { return <MonthlyRegister mode="sales" />; }
+export default function MonthlyReceiptRegister() { return <MonthlyRegister mode="receipt" />; }

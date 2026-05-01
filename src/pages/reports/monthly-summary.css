@@ -1,134 +1,111 @@
-/* Monthly Summary — shared CSS for sales / purchase / combined modes.
-   Mirrors the bills-outstanding.css visual language so the three
-   reports feel like they belong to the same family on the hub. */
+/* Monthly Register — Tally-faithful styling. White background, blue
+   title strip, serif text, italic numbers, yellow row highlight. */
 
-.ms-page {
+.mr-page {
   display: flex; flex-direction: column;
   height: 100%; min-height: 0;
-  background: var(--bg, #fafafa);
+  background: #ffffff;
+  color: #000000;
+  font-family: 'Times New Roman', Georgia, serif;
 }
 
-/* ── Header ────────────────────────────────────────────────────────── */
-.ms-hd {
-  flex-shrink: 0;
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; padding: 14px 24px 10px 24px;
-  border-bottom: 1px solid var(--border, #f0f0f0);
-  flex-wrap: wrap;
-}
-.ms-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.ms-title h1 { font-size: 19px; font-weight: 600; margin: 0; line-height: 1.2; }
-.ms-as-of { font-family: 'Geist Mono','JetBrains Mono', monospace; font-size: 11.5px; }
-.ms-recon-chip { margin-left: 6px; font-size: 11px; }
-
-/* ── Banner (drift) ──────────────────────────────────────────────── */
-.ms-banner {
-  flex-shrink: 0;
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 24px;
-  font-size: 12.5px;
-  border-bottom: 1px solid var(--border, #f0f0f0);
-}
-.ms-banner-warn {
-  background: var(--warning-bg, rgba(181,135,43,0.08));
-  color: var(--warning, #B5872B);
-}
-.ms-banner > :nth-child(2) { flex: 1; }
-
-/* ── KPI tiles ──────────────────────────────────────────────────── */
-.ms-kpis {
+/* ── Title strip — Tally's blue header bar ───────────────────────── */
+.mr-titlebar {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 1px;
-  background: var(--border-subtle, #f0f0f0);
-  border-bottom: 1px solid var(--border, #f0f0f0);
+  grid-template-columns: 1fr 2fr 1fr;
+  align-items: center;
+  padding: 4px 16px;
+  background: linear-gradient(to bottom, #5b8ac0, #80a8d4);
+  color: #000000;
+  font-weight: 700;
+  border-bottom: 1px solid #2c4a70;
 }
-.ms-kpi {
-  background: var(--bg-elevated, #fff);
-  padding: 10px 16px;
-  display: flex; flex-direction: column; gap: 4px;
-  min-width: 0;
+.mr-title-left   { font-size: 13px; }
+.mr-title-center { font-size: 14px; text-align: center; }
+.mr-title-right  { text-align: right; }
+.mr-close {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 18px; line-height: 1; padding: 2px 8px;
+  color: #1a1a1a; font-weight: 700;
 }
-.ms-kpi-label {
-  font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-secondary, #6b7280);
-}
-.ms-kpi-value {
-  font-family: 'Geist Mono','JetBrains Mono', monospace;
-  font-size: 16px; font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--text, #111827);
-}
-.ms-kpi-strong { color: var(--primary, #6366F1); font-weight: 600; }
-.ms-kpi-small  { font-size: 12px; }
-.ms-skel { min-height: 80px; }
+.mr-close:hover { color: #b00020; }
 
-/* ── Filter bar ─────────────────────────────────────────────────── */
-.ms-filterbar {
+/* ── Toolbar (period + compare-with) ─────────────────────────────── */
+.mr-toolbar {
   flex-shrink: 0;
-  padding: 8px 24px;
-  border-bottom: 1px solid var(--border, #f0f0f0);
-}
-.ms-filterbar-adv {
-  margin-top: 8px; padding-top: 8px;
-  border-top: 1px dashed var(--border-subtle, #f0f0f0);
+  padding: 6px 12px;
+  background: #f4f4f4;
+  border-bottom: 1px solid #d0d0d0;
 }
 
-/* ── Table ──────────────────────────────────────────────────────── */
-.ms-table-wrap {
+/* ── Table ─────────────────────────────────────────────────────────── */
+.mr-tablewrap {
   flex: 1; min-height: 0;
   overflow: auto;
-  padding: 8px 24px 16px 24px;
+  padding: 12px 16px 24px 16px;
+  background: #ffffff;
 }
-.ms-table {
+.mr-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  font-variant-numeric: tabular-nums;
+  color: #000000;
 }
-.ms-table th, .ms-table td {
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--border-subtle, #f0f0f0);
-  text-align: left;
+.mr-table th, .mr-table td {
+  padding: 2px 8px;
+  vertical-align: top;
 }
-.ms-table th {
-  font-weight: 500; font-size: 11px; letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-secondary, #6b7280);
-  background: var(--bg-elevated, #fafafa);
-  position: sticky; top: 0; z-index: 1;
+.mr-col-particulars { width: 32%; }
+
+/* Header rows — minimal borders, bold text, no background. */
+.mr-table thead th {
+  font-weight: 400;
+  text-align: right;
 }
-.ms-table .ms-num { text-align: right; font-family: 'Geist Mono','JetBrains Mono', monospace; }
-.ms-table .ms-th-strong { color: var(--text, #111827); font-weight: 600; }
-.ms-table .ms-strong  { font-weight: 600; }
-.ms-table .ms-muted   { color: var(--text-secondary, #6b7280); }
-.ms-row-clickable { cursor: pointer; transition: background 0.1s; }
-.ms-row-clickable:hover { background: var(--bg-hover, rgba(99,102,241,0.05)); }
-.ms-table tfoot tr.ms-tot td {
-  border-top: 2px solid var(--border, #d1d5db);
-  border-bottom: none;
-  font-weight: 600;
-  background: var(--bg-elevated, #fafafa);
+.mr-th-group  th { padding-top: 4px;   border-top: none; }
+.mr-th-cols   th { border-bottom: 1px solid #000; padding-bottom: 4px; }
+.mr-th-particulars { text-align: left;  letter-spacing: 0.08em; padding-left: 4px; }
+.mr-th-num         { text-align: right; min-width: 110px; }
+.mr-th-cb          { text-align: right; min-width: 130px; padding-right: 8px;
+                     border-bottom: 1px solid #000; }
+.mr-grp-label      { text-align: center; font-style: italic; }
+.mr-grp-italic     { font-style: italic; font-weight: 400; }
+
+/* Visual divider between primary + overlay column groups. */
+.mr-grp-overlay { border-left: 1px solid #b0b0b0; }
+.mr-table thead th.mr-grp-overlay { border-left: 1px solid #b0b0b0; }
+
+/* Row body */
+.mr-table tbody td { padding: 1px 8px; }
+.mr-num { text-align: right; font-variant-numeric: tabular-nums; }
+.mr-row { cursor: pointer; }
+.mr-row:hover, .mr-row-active { background: #ffd45c; }   /* Tally yellow */
+
+.mr-row-opening { background: #f9f9f9; }
+.mr-row-opening td { padding: 4px 8px; border-bottom: 1px dashed #ccc; }
+
+.mr-row-total td {
+  border-top: 1px solid #000;
+  border-bottom: 2px double #000;
+  padding: 4px 8px;
+  font-weight: 700;
 }
 
-.ms-empty {
-  padding: 60px 24px;
-  text-align: center;
-  color: var(--text-secondary, #6b7280);
-  font-size: 13px;
-}
-.ms-empty a { cursor: pointer; }
-.ms-table-skeleton {
-  padding: 60px 24px; text-align: center;
-  color: var(--text-secondary, #6b7280);
-}
+.mr-skel { padding: 80px 24px; text-align: center; color: #6b6b6b; }
 
-/* ── Chart toggle (combined mode) ─────────────────────────────── */
-.ms-chart-toggle { padding: 12px 24px; border-top: 1px solid var(--border, #f0f0f0); }
-.ms-chart        { margin-top: 12px; background: var(--bg-elevated, #fff); padding: 8px; border-radius: 4px; }
-
+/* Print: drop the toolbar; keep the table on a clean white page. */
 @media print {
-  .ms-filterbar, .ms-banner, .ms-chart-toggle { display: none !important; }
+  .mr-toolbar, .mr-titlebar .mr-title-right { display: none !important; }
+  .mr-page { height: auto; }
+  .mr-tablewrap { padding: 0 12px; overflow: visible; }
 }
+
+/* Dark-mode override — the screen mockup was rendered light-mode (Tally
+   only ships a light theme). Force light look regardless of the app's
+   theme so the register reads as Tally would. */
+.mr-page,
+.mr-page .mr-titlebar,
+.mr-page .mr-toolbar,
+.mr-page .mr-tablewrap,
+.mr-page .mr-table { color-scheme: light; }
