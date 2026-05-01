@@ -191,6 +191,9 @@ export const reportAPI = {
   billsPayable:          (params) => api.get('/reports/bills-payable',    { params }),
   exportBillsReceivable: (params) => api.get('/reports/bills-receivable/export', { params, responseType: 'blob' }),
   exportBillsPayable:    (params) => api.get('/reports/bills-payable/export',    { params, responseType: 'blob' }),
+  // R10 — Monthly summary (sales | purchase | combined). Single endpoint,
+  // mode parameter selects shape. Frontend wrappers preset the mode.
+  monthlySummary:        (params) => api.get('/reports/monthly-summary', { params }),
   getGstr1: (params) => api.get('/reports/gstr1', { params }),
   getGstr3b: (params) => api.get('/reports/gstr3b', { params }),
   // Phase R1 — Trial Balance + Balance Sheet + Profit & Loss

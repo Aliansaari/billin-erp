@@ -1,0 +1,134 @@
+/* Monthly Summary — shared CSS for sales / purchase / combined modes.
+   Mirrors the bills-outstanding.css visual language so the three
+   reports feel like they belong to the same family on the hub. */
+
+.ms-page {
+  display: flex; flex-direction: column;
+  height: 100%; min-height: 0;
+  background: var(--bg, #fafafa);
+}
+
+/* ── Header ────────────────────────────────────────────────────────── */
+.ms-hd {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 24px 10px 24px;
+  border-bottom: 1px solid var(--border, #f0f0f0);
+  flex-wrap: wrap;
+}
+.ms-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.ms-title h1 { font-size: 19px; font-weight: 600; margin: 0; line-height: 1.2; }
+.ms-as-of { font-family: 'Geist Mono','JetBrains Mono', monospace; font-size: 11.5px; }
+.ms-recon-chip { margin-left: 6px; font-size: 11px; }
+
+/* ── Banner (drift) ──────────────────────────────────────────────── */
+.ms-banner {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 24px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border, #f0f0f0);
+}
+.ms-banner-warn {
+  background: var(--warning-bg, rgba(181,135,43,0.08));
+  color: var(--warning, #B5872B);
+}
+.ms-banner > :nth-child(2) { flex: 1; }
+
+/* ── KPI tiles ──────────────────────────────────────────────────── */
+.ms-kpis {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border-subtle, #f0f0f0);
+  border-bottom: 1px solid var(--border, #f0f0f0);
+}
+.ms-kpi {
+  background: var(--bg-elevated, #fff);
+  padding: 10px 16px;
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 0;
+}
+.ms-kpi-label {
+  font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+.ms-kpi-value {
+  font-family: 'Geist Mono','JetBrains Mono', monospace;
+  font-size: 16px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text, #111827);
+}
+.ms-kpi-strong { color: var(--primary, #6366F1); font-weight: 600; }
+.ms-kpi-small  { font-size: 12px; }
+.ms-skel { min-height: 80px; }
+
+/* ── Filter bar ─────────────────────────────────────────────────── */
+.ms-filterbar {
+  flex-shrink: 0;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border, #f0f0f0);
+}
+.ms-filterbar-adv {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px dashed var(--border-subtle, #f0f0f0);
+}
+
+/* ── Table ──────────────────────────────────────────────────────── */
+.ms-table-wrap {
+  flex: 1; min-height: 0;
+  overflow: auto;
+  padding: 8px 24px 16px 24px;
+}
+.ms-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.ms-table th, .ms-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-subtle, #f0f0f0);
+  text-align: left;
+}
+.ms-table th {
+  font-weight: 500; font-size: 11px; letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+  background: var(--bg-elevated, #fafafa);
+  position: sticky; top: 0; z-index: 1;
+}
+.ms-table .ms-num { text-align: right; font-family: 'Geist Mono','JetBrains Mono', monospace; }
+.ms-table .ms-th-strong { color: var(--text, #111827); font-weight: 600; }
+.ms-table .ms-strong  { font-weight: 600; }
+.ms-table .ms-muted   { color: var(--text-secondary, #6b7280); }
+.ms-row-clickable { cursor: pointer; transition: background 0.1s; }
+.ms-row-clickable:hover { background: var(--bg-hover, rgba(99,102,241,0.05)); }
+.ms-table tfoot tr.ms-tot td {
+  border-top: 2px solid var(--border, #d1d5db);
+  border-bottom: none;
+  font-weight: 600;
+  background: var(--bg-elevated, #fafafa);
+}
+
+.ms-empty {
+  padding: 60px 24px;
+  text-align: center;
+  color: var(--text-secondary, #6b7280);
+  font-size: 13px;
+}
+.ms-empty a { cursor: pointer; }
+.ms-table-skeleton {
+  padding: 60px 24px; text-align: center;
+  color: var(--text-secondary, #6b7280);
+}
+
+/* ── Chart toggle (combined mode) ─────────────────────────────── */
+.ms-chart-toggle { padding: 12px 24px; border-top: 1px solid var(--border, #f0f0f0); }
+.ms-chart        { margin-top: 12px; background: var(--bg-elevated, #fff); padding: 8px; border-radius: 4px; }
+
+@media print {
+  .ms-filterbar, .ms-banner, .ms-chart-toggle { display: none !important; }
+}
