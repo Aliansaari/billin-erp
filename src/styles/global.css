@@ -814,6 +814,440 @@ body {
   line-height: 1.2;
 }
 
+/* ===== REPORT TABLE — internal scroll, sticky summary =====
+ * Wrapping div (.report-table-scroll) is the scroll container. The table fills it,
+ * thead/summary stick to top/bottom via antd's `sticky` prop. Body scrolls internally
+ * so the page never scrolls — header, KPI strip, filter bar stay locked.
+ * Empty rows leave whitespace below (info box stretches) instead of collapsing the box.
+ */
+.report-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+}
+.report-table-scroll > .ant-spin-nested-loading {
+  flex: 1;
+  min-height: 0;
+}
+.report-table-scroll .ant-table-summary > tr > td {
+  background: var(--bg-muted) !important;
+  font-weight: 700;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ===== KPI TILES — theme-aware tones =====
+ * Replaces hardcoded pastel hexes so tiles auto-swap with the active theme:
+ *   classic-light → indigo/green/red pastels
+ *   modern-light  → warm cream + terracotta/sage/amber
+ *   *-dark        → deep tinted bgs of the same hue
+ * Tone vocabulary: success, warning, danger, info, accent, neutral.
+ */
+.erp-summary-stat.tone-success { background: var(--success-bg); }
+.erp-summary-stat.tone-success .erp-summary-stat-value { color: var(--success); }
+.erp-summary-stat.tone-warning { background: var(--warning-bg); }
+.erp-summary-stat.tone-warning .erp-summary-stat-value { color: var(--warning); }
+.erp-summary-stat.tone-danger  { background: var(--danger-bg); }
+.erp-summary-stat.tone-danger  .erp-summary-stat-value { color: var(--danger); }
+.erp-summary-stat.tone-info    { background: var(--info-bg); }
+.erp-summary-stat.tone-info    .erp-summary-stat-value { color: var(--info); }
+.erp-summary-stat.tone-accent  { background: var(--accent-bg); }
+.erp-summary-stat.tone-accent  .erp-summary-stat-value { color: var(--accent); }
+.erp-summary-stat.tone-neutral { background: var(--bg-muted); }
+.erp-summary-stat.tone-neutral .erp-summary-stat-value { color: var(--fg-primary); }
+.erp-summary-stat.tone-profit-pos { background: var(--success-bg); }
+.erp-summary-stat.tone-profit-pos .erp-summary-stat-value { color: var(--success); }
+.erp-summary-stat.tone-profit-neg { background: var(--danger-bg); }
+.erp-summary-stat.tone-profit-neg .erp-summary-stat-value { color: var(--danger); }
+
+/* ============================================================================
+ * EDITORIAL REPORT SKIN
+ *
+ * Layout (header / KPI strip / recon banner / filter row / table / status
+ * strip) is applied to ALL themes via the .rpt-* classes below — that's the
+ * "design" layer. Colors and typography are theme-aware via CSS vars, so
+ * Classic shows indigo/grey palette, Modern shows cream/terracotta editorial.
+ *
+ * In Modern theme, an additional Fraunces-serif layer applies (further down,
+ * scoped to [data-theme^="modern"] .report-editorial …).
+ * =========================================================================== */
+
+/* ─── Page header ─── */
+.rpt-page-hd {
+  flex-shrink: 0;
+  padding: 16px 28px 12px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+.rpt-title h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  line-height: 1.1;
+  margin: 0 0 5px;
+}
+.rpt-sub {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  font-weight: 500;
+}
+.rpt-sub b { color: var(--fg-primary); font-weight: 600; }
+.rpt-sub .sep { color: var(--fg-tertiary); margin: 0 6px; }
+.rpt-hd-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Period preset segmented control */
+.rpt-period {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.rpt-period button {
+  border: 0;
+  background: transparent;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.rpt-period button:hover { color: var(--fg-primary); }
+.rpt-period button.on {
+  background: var(--fg-primary);
+  color: var(--fg-inverse);
+  font-weight: 600;
+}
+.rpt-date.ant-picker { height: 34px; border-radius: 7px; }
+.rpt-btn.ant-btn { height: 34px; border-radius: 7px; font-size: 12.5px; font-weight: 500; }
+
+/* ─── KPI strip ─── */
+.rpt-kpis {
+  flex-shrink: 0;
+  padding: 14px 28px 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+.rpt-kpi {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 13px 15px;
+  position: relative;
+  overflow: hidden;
+}
+.rpt-kpi-k {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  font-weight: 700;
+}
+.rpt-kpi-v {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  line-height: 1.1;
+  margin-top: 5px;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.rpt-kpi.tone-success    { border-color: var(--success-bg); background: linear-gradient(135deg, var(--success-bg) 0%, var(--bg-panel) 70%); }
+.rpt-kpi.tone-success    .rpt-kpi-v { color: var(--success); }
+.rpt-kpi.tone-warning    { border-color: var(--warning-bg); background: linear-gradient(135deg, var(--warning-bg) 0%, var(--bg-panel) 70%); }
+.rpt-kpi.tone-warning    .rpt-kpi-v { color: var(--warning); }
+.rpt-kpi.tone-danger     { border-color: var(--danger-bg);  background: linear-gradient(135deg, var(--danger-bg)  0%, var(--bg-panel) 70%); }
+.rpt-kpi.tone-danger     .rpt-kpi-v { color: var(--danger); }
+.rpt-kpi.tone-info       { border-color: var(--info-bg);    background: linear-gradient(135deg, var(--info-bg)    0%, var(--bg-panel) 70%); }
+.rpt-kpi.tone-info       .rpt-kpi-v { color: var(--info); }
+.rpt-kpi.tone-accent     { border-color: var(--accent-bg);  background: linear-gradient(135deg, var(--accent-bg)  0%, var(--bg-panel) 70%); }
+.rpt-kpi.tone-accent     .rpt-kpi-v { color: var(--accent); }
+.rpt-kpi.tone-neutral    { background: linear-gradient(135deg, var(--bg-muted) 0%, var(--bg-panel) 70%); }
+.rpt-kpi.tone-profit-pos { border-color: var(--success-bg); background: linear-gradient(135deg, var(--success-bg) 0%, var(--bg-panel) 70%); }
+.rpt-kpi.tone-profit-pos .rpt-kpi-v { color: var(--success); }
+.rpt-kpi.tone-profit-neg { border-color: var(--danger-bg);  background: linear-gradient(135deg, var(--danger-bg)  0%, var(--bg-panel) 70%); }
+.rpt-kpi.tone-profit-neg .rpt-kpi-v { color: var(--danger); }
+
+/* ─── Reconciliation banner ─── */
+.rpt-recon {
+  flex-shrink: 0;
+  margin: 12px 28px 0;
+  padding: 12px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--warning-bg);
+  border-left: 3px solid var(--warning);
+  border-radius: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.rpt-recon.ok {
+  border-color: var(--success-bg);
+  border-left-color: var(--success);
+  background: linear-gradient(0deg, var(--success-bg) 0%, transparent 100%), var(--bg-panel);
+}
+.rpt-recon.warn {
+  background: linear-gradient(0deg, var(--warning-bg) 0%, transparent 100%), var(--bg-panel);
+}
+.rpt-recon-ic {
+  width: 30px; height: 30px; border-radius: 7px;
+  background: var(--warning); color: var(--fg-inverse);
+  display: grid; place-items: center; flex-shrink: 0;
+  font-size: 16px;
+}
+.rpt-recon.ok .rpt-recon-ic { background: var(--success); }
+.rpt-recon-body { flex: 1; min-width: 0; }
+.rpt-recon-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  margin-bottom: 4px;
+}
+.rpt-recon-formula {
+  font-size: 12px;
+  color: var(--fg-secondary);
+  line-height: 1.7;
+  font-variant-numeric: tabular-nums;
+}
+.rpt-recon-formula b { color: var(--fg-primary); font-weight: 600; }
+.rpt-recon-formula .delta { color: var(--danger); font-weight: 700; }
+.rpt-recon-formula .ok { color: var(--success); font-weight: 700; }
+.rpt-recon-x {
+  background: transparent; border: 0; cursor: pointer;
+  width: 24px; height: 24px; color: var(--fg-secondary);
+  display: grid; place-items: center; border-radius: 5px;
+  font-size: 12px;
+}
+.rpt-recon-x:hover { background: var(--bg-muted); color: var(--fg-primary); }
+
+/* ─── Filter row (search + chips) ─── */
+.rpt-filter {
+  flex-shrink: 0;
+  padding: 14px 28px 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.rpt-search.ant-input-affix-wrapper {
+  width: 280px;
+  height: 32px;
+  border-radius: 8px;
+}
+.rpt-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+.rpt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition: all .12s;
+}
+.rpt-chip:hover { border-color: var(--accent-border); color: var(--fg-primary); }
+.rpt-chip.on {
+  background: var(--fg-primary);
+  color: var(--fg-inverse);
+  border-color: var(--fg-primary);
+}
+.rpt-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-tertiary); }
+.rpt-dot.paid    { background: var(--success); }
+.rpt-dot.partial { background: var(--warning); }
+.rpt-dot.unpaid  { background: var(--danger); }
+
+/* ─── Table panel ─── */
+.rpt-tbl-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 14px 28px 20px;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  align-items: stretch;
+}
+/* Outer card: rounded panel that fills available space, with the antd Table
+ * nested inside a flex column so the body scrolls internally and the sticky
+ * thead/footer pin to the panel edges. */
+.rpt-tbl.report-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+}
+.rpt-tbl .ant-spin-nested-loading,
+.rpt-tbl .ant-spin-nested-loading > .ant-spin-container,
+.rpt-tbl .ant-table-wrapper,
+.rpt-tbl .ant-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: transparent;
+}
+.rpt-tbl .ant-table-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rpt-tbl .ant-table-content,
+.rpt-tbl .ant-table-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto !important;
+}
+/* Empty state should stretch to fill the table body area */
+.rpt-tbl .ant-table-placeholder {
+  height: 100%;
+}
+.rpt-tbl .ant-table-placeholder > td {
+  border-bottom: 0;
+}
+
+/* Bill number tag */
+.rpt-bill-no {
+  font-weight: 700;
+  color: var(--fg-primary);
+}
+
+/* Status pill (replaces antd Tag in status column) */
+.rpt-pill {
+  display: inline-block;
+  padding: 2.5px 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.rpt-pill.paid    { background: var(--success-bg); color: var(--success); }
+.rpt-pill.partial { background: var(--warning-bg); color: var(--warning); }
+.rpt-pill.unpaid  { background: var(--danger-bg);  color: var(--danger); }
+.rpt-pill.type-success { background: var(--success-bg); color: var(--success); }
+.rpt-pill.type-warning { background: var(--warning-bg); color: var(--warning); }
+.rpt-pill.type-danger  { background: var(--danger-bg);  color: var(--danger); }
+.rpt-pill.type-info    { background: var(--info-bg);    color: var(--info); }
+.rpt-pill.type-accent  { background: var(--accent-bg);  color: var(--accent); }
+.rpt-pill.type-neutral { background: var(--bg-muted);   color: var(--fg-secondary); }
+.rpt-dot.tone-success  { background: var(--success); }
+.rpt-dot.tone-warning  { background: var(--warning); }
+.rpt-dot.tone-danger   { background: var(--danger); }
+.rpt-dot.tone-info     { background: var(--info); }
+.rpt-dot.tone-accent   { background: var(--accent); }
+.rpt-dot.tone-neutral  { background: var(--fg-tertiary); }
+
+/* Bottom status strip */
+.rpt-status {
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+  display: flex;
+  gap: 18px;
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+  align-items: center;
+}
+.rpt-status b { color: var(--fg-primary); font-weight: 700; }
+.rpt-status .sep { width: 1px; height: 12px; background: var(--border); }
+.rpt-status .ml-auto { margin-left: auto; }
+
+/* ============================================================================
+ * Modern theme — color/spacing overlay (typography uses the software's
+ * default font everywhere, no serif overlay).
+ * =========================================================================== */
+[data-theme^="modern"] .report-editorial .erp-summary-bar {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px 28px 4px;
+  background: transparent;
+  border-bottom: 0;
+}
+[data-theme^="modern"] .report-editorial .erp-summary-stat {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 13px 15px;
+  min-width: 0;
+  background: linear-gradient(135deg, var(--bg-muted) 0%, var(--bg-panel) 70%);
+  position: relative;
+  overflow: hidden;
+}
+[data-theme^="modern"] .report-editorial .erp-summary-stat .erp-summary-stat-label {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  margin-bottom: 5px;
+}
+[data-theme^="modern"] .report-editorial .erp-summary-stat .erp-summary-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+/* Tone-tinted gradients — Modern editorial palette */
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-success    { border-color: var(--success-bg); background: linear-gradient(135deg, var(--success-bg) 0%, var(--bg-panel) 70%); }
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-warning    { border-color: var(--warning-bg); background: linear-gradient(135deg, var(--warning-bg) 0%, var(--bg-panel) 70%); }
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-danger     { border-color: var(--danger-bg);  background: linear-gradient(135deg, var(--danger-bg)  0%, var(--bg-panel) 70%); }
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-info       { border-color: var(--info-bg);    background: linear-gradient(135deg, var(--info-bg)    0%, var(--bg-panel) 70%); }
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-accent     { border-color: var(--accent-bg);  background: linear-gradient(135deg, var(--accent-bg)  0%, var(--bg-panel) 70%); }
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-neutral    { border-color: var(--border);     background: linear-gradient(135deg, var(--bg-muted)   0%, var(--bg-panel) 70%); }
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-profit-pos { border-color: var(--success-bg); background: linear-gradient(135deg, var(--success-bg) 0%, var(--bg-panel) 70%); }
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-profit-pos .erp-summary-stat-value { color: var(--success); }
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-profit-neg { border-color: var(--danger-bg);  background: linear-gradient(135deg, var(--danger-bg)  0%, var(--bg-panel) 70%); }
+[data-theme^="modern"] .report-editorial .erp-summary-stat.tone-profit-neg .erp-summary-stat-value { color: var(--danger); }
+
+[data-theme^="modern"] .report-editorial .ant-table {
+  background: transparent;
+}
+[data-theme^="modern"] .report-editorial .ant-table-thead > tr > th {
+  background: var(--bg-muted) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--fg-secondary) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+[data-theme^="modern"] .report-editorial .ant-table-tbody > tr > td {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-primary);
+  border-bottom: 1px solid var(--border-subtle) !important;
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+[data-theme^="modern"] .report-editorial .ant-table-summary > tr > td {
+  background: var(--bg-muted) !important;
+  border-top: 2px solid var(--border-strong) !important;
+  font-weight: 700 !important;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
   .erp-header-shortcuts {
