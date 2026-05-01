@@ -29,19 +29,21 @@
 // names — actual icon components are imported by the consumer to
 // avoid pulling icon weight into the registry itself.
 export const CATEGORY_META = {
-  outstanding: { label: 'Outstanding', icon: 'AlertOutlined',       tone: 'danger'  },
-  sales:       { label: 'Sales',       icon: 'RiseOutlined',         tone: 'info'    },
-  purchase:    { label: 'Purchase',    icon: 'ShoppingCartOutlined', tone: 'warning' },
-  inventory:   { label: 'Inventory',   icon: 'InboxOutlined',        tone: 'success' },
-  financial:   { label: 'Financial',   icon: 'PieChartOutlined',     tone: 'danger'  },
-  parties:     { label: 'Parties',     icon: 'TeamOutlined',         tone: 'purple'  },
-  tax:         { label: 'Tax / GST',   icon: 'FileTextOutlined',     tone: 'teal'    },
+  outstanding:       { label: 'Outstanding',       icon: 'AlertOutlined',       tone: 'danger'  },
+  periodic_summary:  { label: 'Periodic Summary',  icon: 'CalendarOutlined',    tone: 'info'    },
+  sales:             { label: 'Sales',             icon: 'RiseOutlined',        tone: 'info'    },
+  purchase:          { label: 'Purchase',          icon: 'ShoppingCartOutlined',tone: 'warning' },
+  inventory:         { label: 'Inventory',         icon: 'InboxOutlined',       tone: 'success' },
+  financial:         { label: 'Financial',         icon: 'PieChartOutlined',    tone: 'danger'  },
+  parties:           { label: 'Parties',           icon: 'TeamOutlined',        tone: 'purple'  },
+  tax:               { label: 'Tax / GST',         icon: 'FileTextOutlined',    tone: 'teal'    },
 };
 
 // Category render order on the hub. Outstanding first (checked daily —
-// these are the bills currently bleeding cash). Then Sales, Purchase,
-// Inventory (largest group), Financial, Parties, Tax last.
-export const CATEGORY_ORDER = ['outstanding', 'sales', 'purchase', 'inventory', 'financial', 'parties', 'tax'];
+// these are the bills currently bleeding cash). Periodic Summary next
+// (monthly trends — operators check pulse here). Then per-domain
+// reports.
+export const CATEGORY_ORDER = ['outstanding', 'periodic_summary', 'sales', 'purchase', 'inventory', 'financial', 'parties', 'tax'];
 
 export const REPORTS = [
   // ── Outstanding ──────────────────────────────────────────────────
@@ -65,6 +67,40 @@ export const REPORTS = [
     route: '/reports/bills-payable',
     perm: 'reports.view',
     aliases: ['payable', 'bp', 'unpaid purchases', 'creditors bills'],
+    isNew: true,
+  },
+
+  // ── Periodic Summary (R10) ───────────────────────────────────────
+  // Monthly trends. Operators look here for "is the business growing
+  // / shrinking / shifting product mix month over month?"
+  {
+    id: 'monthly_sales_summary',
+    name: 'Monthly Sales Summary',
+    subtitle: 'Sales totals by month · with returns',
+    category: 'periodic_summary',
+    route: '/reports/monthly-sales',
+    perm: 'reports.view',
+    aliases: ['monthly sales', 'sales by month', 'mtd sales', 'sales trend'],
+    isNew: true,
+  },
+  {
+    id: 'monthly_purchase_summary',
+    name: 'Monthly Purchase Summary',
+    subtitle: 'Purchase totals by month · with returns',
+    category: 'periodic_summary',
+    route: '/reports/monthly-purchases',
+    perm: 'reports.view',
+    aliases: ['monthly purchase', 'purchase by month', 'purchase trend'],
+    isNew: true,
+  },
+  {
+    id: 'sales_purchase_summary',
+    name: 'Sales vs Purchase Summary',
+    subtitle: 'Cash-flow direction by month · invoice level',
+    category: 'periodic_summary',
+    route: '/reports/sales-vs-purchase',
+    perm: 'reports.view',
+    aliases: ['sales vs purchase', 'margin by month', 'cash flow direction'],
     isNew: true,
   },
 

@@ -45,6 +45,12 @@ router.get('/party-outstanding', requirePermission('reports.view'),  reportContr
 router.get('/aging',             requirePermission('reports.view'),  reportController.agingReport);
 // Bill-level outstanding lists (cf. Aging which is party-level). Cursor-
 // paginated via page/limit so the frontend can virtualize 10k+ rows.
+// Monthly summary reports (R10) — one controller, three modes via
+// ?mode=sales|purchase|combined query param. Frontend has three thin
+// wrapper components calling this with the right mode preset.
+const monthlySummaryController = require('../controllers/monthlySummaryController');
+router.get('/monthly-summary',   requirePermission('reports.view'),  monthlySummaryController.monthlySummary);
+
 router.get('/bills-receivable',  requirePermission('reports.view'),  billsOutstandingController.billsReceivable);
 router.get('/bills-payable',     requirePermission('reports.view'),  billsOutstandingController.billsPayable);
 router.get('/bills-receivable/export', requirePermission('reports.view'), (req, res) => {

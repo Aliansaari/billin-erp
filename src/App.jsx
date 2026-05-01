@@ -38,6 +38,9 @@ import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
 import BillsReceivable from './pages/reports/BillsReceivable';
 import BillsPayable from './pages/reports/BillsPayable';
+import MonthlySalesSummary    from './pages/reports/MonthlySalesSummary';
+import MonthlyPurchaseSummary from './pages/reports/MonthlyPurchaseSummary';
+import SalesPurchaseSummary   from './pages/reports/SalesPurchaseSummary';
 import GSTR1Report from './pages/reports/GSTR1Report';
 import GSTR3BReport from './pages/reports/GSTR3BReport';
 import TrialBalance from './pages/reports/TrialBalance';
@@ -197,6 +200,9 @@ export default function App() {
           <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
           <Route path="reports/bills-receivable" element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
           <Route path="reports/bills-payable"    element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
+          <Route path="reports/monthly-sales"      element={<RoleRoute perm="reports.view"><MonthlySalesSummary /></RoleRoute>} />
+          <Route path="reports/monthly-purchases"  element={<RoleRoute perm="reports.view"><MonthlyPurchaseSummary /></RoleRoute>} />
+          <Route path="reports/sales-vs-purchase"  element={<RoleRoute perm="reports.view"><SalesPurchaseSummary /></RoleRoute>} />
           <Route path="reports/gstr1"         element={<RoleRoute perm="reports.view"><GSTR1Report /></RoleRoute>} />
           <Route path="reports/gstr3b"        element={<RoleRoute perm="reports.view"><GSTR3BReport /></RoleRoute>} />
           <Route path="reports/trial-balance"     element={<RoleRoute perm="accounts.view"><TrialBalance /></RoleRoute>} />
