@@ -95,6 +95,14 @@ const HEADER_MAPS = {
     'amount': 'total_amount',
     'payment method': 'payment_method',
     'remarks': 'remarks',
+    // Optional explicit bill linkage. Comma-separated bill numbers, with
+    // optional ":amount" suffix per bill, e.g. "INV-2025-001:6000,INV-2025-002:4000".
+    // Without amounts ("INV-2025-001,INV-2025-002") we split the receipt
+    // total evenly. Empty / omitted → FIFO fallback against the party's
+    // outstanding bills as of transaction_date.
+    'bill reference':  'bill_reference',
+    'bill references': 'bill_reference',
+    'bill no':         'bill_reference',
   },
 };
 HEADER_MAPS.suppliers = HEADER_MAPS.customers;
@@ -440,6 +448,31 @@ async function validateBills(wb, kind, gstEnabled) {
   return buckets;
 }
 
+// Parse the optional `bill reference` cell on a payment_receipts row.
+// Accepts:
+//   "INV-001,INV-002"               → [{bill_number:'INV-001'}, {bill_number:'INV-002'}]
+//   "INV-001:6000, INV-002 : 4000"  → [{bill_number:'INV-001', amount:6000}, ...]
+//   ""/null/undefined               → []
+// Returns null on syntactic errors so the validator can flag the row.
+function parseBillReferenceCell(cell) {
+  if (cell == null || String(cell).trim() === '') return [];
+  const parts = String(cell).split(',').map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  for (const p of parts) {
+    const colon = p.indexOf(':');
+    if (colon === -1) {
+      out.push({ bill_number: p });
+    } else {
+      const bn = p.slice(0, colon).trim();
+      const amtStr = p.slice(colon + 1).trim();
+      const amt = parseFloat(amtStr);
+      if (!bn || !isFinite(amt) || amt <= 0) return null;
+      out.push({ bill_number: bn, amount: amt });
+    }
+  }
+  return out;
+}
+
 // ── validatePayments ──────────────────────────────────────────────────
 async function validatePayments(wb) {
   const ws = wb.worksheets[0];
@@ -447,6 +480,7 @@ async function validatePayments(wb) {
   const buckets = { create: [], update: [], skip: [], reject: [] };
   const existing = await PaymentReceipt.findAll({ attributes: ['transaction_id', 'transaction_number', 'total_amount'] });
   const byNum = new Map(existing.map((p) => [p.transaction_number, p]));
+  const { resolveBillReferences } = require('./billAllocationService');
   for (const r of rows) {
     if (!r.transaction_number) { buckets.reject.push({ row: r._rowNum, reason: 'Transaction Number required.', _data: r }); continue; }
     if (!r.party_name && !r.party_mobile) { buckets.reject.push({ row: r._rowNum, reason: 'Party Name or Mobile required.', _data: r }); continue; }
@@ -455,6 +489,43 @@ async function validatePayments(wb) {
     if (type !== 'receipt' && type !== 'payment') {
       buckets.reject.push({ row: r._rowNum, reason: `Type must be 'Receipt' or 'Payment' (got '${r.transaction_type}').`, _data: r });
       continue;
+    }
+    // Optional bill_reference cell — parse + resolve early so users see
+    // unresolved bills in the preview rather than at commit time.
+    const refs = parseBillReferenceCell(r.bill_reference);
+    if (refs === null) {
+      buckets.reject.push({ row: r._rowNum, reason: `Bill reference syntax invalid (expected "BILL-NO" or "BILL-NO:amount", comma-separated).`, _data: r });
+      continue;
+    }
+    if (refs.length > 0) {
+      // Resolve against the party we'll match at commit time.
+      let party = null;
+      if (r.party_mobile) party = await Party.findOne({ where: { mobile_1: String(r.party_mobile) } });
+      if (!party && r.party_name) party = await Party.findOne({ where: { party_name: r.party_name } });
+      if (!party) {
+        buckets.reject.push({ row: r._rowNum, reason: 'Party not found — cannot validate bill references.', _data: r });
+        continue;
+      }
+      const billType = type === 'payment' ? 'Purchase' : 'Sales';
+      const { unknown } = await resolveBillReferences({ partyId: party.party_id, billType, references: refs, t: null });
+      if (unknown.length > 0) {
+        buckets.reject.push({
+          row: r._rowNum,
+          reason: `Bill reference unknown for party ${party.party_name}: ${unknown.join(', ')}.`,
+          _data: r,
+        });
+        continue;
+      }
+      const sumWithAmt = refs.filter((x) => x.amount != null).reduce((s, x) => s + x.amount, 0);
+      if (sumWithAmt > Number(r.total_amount) + 0.01) {
+        buckets.reject.push({
+          row: r._rowNum,
+          reason: `Sum of bill_reference amounts (${sumWithAmt.toFixed(2)}) exceeds receipt amount (${Number(r.total_amount).toFixed(2)}).`,
+          _data: r,
+        });
+        continue;
+      }
+      r._parsed_bill_refs = refs;
     }
     const identifier = r.transaction_number;
     const existingRow = byNum.get(r.transaction_number);
@@ -851,6 +922,23 @@ async function commitPayment(job, item, action) {
     });
     const vouchers = await buildPaymentReceiptVouchers(refreshed, { transaction: t });
     for (const v of vouchers) await postVoucher({ ...v, userId: job.created_by, transaction: t });
+
+    // Bill-payment allocations (R9 Phase 1). Explicit refs from the
+    // optional `bill reference` column win; otherwise FIFO against the
+    // party's outstanding bills as of transaction_date. allocateForReceipt
+    // handles idempotency — re-runs on the same receipt are no-ops.
+    const { allocateForReceipt } = require('./billAllocationService');
+    await allocateForReceipt({
+      receiptId:       row.transaction_id,
+      partyId:         party.party_id,
+      transactionType: type,
+      asOfDate:        d.transaction_date,
+      totalAmount:     Number(d.total_amount),
+      references:      d._parsed_bill_refs || null,
+      method:          'import_excel',
+      t,
+    });
+
     await ImportBatch.create({
       import_job_id: job.id, entity_type: 'payment_receipt', entity_id: row.transaction_id,
       external_ref: d.transaction_number, action: action === 'update' ? 'updated' : 'created',
@@ -896,4 +984,10 @@ async function fail(job, message) {
 
 function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 
-module.exports = { run };
+module.exports = {
+  run,
+  // Test hooks — used by server/scripts/test-phase-r9.js.
+  __test__parseBillReferenceCell: parseBillReferenceCell,
+  __test__validatePayments:       validatePayments,
+  __test__commitPayment:          commitPayment,
+};

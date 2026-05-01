@@ -1118,6 +1118,37 @@ async function startServer() {
       console.error('[Two-way ledger schema] Error:', err.message);
     });
 
+    // ── R9: extend allocation_method enum for import + backfill paths ──
+    //
+    // Phase 1 of R9 wires Excel + Tally orchestrators to write allocations
+    // when receipts/payments come in via import. Phase 2 backfills the
+    // historical seeded rows that pre-date the auto-receipt service.
+    // Each writer tags its rows with a distinct method so audit + drift
+    // analysis can attribute each row to its source.
+    //
+    // Idempotent — IF NOT EXISTS on each ADD VALUE so re-runs are no-ops.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_enum
+                       WHERE enumtypid = 'enum_bill_payment_allocations_method'::regtype
+                         AND enumlabel = 'import_excel') THEN
+          ALTER TYPE enum_bill_payment_allocations_method ADD VALUE 'import_excel';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum
+                       WHERE enumtypid = 'enum_bill_payment_allocations_method'::regtype
+                         AND enumlabel = 'import_tally') THEN
+          ALTER TYPE enum_bill_payment_allocations_method ADD VALUE 'import_tally';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum
+                       WHERE enumtypid = 'enum_bill_payment_allocations_method'::regtype
+                         AND enumlabel = 'backfill_fifo') THEN
+          ALTER TYPE enum_bill_payment_allocations_method ADD VALUE 'backfill_fifo';
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[R9 enum extension] Error:', err.message);
+    });
+
     // ── R8 Phase 3: auto-receipt backfill (boot-time) ────────────────
     //
     // Inserts the missing payments_receipts row + bill_payment_alloc-
