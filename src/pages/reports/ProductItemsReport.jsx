@@ -437,38 +437,6 @@ export default function ProductItemsReport({ side }) {
         </div>
       </div>
 
-      {/* KPI strip */}
-      <div className="bo-kpis pi-kpis">
-        <div className="bo-kpi">
-          <div className="bo-kpi-label">Lines</div>
-          <div className="bo-kpi-value">{totalCount}</div>
-        </div>
-        <div className="bo-kpi">
-          <div className="bo-kpi-label">Total Qty</div>
-          <div className="bo-kpi-value">{fmtQty(summary.total_qty)}</div>
-        </div>
-        <div className="bo-kpi">
-          <div className="bo-kpi-label">Taxable Value</div>
-          <div className="bo-kpi-value">{fmtINR0(summary.total_taxable)}</div>
-        </div>
-        <div className="bo-kpi">
-          <div className="bo-kpi-label">Tax</div>
-          <div className="bo-kpi-value bo-kpi-warn">{fmtINR0(summary.total_tax)}</div>
-        </div>
-        <div className="bo-kpi">
-          <div className="bo-kpi-label">Total Value</div>
-          <div className="bo-kpi-value bo-kpi-strong">{fmtINR0(summary.total_value)}</div>
-        </div>
-        {isSales && (
-          <div className="bo-kpi">
-            <div className="bo-kpi-label">Profit</div>
-            <div className={'bo-kpi-value ' + ((summary.total_profit || 0) >= 0 ? 'pi-profit-pos' : 'pi-profit-neg')}>
-              {fmtINR0(summary.total_profit)}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Filter bar */}
       <div className="bo-filterbar">
         <Space size={8} wrap>
