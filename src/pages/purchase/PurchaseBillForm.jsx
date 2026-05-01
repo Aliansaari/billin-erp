@@ -1101,7 +1101,7 @@ export default function PurchaseBillForm() {
     setActiveCatId(null);
     setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
     setRecalledDraftId(null);
-    form.resetFields(['discount_percentage','paid_amount','other_charges','freight_charges','remarks']);
+    form.resetFields(['supplier_id','walk_in_name','supplier_bill_number','transport_name','vehicle_number','lr_number','due_date','discount_percentage','paid_amount','other_charges','freight_charges','remarks']);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   };
 
@@ -1497,7 +1497,7 @@ export default function PurchaseBillForm() {
               <div className="pbf-field">
                 <Select value={activeCatId} placeholder="Category" showSearch
                   filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
-                  allowClear notFoundContent={null}
+                  allowClear notFoundContent={null} dropdownMatchSelectWidth={300}
                   onChange={(v,opt)=>{
                     setActiveCatId(v||null);
                     setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));

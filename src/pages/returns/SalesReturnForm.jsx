@@ -629,7 +629,7 @@ export default function SalesReturnForm() {
                 <div className="rtn-field">
                   <Select value={activeCatId} placeholder="Category" showSearch
                     filterOption={(input, opt) => !input || opt.children.toLowerCase().includes(input.toLowerCase())}
-                    allowClear notFoundContent={null}
+                    allowClear notFoundContent={null} dropdownMatchSelectWidth={300}
                     onChange={(v, opt) => {
                       justSelectedRef.current = false;
                       setActiveCatId(v || null);

@@ -869,7 +869,8 @@ export default function SalesBillForm() {
 
   const handleReset=()=>{
     setItems([]);setEntry(EMPTY);
-    form.resetFields(['discount_percentage','paid_amount','return_amount','special_discount','other_charges','freight_charges','salesman_name','remarks']);
+    setActiveCatId(null); setProdOpen(false);
+    form.resetFields(['customer_id','walk_in_name','due_date','discount_percentage','paid_amount','return_amount','special_discount','other_charges','freight_charges','salesman_name','remarks']);
     setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
     setRecalledDraftId(null);
     setInlineReturnItems([]);
@@ -1348,7 +1349,7 @@ export default function SalesBillForm() {
                   }}
                   placeholder="Category" showSearch
                   filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
-                  allowClear notFoundContent={null}>
+                  allowClear notFoundContent={null} dropdownMatchSelectWidth={300}>
                   {cats.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
                 </Select>
               </div>
@@ -1922,7 +1923,7 @@ export default function SalesBillForm() {
                 }}
                 placeholder="Category" showSearch
                 filterOption={(input, opt) => !input || opt.children.toLowerCase().includes(input.toLowerCase())}
-                allowClear notFoundContent={null}>
+                allowClear notFoundContent={null} dropdownMatchSelectWidth={300}>
                 {cats.map(c => <Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
               </Select>
             </div>
