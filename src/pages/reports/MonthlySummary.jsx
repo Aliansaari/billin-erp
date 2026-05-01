@@ -54,19 +54,27 @@ function lastDayOf(monthIso) {
   return dayjs(monthIso).endOf('month').format('YYYY-MM-DD');
 }
 
-// Period presets mirror the Bills Outstanding pattern.
+// Period presets — matches the Sales/Purchase Report set so the
+// segmented control reads the same across all three reports.
 function presetRange(key) {
   const today = dayjs();
   const fyStartYear = today.month() >= 3 ? today.year() : today.year() - 1;
-  if (key === 'this_fy')  return { from: dayjs(`${fyStartYear}-04-01`),   to: dayjs(`${fyStartYear+1}-03-31`) };
-  if (key === 'last_fy')  return { from: dayjs(`${fyStartYear-1}-04-01`), to: dayjs(`${fyStartYear}-03-31`) };
-  if (key === 'last_12m') return { from: today.subtract(11, 'month').startOf('month'), to: today.endOf('month') };
+  if (key === 'this_fy')    return { from: dayjs(`${fyStartYear}-04-01`),   to: dayjs(`${fyStartYear+1}-03-31`) };
+  if (key === 'last_fy')    return { from: dayjs(`${fyStartYear-1}-04-01`), to: dayjs(`${fyStartYear}-03-31`) };
+  if (key === 'this_month') return { from: today.startOf('month'),          to: today.endOf('month') };
   if (key === 'this_q') {
     const qStart = Math.floor(today.month() / 3) * 3;
     return { from: today.month(qStart).startOf('month'), to: today.endOf('month') };
   }
   return null;
 }
+const PRESETS = [
+  { v: 'this_fy',    l: 'This FY' },
+  { v: 'last_fy',    l: 'Last FY' },
+  { v: 'this_q',     l: 'This Q' },
+  { v: 'this_month', l: 'This Month' },
+  { v: 'custom',     l: 'Custom' },
+];
 
 export default function MonthlyRegister({ mode }) {
   if (!MODE_META[mode]) throw new Error(`MonthlyRegister: unknown mode "${mode}"`);
@@ -251,26 +259,28 @@ export default function MonthlyRegister({ mode }) {
 
   return (
     <div className="mr-page">
-      {/* Header */}
-      <div className="mr-hd">
-        <div className="mr-title">
+      {/* Header — matches Sales Report's .rpt-page-hd shape so the
+          three reports look like siblings */}
+      <div className="rpt-page-hd mr-hd">
+        <div className="rpt-title">
           <h1>{cfg.label}</h1>
         </div>
-        <div className="mr-actions">
-          {[
-            ['this_fy',  'This FY'],
-            ['last_fy',  'Last FY'],
-            ['last_12m', 'Last 12 Months'],
-            ['this_q',   'This Quarter'],
-          ].map(([k, label]) => (
-            <Button key={k} size="small"
-              type={presetKey === k ? 'primary' : 'default'}
-              onClick={() => applyPreset(k)}>
-              {label}
-            </Button>
-          ))}
+        <div className="rpt-hd-ctrl">
+          {/* Period preset segmented control — matches Sales/Purchase Report */}
+          <div className="rpt-period">
+            {PRESETS.map((p) => (
+              <button
+                key={p.v}
+                className={presetKey === p.v ? 'on' : ''}
+                onClick={() => p.v === 'custom' ? setPresetKey('custom') : applyPreset(p.v)}
+              >
+                {p.l}
+              </button>
+            ))}
+          </div>
           <DatePicker.RangePicker
-            size="small" picker="month"
+            picker="month"
+            className="rpt-date"
             value={[fromDate ? dayjs(fromDate) : null, toDate ? dayjs(toDate) : null]}
             onChange={(vals) => {
               if (!vals) return;
@@ -279,11 +289,11 @@ export default function MonthlyRegister({ mode }) {
               setPresetKey('custom');
             }}
             format="MMM YYYY" allowClear={false}
-            style={{ width: 220 }}
           />
           <Tooltip title="Overlay a second register's columns next to this one — useful for Sales↔Purchase or Receipt↔Payment">
             <Select
-              size="small" value={overlay || ''}
+              value={overlay || ''}
+              className="rpt-date"
               onChange={(v) => {
                 setOverlay(v || '');
                 // Shift focus off the dropdown so ↑/↓ go to the row
@@ -298,7 +308,7 @@ export default function MonthlyRegister({ mode }) {
                   }
                 }, 0);
               }}
-              style={{ width: 200 }}
+              style={{ width: 190 }}
               options={overlayOptions}
               suffixIcon={<SwapOutlined />}
             />
@@ -308,7 +318,7 @@ export default function MonthlyRegister({ mode }) {
               ? 'Showing bill total_amount (sub_total − discount + freight + other + GST). Closing balance is cumulative invoice volume.'
               : 'Showing the ledger-net values (post-discount, pre-tax). Closing balance ties to the live ledger.'}>
               <Button
-                size="small"
+                className="rpt-btn"
                 type={withTax ? 'primary' : 'default'}
                 onClick={() => setWithTax((v) => !v)}
               >
@@ -316,9 +326,9 @@ export default function MonthlyRegister({ mode }) {
               </Button>
             </Tooltip>
           )}
-          <Button size="small" icon={<ReloadOutlined />} onClick={fetcher} loading={loading}>Refresh</Button>
-          <Button size="small" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
-          <Button size="small" icon={<DownloadOutlined />} onClick={handleExportCsv} type="primary">Excel</Button>
+          <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={fetcher} loading={loading}>Refresh</Button>
+          <Button className="rpt-btn" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
+          <Button className="rpt-btn" icon={<DownloadOutlined />} onClick={handleExportCsv} type="primary">Excel</Button>
         </div>
       </div>
 
