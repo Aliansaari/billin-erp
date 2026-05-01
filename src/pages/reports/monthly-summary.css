@@ -1,8 +1,6 @@
 /* Monthly Register — modern dark-mode styling matching the BillsOutstanding
-   visual language. Same .bo-* shape: full-page flex column, sticky header,
-   tabular-nums numerics. The Tally-specific bits we keep are functional,
-   not visual: running closing balance + Dr/Cr suffix, and the column-group
-   header that names the ledger being summarized. */
+   visual language. Same .bo-* shape: full-page flex column with a fixed-
+   bottom total row that's always visible regardless of scroll position. */
 
 .mr-page {
   height: 100%;
@@ -34,29 +32,29 @@
   letter-spacing: -0.01em;
   color: var(--fg-primary); line-height: 1.2;
 }
-.mr-sub {
-  font-size: 12px;
-  color: var(--fg-secondary);
-}
-.mr-period-chip {
-  font-family: inherit;
-  font-size: 11px;
-}
 .mr-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
-/* ── Table wrap ───────────────────────────────────────────────────── */
+/* ── Scrollable rows area ─────────────────────────────────────────── */
 .mr-tablewrap {
   flex: 1; min-height: 0;
   overflow: auto;
   padding: 0;
 }
+
+/* Both tables share table-layout: fixed so the colgroup widths
+   actually pin the columns — required for the body + total tables
+   to align on the same vertical edges regardless of content length. */
 .mr-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
   color: var(--fg-primary);
 }
+.mr-col-particulars { width: 240px; }
+.mr-col-num         { width: 140px; }
+.mr-col-closing     { width: 180px; }
 
 /* ── Header rows ──────────────────────────────────────────────────── */
 .mr-th-grp th {
@@ -67,15 +65,21 @@
   text-align: left;
   border-bottom: 1px solid var(--border-subtle);
 }
+/* Group label — pulled hard against the left edge so the ledger name
+   reads as a heading for the section, not as a column annotation. */
 .mr-grp-label {
   color: var(--fg-secondary);
   font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding-left: 24px !important;
 }
 .mr-grp-primary { color: var(--accent, #6366F1); }
 .mr-grp-overlay {
   border-left: 1px solid var(--border-subtle);
   color: var(--warning, #B5872B);
 }
+/* Overlay group label sits inside the overlay block — left-padded
+   inside the block, not the page. */
+.mr-grp-label.mr-grp-overlay { padding-left: 16px !important; }
 .mr-grp-side {
   color: var(--fg-tertiary, #6b7280);
   font-weight: 400; text-transform: none; letter-spacing: 0;
@@ -92,12 +96,9 @@
   text-align: right;
 }
 .mr-th-particulars { text-align: left !important; padding-left: 24px !important; }
-.mr-th-num { min-width: 110px; }
-.mr-th-closing { min-width: 150px; padding-right: 24px !important; }
 
 /* ── Body rows ────────────────────────────────────────────────────── */
-.mr-table tbody td,
-.mr-table tfoot td {
+.mr-table tbody td {
   padding: 8px 16px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: top;
@@ -119,17 +120,25 @@
   color: var(--fg-secondary);
 }
 
-.mr-row-opening td:first-child,
-.mr-row-total   td:first-child { padding-left: 24px; }
-.mr-row-total td:last-child   { padding-right: 24px; }
-
-.mr-row-total td {
-  border-top: 2px solid var(--border);
-  border-bottom: none;
+/* ── Always-visible total row ─────────────────────────────────────── */
+.mr-totalwrap {
+  flex-shrink: 0;
   background: var(--bg-panel);
-  font-weight: 600;
-  position: sticky; bottom: 0;
+  border-top: 2px solid var(--border);
+  overflow-y: hidden;          /* never scrolls */
+  overflow-x: auto;            /* mirrors the body's horizontal scroll if any */
 }
+.mr-table-total {
+  /* Same colgroup, same widths — columns align with body table above. */
+}
+.mr-table-total tbody td {
+  padding: 10px 16px;
+  border-bottom: none;
+  font-weight: 600;
+  background: var(--bg-panel);
+}
+.mr-table-total tbody td:first-child { padding-left: 24px; }
+.mr-table-total tbody td:last-child  { padding-right: 24px; }
 
 .mr-skel { padding: 80px 24px; text-align: center; color: var(--fg-secondary); }
 
