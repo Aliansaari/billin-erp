@@ -126,6 +126,16 @@ export const REPORTS = [
     perm: 'reports.view',
     aliases: ['sales register', 'invoice'],
   },
+  {
+    id: 'product_sales_detail',
+    name: 'Product Sales Detail',
+    subtitle: 'Per-line item · with profit',
+    category: 'sales',
+    route: '/reports/product-sales',
+    perm: 'reports.view',
+    aliases: ['product sales', 'item sales', 'sales by product', 'sales line items'],
+    isNew: true,
+  },
 
   // ── Purchase ─────────────────────────────────────────────────────
   {
@@ -136,6 +146,16 @@ export const REPORTS = [
     route: '/reports/purchases',
     perm: 'reports.view',
     aliases: ['purchase register'],
+  },
+  {
+    id: 'product_purchase_detail',
+    name: 'Product Purchase Detail',
+    subtitle: 'Per-line item · with line value',
+    category: 'purchase',
+    route: '/reports/product-purchases',
+    perm: 'reports.view',
+    aliases: ['product purchase', 'item purchase', 'purchase by product', 'purchase line items'],
+    isNew: true,
   },
 
   // ── Inventory ────────────────────────────────────────────────────
