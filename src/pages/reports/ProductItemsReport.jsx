@@ -26,7 +26,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { reportAPI, partyAPI, productAPI } from '../../api';
+import { reportAPI, partyAPI, productAPI, categoryAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import './bills-outstanding.css';
@@ -205,12 +205,33 @@ export default function ProductItemsReport({ side }) {
     search:         search || undefined,
   }), [fromDate, toDate, partyIds, categoryIds, productIds, barcode, hsnCode, search]);
 
-  const { rows, totalCount, summary, meta, ensureChunk, loading, refresh } = useVirtualizedReport({
+  const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: cfg.fetcher,
     filters,
     chunkSize: 200,
   });
-  const filterMeta = meta?.filter_meta || { categories: [] };
+
+  // ── Category options ──────────────────────────────────────────────
+  // Pulled from the master table (same pattern as Party/Product below
+  // and StockReport / bill-entry forms). Period-filtering the dropdown
+  // would hide categories on legacy items whose snapshot category_id
+  // is NULL — and a master-list fetch is consistent with the other
+  // two filters on this page.
+  const [categoryOptions, setCategoryOptions] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    categoryAPI.getAllFlat()
+      .then((r) => {
+        if (cancelled) return;
+        const list = r?.data || [];
+        setCategoryOptions(list.map((c) => ({
+          value: c.category_id,
+          label: c.category_name,
+        })));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Party options ─────────────────────────────────────────────────
   const [partyOptions, setPartyOptions] = useState([]);
@@ -477,7 +498,8 @@ export default function ProductItemsReport({ side }) {
           <Select size="small" mode="multiple"
             placeholder="Category"
             value={categoryIds} onChange={setCategoryIds}
-            options={(filterMeta.categories || []).map((c) => ({ value: c.id, label: c.name }))}
+            options={categoryOptions}
+            optionFilterProp="label" showSearch
             allowClear maxTagCount="responsive"
             style={{ minWidth: 160, maxWidth: 240 }}
           />

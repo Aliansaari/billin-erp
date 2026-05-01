@@ -36,8 +36,13 @@
 //       total_cost   (sales only),
 //       total_profit (sales only),
 //     },
-//     filter_meta: { categories: [{id, name}] },
 //   }
+//
+// Filter dropdown options (categories, parties, products) are loaded
+// directly by the frontend from their master-list endpoints — keeps
+// this controller focused on the per-item query and avoids the
+// snapshot-NULL trap (legacy bill items whose category_id wasn't
+// captured at write time would otherwise be invisible to the filter).
 
 const sequelize = require('../config/database');
 const { SystemSettings } = require('../models');
@@ -247,33 +252,6 @@ async function _itemsList(req, side) {
   `;
   const [agg] = await sequelize.query(aggSql, { replacements: params, type: sequelize.QueryTypes.SELECT });
 
-  // Filter-meta — distinct categories present in the period (without
-  // applying the category filter, so the dropdown shows the full set).
-  // Sales side uses the item-level category_id; purchase side resolves
-  // via the products table since purchase_bill_items doesn't carry a
-  // category_id column.
-  const filterMetaSql = isSales
-    ? `SELECT DISTINCT i.category_id AS id, COALESCE(i.category_name, '—') AS name
-         FROM sales_bill_items i
-         JOIN sales_bills b ON b.sales_bill_id = i.sales_bill_id
-        WHERE b.is_cancelled = false
-          AND b.customer_id IS NOT NULL
-          AND b.bill_date >= :from AND b.bill_date <= :to
-          AND i.category_id IS NOT NULL
-        ORDER BY name ASC`
-    : `SELECT DISTINCT pp.category_id AS id, COALESCE(c.category_name, i.category_name, '—') AS name
-         FROM purchase_bill_items i
-         JOIN purchase_bills b ON b.purchase_bill_id = i.purchase_bill_id
-         JOIN products pp ON pp.product_id = i.product_id
-         LEFT JOIN categories c ON c.category_id = pp.category_id
-        WHERE b.is_cancelled = false
-          AND b.supplier_id IS NOT NULL
-          AND b.bill_date >= :from AND b.bill_date <= :to
-          AND pp.category_id IS NOT NULL
-        ORDER BY name ASC`;
-  const categories = await sequelize.query(filterMetaSql,
-    { replacements: { from: from_date, to: to_date }, type: sequelize.QueryTypes.SELECT });
-
   return {
     data: dataRows.map((r) => _normalise(r, isSales)),
     total,
@@ -291,7 +269,6 @@ async function _itemsList(req, side) {
         ? { total_cost: r2(agg.total_cost), total_profit: r2(agg.total_profit) }
         : {}),
     },
-    filter_meta: { categories },
     side,
     party_label: partyLbl,
     from_date, to_date,
