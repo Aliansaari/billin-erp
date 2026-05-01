@@ -6,6 +6,7 @@ const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/ba
 const { stateCodeFromGstin, stateCodeFromName } = require('../utils/gstr1');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers } = require('../services/voucherBuilders');
+const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
@@ -739,6 +740,13 @@ exports.create = async (req, res) => {
       for (const v of vouchers) {
         await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
       }
+      // Two-way ledger (R8 Phase 2): if the bill carries paid_amount > 0
+      // for a non-cash customer, the voucher builder above emitted a
+      // separate Receipt voucher to the journal. Mirror that with a
+      // payments_receipts row + allocation so the Receipts list +
+      // bill-detail Payments section see the auto-receipt. Idempotent
+      // — sync is a no-op when paid_amount=0 or party=cash.
+      await syncAutoReceiptForBill({ kind: 'sales', bill: billForPosting, t });
     }
 
     await t.commit();
@@ -1094,6 +1102,11 @@ exports.update = async (req, res) => {
       for (const v of vouchers) {
         await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
       }
+      // Two-way ledger sync — handles edit cases A-D from the brief:
+      // amount up/down, paid_amount up/down, paid_amount → 0, account
+      // changed. The service inspects the refreshed bill and inserts /
+      // updates / deletes the auto-receipt row + allocation to match.
+      await syncAutoReceiptForBill({ kind: 'sales', bill: refreshed, t });
     }
 
     await t.commit();
@@ -1198,6 +1211,17 @@ exports.cancel = async (req, res) => {
       sourceType: 'sales_bill_receipt', sourceId: bill.sales_bill_id,
       reason: cancellationReason || 'Sales bill cancelled',
       userId: req.user && req.user.user_id, transaction: t,
+    });
+    // Two-way ledger cancel cascade — soft-cancel the auto-receipt
+    // row + drop its allocation. Preserves the Receipts list audit
+    // trail (the row still appears with a "Cancelled" badge) but
+    // zeros out the bill-level allocation so I1-I6 still hold.
+    await reverseAutoReceiptForBill({
+      kind: 'sales',
+      billId: bill.sales_bill_id,
+      reason: cancellationReason || 'Sales bill cancelled',
+      userId: req.user && req.user.user_id,
+      t,
     });
 
     await t.commit();

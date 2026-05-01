@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Tag, Typography, message, Card, Space, DatePicker, Select, Popconfirm, Tooltip } from 'antd';
-import { PlusOutlined, DeleteOutlined, PrinterOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, PrinterOutlined, LinkOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI } from '../../api';
@@ -15,8 +15,10 @@ const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFr
 export default function PaymentList() {
   const { fyStart, fyEnd } = useFinancialYear();
   const [deletingId, setDeletingId] = useState(null);
-  // Default to company FY for consistency.
-  const [filters, setFilters] = useState({ transaction_type: null, from_date: fyStart, to_date: fyEnd });
+  // Default to company FY for consistency. `source` filter (added in
+  // R8 Phase 2) lets the user view manual-entered receipts/payments
+  // separately from auto-generated bill-side ones.
+  const [filters, setFilters] = useState({ transaction_type: null, source: null, from_date: fyStart, to_date: fyEnd });
   const navigate = useNavigate();
 
   // ── Virtualized data layer ────────────────────────────────────────
@@ -42,8 +44,33 @@ export default function PaymentList() {
   };
 
   const columns = [
-    { title: 'Txn No', dataIndex: 'transaction_number', width: 130, key: 'txn_no',
-      render: (v) => <span style={{ fontSize: 12 }}>{v}</span> },
+    { title: 'Txn No', dataIndex: 'transaction_number', width: 180, key: 'txn_no',
+      // Auto-receipts get a "📎 From bill" badge linking to the source
+      // bill. Manual rows render plain. Bill-deep-link via the existing
+      // /sale/edit and /purchase/edit routes.
+      render: (v, r) => (
+        <Space size={4} style={{ alignItems: 'center' }}>
+          <span style={{ fontSize: 12 }}>{v}</span>
+          {r.source === 'auto_from_bill' && r.source_bill_id && (
+            <Tooltip title={`Auto-generated from ${r.transaction_type === 'Receipt' ? 'sales' : 'purchase'} bill ${r.reference_bill_number || r.source_bill_id}. Click to open.`}>
+              <Tag
+                color="blue"
+                style={{ fontSize: 10, cursor: 'pointer', margin: 0 }}
+                icon={<LinkOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const path = r.transaction_type === 'Receipt'
+                    ? `/sale/edit/${r.source_bill_id}`
+                    : `/purchase/edit/${r.source_bill_id}`;
+                  navigate(path);
+                }}
+              >
+                From bill
+              </Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ) },
     { title: 'Type', dataIndex: 'transaction_type', width: 90, key: 'type',
       render: (t) => <Tag color={t === 'Receipt' ? 'green' : 'volcano'}>{t}</Tag> },
     { title: 'Date', dataIndex: 'transaction_date', width: 110, key: 'date',
@@ -130,6 +157,12 @@ export default function PaymentList() {
             onChange={(v) => setFilters(f => ({ ...f, transaction_type: v }))}>
             <Select.Option value="Payment">Payment</Select.Option>
             <Select.Option value="Receipt">Receipt</Select.Option>
+          </Select>
+          <Select placeholder="All Sources" style={{ width: 170, height: 34 }} allowClear
+            value={filters.source}
+            onChange={(v) => setFilters(f => ({ ...f, source: v }))}>
+            <Select.Option value="manual">Manual entry</Select.Option>
+            <Select.Option value="auto_from_bill">Auto from bill</Select.Option>
           </Select>
         </div>
 
