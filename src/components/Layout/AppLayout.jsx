@@ -78,6 +78,7 @@ export default function AppLayout() {
     '/reports/monthly-sales', '/reports/monthly-purchases',
     '/reports/monthly-payments', '/reports/monthly-receipts',
     '/reports/product-sales', '/reports/product-purchases',
+    '/reports/transfer-register',
     // Editorial financial reports — full-page shells with sticky
     // total bar + F-bar pinned to viewport bottom. Without these
     // listed, the wrapper paints them as a padded card and the
