@@ -1,16 +1,15 @@
 /* ── LedgerStatement ─────────────────────────────────────────────────
  *
- * Editorial-language statement table. Same hairline / soft-warmth
- * vocabulary as Trial Balance and Balance Sheet so the three financial
- * reports read as one family. Row tinting (opening / totals / closing)
- * uses the report theme's --bg-* tokens — re-skins automatically on
- * theme switch.
+ * Two-table layout for an "always-pinned bottom strip" that doesn't
+ * depend on the body being long enough to overflow:
  *
- * SCROLL MODEL
- *   .ls-wrap    full-height flex column inside whatever the parent gives.
- *   .ls-scroll  the only thing that scrolls — table thead is sticky to
- *               its top, tfoot is sticky to its bottom. The page itself
- *               (and the picker bar above) never moves.
+ *   .ls-wrap                          (flex column, fills column)
+ *     .ls-scroll                      (flex: 1, overflow-y: auto)
+ *       .ls-table.ls-table--body      (header + opening + entries)
+ *     .ls-table.ls-table--footer      (period totals + closing — pinned)
+ *
+ * Both tables share the same <colgroup> from React, plus
+ * `table-layout: fixed`, so columns align perfectly between the two.
  */
 
 .ls-wrap {
@@ -38,13 +37,18 @@
 .ls-scroll {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  /* Reserve scrollbar space so the body table is the same width whether
+     scrolling is active or not — keeps column alignment with the
+     pinned footer table below, which never has a scrollbar. */
+  scrollbar-gutter: stable;
 }
 
 .ls-table {
   width: 100%;
   border-collapse: collapse;
-  font-variant-numeric: tabular-nums;     /* aligns digits column-down */
+  table-layout: fixed;                  /* honors <colgroup> widths */
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   color: var(--fg-primary);
 }
@@ -65,16 +69,20 @@
 }
 .ls-table thead th.right { text-align: right; }
 
-.ls-table tbody td {
+.ls-table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
+  /* Long narration / particulars text wraps within the cell rather
+     than blowing the column width — table-layout: fixed forces this
+     anyway, but explicit overflow rules keep the body tidy. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.ls-table tbody td.right { text-align: right; }
 
 .ls-num,
 .ls-balance { text-align: right; white-space: nowrap; }
-.ls-particulars { width: auto; }
+.ls-particulars { white-space: normal; }      /* allow wrap */
 
 .ls-drcr {
   font-size: 10px;
@@ -87,7 +95,7 @@
 .ls-row.ls-clickable:hover { background: var(--bg-cell, var(--bg-secondary)); }
 
 /* Voucher-type pill — soft tint, no hard outline, matches Day Book.
-   The variant classes are injected by the renderer from a slug. */
+   The variant classes come from a slug on the renderer. */
 .ls-vt {
   display: inline-block;
   padding: 1px 8px;
@@ -106,7 +114,7 @@
 .ls-vt--journal         { background: rgba(120,120,120,0.12); color: #5b5b5b; }
 .ls-vt--contra          { background: rgba(140,110, 60,0.12); color: #8c6e3c; }
 
-/* Opening / totals / closing rows — soft warmth, no hard outlines. */
+/* Opening row — soft warmth, italic, no hard outlines. */
 .ls-opening td {
   background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
   font-style: italic;
@@ -120,23 +128,24 @@
   font-style: italic;
 }
 
-.ls-table tfoot tr {
-  background: var(--bg-primary);
-}
-.ls-table tfoot td {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+/* ── Pinned-bottom footer table ─────────────────────────────────────
+   Lives outside .ls-scroll so it's always anchored to the bottom of
+   the wrapper, not to the bottom of the body's content. Two stacked
+   rows: totals (lighter, secondary surface) + closing (heavier,
+   accent under-rule). */
+.ls-table--footer {
+  flex: 0 0 auto;                       /* don't grow / don't shrink */
   background: var(--bg-secondary);
-  padding: 9px 12px;
   border-top: 1px solid var(--border-subtle);
 }
 
+.ls-table--footer td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .ls-totals td {
-  /* Totals stick first (above closing), so it gets a slightly higher
-     bottom offset. The two-row sticky-footer trick: totals stays on top
-     of the closing line so both are visible while the body scrolls. */
-  bottom: 35px;
+  background: var(--bg-secondary);
   font-weight: 600;
   color: var(--fg-primary);
 }
@@ -144,6 +153,7 @@
 .ls-closing td {
   background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
   border-top: 2px solid var(--accent, #B1472F);
+  border-bottom: none;
   font-size: 14px;
   font-weight: 700;
   color: var(--fg-primary);
@@ -164,7 +174,7 @@
    letterhead; the table itself just needs to be readable. */
 @media print {
   .ls-wrap     { border: none; }
-  .ls-scroll   { overflow: visible; }
+  .ls-scroll   { overflow: visible; scrollbar-gutter: auto; }
   .ls-table thead th { position: static; background: #fff; }
-  .ls-table tfoot td { position: static; background: #fff; }
+  .ls-table--footer { background: #fff; }
 }

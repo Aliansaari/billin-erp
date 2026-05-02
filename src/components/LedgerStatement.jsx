@@ -154,6 +154,20 @@ export default function LedgerStatement({
     );
   }
 
+  // Shared <colgroup> for the body table and the pinned-bottom footer
+  // table. Both use `table-layout: fixed` (set in CSS) so identical
+  // <col> widths produce identical column layouts in the two tables —
+  // the period-totals strip lines up perfectly under the body rows
+  // even though they're separate <table> elements. The single auto
+  // column (Particulars) absorbs leftover space the same way in both.
+  const colgroup = (
+    <colgroup>
+      {cols.map(c => (
+        <col key={c.key} style={c.width !== 'auto' ? { width: c.width } : undefined} />
+      ))}
+    </colgroup>
+  );
+
   return (
     <div className={'ls-wrap' + (loading ? ' is-loading' : '')}>
       {loading && (
@@ -161,16 +175,17 @@ export default function LedgerStatement({
           <Spin size="large" />
         </div>
       )}
+
+      {/* ── Scrolling body ─────────────────────────────────────────
+          Sticky thead at the top of this container; everything from
+          Opening Balance through the last entry row scrolls. */}
       <div className="ls-scroll">
-        <table className="ls-table">
+        <table className="ls-table ls-table--body">
+          {colgroup}
           <thead>
             <tr>
               {cols.map(c => (
-                <th
-                  key={c.key}
-                  className={c.align === 'right' ? 'right' : ''}
-                  style={c.width !== 'auto' ? { width: c.width } : undefined}
-                >
+                <th key={c.key} className={c.align === 'right' ? 'right' : ''}>
                   {c.label}
                 </th>
               ))}
@@ -228,42 +243,50 @@ export default function LedgerStatement({
               </tr>
             )}
           </tbody>
-
-          {/* Pinned totals + closing balance row. Stays at the bottom
-              of the scrolling container thanks to position: sticky on
-              the <tfoot> rows in CSS. */}
-          {statement && (
-            <tfoot>
-              <tr className="ls-totals">
-                {cols.map(c => {
-                  if (c.key === 'particulars') return <td key={c.key} className="ls-particulars"><b>Period totals</b></td>;
-                  if (c.key === 'debit')  return <td key={c.key} className="ls-num"><b>{fmt(statement.total_debit)}</b></td>;
-                  if (c.key === 'credit') return <td key={c.key} className="ls-num"><b>{fmt(statement.total_credit)}</b></td>;
-                  return <td key={c.key} />;
-                })}
-              </tr>
-              <tr className="ls-closing">
-                {cols.map(c => {
-                  if (c.key === 'particulars') return <td key={c.key} className="ls-particulars"><b>Closing Balance</b></td>;
-                  if (c.key === 'balance') {
-                    const v = parseFloat(statement.closing_balance) || 0;
-                    const sign = v >= 0 ? 'Dr' : 'Cr';
-                    return (
-                      <td key={c.key} className="ls-num ls-balance">
-                        {v === 0 ? <b>0.00</b> : (
-                          <span><b>{fmt(Math.abs(v))}</b> <span className="ls-drcr">{sign}</span></span>
-                        )}
-                      </td>
-                    );
-                  }
-                  if (c.key === 'date') return <td key={c.key}>{fmtDate(statement.period?.to)}</td>;
-                  return <td key={c.key} />;
-                })}
-              </tr>
-            </tfoot>
-          )}
         </table>
       </div>
+
+      {/* ── Pinned bottom strip ────────────────────────────────────
+          A separate <table> outside the scroll container, so Period
+          totals + Closing Balance always sit flush against the
+          viewport bottom — regardless of whether the body has 3 rows
+          or 3000. Sticky-tfoot inside the scrolling table doesn't
+          give us this for short lists; the rows just paint at row 5
+          and leave half a screen of dead space below.
+          The matching colgroup ensures column alignment. */}
+      {statement && (
+        <table className="ls-table ls-table--footer">
+          {colgroup}
+          <tbody>
+            <tr className="ls-totals">
+              {cols.map(c => {
+                if (c.key === 'particulars') return <td key={c.key} className="ls-particulars"><b>Period totals</b></td>;
+                if (c.key === 'debit')  return <td key={c.key} className="ls-num"><b>{fmt(statement.total_debit)}</b></td>;
+                if (c.key === 'credit') return <td key={c.key} className="ls-num"><b>{fmt(statement.total_credit)}</b></td>;
+                return <td key={c.key} />;
+              })}
+            </tr>
+            <tr className="ls-closing">
+              {cols.map(c => {
+                if (c.key === 'particulars') return <td key={c.key} className="ls-particulars"><b>Closing Balance</b></td>;
+                if (c.key === 'balance') {
+                  const v = parseFloat(statement.closing_balance) || 0;
+                  const sign = v >= 0 ? 'Dr' : 'Cr';
+                  return (
+                    <td key={c.key} className="ls-num ls-balance">
+                      {v === 0 ? <b>0.00</b> : (
+                        <span><b>{fmt(Math.abs(v))}</b> <span className="ls-drcr">{sign}</span></span>
+                      )}
+                    </td>
+                  );
+                }
+                if (c.key === 'date') return <td key={c.key}>{fmtDate(statement.period?.to)}</td>;
+                return <td key={c.key} />;
+              })}
+            </tr>
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
