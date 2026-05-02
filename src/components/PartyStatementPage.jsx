@@ -30,13 +30,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, DatePicker, message, Tooltip } from 'antd';
 import {
-  PrinterOutlined, FileExcelOutlined, ReloadOutlined,
+  PrinterOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined,
   WhatsAppOutlined, ArrowLeftOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { ledgerAPI, partyAPI } from '../api';
 import { useFinancialYear } from '../hooks/useFinancialYear';
+import { downloadStatementPdf } from '../utils/ledgerPdf';
 import PartyPicker from './PartyPicker';
 import LedgerStatement from './LedgerStatement';
 import './ledger-statement.css';
@@ -280,6 +281,26 @@ export default function PartyStatementPage({
     });
   };
 
+  // PDF export — same data shape as Excel, but rendered through jsPDF
+  // with a printable letterhead so the file is mail-ready. Honours
+  // the active voucher-type filter so the PDF reflects what the user
+  // sees on screen.
+  const onPdf = async () => {
+    if (!statement) { message.info('Nothing to export.'); return; }
+    try {
+      await downloadStatementPdf({
+        title,
+        subtitle: party?.party_name,
+        statement,
+        voucherFilter,
+        party,
+      });
+    } catch (err) {
+      console.error(err);
+      message.error('PDF export failed.');
+    }
+  };
+
   const onDrill = (row) => {
     // Source-type → edit URL mapping. Mirrors the drill behaviour
     // PartyLedger had; centralised here so adding a new voucher type
@@ -317,6 +338,7 @@ export default function PartyStatementPage({
             <Button icon={<ReloadOutlined />} onClick={() => party && setParty({ ...party })} disabled={!party} />
           </Tooltip>
           <Button icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length}>Excel</Button>
+          <Button icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!statement}>PDF</Button>
           {showWhatsApp && (
             <Button icon={<WhatsAppOutlined />} onClick={onWhatsApp} disabled={!party}>WhatsApp</Button>
           )}

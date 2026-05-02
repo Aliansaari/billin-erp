@@ -21,13 +21,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, DatePicker, Select, message, Tooltip } from 'antd';
 import {
-  PrinterOutlined, FileExcelOutlined, ReloadOutlined,
+  PrinterOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined,
   ArrowLeftOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { ledgerAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import { downloadStatementPdf } from '../../utils/ledgerPdf';
 import LedgerStatement from '../../components/LedgerStatement';
 import '../../components/ledger-statement.css';
 import '../../components/party-statement-page.css';
@@ -208,6 +209,21 @@ export default function Ledger() {
     downloadExcel({ filename: `ledger-${fileSuffix}.xlsx`, rows, headers });
   };
 
+  const onPdf = async () => {
+    if (!statement) { message.info('Nothing to export.'); return; }
+    try {
+      await downloadStatementPdf({
+        title: 'Ledger',
+        subtitle: statement.account?.ledger_name,
+        statement,
+        voucherFilter,
+      });
+    } catch (err) {
+      console.error(err);
+      message.error('PDF export failed.');
+    }
+  };
+
   const onDrill = (row) => {
     const id = row.reference_id;
     if (!id) return;
@@ -237,6 +253,7 @@ export default function Ledger() {
             <Button icon={<ReloadOutlined />} onClick={() => ledgerId && setLedgerId(ledgerId)} disabled={!ledgerId} />
           </Tooltip>
           <Button icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length}>Excel</Button>
+          <Button icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!statement}>PDF</Button>
           <Button type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
         </div>
       </div>
