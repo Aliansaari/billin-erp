@@ -38,7 +38,11 @@
 
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
-const { LedgerAccount, LedgerEntry, Party } = require('../models');
+const {
+  LedgerAccount, LedgerEntry, Party,
+  SalesBill, PurchaseBill, SalesReturnBill, PurchaseReturnBill,
+  PaymentReceipt, PaymentSplit,
+} = require('../models');
 
 // Active-entries SQL fragment shared between the opening sum and the
 // in-period fetch. Kept as a raw string because Sequelize's NOT EXISTS
@@ -154,8 +158,98 @@ async function getLedgerStatement(ledgerId, opts = {}) {
       reference_id:    e.reference_id,
       debit, credit,
       balance:         +running.toFixed(2),
+      // Filled in below by the source-row enrichment pass. Optional —
+      // not every entry has a queryable source (party_opening,
+      // contra-only journals, etc.).
+      remarks:      null,
+      payment_mode: null,
     };
   });
+
+  // ── Source-row enrichment ──────────────────────────────────────────
+  // Each ledger_entry carries source_type + reference_id pointing back
+  // at the originating bill / receipt / return. We batch-fetch the
+  // remarks (user-typed notes) for every source type, plus payment_mode
+  // for receipt/payment vouchers (sourced from PaymentSplit since one
+  // receipt can mix Cash + UPI etc.). Joining at the SQL level would
+  // need a UNION across five bill tables; one indexed PK lookup per
+  // source-type batch keeps the code straightforward and the query
+  // count tiny (≤ 5 extra round-trips even for a 1000-row statement).
+  const groupedIds = new Map();           // source_type → Set<reference_id>
+  for (const r of formatted) {
+    if (!r.source_type || !r.reference_id) continue;
+    if (!groupedIds.has(r.source_type)) groupedIds.set(r.source_type, new Set());
+    groupedIds.get(r.source_type).add(r.reference_id);
+  }
+
+  const remarksByKey = new Map();         // "source_type:id" → remarks string
+
+  // Bill-side sources — same shape (model + PK + remarks column),
+  // so one helper handles all four.
+  const billLookups = [
+    { model: SalesBill,           pk: 'sales_bill_id',          source: 'sales_bill' },
+    { model: PurchaseBill,        pk: 'purchase_bill_id',       source: 'purchase_bill' },
+    { model: SalesReturnBill,     pk: 'sales_return_bill_id',   source: 'sales_return_bill' },
+    { model: PurchaseReturnBill,  pk: 'purchase_return_bill_id',source: 'purchase_return_bill' },
+  ];
+  for (const { model, pk, source } of billLookups) {
+    const ids = groupedIds.get(source);
+    if (!ids?.size) continue;
+    const rows = await model.findAll({
+      where: { [pk]: { [Op.in]: [...ids] } },
+      attributes: [pk, 'remarks'],
+      raw: true,
+    });
+    for (const row of rows) {
+      remarksByKey.set(`${source}:${row[pk]}`, row.remarks || null);
+    }
+  }
+
+  // Payment / receipt vouchers — both 'payment_receipt' (manual) and
+  // 'sales_bill_receipt' (auto-at-bill) point at PaymentReceipt rows.
+  // Splits give us payment_mode; multiple splits get joined with " + ".
+  const paymentReceiptIds = new Set();
+  for (const k of ['payment_receipt', 'sales_bill_receipt']) {
+    if (groupedIds.has(k)) for (const id of groupedIds.get(k)) paymentReceiptIds.add(id);
+  }
+  const modesByTxnId = new Map();
+  if (paymentReceiptIds.size) {
+    const [receipts, splits] = await Promise.all([
+      PaymentReceipt.findAll({
+        where: { transaction_id: { [Op.in]: [...paymentReceiptIds] } },
+        attributes: ['transaction_id', 'remarks'],
+        raw: true,
+      }),
+      PaymentSplit.findAll({
+        where: { transaction_id: { [Op.in]: [...paymentReceiptIds] } },
+        attributes: ['transaction_id', 'payment_mode'],
+        raw: true,
+      }),
+    ]);
+    // Index splits by transaction; concat distinct modes for the cell.
+    for (const s of splits) {
+      if (!modesByTxnId.has(s.transaction_id)) modesByTxnId.set(s.transaction_id, new Set());
+      modesByTxnId.get(s.transaction_id).add(s.payment_mode);
+    }
+    for (const r of receipts) {
+      // Receipts share keys across both source_types — write under both
+      // so the mapping below catches whichever source_type the entry
+      // carries.
+      remarksByKey.set(`payment_receipt:${r.transaction_id}`,    r.remarks || null);
+      remarksByKey.set(`sales_bill_receipt:${r.transaction_id}`, r.remarks || null);
+    }
+  }
+
+  // Attach to each entry.
+  for (const r of formatted) {
+    if (!r.source_type || !r.reference_id) continue;
+    const key = `${r.source_type}:${r.reference_id}`;
+    if (remarksByKey.has(key)) r.remarks = remarksByKey.get(key);
+    const modes = modesByTxnId.get(r.reference_id);
+    if (modes && (r.source_type === 'payment_receipt' || r.source_type === 'sales_bill_receipt')) {
+      r.payment_mode = [...modes].join(' + ');
+    }
+  }
 
   // Party enrichment — only when the account is party-backed. Customer /
   // Supplier Statement pages need the full party record (mobile, address,

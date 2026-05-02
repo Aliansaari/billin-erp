@@ -19,17 +19,17 @@
 // document mailed to anyone).
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Select, message, Tooltip } from 'antd';
+import { Button, Checkbox, DatePicker, Popover, Select, message, Tooltip } from 'antd';
 import {
   PrinterOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined,
-  ArrowLeftOutlined,
+  ArrowLeftOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { ledgerAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { downloadStatementPdf } from '../../utils/ledgerPdf';
-import LedgerStatement from '../../components/LedgerStatement';
+import LedgerStatement, { ALL_COLUMNS } from '../../components/LedgerStatement';
 import '../../components/ledger-statement.css';
 import '../../components/party-statement-page.css';
 import './ledger.css';
@@ -190,6 +190,45 @@ export default function Ledger() {
   };
   const clearVoucherFilter = () => setVoucherFilter(new Set());
 
+  // Column visibility — same key as PartyStatementPage so the
+  // operator's preference flows across all three statement pages.
+  const COLS_LS_KEY = 'psp_visible_cols_v1';
+  const [colVis, setColVis] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COLS_LS_KEY) || 'null');
+      if (saved && typeof saved === 'object') return saved;
+    } catch { /* fall through */ }
+    return ALL_COLUMNS.reduce((acc, c) => ({ ...acc, [c.key]: c.default }), {});
+  });
+  const toggleCol = (key) => {
+    setColVis(prev => {
+      const def = ALL_COLUMNS.find(c => c.key === key);
+      if (def?.required) return prev;
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(COLS_LS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const visibleColumns = useMemo(
+    () => ALL_COLUMNS.filter(c => c.required || colVis[c.key]).map(c => c.key),
+    [colVis],
+  );
+  const customizeContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 180 }}>
+      {ALL_COLUMNS.map(c => (
+        <Checkbox
+          key={c.key}
+          checked={c.required || !!colVis[c.key]}
+          disabled={c.required}
+          onChange={() => toggleCol(c.key)}
+        >
+          {c.label}
+          {c.required && <span style={{ color: 'var(--fg-tertiary)', fontSize: 10, marginLeft: 6 }}>required</span>}
+        </Checkbox>
+      ))}
+    </div>
+  );
+
   const onPrint = () => window.print();
 
   const onExcel = () => {
@@ -277,6 +316,11 @@ export default function Ledger() {
           <Tooltip title="Refresh">
             <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={() => ledgerId && setLedgerId(ledgerId)} disabled={!ledgerId} />
           </Tooltip>
+          <Popover content={customizeContent} title="Show columns" trigger="click" placement="bottomRight">
+            <Tooltip title="Customize columns">
+              <Button className="rpt-btn" icon={<SettingOutlined />} />
+            </Tooltip>
+          </Popover>
           <Tooltip title="Export Excel">
             <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length} />
           </Tooltip>
@@ -338,6 +382,7 @@ export default function Ledger() {
           loading={loading}
           onRowClick={onDrill}
           voucherFilter={voucherFilter}
+          columns={visibleColumns}
           emptyHint="Pick a ledger above to load the statement."
         />
       </div>

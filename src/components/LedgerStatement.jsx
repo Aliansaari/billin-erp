@@ -127,9 +127,41 @@ const COLUMN_DEFS = {
     },
     cls:    'ls-num ls-balance',
   },
+  // Optional columns — off by default. Populated by the backend
+  // enrichment pass (see ledgerStatementService.js). User toggles
+  // them on via the Customize popover in the page header.
+  payment_mode: {
+    label:  'Payment Mode',
+    width:  130,
+    render: r => r.payment_mode || '—',
+    cls:    'ls-nowrap',
+  },
+  notes: {
+    label:  'Notes',
+    width:  220,
+    render: r => r.remarks || '—',
+    cls:    'ls-particulars',
+  },
 };
 
-const DEFAULT_COLUMNS = ['date', 'voucher_type', 'voucher_no', 'particulars', 'debit', 'credit', 'balance'];
+// Catalog of every column the renderer knows how to draw. The
+// Customize popover walks this list to build its checkbox group.
+// `required: true` keeps a column always-on (date / particulars /
+// debit / credit / balance — without these the statement reads as
+// gibberish).
+export const ALL_COLUMNS = [
+  { key: 'date',          label: 'Date',         required: true,  default: true  },
+  { key: 'voucher_type',  label: 'Type',         required: false, default: true  },
+  { key: 'voucher_no',    label: 'Voucher No',   required: false, default: true  },
+  { key: 'particulars',   label: 'Particulars',  required: true,  default: true  },
+  { key: 'payment_mode',  label: 'Payment Mode', required: false, default: false },
+  { key: 'notes',         label: 'Notes',        required: false, default: false },
+  { key: 'debit',         label: 'Debit',        required: true,  default: true  },
+  { key: 'credit',        label: 'Credit',       required: true,  default: true  },
+  { key: 'balance',       label: 'Balance',      required: true,  default: true  },
+];
+
+const DEFAULT_COLUMNS = ALL_COLUMNS.filter(c => c.default).map(c => c.key);
 
 export default function LedgerStatement({
   statement,

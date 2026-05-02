@@ -28,10 +28,10 @@
 // remain trivial.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, DatePicker, message, Tooltip } from 'antd';
+import { Button, Checkbox, DatePicker, message, Popover, Tooltip } from 'antd';
 import {
   PrinterOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined,
-  WhatsAppOutlined, ArrowLeftOutlined,
+  WhatsAppOutlined, ArrowLeftOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -39,7 +39,7 @@ import { ledgerAPI, partyAPI } from '../api';
 import { useFinancialYear } from '../hooks/useFinancialYear';
 import { downloadStatementPdf } from '../utils/ledgerPdf';
 import PartyPicker from './PartyPicker';
-import LedgerStatement from './LedgerStatement';
+import LedgerStatement, { ALL_COLUMNS } from './LedgerStatement';
 import './ledger-statement.css';
 import './party-picker.css';
 import './party-statement-page.css';
@@ -237,6 +237,51 @@ export default function PartyStatementPage({
   };
   const clearVoucherFilter = () => setVoucherFilter(new Set());
 
+  // ── Column visibility ─────────────────────────────────────────────
+  // Persisted to localStorage so the operator's preference survives
+  // refresh + cross-page navigation. Defaults come from ALL_COLUMNS;
+  // required columns (date, particulars, debit, credit, balance) are
+  // always rendered regardless of the saved set.
+  const COLS_LS_KEY = 'psp_visible_cols_v1';
+  const [colVis, setColVis] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COLS_LS_KEY) || 'null');
+      if (saved && typeof saved === 'object') return saved;
+    } catch { /* fall through to default */ }
+    return ALL_COLUMNS.reduce((acc, c) => ({ ...acc, [c.key]: c.default }), {});
+  });
+
+  const toggleCol = (key) => {
+    setColVis(prev => {
+      const def = ALL_COLUMNS.find(c => c.key === key);
+      if (def?.required) return prev;        // can't hide required columns
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(COLS_LS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const visibleColumns = useMemo(
+    () => ALL_COLUMNS.filter(c => c.required || colVis[c.key]).map(c => c.key),
+    [colVis],
+  );
+
+  const customizeContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 180 }}>
+      {ALL_COLUMNS.map(c => (
+        <Checkbox
+          key={c.key}
+          checked={c.required || !!colVis[c.key]}
+          disabled={c.required}
+          onChange={() => toggleCol(c.key)}
+        >
+          {c.label}
+          {c.required && <span style={{ color: 'var(--fg-tertiary)', fontSize: 10, marginLeft: 6 }}>required</span>}
+        </Checkbox>
+      ))}
+    </div>
+  );
+
   // ── Actions ────────────────────────────────────────────────────────
   const onPrint = () => window.print();
 
@@ -370,6 +415,11 @@ export default function PartyStatementPage({
           <Tooltip title="Refresh">
             <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={() => party && setParty({ ...party })} disabled={!party} />
           </Tooltip>
+          <Popover content={customizeContent} title="Show columns" trigger="click" placement="bottomRight">
+            <Tooltip title="Customize columns">
+              <Button className="rpt-btn" icon={<SettingOutlined />} />
+            </Tooltip>
+          </Popover>
           <Tooltip title="Export Excel">
             <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length} />
           </Tooltip>
@@ -442,6 +492,7 @@ export default function PartyStatementPage({
           loading={loading}
           onRowClick={onDrill}
           voucherFilter={voucherFilter}
+          columns={visibleColumns}
           emptyHint={`Pick a ${partyType.toLowerCase()} above to load the statement. Press / to focus the search.`}
         />
       </div>
