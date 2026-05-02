@@ -267,6 +267,45 @@ export default function AgingReport({ partyType = 'Customer' }) {
   const title = isCustomer ? 'Receivables Aging' : 'Payables Aging';
   const asOfLabel = data?.as_of_date ? dayjs(data.as_of_date).format('DD MMM YYYY') : dayjs().format('DD MMM YYYY');
 
+  /* Shared <colgroup> for the body + pinned-bottom totals tables.
+   * Same column widths in both tables so the totals row lines up
+   * cell-for-cell under the body even though they're separate <table>
+   * elements (the only reliable way to keep totals pinned to the
+   * viewport bottom regardless of how many rows are loaded — same
+   * pattern Customer / Supplier Outstanding use). */
+  const partyColgroup = (
+    <colgroup>
+      <col />                                                {/* Party — flexible */}
+      <col style={{ width: 140 }} />                          {/* Mobile */}
+      {display.partyCity  && <col style={{ width: 130 }} />}  {/* City */}
+      {display.partyBills && <col style={{ width: 80  }} />}  {/* Bills */}
+      {display.partyBills && <col style={{ width: 90  }} />}  {/* Oldest */}
+      <col style={{ width: 115 }} />                          {/* Current */}
+      <col style={{ width: 115 }} />                          {/* 1-30 */}
+      <col style={{ width: 115 }} />                          {/* 31-60 */}
+      <col style={{ width: 115 }} />                          {/* 61-90 */}
+      <col style={{ width: 115 }} />                          {/* 90+ */}
+      <col style={{ width: 135 }} />                          {/* Total */}
+    </colgroup>
+  );
+
+  const billColgroup = (
+    <colgroup>
+      <col style={{ width: 48  }} />                          {/* # */}
+      <col style={{ width: 105 }} />                          {/* Date */}
+      <col style={{ width: 120 }} />                          {/* Ref. No. */}
+      <col />                                                {/* Party — flexible */}
+      {display.billMobile && <col style={{ width: 130 }} />}  {/* Mobile */}
+      <col style={{ width: 135 }} />                          {/* Pending */}
+      <col style={{ width: 110 }} />                          {/* Current */}
+      <col style={{ width: 110 }} />                          {/* 1-30 */}
+      <col style={{ width: 110 }} />                          {/* 31-60 */}
+      <col style={{ width: 110 }} />                          {/* 61-90 */}
+      <col style={{ width: 110 }} />                          {/* 90+ */}
+      <col style={{ width: 105 }} />                          {/* Due On */}
+    </colgroup>
+  );
+
   return (
     <div className="ar-page">
       {/* Header */}
@@ -467,7 +506,8 @@ export default function AgingReport({ partyType = 'Customer' }) {
                 )}
               </div>
             ) : (
-              <table className="ar-tbl">
+              <table className="ar-tbl ar-tbl--body">
+                {partyColgroup}
                 <thead>
                   <tr>
                     <th>{partyCol}</th>
@@ -533,23 +573,6 @@ export default function AgingReport({ partyType = 'Customer' }) {
                     </React.Fragment>
                   ))}
                 </tbody>
-                <tfoot>
-                  <tr className="ar-bill-total-row">
-                    <td colSpan={
-                      2
-                      + (display.partyCity ? 1 : 0)
-                      + (display.partyBills ? 2 : 0)
-                    } style={{textAlign:'right', fontWeight: 600, color: 'var(--fg-secondary)'}}>
-                      {visibleRows.length} {visibleRows.length === 1 ? 'party' : 'parties'}
-                    </td>
-                    {BUCKET_KEYS.map(k => (
-                      <td key={k} className={`ar-amt ${k}`}>
-                        {visibleTotals[k] > 0 ? fmt(visibleTotals[k]) : ''}
-                      </td>
-                    ))}
-                    <td className="ar-amt-total">{fmt(visibleTotals.total)}</td>
-                  </tr>
-                </tfoot>
               </table>
             )
           ) : (
@@ -566,7 +589,8 @@ export default function AgingReport({ partyType = 'Customer' }) {
                 </div>
               </div>
             ) : (
-              <table className="ar-tbl ar-tbl-bills">
+              <table className="ar-tbl ar-tbl-bills ar-tbl--body">
+                {billColgroup}
                 <thead>
                   <tr>
                     <th className="ar-rownum">#</th>
@@ -605,30 +629,59 @@ export default function AgingReport({ partyType = 'Customer' }) {
                     </tr>
                   ))}
                 </tbody>
-                <tfoot>
-                  <tr className="ar-bill-total-row">
-                    <td colSpan={4 + (display.billMobile ? 1 : 0)} style={{textAlign:'right', fontWeight: 600, color: 'var(--fg-secondary)'}}>
-                      {billTotals.count} bills
-                    </td>
-                    <td className="ar-amt-total">{fmt(billTotals.total)}</td>
-                    {BUCKET_KEYS.map(k => (
-                      <td key={k} className={`ar-amt ${k}`}>
-                        {billTotals[k] > 0 ? fmt(billTotals[k]) : ''}
-                      </td>
-                    ))}
-                    <td></td>
-                  </tr>
-                </tfoot>
               </table>
             )
           )}
         </div>
 
-        {/* Footer totals — party-wise shows bucket split, bill-wise shows count + total */}
-        {/* Party-wise now uses an in-table tfoot (aligned with bucket
-            columns, same pattern as bill-wise). No separate footer strip. */}
-        {/* Bill-wise mode puts totals in a tfoot row so they align under their
-            bucket columns (Tally-style). No separate footer strip needed. */}
+        {/* ── Pinned-bottom totals ──────────────────────────────────
+            Separate <table> sibling outside .ar-scroll so the totals
+            strip is always flush against the wrapper bottom regardless
+            of how many rows are loaded. Same colgroup as the body
+            table → columns line up cell-for-cell. Same trick as
+            Customer / Supplier Outstanding's grand-total row. */}
+        {!loading && data && (viewMode === 'party' ? visibleRows.length > 0 : flatBills.length > 0) && (
+          viewMode === 'party' ? (
+            <table className="ar-tbl ar-tbl--footer">
+              {partyColgroup}
+              <tbody>
+                <tr className="ar-bill-total-row">
+                  <td colSpan={
+                    2
+                    + (display.partyCity ? 1 : 0)
+                    + (display.partyBills ? 2 : 0)
+                  } style={{textAlign:'right', fontWeight: 600, color: 'var(--fg-secondary)'}}>
+                    {visibleRows.length} {visibleRows.length === 1 ? 'party' : 'parties'}
+                  </td>
+                  {BUCKET_KEYS.map(k => (
+                    <td key={k} className={`ar-amt ${k}`}>
+                      {visibleTotals[k] > 0 ? fmt(visibleTotals[k]) : ''}
+                    </td>
+                  ))}
+                  <td className="ar-amt-total">{fmt(visibleTotals.total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          ) : (
+            <table className="ar-tbl ar-tbl-bills ar-tbl--footer">
+              {billColgroup}
+              <tbody>
+                <tr className="ar-bill-total-row">
+                  <td colSpan={4 + (display.billMobile ? 1 : 0)} style={{textAlign:'right', fontWeight: 600, color: 'var(--fg-secondary)'}}>
+                    {billTotals.count} bills
+                  </td>
+                  <td className="ar-amt-total">{fmt(billTotals.total)}</td>
+                  {BUCKET_KEYS.map(k => (
+                    <td key={k} className={`ar-amt ${k}`}>
+                      {billTotals[k] > 0 ? fmt(billTotals[k]) : ''}
+                    </td>
+                  ))}
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          )
+        )}
       </div>
     </div>
   );

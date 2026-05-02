@@ -327,6 +327,20 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
+  /* Reserve scrollbar gutter so the body table is the same width
+     whether the scrollbar is visible or not — keeps columns aligned
+     with the pinned-bottom totals table below (no scrollbar there). */
+  scrollbar-gutter: stable;
+}
+
+/* Body + footer tables share the same colgroup; table-layout: fixed
+   makes them honour the col widths so columns line up cell-for-cell
+   between the two tables. Without fixed layout, the body table
+   would size columns to content while the footer wouldn't and they'd
+   visibly drift. */
+.ar-tbl--body,
+.ar-tbl--footer {
+  table-layout: fixed;
 }
 
 .ar-tbl {
@@ -451,25 +465,31 @@
   padding-right: 10px;
 }
 
-/* Sticky total row at the bottom of the table — applies to any .ar-tbl
- * that has a .ar-bill-total-row inside its tfoot (currently both
- * bill-wise and party-wise views use this pattern). Sits above the
- * scroll container so the numbers stay visible as the user scrolls. */
-.ar-tbl tfoot .ar-bill-total-row td {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+/* Pinned-bottom totals — separate <table> sibling outside .ar-scroll
+   so the row is always flush against .ar-wrap's bottom regardless of
+   how many body rows are loaded. Sticky-tfoot inside the scrolling
+   table doesn't give us this for short result sets (the row sits at
+   row 5 with half a screen of dead space below). */
+.ar-tbl--footer {
+  flex: 0 0 auto;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--bg-panel);
-  font-weight: 600;
-  padding: 10px 14px;
   border-top: 2px solid var(--border);
-  border-bottom: none;
-  text-align: right;
-  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+.ar-tbl--footer td {
+  background: var(--bg-panel);
+  padding: 10px 14px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: none;
+}
 /* Left-anchor the "N parties/bills" label cell */
-.ar-tbl tfoot .ar-bill-total-row td:first-child { text-align: right; }
+.ar-tbl--footer .ar-bill-total-row td:first-child { text-align: right; }
 
 /* ─── footer totals ──────────────────────────────────────────────── */
 
