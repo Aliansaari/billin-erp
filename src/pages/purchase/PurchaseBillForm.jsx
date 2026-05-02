@@ -21,6 +21,11 @@ const EMPTY_ENTRY = {
   // fall back to 1 when quantity_per_box is missing/0/falsy.
   article_number:'', purchase_rate:0, quantity:0, quantity_per_box:0,
   margin_percentage:0, sale_rate:0, mrp:0, hsn_code:'', gst_rate:0, product_id:null,
+  // Batch tracking — only meaningful when global batch_tracking_enabled
+  // is ON AND the resolved product has is_batch_tracked=true. The
+  // entry-row batch strip stays mounted but hidden otherwise.
+  is_batch_tracked:false, batch_number:'', manufacture_date:null,
+  expiry_date:null, batch_notes:'',
 };
 
 /* ── Variant Picker Dropdown ─────────────────────────────────────────────── */
@@ -250,6 +255,11 @@ export default function PurchaseBillForm() {
   const [amountHsnCode,setAmountHsnCode]= useState('');
   const [amountDesc,   setAmountDesc]   = useState('');
   const [amountOnlyEnabled, setAmountOnlyEnabled] = useState(true);
+  // Global batch-tracking switch — gates the per-line batch strip on batch-
+  // tracked products. With it OFF, batch-tracked products silently behave
+  // as non-batch (the prompt is explicit about this — toggling global
+  // must not break existing bills).
+  const [batchTrackingEnabled, setBatchTrackingEnabled] = useState(false);
 
   // ── Hold / Recall / Drafts state ──
   // Tracks which draft (if any) the form was recalled from so handleSave
@@ -337,6 +347,7 @@ export default function PurchaseBillForm() {
       // Default to enabled when the column is missing (older DBs without
       // the migration). Treat literal `false` as off; anything else is on.
       setAmountOnlyEnabled(data?.data?.enable_amount_only_billing !== false);
+      setBatchTrackingEnabled(!!data?.data?.batch_tracking_enabled);
     }).catch(()=>{});
     // Predict the next bill number on new bills so the operator sees what
     // they'll get on save instead of "pending". Optimistic — actual
@@ -456,6 +467,17 @@ export default function PurchaseBillForm() {
           mrp:parseFloat(it.mrp)||0,
           hsn_code:it.hsn_code||'',
           gst_rate:parseFloat(it.gst_rate)||0,
+          // Restore batch dimension. The included batch object (if any)
+          // carries the metadata back so the Batch column can render
+          // mfg/exp on edit; is_batch_tracked is read off the included
+          // product so the picker still gates correctly when the line
+          // is being edited rather than re-entered.
+          is_batch_tracked: !!(it.product?.is_batch_tracked || it.batch_id),
+          batch_id: it.batch_id || null,
+          batch_number: it.batch?.batch_number || '',
+          manufacture_date: it.batch?.manufacture_date || null,
+          expiry_date: it.batch?.expiry_date || null,
+          batch_notes: it.batch?.notes || '',
         }));
         // Advance monotonic key counter above any loaded row so newly-added
         // items in edit mode can't collide with existing keys.
@@ -508,6 +530,8 @@ export default function PurchaseBillForm() {
         mrp:parseFloat(data.mrp)||0,margin_percentage:parseFloat(data.margin_percentage)||0,
         hsn_code:data.hsn_code||'',gst_rate:parseFloat(data.gst_rate)||0,
         quantity_per_box:parseFloat(data.quantity_per_box)||1,quantity:1,
+        is_batch_tracked:!!data.is_batch_tracked,
+        batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
       }));
       setBarcodeError('');
       setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
@@ -658,6 +682,7 @@ export default function PurchaseBillForm() {
           hsn_code:prev.hsn_code||fullMatch.hsn_code||'',
           gst_rate:prev.gst_rate||parseFloat(fullMatch.gst_rate)||0,
           quantity_per_box:qpbEntered?prev.quantity_per_box:parseFloat(fullMatch.quantity_per_box)||1,
+          is_batch_tracked:!!fullMatch.is_batch_tracked,
         }));
       } else {
         // Identity matched but no variant has this exact pricing → new barcode variant
@@ -681,6 +706,7 @@ export default function PurchaseBillForm() {
       margin_percentage:parseFloat(variant.margin_percentage)||0,
       hsn_code:variant.hsn_code||'',
       gst_rate:parseFloat(variant.gst_rate)||0,
+      is_batch_tracked:!!variant.is_batch_tracked,
     }));
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setTimeout(()=>{ qtyRef.current?.focus(); qtyRef.current?.select?.(); },50);
@@ -883,6 +909,13 @@ export default function PurchaseBillForm() {
     if(!entry.product_name){message.warning('Enter product name');return;}
     if(!entry.quantity||entry.quantity<=0){message.warning('Enter quantity');return;}
     if(!entry.purchase_rate||entry.purchase_rate<=0){message.warning('Enter purchase rate');return;}
+    // Batch enforcement mirrors the server-side check — keeps the round-
+    // trip out of the operator's typing flow when the rule is obviously
+    // unmet. Server still validates on save (defence in depth).
+    if(batchTrackingEnabled && entry.is_batch_tracked && !entry.batch_number?.trim()){
+      message.warning(`"${entry.product_name}" is batch-tracked. Enter a batch number.`);
+      return;
+    }
 
     // Barcode to display in the list row:
     //   - existing match (picker pick / lookupProduct) → entry.barcode is already set
@@ -917,7 +950,7 @@ export default function PurchaseBillForm() {
     // line, not a barcode-scan flow. Sales does the opposite (focus
     // barcode after addItem) because retail = scan-driven.
     setTimeout(()=>categoryRef.current?.focus(),50);
-  },[entry,barcodeError,invalidateFamilyCache]);
+  },[entry,barcodeError,invalidateFamilyCache,batchTrackingEnabled]);
   const removeItem=(key)=>setItems(prev=>prev.filter(i=>i.key!==key));
 
   /* totals */
@@ -1115,6 +1148,14 @@ export default function PurchaseBillForm() {
           quantity:i.quantity,quantity_per_box:i.quantity_per_box||1,
           purchase_rate:i.purchase_rate,margin_percentage:i.margin_percentage,
           sale_rate:i.sale_rate,mrp:i.mrp,gst_rate:i.gst_rate,
+          // Batch fields per line. Server resolves/creates the batch row
+          // from (product_id, batch_number) on save; date / notes are
+          // first-write-wins so a re-purchase against an existing batch
+          // doesn't overwrite the original metadata.
+          batch_number:i.batch_number||undefined,
+          manufacture_date:i.manufacture_date||undefined,
+          expiry_date:i.expiry_date||undefined,
+          batch_notes:i.batch_notes||undefined,
         })),
       };
       const{data}=isEdit?await purchaseAPI.update(id,billData):await purchaseAPI.create(billData);
@@ -1211,6 +1252,13 @@ export default function PurchaseBillForm() {
           quantity: i.quantity, quantity_per_box: i.quantity_per_box || 1,
           purchase_rate: i.purchase_rate, margin_percentage: i.margin_percentage,
           sale_rate: i.sale_rate, mrp: i.mrp, gst_rate: i.gst_rate,
+          // Batch fields preserved on Hold so a recalled draft restores
+          // them on next open. is_batch_tracked is rehydrated from the
+          // product on recall, not the draft payload.
+          batch_number: i.batch_number || null,
+          manufacture_date: i.manufacture_date || null,
+          expiry_date: i.expiry_date || null,
+          batch_notes: i.batch_notes || null,
         })),
         _total_preview: roundedTotal,
       };
@@ -1380,6 +1428,24 @@ export default function PurchaseBillForm() {
         </div>
       ),
     },
+    // Batch column — only mounted when the global toggle is on AND at
+    // least one line in the bill is batch-tracked. Avoids polluting the
+    // table with a blank column for non-batch shops.
+    ...(batchTrackingEnabled && items.some(i=>i.is_batch_tracked) ? [{
+      title:'Batch', dataIndex:'batch_number', width:130,
+      render:(v,r)=>r.is_batch_tracked ? (
+        <div style={{fontSize:12,lineHeight:1.3}}>
+          <div style={{fontWeight:600,color:'var(--fg-primary)'}}>{v||'—'}</div>
+          {(r.manufacture_date || r.expiry_date) && (
+            <div style={{fontSize:11,color:'var(--fg-tertiary)'}}>
+              {r.manufacture_date && <span>Mfg {dayjs(r.manufacture_date).format('DD/MM/YY')}</span>}
+              {r.manufacture_date && r.expiry_date && <span> · </span>}
+              {r.expiry_date && <span>Exp {dayjs(r.expiry_date).format('DD/MM/YY')}</span>}
+            </div>
+          )}
+        </div>
+      ) : <span style={{color:'var(--fg-tertiary)'}}>—</span>,
+    }] : []),
     { title:'Product Name', dataIndex:'product_name', width:180,
       render:(v,r,ri)=>(
         <div id={`tc-${ri}-1`}>
@@ -1685,6 +1751,46 @@ export default function PurchaseBillForm() {
                   <span className="pbf-entry-chip ok">✓ Existing product</span>}
                 {!lookupLoading && !entry.product_id && entry.product_name &&
                   <span className="pbf-entry-chip warn">＋ New barcode will be created</span>}
+              </div>
+            )}
+
+            {/* Batch strip — appears only when the resolved product is
+                batch-tracked AND the global toggle is on. Same compact
+                shape as the entry-row cells (same .pbf-cell + .pbf-cell-lbl
+                styling) so it reads as an extension of the entry row, not
+                a separate panel. Batch number is required; mfg / exp /
+                notes are optional. */}
+            {billMode === 'item' && batchTrackingEnabled && entry.is_batch_tracked && (
+              <div className="pbf-entry-ledger" style={{marginTop:6}}>
+                <div className="pbf-entry-grid" style={{gridTemplateColumns:'minmax(180px,1.2fr) 140px 140px 1fr'}}>
+                  <div className="pbf-cell">
+                    <div className="pbf-cell-lbl">Batch number *</div>
+                    <Input value={entry.batch_number}
+                      placeholder="e.g. Lot-2401"
+                      onChange={e=>setEntry(p=>({...p,batch_number:e.target.value}))}
+                      onPressEnter={addItem}/>
+                  </div>
+                  <div className="pbf-cell">
+                    <div className="pbf-cell-lbl">Mfg date</div>
+                    <DatePicker value={entry.manufacture_date?dayjs(entry.manufacture_date):null}
+                      format="DD/MM/YYYY"
+                      onChange={d=>setEntry(p=>({...p,manufacture_date:d?d.format('YYYY-MM-DD'):null}))}
+                      style={{width:'100%'}} allowClear/>
+                  </div>
+                  <div className="pbf-cell">
+                    <div className="pbf-cell-lbl">Expiry date</div>
+                    <DatePicker value={entry.expiry_date?dayjs(entry.expiry_date):null}
+                      format="DD/MM/YYYY"
+                      onChange={d=>setEntry(p=>({...p,expiry_date:d?d.format('YYYY-MM-DD'):null}))}
+                      style={{width:'100%'}} allowClear/>
+                  </div>
+                  <div className="pbf-cell">
+                    <div className="pbf-cell-lbl">Notes</div>
+                    <Input value={entry.batch_notes} placeholder="Optional"
+                      onChange={e=>setEntry(p=>({...p,batch_notes:e.target.value}))}
+                      onPressEnter={addItem}/>
+                  </div>
+                </div>
               </div>
             )}
 

@@ -8,6 +8,7 @@ const { postVoucher, reverseVoucher } = require('../services/ledgerPostingServic
 const { buildPurchaseBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { resolveOrCreateBatch, applyBatchStockDelta } = require('../utils/batchStock');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
 
@@ -186,15 +187,27 @@ exports.getAll = async (req, res) => {
 
 exports.getById = async (req, res) => {
   try {
+    const { ProductBatch } = require('../models');
     const bill = await PurchaseBill.findByPk(req.params.id, {
       include: [
         { model: Party, as: 'supplier' },
-        { model: PurchaseBillItem, as: 'items' },
+        {
+          model: PurchaseBillItem, as: 'items',
+          include: [
+            // Pull product so edit-mode can re-detect is_batch_tracked
+            // without re-fetching products one-by-one. Lazy required so
+            // restoring a recalled draft / opening an old bill renders
+            // the batch column correctly on first paint.
+            { model: Product, as: 'product', attributes: ['product_id', 'is_batch_tracked'] },
+            { model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date', 'notes'] },
+          ],
+        },
       ],
     });
     if (!bill) return res.status(404).json({ error: 'Bill not found' });
     res.json(bill);
   } catch (error) {
+    console.error('PurchaseBill getById error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -333,10 +346,34 @@ exports.create = async (req, res) => {
         sgst_amount: 0,
         igst_amount: 0,
         total_amount: 0,
+        // Pin the resolved product on the processed line so the persistence
+        // pass can read is_batch_tracked without refetching. Stripped
+        // before insert.
+        _product: resolved.product || null,
       });
 
       subTotal += lineTotal;
       totalQty += qty;
+    }
+
+    // ── Batch tracking validation ─────────────────────────────────────
+    //
+    // Only enforce when the global setting is ON. With it OFF, batch-
+    // tracked products silently revert to non-batch (the prompt is
+    // explicit about this — toggling global must not break existing
+    // bills). When ON, every line whose resolved product has
+    // is_batch_tracked=true must carry a batch_number.
+    const settingsRow = await SystemSettings.findByPk(1, { transaction: t });
+    const batchTrackingEnabled = !!settingsRow?.batch_tracking_enabled;
+    if (batchTrackingEnabled) {
+      for (const it of processedItems) {
+        if (it._product?.is_batch_tracked && !it.batch_number) {
+          if (!t.finished) await t.rollback();
+          return res.status(400).json({
+            error: `"${it.product_name || it._product.product_name}" is batch-tracked. Provide a batch number for this line.`,
+          });
+        }
+      }
     }
 
     // Bill totals — Fix: use != null so explicit 0 isn't ignored in favour of percentage
@@ -444,9 +481,33 @@ exports.create = async (req, res) => {
     }, { transaction: t });
 
     for (const item of processedItems) {
+      // Resolve / create the batch BEFORE inserting the bill item so the
+      // line carries its batch_id. Same first-write-wins behaviour as the
+      // helper: a re-purchase of an existing batch reuses the row, doesn't
+      // overwrite mfg/exp/notes.
+      let batchId = null;
+      if (item.product_id && batchTrackingEnabled
+          && item._product?.is_batch_tracked && item.batch_number) {
+        const batch = await resolveOrCreateBatch({
+          product_id: item.product_id,
+          batch_number: item.batch_number,
+          manufacture_date: item.manufacture_date,
+          expiry_date: item.expiry_date,
+          notes: item.batch_notes,
+          t,
+        });
+        batchId = batch.batch_id;
+      }
+
+      // Strip transient fields (_product, batch metadata) before insert —
+      // PurchaseBillItem only stores batch_id, not the metadata. Sequelize
+      // would silently drop unknown attributes on insert, but stripping
+      // makes the payload obvious in the audit trail.
+      const { _product, batch_number, manufacture_date, expiry_date, batch_notes, ...billItemData } = item;
       await PurchaseBillItem.create({
         purchase_bill_id: bill.purchase_bill_id,
-        ...item,
+        ...billItemData,
+        batch_id: batchId,
       }, { transaction: t });
 
       // Update product stock at the receiving godown + refresh catalog
@@ -454,11 +515,20 @@ exports.create = async (req, res) => {
       // remain a single global value — this commit doesn't introduce
       // per-godown pricing. Only inventory quantity is per-godown.
       if (item.product_id) {
-        const product = await Product.findByPk(item.product_id, { transaction: t });
+        const product = item._product || await Product.findByPk(item.product_id, { transaction: t });
         const newStock = await applyGodownStockDelta({
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: +parseFloat(item.quantity), t,
         });
+        // Per-batch on-hand mirrors the godown-level delta. Both must move
+        // in the same transaction so a rollback restores both consistently.
+        if (batchId) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: batchId,
+            godown_id: billData.godown_id,
+            delta: +parseFloat(item.quantity), t,
+          });
+        }
         await product.update({
           purchase_rate: item.purchase_rate,
           margin_percentage: item.margin_percentage || product.margin_percentage,
@@ -469,6 +539,7 @@ exports.create = async (req, res) => {
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
+          batch_id: batchId,
           barcode: item.barcode,
           transaction_type: 'Purchase',
           transaction_date: billData.bill_date,
@@ -668,6 +739,16 @@ exports.update = async (req, res) => {
           product_id: oldItem.product_id, godown_id: oldGodownId,
           delta: -parseFloat(oldItem.quantity), t,
         });
+        // Reverse the per-batch on-hand too. If the old line carried a
+        // batch_id, that batch's stock at the old godown must give back
+        // the qty it received — otherwise the rebuild double-counts.
+        if (oldItem.batch_id) {
+          await applyBatchStockDelta({
+            product_id: oldItem.product_id, batch_id: oldItem.batch_id,
+            godown_id: oldGodownId,
+            delta: -parseFloat(oldItem.quantity), t,
+          });
+        }
       }
     }
 
@@ -726,9 +807,25 @@ exports.update = async (req, res) => {
         discount_amount: discountAmt,
         cgst_amount: 0, sgst_amount: 0, igst_amount: 0,
         total_amount: 0,
+        _product: resolved.product || null,
       });
 
       subTotal += lineTotal; totalQty += qty;
+    }
+
+    // Same batch-tracking validation as create(). See note there for the
+    // rationale around the global toggle gating per-product enforcement.
+    const settingsRow2 = await SystemSettings.findByPk(1, { transaction: t });
+    const batchTrackingEnabled = !!settingsRow2?.batch_tracking_enabled;
+    if (batchTrackingEnabled) {
+      for (const it of processedItems) {
+        if (it._product?.is_batch_tracked && !it.batch_number) {
+          if (!t.finished) await t.rollback();
+          return res.status(400).json({
+            error: `"${it.product_name || it._product.product_name}" is batch-tracked. Provide a batch number for this line.`,
+          });
+        }
+      }
     }
 
     const billDiscPct2 = parseFloat(billData.discount_percentage || 0);
@@ -839,13 +936,43 @@ exports.update = async (req, res) => {
 
     // ── Step 6: Create new items + update stock ────────────────────────────
     for (const item of processedItems) {
-      await PurchaseBillItem.create({ purchase_bill_id: id, ...item }, { transaction: t });
+      // Resolve / create the batch first so the inserted line carries the
+      // batch_id and the StockLedger row tracks it. Same first-write-wins
+      // semantics as create().
+      let batchId = null;
+      if (item.product_id && batchTrackingEnabled
+          && item._product?.is_batch_tracked && item.batch_number) {
+        const batch = await resolveOrCreateBatch({
+          product_id: item.product_id,
+          batch_number: item.batch_number,
+          manufacture_date: item.manufacture_date,
+          expiry_date: item.expiry_date,
+          notes: item.batch_notes,
+          t,
+        });
+        batchId = batch.batch_id;
+      }
+
+      const { _product, batch_number, manufacture_date, expiry_date, batch_notes, ...billItemData } = item;
+      await PurchaseBillItem.create({
+        purchase_bill_id: id,
+        ...billItemData,
+        batch_id: batchId,
+      }, { transaction: t });
+
       if (item.product_id) {
-        const product = await Product.findByPk(item.product_id, { transaction: t });
+        const product = item._product || await Product.findByPk(item.product_id, { transaction: t });
         const newStock = await applyGodownStockDelta({
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: +parseFloat(item.quantity), t,
         });
+        if (batchId) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: batchId,
+            godown_id: billData.godown_id,
+            delta: +parseFloat(item.quantity), t,
+          });
+        }
         await product.update({
           purchase_rate: item.purchase_rate,
           margin_percentage: item.margin_percentage || product.margin_percentage,
@@ -855,6 +982,7 @@ exports.update = async (req, res) => {
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
+          batch_id: batchId,
           barcode: item.barcode,
           transaction_type: 'Purchase',
           transaction_date: billData.bill_date || existingBill.bill_date,
@@ -1002,6 +1130,17 @@ exports.cancel = async (req, res) => {
           product_id: item.product_id, godown_id: bill.godown_id,
           delta: -parseFloat(item.quantity), t,
         });
+        // Mirror the reversal at the batch level so product_batch_stock
+        // doesn't drift. Cancelling a purchase bill must restore the
+        // batch's prior on-hand exactly — otherwise a follow-up sale
+        // dropdown would show phantom batch stock.
+        if (item.batch_id) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: item.batch_id,
+            godown_id: bill.godown_id,
+            delta: -parseFloat(item.quantity), t,
+          });
+        }
       }
     }
 
