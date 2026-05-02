@@ -55,11 +55,71 @@
 }
 .bo-as-of b { color: var(--fg-primary); font-weight: 600; }
 
-/* View toggle — bill-level vs party-level. Sits in the title row
-   so it reads as a primary view-mode switch, not a secondary action. */
+/* ── View toggle — Bill Wise | Customers/Suppliers Wise ──────────
+ *
+ * AntD's <Segmented> is intentionally flat. Re-skin it to feel like a
+ * proper view-mode switch on the editorial report family:
+ *
+ *   • Track:  bg-panel inset on a hairline border, 10px radius — reads
+ *             as a single capsule, not three boxes glued together.
+ *   • Thumb:  subtle gradient + warm shadow so the active option lifts
+ *             off the track. Slides smoothly on toggle (AntD's own
+ *             animation, just with our colours).
+ *   • Active label: accent color, slightly heavier weight; icon stays
+ *             on the same baseline as the text.
+ *   • Hover:  soft warmth on inactive options, hints at clickability
+ *             without competing with the active state.
+ */
 .bo-view-toggle.ant-segmented {
-  margin-left: 8px;
+  margin-left: 10px;
   align-self: center;
+  background: var(--bg-panel) !important;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-subtle) 60%, transparent);
+}
+
+/* Per-option label container */
+.bo-view-toggle.ant-segmented .ant-segmented-item {
+  border-radius: 7px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.bo-view-toggle.ant-segmented .ant-segmented-item-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  line-height: 1.6;
+}
+.bo-view-toggle.ant-segmented .ant-segmented-item:hover:not(.ant-segmented-item-selected) {
+  color: var(--fg-primary);
+  background: color-mix(in srgb, var(--bg-muted) 60%, transparent);
+}
+.bo-view-toggle.ant-segmented .ant-segmented-item-icon { color: inherit; font-size: 13px; }
+
+/* Active item — colour the label, the moving thumb is styled below. */
+.bo-view-toggle.ant-segmented .ant-segmented-item-selected .ant-segmented-item-label {
+  color: var(--accent, #B1472F);
+  font-weight: 600;
+}
+
+/* The moving thumb — AntD calls this .ant-segmented-thumb (during
+   transition) and applies .ant-segmented-item-selected at rest. Style
+   both so the lift effect is consistent. */
+.bo-view-toggle.ant-segmented .ant-segmented-item-selected,
+.bo-view-toggle.ant-segmented .ant-segmented-thumb {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent-bg, #f5e9e3) 60%, var(--bg-panel)) 0%,
+    var(--bg-panel) 100%) !important;
+  border: 1px solid color-mix(in srgb, var(--accent, #B1472F) 22%, var(--border));
+  border-radius: 7px !important;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--accent, #B1472F) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent, #B1472F) 8%, transparent);
 }
 
 .bo-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
