@@ -955,7 +955,15 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
               // bill via the same drill-down used by the bill-no link.
               // persistKey varies by side (receivable / payable) so
               // each list keeps its own cursor across round-trips.
-              keyboardNav
+              //
+              // Only listen when this view is the active one. Both
+              // panes are kept mounted (for the instant view toggle),
+              // so without this gate the hidden bill-view's Enter
+              // handler would fire while the user is in Party view —
+              // which made Enter on a party row drill into the first
+              // bill in the bill-view's sparse rows array, bypassing
+              // the expand-collapse behaviour.
+              keyboardNav={viewMode === 'bill'}
               persistKey={`bills-${side}`}
               onRowEnter={(row) => row?.bill_id && drillBill(row)}
             />
