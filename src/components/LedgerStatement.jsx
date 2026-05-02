@@ -149,10 +149,32 @@ export default function LedgerStatement({
 
   // Decorate entries with their derived category up-front. The chip
   // pill + the filter both consume row.category, so doing this once
-  // keeps the per-row render fast.
+  // keeps the per-row render fast. We also strip the party name from
+  // the narration when the statement is party-scoped — narrations
+  // like "Purchase from Raymond Apparel" become "Purchase" once the
+  // user is already looking at Raymond Apparel's page; the party name
+  // on every row is redundant context. On a COA Ledger view (no
+  // party), the original narration stays intact because there the
+  // party is the *useful* per-row info.
   const decoratedEntries = useMemo(() => {
     if (!statement?.entries?.length) return [];
-    return statement.entries.map(e => ({ ...e, category: deriveCategory(e) }));
+    const partyName = statement?.party?.party_name?.trim();
+    // Match " from / to / for <party-name>" at the tail of the
+    // narration. Escape regex meta-chars in the name (parties can
+    // legitimately have ".", "&", "(", etc.).
+    const tailStripper = partyName
+      ? new RegExp(
+          `\\s+(?:from|to|for)\\s+${partyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\.?\\s*$`,
+          'i',
+        )
+      : null;
+    return statement.entries.map(e => ({
+      ...e,
+      category:  deriveCategory(e),
+      narration: tailStripper
+        ? (e.narration || '').replace(tailStripper, '').trim() || e.narration
+        : e.narration,
+    }));
   }, [statement]);
 
   // Voucher-type filter — the filter is over the *displayed* category,
