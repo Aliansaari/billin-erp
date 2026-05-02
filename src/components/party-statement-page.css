@@ -1,9 +1,13 @@
 /* ── PartyStatementPage / Ledger page chrome ────────────────────────
  *
- * Full-height shell with a sticky picker bar and a flex-fill statement
- * body. The page itself doesn't scroll — only LedgerStatement's inner
- * .ls-scroll does. Header, sticky bar, and the body's totals row all
- * stay pinned.
+ * Page is a flex column. The header (rpt-page-hd, comes from
+ * src/styles/global.css), KPI strip (rpt-kpis), picker bar, and
+ * voucher chips all sit at fixed heights; the .psp-body fills the
+ * remaining space and the table inside it owns the only scroll.
+ *
+ * No outer padding here — rpt-page-hd / rpt-kpis carry their own
+ * 28px horizontal padding to align with the rest of the report
+ * family (Sales Report, Day Book, Trial Balance).
  */
 
 .psp-page {
@@ -12,80 +16,33 @@
   height: 100%;
   min-height: 0;
   background: var(--bg-page, var(--bg-secondary));
-  padding: 14px 20px 0;
-  gap: 12px;
+  overflow: hidden;
 }
 
-/* Header — three zones on one row: [title] [period control] [actions].
-   Period sits beside the actions because they're the same mental
-   cluster ("scope + chrome of the report"). The .rpt-period and
-   .rpt-date classes themselves come from global.css and match Sales
-   Report / Day Book / Trial Balance pixel-for-pixel. */
-.psp-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+.psp-back {
+  color: var(--fg-secondary);
+  margin-right: 6px;
 }
-.psp-header-period {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-left: auto;     /* push period+actions to the right of title */
-}
-.psp-titles { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
-.psp-back   { color: var(--fg-secondary); }
-.psp-title  {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--fg-primary);
-  line-height: 1.15;
-  letter-spacing: -0.01em;
-}
-.psp-subtitle {
-  font-size: 12px;
-  color: var(--fg-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-  margin-top: 1px;
-}
-.psp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* Sticky bar — picker + period. Sticks to the page top inside the
-   scrolling page wrapper. position:sticky needs the parent to be the
-   scroll container; in our shell the body is flex-fill so we use
-   plain layout (the picker doesn't move). The "sticky" name is kept
-   for clarity — if the page later acquires a longer pre-bar header
-   that scrolls, this is where to add `position: sticky; top: 0`. */
+/* Sticky strip — picker + voucher chips. Sits below the KPI strip,
+   above the table. Same 28px horizontal padding as rpt-page-hd /
+   rpt-kpis so the column edge is consistent down the page. */
 .psp-sticky {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 14px 28px 4px;
 }
 
-/* Period control bar — uses the shared .rpt-period / .rpt-date
-   classes from global.css so this looks identical to Sales Report,
-   Day Book, Trial Balance. The wrapper just lays them out. */
-.psp-controls {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 4px 0 2px;
-}
-
-/* Voucher-type chip strip — sits below the period bar. Same pill
-   shape as the period chips for visual consistency, just smaller and
-   dialed back so it doesn't compete with the period control. */
+/* Voucher-type chip strip — same pill shape as the rpt-period
+   segmented control's children, rendered as a row of independent
+   chips so multi-select reads as a filter rather than a single
+   choice. */
 .psp-vt-chips {
   display: flex;
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
-  padding: 2px 0 4px;
 }
 .psp-vt-chip {
   background: transparent;
@@ -109,6 +66,17 @@
   font-weight: 600;
 }
 
+/* Body — the table fills the rest of the column. min-height:0 is
+   required for the inner .ls-scroll to shrink instead of pushing the
+   page taller than 100vh. Padded inline so the table card aligns
+   with the header / KPI strip above. */
+.psp-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 4px 28px 14px;
+}
+
 /* Letterhead — only painted on @media print so the on-screen view
    doesn't waste vertical space. The header carries enough party
    identity inline (in the picker meta strip). On paper, an
@@ -117,8 +85,10 @@
 
 @media print {
   .psp-page    { padding: 0; }
-  .psp-header,
+  .rpt-page-hd,
+  .rpt-kpis,
   .psp-sticky  { display: none; }
+  .psp-body    { padding: 0; }
   .psp-print-letter {
     display: block;
     padding: 16px 24px;
@@ -130,13 +100,4 @@
   .psp-letter-to-name { font-size: 16px; font-weight: 700; margin-top: 2px; }
   .psp-letter-to div  { font-size: 13px; line-height: 1.45; }
   .psp-letter-period  { margin-top: 10px; font-size: 12px; color: #444; font-style: italic; }
-}
-
-/* Body — the table fills the rest of the column. min-height:0 is
-   required for the inner .ls-scroll to shrink instead of pushing the
-   page taller than 100vh. */
-.psp-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
 }

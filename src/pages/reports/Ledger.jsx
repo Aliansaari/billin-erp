@@ -19,11 +19,17 @@
 // document mailed to anyone).
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Select, message, Tooltip } from 'antd';
+import { Button, DatePicker, Select, message } from 'antd';
 import {
-  PrinterOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined,
+  PrinterOutlined, FileExcelOutlined, FilePdfOutlined,
   ArrowLeftOutlined,
 } from '@ant-design/icons';
+
+const fmt = (v) =>
+  parseFloat(v || 0).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { ledgerAPI } from '../../api';
@@ -241,14 +247,26 @@ export default function Ledger() {
     }
   };
 
+  // Subtitle string mirroring Sales Report ("<N> vouchers · <period>").
+  const presetLabel = presets(fyStart, fyEnd).find(p => p.v === activePreset)?.l;
+  const periodLabel = activePreset === 'custom' && from && to
+    ? `${dayjs(from).format('DD MMM YY')} – ${dayjs(to).format('DD MMM YY')}`
+    : presetLabel || 'All time';
+  const subtitle = statement
+    ? <><b>{statement.entries?.length || 0}</b> voucher{(statement.entries?.length || 0) === 1 ? '' : 's'}<span className="sep">·</span>{statement.account?.ledger_name || periodLabel}{statement.account?.ledger_name && <><span className="sep">·</span>{periodLabel}</>}</>
+    : periodLabel;
+
   return (
-    <div className="psp-page">
-      <div className="psp-header">
-        <div className="psp-titles">
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} className="psp-back" />
-          <h1 className="psp-title">Ledger</h1>
+    <div className="report-editorial psp-page">
+      <div className="rpt-page-hd">
+        <div className="rpt-title">
+          <h1>
+            <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} className="psp-back" />
+            Ledger
+          </h1>
+          <div className="rpt-sub">{subtitle}</div>
         </div>
-        <div className="psp-header-period">
+        <div className="rpt-hd-ctrl">
           <div className="rpt-period">
             {presets(fyStart, fyEnd).map(p => (
               <button
@@ -270,22 +288,41 @@ export default function Ledger() {
             format="DD/MM/YYYY"
             allowClear={false}
           />
-        </div>
-        <div className="psp-actions">
-          {/* Icon-only with tooltips so the title row stays single-line
-              — same chrome shape as the party statement pages. */}
-          <Tooltip title="Refresh">
-            <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={() => ledgerId && setLedgerId(ledgerId)} disabled={!ledgerId} />
-          </Tooltip>
-          <Tooltip title="Export Excel">
-            <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length} />
-          </Tooltip>
-          <Tooltip title="Export PDF">
-            <Button className="rpt-btn" icon={<FilePdfOutlined />} onClick={onPdf} disabled={!statement} />
-          </Tooltip>
+          <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length}>Excel</Button>
+          <Button className="rpt-btn" icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!statement}>PDF</Button>
           <Button className="rpt-btn" type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
         </div>
       </div>
+
+      {/* KPI strip — same five tiles as Customer/Supplier Statement.
+          Hidden until a ledger is picked. */}
+      {statement && (() => {
+        const closing = parseFloat(statement.closing_balance) || 0;
+        return (
+          <div className="rpt-kpis">
+            <div className="rpt-kpi tone-info">
+              <div className="rpt-kpi-k">Opening</div>
+              <div className="rpt-kpi-v">₹ {fmt(statement.opening_balance)}</div>
+            </div>
+            <div className="rpt-kpi tone-success">
+              <div className="rpt-kpi-k">Total Debit</div>
+              <div className="rpt-kpi-v">₹ {fmt(statement.total_debit)}</div>
+            </div>
+            <div className="rpt-kpi tone-warning">
+              <div className="rpt-kpi-k">Total Credit</div>
+              <div className="rpt-kpi-v">₹ {fmt(statement.total_credit)}</div>
+            </div>
+            <div className={`rpt-kpi ${closing >= 0 ? 'tone-accent' : 'tone-danger'}`}>
+              <div className="rpt-kpi-k">Closing {closing >= 0 ? 'Dr' : 'Cr'}</div>
+              <div className="rpt-kpi-v">₹ {fmt(Math.abs(closing))}</div>
+            </div>
+            <div className="rpt-kpi tone-neutral">
+              <div className="rpt-kpi-k">Vouchers</div>
+              <div className="rpt-kpi-v">{statement.entries?.length || 0}</div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="psp-sticky">
         <div className="ledger-picker-bar">
