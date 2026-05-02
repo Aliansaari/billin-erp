@@ -78,11 +78,22 @@
   border-radius: 10px;
   padding: 3px;
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-subtle) 60%, transparent);
+  /* Pin the control's footprint so the header is rock-stable when
+     the user toggles views — no shrink/stretch as the slide
+     animation runs. */
+  height: 38px;
+  flex-shrink: 0;
 }
 
 /* Per-option label container */
 .bo-view-toggle.ant-segmented .ant-segmented-item {
   border-radius: 7px;
+  /* Transparent border on EVERY item so the bounding box stays the
+     same width whether the item is selected (gets a coloured border
+     via box-shadow) or not. Without this, AntD's selected state adds
+     a 1px border which subtly shrinks the unselected items as the
+     thumb slides — that's the visible "shimmer" the user noticed. */
+  border: 1px solid transparent;
   transition: color 0.15s ease, background 0.15s ease;
 }
 .bo-view-toggle.ant-segmented .ant-segmented-item-label {
@@ -93,7 +104,7 @@
   font-size: 12.5px;
   font-weight: 500;
   color: var(--fg-secondary);
-  line-height: 1.6;
+  line-height: 1.5;
 }
 .bo-view-toggle.ant-segmented .ant-segmented-item:hover:not(.ant-segmented-item-selected) {
   color: var(--fg-primary);
@@ -101,25 +112,25 @@
 }
 .bo-view-toggle.ant-segmented .ant-segmented-item-icon { color: inherit; font-size: 13px; }
 
-/* Active item — colour the label, the moving thumb is styled below. */
+/* Active item — accent label colour. The lift/border effect comes
+   from box-shadow only (zero layout impact). */
 .bo-view-toggle.ant-segmented .ant-segmented-item-selected .ant-segmented-item-label {
   color: var(--accent, #B1472F);
   font-weight: 600;
 }
 
-/* The moving thumb — AntD calls this .ant-segmented-thumb (during
-   transition) and applies .ant-segmented-item-selected at rest. Style
-   both so the lift effect is consistent. */
+/* Selected pill + moving thumb — gradient + accent shadow ring so it
+   reads as a lifted token. We use box-shadow's spread instead of a
+   real border to avoid affecting the bounding-box width. */
 .bo-view-toggle.ant-segmented .ant-segmented-item-selected,
 .bo-view-toggle.ant-segmented .ant-segmented-thumb {
   background: linear-gradient(180deg,
     color-mix(in srgb, var(--accent-bg, #f5e9e3) 60%, var(--bg-panel)) 0%,
     var(--bg-panel) 100%) !important;
-  border: 1px solid color-mix(in srgb, var(--accent, #B1472F) 22%, var(--border));
   border-radius: 7px !important;
   box-shadow:
-    0 1px 2px color-mix(in srgb, var(--accent, #B1472F) 18%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--accent, #B1472F) 8%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--accent, #B1472F) 22%, transparent),
+    0 1px 2px color-mix(in srgb, var(--accent, #B1472F) 18%, transparent);
 }
 
 .bo-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
