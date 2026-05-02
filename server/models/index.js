@@ -30,6 +30,8 @@ const Godown = require('./Godown');
 const ProductGodownStock = require('./ProductGodownStock');
 const StockTransfer = require('./StockTransfer');
 const StockTransferItem = require('./StockTransferItem');
+const ProductBatch = require('./ProductBatch');
+const ProductBatchStock = require('./ProductBatchStock');
 const UserReportFavorite = require('./UserReportFavorite');
 
 // ── Associations ──
@@ -212,6 +214,48 @@ StockTransfer.belongsTo(User,              { foreignKey: 'received_by',    as: '
 User.hasMany(UserReportFavorite,   { foreignKey: 'user_id', as: 'reportFavorites', onDelete: 'CASCADE' });
 UserReportFavorite.belongsTo(User, { foreignKey: 'user_id' });
 
+// ── Batch tracking associations ─────────────────────────────────────
+//
+// ProductBatch is the lot definition; ProductBatchStock is the per-
+// (product, batch, godown) on-hand. We do NOT cascade-delete a batch
+// when its product is removed — products with batch movements can't be
+// hard-deleted (controller-level guard), and a soft-deleted product
+// keeps its batch history for audit/integrity. RESTRICT keeps the FK
+// honest if SQL bypass ever attempts a hard delete.
+Product.hasMany(ProductBatch,        { foreignKey: 'product_id', as: 'batches', onDelete: 'RESTRICT' });
+ProductBatch.belongsTo(Product,      { foreignKey: 'product_id', as: 'product' });
+
+ProductBatch.hasMany(ProductBatchStock,    { foreignKey: 'batch_id', as: 'stock', onDelete: 'RESTRICT' });
+ProductBatchStock.belongsTo(ProductBatch,  { foreignKey: 'batch_id', as: 'batch' });
+
+Product.hasMany(ProductBatchStock,         { foreignKey: 'product_id', as: 'batchStock' });
+ProductBatchStock.belongsTo(Product,       { foreignKey: 'product_id', as: 'product' });
+
+Godown.hasMany(ProductBatchStock,          { foreignKey: 'godown_id', as: 'batchStock' });
+ProductBatchStock.belongsTo(Godown,        { foreignKey: 'godown_id', as: 'godown' });
+
+// Batch presence on movement / item rows. SET NULL on delete so that if
+// a batch is somehow purged, the historical movement row survives with
+// batch_id=NULL (degraded but not lost). In practice batches are never
+// hard-deleted; the alias keeps the integrity-screen include() readable.
+ProductBatch.hasMany(StockLedger,    { foreignKey: 'batch_id' });
+StockLedger.belongsTo(ProductBatch,  { foreignKey: 'batch_id', as: 'batch' });
+
+ProductBatch.hasMany(SalesBillItem,    { foreignKey: 'batch_id' });
+SalesBillItem.belongsTo(ProductBatch,  { foreignKey: 'batch_id', as: 'batch' });
+
+ProductBatch.hasMany(PurchaseBillItem,    { foreignKey: 'batch_id' });
+PurchaseBillItem.belongsTo(ProductBatch,  { foreignKey: 'batch_id', as: 'batch' });
+
+ProductBatch.hasMany(SalesReturnBillItem,    { foreignKey: 'batch_id' });
+SalesReturnBillItem.belongsTo(ProductBatch,  { foreignKey: 'batch_id', as: 'batch' });
+
+ProductBatch.hasMany(PurchaseReturnBillItem,    { foreignKey: 'batch_id' });
+PurchaseReturnBillItem.belongsTo(ProductBatch,  { foreignKey: 'batch_id', as: 'batch' });
+
+ProductBatch.hasMany(StockTransferItem,    { foreignKey: 'batch_id' });
+StockTransferItem.belongsTo(ProductBatch,  { foreignKey: 'batch_id', as: 'batch' });
+
 module.exports = {
   sequelize,
   Role,
@@ -245,5 +289,7 @@ module.exports = {
   ProductGodownStock,
   StockTransfer,
   StockTransferItem,
+  ProductBatch,
+  ProductBatchStock,
   UserReportFavorite,
 };

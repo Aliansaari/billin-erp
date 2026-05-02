@@ -103,6 +103,13 @@ const SalesBillItem = sequelize.define('SalesBillItem', {
     type: DataTypes.DECIMAL(10, 2),
     defaultValue: 1,
   },
+  // Batch the line drew from. NULL when the parent product is not
+  // batch-tracked; required (validated at the controller) when it is.
+  batch_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'product_batches', key: 'batch_id' },
+  },
 }, {
   tableName: 'sales_bill_items',
   timestamps: false,

@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Input, Button, Modal, Form, InputNumber, Select,
+  Input, Button, Modal, Form, InputNumber, Select, Switch,
   Row, Col, Divider, message, DatePicker, Dropdown, Tooltip,
 } from 'antd';
-import { BarcodeOutlined, SettingOutlined, EditOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { BarcodeOutlined, SettingOutlined, EditOutlined, ArrowRightOutlined, TagsOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { productAPI, categoryAPI, dataAPI } from '../../api';
+import { productAPI, categoryAPI, dataAPI, settingsAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 
@@ -114,6 +114,10 @@ export default function ProductList() {
   }, [searchInput]);
 
   const [categories, setCategories] = useState([]);
+  // Global batch-tracking toggle. Cached on mount so the form can hide the
+  // "Track by batch" field cleanly when the feature is off — same condition
+  // the bill forms and reports apply.
+  const [batchTrackingEnabled, setBatchTrackingEnabled] = useState(false);
 
   /* ── data layer ── */
   const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
@@ -135,11 +139,19 @@ export default function ProductList() {
   const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
 
-  useEffect(() => { loadCategories(); }, []);
+  useEffect(() => { loadCategories(); loadBatchSetting(); }, []);
 
   const loadCategories = async () => {
     try { const { data } = await categoryAPI.getAllFlat(); setCategories(data || []); }
     catch { /* ignore */ }
+  };
+
+  const loadBatchSetting = async () => {
+    try {
+      const { data } = await settingsAPI.getSystem();
+      const s = (data && data.data) ? data.data : data;
+      setBatchTrackingEnabled(!!s?.batch_tracking_enabled);
+    } catch { /* best effort — feature stays hidden if settings unavailable */ }
   };
 
   /* ── form helpers ── */
@@ -627,6 +639,29 @@ export default function ProductList() {
               </Form.Item>
             </Col>
           </Row>
+
+          {batchTrackingEnabled && (
+            <>
+              <Divider plain><span style={{ fontWeight: 600 }}><TagsOutlined /> Batch Tracking</span></Divider>
+              <Row gutter={16}>
+                <Col span={24}>
+                  <Form.Item
+                    name="is_batch_tracked"
+                    label="Track by batch"
+                    valuePropName="checked"
+                    style={{ marginBottom: 4 }}
+                    extra={
+                      editing && editing.is_batch_tracked
+                        ? <span style={{ fontSize: 12, color: '#6b7280' }}>Once stock movements exist on a batch-tracked product, the toggle is locked. Move all batch stock to zero before disabling.</span>
+                        : <span style={{ fontSize: 12, color: '#6b7280' }}>Each unit can be grouped into a batch with its own dates and (optional) expiry. Batch picker appears on purchases, sales, returns, and transfers.</span>
+                    }
+                  >
+                    <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </>
+          )}
 
           <Divider plain><span style={{ color: 'var(--ed-accent)', fontWeight: 600 }}>Opening Stock</span></Divider>
           <div style={{ background: 'var(--ed-accent-s)', border: '1px solid var(--ed-accent-b)', borderRadius: 8, padding: '12px 16px' }}>

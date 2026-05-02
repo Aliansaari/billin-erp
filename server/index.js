@@ -1183,6 +1183,64 @@ async function startServer() {
       console.warn('[R8 backfill] Skipped:', err.message);
     }
 
+    // ── Batch tracking schema ─────────────────────────────────────────
+    //
+    // The two new tables (product_batches, product_batch_stock) are created
+    // by sequelize.sync above. The block below is for COLUMN additions on
+    // existing tables (idempotent — IF NOT EXISTS gates re-runs).
+    //
+    // All new columns are nullable: a non-batch-tracked product / movement
+    // / bill line keeps batch_id NULL. The "required for batch-tracked
+    // products" rule is enforced at the application layer (controllers),
+    // not at the DB level — a single CHECK can't express "NULL only when
+    // products.is_batch_tracked = false".
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='is_batch_tracked') THEN
+          ALTER TABLE products ADD COLUMN is_batch_tracked BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='batch_expiry_alert_days') THEN
+          ALTER TABLE system_settings ADD COLUMN batch_expiry_alert_days INTEGER DEFAULT 30;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='block_expired_sales') THEN
+          ALTER TABLE system_settings ADD COLUMN block_expired_sales BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='allow_zero_stock_batches') THEN
+          ALTER TABLE system_settings ADD COLUMN allow_zero_stock_batches BOOLEAN DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='stock_ledger' AND column_name='batch_id') THEN
+          ALTER TABLE stock_ledger ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bill_items' AND column_name='batch_id') THEN
+          ALTER TABLE sales_bill_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_bill_items' AND column_name='batch_id') THEN
+          ALTER TABLE purchase_bill_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_return_bill_items' AND column_name='batch_id') THEN
+          ALTER TABLE sales_return_bill_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_return_bill_items' AND column_name='batch_id') THEN
+          ALTER TABLE purchase_return_bill_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='stock_transfer_items' AND column_name='batch_id') THEN
+          ALTER TABLE stock_transfer_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+      END $$;
+      CREATE INDEX IF NOT EXISTS idx_stock_ledger_product_batch_date
+        ON stock_ledger (product_id, batch_id, transaction_date);
+      CREATE INDEX IF NOT EXISTS idx_sales_bill_items_batch
+        ON sales_bill_items (batch_id);
+      CREATE INDEX IF NOT EXISTS idx_purchase_bill_items_batch
+        ON purchase_bill_items (batch_id);
+      CREATE INDEX IF NOT EXISTS idx_product_batches_expiry
+        ON product_batches (expiry_date);
+      CREATE INDEX IF NOT EXISTS idx_product_batches_product_expiry
+        ON product_batches (product_id, expiry_date);
+    `).catch((err) => {
+      console.error('[Batch tracking migration] Error:', err.message);
+    });
+
     // Seed default data
     await seedDefaultData();
 

@@ -100,6 +100,14 @@ const PurchaseBillItem = sequelize.define('PurchaseBillItem', {
     type: DataTypes.DECIMAL(15, 2),
     defaultValue: 0,
   },
+  // Batch this line received. NULL when the parent product is not
+  // batch-tracked; required (validated at the controller) when it is.
+  // Resolved (or created) on bill save by the purchase controller.
+  batch_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'product_batches', key: 'batch_id' },
+  },
 }, {
   tableName: 'purchase_bill_items',
   timestamps: false,

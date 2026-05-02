@@ -48,6 +48,7 @@ const PRODUCT_UPDATABLE_FIELDS = [
   'current_stock',
   'purchase_rate', 'margin_percentage', 'sale_rate', 'mrp',
   'is_active',
+  'is_batch_tracked',
 ];
 
 exports.getAll = async (req, res) => {
@@ -354,6 +355,51 @@ exports.update = async (req, res) => {
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
     const product = await Product.findByPk(req.params.id, { transaction: t });
     if (!product) { await t.rollback(); return res.status(404).json({ error: 'Product not found' }); }
+
+    // Block disabling batch tracking on a product that already has movements.
+    // Once stock has flowed through batches, flipping the flag off would leave
+    // batch ledger rows orphaned (batch picker hidden but data still present).
+    // The user has to first move all batch stock to zero, then disable.
+    if (Object.prototype.hasOwnProperty.call(data, 'is_batch_tracked')
+        && data.is_batch_tracked === false
+        && product.is_batch_tracked === true) {
+      const movementCount = await StockLedger.count({
+        where: { product_id: req.params.id, batch_id: { [Op.ne]: null } },
+        transaction: t,
+      });
+      if (movementCount > 0) {
+        // Compute the live tally for the error message — far more useful
+        // than a bare "has movements" line.
+        const { ProductBatch, ProductBatchStock } = require('../models');
+        const batches = await ProductBatch.findAll({
+          where: { product_id: req.params.id },
+          attributes: ['batch_id'],
+          transaction: t,
+        });
+        const batchIds = batches.map((b) => b.batch_id);
+        let totalStock = 0;
+        let nBatchesWithStock = 0;
+        if (batchIds.length) {
+          const stocks = await ProductBatchStock.findAll({
+            where: { product_id: req.params.id, batch_id: batchIds },
+            transaction: t,
+          });
+          for (const s of stocks) {
+            const q = parseFloat(s.current_stock) || 0;
+            if (q > 0) { totalStock += q; nBatchesWithStock += 1; }
+          }
+        }
+        await t.rollback();
+        if (totalStock > 0) {
+          return res.status(400).json({
+            error: `Cannot disable batch tracking — product has ${totalStock} unit(s) across ${nBatchesWithStock} batch(es). Move all stock out before disabling.`,
+          });
+        }
+        return res.status(400).json({
+          error: 'Cannot disable batch tracking — product has historical batch movements. Reconcile all batches to zero before disabling.',
+        });
+      }
+    }
 
     // Handle opening stock change
     const newOpeningQty = parseFloat(opening_stock ?? '');

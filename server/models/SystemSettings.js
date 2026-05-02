@@ -41,6 +41,28 @@ const SystemSettings = sequelize.define('SystemSettings', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  // Days-before-expiry threshold for the "Expiring soon" amber chip on the
+  // batch picker + Expiry Report dashboard widget. Configurable because
+  // pharma needs ~90 days lead time while a fast-moving food shop wants 7.
+  batch_expiry_alert_days: {
+    type: DataTypes.INTEGER,
+    defaultValue: 30,
+  },
+  // Hard block on selling expired batches. Default OFF because wholesale
+  // textile/food often deliberately sells aged stock at a discount; pharma
+  // would flip this ON.
+  block_expired_sales: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  // Allow creating a batch row before any stock arrives (e.g. registering
+  // an upcoming shipment so the purchase form has it in the dropdown).
+  // Default ON — the alternative is forcing every batch creation through
+  // a purchase, which is fine until a user wants to pre-register.
+  allow_zero_stock_batches: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+  },
   expiry_tracking_enabled: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,

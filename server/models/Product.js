@@ -103,6 +103,16 @@ const Product = sequelize.define('Product', {
     type: DataTypes.BOOLEAN,
     defaultValue: true,
   },
+  // Per-product opt-in for batch tracking. Only meaningful when
+  // system_settings.batch_tracking_enabled is also ON — when the global
+  // toggle is OFF the column stays in the schema but is ignored everywhere
+  // (bill forms hide the picker, reports hide the section). Once a
+  // batch-tracked product has any stock movement, the controller refuses
+  // to flip this back to false (would orphan the batch ledger).
+  is_batch_tracked: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
 }, {
   tableName: 'products',
   timestamps: true,
