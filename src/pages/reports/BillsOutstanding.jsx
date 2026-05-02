@@ -40,6 +40,7 @@ import {
   CloseOutlined, WarningOutlined, CheckCircleOutlined, EllipsisOutlined,
   PrinterOutlined, WhatsAppOutlined, FilterOutlined, GroupOutlined,
   FilePdfOutlined, UnorderedListOutlined, TeamOutlined,
+  ExpandAltOutlined, ShrinkOutlined,
 } from '@ant-design/icons';
 import PartyOutstandingView from './PartyOutstandingView';
 import './party-outstanding.css';
@@ -176,6 +177,35 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
     const fromUrl = initialFromUrl('view');
     return fromUrl === 'bill' || fromUrl === 'party' ? fromUrl : defaultView;
   });
+
+  // Party-view expansion state lives here (not inside
+  // PartyOutstandingView) so the header's Expand-all / Collapse-all
+  // toggle can read + write it. Group count comes back via callback
+  // so the toggle's label flips between "Expand all" (when nothing
+  // or some are open) and "Collapse all" (when every party is open).
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [partyGroupCount, setPartyGroupCount] = useState(0);
+  const allExpanded = partyGroupCount > 0 && expanded.size >= partyGroupCount;
+  const anyExpanded = expanded.size > 0;
+  const toggleExpandAll = useCallback(() => {
+    // No groups loaded yet → no-op (button is disabled in that state).
+    if (!partyGroupCount) return;
+    if (allExpanded) {
+      setExpanded(new Set());
+    } else {
+      // Need a snapshot of every group's key. PartyOutstandingView
+      // groups by party_id (or 'cash:<name>' for system-cash-style
+      // entries). We don't have the rows here, but the simplest
+      // correct approach is "set a flag, child observes" — instead
+      // we expose this via a callback the child fills on render.
+      // Cheap workaround: have the child push group keys up too.
+      setExpandAllRequest(n => n + 1);     // bump counter, child reacts
+    }
+  }, [allExpanded, partyGroupCount]);
+  // Counter the child watches; on each tick it expands every loaded
+  // party. Clean-room state plumbing without lifting the entire
+  // group list out of the child.
+  const [expandAllRequest, setExpandAllRequest] = useState(0);
 
   // Debounce free-text search so we don't fire a request per keystroke.
   useEffect(() => {
@@ -684,6 +714,20 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
               { value: 'city',   label: 'Group by City' },
             ]}
           />
+          {/* Expand-all / Collapse-all toggle — only meaningful in
+              party view (where every party can be expanded to show
+              its bills). Single button: label flips based on whether
+              every loaded party is currently expanded. Hidden in bill
+              view since there's nothing to expand there. */}
+          {viewMode === 'party' && partyGroupCount > 0 && (
+            <Button
+              size="small"
+              icon={allExpanded ? <ShrinkOutlined /> : <ExpandAltOutlined />}
+              onClick={() => allExpanded ? setExpanded(new Set()) : toggleExpandAll()}
+            >
+              {allExpanded ? 'Collapse all' : 'Expand all'}
+            </Button>
+          )}
           <Popover content={colPickerContent} title="Customize" trigger="click" placement="bottomRight">
             <Button size="small" icon={<SettingOutlined />}>Customize</Button>
           </Popover>
@@ -927,6 +971,10 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
             bucketLabels={bucketLabels}
             onDrillBill={drillBill}
             isVisible={viewMode === 'party'}
+            expanded={expanded}
+            setExpanded={setExpanded}
+            onGroupCount={setPartyGroupCount}
+            expandAllRequest={expandAllRequest}
           />
         </div>
       </div>

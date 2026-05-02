@@ -51,11 +51,14 @@ export default function PartyOutstandingView({
   bucketLabels,   // { current, b1, b2, b3, b4 } — surfaced for "X overdue" hint per party
   onDrillBill,    // (row) => void  (parent's handler — keeps drill behavior identical to bill-view)
   isVisible = true, // false when the parent toggled to bill-view; pauses the global keydown handler so the two views don't fight over arrow keys
+  expanded,       // Set of party_ids currently expanded — owned by parent so the header's Expand-all toggle can read + write it
+  setExpanded,    // (Set) => void — parent's setter, used by row clicks + keyboard nav
+  onGroupCount,   // (n: number) => void — parent uses this to know how many parties are loaded so its header toggle can decide "Expand all" vs "Collapse all"
+  expandAllRequest = 0, // counter — every increment from the parent triggers an "expand every loaded party" action
 }) {
   const navigate = useNavigate();
   const [rows, setRows]       = useState([]);   // raw bill-level rows from API
   const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(() => new Set());   // party_ids currently expanded
 
   // Single-shot fetch — load every matching bill, aggregate locally.
   // The hook-driven virtualization in BillsOutstanding's bill-view
@@ -120,10 +123,26 @@ export default function PartyOutstandingView({
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
-  }, []);
+  }, [setExpanded]);
 
-  const expandAll = () => setExpanded(new Set(groups.map(g => g.party_id ?? `cash:${g.party_name}`)));
-  const collapseAll = () => setExpanded(new Set());
+  // Tell the parent how many groups (parties) are loaded so the
+  // Expand-all / Collapse-all button in the header can decide its
+  // current label state. Skip when count is 0 (loading / empty) so
+  // the toggle button doesn't flicker its label on first load.
+  useEffect(() => {
+    if (typeof onGroupCount === 'function') onGroupCount(groups.length);
+  }, [groups.length, onGroupCount]);
+
+  // Parent ticked the expand-all counter — open every loaded party.
+  // Skip the initial mount (counter still at its default 0) so an
+  // accidental first-render expand doesn't happen.
+  const lastExpandAllRequest = useRef(0);
+  useEffect(() => {
+    if (expandAllRequest === lastExpandAllRequest.current) return;
+    lastExpandAllRequest.current = expandAllRequest;
+    if (expandAllRequest === 0) return;        // initial render
+    setExpanded(new Set(groups.map(g => g.party_id ?? `cash:${g.party_name}`)));
+  }, [expandAllRequest, groups, setExpanded]);
 
   // ── Keyboard navigation ──────────────────────────────────────────
   // Same shape as Trial Balance: build a flat list of currently-
@@ -257,19 +276,6 @@ export default function PartyOutstandingView({
       {loading && (
         <div className="po-overlay"><Spin size="large" /></div>
       )}
-
-      <div className="po-toolbar">
-        <span className="po-count">
-          <b>{groups.length}</b> {cfg.partyLabel.toLowerCase()}{groups.length === 1 ? '' : 's'}
-          <span className="sep">·</span>
-          <b>{rows.length}</b> bill{rows.length === 1 ? '' : 's'}
-        </span>
-        <div className="po-toolbar-actions">
-          <button className="po-link" onClick={expandAll}>Expand all</button>
-          <span className="sep">·</span>
-          <button className="po-link" onClick={collapseAll}>Collapse all</button>
-        </div>
-      </div>
 
       <div className="po-scroll" ref={scrollRef}>
         <table className="po-table po-table--body">
