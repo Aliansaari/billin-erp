@@ -28,17 +28,11 @@
 // remain trivial.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, DatePicker, message } from 'antd';
+import { Button, DatePicker, message, Tooltip } from 'antd';
 import {
-  PrinterOutlined, FileExcelOutlined, FilePdfOutlined,
+  PrinterOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined,
   WhatsAppOutlined, ArrowLeftOutlined,
 } from '@ant-design/icons';
-
-const fmt = (v) =>
-  parseFloat(v || 0).toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { ledgerAPI, partyAPI } from '../api';
@@ -243,25 +237,6 @@ export default function PartyStatementPage({
   };
   const clearVoucherFilter = () => setVoucherFilter(new Set());
 
-  // ── Header subtitle text ──────────────────────────────────────────
-  // Mirrors Sales Report's "<N> bills · FY 2026-27" subtitle. We
-  // surface the visible voucher count + the active preset (or
-  // formatted date range when Custom is in effect).
-  const subtitleText = useMemo(() => {
-    const count = statement?.entries?.length || 0;
-    const presetLabel = presets(fyStart, fyEnd).find(p => p.v === activePreset)?.l;
-    const periodLabel = activePreset === 'custom' && from && to
-      ? `${dayjs(from).format('DD MMM YY')} – ${dayjs(to).format('DD MMM YY')}`
-      : presetLabel || 'All time';
-    if (!statement) return periodLabel;
-    return (
-      <>
-        <b>{count}</b> voucher{count === 1 ? '' : 's'}
-        <span className="sep">·</span>{periodLabel}
-      </>
-    );
-  }, [statement, activePreset, from, to, fyStart, fyEnd]);
-
   // ── Actions ────────────────────────────────────────────────────────
   const onPrint = () => window.print();
 
@@ -347,26 +322,23 @@ export default function PartyStatementPage({
   };
 
   return (
-    <div className="report-editorial psp-page">
-      {/* ── Header — Sales Report chrome ─────────────────────────────
-          rpt-page-hd / rpt-title / rpt-sub / rpt-hd-ctrl come from
-          src/styles/global.css. Reusing the same classes makes every
-          report wear the same uniform: title + count subtitle on the
-          left, segmented period control + range picker + labelled
-          action buttons on the right. */}
-      <div className="rpt-page-hd">
-        <div className="rpt-title">
-          <h1>
-            <Button
-              type="text" icon={<ArrowLeftOutlined />}
-              onClick={() => navigate(-1)}
-              className="psp-back"
-            />
-            {title}
-          </h1>
-          <div className="rpt-sub">{subtitleText}</div>
+    <div className="psp-page">
+      {/* ── Header strip ─────────────────────────────────────────────
+          Three zones on one row: title, period control, action buttons.
+          Period sits next to the actions because the operator already
+          treats date-range as part of "what's the report scope" — same
+          mental cluster as Refresh / Excel / Print. The shared rpt-*
+          classes match Sales Report / Day Book / Trial Balance. */}
+      <div className="psp-header">
+        <div className="psp-titles">
+          <Button
+            type="text" icon={<ArrowLeftOutlined />}
+            onClick={() => navigate(-1)}
+            className="psp-back"
+          />
+          <h1 className="psp-title">{title}</h1>
         </div>
-        <div className="rpt-hd-ctrl">
+        <div className="psp-header-period">
           <div className="rpt-period">
             {presets(fyStart, fyEnd).map(p => (
               <button
@@ -388,48 +360,30 @@ export default function PartyStatementPage({
             format="DD/MM/YYYY"
             allowClear={false}
           />
-          <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length}>Excel</Button>
-          <Button className="rpt-btn" icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!statement}>PDF</Button>
+        </div>
+        <div className="psp-actions">
+          {/* Icon-only buttons with tooltips. Same compact pattern Day
+              Book uses on the same kind of header — keeps every chrome
+              control on one row at typical desktop widths. Print stays
+              labelled because it's the primary action and gets the
+              accent button styling already. */}
+          <Tooltip title="Refresh">
+            <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={() => party && setParty({ ...party })} disabled={!party} />
+          </Tooltip>
+          <Tooltip title="Export Excel">
+            <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length} />
+          </Tooltip>
+          <Tooltip title="Export PDF">
+            <Button className="rpt-btn" icon={<FilePdfOutlined />} onClick={onPdf} disabled={!statement} />
+          </Tooltip>
           {showWhatsApp && (
-            <Button className="rpt-btn" icon={<WhatsAppOutlined />} onClick={onWhatsApp} disabled={!party}>WhatsApp</Button>
+            <Tooltip title="Send via WhatsApp">
+              <Button className="rpt-btn" icon={<WhatsAppOutlined />} onClick={onWhatsApp} disabled={!party} />
+            </Tooltip>
           )}
           <Button className="rpt-btn" type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
         </div>
       </div>
-
-      {/* ── KPI strip ────────────────────────────────────────────────
-          Five tiles: Opening · Total Dr · Total Cr · Closing · Voucher
-          count. Same rpt-kpi card chrome Sales Report uses; tones picked
-          to put the eye on Closing (accent) and color-code the running
-          credit/debit pair (success/warning). Hidden until a party is
-          picked — KPIs of "no data" would just be five zeros. */}
-      {statement && (() => {
-        const closing = parseFloat(statement.closing_balance) || 0;
-        return (
-          <div className="rpt-kpis">
-            <div className="rpt-kpi tone-info">
-              <div className="rpt-kpi-k">Opening</div>
-              <div className="rpt-kpi-v">₹ {fmt(statement.opening_balance)}</div>
-            </div>
-            <div className="rpt-kpi tone-success">
-              <div className="rpt-kpi-k">Total Debit</div>
-              <div className="rpt-kpi-v">₹ {fmt(statement.total_debit)}</div>
-            </div>
-            <div className="rpt-kpi tone-warning">
-              <div className="rpt-kpi-k">Total Credit</div>
-              <div className="rpt-kpi-v">₹ {fmt(statement.total_credit)}</div>
-            </div>
-            <div className={`rpt-kpi ${closing >= 0 ? 'tone-accent' : 'tone-danger'}`}>
-              <div className="rpt-kpi-k">Closing {closing >= 0 ? 'Dr' : 'Cr'}</div>
-              <div className="rpt-kpi-v">₹ {fmt(Math.abs(closing))}</div>
-            </div>
-            <div className="rpt-kpi tone-neutral">
-              <div className="rpt-kpi-k">Vouchers</div>
-              <div className="rpt-kpi-v">{statement.entries?.length || 0}</div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ── Picker + voucher-type chips ──────────────────────────────
           Period control moved up into the header; this row carries the
