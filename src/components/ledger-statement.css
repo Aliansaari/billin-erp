@@ -1,15 +1,17 @@
 /* ── LedgerStatement ─────────────────────────────────────────────────
  *
- * Two-table layout for an "always-pinned bottom strip" that doesn't
- * depend on the body being long enough to overflow:
+ * Two-table layout for an "always-pinned bottom strip":
  *
- *   .ls-wrap                          (flex column, fills column)
+ *   .ls-wrap                          (rounded card, fills column)
  *     .ls-scroll                      (flex: 1, overflow-y: auto)
  *       .ls-table.ls-table--body      (header + opening + entries)
  *     .ls-table.ls-table--footer      (period totals + closing — pinned)
  *
- * Both tables share the same <colgroup> from React, plus
- * `table-layout: fixed`, so columns align perfectly between the two.
+ * Visual style mirrors Sales Report's table chrome (.rpt-tbl in
+ * global.css) — same rounded card, same uppercase letter-spaced
+ * header on bg-muted, same 11px row padding with tabular-nums, same
+ * muted-background totals row with 2px top border. So the report
+ * family reads as one app.
  */
 
 .ls-wrap {
@@ -17,10 +19,10 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;        /* lets .ls-scroll consume the column height */
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
   overflow: hidden;
 }
 
@@ -30,7 +32,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
   z-index: 5;
 }
 
@@ -47,35 +49,40 @@
 .ls-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;                  /* honors <colgroup> widths */
+  table-layout: fixed;
   font-variant-numeric: tabular-nums;
   font-size: 13px;
   color: var(--fg-primary);
+  background: transparent;
 }
 
+/* ── Header ─────────────────────────────────────────────────────────
+   Same chrome the Sales Report header uses (modern editorial overlay
+   in global.css). Uppercase, letter-spaced, muted colour on the
+   bg-muted plate, hairline bottom rule. */
 .ls-table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
+  letter-spacing: 0.6px;
+  font-size: 11px;
   font-weight: 700;
-  color: var(--fg-tertiary);
-  padding: 9px 12px;
+  color: var(--fg-secondary);
+  padding: 12px 14px;
   text-align: left;
 }
 .ls-table thead th.right { text-align: right; }
 
+/* ── Body cells ─────────────────────────────────────────────────────
+   11px vertical padding + tabular-nums = identical row-rhythm to
+   Sales Report. */
 .ls-table td {
-  padding: 8px 12px;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
-  /* Long narration / particulars text wraps within the cell rather
-     than blowing the column width — table-layout: fixed forces this
-     anyway, but explicit overflow rules keep the body tidy. */
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -85,7 +92,7 @@
 .ls-nowrap     { white-space: nowrap; }
 .ls-num,
 .ls-balance    { text-align: right; }
-.ls-particulars { white-space: normal; }      /* allow wrap */
+.ls-particulars { white-space: normal; }
 
 .ls-drcr {
   font-size: 10px;
@@ -95,31 +102,35 @@
 }
 
 .ls-row.ls-clickable { cursor: pointer; transition: background 0.08s ease; }
-.ls-row.ls-clickable:hover { background: var(--bg-cell, var(--bg-secondary)); }
+.ls-row.ls-clickable:hover { background: var(--bg-hover, var(--bg-muted)); }
 
-/* Voucher-type pill — soft tint, no hard outline, matches Day Book.
-   The variant classes come from a slug on the renderer. */
+/* Voucher-type pill — same shape Sales Report uses for status pills
+   (.rpt-pill). We keep the per-category tints from before for quick
+   visual scanning. */
 .ls-vt {
   display: inline-block;
-  padding: 1px 8px;
-  border-radius: 3px;
-  font-size: 11px;
+  padding: 2.5px 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
   font-weight: 600;
-  background: var(--bg-secondary);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  background: var(--bg-muted);
   color: var(--fg-secondary);
 }
-.ls-vt--sales           { background: rgba( 56,142, 96,0.10); color: #2A8056; }
-.ls-vt--purchase        { background: rgba(177, 71, 47,0.10); color: #B1472F; }
-.ls-vt--receipt         { background: rgba( 60,120,180,0.10); color: #3C78B4; }
-.ls-vt--payment         { background: rgba(127, 90,163,0.10); color: #7F5AA3; }
-.ls-vt--sales-return    { background: rgba(177, 71, 47,0.16); color: #B1472F; }
-.ls-vt--purchase-return { background: rgba( 56,142, 96,0.16); color: #2A8056; }
-.ls-vt--journal         { background: rgba(120,120,120,0.12); color: #5b5b5b; }
-.ls-vt--contra          { background: rgba(140,110, 60,0.12); color: #8c6e3c; }
+.ls-vt--sales           { background: var(--success-bg); color: var(--success); }
+.ls-vt--purchase        { background: var(--warning-bg); color: var(--warning); }
+.ls-vt--receipt         { background: var(--info-bg);    color: var(--info); }
+.ls-vt--payment         { background: var(--accent-bg, rgba(127,90,163,0.14)); color: var(--accent, #7F5AA3); }
+.ls-vt--sales-return    { background: var(--danger-bg);  color: var(--danger); }
+.ls-vt--purchase-return { background: var(--success-bg); color: var(--success); }
+.ls-vt--journal         { background: var(--bg-muted);   color: var(--fg-secondary); }
+.ls-vt--contra          { background: var(--warning-bg); color: var(--warning); }
+.ls-vt--opening-adj     { background: var(--info-bg);    color: var(--info); }
 
-/* Opening row — soft warmth, italic, no hard outlines. */
+/* Opening row — soft warmth, italic label, no hard outline. */
 .ls-opening td {
-  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-muted) 60%, transparent);
   font-style: italic;
   color: var(--fg-secondary);
 }
@@ -132,23 +143,22 @@
 }
 
 /* ── Pinned-bottom footer table ─────────────────────────────────────
-   Lives outside .ls-scroll so it's always anchored to the bottom of
-   the wrapper, not to the bottom of the body's content. ONE row
-   carrying Σ Dr, Σ Cr, AND the closing balance at once — operator
-   reads totals + close in a single glance. */
+   Mirrors Sales Report's summary row chrome — bg-muted, 2px top rule
+   in border-strong, bold tabular numbers. ONE row carrying Σ Dr,
+   Σ Cr, AND closing balance at once. */
 .ls-table--footer {
-  flex: 0 0 auto;                       /* don't grow / don't shrink */
-  background: var(--bg-secondary);
-  border-top: 2px solid var(--accent, #B1472F);
+  flex: 0 0 auto;
+  background: var(--bg-muted);
+  border-top: 2px solid var(--border-strong, var(--border));
 }
 
 .ls-table--footer td {
-  padding: 11px 12px;
+  padding: 13px 14px;
   border-bottom: none;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 700;
   color: var(--fg-primary);
-  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  background: var(--bg-muted);
 }
 
 .ls-filtered-note {
@@ -166,8 +176,8 @@
   height: 100%;
   min-height: 240px;
   border: 1px dashed var(--border-subtle);
-  border-radius: 6px;
-  background: var(--bg-primary);
+  border-radius: 12px;
+  background: var(--bg-panel);
 }
 
 /* Print — strip chrome, keep numbers. The page wrapper supplies the
