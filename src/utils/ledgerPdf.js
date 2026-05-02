@@ -86,7 +86,11 @@ export async function downloadStatementPdf({
     if (party.address_line_1) lines.push(party.address_line_1);
     const cityState = [party.city, party.state].filter(Boolean).join(', ');
     if (cityState) lines.push(cityState);
-    if (party.mobile_1) lines.push(`📞 ${party.mobile_1}`);
+    // Plain "Mobile:" prefix instead of the 📞 glyph — jsPDF's default
+    // Helvetica has no emoji table, so the screen-friendly icon paints
+    // as garbage on the PDF (e.g. "Ø=ÜP 9820001112"). The screen UI
+    // keeps the emoji; the PDF gets ASCII so it's mail-ready.
+    if (party.mobile_1) lines.push(`Mobile: ${party.mobile_1}`);
     if (party.gstin)    lines.push(`GSTIN: ${party.gstin}`);
     doc.setFontSize(9).setTextColor(110);
     for (const ln of lines) {
@@ -95,7 +99,8 @@ export async function downloadStatementPdf({
     }
   }
 
-  const period = `Period: ${statement.period?.from || 'inception'} → ${statement.period?.to || 'today'}`;
+  // ASCII "to" for the same reason — Helvetica has no → arrow.
+  const period = `Period: ${statement.period?.from || 'inception'} to ${statement.period?.to || 'today'}`;
   doc.setFontSize(9).setTextColor(120);
   doc.text(period, 40, cursor);
   cursor += 6;
