@@ -56,19 +56,28 @@
   gap: 10px;
 }
 
-.psp-period {
+/* Period control bar — uses the shared .rpt-period / .rpt-date
+   classes from global.css so this looks identical to Sales Report,
+   Day Book, Trial Balance. The wrapper just lays them out. */
+.psp-controls {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
-  padding: 6px 0 2px;
+  padding: 4px 0 2px;
 }
 
-/* Period preset chips. Active state mirrors the report-hub favourites
-   pill: filled background, accent-colored text. Inactive: hairline
-   border, muted text. */
-.psp-presets { display: flex; gap: 6px; flex-wrap: wrap; }
-.psp-preset {
+/* Voucher-type chip strip — sits below the period bar. Same pill
+   shape as the period chips for visual consistency, just smaller and
+   dialed back so it doesn't compete with the period control. */
+.psp-vt-chips {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 2px 0 4px;
+}
+.psp-vt-chip {
   background: transparent;
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
@@ -79,24 +88,15 @@
   transition: all 0.08s;
   font-weight: 500;
 }
-.psp-preset:hover {
+.psp-vt-chip:hover {
   border-color: var(--accent, #B1472F);
   color: var(--fg-primary);
 }
-.psp-preset.is-active {
+.psp-vt-chip.on {
   background: var(--accent, #B1472F);
   border-color: var(--accent, #B1472F);
   color: #fff;
   font-weight: 600;
-}
-
-.psp-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--fg-secondary);
-  margin-left: auto;          /* pushes to the right edge of the bar */
 }
 
 /* Letterhead — only painted on @media print so the on-screen view

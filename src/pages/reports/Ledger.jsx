@@ -22,7 +22,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button, DatePicker, Select, message, Tooltip } from 'antd';
 import {
   PrinterOutlined, FileExcelOutlined, ReloadOutlined,
-  CalendarOutlined, ArrowLeftOutlined,
+  ArrowLeftOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -39,17 +39,29 @@ const { RangePicker } = DatePicker;
 // Trial Balance and the chart-of-accounts UI already use.
 const GROUP_ORDER = ['Assets', 'Liabilities', 'Income', 'Expenses', 'Capital'];
 
+// Period presets — same labels as Sales Report / Day Book / etc.
 function presets(fyStart, fyEnd) {
   const today = dayjs();
+  const thisFyStart = fyStart ? dayjs(fyStart) : today.month(3).startOf('month').subtract(today.month() < 3 ? 1 : 0, 'year');
+  const thisFyEnd   = fyEnd   ? dayjs(fyEnd)   : thisFyStart.add(1, 'year').subtract(1, 'day');
+  const lastFyStart = thisFyStart.subtract(1, 'year');
+  const lastFyEnd   = thisFyEnd.subtract(1, 'year');
   return [
-    { key: 'month',   label: 'This Month',   from: today.startOf('month'),   to: today.endOf('month')   },
-    { key: 'quarter', label: 'This Quarter', from: today.startOf('quarter'), to: today.endOf('quarter') },
-    { key: 'fy',      label: 'Financial Year',
-      from: fyStart ? dayjs(fyStart) : today.month(3).startOf('month'),
-      to:   fyEnd   ? dayjs(fyEnd)   : today.month(2).endOf('month').add(1, 'year') },
-    { key: 'all',     label: 'All',          from: null, to: null },
+    { v: 'this_fy',    l: 'This FY',    from: thisFyStart, to: thisFyEnd  },
+    { v: 'last_fy',    l: 'Last FY',    from: lastFyStart, to: lastFyEnd  },
+    { v: 'this_q',     l: 'This Q',     from: today.startOf('quarter'), to: today.endOf('quarter') },
+    { v: 'this_month', l: 'This Month', from: today.startOf('month'),   to: today.endOf('month')   },
+    { v: 'custom',     l: 'Custom',     from: null,        to: null     },
   ];
 }
+
+// COA Ledger surfaces all eight categories — depending on which ledger
+// the user picked, any subset can show up (Sales A/c only sees Sales
+// + Sales Return; Bank A/c only Receipt + Payment + Contra; etc.).
+const COA_VOUCHER_CATEGORIES = [
+  'Sales', 'Purchase', 'Receipt', 'Payment',
+  'Sales Return', 'Purchase Return', 'Journal', 'Contra', 'Opening Adj.',
+];
 
 async function downloadExcel({ filename, rows, headers }) {
   const ExcelJS = await import('exceljs').then(m => m.default || m);
@@ -152,16 +164,30 @@ export default function Ledger() {
 
   const activePreset = useMemo(() => {
     const prs = presets(fyStart, fyEnd);
-    return prs.find(p =>
+    const hit = prs.find(p =>
       ((p.from?.format('YYYY-MM-DD') || null) === (from || null)) &&
       ((p.to?.format('YYYY-MM-DD')   || null) === (to   || null))
-    )?.key || null;
+    );
+    return hit?.v || 'custom';
   }, [from, to, fyStart, fyEnd]);
 
   const setPreset = (p) => {
+    if (p.v === 'custom') return;
     setFrom(p.from?.format('YYYY-MM-DD') || null);
     setTo  (p.to?.format('YYYY-MM-DD')   || null);
   };
+
+  // Voucher-type filter — same behaviour as PartyStatementPage. Empty
+  // Set = show every category.
+  const [voucherFilter, setVoucherFilter] = useState(() => new Set());
+  const toggleVoucher = (cat) => {
+    setVoucherFilter(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
+  };
+  const clearVoucherFilter = () => setVoucherFilter(new Set());
 
   const onPrint = () => window.print();
 
@@ -236,29 +262,50 @@ export default function Ledger() {
           />
         </div>
 
-        <div className="psp-period">
-          <div className="psp-presets">
+        <div className="psp-controls">
+          <div className="rpt-period">
             {presets(fyStart, fyEnd).map(p => (
               <button
-                type="button"
-                key={p.key}
-                className={'psp-preset' + (activePreset === p.key ? ' is-active' : '')}
+                key={p.v}
+                className={activePreset === p.v ? 'on' : ''}
                 onClick={() => setPreset(p)}
               >
-                {p.label}
+                {p.l}
               </button>
             ))}
           </div>
           <RangePicker
+            className="rpt-date"
             value={[from ? dayjs(from) : null, to ? dayjs(to) : null]}
             onChange={(range) => {
               setFrom(range?.[0]?.format('YYYY-MM-DD') || null);
               setTo  (range?.[1]?.format('YYYY-MM-DD') || null);
             }}
-            format="DD-MM-YYYY"
-            allowClear
-            suffixIcon={<CalendarOutlined />}
+            format="DD/MM/YYYY"
+            allowClear={false}
           />
+        </div>
+
+        {/* Voucher-type chips. COA Ledger surfaces all eight
+            categories; not all will be present for any single
+            ledger, but having them all listed keeps the chip strip
+            stable across ledger picks. */}
+        <div className="psp-vt-chips">
+          <button
+            className={'psp-vt-chip' + (voucherFilter.size === 0 ? ' on' : '')}
+            onClick={clearVoucherFilter}
+          >
+            All
+          </button>
+          {COA_VOUCHER_CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              className={'psp-vt-chip' + (voucherFilter.has(cat) ? ' on' : '')}
+              onClick={() => toggleVoucher(cat)}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -267,6 +314,7 @@ export default function Ledger() {
           statement={statement}
           loading={loading}
           onRowClick={onDrill}
+          voucherFilter={voucherFilter}
           emptyHint="Pick a ledger above to load the statement."
         />
       </div>

@@ -27,11 +27,11 @@
 // header copy) goes here behind partyType branches; the wrapper pages
 // remain trivial.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, DatePicker, message, Switch, Tooltip } from 'antd';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, DatePicker, message, Tooltip } from 'antd';
 import {
   PrinterOutlined, FileExcelOutlined, ReloadOutlined,
-  WhatsAppOutlined, CalendarOutlined, ArrowLeftOutlined,
+  WhatsAppOutlined, ArrowLeftOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -45,18 +45,26 @@ import './party-statement-page.css';
 
 const { RangePicker } = DatePicker;
 
-// Period presets — the four ranges Indian accountants check most.
-// Custom is the implicit fifth: the moment the user touches the
-// RangePicker, none of these are highlighted.
+// Period presets — same labels and behaviour as Sales Report /
+// Day Book / Trial Balance, so the period picker reads identically
+// across the report family. "Custom" is the implicit fallback:
+// the moment the user touches the RangePicker, none of the chips
+// are highlighted (handled in the activePreset memo).
 function presets(fyStart, fyEnd) {
   const today = dayjs();
+  // FY anchor — last 1 Apr → next 31 Mar. Falls back to a sensible
+  // current-FY guess when useFinancialYear hasn't loaded yet (cold
+  // page, no localStorage cache).
+  const thisFyStart = fyStart ? dayjs(fyStart) : today.month(3).startOf('month').subtract(today.month() < 3 ? 1 : 0, 'year');
+  const thisFyEnd   = fyEnd   ? dayjs(fyEnd)   : thisFyStart.add(1, 'year').subtract(1, 'day');
+  const lastFyStart = thisFyStart.subtract(1, 'year');
+  const lastFyEnd   = thisFyEnd.subtract(1, 'year');
   return [
-    { key: 'month',   label: 'This Month',   from: today.startOf('month'),   to: today.endOf('month')   },
-    { key: 'quarter', label: 'This Quarter', from: today.startOf('quarter'), to: today.endOf('quarter') },
-    { key: 'fy',      label: 'Financial Year',
-      from: fyStart ? dayjs(fyStart) : today.month(3).startOf('month'),     // April 1 fallback
-      to:   fyEnd   ? dayjs(fyEnd)   : today.month(2).endOf('month').add(1, 'year') },
-    { key: 'all',     label: 'All',          from: null, to: null },
+    { v: 'this_fy',    l: 'This FY',    from: thisFyStart, to: thisFyEnd  },
+    { v: 'last_fy',    l: 'Last FY',    from: lastFyStart, to: lastFyEnd  },
+    { v: 'this_q',     l: 'This Q',     from: today.startOf('quarter'), to: today.endOf('quarter') },
+    { v: 'this_month', l: 'This Month', from: today.startOf('month'),   to: today.endOf('month')   },
+    { v: 'custom',     l: 'Custom',     from: null,        to: null     },
   ];
 }
 
@@ -96,7 +104,12 @@ export default function PartyStatementPage({
   const [party, setParty] = useState(null);
   const [loading, setLoading] = useState(false);
   const [statement, setStatement] = useState(null);
-  const [outstandingOnly, setOutstandingOnly] = useState(false);
+
+  // Voucher-type chip filter. Empty Set = "show all" (no filter).
+  // Categories come from LedgerStatement.deriveCategory — matches what
+  // the renderer paints on each row's pill, so chip ↔ row identity is
+  // 1:1.
+  const [voucherFilter, setVoucherFilter] = useState(() => new Set());
 
   // Period state — defaults to FY. RangePicker writes here; preset
   // chips also write here. Both also push to URL so refresh + share
@@ -185,20 +198,43 @@ export default function PartyStatementPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party, from, to]);
 
-  // Active preset highlight — derived, not stored. Custom = nothing
-  // matches any preset's exact range.
+  // Active preset highlight — derived, not stored. "custom" wins
+  // when nothing else matches, keeping at least one chip lit at all
+  // times. Mirrors Sales Report / Day Book's preset behavior.
   const activePreset = useMemo(() => {
     const prs = presets(fyStart, fyEnd);
-    return prs.find(p =>
+    const hit = prs.find(p =>
       ((p.from?.format('YYYY-MM-DD') || null) === (from || null)) &&
       ((p.to?.format('YYYY-MM-DD')   || null) === (to   || null))
-    )?.key || null;
+    );
+    return hit?.v || 'custom';
   }, [from, to, fyStart, fyEnd]);
 
   const setPreset = (p) => {
+    if (p.v === 'custom') return;          // chip is informational; date pick triggers Custom
     setFrom(p.from?.format('YYYY-MM-DD') || null);
     setTo  (p.to?.format('YYYY-MM-DD')   || null);
   };
+
+  // Voucher-type chips. Customer Statement defaults to the categories
+  // a customer can transact in (sales-side), Supplier Statement to the
+  // purchase-side. "Journal" + "Opening Adj." surface here too because
+  // any party can have a manual JV or an opening-balance adjustment
+  // posted against them.
+  const voucherCategories = useMemo(() => (
+    partyType === 'Supplier'
+      ? ['Purchase', 'Payment', 'Purchase Return', 'Journal', 'Opening Adj.']
+      : ['Sales',    'Receipt', 'Sales Return',    'Journal', 'Opening Adj.']
+  ), [partyType]);
+
+  const toggleVoucher = (cat) => {
+    setVoucherFilter(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
+  };
+  const clearVoucherFilter = () => setVoucherFilter(new Set());
 
   // ── Actions ────────────────────────────────────────────────────────
   const onPrint = () => window.print();
@@ -288,42 +324,57 @@ export default function PartyStatementPage({
         </div>
       </div>
 
-      {/* ── Sticky picker + period bar ────────────────────────────── */}
+      {/* ── Picker + period + voucher-type chips ─────────────────────
+          Same chrome shape as Sales Report / Day Book — uses the
+          shared rpt-period / rpt-date classes from global.css so the
+          report family looks like one app, not five. */}
       <div className="psp-sticky">
-        <PartyPicker partyType={partyType} value={party} onChange={setParty} loading={loading} />
+        <PartyPicker partyType={partyType} value={party} onChange={setParty} />
 
-        <div className="psp-period">
-          <div className="psp-presets">
+        <div className="psp-controls">
+          <div className="rpt-period">
             {presets(fyStart, fyEnd).map(p => (
               <button
-                type="button"
-                key={p.key}
-                className={'psp-preset' + (activePreset === p.key ? ' is-active' : '')}
+                key={p.v}
+                className={activePreset === p.v ? 'on' : ''}
                 onClick={() => setPreset(p)}
               >
-                {p.label}
+                {p.l}
               </button>
             ))}
           </div>
           <RangePicker
+            className="rpt-date"
             value={[from ? dayjs(from) : null, to ? dayjs(to) : null]}
             onChange={(range) => {
               setFrom(range?.[0]?.format('YYYY-MM-DD') || null);
               setTo  (range?.[1]?.format('YYYY-MM-DD') || null);
             }}
-            format="DD-MM-YYYY"
-            allowClear
-            suffixIcon={<CalendarOutlined />}
+            format="DD/MM/YYYY"
+            allowClear={false}
           />
-          <div className="psp-toggle">
-            <Switch
-              size="small"
-              checked={outstandingOnly}
-              onChange={setOutstandingOnly}
-              disabled={!statement}
-            />
-            <span>Outstanding only</span>
-          </div>
+        </div>
+
+        {/* Voucher-type chip filter. Click a chip to scope the
+            statement to that category; click again to release. The
+            "All" chip is implicit — when nothing is selected, every
+            row is shown. Categories per partyType, defined above. */}
+        <div className="psp-vt-chips">
+          <button
+            className={'psp-vt-chip' + (voucherFilter.size === 0 ? ' on' : '')}
+            onClick={clearVoucherFilter}
+          >
+            All
+          </button>
+          {voucherCategories.map(cat => (
+            <button
+              key={cat}
+              className={'psp-vt-chip' + (voucherFilter.has(cat) ? ' on' : '')}
+              onClick={() => toggleVoucher(cat)}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -354,7 +405,7 @@ export default function PartyStatementPage({
           statement={statement}
           loading={loading}
           onRowClick={onDrill}
-          outstandingOnly={outstandingOnly}
+          voucherFilter={voucherFilter}
           emptyHint={`Pick a ${partyType.toLowerCase()} above to load the statement. Press / to focus the search.`}
         />
       </div>

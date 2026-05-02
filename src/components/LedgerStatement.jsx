@@ -12,32 +12,18 @@
 //                   owns loading + refresh.
 //   loading         Boolean — show overlay spinner.
 //   columns         Array of column keys to render (in order). Falls
-//                   back to DEFAULT_COLUMNS. Page-specific columns
-//                   (e.g. supplier_bill_no on Supplier Statement) live
-//                   in COLUMN_DEFS below; pages opt-in by passing the
-//                   key in `columns`.
+//                   back to DEFAULT_COLUMNS.
 //   onRowClick      (row) => void — drill into source bill/voucher.
-//                   Page decides where based on row.source_type.
-//   outstandingOnly Filter to rows that contribute to the closing
-//                   balance (rough heuristic — we keep bill rows whose
-//                   matching receipt/payment hasn't fully cleared).
-//                   Page-controlled toggle.
+//   voucherFilter   Set<string> | null. When a Set, only entries whose
+//                   derived category is in the set are shown. null
+//                   shows everything. The filter applies AFTER the
+//                   API fetch, so toggling chips is instant.
 //   emptyHint       String shown when the API returns no entries.
-//                   Helps disambiguate "no party selected" vs "no
-//                   activity in period" without rendering an empty
-//                   table.
 //
-// LAYOUT
-//   Sticky thead at the top of the inner scroller (`.ls-scroll`).
-//   Pinned bottom totals row inside the same scroller — always
-//   visible no matter how long the entry list gets, mirroring the
-//   chrome of Day Book / Sales Report / Trial Balance.
-//
-// FORMATTING
-//   Indian numbering with 2dp; date as DD-MM-YYYY (the format every
-//   downstream Indian accountant + GST workflow expects). Empty cells
-//   render as "—" rather than "0.00" so the eye finds non-zero
-//   numbers faster on a long statement.
+// LAYOUT — two tables: a scrolling body, and a pinned-bottom strip
+//   that always sits flush against the wrapper bottom regardless of
+//   how many rows are loaded. Same colgroup is applied to both so
+//   columns line up perfectly.
 
 import React, { useMemo } from 'react';
 import { Spin, Empty } from 'antd';
@@ -51,27 +37,61 @@ const fmt = (v) =>
 
 const fmtDate = (d) => (d ? dayjs(d).format('DD-MM-YYYY') : '—');
 
+// ── Category derivation ──────────────────────────────────────────────
+// `voucher_type` in the DB is one of six values (Sales / Purchase /
+// Receipt / Payment / Journal / Contra) but real activity comes
+// through with finer distinctions: a sales-return posts as Journal
+// from source_type='sales_return_bill', a payment-at-billing posts
+// as Receipt from source_type='sales_bill_receipt', etc. The UI
+// wants those user-facing categories surfaced cleanly so the chip
+// filter ("show me all Sales Returns") matches the operator's mental
+// model. We derive the display category from source_type first, then
+// fall back to voucher_type.
+//
+// This MUST stay consistent with the chip class names in
+// ledger-statement.css (.ls-vt--sales, .ls-vt--sales-return, etc.) —
+// the slug is computed from this string.
+export function deriveCategory(entry) {
+  const st = entry.source_type;
+  const vt = entry.voucher_type;
+  if (st === 'sales_bill')           return 'Sales';
+  if (st === 'purchase_bill')        return 'Purchase';
+  if (st === 'sales_return_bill')    return 'Sales Return';
+  if (st === 'purchase_return_bill') return 'Purchase Return';
+  if (st === 'sales_bill_receipt')   return 'Receipt';
+  if (st === 'payment_receipt')      return vt === 'Payment' ? 'Payment' : 'Receipt';
+  if (st === 'party_opening')        return 'Opening Adj.';
+  if (st === 'journal_voucher')      return 'Journal';
+  if (vt === 'Contra')               return 'Contra';
+  return vt || 'Journal';
+}
+
+const slug = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
 // Column registry. Each page passes the keys it wants in the order it
 // wants. Adding a column = add an entry here, no change to consumers.
 const COLUMN_DEFS = {
   date: {
     label:  'Date',
-    width:  100,
+    width:  110,
     render: r => fmtDate(r.date),
+    cls:    'ls-nowrap',
   },
   voucher_type: {
     label:  'Type',
-    width:  110,
+    width:  120,
     render: r => (
-      <span className={`ls-vt ls-vt--${(r.voucher_type || '').toLowerCase().replace(/\s+/g, '-')}`}>
-        {r.voucher_type || '—'}
+      <span className={`ls-vt ls-vt--${slug(r.category)}`}>
+        {r.category || '—'}
       </span>
     ),
+    cls:    'ls-nowrap',
   },
   voucher_no: {
     label:  'Voucher No',
-    width:  130,
+    width:  140,
     render: r => r.voucher_no || '—',
+    cls:    'ls-nowrap',
   },
   particulars: {
     label:  'Particulars',
@@ -81,24 +101,24 @@ const COLUMN_DEFS = {
   },
   debit: {
     label:  'Debit',
-    width:  120,
+    width:  130,
     align:  'right',
     render: r => (r.debit > 0 ? fmt(r.debit) : '—'),
     cls:    'ls-num',
   },
   credit: {
     label:  'Credit',
-    width:  120,
+    width:  130,
     align:  'right',
     render: r => (r.credit > 0 ? fmt(r.credit) : '—'),
     cls:    'ls-num',
   },
   balance: {
     label:  'Balance',
-    width:  140,
+    width:  150,
     align:  'right',
-    // Tally convention: negative = Cr, positive = Dr. We surface the
-    // sign with a tiny suffix so a printed statement is unambiguous.
+    // Tally convention: positive = Dr, negative = Cr. Surface the sign
+    // with a small suffix so a printed statement is unambiguous.
     render: r => {
       const v = parseFloat(r.balance) || 0;
       if (v === 0) return '0.00';
@@ -116,34 +136,62 @@ export default function LedgerStatement({
   loading = false,
   columns = DEFAULT_COLUMNS,
   onRowClick,
-  outstandingOnly = false,
+  voucherFilter = null,
   emptyHint = 'Select a ledger to load the statement.',
 }) {
   // Resolve column defs once per render. Unknown keys are skipped
-  // rather than thrown — pages can pass an experimental column without
+  // rather than thrown — pages can add an experimental column without
   // a backend change crashing the renderer.
   const cols = useMemo(
     () => columns.map(k => COLUMN_DEFS[k]).filter(Boolean).map((d, i) => ({ ...d, key: columns[i] })),
     [columns],
   );
 
-  // Optional outstanding filter. The bill→receipt linkage isn't always
-  // 1:1 (one receipt can clear multiple bills via PaymentSplit), so the
-  // perfectly correct filter is non-trivial. As a first cut we hide
-  // rows whose voucher_type indicates a settled receipt/payment — the
-  // remaining rows show what STILL contributes to the closing balance.
-  // Pages can switch this off if the user wants the full audit trail.
-  const visibleEntries = useMemo(() => {
+  // Decorate entries with their derived category up-front. The chip
+  // pill + the filter both consume row.category, so doing this once
+  // keeps the per-row render fast.
+  const decoratedEntries = useMemo(() => {
     if (!statement?.entries?.length) return [];
-    if (!outstandingOnly) return statement.entries;
-    return statement.entries.filter(e => {
-      // Keep bills (Sales / Purchase) and returns; hide cleared
-      // receipts/payments. Approximation; refine when PaymentSplit
-      // joins are wired through.
-      if (e.voucher_type === 'Receipt' || e.voucher_type === 'Payment') return false;
-      return true;
-    });
-  }, [statement, outstandingOnly]);
+    return statement.entries.map(e => ({ ...e, category: deriveCategory(e) }));
+  }, [statement]);
+
+  // Voucher-type filter — the filter is over the *displayed* category,
+  // not the raw voucher_type, so chips read "Sales Return" rather than
+  // "Journal" (since sales-return posts as Journal under the hood).
+  const visibleEntries = useMemo(() => {
+    if (!voucherFilter || voucherFilter.size === 0) return decoratedEntries;
+    return decoratedEntries.filter(e => voucherFilter.has(e.category));
+  }, [decoratedEntries, voucherFilter]);
+
+  // Recompute Period totals / Closing across the *visible* set when a
+  // filter is active. Without this, hiding (say) Receipts would show
+  // a closing balance that doesn't match the visible Dr − Cr running
+  // sum — confusing rather than helpful. When no filter is active we
+  // use the API totals directly so any rounding stays exact.
+  const recomputed = useMemo(() => {
+    if (!statement) return null;
+    if (!voucherFilter || voucherFilter.size === 0) {
+      return {
+        opening: statement.opening_balance,
+        debit:   statement.total_debit,
+        credit:  statement.total_credit,
+        closing: statement.closing_balance,
+      };
+    }
+    let dr = 0, cr = 0;
+    for (const e of visibleEntries) {
+      dr += parseFloat(e.debit)  || 0;
+      cr += parseFloat(e.credit) || 0;
+    }
+    // Visible closing = period opening + (Σ Dr − Σ Cr) over visible set.
+    const closing = parseFloat(statement.opening_balance || 0) + dr - cr;
+    return {
+      opening: statement.opening_balance,
+      debit:   +dr.toFixed(2),
+      credit:  +cr.toFixed(2),
+      closing: +closing.toFixed(2),
+    };
+  }, [statement, visibleEntries, voucherFilter]);
 
   // No statement yet — picker is empty / not selected.
   if (!statement && !loading) {
@@ -155,11 +203,9 @@ export default function LedgerStatement({
   }
 
   // Shared <colgroup> for the body table and the pinned-bottom footer
-  // table. Both use `table-layout: fixed` (set in CSS) so identical
-  // <col> widths produce identical column layouts in the two tables —
-  // the period-totals strip lines up perfectly under the body rows
-  // even though they're separate <table> elements. The single auto
-  // column (Particulars) absorbs leftover space the same way in both.
+  // table. table-layout: fixed (in CSS) reads from these widths so
+  // both tables align column-for-column even though they're separate
+  // elements.
   const colgroup = (
     <colgroup>
       {cols.map(c => (
@@ -176,9 +222,6 @@ export default function LedgerStatement({
         </div>
       )}
 
-      {/* ── Scrolling body ─────────────────────────────────────────
-          Sticky thead at the top of this container; everything from
-          Opening Balance through the last entry row scrolls. */}
       <div className="ls-scroll">
         <table className="ls-table ls-table--body">
           {colgroup}
@@ -192,8 +235,7 @@ export default function LedgerStatement({
             </tr>
           </thead>
           <tbody>
-            {/* Opening balance row — always present, even at 0. Reads
-                like a Tally statement, anchors the running balance. */}
+            {/* Opening balance row — always present, even at 0. */}
             {statement && (
               <tr className="ls-opening">
                 {cols.map(c => {
@@ -246,31 +288,31 @@ export default function LedgerStatement({
         </table>
       </div>
 
-      {/* ── Pinned bottom strip ────────────────────────────────────
-          A separate <table> outside the scroll container, so Period
-          totals + Closing Balance always sit flush against the
-          viewport bottom — regardless of whether the body has 3 rows
-          or 3000. Sticky-tfoot inside the scrolling table doesn't
-          give us this for short lists; the rows just paint at row 5
-          and leave half a screen of dead space below.
-          The matching colgroup ensures column alignment. */}
-      {statement && (
+      {/* ── Pinned bottom strip — ONE row carrying both Period totals
+            (Dr / Cr columns) AND Closing Balance (Balance column). The
+            user sees Σ Dr, Σ Cr, AND the resulting close all at once
+            without scanning two stacked rows. */}
+      {statement && recomputed && (
         <table className="ls-table ls-table--footer">
           {colgroup}
           <tbody>
-            <tr className="ls-totals">
-              {cols.map(c => {
-                if (c.key === 'particulars') return <td key={c.key} className="ls-particulars"><b>Period totals</b></td>;
-                if (c.key === 'debit')  return <td key={c.key} className="ls-num"><b>{fmt(statement.total_debit)}</b></td>;
-                if (c.key === 'credit') return <td key={c.key} className="ls-num"><b>{fmt(statement.total_credit)}</b></td>;
-                return <td key={c.key} />;
-              })}
-            </tr>
             <tr className="ls-closing">
               {cols.map(c => {
-                if (c.key === 'particulars') return <td key={c.key} className="ls-particulars"><b>Closing Balance</b></td>;
+                if (c.key === 'particulars') {
+                  return (
+                    <td key={c.key} className="ls-particulars">
+                      <b>Closing Balance</b>
+                      {voucherFilter && voucherFilter.size > 0 && (
+                        <span className="ls-filtered-note"> (filtered)</span>
+                      )}
+                    </td>
+                  );
+                }
+                if (c.key === 'date')  return <td key={c.key} className="ls-nowrap">{fmtDate(statement.period?.to)}</td>;
+                if (c.key === 'debit')  return <td key={c.key} className="ls-num"><b>{fmt(recomputed.debit)}</b></td>;
+                if (c.key === 'credit') return <td key={c.key} className="ls-num"><b>{fmt(recomputed.credit)}</b></td>;
                 if (c.key === 'balance') {
-                  const v = parseFloat(statement.closing_balance) || 0;
+                  const v = parseFloat(recomputed.closing) || 0;
                   const sign = v >= 0 ? 'Dr' : 'Cr';
                   return (
                     <td key={c.key} className="ls-num ls-balance">
@@ -280,7 +322,6 @@ export default function LedgerStatement({
                     </td>
                   );
                 }
-                if (c.key === 'date') return <td key={c.key}>{fmtDate(statement.period?.to)}</td>;
                 return <td key={c.key} />;
               })}
             </tr>
