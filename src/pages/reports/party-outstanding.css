@@ -113,6 +113,14 @@
   background: color-mix(in srgb, var(--accent-bg, var(--bg-muted)) 35%, transparent);
 }
 
+/* Keyboard-active row — accent left rule + warmer surface so the
+   cursor is unmistakable while moving with arrow keys. Stronger
+   contrast than hover so it doesn't blur into mouse-hover state. */
+.po-nav-row.is-active {
+  box-shadow: inset 3px 0 0 0 var(--accent, #B1472F);
+  background: color-mix(in srgb, var(--accent-bg, var(--bg-muted)) 55%, transparent) !important;
+}
+
 .po-chev-cell { padding-left: 14px; padding-right: 0; width: 36px; }
 .po-chev {
   display: inline-block;

@@ -27,7 +27,7 @@
 //   both into one renderer would tangle two layout models. Keep them
 //   parallel; BillsOutstanding picks which to show via viewMode.
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Spin, Empty, Tooltip, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -124,6 +124,112 @@ export default function PartyOutstandingView({
   const expandAll = () => setExpanded(new Set(groups.map(g => g.party_id ?? `cash:${g.party_name}`)));
   const collapseAll = () => setExpanded(new Set());
 
+  // ── Keyboard navigation ──────────────────────────────────────────
+  // Same shape as Trial Balance: build a flat list of currently-
+  // visible rows (parties + their bills when expanded), drive an
+  // activeIdx with the arrow keys, and let Enter/←/→ act on the row
+  // under the cursor. Re-uses the report-family conventions so a
+  // user who knows TB / BS knows this page on first hit too.
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const scrollRef = useRef(null);
+
+  const navRows = useMemo(() => {
+    const list = [];
+    for (const g of groups) {
+      const key = g.party_id ?? `cash:${g.party_name}`;
+      list.push({ kind: 'party', key, group: g });
+      if (expanded.has(key)) {
+        for (const b of g.bills) list.push({ kind: 'bill', key: `bill:${b.bill_id}`, bill: b, parentKey: key });
+      }
+    }
+    return list;
+  }, [groups, expanded]);
+
+  // Reset active row when the underlying group set changes (filter
+  // change, period change, etc.). Better than leaving the cursor on
+  // a row that no longer exists.
+  useEffect(() => { setActiveIdx(navRows.length > 0 ? 0 : -1); }, [groups]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clamp when navRows shrinks (e.g. operator collapsed a party that
+  // had the cursor on one of its bills).
+  useEffect(() => {
+    setActiveIdx(prev => {
+      if (prev < 0) return prev;
+      return Math.min(prev, navRows.length - 1);
+    });
+  }, [navRows.length]);
+
+  // Scroll the active row into view as the cursor moves. `nearest`
+  // avoids jarring centerings when the row is already on screen.
+  useEffect(() => {
+    if (activeIdx < 0 || !scrollRef.current) return;
+    const rows = scrollRef.current.querySelectorAll('tbody tr.po-nav-row');
+    rows[activeIdx]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [activeIdx]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      // Don't fight inputs / search fields elsewhere on the page.
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (document.activeElement?.isContentEditable) return;
+      // Bail when no rows yet (fetching / empty).
+      if (!navRows.length) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveIdx(i => Math.min((i < 0 ? -1 : i) + 1, navRows.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIdx(i => Math.max(i - 1, 0));
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setActiveIdx(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setActiveIdx(navRows.length - 1);
+      } else if (e.key === 'PageDown') {
+        e.preventDefault();
+        setActiveIdx(i => Math.min((i < 0 ? 0 : i) + 10, navRows.length - 1));
+      } else if (e.key === 'PageUp') {
+        e.preventDefault();
+        setActiveIdx(i => Math.max(i - 10, 0));
+      } else if (e.key === 'ArrowRight') {
+        // Expand the active party. On a bill row, jump to the parent
+        // party (which is already expanded, but moving the cursor
+        // gives a sensible "navigate up the hierarchy" experience).
+        const row = navRows[activeIdx];
+        if (!row) return;
+        if (row.kind === 'party' && !expanded.has(row.key)) {
+          e.preventDefault();
+          togglePartyExpand(row.key);
+        }
+      } else if (e.key === 'ArrowLeft') {
+        // Collapse active party — or, on a bill row, collapse the
+        // parent and re-anchor the cursor on the parent.
+        const row = navRows[activeIdx];
+        if (!row) return;
+        if (row.kind === 'bill') {
+          e.preventDefault();
+          const parentIdx = navRows.findIndex(r => r.kind === 'party' && r.key === row.parentKey);
+          togglePartyExpand(row.parentKey);
+          if (parentIdx >= 0) setActiveIdx(parentIdx);
+        } else if (row.kind === 'party' && expanded.has(row.key)) {
+          e.preventDefault();
+          togglePartyExpand(row.key);
+        }
+      } else if (e.key === 'Enter') {
+        const row = navRows[activeIdx];
+        if (!row) return;
+        e.preventDefault();
+        if (row.kind === 'party') togglePartyExpand(row.key);
+        else                       onDrillBill(row.bill);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navRows, activeIdx, expanded, togglePartyExpand, onDrillBill]);
+
   // Drill into the party's statement. The newer Customer / Supplier
   // Statement pages handle the full ledger view. as-of date carries
   // through so the operator lands at the same period scope.
@@ -160,7 +266,7 @@ export default function PartyOutstandingView({
         </div>
       </div>
 
-      <div className="po-scroll">
+      <div className="po-scroll" ref={scrollRef}>
         <table className="po-table">
           <colgroup>
             <col style={{ width: 36 }} />
@@ -179,15 +285,22 @@ export default function PartyOutstandingView({
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => {
-              const key = g.party_id ?? `cash:${g.party_name}`;
-              const isOpen = expanded.has(key);
-              return (
-                <React.Fragment key={key}>
-                  {/* ── Party row ─────────────────────────────────── */}
+            {/* Render driven by navRows so DOM order ≡ keyboard order
+                — activeIdx maps 1:1 onto a single .po-nav-row tr. */}
+            {navRows.map((row, idx) => {
+              const isActive = idx === activeIdx;
+              if (row.kind === 'party') {
+                const g = row.group;
+                const isOpen = expanded.has(row.key);
+                return (
                   <tr
-                    className={'po-party-row' + (isOpen ? ' is-open' : '')}
-                    onClick={() => togglePartyExpand(key)}
+                    key={row.key}
+                    className={
+                      'po-nav-row po-party-row'
+                      + (isOpen   ? ' is-open'   : '')
+                      + (isActive ? ' is-active' : '')
+                    }
+                    onClick={() => { setActiveIdx(idx); togglePartyExpand(row.key); }}
                   >
                     <td className="po-chev-cell">
                       <span className={'po-chev' + (isOpen ? '' : ' collapsed')}>▾</span>
@@ -211,32 +324,32 @@ export default function PartyOutstandingView({
                         : <span style={{ color: 'var(--fg-tertiary)' }}>—</span>}
                     </td>
                   </tr>
-
-                  {/* ── Expanded bill list ────────────────────────── */}
-                  {isOpen && g.bills.map(b => (
-                    <tr
-                      key={b.bill_id}
-                      className="po-bill-row"
-                      onClick={() => onDrillBill(b)}
-                    >
-                      <td />
-                      <td className="po-bill-cell">
-                        <span className="po-bill-no">{b.bill_no}</span>
-                        <span className="po-bill-meta">
-                          {dayjs(b.bill_date).format('DD-MM-YYYY')}
-                          {b.due_date && <> · due {dayjs(b.due_date).format('DD-MM-YYYY')}</>}
-                          {b.overdue_days > 0 && <> · <span className="po-overdue">{b.overdue_days}d</span></>}
-                        </span>
-                      </td>
-                      <td className="po-num">
-                        {fmt(b.outstanding)} <span className="po-drcr">{sideSuffix(side)}</span>
-                      </td>
-                      <td className="po-num" colSpan={2} style={{ color: 'var(--fg-tertiary)', fontSize: 11 }}>
-                        of {fmt(b.bill_amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </React.Fragment>
+                );
+              }
+              // Bill row inside an expanded party
+              const b = row.bill;
+              return (
+                <tr
+                  key={row.key}
+                  className={'po-nav-row po-bill-row' + (isActive ? ' is-active' : '')}
+                  onClick={() => { setActiveIdx(idx); onDrillBill(b); }}
+                >
+                  <td />
+                  <td className="po-bill-cell">
+                    <span className="po-bill-no">{b.bill_no}</span>
+                    <span className="po-bill-meta">
+                      {dayjs(b.bill_date).format('DD-MM-YYYY')}
+                      {b.due_date && <> · due {dayjs(b.due_date).format('DD-MM-YYYY')}</>}
+                      {b.overdue_days > 0 && <> · <span className="po-overdue">{b.overdue_days}d</span></>}
+                    </span>
+                  </td>
+                  <td className="po-num">
+                    {fmt(b.outstanding)} <span className="po-drcr">{sideSuffix(side)}</span>
+                  </td>
+                  <td className="po-num" colSpan={2} style={{ color: 'var(--fg-tertiary)', fontSize: 11 }}>
+                    of {fmt(b.bill_amount)}
+                  </td>
+                </tr>
               );
             })}
           </tbody>
