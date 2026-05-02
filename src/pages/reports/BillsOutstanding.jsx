@@ -268,13 +268,22 @@ export default function BillsOutstanding({ side }) {
   // Per-row drill actions.
   const drillBill         = useCallback((row) => navigate(cfg.billRoute(row.bill_id)), [navigate, cfg]);
   const drillPartyLedger  = useCallback((row) => {
+    // BillsOutstanding is a single page with two flavors (Receivable
+    // / Payable). The cfg block knows which side; we route directly
+    // to the matching statement page. The legacy /reports/party-
+    // ledger redirect would forward correctly too, but each redirect
+    // hop costs a party-API call to look up the type — pointless
+    // when we already know it.
     const qs = new URLSearchParams({
-      party_id: String(row.party_id),
+      id: String(row.party_id),
       from: dayjs(row.bill_date).format('YYYY-MM-DD'),
       to:   asOf,
     });
-    navigate(`/reports/party-ledger?${qs.toString()}`);
-  }, [navigate, asOf]);
+    const route = cfg.partyTypeQuery === 'Supplier'
+      ? '/reports/supplier-statement'
+      : '/reports/customer-statement';
+    navigate(`${route}?${qs.toString()}`);
+  }, [navigate, asOf, cfg]);
   const drillRecord       = useCallback((row) => {
     navigate(cfg.receiptRoute, {
       state: {

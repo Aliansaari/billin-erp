@@ -67,7 +67,11 @@ export default function AppLayout() {
     '/sales', '/purchases', '/payments',
     '/sales-returns', '/purchase-returns',
     '/reports/sales', '/reports/purchases',
-    '/reports/party-ledger', '/reports/profit-loss', '/reports/aging',
+    '/reports/party-ledger',                   // legacy redirect — keep listed so flash-of-padded-frame doesn't show during the bounce
+    '/reports/customer-statement',
+    '/reports/supplier-statement',
+    '/reports/ledger',
+    '/reports/profit-loss', '/reports/aging',
     '/reports/gstr1', '/reports/day-book',
     '/reports/bills-receivable', '/reports/bills-payable',
     '/reports/monthly-sales', '/reports/monthly-purchases',

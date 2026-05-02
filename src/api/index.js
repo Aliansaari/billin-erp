@@ -349,6 +349,12 @@ export const ledgerAPI = {
   autoReceiptIntegrity:   () => api.get('/ledger/auto-receipt-integrity'),
   unposted:               () => api.get('/ledger/unposted'),
   reconcile:              () => api.post('/ledger/reconcile'),
+  // Voucher-level statement of one ledger over a date range. Backs the
+  // Customer Statement / Supplier Statement / Ledger pages — all three
+  // call the SAME endpoint via different access paths (direct or
+  // party→ledger resolution server-side).
+  statement:              (ledgerId, params = {}) => api.get(`/ledger/statement/${ledgerId}`, { params }),
+  statementByParty:       (partyId,  params = {}) => api.get(`/ledger/statement/by-party/${partyId}`, { params }),
 };
 
 export const importsAPI = {

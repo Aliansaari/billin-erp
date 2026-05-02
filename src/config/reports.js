@@ -264,13 +264,45 @@ export const REPORTS = [
   },
 
   // ── Parties ──────────────────────────────────────────────────────
+  // Customer / Supplier Statement replaced the old combined Party
+  // Ledger. The split mirrors the workflow split: Customer Statement
+  // is sent OUT to a customer (collection follow-up, year-end recon);
+  // Supplier Statement is reconciled IN against a statement the
+  // supplier sent us. Different print headers, different defaults,
+  // different mental model. The old route still resolves via a
+  // redirect — see App.jsx <PartyLedgerRedirect>.
   {
-    id: 'party_ledger',
-    name: 'Party Ledger',
-    subtitle: 'Per-customer / supplier statement',
+    id: 'customer_statement',
+    name: 'Customer Statement',
+    subtitle: 'Per-customer account-of-record · sales / receipts / returns',
     category: 'parties',
-    route: '/reports/party-ledger',
+    route: '/reports/customer-statement',
     perm: 'accounts.view',
+    aliases: ['party ledger', 'customer ledger', 'customer account', 'debtor statement'],
+    isNew: true,
+  },
+  {
+    id: 'supplier_statement',
+    name: 'Supplier Statement',
+    subtitle: 'Per-supplier account-of-record · purchases / payments / returns',
+    category: 'parties',
+    route: '/reports/supplier-statement',
+    perm: 'accounts.view',
+    aliases: ['supplier ledger', 'creditor statement', 'vendor statement'],
+    isNew: true,
+  },
+  // Chart-of-accounts ledger drill — Sales A/c, Bank, Office Rent,
+  // every JV-targetable ledger. Listed under Financial because it's
+  // an internal accountant tool, not a customer-facing document.
+  {
+    id: 'ledger',
+    name: 'Ledger Statement',
+    subtitle: 'Voucher-level statement of any chart-of-accounts ledger',
+    category: 'financial',
+    route: '/reports/ledger',
+    perm: 'accounts.view',
+    aliases: ['ledger', 'general ledger', 'chart of accounts ledger', 'gl', 'account ledger'],
+    isNew: true,
   },
   {
     id: 'aging_report',
