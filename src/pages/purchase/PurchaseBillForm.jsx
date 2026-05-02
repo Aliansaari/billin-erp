@@ -549,15 +549,21 @@ export default function PurchaseBillForm() {
       else setBarcodeError('');
     }catch(e){ setBarcodeError(''); }
   };
-  // Deduplicate by product_name, aggregate stock across variants
+  // Deduplicate by product_name, aggregate stock across variants. Batch
+  // tracking is OR'd across the family — if ANY variant of "Banarasi
+  // Silk Saree" is batch-tracked, the name-pick treats the family as
+  // batch-tracked. Per-variant refinement happens when lookupProduct
+  // resolves a specific (size, article, rate) match.
   const dedupedProducts=useMemo(()=>{
     const map=new Map();
     prodRawList.forEach(p=>{
       const key=(p.product_name||'').toLowerCase().trim();
       if(!map.has(key)){
-        map.set(key,{...p, _totalStock:parseFloat(p.current_stock||0)});
+        map.set(key,{...p, _totalStock:parseFloat(p.current_stock||0), is_batch_tracked:!!p.is_batch_tracked});
       } else {
-        map.get(key)._totalStock+=parseFloat(p.current_stock||0);
+        const existing=map.get(key);
+        existing._totalStock+=parseFloat(p.current_stock||0);
+        if(p.is_batch_tracked) existing.is_batch_tracked=true;
       }
     });
     return [...map.values()];
@@ -592,6 +598,13 @@ export default function PurchaseBillForm() {
       size:'', article_number:'',
       purchase_rate:0, sale_rate:0, mrp:0, margin_percentage:0,
       hsn_code:'', gst_rate:0, quantity_per_box:0,
+      // Carry batch tracking forward off the picked product so the entry-
+      // row strip appears immediately. The dropdown is the fourth
+      // product-fill path alongside barcode scan / variant pick / lookup
+      // fullMatch — this is the one most operators actually use.
+      // Batch metadata is reset because we're starting a new line.
+      is_batch_tracked:!!p.is_batch_tracked,
+      batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
     }));
     setBarcodeError('');
     // Redirect focus to Size field — blur Select first so AntD can't steal focus back.
