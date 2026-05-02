@@ -289,10 +289,6 @@ export default function GodownTransferRegister() {
       <div className="rpt-page-hd">
         <div className="rpt-title">
           <h1>Godown Transfer Register</h1>
-          <div className="rpt-sub">
-            <b>{transfers.length}</b> transfer{transfers.length === 1 ? '' : 's'}
-            {from && to && <><span className="sep">·</span>{dayjs(from).format('DD MMM YY')} – {dayjs(to).format('DD MMM YY')}</>}
-          </div>
         </div>
         <div className="rpt-hd-ctrl">
           <div className="rpt-period">
