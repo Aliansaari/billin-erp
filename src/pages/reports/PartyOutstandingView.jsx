@@ -267,7 +267,7 @@ export default function PartyOutstandingView({
       </div>
 
       <div className="po-scroll" ref={scrollRef}>
-        <table className="po-table">
+        <table className="po-table po-table--body">
           <colgroup>
             <col style={{ width: 36 }} />
             <col />
@@ -353,17 +353,33 @@ export default function PartyOutstandingView({
               );
             })}
           </tbody>
-          <tfoot>
-            <tr className="po-total-row">
-              <td />
-              <td><b>Grand Total</b></td>
-              <td className="po-num"><b>{fmt(grandTotal)}</b> <span className="po-drcr">{sideSuffix(side)}</span></td>
-              <td className="po-num"><b>{rows.length}</b></td>
-              <td />
-            </tr>
-          </tfoot>
         </table>
       </div>
+
+      {/* ── Pinned Grand Total ──────────────────────────────────────
+          Separate <table> outside .po-scroll so the strip is always
+          flush against the viewport bottom regardless of how many
+          parties are loaded — matching the Closing Balance strip on
+          Customer / Supplier Statement. The shared colgroup keeps
+          column widths aligned with the body table. */}
+      <table className="po-table po-table--footer">
+        <colgroup>
+          <col style={{ width: 36 }} />
+          <col />
+          <col style={{ width: 140 }} />
+          <col style={{ width: 110 }} />
+          <col style={{ width: 110 }} />
+        </colgroup>
+        <tbody>
+          <tr className="po-total-row">
+            <td />
+            <td><b>Grand Total</b></td>
+            <td className="po-num"><b>{fmt(grandTotal)}</b> <span className="po-drcr">{sideSuffix(side)}</span></td>
+            <td className="po-num"><b>{rows.length}</b></td>
+            <td />
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }

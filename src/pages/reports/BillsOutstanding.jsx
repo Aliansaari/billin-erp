@@ -665,8 +665,11 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
             value={viewMode}
             onChange={setViewMode}
             options={[
-              { value: 'bill',  label: 'Bill view',                       icon: <UnorderedListOutlined /> },
-              { value: 'party', label: `${cfg.partyLabel} view`,          icon: <TeamOutlined /> },
+              { value: 'bill',  label: 'Bill Wise',                          icon: <UnorderedListOutlined /> },
+              // Plural — "Customers Wise" / "Suppliers Wise". Reads as
+              // "the report grouped by every customer/supplier", which
+              // is what the party view shows.
+              { value: 'party', label: `${cfg.partyLabel}s Wise`,            icon: <TeamOutlined /> },
             ]}
           />
         </div>

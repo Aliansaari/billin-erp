@@ -60,7 +60,11 @@
 .po-scroll {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  /* Reserve scrollbar-gutter so the body table is the same width
+     whether scrolling is active or not — keeps columns aligned with
+     the pinned footer table below, which never shows a scrollbar. */
+  scrollbar-gutter: stable;
 }
 
 .po-table {
@@ -182,18 +186,25 @@
   color: var(--fg-tertiary);
 }
 
-/* Grand total — accent under-rule, heavier numbers; mirrors the
-   Trial Balance / Balance Sheet bottom row. */
-.po-table tfoot td {
+/* ── Pinned Grand Total table ────────────────────────────────────
+   Sibling of .po-scroll so it's always anchored to the wrapper's
+   bottom edge — not to the bottom of body content. With only a few
+   suppliers loaded, the body doesn't need to scroll, but the strip
+   still sits flush at the bottom (no half-page of dead space).
+   Mirrors the closing-balance strip on Customer / Supplier
+   Statement. */
+.po-table--footer {
+  flex: 0 0 auto;
   background: var(--bg-muted);
   border-top: 2px solid var(--border-strong, var(--border));
-  border-bottom: none;
+}
+.po-table--footer td {
   padding: 13px 14px;
+  border-bottom: none;
   font-size: 14px;
   font-weight: 700;
   color: var(--fg-primary);
-  position: sticky;
-  bottom: 0;
+  background: var(--bg-muted);
 }
 
 .po-empty {
@@ -211,7 +222,8 @@
   .po-toolbar,
   .po-link { display: none; }
   .po-wrap { border: none; }
-  .po-scroll { overflow: visible; }
+  .po-scroll { overflow: visible; scrollbar-gutter: auto; }
   .po-table thead th { position: static; background: #fff; }
-  .po-table tfoot td { position: static; background: #fff; }
+  .po-table--footer { background: #fff; border-top: 2px solid #000; }
+  .po-table--footer td { background: #fff; }
 }
