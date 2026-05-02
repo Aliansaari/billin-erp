@@ -653,7 +653,6 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
       <div className="bo-hd">
         <div className="bo-title">
           <h1>{cfg.title}</h1>
-          <span className="bo-as-of">as on {dayjs(asOf).format('D MMM YYYY')}</span>
           {/* View toggle — bill-level (one row per bill) vs party-level
               (one row per customer/supplier with chevron-expand to
               the bills underneath). Bills Receivable / Payable land
