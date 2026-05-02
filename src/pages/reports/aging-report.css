@@ -347,7 +347,7 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--fg-primary);
   min-width: 1100px;
@@ -358,12 +358,12 @@
   top: 0;
   z-index: 2;
   background: var(--bg-panel);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--fg-tertiary);
-  padding: 11px 14px;
+  padding: 7px 14px;
   text-align: right;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
@@ -373,13 +373,14 @@
 .ar-tbl thead th:nth-child(3) { text-align: left; }
 
 .ar-tbl tbody td {
-  padding: 12px 14px;
+  padding: 7px 14px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
   text-align: right;
   white-space: nowrap;
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 500;
+  line-height: 1.35;
 }
 .ar-tbl tbody td:first-child,
 .ar-tbl tbody td:nth-child(2),
@@ -419,7 +420,7 @@
 
 .ar-mobile-chip {
   font-family: 'Source Sans 3', sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--fg-secondary);
 }
@@ -443,24 +444,25 @@
  * them from the party-level rows above. */
 .ar-bill-row td {
   background: rgba(0,0,0,0.015);
-  padding: 9px 14px;
-  font-size: 13px;
+  padding: 5px 14px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--fg-secondary);
   border-bottom: 1px solid var(--border-subtle);
   font-variant-numeric: tabular-nums;
+  line-height: 1.35;
 }
 [data-theme^="modern-dark"] .ar-bill-row td,
 [data-theme="classic-dark"] .ar-bill-row td {
   background: rgba(255,255,255,0.02);
 }
 .ar-bill-row td:first-child { padding-left: 38px; }
-.ar-bill-row-meta { color: var(--fg-tertiary); font-size: 12.5px; font-weight: 500; }
+.ar-bill-row-meta { color: var(--fg-tertiary); font-size: 11.5px; font-weight: 500; }
 .ar-bill-no {
   font-family: 'Source Sans 3', sans-serif;
   color: var(--fg-primary);
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: 12.5px;
 }
 
 /* Row-number column in bill-wise view — narrow, center-aligned, muted so
@@ -493,7 +495,8 @@
 }
 .ar-tbl--footer td {
   background: var(--bg-panel);
-  padding: 10px 14px;
+  padding: 8px 14px;
+  font-size: 12.5px;
   text-align: right;
   white-space: nowrap;
   border-bottom: none;
