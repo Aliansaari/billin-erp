@@ -276,6 +276,24 @@ export default function AgingReport({ partyType = 'Customer' }) {
         </div>
 
         <div className="ar-hd-actions">
+          {/* View-mode toggle — same data, different slice. Lives in
+              the header next to Customize so the operator's primary
+              controls (what to see, how to see it, how to take it
+              away) cluster on one row. Page-identity toggles
+              (Receivables ↔ Payables) intentionally live in the menu,
+              not here. */}
+          <div className="ar-tabs ar-tabs--inline" role="tablist" title="View mode">
+            <button
+              role="tab"
+              className={`ar-tab ${viewMode === 'party' ? 'active' : ''}`}
+              onClick={() => setViewMode('party')}
+            ><AppstoreOutlined /> Party-wise</button>
+            <button
+              role="tab"
+              className={`ar-tab ${viewMode === 'bill' ? 'active' : ''}`}
+              onClick={() => setViewMode('bill')}
+            ><FileTextOutlined /> Bill-wise</button>
+          </div>
           <div className="ar-customize" ref={displayBtnRef}>
             <button
               className={`ar-btn ${displayOpen ? 'active' : ''}`}
@@ -401,22 +419,6 @@ export default function AgingReport({ partyType = 'Customer' }) {
           </div>
         );
       })()}
-
-      {/* View tabs — dedicated row below KPIs, with Sort on the right */}
-      <div className="ar-viewbar">
-        <div className="ar-tabs" role="tablist" title="View mode">
-          <button
-            role="tab"
-            className={`ar-tab ${viewMode === 'party' ? 'active' : ''}`}
-            onClick={() => setViewMode('party')}
-          ><AppstoreOutlined /> Party-wise</button>
-          <button
-            role="tab"
-            className={`ar-tab ${viewMode === 'bill' ? 'active' : ''}`}
-            onClick={() => setViewMode('bill')}
-          ><FileTextOutlined /> Bill-wise</button>
-        </div>
-      </div>
 
       {/* Filters */}
       <div className="ar-filters">
