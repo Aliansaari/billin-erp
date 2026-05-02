@@ -20,7 +20,8 @@
 //   product_search  string         ILIKE on product_name
 //   barcode         string         exact match
 //   hsn_code        string         exact match (or ILIKE prefix)
-//   search          string         free-text bill_no / party_name / product_name
+//   search          string         free-text bill_no / party_name (product
+//                                  excluded — covered by product_ids select)
 //   sort            enum           one of SORTABLE_COLS keys
 //   dir             asc | desc
 //   page, limit     pagination
@@ -159,7 +160,15 @@ async function _itemsList(req, side) {
     params.hsnCode = `${hsnCode}%`;
   }
   if (search) {
-    where.push(`(b.bill_number ILIKE :search OR p.party_name ILIKE :search OR i.product_name ILIKE :search)`);
+    // Search is scoped to bill_number and party_name ONLY. Product
+    // search is intentionally excluded — the dedicated Product Select
+    // (with category-aware option filtering) is the right tool for
+    // narrowing by product, and folding product matches into the
+    // free-text search would conflict with explicit product_ids
+    // filtering and produce confusing OR semantics across two filter
+    // surfaces. Bill + party covers the "where did I see this" use
+    // case the search bar exists for.
+    where.push(`(b.bill_number ILIKE :search OR p.party_name ILIKE :search)`);
     params.search = `%${search}%`;
   }
   const whereSql = where.join(' AND ');

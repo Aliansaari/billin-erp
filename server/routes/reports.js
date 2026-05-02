@@ -68,6 +68,17 @@ router.get('/bills-payable/export',    requirePermission('reports.view'), (req, 
   req.query = { ...req.query, party_type: 'Supplier' };
   return billsOutstandingController.exportBills(req, res);
 });
+// JSON dump for the client-side PDF exporter — same filters as the list
+// endpoint but without the 500-row pagination cap, so the user gets a
+// single PDF covering the full filtered set.
+router.get('/bills-receivable/export-data', requirePermission('reports.view'), (req, res) => {
+  req.query = { ...req.query, party_type: 'Customer' };
+  return billsOutstandingController.exportBillsData(req, res);
+});
+router.get('/bills-payable/export-data',    requirePermission('reports.view'), (req, res) => {
+  req.query = { ...req.query, party_type: 'Supplier' };
+  return billsOutstandingController.exportBillsData(req, res);
+});
 router.get('/gstr1',             requirePermission('reports.view'),  reportController.gstr1Report);
 router.get('/gstr3b',            requirePermission('reports.view'),  reportController.gstr3bReport);
 

@@ -1,12 +1,20 @@
 /*
- * Bills Outstanding (Receivable / Payable)
+ * Bills Outstanding (Receivable / Payable) — editorial layout, sibling
+ * of Stock Report / Smart Stock. Same design language so the operator
+ * crosses between Inventory and Outstanding without context-switch.
  *
- * Sticky-shell layout matching the financial-reports family:
- *   .bo-page is a flex column inside the AppLayout full-page wrapper.
- *   Toolbar + banners + KPIs + filter bar are all flex-shrink:0 (fixed
- *   height); the .bo-tablewrap below them grows to fill the remaining
- *   viewport height and hosts the VirtualReportTable's own sticky
- *   header + summary.
+ * What changed from the prior pass:
+ *   • KPI tiles are rounded gradient cards (was hairline grid)
+ *   • Banner uses an icon-badge + bordered card (was inline strip)
+ *   • Chips + buttons match the .sr-* / .ss-* family
+ *   • All colours flow from theme tokens (no hard hex except inherited
+ *     status colours from --warning / --danger / --success)
+ *   • Source Sans 3 only — no mono fallback (tabular-nums on numerics
+ *     keeps amount columns aligned without a separate font family)
+ *
+ * Layout: .bo-page is a flex column inside the AppLayout full-page
+ * wrapper. Header / banners / KPIs / filter bar are flex-shrink:0;
+ * .bo-tablewrap fills the remaining height and hosts VirtualReportTable.
  */
 
 .bo-page {
@@ -18,16 +26,17 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Title bar ─────────────────────────────────────────────────── */
+/* ── Page header ─────────────────────────────────────────────────── */
 .bo-hd {
   flex-shrink: 0;
   padding: 14px 24px 10px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-panel);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 .bo-title {
   display: flex; align-items: baseline; gap: 12px;
@@ -36,108 +45,339 @@
 .bo-title h1 {
   margin: 0;
   font-size: 22px; font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   color: var(--fg-primary); line-height: 1;
 }
 .bo-as-of {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--fg-secondary);
+  font-weight: 500;
 }
-.bo-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.bo-as-of b { color: var(--fg-primary); font-weight: 600; }
+.bo-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
-/* ── Banners (allocation-incomplete / reconciliation drift / OK) ── */
+/* Header buttons — match .sr-btn / .ss-btn pattern */
+.bo-actions .ant-btn {
+  height: 34px !important;
+  padding: 0 13px !important;
+  font: inherit !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  border-radius: 7px !important;
+}
+.bo-actions .ant-btn:not(.ant-btn-primary) {
+  background: var(--bg-panel) !important;
+  border-color: var(--border) !important;
+  color: var(--fg-secondary) !important;
+}
+.bo-actions .ant-btn:not(.ant-btn-primary):hover {
+  border-color: var(--accent-border) !important;
+  color: var(--accent) !important;
+}
+.bo-actions .ant-btn-primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--fg-inverse, #fff) !important;
+}
+.bo-actions .ant-btn-primary:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
+.bo-actions .ant-select {
+  height: 34px;
+}
+.bo-actions .ant-select-selector {
+  height: 34px !important;
+  border-radius: 7px !important;
+  background: var(--bg-panel) !important;
+  border-color: var(--border) !important;
+  align-items: center;
+}
+
+/* ── Banners (icon badge + bordered card) ────────────────────────── */
 .bo-banner {
   flex-shrink: 0;
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 24px 0;
+  padding: 10px 14px;
   font-size: 12.5px;
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--bg-panel);
+  color: var(--fg-primary);
 }
-.bo-banner-warn { background: var(--warning-bg, rgba(181,135,43,0.08)); color: var(--warning, #B5872B); }
-.bo-banner-warn .anticon { font-size: 14px; }
-.bo-banner-ok   { background: var(--success-bg, rgba(16,185,129,0.06)); color: var(--success, #10B981); }
-.bo-banner code { background: rgba(0,0,0,0.06); padding: 0 4px; border-radius: 3px; font-family: 'Geist Mono','JetBrains Mono', monospace; font-size: 11.5px; }
-.bo-banner > :nth-child(2) { flex: 1; }
+.bo-banner > .anticon { display: none; }   /* old inline icon hidden — replaced by badge */
+.bo-banner::before {
+  content: '!';
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 26px; height: 26px;
+  border-radius: 6px;
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--fg-inverse, #fff);
+}
+.bo-banner-warn {
+  border-color: var(--warning-bg, rgba(181,135,43,0.28));
+  border-left-color: var(--warning, #B5872B);
+  background: linear-gradient(0deg, var(--warning-bg, rgba(181,135,43,0.10)) 0%, var(--bg-panel) 100%);
+}
+.bo-banner-warn::before {
+  background: var(--warning, #B5872B);
+}
+.bo-banner-ok {
+  border-color: var(--success-bg, rgba(16,185,129,0.28));
+  border-left-color: var(--success, #10B981);
+  background: linear-gradient(0deg, var(--success-bg, rgba(16,185,129,0.08)) 0%, var(--bg-panel) 100%);
+  color: var(--success);
+}
+.bo-banner-ok::before {
+  content: '✓';
+  background: var(--success, #10B981);
+}
+.bo-banner > :nth-child(2) { flex: 1; line-height: 1.55; color: var(--fg-secondary); }
+.bo-banner b { color: var(--fg-primary); font-weight: 700; }
+.bo-banner code {
+  background: var(--bg-muted);
+  padding: 0 5px; border-radius: 4px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-secondary);
+}
 .bo-allocate-now {
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
   text-decoration: underline;
   text-underline-offset: 2px;
-  text-decoration-color: rgba(181,135,43,0.4);
+  color: var(--warning, #B5872B);
 }
-.bo-allocate-now:hover { text-decoration-color: currentColor; }
-.bo-recon-tt { font-family: 'Geist Mono','JetBrains Mono', monospace; font-size: 11px; line-height: 1.55; }
+.bo-allocate-now:hover { color: var(--accent); }
+.bo-recon-tt {
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
 
-/* ── KPI tiles ──────────────────────────────────────────────────── */
+/* ── KPI tiles — rounded gradient cards (editorial pattern) ──────── */
 .bo-kpis {
   flex-shrink: 0;
+  padding: 14px 24px 0;
+  background: transparent;
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 1px;
-  background: var(--border-subtle);
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  border-bottom: 0;
 }
 .bo-kpi {
   background: var(--bg-panel);
-  padding: 10px 16px;
-  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 13px 15px;
+  display: flex; flex-direction: column; gap: 3px;
+  position: relative; overflow: hidden;
+  transition: border-color .12s, box-shadow .12s;
 }
-.bo-kpi-clickable { cursor: pointer; transition: background .12s; }
-.bo-kpi-clickable:hover { background: var(--bg-hover); }
-.bo-kpi-active   { box-shadow: inset 0 -2px 0 var(--accent); }
-.bo-kpi-label    { font-size: 10.5px; letter-spacing: 0.4px; text-transform: uppercase; color: var(--fg-tertiary); font-weight: 600; }
-.bo-kpi-value    { font-size: 16px; font-weight: 600; color: var(--fg-primary); }
-.bo-kpi-strong   { font-weight: 700; color: var(--accent); }
-.bo-kpi-warn     { color: var(--warning, #B5872B); }
+.bo-kpi-clickable {
+  cursor: pointer;
+}
+.bo-kpi-clickable:hover {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.04));
+}
+.bo-kpi-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.bo-kpi-label {
+  font-size: 10px; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--fg-tertiary); font-weight: 700;
+}
+.bo-kpi-value {
+  font-size: 22px; font-weight: 700; color: var(--fg-primary);
+  line-height: 1.1; margin-top: 2px; letter-spacing: -0.025em;
+}
+.bo-kpi-strong { color: var(--accent); }
+.bo-kpi-warn   { color: var(--warning, #B5872B); }
 
-/* ── Filter bar ─────────────────────────────────────────────────── */
+/* Tone-tinted gradients — first tile is the headline (Total
+   Outstanding), then small data tiles, then the "Overdue Amount" warn
+   tile gets a stronger signal. */
+.bo-kpi:nth-child(1) {
+  background: linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-panel) 70%);
+  border-color: var(--accent-border);
+}
+.bo-kpi:nth-child(4) {
+  background: linear-gradient(135deg, var(--warning-bg, rgba(181,135,43,0.10)) 0%, var(--bg-panel) 70%);
+  border-color: var(--warning-bg, rgba(181,135,43,0.28));
+}
+.bo-kpi:nth-child(4) .bo-kpi-value { color: var(--warning, #B5872B); }
+.bo-kpi:nth-child(5),
+.bo-kpi:nth-child(6) {
+  background: linear-gradient(135deg, var(--bg-muted) 0%, var(--bg-panel) 70%);
+}
+
+/* ── Filter bar ──────────────────────────────────────────────────── */
 .bo-filterbar {
   flex-shrink: 0;
-  padding: 8px 24px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  background: transparent;
+  border-bottom: 1px solid var(--border-subtle);
+}
+/* Each input/select/picker is a softly rounded pill so the eye can
+   pick out filter slots quickly even when the chip text is long.
+   10px is enough to read as "bordered card" rather than "default
+   bordered input"; the matching border-color + bg variables keep
+   the boxes consistent with the page chrome. */
+.bo-filterbar .ant-input,
+.bo-filterbar .ant-input-affix-wrapper,
+.bo-filterbar .ant-select-selector,
+.bo-filterbar .ant-picker {
+  height: 32px !important;
+  border-radius: 10px !important;
+  background: var(--bg-panel) !important;
+  border-color: var(--border) !important;
+}
+/* The Barcode field uses Antd's affix-wrapper (prefix icon = the
+   barcode glyph). The wrapper IS the bordered/rounded box; the
+   inner .ant-input is just the text-edit area. The rules above
+   would otherwise apply 32px height + 10px radius + bg-panel to
+   the inner input too, painting a SECOND rounded box inside the
+   first ("two boxes nested" — exactly what surfaced in the
+   screenshot). Reset it back to "no chrome" so only the wrapper
+   shows. */
+.bo-filterbar .ant-input-affix-wrapper > .ant-input,
+.bo-filterbar .ant-input-affix-wrapper > input.ant-input {
+  height: auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.bo-filterbar .ant-btn {
+  height: 32px !important;
+  border-radius: 10px !important;
+  font-weight: 600 !important;
 }
 .bo-filterbar-adv {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px dashed var(--border-subtle);
 }
 
-/* Bucket chips — multi-select */
-.bo-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; padding: 0 4px; }
+/* Bucket chips — match .sr-chip / .ss-chip family */
+.bo-chips { display: inline-flex; gap: 6px; flex-wrap: wrap; padding: 0 4px; }
 .bo-chip {
-  height: 24px; padding: 0 10px;
+  height: 32px; padding: 0 14px;
   border: 1px solid var(--border);
-  border-radius: 99px;
-  background: transparent;
+  border-radius: 999px;
+  background: var(--bg-panel);
   color: var(--fg-secondary);
-  font-size: 12px; font-weight: 500;
+  font: inherit;
+  font-size: 12px; font-weight: 600;
   cursor: pointer;
   transition: all .12s;
+  user-select: none;
 }
-.bo-chip:hover { border-color: var(--border-strong); color: var(--fg-primary); }
-.bo-chip-on    { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+.bo-chip:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.bo-chip-on {
+  background: var(--fg-primary);
+  border-color: var(--fg-primary);
+  color: var(--bg-panel);
+}
 
-/* ── Table wrapper ──────────────────────────────────────────────── */
+/* ── Table wrapper ───────────────────────────────────────────────── */
 .bo-tablewrap {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 0 24px 12px;
+  padding: 12px 24px 12px;
   background: var(--bg-app);
 }
-.bo-tablewrap .ant-table-wrapper { background: var(--bg-panel); border-radius: 6px; overflow: hidden; }
+.bo-tablewrap .ant-table-wrapper {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+/* Suppress the summary table's horizontal scrollbar — its scrollLeft
+   is mirrored from the data table programmatically, so the user
+   never needs to interact with it. Without this rule the page shows
+   two stacked scrollbars (data + summary) at the bottom of the table.
+   `overflow-x: hidden` still allows programmatic scrollLeft writes,
+   so the mirror keeps working.
 
-/* Cell typography */
-.bo-num         { font-family: 'Geist Mono','JetBrains Mono', monospace; }
+   IMPORTANT: rc-table chooses the scroller element based on whether
+   `scroll.y` is set. With `scroll.y` (fixHeader path) the scroller is
+   `.ant-table-body`. WITHOUT `scroll.y` (the "unique table" path) the
+   scroller is `.ant-table-content`. Our summary table has only
+   `scroll.x`, so it falls into the latter path — that's why earlier
+   rules targeting only `.ant-table-body` didn't suppress the bar.
+   We cover BOTH plus the rc-virtual-list holder for safety. */
+.bo-tablewrap .vrt-summary-area .ant-table-content,
+.bo-tablewrap .vrt-summary-area .ant-table-body,
+.bo-tablewrap .vrt-summary-area .rc-virtual-list-holder {
+  overflow-x: hidden !important;
+  scrollbar-width: none !important;
+}
+.bo-tablewrap .vrt-summary-area .ant-table-content::-webkit-scrollbar,
+.bo-tablewrap .vrt-summary-area .ant-table-body::-webkit-scrollbar,
+.bo-tablewrap .vrt-summary-area .rc-virtual-list-holder::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important; height: 0 !important;
+}
+.bo-tablewrap .ant-table-thead > tr > th {
+  background: var(--bg-muted) !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--fg-tertiary) !important;
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.bo-tablewrap .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border-subtle) !important;
+  font-size: 13px;
+}
+.bo-tablewrap .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+
+/* Cell typography — Source Sans 3 throughout, tabular nums for
+   numerics so amounts align without a mono fallback. */
+.bo-num         { font-variant-numeric: tabular-nums; letter-spacing: -0.005em; }
 .bo-num-strong  { font-weight: 700; color: var(--fg-primary); }
-.bo-num-muted   { color: var(--fg-secondary); }
-.bo-mono        { font-family: 'Geist Mono','JetBrains Mono', monospace; font-size: 12px; }
-.bo-bill-link   { color: var(--accent); cursor: pointer; font-weight: 500; }
-.bo-bill-link:hover { text-decoration: underline; }
-.bo-party-link  { color: var(--fg-primary); cursor: pointer; }
+.bo-num-muted   { color: var(--fg-tertiary); font-weight: 500; }
+.bo-mono {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  color: var(--fg-secondary);
+}
+.bo-bill-link {
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.bo-bill-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.bo-party-link {
+  color: var(--fg-primary);
+  cursor: pointer;
+  font-weight: 500;
+}
 .bo-party-link:hover { color: var(--accent); }
 .bo-due-soon    { color: var(--success, #10B981); font-weight: 500; }
 .bo-overdue-mild{ color: var(--warning, #B5872B); }
@@ -145,31 +385,60 @@
 .bo-overdue-bad { color: var(--danger, #ef4444); font-weight: 700; }
 .bo-over-limit  { color: var(--danger, #ef4444); font-weight: 600; }
 
-/* Bucket cell tags */
-.bo-bucket          { font-size: 11px; padding: 0 8px; line-height: 18px; }
+/* Bucket cell tags — bigger, calmer, matches the editorial palette */
+.bo-bucket {
+  font-size: 11px;
+  padding: 2px 9px;
+  line-height: 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
 .bo-bucket-current  { background: var(--success-bg, rgba(16,185,129,0.10)); color: var(--success, #10B981); border: none; }
-.bo-bucket-b1       { background: rgba(245, 158, 11, 0.12);  color: #b45309; border: none; }
-.bo-bucket-b2       { background: rgba(217, 119, 6, 0.16);   color: #b45309; border: none; }
-.bo-bucket-b3       { background: rgba(220, 38, 38, 0.12);   color: #b91c1c; border: none; }
-.bo-bucket-b4       { background: rgba(220, 38, 38, 0.20);   color: #991b1b; border: none; font-weight: 600; }
+.bo-bucket-b1       { background: rgba(245, 158, 11, 0.14);  color: #b45309; border: none; }
+.bo-bucket-b2       { background: rgba(217, 119, 6, 0.18);   color: #9a3412; border: none; }
+.bo-bucket-b3       { background: rgba(220, 38, 38, 0.14);   color: #b91c1c; border: none; }
+.bo-bucket-b4       { background: rgba(220, 38, 38, 0.22);   color: #991b1b; border: none; font-weight: 700; }
 
-/* Empty / loading state */
+/* Empty state */
 .bo-empty {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
   color: var(--fg-tertiary);
   font-size: 14px;
   background: var(--bg-panel);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  gap: 12px;
 }
 
-/* Column-picker popover content */
-.bo-col-picker { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 16px; min-width: 320px; }
+/* Column-picker popover */
+.bo-col-picker-wrap {
+  min-width: 320px;
+  padding: 4px 0;
+}
+.bo-col-picker-h {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+  padding: 2px 4px 6px;
+}
+.bo-col-picker {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 18px;
+}
+.bo-col-picker .ant-checkbox-wrapper {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  font-weight: 500;
+}
 
 /* Print — hide chrome, full-page table */
 @media print {
   .bo-actions, .bo-filterbar, .bo-banner { display: none !important; }
   .bo-page { height: auto; overflow: visible; }
   .bo-tablewrap { padding: 0; overflow: visible; }
+  .bo-tablewrap .ant-table-wrapper { border: 0; border-radius: 0; }
 }
 
 /* Responsive — collapse KPI grid on narrower viewports */

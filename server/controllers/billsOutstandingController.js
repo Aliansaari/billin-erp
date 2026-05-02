@@ -376,6 +376,13 @@ async function _billsList(req, partyType) {
     `${cteSql}
      SELECT
        COALESCE(SUM(effective_outstanding), 0)::float                                      AS total_outstanding,
+       -- Bill / Paid totals power the Total row in the table footer so
+       -- the operator can sanity-check Outstanding = Bill - Paid. The
+       -- CTE aliases bill amount as total_amount (from b.total_amount),
+       -- not bill_amount -- that is only the per-row column key on the
+       -- frontend.
+       COALESCE(SUM(total_amount), 0)::float                                               AS total_bill_amount,
+       COALESCE(SUM(paid_amount),  0)::float                                               AS total_paid_amount,
        COUNT(*)::int                                                                       AS bill_count,
        COUNT(DISTINCT party_id)::int                                                       AS party_count,
        COALESCE(SUM(CASE WHEN overdue_days > 0 THEN effective_outstanding ELSE 0 END), 0)::float AS overdue_amount,
@@ -486,6 +493,8 @@ async function _billsList(req, partyType) {
     page, limit,
     summary: {
       total_outstanding:  r2(agg.total_outstanding),
+      total_bill_amount:  r2(agg.total_bill_amount),
+      total_paid_amount:  r2(agg.total_paid_amount),
       bill_count:         agg.bill_count,
       party_count:        agg.party_count,
       overdue_amount:     r2(agg.overdue_amount),
@@ -693,6 +702,24 @@ exports.billsPayable = async (req, res) => {
   } catch (err) {
     console.error('billsPayable error:', err);
     res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+};
+
+// JSON dump of the FULL filtered result set (limit=10000). Used by the
+// client-side PDF exporter (jsPDF + jspdf-autotable in BillsOutstanding.jsx)
+// because the public list endpoint caps `limit` at 500 for paging safety.
+// Same filter contract as billsReceivable / billsPayable; just bypasses
+// the page cap and returns everything in one shot. Cheaper than 20
+// chunked round-trips when the user wants a printable PDF.
+exports.exportBillsData = async (req, res) => {
+  try {
+    const partyType = req.query.party_type === 'Supplier' ? 'Supplier' : 'Customer';
+    req.query = { ...(req.query || {}), page: 1, limit: 10000 };
+    const result = await _billsList(req, partyType);
+    res.json(result);
+  } catch (err) {
+    console.error('exportBillsData error:', err);
+    res.status(500).json({ error: 'Export failed: ' + err.message });
   }
 };
 

@@ -191,6 +191,10 @@ export const reportAPI = {
   billsPayable:          (params) => api.get('/reports/bills-payable',    { params }),
   exportBillsReceivable: (params) => api.get('/reports/bills-receivable/export', { params, responseType: 'blob' }),
   exportBillsPayable:    (params) => api.get('/reports/bills-payable/export',    { params, responseType: 'blob' }),
+  // JSON dump used by the client-side PDF exporter — returns the full
+  // filtered result set in one shot (server bumps the limit cap to 10k).
+  exportBillsReceivableData: (params) => api.get('/reports/bills-receivable/export-data', { params }),
+  exportBillsPayableData:    (params) => api.get('/reports/bills-payable/export-data',    { params }),
   // R10 — Monthly summary (sales | purchase | combined). Single endpoint,
   // mode parameter selects shape. Frontend wrappers preset the mode.
   monthlySummary:        (params) => api.get('/reports/monthly-summary', { params }),

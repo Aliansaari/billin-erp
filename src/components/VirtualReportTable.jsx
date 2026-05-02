@@ -119,9 +119,25 @@ if (typeof document !== 'undefined' && !document.getElementById('vrt-shimmer-sty
     }
     /* The summary's own scrollbar is hidden — its scrollLeft is
        slaved to the data table's scrollLeft via JS so the cells stay
-       aligned during horizontal scroll. */
-    .vrt-summary-area .ant-table-body::-webkit-scrollbar { display: none; }
-    .vrt-summary-area .ant-table-body { scrollbar-width: none; }
+       aligned during horizontal scroll.
+       rc-table picks the scroller based on whether scroll.y is set:
+         - with scroll.y → .ant-table-body
+         - without scroll.y → .ant-table-content    ← summary uses this
+       Cover both, plus the virtual-holder for safety, and force
+       overflow-x: hidden so no native bar paints in any engine. */
+    .vrt-summary-area .ant-table-content,
+    .vrt-summary-area .ant-table-body,
+    .vrt-summary-area .rc-virtual-list-holder {
+      overflow-x: hidden !important;
+      scrollbar-width: none !important;
+    }
+    .vrt-summary-area .ant-table-content::-webkit-scrollbar,
+    .vrt-summary-area .ant-table-body::-webkit-scrollbar,
+    .vrt-summary-area .rc-virtual-list-holder::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
     /* Keyboard-nav active row — opt-in via the keyboardNav prop.
        Selectors cover both Antd table modes (the classic <tr>/<td>
        layout and the virtual <div role="row"> layout), and uses
@@ -299,12 +315,93 @@ export default function VirtualReportTable({
     return Math.max(sum, scrollX);
   }, [columns, scroll]);
 
-  // Visible-range tracker AND horizontal-scroll mirror. Attaches a
-  // passive scroll listener to the data table's scroll container and:
-  //   • asks ensureChunk for the visible row range (vertical)
-  //   • mirrors scrollLeft to the summary table so the totals row
-  //     tracks horizontal scroll on the data above
+  // Visible-range tracker (vertical only). Attaches a passive scroll
+  // listener to the data table's scroll container so we can:
+  //   • ask ensureChunk for the visible row range
+  //   • persist scrollTop for round-trip restore (Esc back to row)
+  //
+  // Horizontal mirroring lives in the rAF effect below — it does NOT
+  // run from this listener because Antd v5 virtual mode only fires
+  // native scroll events for VERTICAL changes (the holder has
+  // overflow-x: hidden; horizontal offset is applied to the Filler's
+  // margin-left and never touches scrollLeft).
   const summaryWrapRef = useRef(null);
+  // Find the summary's actual scroll container. rc-table picks the
+  // scroller based on whether scroll.y is set: with scroll.y →
+  // .ant-table-body; without scroll.y → .ant-table-content. Our
+  // summary table only sets scroll.x, so .ant-table-content is the
+  // real scroller — try it first.
+  const findSummaryScrollerRef = useCallback(() => {
+    const sumArea = summaryWrapRef.current;
+    if (!sumArea) return null;
+    return sumArea.querySelector('.ant-table-content')
+        || sumArea.querySelector('.ant-table-body')
+        || sumArea.querySelector('.ant-table-tbody-virtual-holder')
+        || null;
+  }, []);
+  // Mirror a given scrollLeft value onto the summary scroller.
+  // Stable callback so the rAF horizontal-scroll poll below can call
+  // it without re-tearing-down the loop on every render.
+  const mirrorScrollLeft = useCallback((scrollLeft) => {
+    if (typeof scrollLeft !== 'number') return;
+    const sumScroller = findSummaryScrollerRef();
+    if (sumScroller && sumScroller.scrollLeft !== scrollLeft) {
+      sumScroller.scrollLeft = scrollLeft;
+    }
+  }, [findSummaryScrollerRef]);
+  // Horizontal-scroll mirror via rAF polling.
+  //
+  // Why polling instead of an event listener: in Antd v5 virtual mode,
+  // horizontal scroll is PURELY synthetic. rc-virtual-list updates its
+  // internal `offsetLeft` state and re-renders the Filler element with
+  // a `margin-left: -offsetX` to shift content. The holder element has
+  // `overflow: hidden`, so no native horizontal scroll event ever
+  // fires. The user's `onScroll` prop on the Antd Table is also NOT
+  // called for synthetic horizontal scroll — it's only called for
+  // native scroll events on the holder, which never happen for
+  // horizontal in virtual mode.
+  //
+  // Reading the Filler's computed `margin-left` each frame and
+  // mirroring it to the summary's scrollLeft is the simplest mechanism
+  // that actually works. Cost: one querySelector + one
+  // getComputedStyle per frame. Bails immediately if the offset hasn't
+  // changed since the last frame, so it's effectively free except
+  // during active scrolling.
+  useEffect(() => {
+    // Skip the loop entirely when there's no summary to mirror to or
+    // no rows yet — saves ~60 wasted rAF callbacks/sec on pages that
+    // don't use a totals row.
+    if (!totalCount || !summaryCells) return;
+    const root = panelRef.current;
+    if (!root) return;
+    let rafId = 0;
+    let lastSL = -1;
+    const tick = () => {
+      const dataArea = root.querySelector('.vrt-data-area');
+      if (dataArea) {
+        // The Filler renders TWO nested divs inside the holder:
+        //   .ant-table-tbody-virtual-holder
+        //     > <div style="overflow:hidden">                  ← outer (no margin)
+        //         > <div class="…-holder-inner" style="margin-left:-Xpx"> ← inner (the offset)
+        // The inner one (className `*-holder-inner`) carries the
+        // horizontal offset as a NEGATIVE margin-left. Match it
+        // directly so we read the right value.
+        const filler = dataArea.querySelector('.ant-table-tbody-virtual-holder-inner')
+                    || dataArea.querySelector('.rc-virtual-list-holder-inner');
+        if (filler) {
+          const ml = parseFloat(getComputedStyle(filler).marginLeft) || 0;
+          const sl = Math.max(0, -ml); // ml is negative (or 0) in LTR
+          if (sl !== lastSL) {
+            lastSL = sl;
+            mirrorScrollLeft(sl);
+          }
+        }
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [totalCount, panelRef, mirrorScrollLeft, summaryCells]);
   useEffect(() => {
     if (!totalCount) return;
     const root = panelRef.current;
@@ -337,13 +434,12 @@ export default function VirtualReportTable({
       }
       return null;
     };
-    const findSummaryScroller = () => {
-      const sumArea = summaryWrapRef.current;
-      if (!sumArea) return null;
-      return sumArea.querySelector('.ant-table-body')
-          || sumArea.querySelector('.ant-table-tbody-virtual-holder')
-          || null;
-    };
+    // findSummaryScroller and the scrollLeft mirror live at component
+    // scope (see findSummaryScrollerRef / mirrorScrollLeft above) so
+    // they can be reused by the synthetic onScroll prop on the data
+    // Table — virtual mode horizontal scroll never fires a native
+    // scroll event, so the listener attached below would otherwise
+    // miss it.
 
     let scroller = findScroller();
     if (!scroller) {
@@ -387,13 +483,13 @@ export default function VirtualReportTable({
           body.scrollTop = top;
           sessionStorage.setItem(key, JSON.stringify(body));
         }
-        // Mirror horizontal scroll to the summary table's body. Looked
-        // up each event because the summary body element may be replaced
-        // by Antd between renders (e.g. when columns toggle).
-        const sumScroller = findSummaryScroller();
-        if (sumScroller && sumScroller.scrollLeft !== el.scrollLeft) {
-          sumScroller.scrollLeft = el.scrollLeft;
-        }
+        // Horizontal mirror is handled by the rAF poll above (reads
+        // the rc-virtual-list Filler's margin-left, which is the only
+        // place the synthetic horizontal offset shows up). We
+        // deliberately do NOT mirror el.scrollLeft from here: in
+        // virtual mode the holder has overflow-x: hidden so scrollLeft
+        // is always 0, and writing that to the summary would briefly
+        // snap it back to the left edge whenever vertical scroll fires.
       };
       handler();
       el.addEventListener('scroll', handler, { passive: true });
@@ -699,11 +795,22 @@ export default function VirtualReportTable({
     <div
       ref={panelRef}
       className="report-table-scroll rpt-tbl"
-      style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}
+      // overflow: hidden overrides the class's `overflow: auto` so the
+      // outer wrapper doesn't paint its OWN horizontal scrollbar in
+      // addition to the data table's internal one (Antd Table handles
+      // its own scroll via scroll.x / scroll.y, so the outer scroll is
+      // redundant here and produced a stacked second bar at the very
+      // bottom of the panel — the user reported "two scrollbars at the
+      // bottom"). Inline style wins over the class so we don't have to
+      // touch other pages that legitimately use .report-table-scroll.
+      style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
     >
       <div
         className="vrt-data-area"
-        style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}
+        // Same reason — clip any incidental overflow from the Antd
+        // Table wrapper so only the inner .ant-table-body / virtual
+        // holder shows the horizontal scrollbar.
+        style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
       >
         <Table
           virtual
@@ -717,6 +824,16 @@ export default function VirtualReportTable({
           {...restProps}
           rowClassName={wrappedRowClassName}
           onRow={onRow}
+          // Note: we tried wiring an onScroll prop here to mirror
+          // horizontal scroll to the summary, but in Antd v5 virtual
+          // mode this prop is NEVER called for synthetic horizontal
+          // scroll (the rc-virtual-list holder has overflow: hidden,
+          // so no native scroll event fires; only `onInternalScroll`
+          // — Antd's private handler — is called). The horizontal
+          // mirror runs via the rAF poll above instead, which reads
+          // the Filler's margin-left directly and is the only thing
+          // that actually works across all scroll-input modalities
+          // (drag, wheel, programmatic).
         />
       </div>
       {summaryColumns && totalCount > 0 && (

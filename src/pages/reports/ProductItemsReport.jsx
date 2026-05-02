@@ -15,7 +15,7 @@
 // Customize popover toggles column visibility; selection persists per-
 // side via localStorage. Click a row → drill into the bill.
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Tag, Button, Input, DatePicker, Select, Tooltip, Popover, Checkbox,
   message, Space,
@@ -153,6 +153,35 @@ export default function ProductItemsReport({ side }) {
   const [search, setSearch] = useState(() => initialFromUrl('search'));
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
+  // Controlled `open` state for each multi-select. We close the
+  // dropdown after a pick (so the user sees the selection) and after
+  // the box is emptied via backspace / clear (an empty box with an
+  // open dropdown looks broken). The closeOn helper below decides
+  // when to close — see comment there.
+  const [partyOpen, setPartyOpen]       = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [productOpen, setProductOpen]   = useState(false);
+
+  // Decide when to auto-close a multi-select dropdown:
+  //   • newVal.length > prevVal.length  → user ADDED an option;
+  //     close so the selection is visible and the user can scan
+  //     the next filter.
+  //   • newVal.length === 0             → user EMPTIED the box
+  //     (backspace through the last chip OR clicked the X);
+  //     close because an empty box with an open dropdown is
+  //     confusing.
+  //   • newVal.length < prevVal.length AND > 0 → user removed a
+  //     chip but kept others; KEEP the dropdown open so they can
+  //     remove more without re-clicking the box.
+  // Defined as a stable inline closure (not useCallback) — the
+  // overhead of recreating it per render is negligible compared
+  // to the simplicity of co-locating it with the Selects.
+  const closeOn = (newVal, prevVal, setOpen) => {
+    if (newVal.length > prevVal.length || newVal.length === 0) {
+      setOpen(false);
+    }
+  };
+
   // Debounce free-text search.
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput), 300);
@@ -179,6 +208,17 @@ export default function ProductItemsReport({ side }) {
   }, [colsVisible, COLS_KEY]);
 
   // ── URL sync ─────────────────────────────────────────────────────
+  // IMPORTANT: setSearchParams is INTENTIONALLY excluded from the deps.
+  // React Router v6's useSearchParams returns a setSearchParams whose
+  // identity changes every time `searchParams` does (it's wrapped in
+  // useCallback([navigate, searchParams])). Including it in deps would
+  // mean: each time we navigate here, location updates → searchParams
+  // re-memos → setSearchParams gets a new identity → this effect re-runs
+  // → calls setSearchParams again → re-render loop. Reading the latest
+  // setSearchParams from a ref keeps the closure stable so the effect
+  // only fires when the actual filter state changes.
+  const setSearchParamsRef = useRef(setSearchParams);
+  useEffect(() => { setSearchParamsRef.current = setSearchParams; }, [setSearchParams]);
   useEffect(() => {
     const next = {};
     if (fromDate)        next.from_date      = fromDate;
@@ -190,8 +230,9 @@ export default function ProductItemsReport({ side }) {
     if (barcode)         next.barcode        = barcode;
     if (hsnCode)         next.hsn_code       = hsnCode;
     if (search)          next.search         = search;
-    setSearchParams(next, { replace: true });
-  }, [fromDate, toDate, presetKey, partyIds, categoryIds, productIds, barcode, hsnCode, search, setSearchParams]);
+    setSearchParamsRef.current(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromDate, toDate, presetKey, partyIds, categoryIds, productIds, barcode, hsnCode, search]);
 
   // ── Server filters → virtualized hook ────────────────────────────
   const filters = useMemo(() => ({
@@ -274,8 +315,20 @@ export default function ProductItemsReport({ side }) {
           label: p.product_name + (p.barcode ? ` · ${p.barcode}` : ''),
         })));
         // Drop product selections that no longer match the new
-        // category set so the chip list stays honest.
-        setProductIds((ids) => ids.filter((id) => filtered.some((p) => p.product_id === id)));
+        // category set so the chip list stays honest. Returning the
+        // SAME array reference when nothing was dropped is critical:
+        // an unconditional `.filter()` always allocates a new array,
+        // and React's setState updates state for any new reference
+        // (Object.is comparison), even if the content is identical.
+        // That triggers a re-render → the URL-sync effect re-fires
+        // (productIds is in its deps) → setSearchParams → location
+        // changes → cascade. Skipping the update when nothing actually
+        // changed breaks the cascade for the common case (no products
+        // selected when category is picked).
+        setProductIds((ids) => {
+          const next = ids.filter((id) => filtered.some((p) => p.product_id === id));
+          return next.length === ids.length ? ids : next;
+        });
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -414,6 +467,26 @@ export default function ProductItemsReport({ side }) {
     return null;
   }, [summary, cfg.partyLabel, isSales]);
 
+  // ── Refresh — clears every filter EXCEPT the date range, then
+  // re-fetches. The date range survives because operators almost
+  // always want to keep their reporting period; the chips/inputs/
+  // search box are the noisy state that's worth wiping with one
+  // click. Dropdowns are also forced closed so the post-clear page
+  // doesn't show a still-open picker hanging over the empty box.
+  const handleRefresh = useCallback(() => {
+    setPartyIds([]);
+    setCategoryIds([]);
+    setProductIds([]);
+    setBarcode('');
+    setHsnCode('');
+    setSearchInput('');
+    setSearch('');
+    setPartyOpen(false);
+    setCategoryOpen(false);
+    setProductOpen(false);
+    refresh();
+  }, [refresh]);
+
   // ── Export (CSV) ─────────────────────────────────────────────────
   const handleExportCsv = useCallback(async () => {
     try {
@@ -449,11 +522,6 @@ export default function ProductItemsReport({ side }) {
       <div className="rpt-page-hd pi-hd">
         <div className="rpt-title">
           <h1>{cfg.title}</h1>
-          <div className="rpt-sub">
-            <b>{totalCount}</b> line{totalCount === 1 ? '' : 's'}
-            <span className="sep">·</span>
-            {dayjs(fromDate).format('D MMM YYYY')} – {dayjs(toDate).format('D MMM YYYY')}
-          </div>
         </div>
         <div className="rpt-hd-ctrl">
           <div className="rpt-period">
@@ -479,38 +547,63 @@ export default function ProductItemsReport({ side }) {
           <Popover content={customizePopover} title="Customize columns" trigger="click" placement="bottomRight">
             <Button className="rpt-btn" icon={<SettingOutlined />}>Customize</Button>
           </Popover>
-          <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={refresh} loading={loading}>Refresh</Button>
+          <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading}>Refresh</Button>
           <Button className="rpt-btn" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
           <Button className="rpt-btn" icon={<DownloadOutlined />} onClick={handleExportCsv} type="primary">Excel</Button>
         </div>
       </div>
 
-      {/* Filter bar */}
+      {/* Filter bar
+          NOTE: maxTagCount is a FIXED number (not "responsive"). The
+          "responsive" mode in Antd v5 uses a ResizeObserver to fit
+          chips into the Select's width, but inside a flex container
+          with min/maxWidth constraints (and React Strict Mode firing
+          effects twice in dev) the measure → re-render → re-measure
+          cycle can oscillate, producing a visible jiggle every time
+          a chip is added or removed. A fixed count side-steps the
+          measurement loop entirely — extra selections collapse into
+          a "+N" overflow tag.
+
+          Each multi-select is `open`-controlled via its own state so
+          we can close the dropdown automatically:
+            • after the user picks an option (so the selection is
+              visible and the user can scan the next filter)
+            • after the box becomes empty via backspace / clear (an
+              empty box with an open dropdown is confusing UX) */}
       <div className="bo-filterbar">
         <Space size={8} wrap>
           <Select size="small" mode="multiple"
             placeholder={`Filter by ${cfg.partyLabel}`}
-            value={partyIds} onChange={setPartyIds}
+            value={partyIds}
+            open={partyOpen}
+            onDropdownVisibleChange={setPartyOpen}
+            onChange={(v) => { setPartyIds(v); closeOn(v, partyIds, setPartyOpen); }}
             options={partyOptions} optionFilterProp="label"
-            allowClear maxTagCount="responsive"
+            allowClear maxTagCount={2}
             style={{ minWidth: 220, maxWidth: 360 }}
           />
           <Select size="small" mode="multiple"
             placeholder="Category"
-            value={categoryIds} onChange={setCategoryIds}
+            value={categoryIds}
+            open={categoryOpen}
+            onDropdownVisibleChange={setCategoryOpen}
+            onChange={(v) => { setCategoryIds(v); closeOn(v, categoryIds, setCategoryOpen); }}
             options={categoryOptions}
             optionFilterProp="label" showSearch
-            allowClear maxTagCount="responsive"
+            allowClear maxTagCount={1}
             style={{ minWidth: 160, maxWidth: 240 }}
           />
           <Select size="small" mode="multiple"
             placeholder={categoryIds.length
               ? `Product (${productOptions.length} in category)`
               : 'Product'}
-            value={productIds} onChange={setProductIds}
+            value={productIds}
+            open={productOpen}
+            onDropdownVisibleChange={setProductOpen}
+            onChange={(v) => { setProductIds(v); closeOn(v, productIds, setProductOpen); }}
             options={productOptions}
             optionFilterProp="label" showSearch
-            allowClear maxTagCount="responsive"
+            allowClear maxTagCount={1}
             style={{ minWidth: 220, maxWidth: 320 }}
           />
           <Input size="small" allowClear
@@ -526,7 +619,7 @@ export default function ProductItemsReport({ side }) {
             style={{ width: 110 }}
           />
           <Input size="small" allowClear
-            placeholder="Search bill / party / product…"
+            placeholder="Search bill no / party…"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             style={{ width: 240 }}

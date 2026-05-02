@@ -39,6 +39,7 @@ import {
   DownloadOutlined, SettingOutlined, SearchOutlined, ReloadOutlined,
   CloseOutlined, WarningOutlined, CheckCircleOutlined, EllipsisOutlined,
   PrinterOutlined, WhatsAppOutlined, FilterOutlined, GroupOutlined,
+  FilePdfOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -93,6 +94,7 @@ const SIDE = {
     partyTypeQuery:  'Customer',
     fetcher:         (p) => reportAPI.billsReceivable(p),
     exporter:        (p) => reportAPI.exportBillsReceivable(p),
+    pdfDataFetcher:  (p) => reportAPI.exportBillsReceivableData(p),
     billRoute:       (id) => `/sale/edit/${id}`,
     receiptLabel:    'Record Receipt',
     receiptRoute:    '/receipt/new',
@@ -105,6 +107,7 @@ const SIDE = {
     partyTypeQuery:  'Supplier',
     fetcher:         (p) => reportAPI.billsPayable(p),
     exporter:        (p) => reportAPI.exportBillsPayable(p),
+    pdfDataFetcher:  (p) => reportAPI.exportBillsPayableData(p),
     billRoute:       (id) => `/purchase/edit/${id}`,
     receiptLabel:    'Record Payment',
     receiptRoute:    '/payment/new',
@@ -122,9 +125,11 @@ const DEFAULT_COLS = {
   party_gstin: false, party_city: false, party_state: false,
   party_mobile: false, party_credit_limit: false, party_credit_days: false,
   salesman: false, notes: false, created_by: false,
+  // Page sections (Customize popover toggles them)
+  __kpis: true,
 };
 
-const COLS_KEY = 'erp_bills_outstanding_cols';
+const COLS_KEY = 'erp_bills_outstanding_cols_v2';
 
 export default function BillsOutstanding({ side }) {
   const cfg = SIDE[side];
@@ -306,7 +311,12 @@ export default function BillsOutstanding({ side }) {
                    ) },
     due_date:    { title: 'Due Date', dataIndex: 'effective_due_date', width: 110, sorter: true,
                    render: (v) => fmtDate(v) },
-    overdue:     { title: 'Days Overdue', dataIndex: 'overdue_days', width: 120, align: 'right', sorter: true,
+    // Title intentionally shortened from "Days Overdue" → "Overdue":
+    // at width 120 with align: 'right', the uppercase header + sort
+    // arrow + the column-header padding exceed the cell width and the
+    // arrow visually overlaps the last letter ("E"). The values render
+    // as "208d" / "131d" so the "d" suffix makes "Days" redundant.
+    overdue:     { title: 'Overdue', dataIndex: 'overdue_days', width: 120, align: 'right', sorter: true,
                    render: (v) => {
                      const n = Number(v) || 0;
                      if (n === 0) return <span className="bo-due-soon">Not due</span>;
@@ -342,10 +352,16 @@ export default function BillsOutstanding({ side }) {
   }), [bucketBounds, bucketLabels, drillBill, drillPartyLedger, cfg]);
 
   const COL_ORDER = [
-    'bill_no', 'bill_date', 'party_name', 'due_date', 'overdue',
-    'bill_amount', 'paid_amount', 'outstanding', 'bucket',
-    'party_gstin', 'party_city', 'party_state', 'party_mobile',
+    // Identifiers + dates
+    'bill_no', 'bill_date', 'due_date',
+    // Party block — Customer/Supplier name with all party-meta
+    // grouped right after it so the operator can scan one party row
+    // without their eye jumping across the table for mobile / GSTIN.
+    'party_name', 'party_mobile', 'party_gstin', 'party_city', 'party_state',
     'party_credit_days', 'party_credit_limit',
+    // Financial story — Bill → Paid → Outstanding → days overdue → bucket
+    'bill_amount', 'paid_amount', 'outstanding', 'overdue', 'bucket',
+    // Internal metadata (last)
     'salesman', 'notes', 'created_by',
   ];
   // Per-row action menu — appended as the right-most column.
@@ -381,30 +397,48 @@ export default function BillsOutstanding({ side }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colsVisible, COL_SPECS, ACTION_COL]);
 
-  // Column-toggle popover content.
+  // Column-toggle popover content. Trailing "Page Sections" group
+  // (separated by a divider) lets the user hide whole-page parts —
+  // currently only the KPI strip, but the slot is set up so other
+  // sections (banners, etc.) can plug in later.
   const colPickerContent = (
-    <div className="bo-col-picker">
-      {COL_ORDER.map((k) => (
-        <div key={k}>
+    <div className="bo-col-picker-wrap">
+      <div className="bo-col-picker-h">Columns</div>
+      <div className="bo-col-picker">
+        {COL_ORDER.map((k) => (
+          <div key={k}>
+            <Checkbox
+              checked={!!colsVisible[k]}
+              onChange={(e) => setColsVisible((c) => ({ ...c, [k]: e.target.checked }))}
+            >
+              {COL_SPECS[k]?.title || k}
+            </Checkbox>
+          </div>
+        ))}
+      </div>
+      <div className="bo-col-picker-h" style={{ marginTop: 10 }}>Page Sections</div>
+      <div className="bo-col-picker">
+        <div>
           <Checkbox
-            checked={!!colsVisible[k]}
-            onChange={(e) => setColsVisible((c) => ({ ...c, [k]: e.target.checked }))}
+            checked={colsVisible.__kpis !== false}
+            onChange={(e) => setColsVisible((c) => ({ ...c, __kpis: e.target.checked }))}
           >
-            {COL_SPECS[k]?.title || k}
+            KPI cards (top)
           </Checkbox>
         </div>
-      ))}
+      </div>
     </div>
   );
 
   // Summary row content — totals over the FULL filtered set (from
   // server's summary block). Rendered inside the VirtualReportTable's
-  // sticky bottom strip.
+  // sticky bottom strip. Bill / Paid / Outstanding all show totals so
+  // the operator can verify Outstanding = Bill − Paid at a glance.
   const summaryCells = useCallback((col) => {
     if (col.key === 'bill_no')     return <strong>Total ({summary.bill_count || 0})</strong>;
     if (col.key === 'party_name')  return <span className="bo-num-muted">{summary.party_count || 0} parties</span>;
-    if (col.key === 'bill_amount') return null;   // bill amount sum isn't meaningful when bills are partially paid
-    if (col.key === 'paid_amount') return null;
+    if (col.key === 'bill_amount') return <span className="bo-num">{fmtINR(summary.total_bill_amount)}</span>;
+    if (col.key === 'paid_amount') return <span className="bo-num bo-num-muted">{fmtINR(summary.total_paid_amount)}</span>;
     if (col.key === 'outstanding') return <span className="bo-num bo-num-strong">{fmtINR(summary.total_outstanding)}</span>;
     return null;
   }, [summary]);
@@ -428,6 +462,141 @@ export default function BillsOutstanding({ side }) {
       message.error('Export failed');
     }
   }, [cfg, filters, asOf]);
+
+  // PDF export — same data path as Excel, but rendered client-side via
+  // jsPDF + jspdf-autotable so we don't need a server-side PDF lib.
+  // Respects column visibility (only ON columns from Customize make it
+  // into the PDF), and adds a totals row mirroring the on-screen one.
+  // Lazy-imports both jsPDF deps so they don't bloat the initial bundle
+  // — the bills-outstanding page can mount and run without ever paying
+  // for the PDF lib unless the user clicks the button.
+  const handleExportPDF = useCallback(async () => {
+    const hide = message.loading('Generating PDF…', 0);
+    try {
+      const [{ default: jsPDF }, { default: autoTable }, res] = await Promise.all([
+        import('jspdf'),
+        import('jspdf-autotable'),
+        cfg.pdfDataFetcher(filters),
+      ]);
+      const all = res?.data?.data || [];
+      const sum = res?.data?.summary || {};
+      const labels = res?.data?.bucket_labels || bucketLabels;
+
+      // Build the column set from the live tableColumns so the PDF
+      // honours the user's Customize choices and column order. Skip the
+      // bucket column's render fn (it returns a React Tag) and emit
+      // text-only via the bucket label.
+      const visibleSpecs = tableColumns.map((c) => {
+        const key = c.key || c.dataIndex;
+        return {
+          key,
+          title: typeof c.title === 'string' ? c.title : key,
+          dataIndex: c.dataIndex,
+          align: c.align || 'left',
+        };
+      });
+
+      const head = [visibleSpecs.map((c) => c.title)];
+
+      // Per-column cell formatter — text-only output so autoTable can
+      // align/wrap cleanly. Mirrors the on-screen renderers.
+      const formatCell = (col, row) => {
+        const v = col.dataIndex ? row[col.dataIndex] : null;
+        switch (col.key) {
+          case 'bill_no':     return row.bill_number || '';
+          case 'bill_date':   return row.bill_date ? dayjs(row.bill_date).format('DD/MM/YYYY') : '';
+          case 'due_date':    return row.effective_due_date ? dayjs(row.effective_due_date).format('DD/MM/YYYY') : '';
+          case 'overdue': {
+            const n = Number(row.overdue_days) || 0;
+            return n === 0 ? 'Not due' : `${n}d`;
+          }
+          case 'bill_amount': return fmtINR(row.bill_amount);
+          case 'paid_amount': return fmtINR(row.paid_amount);
+          case 'outstanding': return fmtINR(row.outstanding);
+          case 'bucket': {
+            const k = bucketFromOverdue(row.overdue_days, bucketBounds);
+            return labels[k] || k;
+          }
+          case 'party_credit_limit': {
+            const n = Number(row.party_credit_limit) || 0;
+            return n ? fmtINR(n) : '';
+          }
+          case 'party_credit_days': return Number(row.party_credit_days) || '';
+          default: return v == null || v === '' ? '' : String(v);
+        }
+      };
+      const body = all.map((r) => visibleSpecs.map((c) => formatCell(c, r)));
+
+      // Footer / totals row — only fill the financial columns; rest stays
+      // blank so the cells align under their data columns. The label
+      // ("Total (N)") spans the first 1-2 columns when bill_no is shown.
+      const totalsByKey = {
+        bill_no:     `Total (${sum.bill_count || all.length})`,
+        party_name:  `${sum.party_count || 0} parties`,
+        bill_amount: fmtINR(sum.total_bill_amount),
+        paid_amount: fmtINR(sum.total_paid_amount),
+        outstanding: fmtINR(sum.total_outstanding),
+      };
+      const foot = [visibleSpecs.map((c) => totalsByKey[c.key] || '')];
+
+      // Right-align numeric columns to match the on-screen alignment.
+      const columnStyles = {};
+      visibleSpecs.forEach((c, i) => {
+        if (c.align === 'right') columnStyles[i] = { halign: 'right' };
+      });
+
+      // A4 landscape — fits 8-10 columns comfortably; the user's
+      // Customize popover lets them trim further if needed.
+      const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+      const pageW = doc.internal.pageSize.getWidth();
+
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+      doc.text(cfg.title, 40, 42);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(110);
+      doc.text(`as on ${dayjs(asOf).format('D MMM YYYY')}`, 40, 58);
+
+      // Right-side meta block
+      doc.setTextColor(40);
+      const metaR = [
+        `Outstanding: ${fmtINR(sum.total_outstanding)}`,
+        `Bills: ${sum.bill_count || 0} · Parties: ${sum.party_count || 0}`,
+        `Overdue: ${fmtINR(sum.overdue_amount || 0)} · Avg ${sum.avg_days_overdue || 0}d`,
+      ];
+      metaR.forEach((t, i) => doc.text(t, pageW - 40, 42 + i * 13, { align: 'right' }));
+
+      autoTable(doc, {
+        startY: 75,
+        head,
+        body,
+        foot,
+        styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
+        headStyles: { fillColor: [243, 244, 246], textColor: 60, fontStyle: 'bold', fontSize: 8 },
+        footStyles: { fillColor: [254, 243, 199], textColor: 40, fontStyle: 'bold' },
+        columnStyles,
+        didDrawPage: (data) => {
+          // Footer with page no. + generated-at on every page.
+          const pageH = doc.internal.pageSize.getHeight();
+          doc.setFontSize(7.5); doc.setTextColor(150);
+          doc.text(
+            `Generated by Billing ERP · ${dayjs().format('DD MMM YYYY hh:mm A')}`,
+            40, pageH - 16
+          );
+          doc.text(
+            `Page ${data.pageNumber}`, pageW - 40, pageH - 16, { align: 'right' }
+          );
+        },
+      });
+
+      const fname = `${cfg.csvBaseName}_${asOf}.pdf`;
+      doc.save(fname);
+      hide();
+      message.success('PDF downloaded');
+    } catch (err) {
+      hide();
+      console.error('PDF export failed', err);
+      message.error('PDF export failed');
+    }
+  }, [cfg, filters, asOf, tableColumns, bucketBounds, bucketLabels]);
 
   const handleWhatsApp = useCallback(() => {
     const lines = [
@@ -480,6 +649,7 @@ export default function BillsOutstanding({ side }) {
           <Button size="small" icon={<ReloadOutlined />} onClick={refresh}>Refresh</Button>
           <Button size="small" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
           <Button size="small" icon={<WhatsAppOutlined />} onClick={handleWhatsApp}>WhatsApp</Button>
+          <Button size="small" icon={<FilePdfOutlined />} onClick={handleExportPDF}>PDF</Button>
           <Button size="small" icon={<DownloadOutlined />} onClick={handleExportExcel} type="primary">Excel</Button>
         </div>
       </div>
@@ -533,8 +703,10 @@ export default function BillsOutstanding({ side }) {
       {/* ── KPI tiles ───────────────────────────────────────────────
         Click a tile to apply the matching filter. Tiles read from the
         server-computed `summary` (over the FULL filtered set, not just
-        the visible page).
+        the visible page). Hidden when the user opts out via Customize
+        → Page Sections → KPI cards.
       */}
+      {colsVisible.__kpis !== false && (
       <div className="bo-kpis">
         <div className="bo-kpi" onClick={kpiClickAll} title="Click to clear filters">
           <div className="bo-kpi-label">Total Outstanding</div>
@@ -561,6 +733,7 @@ export default function BillsOutstanding({ side }) {
           <div className="bo-kpi-value">{summary.oldest_days || 0}</div>
         </div>
       </div>
+      )}
 
       {/* ── Filter bar ───────────────────────────────────────────── */}
       <div className="bo-filterbar">
