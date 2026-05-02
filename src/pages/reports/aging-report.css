@@ -390,6 +390,16 @@
 .ar-tbl tbody tr.party-row.expanded { background: var(--bg-hover, rgba(0,0,0,0.03)); }
 .ar-tbl tbody tr.party-row.expanded td { border-bottom-color: transparent; }
 
+/* Keyboard-active row — accent left rule + warmer surface so the
+   cursor is unmistakable while moving with arrow keys. Stronger
+   contrast than hover so it doesn't blur into mouse-hover state. */
+.ar-tbl tbody tr.ar-nav-row.is-active td:first-child {
+  box-shadow: inset 3px 0 0 0 var(--accent, #B1472F);
+}
+.ar-tbl tbody tr.ar-nav-row.is-active td {
+  background: color-mix(in srgb, var(--accent-bg, #f5e9e3) 55%, transparent) !important;
+}
+
 .ar-party-name {
   display: flex;
   align-items: center;

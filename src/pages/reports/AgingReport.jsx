@@ -260,6 +260,138 @@ export default function AgingReport({ partyType = 'Customer' }) {
     });
   };
 
+  /* ────── keyboard navigation ──────
+   *
+   * Same shape as PartyOutstandingView: build a flat list of currently-
+   * visible rows, drive an activeIdx with arrow keys, let Enter/←/→ act
+   * on the row under the cursor. Re-uses the report-family conventions
+   * so a user who knows TB / Customer Outstanding knows this page on
+   * first hit too.
+   */
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const scrollRef = useRef(null);
+
+  const navRows = useMemo(() => {
+    const list = [];
+    if (viewMode === 'party') {
+      for (const r of visibleRows) {
+        list.push({ kind: 'party', key: r.party_id, party: r });
+        if (expanded.has(r.party_id)) {
+          for (const b of r.bills) {
+            list.push({ kind: 'bill', key: `${r.party_id}-${b.bill_id}`, bill: b, parentKey: r.party_id });
+          }
+        }
+      }
+    } else {
+      for (const b of flatBills) {
+        list.push({ kind: 'bill', key: `${b.party_id}-${b.bill_id}`, bill: b });
+      }
+    }
+    return list;
+  }, [viewMode, visibleRows, flatBills, expanded]);
+
+  // key → idx lookup so each row's render can mark itself active
+  // without threading a counter through the map callbacks.
+  const navIdxByKey = useMemo(() => {
+    const m = new Map();
+    navRows.forEach((r, i) => m.set(r.key, i));
+    return m;
+  }, [navRows]);
+
+  // Reset cursor when the row set changes substantially (view flip,
+  // party-type change, search filter clear) — avoids leaving the
+  // cursor on a row that no longer exists.
+  useEffect(() => {
+    setActiveIdx(navRows.length > 0 ? 0 : -1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, partyType]);
+
+  // Clamp on shrink — if a party with the cursor on one of its bills
+  // got collapsed, the cursor would be past the end.
+  useEffect(() => {
+    setActiveIdx(prev => {
+      if (prev < 0) return prev;
+      return Math.min(prev, navRows.length - 1);
+    });
+  }, [navRows.length]);
+
+  // Scroll active row into view as the cursor moves.
+  useEffect(() => {
+    if (activeIdx < 0 || !scrollRef.current) return;
+    const rows = scrollRef.current.querySelectorAll('tr.ar-nav-row');
+    rows[activeIdx]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [activeIdx]);
+
+  // Bill drill — goes to the source bill edit page. Receivables side
+  // (Customer) → /sale/edit/N; Payables side (Supplier) → /purchase/edit/N.
+  // Mirrors the equivalent behaviour on Bills Receivable/Payable.
+  const drillBill = (b) => {
+    if (!b?.bill_id) return;
+    navigate(isCustomer ? `/sale/edit/${b.bill_id}` : `/purchase/edit/${b.bill_id}`);
+  };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      // Don't fight inputs (search box, filter selects, etc.).
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (document.activeElement?.isContentEditable) return;
+      if (!navRows.length) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveIdx(i => Math.min((i < 0 ? -1 : i) + 1, navRows.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIdx(i => Math.max(i - 1, 0));
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setActiveIdx(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setActiveIdx(navRows.length - 1);
+      } else if (e.key === 'PageDown') {
+        e.preventDefault();
+        setActiveIdx(i => Math.min((i < 0 ? 0 : i) + 10, navRows.length - 1));
+      } else if (e.key === 'PageUp') {
+        e.preventDefault();
+        setActiveIdx(i => Math.max(i - 10, 0));
+      } else if (e.key === 'ArrowRight') {
+        // Expand current party (party-wise only). No-op on bill rows
+        // and already-expanded parties.
+        const row = navRows[activeIdx];
+        if (!row || row.kind !== 'party') return;
+        if (!expanded.has(row.key)) {
+          e.preventDefault();
+          toggleExpanded(row.key);
+        }
+      } else if (e.key === 'ArrowLeft') {
+        // Collapse current party — or, on a bill row, collapse the
+        // parent and re-anchor the cursor on it.
+        const row = navRows[activeIdx];
+        if (!row) return;
+        if (row.kind === 'bill' && row.parentKey != null) {
+          e.preventDefault();
+          const parentIdx = navRows.findIndex(r => r.kind === 'party' && r.key === row.parentKey);
+          toggleExpanded(row.parentKey);
+          if (parentIdx >= 0) setActiveIdx(parentIdx);
+        } else if (row.kind === 'party' && expanded.has(row.key)) {
+          e.preventDefault();
+          toggleExpanded(row.key);
+        }
+      } else if (e.key === 'Enter') {
+        const row = navRows[activeIdx];
+        if (!row) return;
+        e.preventDefault();
+        if (row.kind === 'party') toggleExpanded(row.key);
+        else                       drillBill(row.bill);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navRows, activeIdx, expanded, viewMode, isCustomer]);
+
   /* ────── render ────── */
 
   const isCustomer = partyType === 'Customer';
@@ -490,7 +622,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
 
       {/* Table */}
       <div className="ar-wrap">
-        <div className="ar-scroll">
+        <div className="ar-scroll" ref={scrollRef}>
           {loading ? (
             <div className="ar-empty"><Spin /></div>
           ) : viewMode === 'party' ? (
@@ -524,11 +656,13 @@ export default function AgingReport({ partyType = 'Customer' }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleRows.map(r => (
+                  {visibleRows.map(r => {
+                    const partyIdx = navIdxByKey.get(r.party_id);
+                    return (
                     <React.Fragment key={r.party_id}>
                       <tr
-                        className={`party-row ar-party-row ${expanded.has(r.party_id) ? 'expanded' : ''}`}
-                        onClick={() => toggleExpanded(r.party_id)}
+                        className={`party-row ar-party-row ar-nav-row ${expanded.has(r.party_id) ? 'expanded' : ''} ${partyIdx === activeIdx ? 'is-active' : ''}`}
+                        onClick={() => { setActiveIdx(partyIdx ?? -1); toggleExpanded(r.party_id); }}
                       >
                         <td>
                           <span className="ar-party-name">
@@ -548,12 +682,19 @@ export default function AgingReport({ partyType = 'Customer' }) {
                         <td className="ar-amt-total">{fmt(r.total)}</td>
                       </tr>
 
-                      {expanded.has(r.party_id) && r.bills.map(b => (
+                      {expanded.has(r.party_id) && r.bills.map(b => {
+                        const billKey = `${r.party_id}-${b.bill_id}`;
+                        const billIdx = navIdxByKey.get(billKey);
+                        return (
                         /* Expanded bill row — one cell per column so values
                          * stay aligned with the header. Balance is placed
                          * ONLY in the matching bucket column (Tally style),
                          * with the total replicated in the Total column. */
-                        <tr key={`${r.party_id}-${b.bill_id}`} className="ar-bill-row">
+                        <tr
+                          key={billKey}
+                          className={`ar-bill-row ar-nav-row ${billIdx === activeIdx ? 'is-active' : ''}`}
+                          onClick={() => { setActiveIdx(billIdx ?? -1); drillBill(b); }}
+                        >
                           <td>
                             <span className="ar-bill-no">{b.bill_number}</span>
                             &nbsp;·&nbsp; {fmtDate(b.bill_date)}
@@ -569,9 +710,10 @@ export default function AgingReport({ partyType = 'Customer' }) {
                           ))}
                           <td className="ar-amt-total">{fmt(b.balance_amount)}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </React.Fragment>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             )
@@ -610,8 +752,15 @@ export default function AgingReport({ partyType = 'Customer' }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {flatBills.map((b, i) => (
-                    <tr key={`${b.party_id}-${b.bill_id}`}>
+                  {flatBills.map((b, i) => {
+                    const key = `${b.party_id}-${b.bill_id}`;
+                    return (
+                    <tr
+                      key={key}
+                      className={`ar-nav-row ${i === activeIdx ? 'is-active' : ''}`}
+                      onClick={() => { setActiveIdx(i); drillBill(b); }}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <td className="ar-rownum">{i + 1}</td>
                       <td>{fmtDate(b.bill_date)}</td>
                       <td><span className="ar-bill-no">{b.bill_number}</span></td>
@@ -627,7 +776,8 @@ export default function AgingReport({ partyType = 'Customer' }) {
                       ))}
                       <td>{fmtDate(b.due_date)}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             )
