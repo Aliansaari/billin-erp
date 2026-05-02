@@ -1,37 +1,29 @@
-/* ── PartyPicker ─────────────────────────────────────────────────────
+/* ── PartyPicker (inline) ────────────────────────────────────────────
  *
- * Compact-trigger party Select with a wide tabular dropdown, matching
- * the customer-pick chrome on Sales Bill Form. The trigger is the
- * size of any other form field (~340px); the dropdown breaks out to
- * 700px so all columns (Name / City / Contact / Balance / Status)
- * stay readable.
+ * Compact-trigger party Select with a wide tabular dropdown. Designed
+ * to live inline with the page title in the report header — no card
+ * surface, no padding, just the control + meta pills as a flex row.
  */
 
-.pp-bar {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 10px 12px;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--border-subtle) 60%, transparent);
-}
-
-.pp-row {
+.pp-inline {
   display: flex;
-  gap: 12px;
   align-items: center;
+  gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;     /* lets the Select shrink if the header is tight */
 }
 
-.pp-select-wrap {
-  flex: 0 1 340px;
-  min-width: 240px;
+/* Compact, header-sized Select. Same height as the AntD `large`
+   buttons in the action row, so they line up cleanly. */
+.pp-select.ant-select {
+  width: 320px;
+  max-width: 100%;
+}
+.pp-select.ant-select .ant-select-selector {
+  height: 36px !important;
 }
 
-/* AntD Select — keep its default size; the trigger reads as one cell
-   in the page's chrome rather than dominating the layout. */
-.pp-select-wrap .ant-select { width: 100%; }
-
-/* Selected-party meta pills — sit beside the trigger in the same row. */
+/* Selected-party meta pills */
 .pp-meta {
   display: flex;
   align-items: center;
@@ -53,7 +45,7 @@
 .pp-meta-bal.neg { color: var(--danger,  #B1472F); }
 
 /* Dropdown header strip — repeats the optionRender column widths so
-   the labels line up exactly above each row's data. */
+   labels line up exactly above each row's data. */
 .pp-opt-head {
   display: flex;
   gap: 0;
@@ -75,38 +67,7 @@
   padding: 2px 0;
 }
 
-/* Recent-party chips */
-.pp-recent {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-top: 8px;
-  flex-wrap: wrap;
-}
-.pp-recent-lbl {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--fg-tertiary);
-  font-weight: 700;
-}
-.pp-chip {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  padding: 2px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  color: var(--fg-secondary);
-  transition: background 0.08s, color 0.08s;
-}
-.pp-chip:hover {
-  background: var(--bg-cell, var(--accent-soft, #f5e9e3));
-  color: var(--fg-primary);
-}
-
 /* Print — picker is a screen control, not part of the document. */
 @media print {
-  .pp-bar { display: none; }
+  .pp-inline { display: none; }
 }

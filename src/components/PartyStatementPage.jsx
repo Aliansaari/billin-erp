@@ -323,7 +323,11 @@ export default function PartyStatementPage({
 
   return (
     <div className="psp-page">
-      {/* ── Header strip ─────────────────────────────────────────── */}
+      {/* ── Header strip ─────────────────────────────────────────────
+          Title + party picker (with selected-party meta pills) + action
+          buttons all on one row. The picker is the page's primary
+          control so keeping it inline with the title makes that role
+          unmistakable — and frees a whole row of vertical space below. */}
       <div className="psp-header">
         <div className="psp-titles">
           <Button
@@ -332,6 +336,9 @@ export default function PartyStatementPage({
             className="psp-back"
           />
           <h1 className="psp-title">{title}</h1>
+        </div>
+        <div className="psp-header-picker">
+          <PartyPicker partyType={partyType} value={party} onChange={setParty} />
         </div>
         <div className="psp-actions">
           <Tooltip title="Refresh">
@@ -346,13 +353,11 @@ export default function PartyStatementPage({
         </div>
       </div>
 
-      {/* ── Picker + period + voucher-type chips ─────────────────────
+      {/* ── Period + voucher-type chips ──────────────────────────────
           Same chrome shape as Sales Report / Day Book — uses the
           shared rpt-period / rpt-date classes from global.css so the
           report family looks like one app, not five. */}
       <div className="psp-sticky">
-        <PartyPicker partyType={partyType} value={party} onChange={setParty} />
-
         <div className="psp-controls">
           <div className="rpt-period">
             {presets(fyStart, fyEnd).map(p => (

@@ -16,15 +16,17 @@
   gap: 12px;
 }
 
-/* Header — title left, action buttons right. Mirrors the Sales Report
-   / Trial Balance chrome so the report family reads consistently. */
+/* Header — three-zone layout: [title] [picker — flex-fills] [actions].
+   The picker zone sits inline with the title so the page's primary
+   control is right where the eye lands first. Mirrors the SalesBillForm
+   chrome where the customer Select is at the top of the form too. */
 .psp-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
-.psp-titles { display: flex; align-items: center; gap: 4px; }
+.psp-titles { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .psp-back   { color: var(--fg-secondary); }
 .psp-title  {
   margin: 0;
@@ -34,15 +36,16 @@
   line-height: 1.15;
   letter-spacing: -0.01em;
 }
-.psp-subtitle {
-  font-size: 12px;
-  color: var(--fg-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-  margin-top: 1px;
+/* Picker zone — flexes to fill the space between title and actions.
+   When the viewport is narrow it wraps to its own line, but stays
+   inline at typical desktop widths. */
+.psp-header-picker {
+  flex: 1 1 320px;
+  min-width: 240px;
+  display: flex;
+  align-items: center;
 }
-.psp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.psp-actions { display: flex; gap: 8px; flex-wrap: wrap; flex: 0 0 auto; }
 
 /* Sticky bar — picker + period. Sticks to the page top inside the
    scrolling page wrapper. position:sticky needs the parent to be the
