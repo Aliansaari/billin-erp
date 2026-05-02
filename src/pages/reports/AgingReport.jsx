@@ -50,9 +50,13 @@ const DISPLAY_KEYS = [
 const DEFAULT_DISPLAY = DISPLAY_KEYS.reduce((o, d) => ({ ...o, [d.k]: true }), {});
 const DISPLAY_STORAGE_KEY = 'agingReport_display_v1';
 
-export default function AgingReport() {
+// Receivables Aging and Payables Aging are separate menu entries
+// (sibling to Bills Receivable / Bills Payable + Customer / Supplier
+// Outstanding). Each lands on its own URL with the party type fixed
+// — no internal toggle, the page identity matches its menu entry.
+// This component is the shared engine, parameterised by `partyType`.
+export default function AgingReport({ partyType = 'Customer' }) {
   const navigate = useNavigate();
-  const [partyType, setPartyType] = useState('Customer');
   // Two rendering modes sharing the same JSON payload:
   //   'party' — one row per party with expandable bill drill-down (default)
   //   'bill'  — flat list of every outstanding bill (Tally-style)
@@ -269,19 +273,6 @@ export default function AgingReport() {
       <div className="ar-hd">
         <div className="ar-title">
           <h1>{title}</h1>
-        </div>
-
-        <div className="ar-tabs" role="tablist">
-          <button
-            role="tab"
-            className={`ar-tab ${isCustomer ? 'active' : ''}`}
-            onClick={() => setPartyType('Customer')}
-          >Receivables</button>
-          <button
-            role="tab"
-            className={`ar-tab ${!isCustomer ? 'active' : ''}`}
-            onClick={() => setPartyType('Supplier')}
-          >Payables</button>
         </div>
 
         <div className="ar-hd-actions">

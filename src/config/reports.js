@@ -329,14 +329,30 @@ export const REPORTS = [
     aliases: ['ledger', 'general ledger', 'chart of accounts ledger', 'gl', 'account ledger'],
     isNew: true,
   },
+  // Bucketed aging — split into customer / supplier flavors so the
+  // hub search "payables aging" lands directly on the supplier side.
+  // Same shared <AgingReport> engine; the menu entry just fixes the
+  // partyType. Legacy /reports/aging route still works (lands on
+  // Receivables) so old bookmarks don't 404.
   {
-    id: 'aging_report',
-    name: 'Aging Report',
-    subtitle: 'Party-level bucketed outstanding · 0-30/30-60/60-90/90+',
+    id: 'receivables_aging',
+    name: 'Receivables Aging',
+    subtitle: 'Customer-level bucketed outstanding · 0-30 / 30-60 / 60-90 / 90+',
     category: 'outstanding',
-    route: '/reports/aging',
+    route: '/reports/receivables-aging',
     perm: 'reports.view',
-    aliases: ['outstanding', 'receivables aging', 'payables aging'],
+    aliases: ['aging', 'receivables', 'customer aging', 'debtors aging'],
+    isNew: true,
+  },
+  {
+    id: 'payables_aging',
+    name: 'Payables Aging',
+    subtitle: 'Supplier-level bucketed outstanding · 0-30 / 30-60 / 60-90 / 90+',
+    category: 'outstanding',
+    route: '/reports/payables-aging',
+    perm: 'reports.view',
+    aliases: ['aging', 'payables', 'supplier aging', 'creditors aging'],
+    isNew: true,
   },
 
   // ── Tax / GST ────────────────────────────────────────────────────

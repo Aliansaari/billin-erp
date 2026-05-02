@@ -39,6 +39,8 @@ import SupplierStatement from './pages/reports/SupplierStatement';
 import Ledger from './pages/reports/Ledger';
 import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
+import ReceivablesAging from './pages/reports/ReceivablesAging';
+import PayablesAging from './pages/reports/PayablesAging';
 import BillsReceivable from './pages/reports/BillsReceivable';
 import BillsPayable from './pages/reports/BillsPayable';
 import CustomerOutstanding from './pages/reports/CustomerOutstanding';
@@ -292,7 +294,11 @@ export default function App() {
           <Route path="reports/ledger"             element={<RoleRoute perm="accounts.view"><Ledger /></RoleRoute>} />
           <Route path="reports/party-ledger"       element={<RoleRoute perm="accounts.view"><PartyLedgerRedirect /></RoleRoute>} />
           <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
-          <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
+          <Route path="reports/receivables-aging" element={<RoleRoute perm="reports.view"><ReceivablesAging /></RoleRoute>} />
+          <Route path="reports/payables-aging"    element={<RoleRoute perm="reports.view"><PayablesAging /></RoleRoute>} />
+          {/* Legacy /reports/aging — keep alive for old bookmarks; lands
+              on Receivables (the more common workflow). */}
+          <Route path="reports/aging"             element={<RoleRoute perm="reports.view"><ReceivablesAging /></RoleRoute>} />
           <Route path="reports/bills-receivable"    element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
           <Route path="reports/bills-payable"       element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
           <Route path="reports/customer-outstanding" element={<RoleRoute perm="reports.view"><CustomerOutstanding /></RoleRoute>} />
