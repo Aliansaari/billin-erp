@@ -14,7 +14,11 @@ router.use(authenticateToken);
 // (same as profit-loss) since these surface ledger-level data.
 router.get('/trial-balance',      requirePermission('accounts.view'), financialReports.trialBalance);
 router.get('/balance-sheet',      requirePermission('accounts.view'), financialReports.balanceSheet);
-router.get('/cash-flow',          requirePermission('accounts.view'), financialReports.cashFlow);
+// Cash Flow — Tally-style three-level drill (register → month → group).
+// The old `/cash-flow` endpoint was retired alongside the old CashFlow.jsx.
+router.get('/cash-flow/monthly',  requirePermission('accounts.view'), financialReports.cashFlowMonthly);
+router.get('/cash-flow/month',    requirePermission('accounts.view'), financialReports.cashFlowMonth);
+router.get('/cash-flow/group',    requirePermission('accounts.view'), financialReports.cashFlowGroup);
 router.get('/day-book',           requirePermission('accounts.view'), dayBookController.dayBook);
 // Profit & Loss — full Tally-shape statement sourced from ledger_entries.
 // Replaces the legacy reportController.profitLoss which read from

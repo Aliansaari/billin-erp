@@ -84,7 +84,7 @@ export default function AppLayout() {
     // total bar + F-bar pinned to viewport bottom. Without these
     // listed, the wrapper paints them as a padded card and the
     // sticky bottom drifts up into the middle of the page.
-    '/reports/balance-sheet', '/reports/trial-balance',
+    '/reports/balance-sheet', '/reports/trial-balance', '/reports/cash-flow',
   ].includes(location.pathname);
 
   // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.

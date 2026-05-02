@@ -1,0 +1,462 @@
+/* Cash Flow — Tally-style three-level drill.
+ *
+ *   View 1 (register) borrows the .mr-* register table conventions
+ *     from monthly-summary.css — sticky thead, sticky bottom total,
+ *     shared colgroup so columns line up regardless of content length.
+ *   Views 2 + 3 borrow the .bs-* two-column / sticky-total / F-bar
+ *     conventions from balance-sheet.css — single continuous underline
+ *     across both sides, sticky bottom totalbar, F-key strip at the
+ *     foot of the page.
+ *
+ * Token discipline: only existing CSS variables (--bg-app, --bg-panel,
+ * --fg-primary, --fg-secondary, --accent, --success, --danger, --border,
+ * --border-subtle, --warning, --warning-bg, --accent-bg, --bg-hover,
+ * --bg-muted, --border-strong, --fg-tertiary, --fg-inverse). No new
+ * tokens introduced here.
+ */
+
+.cf-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Header strip (register view reuses .rpt-page-hd from global.css;
+   month/group views use .cf-hd) ───────────────────────────────────── */
+.cf-hd { flex-shrink: 0; }
+
+/* Month + Group views' own title bar — shaped like .bs-hd so the page
+   sits naturally next to Balance Sheet. */
+.cf-page > .cf-hd:not(.rpt-page-hd) {
+  padding: 14px 28px 12px;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+.cf-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cf-title h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+  line-height: 1.1;
+}
+.cf-sub {
+  font-size: 12px;
+  color: var(--fg-secondary);
+  letter-spacing: 0.2px;
+}
+.cf-back {
+  align-self: flex-start;
+  height: 24px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-secondary);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color .12s, color .12s, background .12s;
+  margin-bottom: 4px;
+}
+.cf-back:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.cf-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cf-btn {
+  height: 30px;
+  padding: 0 11px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.cf-btn:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.cf-btn-icon { width: 30px; padding: 0; justify-content: center; }
+
+/* "For" / "As on" date pill in the action bar — mirrors .bs-dp from
+   balance-sheet.css so Cash Flow Summary's month picker reads as the
+   same control as Balance Sheet's "As on" picker. The label cell is
+   slightly tinted so it reads as a chip prefix, not a button. */
+.cf-dp {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.cf-dp .lbl {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  padding: 0 9px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-muted);
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+}
+.cf-dp .ant-picker {
+  border: 0 !important;
+  height: 28px !important;
+  padding: 0 11px !important;
+  background: transparent !important;
+}
+
+/* ── View 1 — Monthly register (mirrors .mr-* in monthly-summary.css) */
+
+.cf-tablewrap {
+  flex: 1; min-height: 0;
+  overflow: auto;
+  padding: 0;
+}
+
+.cf-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  color: var(--fg-primary);
+}
+.cf-col-particulars { width: 240px; }
+.cf-col-num         { width: 180px; }
+
+.cf-th-grp th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg-panel);
+  padding: 10px 16px 4px;
+  font-weight: 500;
+  text-align: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.cf-grp-label {
+  color: var(--fg-secondary);
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.cf-th-cols th {
+  position: sticky; top: 36px; z-index: 2;
+  background: var(--bg-panel);
+  padding: 6px 16px 8px;
+  font-weight: 500; font-size: 11px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+.cf-th-particulars { text-align: left !important; padding-left: 24px !important; }
+.cf-th-num         { text-align: right; }
+
+.cf-table tbody td {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+.cf-particulars { padding-left: 24px !important; }
+.cf-num         { text-align: right; }
+.cf-zero        { color: var(--fg-tertiary, #6b7280); }
+/* Negative-amount tint — used in BOTH the register's Nett column and
+   the month view's nett line below the totals. */
+.cf-neg         { color: var(--danger, #ef4444); white-space: nowrap; }
+
+.cf-row { cursor: pointer; transition: background 0.12s ease; }
+.cf-row:hover { background: var(--bg-hover, rgba(99,102,241,0.06)); }
+.cf-row-active {
+  background: var(--bg-hover, rgba(99,102,241,0.10));
+}
+.cf-row-active:hover { background: var(--bg-hover, rgba(99,102,241,0.14)); }
+.cf-row-active > td:first-child {
+  box-shadow: inset 3px 0 0 0 var(--accent, #6366F1);
+}
+
+.cf-totalwrap {
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  border-top: 2px solid var(--border);
+  overflow-y: hidden;
+  overflow-x: auto;
+}
+.cf-table-total tbody td {
+  padding: 10px 16px;
+  border-bottom: none;
+  font-weight: 600;
+  background: var(--bg-panel);
+}
+.cf-table-total tbody td:first-child { padding-left: 24px; }
+.cf-table-total tbody td:last-child  { padding-right: 24px; }
+
+.cf-skel,
+.cf-empty,
+.cf-loading {
+  padding: 60px 28px;
+  text-align: center;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+}
+
+/* ── View 2 — Two-column Inflow / Outflow (mirrors .bs-* shape) ──── */
+
+.cf-headbar {
+  flex-shrink: 0;
+  background: var(--bg-app);
+  border-bottom: 1.5px solid var(--fg-primary);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 0 28px;
+}
+.cf-headbar .hh {
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  padding: 12px 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--fg-primary);
+  white-space: nowrap;
+}
+.cf-headbar .hh .r { text-align: right; }
+
+/* Body grid — same shape as .bs-body. */
+.cf-page > .cf-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 28px 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.cf-page > .cf-body .cf-side:first-child,
+.cf-page > .cf-headbar .cf-side:first-child {
+  border-right: 1px solid var(--border-strong);
+  padding-right: 14px;
+}
+.cf-page > .cf-body .cf-side:last-child,
+.cf-page > .cf-headbar .cf-side:last-child {
+  padding-left: 14px;
+}
+
+.cf-table-side {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+/* Sub-group rows in the month view. */
+.cf-row-sub {
+  cursor: pointer;
+  transition: background .1s;
+}
+.cf-row-sub:hover { background: var(--bg-hover); }
+.cf-row-sub:hover .name  { color: var(--accent); }
+.cf-row-sub:hover .arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.cf-row-sub td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.cf-row-sub .sh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+}
+.cf-row-sub .name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  transition: color .12s;
+}
+.cf-row-sub td.num {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+}
+.cf-row-sub .arrow {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  opacity: 0;
+  transition: opacity .12s, color .12s, transform .12s;
+}
+
+/* Keyboard-active highlight — single continuous outline across the row.
+   Same trick as .bs-active: inset box-shadow on each cell, so the
+   border doesn't break at column boundaries. */
+.cf-row-sub.cf-active td {
+  background: var(--accent-bg) !important;
+}
+.cf-row-sub.cf-active td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent),
+              inset 0  2px 0 var(--accent),
+              inset 0 -2px 0 var(--accent);
+}
+.cf-row-sub.cf-active td:last-child {
+  box-shadow: inset -2px 0 0 var(--accent),
+              inset 0   2px 0 var(--accent),
+              inset 0  -2px 0 var(--accent);
+}
+.cf-row-sub.cf-active .name  { color: var(--accent); }
+.cf-row-sub.cf-active .arrow { opacity: 1; color: var(--accent); }
+
+/* Total bar (sticky, both sides). */
+.cf-totalbar {
+  flex-shrink: 0;
+  background: var(--bg-app);
+  border-top: 1.5px solid var(--fg-primary);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 0 28px;
+}
+.cf-totalbar .cf-side:first-child {
+  border-right: 1px solid var(--border-strong);
+  padding-right: 14px;
+}
+.cf-totalbar .cf-side:last-child {
+  padding-left: 14px;
+}
+.cf-totalbar table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.cf-totalbar .cf-row-total td { padding: 12px 14px; }
+.cf-totalbar .cf-row-total .label {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-primary);
+}
+.cf-totalbar .cf-row-total td.num {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  text-align: right;
+}
+
+/* Nett bar — centred line below the two-column totals. Accent if
+   inflow > outflow, danger if outflow exceeds inflow. */
+.cf-nett {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 14px 28px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border-bottom: 1.5px double var(--fg-primary);
+  background: var(--bg-app);
+}
+.cf-nett strong {
+  font-size: 16px;
+  font-weight: 700;
+  margin-left: 6px;
+}
+.cf-nett-in  { color: var(--accent); }
+.cf-nett-out { color: var(--danger); }
+
+/* ── View 3 — Voucher list (terminal) ────────────────────────────── */
+
+.cf-table-vouchers tbody td {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ── F-bar (mirrors .bs-fbar) ────────────────────────────────────── */
+.cf-fbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 28px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 11.5px;
+  overflow-x: auto;
+}
+.cf-fbar .fkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+}
+.cf-fbar .fkey kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--bg-muted);
+  color: var(--accent);
+  padding: 2px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--border);
+}
+.cf-fbar .grow { flex: 1; }
+
+/* ── Print ───────────────────────────────────────────────────────── */
+@media print {
+  .rpt-hd-ctrl,
+  .cf-actions,
+  .cf-fbar { display: none !important; }
+  .cf-page { height: auto; overflow: visible; }
+  .cf-tablewrap,
+  .cf-page > .cf-body { overflow: visible; padding: 0; }
+  .cf-hd { padding: 8mm 0 4mm; border-bottom: 1px solid #000; }
+  .cf-headbar { background: #fff; color: #000; border-bottom-color: #000; }
+}
+
+/* ── Narrow screens — stack the two columns ──────────────────────── */
+@media (max-width: 1024px) {
+  .cf-page > .cf-body,
+  .cf-headbar,
+  .cf-totalbar { grid-template-columns: 1fr; }
+  .cf-page > .cf-body .cf-side,
+  .cf-headbar .cf-side,
+  .cf-totalbar .cf-side {
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-right: 0;
+    padding-left: 0;
+  }
+  .cf-totalbar .cf-side:last-child { border-bottom: none; }
+}
