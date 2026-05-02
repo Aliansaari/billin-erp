@@ -14,8 +14,7 @@ import {
   SearchOutlined, FileExcelOutlined, ReloadOutlined,
   RightOutlined, SettingOutlined, PhoneOutlined,
   WhatsAppOutlined, CheckOutlined, EyeOutlined,
-  ThunderboltOutlined, UnorderedListOutlined, FileTextOutlined,
-  AppstoreOutlined,
+  FileTextOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -41,9 +40,7 @@ const BUCKET_KEYS = ['current', 'b1', 'b2', 'b3', 'b4'];
  * and panels render. Kept minimal on purpose: only things a user would
  * actually want to hide (not core data). */
 const DISPLAY_KEYS = [
-  { k: 'kpis',        label: 'KPI cards (Total, Overdue, Oldest, Action Queue)' },
-  { k: 'strip',       label: 'Aging distribution strip (per party, Priority view)' },
-  { k: 'context',     label: 'Credit + risk context panel (Priority view)' },
+  { k: 'kpis',        label: 'KPI cards (Total, Overdue, Oldest)' },
   { k: 'actions',     label: 'Quick actions: Call / WhatsApp / Record / View' },
   { k: 'lastContact', label: 'Status badges (last contact, promises)' },
   { k: 'partyCity',   label: 'City column (party-wise view)' },
@@ -53,37 +50,13 @@ const DISPLAY_KEYS = [
 const DEFAULT_DISPLAY = DISPLAY_KEYS.reduce((o, d) => ({ ...o, [d.k]: true }), {});
 const DISPLAY_STORAGE_KEY = 'agingReport_display_v1';
 
-/* Priority score — orders the Priority Queue. Larger score = chase first.
- *   base   : √balance  (sub-linear so a ₹10L and ₹50L party don't crush
- *            the list; a big but-not-too-old bill can still rank high)
- *   age    : overdue_days  (longer = worse)
- *   risk   : 1.0 (good) / 1.4 (fair) / 1.8 (poor) — see riskGrade()
- */
-function priorityScore(row) {
-  const base = Math.sqrt(Math.max(0, row.total));
-  const age  = Math.max(1, row.oldest_days);
-  const mult = { good: 1.0, fair: 1.4, poor: 1.8 }[riskGrade(row)] || 1.0;
-  return base * age * mult;
-}
-
-/* Risk grade — coarse signal combining overdue severity and exposure-vs-
- * credit-limit. No-limit parties fall back to overdue-only grading. */
-function riskGrade(row) {
-  const overLimit = row.credit_limit > 0 && row.total > row.credit_limit;
-  if (row.oldest_days > 90 && overLimit) return 'poor';
-  if (row.oldest_days > 90)              return 'poor';
-  if (row.oldest_days > 60 || overLimit) return 'fair';
-  return 'good';
-}
-
 export default function AgingReport() {
   const navigate = useNavigate();
   const [partyType, setPartyType] = useState('Customer');
-  // Three rendering modes sharing the same JSON payload:
-  //   'priority' — prioritized work queue; ranked rows with inline actions
-  //   'party'    — one row per party with expandable bill drill-down
-  //   'bill'     — flat list of every outstanding bill (Tally-style)
-  const [viewMode, setViewMode]   = useState('priority');
+  // Two rendering modes sharing the same JSON payload:
+  //   'party' — one row per party with expandable bill drill-down (default)
+  //   'bill'  — flat list of every outstanding bill (Tally-style)
+  const [viewMode, setViewMode]   = useState('party');
 
   // User-tunable display flags — persisted so the layout someone prefers
   // survives reload (and per-browser, so two users at the same install can
@@ -204,19 +177,6 @@ export default function AgingReport() {
       }),
       { total: 0, current: 0, b1: 0, b2: 0, b3: 0, b4: 0 }
     );
-  }, [visibleRows]);
-
-  /* Priority Queue rows — the filtered party list, re-sorted by the
-   * priority score and decorated with each row's score + rank so the
-   * view can render "1 · 2 · 3…" badges without a second pass. */
-  const priorityRows = useMemo(() => {
-    const out = visibleRows.map(r => ({
-      ...r,
-      _risk: riskGrade(r),
-      _score: priorityScore(r),
-    }));
-    out.sort((a, b) => b._score - a._score);
-    return out;
   }, [visibleRows]);
 
   /* Bill-wise flat list — one row per outstanding bill, with party info
@@ -411,14 +371,6 @@ export default function AgingReport() {
           b3:      pct(grand.b3),
           b4:      pct(grand.b4),
         };
-        // Action Queue Today = top-5 overdue parties by priority; the
-        // "estimated collectable" heuristic is 40% of their total balance
-        // (reasonable collection rate in the 1-month window).
-        const top5 = priorityRows.slice(0, 5);
-        const actionCount = Math.min(top5.length, priorityRows.length);
-        const actionSum = top5.reduce((a, r) => a + r.total, 0);
-        const actionEst = actionSum * 0.4;
-
         return (
           <div className="ar-kpis">
             {/* ── Total Outstanding ── with bucket distribution bar */}
@@ -427,7 +379,7 @@ export default function AgingReport() {
               <span className="v">₹ {fmtInt(kpi.total)}</span>
               <span className="sub">
                 <b>{kpi.parties}</b> {partyCol.toLowerCase()}{kpi.parties !== 1 ? 's' : ''}
-                {' · '}<b>{priorityRows.reduce((a, r) => a + r.bill_count, 0)}</b> bills
+                {' · '}<b>{visibleRows.reduce((a, r) => a + r.bill_count, 0)}</b> bills
               </span>
               <div className="ar-kpi-bar" title="Distribution across buckets">
                 <span style={{ width: `${bucketPcts.current}%`, background: '#10b981' }} />
@@ -455,13 +407,6 @@ export default function AgingReport() {
               </span>
             </div>
 
-            {/* ── Action Queue Today ── indigo card with CTA */}
-            <div className="ar-kpi today" onClick={() => setViewMode('priority')}>
-              <span className="k">Action Queue Today</span>
-              <span className="v">{actionCount} {actionCount === 1 ? 'party' : 'parties'}</span>
-              <span className="sub">Est. collectable <b>₹ {fmtInt(actionEst)}</b></span>
-              <span className="ar-kpi-cta">Open Queue <RightOutlined style={{ fontSize: 10 }} /></span>
-            </div>
           </div>
         );
       })()}
@@ -469,11 +414,6 @@ export default function AgingReport() {
       {/* View tabs — dedicated row below KPIs, with Sort on the right */}
       <div className="ar-viewbar">
         <div className="ar-tabs" role="tablist" title="View mode">
-          <button
-            role="tab"
-            className={`ar-tab ${viewMode === 'priority' ? 'active' : ''}`}
-            onClick={() => setViewMode('priority')}
-          ><ThunderboltOutlined /> Priority Queue</button>
           <button
             role="tab"
             className={`ar-tab ${viewMode === 'party' ? 'active' : ''}`}
@@ -521,206 +461,6 @@ export default function AgingReport() {
         <div className="ar-scroll">
           {loading ? (
             <div className="ar-empty"><Spin /></div>
-          ) : viewMode === 'priority' ? (
-            /* ── Priority Queue — ranked collections worklist ── */
-            priorityRows.length === 0 ? (
-              <div className="ar-empty">
-                <div className="big">
-                  {rows.length === 0
-                    ? (isCustomer ? 'No outstanding receivables' : 'No outstanding payables')
-                    : 'No parties match the filter'}
-                </div>
-              </div>
-            ) : (
-              <div className="ar-pq-panel">
-                <div className="ar-pq-panel-hd">
-                  <div className="ar-pq-panel-title">
-                    Priority Queue
-                    <span className="ar-pq-panel-pill">Sorted by risk score</span>
-                  </div>
-                  <div className="ar-pq-panel-hdr">
-                    <span className="ar-pq-panel-help">
-                      Showing {priorityRows.length} of {rows.length}
-                      {' · '}score = overdue × √balance × risk
-                    </span>
-                    {priorityRows.some(r => r.mobile_1) && (
-                      <button
-                        className="ar-pq-bulk"
-                        onClick={() => {
-                          const names = priorityRows.slice(0, 5).map(r => r.party_name).join(', ');
-                          message.info(`Draft reminder prepared for top-5 ${isCustomer ? 'customers' : 'suppliers'}: ${names}…`);
-                        }}
-                        title="Draft WhatsApp reminders for the top-ranked parties"
-                      >
-                        <WhatsAppOutlined /> Bulk WhatsApp
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="ar-pq">
-                {priorityRows.map((r, i) => {
-                  const stripSegments = BUCKET_KEYS
-                    .filter(k => r[k] > 0)
-                    .map(k => ({
-                      key: k,
-                      pct: r.total > 0 ? (r[k] / r.total) * 100 : 0,
-                      label: labels[k],
-                      amt: r[k],
-                    }));
-                  const riskLabel = r._risk[0].toUpperCase() + r._risk.slice(1);
-                  const overLimit = r.credit_limit > 0 && r.total > r.credit_limit;
-                  const overdueTotal = +(r.b1 + r.b2 + r.b3 + r.b4).toFixed(2);
-                  const over90 = r.b4;
-                  const phone = (r.mobile_1 || '').replace(/\D/g, '');
-                  const waNumber = phone.length === 10 ? `91${phone}` : phone;
-
-                  return (
-                    <div
-                      key={r.party_id}
-                      className={`ar-pq-row ${expanded.has(r.party_id) ? 'expanded' : ''}`}
-                      onClick={() => toggleExpanded(r.party_id)}
-                    >
-                      <div className={`ar-pq-rank rank-${Math.min(i + 1, 5)}`}>
-                        {i + 1}
-                        {i === 0 && r._risk === 'poor' && <span className="ar-hot-tag">HOT</span>}
-                      </div>
-
-                      <div className="ar-pq-party">
-                        <div className="ar-pq-name">{r.party_name}</div>
-                        <div className="ar-pq-meta">
-                          {r.mobile_1 && <span className="ar-mobile-chip">{r.mobile_1}</span>}
-                          {r.city && <><span className="sep">·</span><span>{r.city}{r.state ? `, ${r.state}` : ''}</span></>}
-                          <span className="sep">·</span>
-                          <span>{r.bill_count} {r.bill_count === 1 ? 'bill' : 'bills'}</span>
-                          <span className="sep">·</span>
-                          <span>Oldest <b className={r.oldest_days > (data?.buckets?.b3 ?? 90) ? 'ar-danger' : ''}>{r.oldest_days}d</b></span>
-                        </div>
-                        {display.lastContact && overLimit && (
-                          <div className="ar-pq-badges">
-                            <span className="ar-pq-note stale">
-                              Over credit limit (₹{fmtInt(r.credit_limit)})
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {display.strip && (
-                        <div className="ar-pq-strip-wrap">
-                          <div className="ar-pq-strip-lbl">Aging Distribution</div>
-                          <div className="ar-pq-strip">
-                            {stripSegments.map(seg => (
-                              <span
-                                key={seg.key}
-                                className={`ar-pq-seg seg-${seg.key}`}
-                                style={{ width: `${seg.pct}%` }}
-                                title={`${seg.label}: ₹${fmt(seg.amt)}`}
-                              >
-                                {seg.pct >= 10 ? `${Math.round(seg.pct)}%` : ''}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {display.context && (
-                        <div className="ar-pq-ctx">
-                          <div className="ar-pq-ctx-row">
-                            <span className="k">Credit limit</span>
-                            <span className="v">{r.credit_limit > 0 ? `₹ ${fmtInt(r.credit_limit)}` : '—'}</span>
-                          </div>
-                          <div className="ar-pq-ctx-row">
-                            <span className="k">Credit days</span>
-                            <span className="v">{r.credit_days || 0} d</span>
-                          </div>
-                          <div className="ar-pq-ctx-row">
-                            <span className="k">Risk</span>
-                            <span className={`ar-pq-risk ${r._risk}`}>● {riskLabel}</span>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="ar-pq-right">
-                        <div className="ar-pq-total">
-                          <span className="cur">₹</span>{fmtInt(r.total)}
-                        </div>
-                        <div className="ar-pq-total-sub">
-                          {over90 > 0 ? <>of which <b className="ar-danger">₹{fmtInt(over90)}</b> {labels.b4}</>
-                                     : <>Overdue <b>₹{fmtInt(overdueTotal)}</b></>}
-                        </div>
-                        {display.actions && (
-                          <div className="ar-pq-actions" onClick={(e) => e.stopPropagation()}>
-                            {phone && (
-                              <a className="ar-pq-act call" href={`tel:${phone}`} title="Call">
-                                <PhoneOutlined />
-                              </a>
-                            )}
-                            {phone && (
-                              <a className="ar-pq-act wa" target="_blank" rel="noopener noreferrer"
-                                 href={`https://wa.me/${waNumber}?text=${encodeURIComponent(
-                                   `Hi ${r.party_name}, this is a gentle reminder — your outstanding balance is ₹ ${fmtInt(r.total)}. Please let us know when we can expect payment. Thanks!`
-                                 )}`}
-                                 title="WhatsApp">
-                                <WhatsAppOutlined />
-                              </a>
-                            )}
-                            <button
-                              className="ar-pq-act record"
-                              title="Record payment"
-                              onClick={() => navigate(
-                                isCustomer
-                                  ? `/receipt/new?party_id=${r.party_id}`
-                                  : `/payment/new?party_id=${r.party_id}`
-                              )}
-                            ><CheckOutlined /></button>
-                            <button
-                              className="ar-pq-act"
-                              title="Expand bills"
-                              onClick={() => toggleExpanded(r.party_id)}
-                            ><EyeOutlined /></button>
-                          </div>
-                        )}
-                      </div>
-
-                      {expanded.has(r.party_id) && (
-                        <div className="ar-pq-bills">
-                          <div className="ar-pq-bills-hd">
-                            <span>Bill No.</span>
-                            <span>Date</span>
-                            <span>Due</span>
-                            <span>Overdue</span>
-                            <span>Bucket</span>
-                            <span>Balance</span>
-                          </div>
-                          {r.bills.map(b => (
-                            <div key={b.bill_id} className="ar-pq-bill">
-                              <span className="ar-bill-no">{b.bill_number}</span>
-                              <span>{fmtDate(b.bill_date)}</span>
-                              <span>{fmtDate(b.due_date)}</span>
-                              <span>{b.overdue_days} d</span>
-                              <span><span className={`ar-dot ${b.bucket}`} /> {labels[b.bucket]}</span>
-                              <span className="ar-amt-total">₹ {fmt(b.balance_amount)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                </div>
-                <div className="ar-pq-panel-ft">
-                  <span>Parties shown<b>{priorityRows.length} of {rows.length}</b></span>
-                  <span>Overdue bills<b>
-                    {priorityRows.reduce((a, r) => a + r.bills.filter(b => b.bucket !== 'current').length, 0)}
-                  </b></span>
-                  {priorityRows.length >= 5 && (
-                    <span>Top-5 share<b>
-                      {(priorityRows.slice(0, 5).reduce((a, r) => a + r.total, 0) / Math.max(1, priorityRows.reduce((a, r) => a + r.total, 0)) * 100).toFixed(1)}%
-                    </b></span>
-                  )}
-                  <span className="grand">Priority sum<b>₹ {fmtInt(priorityRows.reduce((a, r) => a + r.total, 0))}</b></span>
-                </div>
-              </div>
-            )
           ) : viewMode === 'party' ? (
             visibleRows.length === 0 ? (
               <div className="ar-empty">
