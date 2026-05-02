@@ -193,15 +193,6 @@ export default function LedgerStatement({
     };
   }, [statement, visibleEntries, voucherFilter]);
 
-  // No statement yet — picker is empty / not selected.
-  if (!statement && !loading) {
-    return (
-      <div className="ls-empty">
-        <Empty description={emptyHint} />
-      </div>
-    );
-  }
-
   // Shared <colgroup> for the body table and the pinned-bottom footer
   // table. table-layout: fixed (in CSS) reads from these widths so
   // both tables align column-for-column even though they're separate
@@ -213,6 +204,14 @@ export default function LedgerStatement({
       ))}
     </colgroup>
   );
+
+  // The chrome (rounded card + thead) renders identically whether or
+  // not a party/ledger is selected. When nothing is picked we show an
+  // in-table empty message — same visual rhythm as Sales Report's
+  // empty state, no separate dashed-border placeholder. This keeps
+  // the page stable as the user picks parties: the table doesn't
+  // jump around, just its content fills in.
+  const empty = !statement;
 
   return (
     <div className={'ls-wrap' + (loading ? ' is-loading' : '')}>
@@ -235,6 +234,21 @@ export default function LedgerStatement({
             </tr>
           </thead>
           <tbody>
+            {/* No party picked — single message row spanning the full
+                width. Same chrome as the populated state, just no
+                rows. */}
+            {empty && !loading && (
+              <tr className="ls-no-activity">
+                <td colSpan={cols.length}>
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={emptyHint}
+                    style={{ margin: 0 }}
+                  />
+                </td>
+              </tr>
+            )}
+
             {/* Opening balance row — always present, even at 0. */}
             {statement && (
               <tr className="ls-opening">

@@ -135,9 +135,13 @@
   color: var(--fg-secondary);
 }
 
+/* No-activity / no-selection row — single full-width cell that hosts
+   either an italic message ("No activity in this period.") or an
+   AntD <Empty> illustration ("Pick a customer above…"). Sized so it
+   doesn't dominate the panel height when nothing is picked. */
 .ls-no-activity td {
   text-align: center;
-  padding: 26px 12px;
+  padding: 60px 12px;
   color: var(--fg-tertiary);
   font-style: italic;
 }
@@ -167,17 +171,6 @@
   color: var(--fg-tertiary);
   margin-left: 4px;
   font-style: italic;
-}
-
-.ls-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  min-height: 240px;
-  border: 1px dashed var(--border-subtle);
-  border-radius: 12px;
-  background: var(--bg-panel);
 }
 
 /* Print — strip chrome, keep numbers. The page wrapper supplies the
