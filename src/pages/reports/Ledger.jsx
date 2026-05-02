@@ -108,14 +108,19 @@ export default function Ledger() {
     return () => { stale = true; };
   }, [ledgerId, from, to]);
 
-  // URL writeback
+  // URL writeback. Skip-when-current + setSearchParams-not-in-deps to
+  // avoid the react-router-dom v6 feedback flicker — see the matching
+  // comment in PartyStatementPage for the long version.
   useEffect(() => {
     const next = new URLSearchParams();
     if (ledgerId) next.set('id', String(ledgerId));
     if (from)     next.set('from', from);
     if (to)       next.set('to',   to);
+    const current = new URLSearchParams(window.location.search).toString();
+    if (next.toString() === current) return;
     setSearchParams(next, { replace: true });
-  }, [ledgerId, from, to, setSearchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ledgerId, from, to]);
 
   // Group the accounts list into Tally's five primaries → grouped
   // Select options. AntD Select renders OptGroup natively, so this

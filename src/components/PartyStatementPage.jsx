@@ -27,7 +27,7 @@
 // header copy) goes here behind partyType branches; the wrapper pages
 // remain trivial.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, DatePicker, message, Switch, Tooltip } from 'antd';
 import {
   PrinterOutlined, FileExcelOutlined, ReloadOutlined,
@@ -105,27 +105,35 @@ export default function PartyStatementPage({
   const [to,   setTo]   = useState(searchParams.get('to')   || fyEnd   || null);
 
   // ── URL hydration ──────────────────────────────────────────────────
-  // If ?id=<party_id> is present and we don't have a party yet, fetch
-  // by id once. This handles redirects from the legacy party-ledger
-  // route AND deep links from drill-throughs on other reports.
+  // Runs ONCE on mount: if ?id=<party_id> is in the URL, fetch + set
+  // the party. After that, the user's picker drives state and state
+  // drives the URL — there's no need to re-read the URL on every
+  // render. The hydratedRef guard prevents the hydration effect from
+  // racing with the URL-writeback effect (both are triggered by
+  // searchParams changing in react-router-dom v6, which would cause
+  // a feedback flicker).
+  const hydratedRef = useRef(false);
   useEffect(() => {
+    if (hydratedRef.current) return;
     const id = searchParams.get('id');
-    if (!id || party?.party_id === parseInt(id, 10)) return;
+    if (!id) { hydratedRef.current = true; return; }
+    hydratedRef.current = true;
     partyAPI.getById(id)
       .then(res => {
         const p = res.data?.data || res.data;
         if (p && p.party_type === partyType) setParty(p);
         else if (p) {
-          // Wrong-type id (e.g. a supplier id arrived at customer
-          // statement). Bounce to the right page so the redirect from
-          // /reports/party-ledger lands cleanly even if the caller
-          // didn't know the type.
+          // Wrong-type id (e.g. a supplier id landed on customer
+          // statement). Bounce so the legacy /reports/party-ledger
+          // redirect lands cleanly even when the caller didn't know
+          // the type.
           const otherRoute = p.party_type === 'Customer' ? '/reports/customer-statement' : '/reports/supplier-statement';
           navigate(`${otherRoute}?id=${p.party_id}`, { replace: true });
         }
       })
       .catch(() => message.error('Could not load that party.'));
-  }, [searchParams, party, partyType, navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally mount-only; searchParams read once at start
+  }, [partyType]);
 
   // ── Statement fetch ────────────────────────────────────────────────
   // Fires whenever the picked party or the period changes. Cancels
@@ -154,15 +162,28 @@ export default function PartyStatementPage({
 
   // ── URL writeback ──────────────────────────────────────────────────
   // Mirror picker + period into the URL so refresh / bookmarks work.
-  // Replace, don't push — we don't want every period tweak adding a
-  // browser-history entry the user can't easily skip past.
+  //
+  // Two anti-flicker guards:
+  //  1. setSearchParams is NOT in the deps. In react-router-dom v6
+  //     its reference changes on every searchParams update — including
+  //     the one this effect itself triggers — which would re-fire the
+  //     effect every render, looking visually like a constant repaint
+  //     ("page giggling"). Reading via closure is safe; the ref always
+  //     points at the latest setter.
+  //  2. Compare against the live URL before writing. Even with stable
+  //     deps, calling setSearchParams with the SAME query string still
+  //     triggers a route re-render — wasted work + potential paint.
+  //     Bail when the URL is already what we want.
   useEffect(() => {
     const next = new URLSearchParams();
     if (party) next.set('id', String(party.party_id));
     if (from)  next.set('from', from);
     if (to)    next.set('to',   to);
+    const current = new URLSearchParams(window.location.search).toString();
+    if (next.toString() === current) return;
     setSearchParams(next, { replace: true });
-  }, [party, from, to, setSearchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [party, from, to]);
 
   // Active preset highlight — derived, not stored. Custom = nothing
   // matches any preset's exact range.
