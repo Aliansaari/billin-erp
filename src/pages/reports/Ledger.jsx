@@ -243,30 +243,10 @@ export default function Ledger() {
 
   return (
     <div className="psp-page">
-      {/* Title + COA picker + actions all on one row, matching the
-          inline picker pattern Customer/Supplier Statement use. The
-          Select is the page's primary control; keeping it next to the
-          title frees a row of vertical space and makes the workflow
-          ("pick a ledger, look at it") read in one glance. */}
       <div className="psp-header">
         <div className="psp-titles">
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} className="psp-back" />
           <h1 className="psp-title">Ledger</h1>
-        </div>
-        <div className="psp-header-picker">
-          <Select
-            className="ledger-inline-select"
-            placeholder="Pick a ledger — Sales A/c, Bank, Office Rent, …"
-            value={ledgerId}
-            onChange={setLedgerId}
-            options={groupedOptions}
-            showSearch
-            filterOption={(input, opt) =>
-              !input || (opt.label || '').toLowerCase().includes(input.toLowerCase())
-            }
-            allowClear
-            popupMatchSelectWidth={false}
-          />
         </div>
         <div className="psp-actions">
           <Tooltip title="Refresh">
@@ -279,6 +259,25 @@ export default function Ledger() {
       </div>
 
       <div className="psp-sticky">
+        <div className="ledger-picker-bar">
+          <Select
+            placeholder="Pick a ledger account — Sales A/c, Bank, Office Rent, …"
+            value={ledgerId}
+            onChange={setLedgerId}
+            options={groupedOptions}
+            showSearch
+            // Match against the rendered label text. AntD's filterOption
+            // gets the option's `label` (a string here) so a substring
+            // match is enough for the in-memory list.
+            filterOption={(input, opt) =>
+              !input || (opt.label || '').toLowerCase().includes(input.toLowerCase())
+            }
+            allowClear
+            size="large"
+            style={{ width: 480, maxWidth: '100%' }}
+            popupMatchSelectWidth={false}
+          />
+        </div>
 
         <div className="psp-controls">
           <div className="rpt-period">
