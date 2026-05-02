@@ -17,7 +17,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Table, Button, DatePicker, Select, Tag, Tooltip, message } from 'antd';
 import {
-  PrinterOutlined, ReloadOutlined, SwapOutlined, DownloadOutlined,
+  PrinterOutlined, ReloadOutlined, SwapOutlined,
+  FileExcelOutlined, FilePdfOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -104,6 +105,135 @@ export default function GodownTransferRegister() {
   const transfers = data?.transfers || [];
   const totals    = data?.totals || {};
   const byStatus  = totals.by_status || {};
+
+  // ── Exports ───────────────────────────────────────────────────────
+  // Both generated client-side from the loaded data — no extra
+  // round-trip, no extra backend endpoints. ExcelJS + jsPDF are
+  // already in the bundle (Customer / Supplier Statement use them);
+  // lazy-imported so the cold path doesn't pay for them.
+  const filenameStem = () => {
+    const f = from ? dayjs(from).format('YYYYMMDD') : '';
+    const t = to   ? dayjs(to).format('YYYYMMDD')   : '';
+    return `transfer-register-${f}_to_${t}`;
+  };
+
+  const onExcel = async () => {
+    if (!transfers.length) { message.info('Nothing to export.'); return; }
+    try {
+      const ExcelJS = await import('exceljs').then(m => m.default || m);
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Transfer Register');
+      ws.addRow(['Transfer #', 'Date', 'From', 'To', 'Items', 'Qty', 'Value', 'Status', 'Notes']);
+      ws.getRow(1).font = { bold: true };
+      transfers.forEach(t => {
+        ws.addRow([
+          t.transfer_number,
+          t.transfer_date ? dayjs(t.transfer_date).format('DD/MM/YYYY') : '',
+          `${t.from_code} — ${t.from_name}`,
+          `${t.to_code} — ${t.to_name}`,
+          t.item_count || 0,
+          parseFloat(t.total_quantity) || 0,
+          parseFloat(t.total_value) || 0,
+          t.status,
+          t.notes || '',
+        ]);
+      });
+      // Totals row at the bottom — same shape the on-screen Summary
+      // produces, so the spreadsheet matches what was visible.
+      ws.addRow([
+        `Total (${transfers.length})`, '', '', '',
+        transfers.reduce((s, r) => s + (parseInt(r.item_count, 10) || 0), 0),
+        transfers.reduce((s, r) => s + (parseFloat(r.total_quantity) || 0), 0),
+        transfers.reduce((s, r) => s + (parseFloat(r.total_value)    || 0), 0),
+        '', '',
+      ]).font = { bold: true };
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${filenameStem()}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      message.error('Excel export failed.');
+    }
+  };
+
+  const onPdf = async () => {
+    if (!transfers.length) { message.info('Nothing to export.'); return; }
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      await import('jspdf-autotable');
+      const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+      const company = window.__APP_COMPANY_NAME__ || 'Statement of Account';
+
+      doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(0, 0, 0);
+      doc.text(company, 40, 50);
+      doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(80);
+      doc.text('Godown Transfer Register', 40, 70);
+
+      doc.setFontSize(9).setTextColor(120);
+      doc.text(`Period: ${from || 'inception'} to ${to || 'today'}`, 40, 88);
+
+      doc.autoTable({
+        startY: 102,
+        head: [['Transfer #', 'Date', 'From', 'To', 'Items', 'Qty', 'Value (₹)', 'Status', 'Notes']],
+        body: transfers.map(t => [
+          t.transfer_number,
+          t.transfer_date ? dayjs(t.transfer_date).format('DD/MM/YY') : '',
+          `${t.from_code} ${t.from_name ? '— ' + t.from_name : ''}`,
+          `${t.to_code} ${t.to_name ? '— ' + t.to_name : ''}`,
+          t.item_count || 0,
+          fmtN(t.total_quantity),
+          fmtN(t.total_value),
+          t.status,
+          t.notes || '',
+        ]),
+        foot: [[
+          `Total (${transfers.length})`, '', '', '',
+          transfers.reduce((s, r) => s + (parseInt(r.item_count, 10) || 0), 0),
+          fmtN(transfers.reduce((s, r) => s + (parseFloat(r.total_quantity) || 0), 0)),
+          fmtN(transfers.reduce((s, r) => s + (parseFloat(r.total_value)    || 0), 0)),
+          '', '',
+        ]],
+        theme: 'grid',
+        styles:     { fontSize: 8, cellPadding: 4, lineColor: [220, 220, 220], lineWidth: 0.4 },
+        headStyles: { fillColor: [248, 245, 240], textColor: [70, 70, 70], fontStyle: 'bold', fontSize: 8 },
+        footStyles: { fillColor: [248, 245, 240], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 9 },
+        columnStyles: {
+          0: { cellWidth: 70 },
+          1: { cellWidth: 60 },
+          2: { cellWidth: 'auto' },
+          3: { cellWidth: 'auto' },
+          4: { cellWidth: 40,  halign: 'right' },
+          5: { cellWidth: 65,  halign: 'right' },
+          6: { cellWidth: 75,  halign: 'right' },
+          7: { cellWidth: 60 },
+          8: { cellWidth: 'auto' },
+        },
+        margin: { left: 30, right: 30 },
+      });
+
+      const generatedAt = dayjs().format('DD MMM YYYY · HH:mm');
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8).setTextColor(150);
+        doc.text(`Generated ${generatedAt}`, 30, doc.internal.pageSize.getHeight() - 18);
+        doc.text(
+          `Page ${i} of ${totalPages}`,
+          doc.internal.pageSize.getWidth() - 30,
+          doc.internal.pageSize.getHeight() - 18,
+          { align: 'right' },
+        );
+      }
+      doc.save(`${filenameStem()}.pdf`);
+    } catch (err) {
+      console.error(err);
+      message.error('PDF export failed.');
+    }
+  };
 
   // Active preset chip — derived, mirrors Sales Report's behavior.
   const activePreset = useMemo(() => {
@@ -195,7 +325,9 @@ export default function GodownTransferRegister() {
             }}
           />
           <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
-          <Button className="rpt-btn" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
+          <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!transfers.length}>Excel</Button>
+          <Button className="rpt-btn" icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!transfers.length}>PDF</Button>
+          <Button className="rpt-btn" type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
         </div>
       </div>
 
