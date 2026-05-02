@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cash Flow — Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+ *  Cash Flow — Editorial · TallyPrime-faithful, drill-by-page (in-file).
+ *
+ *  Two views live in one file, swapped by body[data-page="register"|"summary"]:
+ *    1. Monthly Register  — one row per month (Apr → Mar), Inflow / Outflow / Nett
+ *    2. Cash Flow Summary — drill view for ONE month, two columns side-by-side
+ *                            (Inflow groups | Outflow groups), Nett line below
+ *
+ *  Click any month in view 1 → view 2 for that month. Esc / Back returns.
+ *
+ *  Tokens, sidebar, title bar, F-key bar lifted from editorial-trial-balance.
+ *  Two-column drill-down chrome lifted from BalanceSheet.jsx (assets vs
+ *  liabilities) — same column proportions, mid-rule, totals strip.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-soft:     #FAF5E9;
+  --bg-strip:    #F1E9D6;
+  --bg-muted:    #F8F2E4;
+  --bg-hover:    #EEE6D3;
+
+  --ink:         #1D1A15;
+  --ink-2:       #5C5040;
+  --ink-3:       #8E8270;
+  --ink-4:       #BBAF98;
+  --ink-5:       #D7CDB8;
+  --rule:        #E5D9C0;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177, 71, 47, 0.10);
+
+  /* Cash-direction tokens */
+  --inflow:      #5E7E3B;
+  --inflow-soft: rgba(94, 126, 59, 0.10);
+  --outflow:     #B1472F;
+  --outflow-soft:rgba(177, 71, 47, 0.10);
+  --danger:      #B1472F;
+  --neutral:     #5C5040;
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-2:    #B2A791;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:#B1472F;
+  --sb-active-ink:#FDFAF2;
+
+  --sb-w: 224px;
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-panel:    #1A1713;
+  --bg-soft:     #15110D;
+  --bg-strip:    #1F1B16;
+  --bg-muted:    #14110D;
+  --bg-hover:    #24201B;
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --ink-5:       #3C3729;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+  --accent:      #E26A4C;
+  --accent-soft: rgba(226,106,76,0.14);
+  --inflow:      #94B885;
+  --inflow-soft: rgba(148, 184, 133, 0.14);
+  --outflow:     #E26A4C;
+  --outflow-soft:rgba(226,106,76,0.14);
+  --danger:      #E26A4C;
+  --neutral:     #B2A791;
+  --sb-bg:       #0B0807;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  min-height: 100vh;
+  font-variant-numeric: tabular-nums;
+  transition: background .25s, color .25s;
+}
+
+/* ══════════════ Sidebar ══════════════ */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 14px 10px 16px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  z-index: 20;
+  overflow-y: auto;
+}
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(245,238,226,0.10); border-radius: 3px; }
+.sb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 10px 14px;
+  border-bottom: 1px solid var(--sb-border);
+  margin-bottom: 8px;
+}
+.sb-brand-icon {
+  width: 26px; height: 26px; border-radius: 5px;
+  background: var(--accent); color: #FDFAF2;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 12px;
+}
+.sb-brand-name { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; color: #F5EEE2; }
+.sb-section {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--sb-ink-3);
+  padding: 12px 10px 4px;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 10px; border-radius: 5px;
+  font-size: 12.5px; cursor: pointer; margin-bottom: 1px;
+  color: var(--sb-ink);
+  transition: background .12s;
+}
+.sb-item:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-item .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-group { margin-bottom: 1px; }
+.sb-group-head {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 10px; border-radius: 5px;
+  font-size: 12.5px; cursor: pointer;
+  user-select: none; color: var(--sb-ink);
+  transition: background .12s;
+}
+.sb-group-head:hover { background: var(--sb-hover); }
+.sb-group-head.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+}
+.sb-group-head .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-group-head.active .ic, .sb-group-head.active .chev { color: var(--sb-active-ink); }
+.sb-group-head .label { flex: 1; }
+.sb-group-head .chev { font-size: 9px; color: var(--sb-ink-3); transition: transform .2s; }
+.sb-group.open > .sb-group-head .chev { transform: rotate(90deg); }
+.sb-group-children {
+  display: none;
+  padding: 2px 0 4px 8px;
+  border-left: 1px dashed var(--sb-border);
+  margin-left: 18px;
+}
+.sb-group.open > .sb-group-children { display: block; }
+.sb-leaf {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; margin-bottom: 1px;
+  border-radius: 4px;
+  font-size: 11.5px; color: var(--sb-ink-2);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.sb-leaf:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-leaf.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+}
+.sb-leaf .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--sb-ink-3); flex-shrink: 0; }
+.sb-spacer { flex: 1; min-height: 12px; }
+.sb-foot {
+  margin-top: auto;
+  padding: 12px 10px 4px;
+  border-top: 1px solid var(--sb-border);
+  display: flex; align-items: center; gap: 8px;
+}
+.sb-avatar {
+  width: 26px; height: 26px; border-radius: 5px;
+  background: rgba(245,238,226,0.10);
+  display: grid; place-items: center;
+  color: var(--sb-ink); font-weight: 600; font-size: 11px;
+  font-family: 'Fraunces', Georgia, serif;
+}
+.sb-foot-text { font-size: 11.5px; line-height: 1.25; min-width: 0; flex: 1; }
+.sb-foot-text b { color: #F5EEE2; font-weight: 600; display: block; }
+.sb-foot-text span { color: var(--sb-ink-3); font-size: 10.5px; }
+
+/* ══════════════ Page shell ══════════════ */
+.page {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* Show / hide whole pages based on body[data-page] */
+[data-page="register"] #page-summary  { display: none; }
+[data-page="summary"]  #page-register { display: none; }
+
+/* ── Title bar ── */
+.titlebar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px clamp(20px, 3vw, 36px) 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg);
+}
+
+.cf-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+.cf-title h1 {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 24px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  line-height: 1;
+  white-space: nowrap;
+}
+.cf-title .meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.cf-title .meta b { color: var(--ink-2); font-weight: 600; }
+.cf-title .meta .sep { color: var(--ink-4); margin: 0 6px; }
+.cf-title .meta .as { color: var(--accent); font-weight: 600; }
+
+.cf-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.btn {
+  height: 30px; padding: 0 11px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink-2);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.btn:hover { border-color: var(--ink-4); color: var(--ink); background: var(--bg-panel); }
+.btn .fk {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  color: var(--ink-4); letter-spacing: 0.4px;
+}
+.btn:hover .fk { color: var(--accent); }
+.btn.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn.on .fk { color: var(--accent); }
+.btn.icon { width: 30px; padding: 0; justify-content: center; }
+.btn svg { width: 13px; height: 13px; }
+
+.btn-back {
+  height: 30px;
+  padding: 0 11px 0 9px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink-2);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s, color .12s;
+  margin-right: 4px;
+}
+.btn-back:hover { border-color: var(--accent); color: var(--accent); }
+.btn-back .arr { font-size: 14px; line-height: 1; }
+
+/* Period preset chips */
+.preset-row {
+  display: inline-flex;
+  height: 30px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.preset-row .chip {
+  display: inline-flex; align-items: center;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--ink-2); font-weight: 500;
+  cursor: pointer;
+  border-right: 1px solid var(--rule);
+  transition: background .12s, color .12s;
+  white-space: nowrap;
+}
+.preset-row .chip:last-child { border-right: none; }
+.preset-row .chip:hover { background: var(--bg-hover); color: var(--ink); }
+.preset-row .chip.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.period {
+  display: inline-flex; align-items: center;
+  height: 30px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.period .lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 0 9px;
+  border-right: 1px solid var(--rule);
+  background: var(--bg-muted);
+  display: grid; place-items: center;
+  align-self: stretch;
+}
+.period .range {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink); font-weight: 500;
+  padding: 0 11px;
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer;
+}
+.period .range:hover { color: var(--accent); }
+.period .range .arrow-i { color: var(--ink-3); }
+.period .range .caret { color: var(--ink-3); margin-left: 4px; font-size: 9px; }
+
+.theme-toggle {
+  display: inline-flex; padding: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px; font-size: 11px;
+}
+.theme-toggle button {
+  padding: 3px 8px; border: none; background: transparent;
+  font-family: inherit; color: var(--ink-3);
+  cursor: pointer; border-radius: 4px;
+  font-weight: 500; transition: all .15s;
+  font-size: 11px;
+}
+.theme-toggle button:hover { color: var(--ink); }
+.theme-toggle button.on { background: var(--ink); color: var(--bg-panel); }
+
+/* ══════════════ Body — scrollable column ══════════════ */
+.cf-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 clamp(20px, 3vw, 36px);
+}
+.cf-scroll::-webkit-scrollbar { width: 8px; }
+.cf-scroll::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 4px; }
+
+/* ── Caption above the table (the "click to drill" hint) ── */
+.cf-caption {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 0 8px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.2px;
+}
+.cf-caption .ic {
+  display: inline-grid; place-items: center;
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px; font-weight: 700;
+  font-family: 'Fraunces', Georgia, serif;
+}
+.cf-caption b { color: var(--ink-2); font-weight: 600; }
+.cf-caption .kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  background: var(--bg-strip);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--rule);
+}
+
+/* ══════════════ Register table ══════════════ */
+.cf-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+/* Two-row header — top "Cash Movement / Nett Flow", bottom column labels */
+.cf-table thead th {
+  position: sticky; z-index: 4;
+  background: var(--bg);
+  padding: 9px 14px;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: right;
+  white-space: nowrap;
+}
+.cf-table thead .th-grp th {
+  top: 0;
+  border-bottom: 1px solid var(--rule-soft);
+  padding-bottom: 7px;
+  font-size: 9px;
+  letter-spacing: 1.3px;
+  color: var(--ink-4);
+}
+.cf-table thead .th-grp th.spanned {
+  text-align: center;
+  border-bottom: 1px solid var(--rule);
+  position: relative;
+}
+.cf-table thead .th-grp th.spanned .underline {
+  /* a thin underscore under "Cash Movement" so the spanned label
+     reads as a true grouping rather than a stray cell label */
+  display: block;
+  margin: 4px auto 0;
+  width: 64%;
+  height: 1px;
+  background: var(--ink-4);
+  opacity: 0.55;
+}
+.cf-table thead .th-cols th {
+  top: 28px;
+  border-bottom: 1.5px solid var(--ink);
+  padding-top: 8px;
+}
+.cf-table thead .th-cols th.l { text-align: left; }
+
+/* Month rows — each one is clickable, drills into the summary view */
+.cf-table tr.cf-month {
+  cursor: pointer;
+  transition: background .1s;
+}
+.cf-table tr.cf-month:hover {
+  background: var(--accent-soft);
+}
+.cf-table tr.cf-month:hover .name { color: var(--accent); }
+.cf-table tr.cf-month:hover .chev { opacity: 1; transform: translateX(2px); color: var(--accent); }
+.cf-table tr.cf-month td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: middle;
+}
+.cf-table tr.cf-month td.l {
+  display: flex; align-items: center; gap: 8px;
+}
+.cf-table tr.cf-month .name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.05px;
+  transition: color .12s;
+}
+.cf-table tr.cf-month .name .yr {
+  color: var(--ink-3);
+  font-weight: 400;
+  margin-left: 6px;
+  font-size: 12px;
+}
+.cf-table tr.cf-month .chev {
+  display: inline-block;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-4);
+  opacity: 0;
+  transition: opacity .12s, color .12s, transform .12s;
+  font-family: 'JetBrains Mono', monospace;
+}
+.cf-table tr.cf-month td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+.cf-table tr.cf-month td.num.inflow  { color: var(--inflow); }
+.cf-table tr.cf-month td.num.outflow { color: var(--outflow); }
+.cf-table tr.cf-month td.num.nett-pos { color: var(--ink); font-weight: 600; }
+.cf-table tr.cf-month td.num.nett-neg {
+  color: var(--danger);
+  font-weight: 600;
+}
+.cf-table tr.cf-month td.num.zero {
+  color: var(--ink-5);
+  font-weight: 400;
+}
+
+/* Negative-amount glyph: parens + minus, e.g. (-)67,14,249.00 */
+.neg-paren {
+  /* purely visual — wraps the number so screen-readers don't choke */
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Grand total row — heavier top border, slight offset */
+.cf-table tr.cf-grand td {
+  padding: 14px;
+  border-top: 1.5px solid var(--ink);
+  border-bottom: 1.5px double var(--ink);
+  background: var(--bg-soft);
+}
+.cf-table tr.cf-grand td.l {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 14px; font-weight: 700;
+  letter-spacing: 0.15px;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.cf-table tr.cf-grand td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 700;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+.cf-table tr.cf-grand td.num.inflow  { color: var(--inflow); }
+.cf-table tr.cf-grand td.num.outflow { color: var(--outflow); }
+.cf-table tr.cf-grand td.num.nett-pos { color: var(--ink); }
+.cf-table tr.cf-grand td.num.nett-neg { color: var(--danger); }
+
+/* ══════════════ Cash Flow Summary (drill view) ══════════════ */
+
+/* Page chrome that mirrors BalanceSheet.jsx — header bar across both
+   sides with a single underline, then the two-column body, then the
+   centred Nett line. */
+.cfs-headbar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1.5px solid var(--ink);
+  background: var(--bg);
+  padding: 0 clamp(20px, 3vw, 36px);
+}
+.cfs-headbar .side {
+  padding: 14px 20px 12px;
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 14px;
+}
+.cfs-headbar .side + .side {
+  border-left: 1px solid var(--rule);
+}
+.cfs-headbar .side h2 {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  line-height: 1;
+}
+.cfs-headbar .side h2 .badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.cfs-headbar .side.in  h2 .badge { background: var(--inflow-soft);  color: var(--inflow); }
+.cfs-headbar .side.out h2 .badge { background: var(--outflow-soft); color: var(--outflow); }
+.cfs-headbar .side .period-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.2px;
+}
+.cfs-headbar .side .period-tag b { color: var(--ink-2); font-weight: 600; }
+
+.cfs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 0 clamp(20px, 3vw, 36px);
+  background: var(--bg);
+}
+.cfs-body::-webkit-scrollbar { width: 8px; }
+.cfs-body::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 4px; }
+
+.cfs-side {
+  padding: 8px 20px 0;
+}
+.cfs-side + .cfs-side {
+  border-left: 1px solid var(--rule);
+}
+
+.cfs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cfs-table tr.row {
+  cursor: pointer;
+  transition: background .1s;
+}
+.cfs-table tr.row:hover { background: var(--bg-soft); }
+.cfs-table tr.row:hover .gname { color: var(--accent); }
+.cfs-table tr.row td {
+  padding: 10px 4px 9px;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: middle;
+}
+.cfs-table tr.row td.l { text-align: left; }
+.cfs-table tr.row td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+  width: 200px;
+}
+.cfs-table tr.row .gname {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.05px;
+  transition: color .12s;
+}
+
+/* Total row at the bottom of EACH column */
+.cfs-table tr.col-total td {
+  padding: 14px 4px;
+  border-top: 1.5px solid var(--ink);
+  border-bottom: 1.5px double var(--ink);
+}
+.cfs-table tr.col-total td.l {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 14px; font-weight: 700;
+  letter-spacing: 0.15px;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.cfs-table tr.col-total td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 700;
+  color: var(--ink);
+  text-align: right;
+  width: 200px;
+}
+.cfs-side.in  .cfs-table tr.col-total td.num { color: var(--inflow); }
+.cfs-side.out .cfs-table tr.col-total td.num { color: var(--outflow); }
+
+/* Centred Nett line below both columns */
+.cfs-nett-wrap {
+  flex-shrink: 0;
+  padding: 16px clamp(20px, 3vw, 36px) 18px;
+  display: flex; align-items: center; justify-content: center;
+  border-top: 1px solid var(--rule);
+  background: var(--bg-panel);
+}
+.cfs-nett {
+  display: inline-flex; align-items: baseline; gap: 14px;
+  padding: 10px 22px;
+  border: 1.5px solid var(--ink);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.cfs-nett .lbl {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.05px;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.cfs-nett .amt {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.cfs-nett .amt.inflow  { color: var(--inflow); }
+.cfs-nett .amt.outflow { color: var(--outflow); }
+.cfs-nett .amt .ccy {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-weight: 500;
+  margin-right: 3px;
+}
+
+/* ══════════════ F-key bar ══════════════ */
+.fbar {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 4px;
+  padding: 8px clamp(20px, 3vw, 36px);
+  border-top: 1px solid var(--rule);
+  background: var(--bg-panel);
+  font-size: 11px;
+  overflow-x: auto;
+}
+.fbar::-webkit-scrollbar { height: 4px; }
+.fbar::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 2px; }
+.fbar .fkey {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ink-2);
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.fbar .fkey:hover { background: var(--bg-hover); color: var(--ink); }
+.fbar .fkey kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  background: var(--bg-strip);
+  color: var(--accent);
+  padding: 2px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--rule);
+}
+.fbar .grow { flex: 1; }
+.fbar .meta {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+.fbar .meta b { color: var(--ink-2); font-weight: 600; }
+
+@media print {
+  .sidebar, .cf-actions, .fbar, .btn-back { display: none !important; }
+  .page { margin: 0; height: auto; }
+  .titlebar { padding: 8mm 0 4mm; border-bottom: 1.5px solid #000; }
+  .cf-scroll, .cfs-body { overflow: visible; padding: 0; }
+  body { background: #fff; color: #000; font-size: 11px; }
+  .cf-table thead th { background: #fff; }
+  .cf-table tr.cf-grand td { background: #fafafa; }
+  /* High-contrast amount colours on print */
+  .inflow, .cf-table td.num.inflow, .cfs-side.in .cfs-table tr.col-total td.num,
+  .cfs-nett .amt.inflow {
+    color: #2D5016 !important;
+  }
+  .outflow, .cf-table td.num.outflow,
+  .cf-table td.num.nett-neg, .cf-table tr.cf-grand td.num.nett-neg,
+  .cfs-side.out .cfs-table tr.col-total td.num,
+  .cfs-nett .amt.outflow {
+    color: #6B2410 !important;
+  }
+  /* Show whichever view is currently visible — display:none rules above
+     keep the other one out of the print. */
+  @page { size: A4 portrait; margin: 12mm 12mm 14mm; }
+}
+@media (max-width: 900px) {
+  .titlebar { grid-template-columns: 1fr; gap: 10px; }
+  .cf-actions { flex-wrap: wrap; }
+  .cfs-headbar { grid-template-columns: 1fr; }
+  .cfs-headbar .side + .side { border-left: none; border-top: 1px solid var(--rule); }
+  .cfs-body    { grid-template-columns: 1fr; }
+  .cfs-side + .cfs-side { border-left: none; border-top: 1px solid var(--rule); }
+}
+</style>
+</head>
+<body data-mode="light" data-page="register">
+
+<!-- ─────────── Sidebar ─────────── -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-brand-icon">⚡</div>
+    <div class="sb-brand-name">Billing ERP</div>
+  </div>
+
+  <div class="sb-section">General</div>
+  <div class="sb-item"><span class="ic">⊟</span> Dashboard</div>
+
+  <div class="sb-section">Transact</div>
+  <div class="sb-item"><span class="ic">+</span> New sales bill</div>
+  <div class="sb-item"><span class="ic">≡</span> Sales list</div>
+  <div class="sb-item"><span class="ic">+</span> New purchase bill</div>
+  <div class="sb-item"><span class="ic">≡</span> Purchase list</div>
+  <div class="sb-item"><span class="ic">₹</span> Receipts &amp; payments</div>
+
+  <div class="sb-section">Masters</div>
+  <div class="sb-item"><span class="ic">●</span> Customers</div>
+  <div class="sb-item"><span class="ic">●</span> Suppliers</div>
+  <div class="sb-item"><span class="ic">□</span> Products</div>
+
+  <div class="sb-section">Insight</div>
+  <div class="sb-group open">
+    <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open')">
+      <span class="ic">≋</span>
+      <span class="label">Reports</span>
+      <span class="chev">▸</span>
+    </div>
+    <div class="sb-group-children">
+      <div class="sb-group open" style="margin-bottom:0">
+        <div class="sb-group-head active" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()" style="padding:5px 10px;font-size:11px">
+          <span class="ic" style="font-size:8px">▢</span>
+          <span class="label">Financial</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+          <div class="sb-leaf"><span class="dot"></span> Day Book</div>
+          <div class="sb-leaf"><span class="dot"></span> Profit &amp; Loss</div>
+          <div class="sb-leaf"><span class="dot"></span> Balance Sheet</div>
+          <div class="sb-leaf"><span class="dot"></span> Trial Balance</div>
+          <div class="sb-leaf active"><span class="dot"></span> Cash Flow</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+
+  <div class="sb-spacer"></div>
+  <div class="sb-foot">
+    <div class="sb-avatar">A</div>
+    <div class="sb-foot-text">
+      <b>Ali Ansari</b>
+      <span>Admin · Acme Traders</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 1: Monthly Register (default visible)
+════════════════════════════════════════════════════════════════════ -->
+<main class="page" id="page-register">
+  <div class="titlebar">
+    <div class="cf-title">
+      <h1>Cash Flow</h1>
+      <span class="meta">
+        <b>Acme Traders</b>
+        <span class="sep">·</span>
+        1-Apr-2026 to 31-Mar-2027
+        <span class="sep">·</span>
+        <span class="as">This FY</span>
+      </span>
+    </div>
+    <div class="cf-actions">
+      <div class="preset-row" role="tablist" aria-label="Period preset">
+        <span class="chip on">This FY</span>
+        <span class="chip">Last FY</span>
+        <span class="chip">This Quarter</span>
+        <span class="chip">This Month</span>
+        <span class="chip">Custom</span>
+      </div>
+      <div class="period">
+        <span class="lbl">From → To</span>
+        <span class="range">
+          1-Apr-26 <span class="arrow-i">→</span> 31-Mar-27 <span class="caret">▾</span>
+        </span>
+      </div>
+      <button class="btn icon" title="Refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      </button>
+      <button class="btn icon" title="Print" onclick="window.print()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+      <button class="btn icon" title="PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg></button>
+      <button class="btn icon" title="Excel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+      <div class="theme-toggle">
+        <button class="on" onclick="setMode('light',this)">☀</button>
+        <button onclick="setMode('dark',this)">☾</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="cf-scroll">
+    <div class="cf-caption">
+      <span class="ic">i</span>
+      <span>Click any month to see its <b>Cash Flow Summary</b> — inflow groups on the left, outflow groups on the right.</span>
+      <span style="flex:1"></span>
+      <span>Press <span class="kbd">Enter</span> on a row, or <span class="kbd">Esc</span> to come back.</span>
+    </div>
+
+    <table class="cf-table">
+      <thead>
+        <tr class="th-grp">
+          <th class="l"></th>
+          <th colspan="2" class="spanned">Cash Movement<span class="underline"></span></th>
+          <th>Nett Flow</th>
+        </tr>
+        <tr class="th-cols">
+          <th class="l" style="min-width:280px">Particulars</th>
+          <th style="width:200px">Inflow</th>
+          <th style="width:200px">Outflow</th>
+          <th style="width:200px">Nett Flow</th>
+        </tr>
+      </thead>
+      <tbody id="month-rows">
+        <!-- rows are wired up by JS so we can keep one source of truth in monthData -->
+      </tbody>
+    </table>
+  </div>
+
+  <div class="fbar">
+    <span class="fkey"><kbd>F2</kbd> Period</span>
+    <span class="fkey"><kbd>F5</kbd> Refresh</span>
+    <span class="fkey"><kbd>↑ ↓</kbd> Navigate month</span>
+    <span class="fkey"><kbd>Enter</kbd> Drill into month</span>
+    <span class="fkey"><kbd>Esc</kbd> Back</span>
+    <span class="grow"></span>
+    <span class="meta">12 months · sourced from <b>ledger_entries</b> · refreshed just now</span>
+  </div>
+</main>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 2: Cash Flow Summary (drill view, hidden by default)
+════════════════════════════════════════════════════════════════════ -->
+<main class="page" id="page-summary">
+  <div class="titlebar">
+    <div class="cf-title">
+      <h1 id="cfs-title">Cash Flow Summary — April 2026</h1>
+      <span class="meta">
+        <b>Acme Traders</b>
+        <span class="sep">·</span>
+        <span id="cfs-period">1-Apr-2026 to 30-Apr-2026</span>
+        <span class="sep">·</span>
+        <span class="as" id="cfs-nettpill">Nett Inflow ₹3,50,855.50</span>
+      </span>
+    </div>
+    <div class="cf-actions">
+      <button class="btn-back" onclick="goBack()" title="Back to Cash Flow · Esc">
+        <span class="arr">←</span> Back
+      </button>
+      <div class="period">
+        <span class="lbl">Month</span>
+        <span class="range" id="cfs-period-2">1-Apr-26 → 30-Apr-26 <span class="caret">▾</span></span>
+      </div>
+      <button class="btn icon" title="Print" onclick="window.print()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+      <button class="btn icon" title="PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg></button>
+      <button class="btn icon" title="Excel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+      <div class="theme-toggle">
+        <button class="on" onclick="setMode('light',this)">☀</button>
+        <button onclick="setMode('dark',this)">☾</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Two-column header bar with single underline across both -->
+  <div class="cfs-headbar">
+    <div class="side in">
+      <h2>Inflow <span class="badge">↑ Money in</span></h2>
+      <span class="period-tag" id="cfs-head-in"><b>Acme Traders</b> · 1-Apr-26 → 30-Apr-26</span>
+    </div>
+    <div class="side out">
+      <h2>Outflow <span class="badge">↓ Money out</span></h2>
+      <span class="period-tag" id="cfs-head-out"><b>Acme Traders</b> · 1-Apr-26 → 30-Apr-26</span>
+    </div>
+  </div>
+
+  <!-- Two-column body -->
+  <div class="cfs-body">
+    <div class="cfs-side in">
+      <table class="cfs-table">
+        <colgroup><col><col style="width:200px"></colgroup>
+        <tbody id="cfs-in-rows">
+          <!-- inflow group rows + total injected by JS -->
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cfs-side out">
+      <table class="cfs-table">
+        <colgroup><col><col style="width:200px"></colgroup>
+        <tbody id="cfs-out-rows">
+          <!-- outflow group rows + total injected by JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Centred Nett line below both columns -->
+  <div class="cfs-nett-wrap">
+    <div class="cfs-nett">
+      <span class="lbl" id="cfs-nett-label">Nett Inflow</span>
+      <span class="amt inflow" id="cfs-nett-amount">
+        <span class="ccy">₹</span>3,50,855.50
+      </span>
+    </div>
+  </div>
+
+  <div class="fbar">
+    <span class="fkey" onclick="goBack()"><kbd>Esc</kbd> Back to Cash Flow</span>
+    <span class="fkey"><kbd>F2</kbd> Period</span>
+    <span class="fkey"><kbd>F5</kbd> Refresh</span>
+    <span class="fkey"><kbd>Enter</kbd> Drill into group</span>
+    <span class="grow"></span>
+    <span class="meta" id="cfs-foot-meta">April 2026 · 1 of 12 months</span>
+  </div>
+</main>
+
+<script>
+  /* ════════════════════════════════════════════════════════════════════
+   *  Mock data — one entry per month of FY26-27 (Apr → Mar).
+   *
+   *  Shape per month:
+   *    {
+   *      key, label, year, periodStart, periodEnd,
+   *      inflow, outflow, nett,                 // register-row totals
+   *      inflowGroups : [ { name, amount }, … ], // drill-view left col
+   *      outflowGroups: [ { name, amount }, … ], // drill-view right col
+   *    }
+   *
+   *  Numbers are pure invention but the FY arc (April lighter, festive
+   *  spike Sept-Nov, March year-end heavy, Aug & Feb negative) reads
+   *  like a real Indian retail trading book. Inflow ≈ customer receipts
+   *  + sales-tax refunds + sundry; Outflow ≈ supplier payments + payroll
+   *  + statutory + capex.
+   * ══════════════════════════════════════════════════════════════════════ */
+  const monthData = [
+    {
+      key: 'apr', label: 'April', year: 2026,
+      periodStart: '1-Apr-2026', periodEnd: '30-Apr-2026',
+      inflow: 520011.98, outflow: 169156.48, nett: 350855.50,
+      inflowGroups: [
+        { name: 'Current Liabilities',  amount: 24761.86 },
+        { name: 'Sales Accounts',       amount: 495236.00 },
+        { name: 'Indirect Expenses',    amount: 14.12 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',  amount: 169155.00 },
+        { name: 'Indirect Expenses',    amount: 1.48 },
+      ],
+    },
+    {
+      key: 'may', label: 'May', year: 2026,
+      periodStart: '1-May-2026', periodEnd: '31-May-2026',
+      inflow: 612400.00, outflow: 488200.00, nett: 124200.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 542800.00 },
+        { name: 'Current Liabilities',      amount: 58400.00 },
+        { name: 'Indirect Income',          amount: 11200.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 312800.00 },
+        { name: 'Indirect Expenses',        amount: 124300.00 },
+        { name: 'Direct Expenses',          amount: 51100.00 },
+      ],
+    },
+    {
+      key: 'jun', label: 'June', year: 2026,
+      periodStart: '1-Jun-2026', periodEnd: '30-Jun-2026',
+      inflow: 718200.00, outflow: 455400.00, nett: 262800.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 645200.00 },
+        { name: 'Current Liabilities',      amount: 64800.00 },
+        { name: 'Loans (Liability)',        amount: 8200.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 298400.00 },
+        { name: 'Indirect Expenses',        amount: 109800.00 },
+        { name: 'Duties & Taxes',           amount: 47200.00 },
+      ],
+    },
+    {
+      key: 'jul', label: 'July', year: 2026,
+      periodStart: '1-Jul-2026', periodEnd: '31-Jul-2026',
+      inflow: 681400.00, outflow: 502300.00, nett: 179100.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 612400.00 },
+        { name: 'Current Liabilities',      amount: 64800.00 },
+        { name: 'Indirect Income',          amount: 4200.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 314800.00 },
+        { name: 'Indirect Expenses',        amount: 122500.00 },
+        { name: 'Duties & Taxes',           amount: 65000.00 },
+      ],
+    },
+    {
+      key: 'aug', label: 'August', year: 2026,
+      periodStart: '1-Aug-2026', periodEnd: '31-Aug-2026',
+      inflow: 524200.00, outflow: 1195449.00, nett: -671249.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 482400.00 },
+        { name: 'Current Liabilities',      amount: 41800.00 },
+      ],
+      outflowGroups: [
+        { name: 'Fixed Assets (Capex)',     amount: 685000.00 },
+        { name: 'Current Liabilities',      amount: 348249.00 },
+        { name: 'Indirect Expenses',        amount: 124200.00 },
+        { name: 'Duties & Taxes',           amount: 38000.00 },
+      ],
+    },
+    {
+      key: 'sep', label: 'September', year: 2026,
+      periodStart: '1-Sep-2026', periodEnd: '30-Sep-2026',
+      inflow: 924800.00, outflow: 612400.00, nett: 312400.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 842300.00 },
+        { name: 'Current Liabilities',      amount: 78400.00 },
+        { name: 'Indirect Income',          amount: 4100.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 412800.00 },
+        { name: 'Indirect Expenses',        amount: 138400.00 },
+        { name: 'Duties & Taxes',           amount: 61200.00 },
+      ],
+    },
+    {
+      key: 'oct', label: 'October', year: 2026,
+      periodStart: '1-Oct-2026', periodEnd: '31-Oct-2026',
+      inflow: 1184200.00, outflow: 798400.00, nett: 385800.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 1098400.00 },
+        { name: 'Current Liabilities',      amount: 82400.00 },
+        { name: 'Indirect Income',          amount: 3400.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 542300.00 },
+        { name: 'Indirect Expenses',        amount: 158400.00 },
+        { name: 'Duties & Taxes',           amount: 97700.00 },
+      ],
+    },
+    {
+      key: 'nov', label: 'November', year: 2026,
+      periodStart: '1-Nov-2026', periodEnd: '30-Nov-2026',
+      inflow: 1024800.00, outflow: 712400.00, nett: 312400.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 942800.00 },
+        { name: 'Current Liabilities',      amount: 78400.00 },
+        { name: 'Indirect Income',          amount: 3600.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 462300.00 },
+        { name: 'Indirect Expenses',        amount: 168400.00 },
+        { name: 'Duties & Taxes',           amount: 81700.00 },
+      ],
+    },
+    {
+      key: 'dec', label: 'December', year: 2026,
+      periodStart: '1-Dec-2026', periodEnd: '31-Dec-2026',
+      inflow: 884400.00, outflow: 612800.00, nett: 271600.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 812400.00 },
+        { name: 'Current Liabilities',      amount: 68400.00 },
+        { name: 'Indirect Income',          amount: 3600.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 384800.00 },
+        { name: 'Indirect Expenses',        amount: 158400.00 },
+        { name: 'Duties & Taxes',           amount: 69600.00 },
+      ],
+    },
+    {
+      key: 'jan', label: 'January', year: 2027,
+      periodStart: '1-Jan-2027', periodEnd: '31-Jan-2027',
+      inflow: 712400.00, outflow: 528400.00, nett: 184000.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 645200.00 },
+        { name: 'Current Liabilities',      amount: 62800.00 },
+        { name: 'Indirect Income',          amount: 4400.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 318400.00 },
+        { name: 'Indirect Expenses',        amount: 142500.00 },
+        { name: 'Duties & Taxes',           amount: 67500.00 },
+      ],
+    },
+    {
+      key: 'feb', label: 'February', year: 2027,
+      periodStart: '1-Feb-2027', periodEnd: '28-Feb-2027',
+      inflow: 564200.00, outflow: 728400.00, nett: -164200.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 512400.00 },
+        { name: 'Current Liabilities',      amount: 51800.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 348400.00 },
+        { name: 'Indirect Expenses',        amount: 158400.00 },
+        { name: 'Duties & Taxes',           amount: 142800.00 },
+        { name: 'Loans (Liability)',        amount: 78800.00 },
+      ],
+    },
+    {
+      key: 'mar', label: 'March', year: 2027,
+      periodStart: '1-Mar-2027', periodEnd: '31-Mar-2027',
+      inflow: 1342800.00, outflow: 924800.00, nett: 418000.00,
+      inflowGroups: [
+        { name: 'Sales Accounts',           amount: 1238400.00 },
+        { name: 'Current Liabilities',      amount: 98400.00 },
+        { name: 'Indirect Income',          amount: 6000.00 },
+      ],
+      outflowGroups: [
+        { name: 'Current Liabilities',      amount: 542800.00 },
+        { name: 'Indirect Expenses',        amount: 198400.00 },
+        { name: 'Duties & Taxes',           amount: 142000.00 },
+        { name: 'Capital Account (Drawings)', amount: 41600.00 },
+      ],
+    },
+  ];
+
+  /* ─── Number formatters ───────────────────────────────────────────── */
+
+  // Indian-style grouping with 2 decimals, e.g. 1,23,45,678.90.
+  function fmtINR(v) {
+    return Math.abs(v).toLocaleString('en-IN', {
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
+    });
+  }
+  // Negative: "(-)1,23,456.78" — matches Tally's parens-with-minus glyph.
+  function fmtNett(v) {
+    if (v < 0) return '(-)' + fmtINR(v);
+    return fmtINR(v);
+  }
+  // Compact period label, e.g. "1-Apr-26 → 30-Apr-26"
+  function fmtPeriodCompact(start, end) {
+    return start.replace(/(\d{4})$/, m => m.slice(2)) + ' → ' + end.replace(/(\d{4})$/, m => m.slice(2));
+  }
+
+  /* ─── Render the register table (View 1) ──────────────────────────── */
+
+  function renderRegister() {
+    const tbody = document.getElementById('month-rows');
+    let html = '';
+    let tIn = 0, tOut = 0, tNett = 0;
+
+    for (const m of monthData) {
+      tIn   += m.inflow;
+      tOut  += m.outflow;
+      tNett += m.nett;
+      const nettClass = m.nett < 0 ? 'nett-neg' : (m.nett === 0 ? 'zero' : 'nett-pos');
+      html += `
+        <tr class="cf-month" data-key="${m.key}" tabindex="0">
+          <td class="l">
+            <span class="name">${m.label}<span class="yr">${m.year}</span></span>
+            <span class="chev">›</span>
+          </td>
+          <td class="num inflow">${fmtINR(m.inflow)}</td>
+          <td class="num outflow">${fmtINR(m.outflow)}</td>
+          <td class="num ${nettClass}">${fmtNett(m.nett)}</td>
+        </tr>
+      `;
+    }
+
+    // Grand total row
+    const gNettClass = tNett < 0 ? 'nett-neg' : 'nett-pos';
+    html += `
+      <tr class="cf-grand">
+        <td class="l">Grand Total</td>
+        <td class="num inflow">${fmtINR(tIn)}</td>
+        <td class="num outflow">${fmtINR(tOut)}</td>
+        <td class="num ${gNettClass}">${fmtNett(tNett)}</td>
+      </tr>
+    `;
+    tbody.innerHTML = html;
+
+    // Wire up click + keyboard on each month row
+    tbody.querySelectorAll('tr.cf-month').forEach(row => {
+      row.addEventListener('click', () => openMonth(row.dataset.key));
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openMonth(row.dataset.key);
+        }
+      });
+    });
+  }
+
+  /* ─── Render the drill view for a given month (View 2) ────────────── */
+
+  function renderSummary(monthKey) {
+    const m = monthData.find(x => x.key === monthKey);
+    if (!m) return;
+
+    // Title bar / period text
+    document.getElementById('cfs-title').textContent =
+      `Cash Flow Summary — ${m.label} ${m.year}`;
+    document.getElementById('cfs-period').textContent =
+      `${m.periodStart} to ${m.periodEnd}`;
+    const periodCompact = fmtPeriodCompact(m.periodStart, m.periodEnd);
+    document.getElementById('cfs-period-2').innerHTML =
+      `${periodCompact} <span class="caret">▾</span>`;
+    document.getElementById('cfs-head-in').innerHTML =
+      `<b>Acme Traders</b> · ${periodCompact}`;
+    document.getElementById('cfs-head-out').innerHTML =
+      `<b>Acme Traders</b> · ${periodCompact}`;
+
+    // Inflow side rows + total
+    const inTotal = m.inflowGroups.reduce((s, g) => s + g.amount, 0);
+    let inHtml = '';
+    for (const g of m.inflowGroups) {
+      inHtml += `
+        <tr class="row">
+          <td class="l"><span class="gname">${g.name}</span></td>
+          <td class="num">${fmtINR(g.amount)}</td>
+        </tr>
+      `;
+    }
+    inHtml += `
+      <tr class="col-total">
+        <td class="l">Total</td>
+        <td class="num">${fmtINR(inTotal)}</td>
+      </tr>
+    `;
+    document.getElementById('cfs-in-rows').innerHTML = inHtml;
+
+    // Outflow side rows + total
+    const outTotal = m.outflowGroups.reduce((s, g) => s + g.amount, 0);
+    let outHtml = '';
+    for (const g of m.outflowGroups) {
+      outHtml += `
+        <tr class="row">
+          <td class="l"><span class="gname">${g.name}</span></td>
+          <td class="num">${fmtINR(g.amount)}</td>
+        </tr>
+      `;
+    }
+    outHtml += `
+      <tr class="col-total">
+        <td class="l">Total</td>
+        <td class="num">${fmtINR(outTotal)}</td>
+      </tr>
+    `;
+    document.getElementById('cfs-out-rows').innerHTML = outHtml;
+
+    // Centred Nett line
+    const nett = inTotal - outTotal;
+    const nettLabel    = document.getElementById('cfs-nett-label');
+    const nettAmount   = document.getElementById('cfs-nett-amount');
+    const nettPill     = document.getElementById('cfs-nettpill');
+    if (nett >= 0) {
+      nettLabel.textContent = 'Nett Inflow';
+      nettAmount.className = 'amt inflow';
+      nettAmount.innerHTML = `<span class="ccy">₹</span>${fmtINR(nett)}`;
+      nettPill.textContent = `Nett Inflow ₹${fmtINR(nett)}`;
+      nettPill.style.color = 'var(--inflow)';
+    } else {
+      nettLabel.textContent = 'Nett Outflow';
+      nettAmount.className = 'amt outflow';
+      nettAmount.innerHTML = `<span class="ccy">₹</span>${fmtINR(nett)}`;
+      nettPill.textContent = `Nett Outflow (-)₹${fmtINR(nett)}`;
+      nettPill.style.color = 'var(--outflow)';
+    }
+
+    // Foot meta — "April 2026 · 1 of 12 months"
+    const idx = monthData.findIndex(x => x.key === monthKey) + 1;
+    document.getElementById('cfs-foot-meta').textContent =
+      `${m.label} ${m.year} · ${idx} of ${monthData.length} months`;
+  }
+
+  /* ─── Page-swap helpers ───────────────────────────────────────────── */
+
+  function openMonth(monthKey) {
+    renderSummary(monthKey);
+    document.body.dataset.page = 'summary';
+    document.title = 'Cash Flow Summary — Editorial';
+    window.scrollTo(0, 0);
+  }
+
+  function goBack() {
+    document.body.dataset.page = 'register';
+    document.title = 'Cash Flow — Editorial';
+    window.scrollTo(0, 0);
+  }
+
+  /* ─── Theme toggle ────────────────────────────────────────────────── */
+  function setMode(m, btn) {
+    document.body.dataset.mode = m;
+    document.querySelectorAll('.theme-toggle').forEach(group => {
+      group.querySelectorAll('button').forEach(b => {
+        const isThisOne = b.textContent.trim() === btn.textContent.trim();
+        b.classList.toggle('on', isThisOne);
+      });
+    });
+  }
+
+  /* ─── Period preset chips (cosmetic — just toggles .on) ───────────── */
+  document.querySelectorAll('.preset-row .chip').forEach(c => {
+    c.addEventListener('click', () => {
+      c.parentElement.querySelectorAll('.chip').forEach(x => x.classList.remove('on'));
+      c.classList.add('on');
+    });
+  });
+
+  /* ─── Keyboard ──────────────────────────────────────────────────── */
+  window.addEventListener('keydown', (e) => {
+    // Esc on summary view → back to register
+    if (e.key === 'Escape' && document.body.dataset.page === 'summary') {
+      e.preventDefault(); goBack(); return;
+    }
+    // ↑/↓ on register view → move focus through month rows
+    if (document.body.dataset.page === 'register' && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      const rows = [...document.querySelectorAll('#month-rows tr.cf-month')];
+      const cur = document.activeElement && document.activeElement.classList.contains('cf-month')
+        ? rows.indexOf(document.activeElement) : -1;
+      let next = cur + (e.key === 'ArrowDown' ? 1 : -1);
+      if (next < 0) next = 0;
+      if (next > rows.length - 1) next = rows.length - 1;
+      if (rows[next]) { e.preventDefault(); rows[next].focus(); }
+    }
+  });
+
+  /* ─── Boot ────────────────────────────────────────────────────────── */
+  renderRegister();
+  // Pre-render the April summary so the first drill is instant — also
+  // ensures the DOM has sensible content if someone deep-links via JS.
+  renderSummary('apr');
+</script>
+
+</body>
+</html>
