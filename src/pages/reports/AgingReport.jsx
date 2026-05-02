@@ -260,6 +260,17 @@ export default function AgingReport({ partyType = 'Customer' }) {
     });
   };
 
+  /* ────── render-time constants ──────
+   * Kept ABOVE the keyboard-nav effect because that effect's deps
+   * array references isCustomer — JS evaluates deps at render time
+   * (every render), so isCustomer must already be initialized when
+   * the effect runs.
+   */
+  const isCustomer = partyType === 'Customer';
+  const partyCol = isCustomer ? 'Customer' : 'Supplier';
+  const title = isCustomer ? 'Receivables Aging' : 'Payables Aging';
+  const asOfLabel = data?.as_of_date ? dayjs(data.as_of_date).format('DD MMM YYYY') : dayjs().format('DD MMM YYYY');
+
   /* ────── keyboard navigation ──────
    *
    * Same shape as PartyOutstandingView: build a flat list of currently-
@@ -393,11 +404,6 @@ export default function AgingReport({ partyType = 'Customer' }) {
   }, [navRows, activeIdx, expanded, viewMode, isCustomer]);
 
   /* ────── render ────── */
-
-  const isCustomer = partyType === 'Customer';
-  const partyCol = isCustomer ? 'Customer' : 'Supplier';
-  const title = isCustomer ? 'Receivables Aging' : 'Payables Aging';
-  const asOfLabel = data?.as_of_date ? dayjs(data.as_of_date).format('DD MMM YYYY') : dayjs().format('DD MMM YYYY');
 
   /* Shared <colgroup> for the body + pinned-bottom totals tables.
    * Same column widths in both tables so the totals row lines up
