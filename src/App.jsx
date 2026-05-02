@@ -41,6 +41,8 @@ import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
 import BillsReceivable from './pages/reports/BillsReceivable';
 import BillsPayable from './pages/reports/BillsPayable';
+import CustomerOutstanding from './pages/reports/CustomerOutstanding';
+import SupplierOutstanding from './pages/reports/SupplierOutstanding';
 import MonthlySalesRegister    from './pages/reports/MonthlySalesSummary';
 import MonthlyPurchaseRegister from './pages/reports/MonthlyPurchaseSummary';
 import MonthlyPaymentRegister  from './pages/reports/MonthlyPaymentRegister';
@@ -291,8 +293,10 @@ export default function App() {
           <Route path="reports/party-ledger"       element={<RoleRoute perm="accounts.view"><PartyLedgerRedirect /></RoleRoute>} />
           <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
           <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
-          <Route path="reports/bills-receivable" element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
-          <Route path="reports/bills-payable"    element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
+          <Route path="reports/bills-receivable"    element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
+          <Route path="reports/bills-payable"       element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
+          <Route path="reports/customer-outstanding" element={<RoleRoute perm="reports.view"><CustomerOutstanding /></RoleRoute>} />
+          <Route path="reports/supplier-outstanding" element={<RoleRoute perm="reports.view"><SupplierOutstanding /></RoleRoute>} />
           <Route path="reports/monthly-sales"     element={<RoleRoute perm="reports.view"><MonthlySalesRegister /></RoleRoute>} />
           <Route path="reports/monthly-purchases" element={<RoleRoute perm="reports.view"><MonthlyPurchaseRegister /></RoleRoute>} />
           <Route path="reports/monthly-payments"  element={<RoleRoute perm="reports.view"><MonthlyPaymentRegister /></RoleRoute>} />

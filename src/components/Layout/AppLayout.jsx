@@ -74,6 +74,7 @@ export default function AppLayout() {
     '/reports/profit-loss', '/reports/aging',
     '/reports/gstr1', '/reports/day-book',
     '/reports/bills-receivable', '/reports/bills-payable',
+    '/reports/customer-outstanding', '/reports/supplier-outstanding',
     '/reports/monthly-sales', '/reports/monthly-purchases',
     '/reports/monthly-payments', '/reports/monthly-receipts',
     '/reports/product-sales', '/reports/product-purchases',

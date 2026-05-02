@@ -34,13 +34,15 @@
 //   Record Payment     → /payment/new with state.preselect
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Tag, Button, Input, DatePicker, Select, Tooltip, Popover, Checkbox, message, Dropdown, Space } from 'antd';
+import { Tag, Button, Input, DatePicker, Segmented, Select, Tooltip, Popover, Checkbox, message, Dropdown, Space } from 'antd';
 import {
   DownloadOutlined, SettingOutlined, SearchOutlined, ReloadOutlined,
   CloseOutlined, WarningOutlined, CheckCircleOutlined, EllipsisOutlined,
   PrinterOutlined, WhatsAppOutlined, FilterOutlined, GroupOutlined,
-  FilePdfOutlined,
+  FilePdfOutlined, UnorderedListOutlined, TeamOutlined,
 } from '@ant-design/icons';
+import PartyOutstandingView from './PartyOutstandingView';
+import './party-outstanding.css';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI, partyAPI } from '../../api';
@@ -131,7 +133,7 @@ const DEFAULT_COLS = {
 
 const COLS_KEY = 'erp_bills_outstanding_cols_v2';
 
-export default function BillsOutstanding({ side }) {
+export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   const cfg = SIDE[side];
   if (!cfg) throw new Error(`BillsOutstanding: unknown side "${side}"`);
   const navigate = useNavigate();
@@ -162,6 +164,18 @@ export default function BillsOutstanding({ side }) {
   const [dir, setDir]               = useState(() => initialFromUrl('dir') || 'desc');
   const [searchInput, setSearchInput] = useState(() => initialFromUrl('search'));
   const [search, setSearch]         = useState(() => initialFromUrl('search'));   // debounced
+
+  // ── View mode: bill vs party ────────────────────────────────────
+  // Two reports drive this:
+  //   • Bills Receivable / Bills Payable     → defaultView='bill'
+  //   • Customer Outstanding / Supplier ...  → defaultView='party'
+  // The segmented pill in the header lets the operator flip either
+  // way at any time. URL-shareable so a copy-paste of the link lands
+  // on the same view.
+  const [viewMode, setViewMode] = useState(() => {
+    const fromUrl = initialFromUrl('view');
+    return fromUrl === 'bill' || fromUrl === 'party' ? fromUrl : defaultView;
+  });
 
   // Debounce free-text search so we don't fire a request per keystroke.
   useEffect(() => {
@@ -222,8 +236,9 @@ export default function BillsOutstanding({ side }) {
     if (sort !== 'outstanding') next.sort = sort;
     if (dir !== 'desc')  next.dir = dir;
     if (search)          next.search = search;
+    if (viewMode !== defaultView) next.view = viewMode;
     setSearchParams(next, { replace: true });
-  }, [asOf, partyIds, buckets, cities, credit, minAmount, maxAmount, showZero, groupBy, sort, dir, search, setSearchParams]);
+  }, [asOf, partyIds, buckets, cities, credit, minAmount, maxAmount, showZero, groupBy, sort, dir, search, viewMode, defaultView, setSearchParams]);
 
   // ── Server filters object — passed to the virtualization hook ────
   const filters = useMemo(() => ({
@@ -639,6 +654,21 @@ export default function BillsOutstanding({ side }) {
         <div className="bo-title">
           <h1>{cfg.title}</h1>
           <span className="bo-as-of">as on {dayjs(asOf).format('D MMM YYYY')}</span>
+          {/* View toggle — bill-level (one row per bill) vs party-level
+              (one row per customer/supplier with chevron-expand to
+              the bills underneath). Bills Receivable / Payable land
+              on Bill view; Customer / Supplier Outstanding land on
+              Party view; either flips the other with one click. */}
+          <Segmented
+            size="small"
+            className="bo-view-toggle"
+            value={viewMode}
+            onChange={setViewMode}
+            options={[
+              { value: 'bill',  label: 'Bill view',                       icon: <UnorderedListOutlined /> },
+              { value: 'party', label: `${cfg.partyLabel} view`,          icon: <TeamOutlined /> },
+            ]}
+          />
         </div>
         <div className="bo-actions">
           <Select
@@ -840,9 +870,25 @@ export default function BillsOutstanding({ side }) {
         )}
       </div>
 
-      {/* ── Virtualized table ──────────────────────────────────────── */}
+      {/* ── Body table ─────────────────────────────────────────────
+          Two views share the same data + filter bar:
+          - 'bill'  → VirtualReportTable, one row per bill (default
+                      on Bills Receivable / Bills Payable)
+          - 'party' → PartyOutstandingView, one row per party with
+                      inline expand to bills (default on Customer /
+                      Supplier Outstanding)
+          The segmented pill in the title row flips between them. */}
       <div className="bo-tablewrap">
-        {totalCount === 0 && !loading ? (
+        {viewMode === 'party' ? (
+          <PartyOutstandingView
+            cfg={cfg}
+            side={side}
+            filters={filters}
+            asOf={asOf}
+            bucketLabels={bucketLabels}
+            onDrillBill={drillBill}
+          />
+        ) : totalCount === 0 && !loading ? (
           <div className="bo-empty">
             {(partyIds.length || buckets.length || cities.length || minAmount || maxAmount || search)
               ? (

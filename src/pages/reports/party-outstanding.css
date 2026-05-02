@@ -1,0 +1,209 @@
+/* ── PartyOutstandingView ────────────────────────────────────────────
+ *
+ * Party-grouped table. Visual rhythm matches Trial Balance / Balance
+ * Sheet (chevron-expand pattern, soft warmth on header rows, sticky
+ * thead, accent under-rule on the grand total) so the report family
+ * reads as one app.
+ */
+
+.po-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.po-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  z-index: 5;
+}
+
+.po-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+.po-toolbar .sep { margin: 0 6px; color: var(--fg-tertiary); }
+.po-toolbar b { color: var(--fg-primary); font-weight: 700; }
+
+.po-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.po-link {
+  background: transparent;
+  border: none;
+  color: var(--accent, #B1472F);
+  font-weight: 500;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.po-link:hover { text-decoration: underline; }
+
+.po-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.po-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--fg-primary);
+}
+
+.po-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fg-secondary);
+  padding: 12px 14px;
+  text-align: left;
+}
+.po-table thead th.right { text-align: right; }
+
+.po-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.po-num { text-align: right; white-space: nowrap; }
+
+.po-drcr {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  margin-left: 3px;
+}
+
+/* Party row — clickable, hover-warmth, chevron animates on toggle. */
+.po-party-row {
+  cursor: pointer;
+  transition: background 0.08s;
+}
+.po-party-row:hover { background: var(--bg-hover, var(--bg-muted)); }
+.po-party-row.is-open {
+  background: color-mix(in srgb, var(--accent-bg, var(--bg-muted)) 35%, transparent);
+}
+
+.po-chev-cell { padding-left: 14px; padding-right: 0; width: 36px; }
+.po-chev {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  transition: transform 0.12s ease;
+  transform-origin: center;
+}
+.po-chev.collapsed { transform: rotate(-90deg); }
+
+.po-party-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.po-party-name a {
+  color: var(--fg-primary);
+  cursor: pointer;
+}
+.po-party-name a:hover { color: var(--accent, #B1472F); text-decoration: underline; }
+
+.po-meta-pill {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--bg-muted);
+  color: var(--fg-tertiary);
+  white-space: nowrap;
+}
+
+.po-overdue {
+  color: var(--danger, #B1472F);
+  font-weight: 600;
+}
+
+/* Bill row inside an expanded party — indented + softer surface so
+   the hierarchy reads at a glance. */
+.po-bill-row {
+  cursor: pointer;
+  background: color-mix(in srgb, var(--bg-muted) 35%, var(--bg-panel));
+  transition: background 0.08s;
+}
+.po-bill-row:hover { background: var(--bg-hover, var(--bg-muted)); }
+.po-bill-row td { font-size: 12px; padding-top: 8px; padding-bottom: 8px; }
+
+.po-bill-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.po-bill-no {
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+.po-bill-meta {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+}
+
+/* Grand total — accent under-rule, heavier numbers; mirrors the
+   Trial Balance / Balance Sheet bottom row. */
+.po-table tfoot td {
+  background: var(--bg-muted);
+  border-top: 2px solid var(--border-strong, var(--border));
+  border-bottom: none;
+  padding: 13px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  position: sticky;
+  bottom: 0;
+}
+
+.po-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-panel);
+}
+
+@media print {
+  .po-toolbar,
+  .po-link { display: none; }
+  .po-wrap { border: none; }
+  .po-scroll { overflow: visible; }
+  .po-table thead th { position: static; background: #fff; }
+  .po-table tfoot td { position: static; background: #fff; }
+}

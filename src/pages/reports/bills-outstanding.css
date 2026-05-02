@@ -54,6 +54,14 @@
   font-weight: 500;
 }
 .bo-as-of b { color: var(--fg-primary); font-weight: 600; }
+
+/* View toggle — bill-level vs party-level. Sits in the title row
+   so it reads as a primary view-mode switch, not a secondary action. */
+.bo-view-toggle.ant-segmented {
+  margin-left: 8px;
+  align-self: center;
+}
+
 .bo-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 /* Header buttons — match .sr-btn / .ss-btn pattern */

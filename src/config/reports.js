@@ -69,6 +69,31 @@ export const REPORTS = [
     aliases: ['payable', 'bp', 'unpaid purchases', 'creditors bills'],
     isNew: true,
   },
+  // Party-level siblings — same data and the same page component, but
+  // landing on the customer / supplier rollup view by default. Either
+  // can flip to bill-level via the segmented pill in the header. Two
+  // entries instead of "let users find the toggle" because the
+  // accountant searches "outstanding by customer" as one phrase.
+  {
+    id: 'customer_outstanding',
+    name: 'Customer Outstanding',
+    subtitle: 'Outstanding by customer · expand for bill detail',
+    category: 'outstanding',
+    route: '/reports/customer-outstanding',
+    perm: 'reports.view',
+    aliases: ['customer outstanding', 'debtors', 'outstanding by customer'],
+    isNew: true,
+  },
+  {
+    id: 'supplier_outstanding',
+    name: 'Supplier Outstanding',
+    subtitle: 'Outstanding by supplier · expand for bill detail',
+    category: 'outstanding',
+    route: '/reports/supplier-outstanding',
+    perm: 'reports.view',
+    aliases: ['supplier outstanding', 'creditors', 'outstanding by supplier'],
+    isNew: true,
+  },
 
   // ── Periodic Summary (R10) ───────────────────────────────────────
   // Tally-style monthly registers. Each row = month, columns = Dr / Cr
