@@ -26,7 +26,6 @@ export default function SupplierStatement() {
     <PartyStatementPage
       partyType="Supplier"
       title="Supplier Statement"
-      headerHint="Tally-style account-of-record · purchases · payments · returns"
       showWhatsApp={false}
     />
   );

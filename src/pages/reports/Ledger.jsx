@@ -199,14 +199,7 @@ export default function Ledger() {
       <div className="psp-header">
         <div className="psp-titles">
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} className="psp-back" />
-          <div>
-            <h1 className="psp-title">Ledger</h1>
-            <div className="psp-subtitle">
-              {statement?.account
-                ? `${statement.account.ledger_group} · ${statement.account.sub_group || statement.account.ledger_name}`
-                : 'Voucher-level account-of-record · pick any ledger from the chart of accounts'}
-            </div>
-          </div>
+          <h1 className="psp-title">Ledger</h1>
         </div>
         <div className="psp-actions">
           <Tooltip title="Refresh">

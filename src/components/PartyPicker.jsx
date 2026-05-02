@@ -1,50 +1,37 @@
 // ── PartyPicker ─────────────────────────────────────────────────────────
 //
-// Big sticky party-selection bar for Customer Statement / Supplier
-// Statement. The ergonomic improvement over the old PartyLedger
-// dropdown is:
-//
-//   1. Top-of-page bar (not a buried dropdown). Sticky on scroll
-//      inside the report. Always visible while the user reads the
-//      statement, so they can re-pick a party without scrolling up.
-//
-//   2. ~520px input with party-name, city, mobile, and balance shown
-//      as inline pills. Tells the user EVERYTHING they need to verify
-//      they've picked the right party — not just the name. The old
-//      dropdown showed only the name.
-//
-//   3. Recently-viewed chips below the input. Most accountants pull
-//      the same 3-5 parties' statements per day; chips make that one
-//      click instead of a search.
-//
-//   4. `/` from anywhere on the page focuses the input. Standard
-//      keyboard convention (matches search bars across the app).
+// Party-selection control matching the customer dropdown on Sales Bill
+// Form — compact trigger + a wide tabular dropdown so the operator sees
+// every party's identity (name / city / contact / balance / credit) in
+// one row when picking.
 //
 // PROPS
-//   partyType         'Customer' | 'Supplier' — filters the list
-//   value             Selected party object (or null)
-//   onChange          (party) => void
-//   loading           Boolean — show skeleton in the metadata strip
-//                     while a refresh is in flight (the statement
-//                     fetch happens upstream)
+//   partyType    'Customer' | 'Supplier' — filters the list
+//   value        Selected party object (or null)
+//   onChange     (party) => void
 //
 // PERSISTENCE
 //   Recent picks are stored in localStorage under
-//   `pp_recent_<type>` (an array of last 5 party_ids). Read on
-//   mount, written on every successful selection. Cheap, no backend.
+//   `pp_recent_<type>` (an array of last 5 party_ids). Read on mount,
+//   written on every selection. Surfaces below the picker as quick
+//   chips when no party is selected — most accountants pull the same
+//   3-5 parties' statements per day, so chips are one click each.
+//
+// KEYBOARD
+//   `/` from anywhere on the page focuses the picker. Standard search
+//   shortcut, matches the rest of the app.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Input, AutoComplete, Tag } from 'antd';
-import { SearchOutlined, UserOutlined, ShopOutlined } from '@ant-design/icons';
+import { Select } from 'antd';
 import { partyAPI } from '../api';
 
 const RECENT_KEY = (type) => `pp_recent_${type.toLowerCase()}`;
 const RECENT_MAX = 5;
 
-const fmt = (v) =>
+const fmtBal = (v) =>
   parseFloat(v || 0).toLocaleString('en-IN', {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 1,
   });
 
 function loadRecent(type) {
@@ -58,15 +45,14 @@ function saveRecent(type, partyIds) {
   catch { /* swallow — quota errors shouldn't break selection */ }
 }
 
-export default function PartyPicker({ partyType, value, onChange, loading }) {
-  const [parties, setParties] = useState([]);          // full list, fetched once
-  const [search,  setSearch]  = useState('');          // current input text
+export default function PartyPicker({ partyType, value, onChange }) {
+  const [parties, setParties] = useState([]);
   const [recentIds, setRecent] = useState(() => loadRecent(partyType));
-  const inputRef = useRef(null);
+  const selectRef = useRef(null);
 
-  // Fetch parties on mount + on partyType change. The list is small
-  // enough (a few thousand at most) to keep entirely client-side; the
-  // search is a substring filter, no round-trip per keystroke.
+  // Fetch parties on mount + on partyType change. Small enough list
+  // (a few thousand) to keep entirely client-side; the dropdown's
+  // built-in filter handles the substring match per keystroke.
   useEffect(() => {
     let cancelled = false;
     partyAPI.getAll({ party_type: partyType, limit: 5000 })
@@ -79,127 +65,151 @@ export default function PartyPicker({ partyType, value, onChange, loading }) {
     return () => { cancelled = true; };
   }, [partyType]);
 
-  // Reload recent when the type flips (Customer Statement page vs
-  // Supplier Statement page have separate lists).
-  useEffect(() => {
-    setRecent(loadRecent(partyType));
-  }, [partyType]);
+  useEffect(() => { setRecent(loadRecent(partyType)); }, [partyType]);
 
-  // `/` keyboard shortcut to focus the picker. Don't trigger when the
-  // user is typing into another field — `/` is a real character in
-  // some narration / address inputs.
+  // `/` shortcut. Skip when typing into another input — `/` is a
+  // legal character in narration / address fields elsewhere.
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== '/') return;
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) return;
       e.preventDefault();
-      inputRef.current?.focus();
+      selectRef.current?.focus();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // AutoComplete options — filter by name substring or mobile match.
-  // Show name as the headline, city / mobile as secondary line. The
-  // value (what AntD echoes into the input) is the party_id, not the
-  // name, so onSelect can do an O(1) lookup.
-  const options = useMemo(() => {
-    const q = (search || '').trim().toLowerCase();
-    const base = q
-      ? parties.filter(p =>
-          (p.party_name || '').toLowerCase().includes(q)
-          || (p.mobile_1 || '').includes(q)
-          || (p.city     || '').toLowerCase().includes(q),
-        )
-      : parties;
-    return base.slice(0, 50).map(p => ({
-      value: String(p.party_id),
-      label: (
-        <div className="pp-opt">
-          <div className="pp-opt-name">{p.party_name}</div>
-          <div className="pp-opt-meta">
-            {p.city ? <span>{p.city}</span> : null}
-            {p.mobile_1 ? <span>📞 {p.mobile_1}</span> : null}
-            <span>Balance ₹{fmt(p.current_balance)}</span>
-          </div>
-        </div>
-      ),
-      _party: p,
-    }));
-  }, [parties, search]);
+  const options = useMemo(
+    () => parties.map(p => ({ value: p.party_id, label: p.party_name, party: p })),
+    [parties],
+  );
 
-  // Derive recent-party objects from ids. Stale ids (party deleted)
-  // silently drop out. We do NOT prune storage on miss — a party
-  // marked inactive temporarily then reactivated should reappear.
   const recentParties = useMemo(() => {
     if (!recentIds.length || !parties.length) return [];
     const byId = new Map(parties.map(p => [p.party_id, p]));
     return recentIds.map(id => byId.get(id)).filter(Boolean);
   }, [recentIds, parties]);
 
-  function commit(party) {
-    if (!party) return;
-    setSearch('');
-    onChange?.(party);
-    // Update recent list — move-to-front, dedupe, cap to RECENT_MAX.
-    const next = [party.party_id, ...recentIds.filter(id => id !== party.party_id)].slice(0, RECENT_MAX);
-    setRecent(next);
-    saveRecent(partyType, next);
+  function commit(partyId) {
+    const p = parties.find(x => x.party_id === partyId) || null;
+    onChange?.(p);
+    if (p) {
+      const next = [p.party_id, ...recentIds.filter(id => id !== p.party_id)].slice(0, RECENT_MAX);
+      setRecent(next);
+      saveRecent(partyType, next);
+    }
   }
+
+  const placeholder = `Select ${partyType.toLowerCase()} — type to search · press / to focus`;
 
   return (
     <div className={'pp-bar' + (value ? ' has-selection' : '')}>
       <div className="pp-row">
-        <div className="pp-input-wrap">
-          <AutoComplete
-            value={search}
+        <div className="pp-select-wrap">
+          <Select
+            ref={selectRef}
+            showSearch
+            allowClear
+            placeholder={placeholder}
+            value={value?.party_id}
+            onChange={commit}
+            optionFilterProp="label"
+            // Built-in filter: case-insensitive substring on the
+            // option's `label`. AntD also exposes filterOption to
+            // customise — but for a plain "find by name" the
+            // optionFilterProp shortcut is enough.
             options={options}
-            onChange={setSearch}
-            onSelect={(_, opt) => commit(opt._party)}
-            // Suggest when there's text OR when the field is empty +
-            // focused (so the operator sees the top 50 to scroll
-            // through). dropdownMatchSelectWidth fixes the suggestion
-            // panel to match the input's width.
-            dropdownMatchSelectWidth
-            popupMatchSelectWidth={520}
-            style={{ width: '100%' }}
-          >
-            <Input
-              ref={inputRef}
-              size="large"
-              prefix={partyType === 'Customer' ? <UserOutlined /> : <ShopOutlined />}
-              suffix={<SearchOutlined style={{ color: 'var(--fg-tertiary)' }} />}
-              placeholder={`Search ${partyType.toLowerCase()} — name / mobile / city  ·  press / to focus`}
-              allowClear
-              onClear={() => onChange?.(null)}
-            />
-          </AutoComplete>
+            // Wide tabular dropdown — same pattern as SalesBillForm's
+            // customer Select. Trigger stays compact; the dropdown
+            // breaks out to 700px so all five columns are readable.
+            dropdownStyle={{ minWidth: 700, padding: 0 }}
+            popupMatchSelectWidth={false}
+            dropdownRender={menu => (
+              <div>
+                <div className="pp-opt-head">
+                  <span style={{ flex: '0 0 200px' }}>{partyType} Name</span>
+                  <span style={{ flex: '0 0 130px' }}>City</span>
+                  <span style={{ flex: '0 0 120px' }}>Contact</span>
+                  <span style={{ flex: '0 0 110px', textAlign: 'right' }}>Balance</span>
+                  <span style={{ flex: '0 0 70px', textAlign: 'center' }}>Status</span>
+                </div>
+                {menu}
+              </div>
+            )}
+            optionRender={(opt) => {
+              const p = opt.data.party;
+              const bal = parseFloat(p.current_balance || 0);
+              const status = p.party_status || 'Regular';
+              return (
+                <div className="pp-opt-row">
+                  <span style={{ flex: '0 0 200px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 6 }}>
+                    {p.party_name}
+                  </span>
+                  <span style={{ flex: '0 0 130px', color: 'var(--fg-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 6 }}>
+                    {p.city || '—'}
+                  </span>
+                  <span style={{ flex: '0 0 120px', color: 'var(--fg-secondary)' }}>
+                    {p.mobile_1 || '—'}
+                  </span>
+                  <span
+                    style={{
+                      flex: '0 0 110px',
+                      textAlign: 'right',
+                      fontWeight: 700,
+                      paddingRight: 8,
+                      color: bal > 0 ? 'var(--success)' : bal < 0 ? 'var(--danger)' : 'var(--fg-tertiary)',
+                    }}
+                  >
+                    {fmtBal(bal)}
+                  </span>
+                  <span style={{ flex: '0 0 70px', textAlign: 'center' }}>
+                    <span
+                      style={{
+                        background:
+                          status === 'Blacklist' ? 'var(--danger-bg)' :
+                          status === 'VIP'       ? 'rgba(127,90,163,0.14)' :
+                          status === 'Priority'  ? 'rgba(177,71,47,0.10)' :
+                                                   'var(--bg-secondary)',
+                        color:
+                          status === 'Blacklist' ? 'var(--danger)' :
+                          status === 'VIP'       ? '#7F5AA3' :
+                          status === 'Priority'  ? 'var(--warning)' :
+                                                   'var(--fg-tertiary)',
+                        borderRadius: 4,
+                        padding: '1px 7px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {status === 'Regular' ? '—' : status.toUpperCase()}
+                    </span>
+                  </span>
+                </div>
+              );
+            }}
+          />
         </div>
 
-        {/* Selected-party metadata strip — the right column. Mirrors
-            the Sales bill form's party-info pill so accountants get a
-            consistent "this is who you've picked" surface across the
-            app. */}
+        {/* Selected-party meta strip — pills to the right of the
+            picker. Only renders once a party is picked; matches the
+            Sales bill form's "you've chosen X" surface so the visual
+            pattern is consistent across the app. */}
         {value && (
           <div className="pp-meta">
-            <span className="pp-meta-name">{value.party_name}</span>
             {value.city && <span className="pp-meta-pill">{value.city}</span>}
             {value.mobile_1 && <span className="pp-meta-pill">📞 {value.mobile_1}</span>}
             <span className={'pp-meta-pill pp-meta-bal' + (parseFloat(value.current_balance || 0) >= 0 ? ' pos' : ' neg')}>
-              ₹{fmt(value.current_balance)}
+              ₹{fmtBal(value.current_balance)}
             </span>
-            {value.party_status && value.party_status !== 'Regular' && (
-              <Tag color={value.party_status === 'Blacklist' ? 'red' : value.party_status === 'VIP' ? 'purple' : 'orange'}>
-                {value.party_status}
-              </Tag>
-            )}
           </div>
         )}
       </div>
 
-      {/* Recent chips — quick re-pick. Hidden once a party is selected
-          to keep the bar uncluttered while a statement is open. */}
+      {/* Recent chips — shown only when nothing is picked. Once a
+          party is selected the picker meta strip carries its identity,
+          so the chips would be visual noise. */}
       {!value && recentParties.length > 0 && (
         <div className="pp-recent">
           <span className="pp-recent-lbl">Recent:</span>
@@ -208,7 +218,7 @@ export default function PartyPicker({ partyType, value, onChange, loading }) {
               type="button"
               key={p.party_id}
               className="pp-chip"
-              onClick={() => commit(p)}
+              onClick={() => commit(p.party_id)}
             >
               {p.party_name}
             </button>

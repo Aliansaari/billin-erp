@@ -23,7 +23,6 @@ export default function CustomerStatement() {
     <PartyStatementPage
       partyType="Customer"
       title="Customer Statement"
-      headerHint="Tally-style account-of-record · sales · receipts · returns"
       showWhatsApp
     />
   );

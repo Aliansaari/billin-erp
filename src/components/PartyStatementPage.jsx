@@ -83,7 +83,6 @@ async function downloadExcel({ filename, rows, headers }) {
 export default function PartyStatementPage({
   partyType,
   title,
-  headerHint,
   showWhatsApp = false,
 }) {
   const navigate = useNavigate();
@@ -254,10 +253,7 @@ export default function PartyStatementPage({
             onClick={() => navigate(-1)}
             className="psp-back"
           />
-          <div>
-            <h1 className="psp-title">{title}</h1>
-            <div className="psp-subtitle">{headerHint}</div>
-          </div>
+          <h1 className="psp-title">{title}</h1>
         </div>
         <div className="psp-actions">
           <Tooltip title="Refresh">
