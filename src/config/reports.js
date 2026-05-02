@@ -296,12 +296,12 @@ export const REPORTS = [
   // an internal accountant tool, not a customer-facing document.
   {
     id: 'ledger',
-    name: 'Ledger',
+    name: 'Ledger Statement',
     subtitle: 'Voucher-level statement of any chart-of-accounts ledger',
     category: 'financial',
     route: '/reports/ledger',
     perm: 'accounts.view',
-    aliases: ['general ledger', 'chart of accounts ledger', 'gl', 'account ledger'],
+    aliases: ['ledger', 'general ledger', 'chart of accounts ledger', 'gl', 'account ledger'],
     isNew: true,
   },
   {

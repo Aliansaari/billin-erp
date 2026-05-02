@@ -67,7 +67,7 @@ const COA_VOUCHER_CATEGORIES = [
 async function downloadExcel({ filename, rows, headers }) {
   const ExcelJS = await import('exceljs').then(m => m.default || m);
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Ledger');
+  const ws = wb.addWorksheet('Ledger Statement');
   ws.addRow(headers);
   rows.forEach(r => ws.addRow(r));
   ws.getRow(1).font = { bold: true };
@@ -252,7 +252,7 @@ export default function Ledger() {
     if (!statement) { message.info('Nothing to export.'); return; }
     try {
       await downloadStatementPdf({
-        title: 'Ledger',
+        title: 'Ledger Statement',
         subtitle: statement.account?.ledger_name,
         statement,
         voucherFilter,
@@ -285,7 +285,7 @@ export default function Ledger() {
       <div className="psp-header">
         <div className="psp-titles">
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} className="psp-back" />
-          <h1 className="psp-title">Ledger</h1>
+          <h1 className="psp-title">Ledger Statement</h1>
         </div>
         <div className="psp-header-period">
           <div className="rpt-period">
