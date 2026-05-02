@@ -362,15 +362,26 @@ export default function PartyStatementPage({
           />
         </div>
         <div className="psp-actions">
+          {/* Icon-only buttons with tooltips. Same compact pattern Day
+              Book uses on the same kind of header — keeps every chrome
+              control on one row at typical desktop widths. Print stays
+              labelled because it's the primary action and gets the
+              accent button styling already. */}
           <Tooltip title="Refresh">
-            <Button icon={<ReloadOutlined />} onClick={() => party && setParty({ ...party })} disabled={!party} />
+            <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={() => party && setParty({ ...party })} disabled={!party} />
           </Tooltip>
-          <Button icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length}>Excel</Button>
-          <Button icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!statement}>PDF</Button>
+          <Tooltip title="Export Excel">
+            <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length} />
+          </Tooltip>
+          <Tooltip title="Export PDF">
+            <Button className="rpt-btn" icon={<FilePdfOutlined />} onClick={onPdf} disabled={!statement} />
+          </Tooltip>
           {showWhatsApp && (
-            <Button icon={<WhatsAppOutlined />} onClick={onWhatsApp} disabled={!party}>WhatsApp</Button>
+            <Tooltip title="Send via WhatsApp">
+              <Button className="rpt-btn" icon={<WhatsAppOutlined />} onClick={onWhatsApp} disabled={!party} />
+            </Tooltip>
           )}
-          <Button type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
+          <Button className="rpt-btn" type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
         </div>
       </div>
 

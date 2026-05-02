@@ -272,12 +272,18 @@ export default function Ledger() {
           />
         </div>
         <div className="psp-actions">
+          {/* Icon-only with tooltips so the title row stays single-line
+              — same chrome shape as the party statement pages. */}
           <Tooltip title="Refresh">
-            <Button icon={<ReloadOutlined />} onClick={() => ledgerId && setLedgerId(ledgerId)} disabled={!ledgerId} />
+            <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={() => ledgerId && setLedgerId(ledgerId)} disabled={!ledgerId} />
           </Tooltip>
-          <Button icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length}>Excel</Button>
-          <Button icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!statement}>PDF</Button>
-          <Button type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
+          <Tooltip title="Export Excel">
+            <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length} />
+          </Tooltip>
+          <Tooltip title="Export PDF">
+            <Button className="rpt-btn" icon={<FilePdfOutlined />} onClick={onPdf} disabled={!statement} />
+          </Tooltip>
+          <Button className="rpt-btn" type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
         </div>
       </div>
 
