@@ -372,6 +372,21 @@
   flex-direction: column;
   padding: 12px 24px 12px;
   background: var(--bg-app);
+  position: relative;
+}
+
+/* View pane — both Bill Wise and Customers/Suppliers Wise stay
+   permanently mounted; the toggle just flips which one is visible.
+   No remount → no refetch → no spinner blink on toggle (Tally-solid
+   view-mode switch). Each pane fills the wrapper while active. */
+.bo-view-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bo-view-pane.bo-view-hidden {
+  display: none;
 }
 .bo-tablewrap .ant-table-wrapper {
   background: var(--bg-panel);

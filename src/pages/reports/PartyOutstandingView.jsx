@@ -50,6 +50,7 @@ export default function PartyOutstandingView({
   asOf,           // current as-of date (already in filters but parent surfaces it for the empty-state)
   bucketLabels,   // { current, b1, b2, b3, b4 } — surfaced for "X overdue" hint per party
   onDrillBill,    // (row) => void  (parent's handler — keeps drill behavior identical to bill-view)
+  isVisible = true, // false when the parent toggled to bill-view; pauses the global keydown handler so the two views don't fight over arrow keys
 }) {
   const navigate = useNavigate();
   const [rows, setRows]       = useState([]);   // raw bill-level rows from API
@@ -169,6 +170,10 @@ export default function PartyOutstandingView({
 
   useEffect(() => {
     const onKey = (e) => {
+      // Skip while the bill view is in front — both views are mounted
+      // simultaneously (for instant view-mode toggle), so without this
+      // gate they'd both react to the same arrow keys.
+      if (!isVisible) return;
       // Don't fight inputs / search fields elsewhere on the page.
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
@@ -228,7 +233,7 @@ export default function PartyOutstandingView({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navRows, activeIdx, expanded, togglePartyExpand, onDrillBill]);
+  }, [navRows, activeIdx, expanded, togglePartyExpand, onDrillBill, isVisible]);
 
   // Drill into the party's statement. The newer Customer / Supplier
   // Statement pages handle the full ledger view. as-of date carries

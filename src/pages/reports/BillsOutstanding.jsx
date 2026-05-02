@@ -874,15 +874,52 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
       </div>
 
       {/* ── Body table ─────────────────────────────────────────────
-          Two views share the same data + filter bar:
-          - 'bill'  → VirtualReportTable, one row per bill (default
-                      on Bills Receivable / Bills Payable)
-          - 'party' → PartyOutstandingView, one row per party with
-                      inline expand to bills (default on Customer /
-                      Supplier Outstanding)
-          The segmented pill in the title row flips between them. */}
+          Both views are rendered side-by-side; CSS toggles which one
+          is visible. This is the "Tally-solid" trick — switching
+          Bill Wise ↔ Customers Wise is just a display flip, no
+          unmount/remount, no re-fetch, no spinner blink. PartyOutstandingView
+          fetches its data once on first mount and keeps it; subsequent
+          toggles are instant. The bill view keeps its scroll position,
+          the party view keeps its expand state. */}
       <div className="bo-tablewrap">
-        {viewMode === 'party' ? (
+        <div className={'bo-view-pane' + (viewMode === 'bill' ? '' : ' bo-view-hidden')}>
+          {totalCount === 0 && !loading ? (
+            <div className="bo-empty">
+              {(partyIds.length || buckets.length || cities.length || minAmount || maxAmount || search)
+                ? (
+                  <>
+                    <div>No bills match these filters.</div>
+                    <Button size="small" onClick={kpiClickAll} style={{ marginTop: 8 }}>Clear Filters</Button>
+                  </>
+                )
+                : <div>All bills are paid. ✓</div>}
+            </div>
+          ) : (
+            <VirtualReportTable
+              columns={tableColumns}
+              rows={rows}
+              totalCount={totalCount}
+              ensureChunk={ensureChunk}
+              loading={loading}
+              rowKey={(r) => r.bill_id}
+              scroll={{ x: tableColumns.reduce((s, c) => s + (c.width || 100), 0) }}
+              summaryCells={summaryCells}
+              onHeaderRow={(col) => ({
+                onClick: () => col.sorter && onSort(col.key === 'overdue' ? 'overdue' : col.dataIndex || col.key),
+                style:   col.sorter ? { cursor: 'pointer' } : undefined,
+              })}
+              // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens the
+              // bill via the same drill-down used by the bill-no link.
+              // persistKey varies by side (receivable / payable) so
+              // each list keeps its own cursor across round-trips.
+              keyboardNav
+              persistKey={`bills-${side}`}
+              onRowEnter={(row) => row?.bill_id && drillBill(row)}
+            />
+          )}
+        </div>
+
+        <div className={'bo-view-pane' + (viewMode === 'party' ? '' : ' bo-view-hidden')}>
           <PartyOutstandingView
             cfg={cfg}
             side={side}
@@ -890,41 +927,9 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
             asOf={asOf}
             bucketLabels={bucketLabels}
             onDrillBill={drillBill}
+            isVisible={viewMode === 'party'}
           />
-        ) : totalCount === 0 && !loading ? (
-          <div className="bo-empty">
-            {(partyIds.length || buckets.length || cities.length || minAmount || maxAmount || search)
-              ? (
-                <>
-                  <div>No bills match these filters.</div>
-                  <Button size="small" onClick={kpiClickAll} style={{ marginTop: 8 }}>Clear Filters</Button>
-                </>
-              )
-              : <div>All bills are paid. ✓</div>}
-          </div>
-        ) : (
-          <VirtualReportTable
-            columns={tableColumns}
-            rows={rows}
-            totalCount={totalCount}
-            ensureChunk={ensureChunk}
-            loading={loading}
-            rowKey={(r) => r.bill_id}
-            scroll={{ x: tableColumns.reduce((s, c) => s + (c.width || 100), 0) }}
-            summaryCells={summaryCells}
-            onHeaderRow={(col) => ({
-              onClick: () => col.sorter && onSort(col.key === 'overdue' ? 'overdue' : col.dataIndex || col.key),
-              style:   col.sorter ? { cursor: 'pointer' } : undefined,
-            })}
-            // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens the
-            // bill via the same drill-down used by the bill-no link.
-            // persistKey varies by side (receivable / payable) so
-            // each list keeps its own cursor across round-trips.
-            keyboardNav
-            persistKey={`bills-${side}`}
-            onRowEnter={(row) => row?.bill_id && drillBill(row)}
-          />
-        )}
+        </div>
       </div>
     </div>
   );
