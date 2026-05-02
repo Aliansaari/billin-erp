@@ -209,8 +209,11 @@ export const reportAPI = {
   trialBalance: (params) => api.get('/reports/trial-balance',  { params }),
   balanceSheet: (params) => api.get('/reports/balance-sheet',  { params }),
   profitLoss:   (params) => api.get('/reports/profit-loss',    { params }),
-  // Phase R2 — Cash Flow + Aging
-  cashFlow:           (params) => api.get('/reports/cash-flow',          { params }),
+  // Phase R2 — Cash Flow (Tally-style three-level drill: register →
+  // month → group) + Aging.
+  cashFlowMonthly:    (params) => api.get('/reports/cash-flow/monthly', { params }),
+  cashFlowMonth:      (params) => api.get('/reports/cash-flow/month',   { params }),
+  cashFlowGroup:      (params) => api.get('/reports/cash-flow/group',   { params }),
   dayBook:            (params) => api.get('/reports/day-book',           { params }),
   // Phase R3 — Operational summaries (Sales/Purchase Registers folded
   // into the canonical /reports/sales and /reports/purchases above).
