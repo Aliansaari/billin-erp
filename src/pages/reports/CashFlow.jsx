@@ -21,15 +21,16 @@
 // Esc → AppLayout's history.back() handler. URL-driven design means
 // that pops back to the previous view automatically.
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Button, DatePicker, message } from 'antd';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Button, DatePicker, Checkbox, Popover, Input, message } from 'antd';
 import {
   ReloadOutlined, PrinterOutlined, DownloadOutlined,
-  ArrowLeftOutlined, CalendarOutlined,
+  ArrowLeftOutlined, CalendarOutlined, SettingOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import VirtualReportTable from '../../components/VirtualReportTable';
 import './cash-flow.css';
 
 // ── Number formatting ────────────────────────────────────────────────
@@ -708,27 +709,145 @@ function _monthLabelFromKey(monthIsoOrKey) {
 }
 
 // ── View 3 — Voucher list ────────────────────────────────────────────
+// Day Book-style column registry for the cash-flow voucher list.
+// Persisted column visibility uses a per-page key so it doesn't
+// collide with Day Book's own preferences.
+//
+// "Party" and "Details" answer different questions:
+//   - Party   → just the customer/supplier name (one or two names,
+//               easy to scan). Default ON.
+//   - Details → the FULL contra-leg list (Sales Account, CGST Output,
+//               SGST Output, party, etc.). Default OFF — useful when
+//               reconciling a single voucher's posting; noisy for
+//               normal use. The user opts in via Customize.
+//
+// Bumped storage key to v2 so the new defaults take effect on first
+// open instead of inheriting v1's "party = full contra list".
+const CFG_ALL_COLS = [
+  { key: 'sr_no',    label: 'Sr No',        default: true  },
+  { key: 'date',     label: 'Date',         default: true  },
+  { key: 'type',     label: 'Voucher Type', default: true  },
+  { key: 'no',       label: 'Voucher No',   default: true  },
+  { key: 'party',    label: 'Party',        default: true  },
+  { key: 'details',  label: 'Details',      default: false },
+  { key: 'amount',   label: 'Amount',       default: true  },
+];
+const CFG_COLS_KEY     = 'cashFlowGroup_cols_v2';
+const CFG_DEFAULT_COLS = CFG_ALL_COLS.reduce((o, c) => ({ ...o, [c.key]: c.default }), {});
+
+// Voucher-number prefix → voucher type. Same convention shipping in
+// the rest of the app (SAL/PUR/REC/PAY/JV/CONTRA/CN/DN). Falls back
+// to "—" so unknown prefixes don't crash the cell.
+function _voucherTypeFromNumber(no) {
+  const s = String(no || '').toUpperCase();
+  if (s.startsWith('SAL'))    return 'Sales';
+  if (s.startsWith('PUR'))    return 'Purchase';
+  if (s.startsWith('REC'))    return 'Receipt';
+  if (s.startsWith('PAY'))    return 'Payment';
+  if (s.startsWith('JV'))     return 'Journal';
+  if (s.startsWith('CONTRA')) return 'Contra';
+  if (s.startsWith('CN-SAL') || s.startsWith('CN-'))   return 'Sales Return';
+  if (s.startsWith('DN-PUR') || s.startsWith('DN-'))   return 'Purchase Return';
+  return '—';
+}
+const _CF_TYPE_TONE = {
+  'Sales':           'success',
+  'Sales Return':    'warning',
+  'Purchase':        'accent',
+  'Purchase Return': 'warning',
+  'Receipt':         'success',
+  'Payment':         'danger',
+  'Journal':         'info',
+  'Contra':          'neutral',
+};
+
+// View 3 — Day Book-style voucher list scoped to a single
+// (month, sub_group, direction). Mirrors DayBook.jsx's chrome
+// (search box, customize popover, VirtualReportTable, sticky
+// bottom total) so operators land on a familiar layout. KPI
+// cards intentionally OMITTED — the only meaningful number on
+// this terminal view is the total, which already lives in the
+// sticky bottom strip; KPIs would be redundant.
 function CashFlowGroupView() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const month     = searchParams.get('month');
   const subGroup  = searchParams.get('sub_group');
   const direction = searchParams.get('direction');
+  // Outer-period passthrough — preserves the register's date range
+  // through the drill chain so the back-link returns to the same view.
+  // NOT used as a filter on this page; that's `gFrom` / `gTo` below.
   const fromDate  = searchParams.get('from_date') || '';
   const toDate    = searchParams.get('to_date')   || '';
   const presetKey = searchParams.get('preset')    || '';
 
+  // Date-range filter for THIS view. URL params `from` and `to`
+  // override the month-derived range. Default = the full month the
+  // user originally drilled from. Lets the user widen ("show me all
+  // Sundry Debtors inflow for this whole quarter") or narrow ("only
+  // the last week of Jan") without leaving the page.
+  const monthFromIso = useMemo(() => {
+    if (!month) return '';
+    const [y, m] = month.split('-').map(Number);
+    return `${y}-${String(m).padStart(2, '0')}-01`;
+  }, [month]);
+  const monthToIso = useMemo(() => {
+    if (!month) return '';
+    const [y, m] = month.split('-').map(Number);
+    return dayjs(`${y}-${String(m).padStart(2, '0')}-01`).endOf('month').format('YYYY-MM-DD');
+  }, [month]);
+  const gFrom = searchParams.get('from') || monthFromIso;
+  const gTo   = searchParams.get('to')   || monthToIso;
+
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch]   = useState('');
+  const [colsVisible, setColsVisible] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(CFG_COLS_KEY) || 'null');
+      return saved && typeof saved === 'object' ? { ...CFG_DEFAULT_COLS, ...saved } : CFG_DEFAULT_COLS;
+    } catch { return CFG_DEFAULT_COLS; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(CFG_COLS_KEY, JSON.stringify(colsVisible)); } catch {}
+  }, [colsVisible]);
 
   useEffect(() => {
     if (!month || !subGroup || !direction) return;
     setLoading(true);
-    reportAPI.cashFlowGroup({ month, sub_group: subGroup, direction })
+    reportAPI.cashFlowGroup({
+      month,
+      sub_group: subGroup,
+      direction,
+      // Pass the date-range override only when the URL has explicit
+      // from/to (i.e., user changed the picker). Lets the server
+      // fall back to its month-derived default when we send the
+      // bare month — keeps the URL clean for the common case.
+      ...(searchParams.get('from') ? { from_date: gFrom } : {}),
+      ...(searchParams.get('to')   ? { to_date:   gTo   } : {}),
+    })
       .then((r) => setData(r.data))
       .catch((e) => message.error(e.response?.data?.error || 'Failed to load voucher list'))
       .finally(() => setLoading(false));
-  }, [month, subGroup, direction]);
+    // searchParams.toString() in deps so URL changes (date picker
+    // updates from/to) re-trigger the fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, subGroup, direction, gFrom, gTo]);
+
+  // Date-range picker handler — updates URL `from` / `to`. Empty
+  // values are dropped so picking "back to default month" cleans
+  // the URL.
+  const onPickRange = (vals) => {
+    const next = new URLSearchParams(searchParams);
+    if (vals?.[0] && vals?.[1]) {
+      next.set('from', vals[0].format('YYYY-MM-DD'));
+      next.set('to',   vals[1].format('YYYY-MM-DD'));
+    } else {
+      next.delete('from');
+      next.delete('to');
+    }
+    navigate(`/reports/cash-flow?${next.toString()}`);
+  };
 
   const goBack = useCallback(() => {
     const qs = new URLSearchParams({ view: 'month', month });
@@ -741,82 +860,195 @@ function CashFlowGroupView() {
   const monthLabel = data?.period?.month_label || _monthLabelFromKey(month) || '';
   const dirLabel   = direction === 'in' ? 'Inflow' : 'Outflow';
 
+  // Client-side search across the loaded set — same UX as Day Book's
+  // search box: matches voucher number, contra label, formatted date,
+  // and the raw amount. Case-insensitive.
+  const filteredRows = useMemo(() => {
+    const rows = data?.rows || [];
+    if (!search.trim()) return rows;
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) =>
+      String(r.entry_number || '').toLowerCase().includes(q) ||
+      String(r.party_label  || '').toLowerCase().includes(q) ||
+      String(r.contra_label || '').toLowerCase().includes(q) ||
+      dayjs(r.entry_date).format('DD/MM/YYYY').includes(q) ||
+      String(r.amount || '').includes(q)
+    );
+  }, [data, search]);
+
+  const filteredTotal = useMemo(() => {
+    return filteredRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  }, [filteredRows]);
+
+  // Direction-aware amount colour: green for inflow, danger for
+  // outflow — matches the colour vocabulary used elsewhere on the
+  // cash-flow pages (Nett Inflow / Outflow line + register's nett).
+  const amountColour = direction === 'in' ? 'var(--success)' : 'var(--danger)';
+
+  const COL_SPECS = useMemo(() => ({
+    sr_no:  { title: 'Sr', width: 56, align: 'center',
+              render: (_v, _r, idx) => (
+                <span style={{ color: 'var(--fg-tertiary)', fontFamily: 'Geist Mono, monospace' }}>
+                  {idx + 1}
+                </span>
+              ) },
+    date:   { title: 'Date', dataIndex: 'entry_date', width: 110,
+              render: (v) => dayjs(v).format('DD/MM/YYYY') },
+    type:   { title: 'Voucher Type', width: 130,
+              render: (_v, r) => {
+                const t = _voucherTypeFromNumber(r.entry_number);
+                if (t === '—') return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+                return <span className={`rpt-pill type-${_CF_TYPE_TONE[t] || 'neutral'}`}>{t}</span>;
+              } },
+    no:     { title: 'Voucher No', dataIndex: 'entry_number', width: 160,
+              render: (v) => <span className="rpt-bill-no">{v}</span> },
+    // Party = just the customer/supplier name(s), filtered server-
+    // side to is_party_ledger=true. Falls back to contra_label when
+    // a voucher has no party leg (rare — opening JV, cash-only sale
+    // posted directly to a non-party ledger, etc.) so the cell is
+    // never empty when there's a sensible alternative.
+    party:  { title: 'Party', dataIndex: 'party_label', width: 220,
+              render: (v, r) => {
+                const txt = v || r.contra_label;
+                return txt
+                  ? <span style={{ color: 'var(--fg-primary)' }}>{txt}</span>
+                  : <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+              } },
+    // Details = full contra-leg list (party + tax accounts + sales/
+    // purchase accounts). Useful for voucher-level reconciliation;
+    // off by default so the table isn't a wall of noise.
+    details: { title: 'Details', dataIndex: 'contra_label',
+               render: (v) => v
+                 ? <span style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>{v}</span>
+                 : <span style={{ color: 'var(--fg-tertiary)' }}>—</span> },
+    amount: { title: 'Amount', dataIndex: 'amount', width: 150, align: 'right',
+              render: (v) => {
+                const n = Number(v) || 0;
+                if (n === 0) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+                return <span style={{ color: amountColour, fontWeight: 600 }}>{fmtAmt(n)}</span>;
+              } },
+  }), [amountColour]);
+
+  const columns = useMemo(() => {
+    return CFG_ALL_COLS.filter((c) => colsVisible[c.key]).map((c) => ({ key: c.key, ...COL_SPECS[c.key] }));
+  }, [colsVisible, COL_SPECS]);
+
+  // Bottom Total — colSpan-merge the leading non-aggregable columns
+  // into one wide cell holding "Total (N)", then drop the amount sum
+  // into the Amount column. Same pattern as Day Book / Sales Report.
+  const SUMMABLE_KEYS = useMemo(() => new Set(['amount']), []);
+  const firstAggIdx = useMemo(() => {
+    const idx = columns.findIndex((c) => SUMMABLE_KEYS.has(c.key));
+    return idx === -1 ? columns.length : idx;
+  }, [columns, SUMMABLE_KEYS]);
+
+  const summaryCells = (col, idx) => {
+    if (idx === 0) return filteredRows.length > 0 ? `Total (${filteredRows.length})` : null;
+    if (idx > 0 && idx < firstAggIdx) return null;
+    if (col.key === 'amount') return (
+      <span style={{ color: amountColour, fontWeight: 700 }}>{fmtAmt(filteredTotal)}</span>
+    );
+    return null;
+  };
+  const summaryColSpan = (col, idx) => {
+    if (idx === 0) return Math.max(1, firstAggIdx);
+    if (idx > 0 && idx < firstAggIdx) return 0;
+    return 1;
+  };
+
+  const customizePopoverContent = (
+    <div style={{ width: 280 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
+        Columns
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+        {CFG_ALL_COLS.map((c) => (
+          <Checkbox key={c.key} checked={!!colsVisible[c.key]}
+            onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}>
+            {c.label}
+          </Checkbox>
+        ))}
+      </div>
+    </div>
+  );
+
+  const handleExport = () => {
+    // Excel export always includes BOTH the Party and Details columns
+    // even if they're toggled off in the on-screen view — the export
+    // is the canonical record, and it costs nothing to include both
+    // for downstream reconciliation.
+    const head = ['Sr', 'Date', 'Voucher Type', 'Voucher No', 'Party', 'Details', 'Amount'];
+    const csv = [head.join(',')]
+      .concat(filteredRows.map((r, i) => [
+        i + 1,
+        dayjs(r.entry_date).format('DD/MM/YYYY'),
+        _voucherTypeFromNumber(r.entry_number),
+        r.entry_number,
+        `"${(r.party_label  || '').replace(/"/g, '""')}"`,
+        `"${(r.contra_label || '').replace(/"/g, '""')}"`,
+        Number(r.amount || 0).toFixed(2),
+      ].join(',')))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cash-flow_${(monthLabel || month).replace(/\s+/g, '-')}_${subGroup.replace(/\s+/g, '-')}_${direction}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="cf-page">
-      <div className="cf-hd">
-        <div className="cf-title">
+    <div className="report-editorial" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="rpt-page-hd" style={{ alignItems: 'center' }}>
+        <div className="rpt-title">
           <button className="cf-back" onClick={goBack} title="Back">
             <ArrowLeftOutlined /> {monthLabel} {dirLabel}
           </button>
           <h1>{subGroup}</h1>
-          <div className="cf-sub">
-            Cash Flow · {monthLabel} · {subGroup} · {dirLabel}
-          </div>
         </div>
-        <div className="cf-actions">
-          <button className="cf-btn cf-btn-icon" onClick={() => window.print()} title="Print">
-            <PrinterOutlined />
-          </button>
+        <div className="rpt-hd-ctrl">
+          {/* Date-range filter — defaults to the original drilled
+              month, but the user can widen ("show me the whole
+              quarter") or narrow ("just last week") without leaving
+              this view. Bottom Total + reconciliation auto-update. */}
+          <DatePicker.RangePicker
+            className="rpt-date"
+            format="DD/MM/YYYY"
+            allowClear={false}
+            value={[gFrom ? dayjs(gFrom) : null, gTo ? dayjs(gTo) : null]}
+            onChange={onPickRange}
+          />
+          <Popover content={customizePopoverContent} title="Customize" trigger="click" placement="bottomRight">
+            <Button icon={<SettingOutlined />} className="rpt-btn">Customize</Button>
+          </Popover>
+          <Button icon={<DownloadOutlined />} onClick={handleExport} className="rpt-btn">Excel</Button>
+          <Button icon={<PrinterOutlined />}  onClick={() => window.print()} className="rpt-btn">Print</Button>
         </div>
       </div>
 
-      <div className="cf-tablewrap">
-        <table className="cf-table cf-table-vouchers">
-          <colgroup>
-            <col style={{ width: 130 }} />
-            <col style={{ width: 200 }} />
-            <col />
-            <col style={{ width: 180 }} />
-          </colgroup>
-          <thead>
-            <tr className="cf-th-cols">
-              <th className="cf-th-particulars">Date</th>
-              <th className="cf-th-particulars">Voucher</th>
-              <th className="cf-th-particulars">Contra Ledger</th>
-              <th className="cf-th-num">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={4} className="cf-loading">Loading…</td></tr>
-            ) : !data || data.rows.length === 0 ? (
-              <tr><td colSpan={4} className="cf-empty">No vouchers in this group.</td></tr>
-            ) : data.rows.map((r) => (
-              <tr key={r.entry_number} className="cf-row">
-                <td className="cf-particulars">{dayjs(r.entry_date).format('D-MMM-YY')}</td>
-                <td className="cf-particulars">{r.entry_number}</td>
-                <td className="cf-particulars">{r.contra_label || <span className="cf-zero">—</span>}</td>
-                <td className="cf-num">{fmtAmt(r.amount)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="rpt-filter">
+        <Input
+          className="rpt-search"
+          prefix={<SearchOutlined />}
+          placeholder="Search voucher no, contra ledger, date, or amount…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          allowClear
+        />
       </div>
 
-      {data && (
-        <div className="cf-totalwrap">
-          <table className="cf-table cf-table-total">
-            <colgroup>
-              <col style={{ width: 130 }} />
-              <col style={{ width: 200 }} />
-              <col />
-              <col style={{ width: 180 }} />
-            </colgroup>
-            <tbody>
-              <tr className="cf-row-total">
-                <td>Total</td>
-                <td></td>
-                <td></td>
-                <td className="cf-num">{fmtAmt(data.total)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <div className="cf-fbar">
-        <span className="fkey"><kbd>Esc</kbd> Back</span>
-        <span className="grow"></span>
+      <div className="rpt-tbl-wrap">
+        <VirtualReportTable
+          columns={columns}
+          rows={filteredRows}
+          totalCount={filteredRows.length}
+          loading={loading}
+          rowKey="entry_number"
+          scroll={{ x: 900 }}
+          summaryCells={summaryCells}
+          summaryColSpan={summaryColSpan}
+        />
       </div>
     </div>
   );

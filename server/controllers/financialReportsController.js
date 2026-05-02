@@ -991,8 +991,18 @@ exports.cashFlowGroup = async (req, res) => {
       return res.status(400).json({ error: 'direction must be "in" or "out"' });
     }
     const [y, m] = monthRaw.split('-').map(Number);
-    const fromDate = `${y}-${String(m).padStart(2, '0')}-01`;
-    const toDate   = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    // Date range = month-derived by default; the client can override
+    // with explicit from_date / to_date params to widen / narrow the
+    // window. Used by the third view's date-range picker so the user
+    // can ask "show me everything between these two dates that
+    // contributed to this sub_group's cash flow", not just the month
+    // they originally drilled from.
+    const monthFrom = `${y}-${String(m).padStart(2, '0')}-01`;
+    const monthTo   = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const fromRaw = String(req.query.from_date || '').slice(0, 10);
+    const toRaw   = String(req.query.to_date   || '').slice(0, 10);
+    const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(fromRaw) ? fromRaw : monthFrom;
+    const toDate   = /^\d{4}-\d{2}-\d{2}$/.test(toRaw)   ? toRaw   : monthTo;
 
     const cashIds = await _resolveCashLedgerIds();
     if (cashIds.length === 0) {
@@ -1052,14 +1062,38 @@ exports.cashFlowGroup = async (req, res) => {
             AND le.entry_number IN (SELECT entry_number FROM cash_legs)
             AND ${liveEntriesWhereSql('le', false, false)}
           GROUP BY le.entry_number
+       ),
+       /* party_names = subset of contra_names restricted to ledgers
+          flagged as parties (customers / suppliers). Lets the client
+          show a clean "Party" column with just the customer/supplier
+          name, while keeping the full contra-leg list available as a
+          separate "Details" column the user can opt into. The two
+          columns answer different questions:
+            - Party   → "who paid us / who we paid"  (the natural
+                        first answer for an operator scanning cash)
+            - Details → "what other accounts moved with this voucher"
+                        (CGST Output, Sales Account, etc. — useful
+                        when reconciling a single voucher's posting). */
+       party_names AS (
+         SELECT le.entry_number,
+                string_agg(DISTINCT la.ledger_name, ', ' ORDER BY la.ledger_name) AS party_label
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE le.ledger_id NOT IN (:ids)
+            AND la.is_party_ledger = true
+            AND le.entry_number IN (SELECT entry_number FROM cash_legs)
+            AND ${liveEntriesWhereSql('le', false, false)}
+          GROUP BY le.entry_number
        )
        SELECT cl.entry_number,
               cl.entry_date::text AS entry_date,
               ${direction === 'in' ? 'cl.debit_amount' : 'cl.credit_amount'}::float AS amount,
-              COALESCE(cn.contra_label, '') AS contra_label
+              COALESCE(cn.contra_label, '') AS contra_label,
+              COALESCE(pn.party_label,  '') AS party_label
          FROM cash_legs cl
          JOIN contra_first cf ON cf.entry_number = cl.entry_number
          LEFT JOIN contra_names cn ON cn.entry_number = cl.entry_number
+         LEFT JOIN party_names  pn ON pn.entry_number = cl.entry_number
         WHERE COALESCE(cf.sub_group, '(Uncategorised)') = :sub_group
         ORDER BY cl.entry_date, cl.entry_number`,
       {
@@ -1075,6 +1109,10 @@ exports.cashFlowGroup = async (req, res) => {
       return {
         entry_date:   r.entry_date,
         entry_number: r.entry_number,
+        // party_label = customers/suppliers only; contra_label = full
+        // contra-leg list including tax + sales/purchase accounts.
+        // Client picks which to show via the Customize popover.
+        party_label:  r.party_label,
         contra_label: r.contra_label,
         amount,
       };
