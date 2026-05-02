@@ -16,15 +16,25 @@
   gap: 12px;
 }
 
-/* Header — title left, action buttons right. Mirrors the Sales Report
-   / Trial Balance chrome so the report family reads consistently. */
+/* Header — three zones on one row: [title] [period control] [actions].
+   Period sits beside the actions because they're the same mental
+   cluster ("scope + chrome of the report"). The .rpt-period and
+   .rpt-date classes themselves come from global.css and match Sales
+   Report / Day Book / Trial Balance pixel-for-pixel. */
 .psp-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
-.psp-titles { display: flex; align-items: center; gap: 4px; }
+.psp-header-period {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;     /* push period+actions to the right of title */
+}
+.psp-titles { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .psp-back   { color: var(--fg-secondary); }
 .psp-title  {
   margin: 0;

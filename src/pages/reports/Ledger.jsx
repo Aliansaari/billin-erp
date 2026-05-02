@@ -248,6 +248,29 @@ export default function Ledger() {
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} className="psp-back" />
           <h1 className="psp-title">Ledger</h1>
         </div>
+        <div className="psp-header-period">
+          <div className="rpt-period">
+            {presets(fyStart, fyEnd).map(p => (
+              <button
+                key={p.v}
+                className={activePreset === p.v ? 'on' : ''}
+                onClick={() => setPreset(p)}
+              >
+                {p.l}
+              </button>
+            ))}
+          </div>
+          <RangePicker
+            className="rpt-date"
+            value={[from ? dayjs(from) : null, to ? dayjs(to) : null]}
+            onChange={(range) => {
+              setFrom(range?.[0]?.format('YYYY-MM-DD') || null);
+              setTo  (range?.[1]?.format('YYYY-MM-DD') || null);
+            }}
+            format="DD/MM/YYYY"
+            allowClear={false}
+          />
+        </div>
         <div className="psp-actions">
           <Tooltip title="Refresh">
             <Button icon={<ReloadOutlined />} onClick={() => ledgerId && setLedgerId(ledgerId)} disabled={!ledgerId} />
@@ -279,29 +302,6 @@ export default function Ledger() {
           />
         </div>
 
-        <div className="psp-controls">
-          <div className="rpt-period">
-            {presets(fyStart, fyEnd).map(p => (
-              <button
-                key={p.v}
-                className={activePreset === p.v ? 'on' : ''}
-                onClick={() => setPreset(p)}
-              >
-                {p.l}
-              </button>
-            ))}
-          </div>
-          <RangePicker
-            className="rpt-date"
-            value={[from ? dayjs(from) : null, to ? dayjs(to) : null]}
-            onChange={(range) => {
-              setFrom(range?.[0]?.format('YYYY-MM-DD') || null);
-              setTo  (range?.[1]?.format('YYYY-MM-DD') || null);
-            }}
-            format="DD/MM/YYYY"
-            allowClear={false}
-          />
-        </div>
 
         {/* Voucher-type chips. COA Ledger surfaces all eight
             categories; not all will be present for any single

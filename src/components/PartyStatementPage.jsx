@@ -323,7 +323,12 @@ export default function PartyStatementPage({
 
   return (
     <div className="psp-page">
-      {/* ── Header strip ─────────────────────────────────────────── */}
+      {/* ── Header strip ─────────────────────────────────────────────
+          Three zones on one row: title, period control, action buttons.
+          Period sits next to the actions because the operator already
+          treats date-range as part of "what's the report scope" — same
+          mental cluster as Refresh / Excel / Print. The shared rpt-*
+          classes match Sales Report / Day Book / Trial Balance. */}
       <div className="psp-header">
         <div className="psp-titles">
           <Button
@@ -333,27 +338,7 @@ export default function PartyStatementPage({
           />
           <h1 className="psp-title">{title}</h1>
         </div>
-        <div className="psp-actions">
-          <Tooltip title="Refresh">
-            <Button icon={<ReloadOutlined />} onClick={() => party && setParty({ ...party })} disabled={!party} />
-          </Tooltip>
-          <Button icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length}>Excel</Button>
-          <Button icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!statement}>PDF</Button>
-          {showWhatsApp && (
-            <Button icon={<WhatsAppOutlined />} onClick={onWhatsApp} disabled={!party}>WhatsApp</Button>
-          )}
-          <Button type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
-        </div>
-      </div>
-
-      {/* ── Picker + period + voucher-type chips ─────────────────────
-          Same chrome shape as Sales Report / Day Book — uses the
-          shared rpt-period / rpt-date classes from global.css so the
-          report family looks like one app, not five. */}
-      <div className="psp-sticky">
-        <PartyPicker partyType={partyType} value={party} onChange={setParty} />
-
-        <div className="psp-controls">
+        <div className="psp-header-period">
           <div className="rpt-period">
             {presets(fyStart, fyEnd).map(p => (
               <button
@@ -376,6 +361,24 @@ export default function PartyStatementPage({
             allowClear={false}
           />
         </div>
+        <div className="psp-actions">
+          <Tooltip title="Refresh">
+            <Button icon={<ReloadOutlined />} onClick={() => party && setParty({ ...party })} disabled={!party} />
+          </Tooltip>
+          <Button icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length}>Excel</Button>
+          <Button icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!statement}>PDF</Button>
+          {showWhatsApp && (
+            <Button icon={<WhatsAppOutlined />} onClick={onWhatsApp} disabled={!party}>WhatsApp</Button>
+          )}
+          <Button type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
+        </div>
+      </div>
+
+      {/* ── Picker + voucher-type chips ──────────────────────────────
+          Period control moved up into the header; this row carries the
+          PartyPicker bar and the voucher-type chip strip below it. */}
+      <div className="psp-sticky">
+        <PartyPicker partyType={partyType} value={party} onChange={setParty} />
 
         {/* Voucher-type chip filter. Click a chip to scope the
             statement to that category; click again to release. The
