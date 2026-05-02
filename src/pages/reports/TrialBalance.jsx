@@ -303,12 +303,22 @@ export default function TrialBalance() {
     return { dr, cr, count: groupLedgers.length };
   }, [groupLedgers]);
 
-  // ── Ledger drill — re-uses the existing PartyLedger view ──
+  // ── Ledger drill ──
+  // Party rows → Customer / Supplier Statement (the page picks the
+  // flavour from party.party_type once it loads). COA rows (Sales A/c,
+  // Bank, Office Rent, etc.) → /reports/ledger directly. Both
+  // destinations share the same <LedgerStatement> renderer, so the
+  // visual experience is identical aside from the page chrome.
   const openLedger = (row) => {
     if (row.is_party_ledger && row.party_id) {
+      // Trial Balance doesn't carry party_type on the row, so we
+      // route through the legacy redirect. It looks up the type once
+      // and bounces — adds 100ms on first hit, free thereafter.
+      // Updating the TB SQL to surface party_type is a TODO that
+      // would skip the hop entirely.
       navigate(`/reports/party-ledger?party_id=${row.party_id}&from=${from}&to=${to}`);
     } else {
-      navigate(`/reports/party-ledger?ledger_id=${row.ledger_id}&from=${from}&to=${to}`);
+      navigate(`/reports/ledger?id=${row.ledger_id}&from=${from}&to=${to}`);
     }
   };
 

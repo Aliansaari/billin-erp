@@ -54,6 +54,85 @@
   font-weight: 500;
 }
 .bo-as-of b { color: var(--fg-primary); font-weight: 600; }
+
+/* ── View toggle — Bill Wise | Customers/Suppliers Wise ──────────
+ *
+ * AntD's <Segmented> is intentionally flat. Re-skin it to feel like a
+ * proper view-mode switch on the editorial report family:
+ *
+ *   • Track:  bg-panel inset on a hairline border, 10px radius — reads
+ *             as a single capsule, not three boxes glued together.
+ *   • Thumb:  subtle gradient + warm shadow so the active option lifts
+ *             off the track. Slides smoothly on toggle (AntD's own
+ *             animation, just with our colours).
+ *   • Active label: accent color, slightly heavier weight; icon stays
+ *             on the same baseline as the text.
+ *   • Hover:  soft warmth on inactive options, hints at clickability
+ *             without competing with the active state.
+ */
+.bo-view-toggle.ant-segmented {
+  margin-left: 10px;
+  align-self: center;
+  background: var(--bg-panel) !important;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-subtle) 60%, transparent);
+  /* Pin the control's footprint so the header is rock-stable when
+     the user toggles views — no shrink/stretch as the slide
+     animation runs. */
+  height: 38px;
+  flex-shrink: 0;
+}
+
+/* Per-option label container */
+.bo-view-toggle.ant-segmented .ant-segmented-item {
+  border-radius: 7px;
+  /* Transparent border on EVERY item so the bounding box stays the
+     same width whether the item is selected (gets a coloured border
+     via box-shadow) or not. Without this, AntD's selected state adds
+     a 1px border which subtly shrinks the unselected items as the
+     thumb slides — that's the visible "shimmer" the user noticed. */
+  border: 1px solid transparent;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.bo-view-toggle.ant-segmented .ant-segmented-item-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  line-height: 1.5;
+}
+.bo-view-toggle.ant-segmented .ant-segmented-item:hover:not(.ant-segmented-item-selected) {
+  color: var(--fg-primary);
+  background: color-mix(in srgb, var(--bg-muted) 60%, transparent);
+}
+.bo-view-toggle.ant-segmented .ant-segmented-item-icon { color: inherit; font-size: 13px; }
+
+/* Active item — accent label colour. The lift/border effect comes
+   from box-shadow only (zero layout impact). */
+.bo-view-toggle.ant-segmented .ant-segmented-item-selected .ant-segmented-item-label {
+  color: var(--accent, #B1472F);
+  font-weight: 600;
+}
+
+/* Selected pill + moving thumb — gradient + accent shadow ring so it
+   reads as a lifted token. We use box-shadow's spread instead of a
+   real border to avoid affecting the bounding-box width. */
+.bo-view-toggle.ant-segmented .ant-segmented-item-selected,
+.bo-view-toggle.ant-segmented .ant-segmented-thumb {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent-bg, #f5e9e3) 60%, var(--bg-panel)) 0%,
+    var(--bg-panel) 100%) !important;
+  border-radius: 7px !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent, #B1472F) 22%, transparent),
+    0 1px 2px color-mix(in srgb, var(--accent, #B1472F) 18%, transparent);
+}
+
 .bo-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 /* Header buttons — match .sr-btn / .ss-btn pattern */
@@ -304,6 +383,21 @@
   flex-direction: column;
   padding: 12px 24px 12px;
   background: var(--bg-app);
+  position: relative;
+}
+
+/* View pane — both Bill Wise and Customers/Suppliers Wise stay
+   permanently mounted; the toggle just flips which one is visible.
+   No remount → no refetch → no spinner blink on toggle (Tally-solid
+   view-mode switch). Each pane fills the wrapper while active. */
+.bo-view-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bo-view-pane.bo-view-hidden {
+  display: none;
 }
 .bo-tablewrap .ant-table-wrapper {
   background: var(--bg-panel);

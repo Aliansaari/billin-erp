@@ -327,13 +327,27 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
+  /* Reserve scrollbar gutter so the body table is the same width
+     whether the scrollbar is visible or not — keeps columns aligned
+     with the pinned-bottom totals table below (no scrollbar there). */
+  scrollbar-gutter: stable;
+}
+
+/* Body + footer tables share the same colgroup; table-layout: fixed
+   makes them honour the col widths so columns line up cell-for-cell
+   between the two tables. Without fixed layout, the body table
+   would size columns to content while the footer wouldn't and they'd
+   visibly drift. */
+.ar-tbl--body,
+.ar-tbl--footer {
+  table-layout: fixed;
 }
 
 .ar-tbl {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--fg-primary);
   min-width: 1100px;
@@ -344,12 +358,12 @@
   top: 0;
   z-index: 2;
   background: var(--bg-panel);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--fg-tertiary);
-  padding: 11px 14px;
+  padding: 7px 14px;
   text-align: right;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
@@ -359,13 +373,14 @@
 .ar-tbl thead th:nth-child(3) { text-align: left; }
 
 .ar-tbl tbody td {
-  padding: 12px 14px;
+  padding: 7px 14px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
   text-align: right;
   white-space: nowrap;
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 500;
+  line-height: 1.35;
 }
 .ar-tbl tbody td:first-child,
 .ar-tbl tbody td:nth-child(2),
@@ -375,6 +390,16 @@
 .ar-tbl tbody tr.party-row:hover { background: var(--bg-hover, rgba(0,0,0,0.02)); }
 .ar-tbl tbody tr.party-row.expanded { background: var(--bg-hover, rgba(0,0,0,0.03)); }
 .ar-tbl tbody tr.party-row.expanded td { border-bottom-color: transparent; }
+
+/* Keyboard-active row — accent left rule + warmer surface so the
+   cursor is unmistakable while moving with arrow keys. Stronger
+   contrast than hover so it doesn't blur into mouse-hover state. */
+.ar-tbl tbody tr.ar-nav-row.is-active td:first-child {
+  box-shadow: inset 3px 0 0 0 var(--accent, #B1472F);
+}
+.ar-tbl tbody tr.ar-nav-row.is-active td {
+  background: color-mix(in srgb, var(--accent-bg, #f5e9e3) 55%, transparent) !important;
+}
 
 .ar-party-name {
   display: flex;
@@ -395,7 +420,7 @@
 
 .ar-mobile-chip {
   font-family: 'Source Sans 3', sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--fg-secondary);
 }
@@ -419,24 +444,25 @@
  * them from the party-level rows above. */
 .ar-bill-row td {
   background: rgba(0,0,0,0.015);
-  padding: 9px 14px;
-  font-size: 13px;
+  padding: 5px 14px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--fg-secondary);
   border-bottom: 1px solid var(--border-subtle);
   font-variant-numeric: tabular-nums;
+  line-height: 1.35;
 }
 [data-theme^="modern-dark"] .ar-bill-row td,
 [data-theme="classic-dark"] .ar-bill-row td {
   background: rgba(255,255,255,0.02);
 }
 .ar-bill-row td:first-child { padding-left: 38px; }
-.ar-bill-row-meta { color: var(--fg-tertiary); font-size: 12.5px; font-weight: 500; }
+.ar-bill-row-meta { color: var(--fg-tertiary); font-size: 11.5px; font-weight: 500; }
 .ar-bill-no {
   font-family: 'Source Sans 3', sans-serif;
   color: var(--fg-primary);
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: 12.5px;
 }
 
 /* Row-number column in bill-wise view — narrow, center-aligned, muted so
@@ -451,25 +477,32 @@
   padding-right: 10px;
 }
 
-/* Sticky total row at the bottom of the table — applies to any .ar-tbl
- * that has a .ar-bill-total-row inside its tfoot (currently both
- * bill-wise and party-wise views use this pattern). Sits above the
- * scroll container so the numbers stay visible as the user scrolls. */
-.ar-tbl tfoot .ar-bill-total-row td {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+/* Pinned-bottom totals — separate <table> sibling outside .ar-scroll
+   so the row is always flush against .ar-wrap's bottom regardless of
+   how many body rows are loaded. Sticky-tfoot inside the scrolling
+   table doesn't give us this for short result sets (the row sits at
+   row 5 with half a screen of dead space below). */
+.ar-tbl--footer {
+  flex: 0 0 auto;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--bg-panel);
-  font-weight: 600;
-  padding: 10px 14px;
   border-top: 2px solid var(--border);
-  border-bottom: none;
-  text-align: right;
-  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+.ar-tbl--footer td {
+  background: var(--bg-panel);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: none;
+}
 /* Left-anchor the "N parties/bills" label cell */
-.ar-tbl tfoot .ar-bill-total-row td:first-child { text-align: right; }
+.ar-tbl--footer .ar-bill-total-row td:first-child { text-align: right; }
 
 /* ─── footer totals ──────────────────────────────────────────────── */
 
@@ -492,28 +525,20 @@
    VIEW BAR — dedicated row under KPIs for view tabs + sort
    ════════════════════════════════════════════════════════════════ */
 
-.ar-viewbar {
-  flex-shrink: 0;
-  padding: 10px 28px 6px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  background: var(--bg-app);
+/* Inline view-tabs — same .ar-tabs base as before, but sized down a
+   notch so they sit cleanly inside the header next to the .ar-btn
+   buttons. Match button height (~32px) so the row baseline doesn't
+   wobble when the toggle re-renders. */
+.ar-tabs.ar-tabs--inline {
+  padding: 2px;
 }
-
-/* Tabs in the view bar render a little larger than the segmented toggle in
- * the header so they read as primary navigation for the page. */
-.ar-viewbar .ar-tabs {
-  padding: 3px;
+.ar-tabs.ar-tabs--inline .ar-tab {
+  padding: 5px 11px;
+  font-size: 12px;
 }
-.ar-viewbar .ar-tab {
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-}
-.ar-viewbar .ar-tab .anticon {
-  margin-right: 6px;
-  font-size: 13px;
+.ar-tabs.ar-tabs--inline .ar-tab .anticon {
+  margin-right: 5px;
+  font-size: 12px;
 }
 
 /* ════════════════════════════════════════════════════════════════

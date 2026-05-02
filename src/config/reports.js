@@ -69,6 +69,31 @@ export const REPORTS = [
     aliases: ['payable', 'bp', 'unpaid purchases', 'creditors bills'],
     isNew: true,
   },
+  // Party-level siblings — same data and the same page component, but
+  // landing on the customer / supplier rollup view by default. Either
+  // can flip to bill-level via the segmented pill in the header. Two
+  // entries instead of "let users find the toggle" because the
+  // accountant searches "outstanding by customer" as one phrase.
+  {
+    id: 'customer_outstanding',
+    name: 'Customer Outstanding',
+    subtitle: 'Outstanding by customer · expand for bill detail',
+    category: 'outstanding',
+    route: '/reports/customer-outstanding',
+    perm: 'reports.view',
+    aliases: ['customer outstanding', 'debtors', 'outstanding by customer'],
+    isNew: true,
+  },
+  {
+    id: 'supplier_outstanding',
+    name: 'Supplier Outstanding',
+    subtitle: 'Outstanding by supplier · expand for bill detail',
+    category: 'outstanding',
+    route: '/reports/supplier-outstanding',
+    perm: 'reports.view',
+    aliases: ['supplier outstanding', 'creditors', 'outstanding by supplier'],
+    isNew: true,
+  },
 
   // ── Periodic Summary (R10) ───────────────────────────────────────
   // Tally-style monthly registers. Each row = month, columns = Dr / Cr
@@ -264,22 +289,70 @@ export const REPORTS = [
   },
 
   // ── Parties ──────────────────────────────────────────────────────
+  // Customer / Supplier Statement replaced the old combined Party
+  // Ledger. The split mirrors the workflow split: Customer Statement
+  // is sent OUT to a customer (collection follow-up, year-end recon);
+  // Supplier Statement is reconciled IN against a statement the
+  // supplier sent us. Different print headers, different defaults,
+  // different mental model. The old route still resolves via a
+  // redirect — see App.jsx <PartyLedgerRedirect>.
   {
-    id: 'party_ledger',
-    name: 'Party Ledger',
-    subtitle: 'Per-customer / supplier statement',
+    id: 'customer_statement',
+    name: 'Customer Statement',
+    subtitle: 'Per-customer account-of-record · sales / receipts / returns',
     category: 'parties',
-    route: '/reports/party-ledger',
+    route: '/reports/customer-statement',
     perm: 'accounts.view',
+    aliases: ['party ledger', 'customer ledger', 'customer account', 'debtor statement'],
+    isNew: true,
   },
   {
-    id: 'aging_report',
-    name: 'Aging Report',
-    subtitle: 'Party-level bucketed outstanding · 0-30/30-60/60-90/90+',
+    id: 'supplier_statement',
+    name: 'Supplier Statement',
+    subtitle: 'Per-supplier account-of-record · purchases / payments / returns',
+    category: 'parties',
+    route: '/reports/supplier-statement',
+    perm: 'accounts.view',
+    aliases: ['supplier ledger', 'creditor statement', 'vendor statement'],
+    isNew: true,
+  },
+  // Chart-of-accounts ledger drill — Sales A/c, Bank, Office Rent,
+  // every JV-targetable ledger. Listed under Financial because it's
+  // an internal accountant tool, not a customer-facing document.
+  {
+    id: 'ledger',
+    name: 'Ledger Statement',
+    subtitle: 'Voucher-level statement of any chart-of-accounts ledger',
+    category: 'financial',
+    route: '/reports/ledger',
+    perm: 'accounts.view',
+    aliases: ['ledger', 'general ledger', 'chart of accounts ledger', 'gl', 'account ledger'],
+    isNew: true,
+  },
+  // Bucketed aging — split into customer / supplier flavors so the
+  // hub search "payables aging" lands directly on the supplier side.
+  // Same shared <AgingReport> engine; the menu entry just fixes the
+  // partyType. Legacy /reports/aging route still works (lands on
+  // Receivables) so old bookmarks don't 404.
+  {
+    id: 'receivables_aging',
+    name: 'Receivables Aging',
+    subtitle: 'Customer-level bucketed outstanding · 0-30 / 30-60 / 60-90 / 90+',
     category: 'outstanding',
-    route: '/reports/aging',
+    route: '/reports/receivables-aging',
     perm: 'reports.view',
-    aliases: ['outstanding', 'receivables aging', 'payables aging'],
+    aliases: ['aging', 'receivables', 'customer aging', 'debtors aging'],
+    isNew: true,
+  },
+  {
+    id: 'payables_aging',
+    name: 'Payables Aging',
+    subtitle: 'Supplier-level bucketed outstanding · 0-30 / 30-60 / 60-90 / 90+',
+    category: 'outstanding',
+    route: '/reports/payables-aging',
+    perm: 'reports.view',
+    aliases: ['aging', 'payables', 'supplier aging', 'creditors aging'],
+    isNew: true,
   },
 
   // ── Tax / GST ────────────────────────────────────────────────────

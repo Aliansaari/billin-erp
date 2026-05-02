@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './store/authStore';
+import { partyAPI } from './api';
 import { refreshFinancialYear } from './hooks/useFinancialYear';
 import { useGlobalShortcuts, SHORTCUTS_LIST } from './hooks/useKeyboardShortcuts';
 import AppLayout from './components/Layout/AppLayout';
@@ -33,11 +34,17 @@ import PaymentList from './pages/payments/PaymentList';
 import SalesReport from './pages/reports/SalesReport';
 import PurchaseReport from './pages/reports/PurchaseReport';
 import DayBook from './pages/reports/DayBook';
-import PartyLedger from './pages/reports/PartyLedger';
+import CustomerStatement from './pages/reports/CustomerStatement';
+import SupplierStatement from './pages/reports/SupplierStatement';
+import Ledger from './pages/reports/Ledger';
 import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
+import ReceivablesAging from './pages/reports/ReceivablesAging';
+import PayablesAging from './pages/reports/PayablesAging';
 import BillsReceivable from './pages/reports/BillsReceivable';
 import BillsPayable from './pages/reports/BillsPayable';
+import CustomerOutstanding from './pages/reports/CustomerOutstanding';
+import SupplierOutstanding from './pages/reports/SupplierOutstanding';
 import MonthlySalesRegister    from './pages/reports/MonthlySalesSummary';
 import MonthlyPurchaseRegister from './pages/reports/MonthlyPurchaseSummary';
 import MonthlyPaymentRegister  from './pages/reports/MonthlyPaymentRegister';
@@ -114,6 +121,80 @@ function ShortcutsOverlay({ visible, onClose }) {
       </div>
     </div>
   );
+}
+
+// Legacy /reports/party-ledger redirect. The page was split into
+// Customer Statement / Supplier Statement; this component resolves the
+// destination so old bookmarks AND existing in-app drills land on the
+// correct flavor.
+//
+// Param conventions seen in the wild (all preserved):
+//   ?id=<party_id>        — what the new pages emit
+//   ?party_id=<party_id>  — what BillsOutstanding / TrialBalance emit
+//   ?ledger_id=<id>       — what TrialBalance emits for COA-side rows
+//                            (Sales A/c, Bank, etc.) → goes to /reports/ledger
+//   ?from=&to=            — preserved through the redirect either way
+//
+// Empty querystring → default to Customer Statement (more common).
+// Removing the route entirely would 404 every printed/emailed link
+// and every drill on Aging / BillsOutstanding / TrialBalance, so the
+// redirect stays for the long haul.
+function PartyLedgerRedirect() {
+  const [search] = useSearchParamsHack();
+  const partyId  = search.get('id') || search.get('party_id');
+  const ledgerId = search.get('ledger_id');
+  const passthrough = (() => {
+    const qs = new URLSearchParams();
+    if (search.get('from')) qs.set('from', search.get('from'));
+    if (search.get('to'))   qs.set('to',   search.get('to'));
+    return qs.toString();
+  })();
+  const [target, setTarget] = useState(null);
+  useEffect(() => {
+    // COA-side drill (TrialBalance row that's NOT a party). Bypass the
+    // party API; go straight to /reports/ledger with the ledger_id.
+    if (ledgerId) {
+      const qs = new URLSearchParams(passthrough);
+      qs.set('id', ledgerId);
+      setTarget(`/reports/ledger?${qs.toString()}`);
+      return;
+    }
+    // No identity at all → blank Customer Statement.
+    if (!partyId) {
+      setTarget('/reports/customer-statement' + (passthrough ? `?${passthrough}` : ''));
+      return;
+    }
+    // Party id → fetch type → bounce. partyAPI is already in the
+    // main bundle (used widely), so a static import here is the
+    // cheapest path; a dynamic import would just confuse the bundler
+    // without saving any bytes.
+    partyAPI.getById(partyId)
+      .then(res => {
+        const p = res.data?.data || res.data;
+        const route = p?.party_type === 'Supplier'
+          ? '/reports/supplier-statement'
+          : '/reports/customer-statement';
+        const qs = new URLSearchParams(passthrough);
+        qs.set('id', String(partyId));
+        setTarget(`${route}?${qs.toString()}`);
+      })
+      .catch(() => {
+        // Unknown party — land on Customer Statement so the picker
+        // is at least visible. Don't dead-end on an error.
+        setTarget('/reports/customer-statement');
+      });
+  }, [partyId, ledgerId, passthrough]);
+  if (!target) return null;          // brief blank while resolving
+  return <Navigate to={target} replace />;
+}
+// Tiny shim so the redirect component can read the URL search params
+// without dragging react-router-dom's hook into App.jsx's top-level
+// imports list (which already pulls Routes/Route/Navigate). Reading
+// window.location.search is fine here — the component runs once on
+// mount, doesn't subscribe to changes.
+function useSearchParamsHack() {
+  const [params] = useState(() => new URLSearchParams(window.location.search));
+  return [params];
 }
 
 export default function App() {
@@ -200,11 +281,28 @@ export default function App() {
           {/* /reports/stock removed — Stock Report lives at /stock-report
               (inventory menu). Old links rewired in BalanceSheet + the
               reports-hub config. */}
-          <Route path="reports/party-ledger"  element={<RoleRoute perm="accounts.view"><PartyLedger /></RoleRoute>} />
+          {/* Customer / Supplier Statement + COA Ledger replace the
+              old single Party Ledger page. The legacy /reports/party-
+              ledger route is preserved as a redirect so old bookmarks,
+              deep links from Aging / Outstanding, and any external
+              references (printed reports, emails) keep working. The
+              <PartyLedgerRedirect> component below resolves the party
+              type when ?id=<party_id> is present and bounces to the
+              correct flavor. */}
+          <Route path="reports/customer-statement" element={<RoleRoute perm="accounts.view"><CustomerStatement /></RoleRoute>} />
+          <Route path="reports/supplier-statement" element={<RoleRoute perm="accounts.view"><SupplierStatement /></RoleRoute>} />
+          <Route path="reports/ledger"             element={<RoleRoute perm="accounts.view"><Ledger /></RoleRoute>} />
+          <Route path="reports/party-ledger"       element={<RoleRoute perm="accounts.view"><PartyLedgerRedirect /></RoleRoute>} />
           <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
-          <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
-          <Route path="reports/bills-receivable" element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
-          <Route path="reports/bills-payable"    element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
+          <Route path="reports/receivables-aging" element={<RoleRoute perm="reports.view"><ReceivablesAging /></RoleRoute>} />
+          <Route path="reports/payables-aging"    element={<RoleRoute perm="reports.view"><PayablesAging /></RoleRoute>} />
+          {/* Legacy /reports/aging — keep alive for old bookmarks; lands
+              on Receivables (the more common workflow). */}
+          <Route path="reports/aging"             element={<RoleRoute perm="reports.view"><ReceivablesAging /></RoleRoute>} />
+          <Route path="reports/bills-receivable"    element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
+          <Route path="reports/bills-payable"       element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
+          <Route path="reports/customer-outstanding" element={<RoleRoute perm="reports.view"><CustomerOutstanding /></RoleRoute>} />
+          <Route path="reports/supplier-outstanding" element={<RoleRoute perm="reports.view"><SupplierOutstanding /></RoleRoute>} />
           <Route path="reports/monthly-sales"     element={<RoleRoute perm="reports.view"><MonthlySalesRegister /></RoleRoute>} />
           <Route path="reports/monthly-purchases" element={<RoleRoute perm="reports.view"><MonthlyPurchaseRegister /></RoleRoute>} />
           <Route path="reports/monthly-payments"  element={<RoleRoute perm="reports.view"><MonthlyPaymentRegister /></RoleRoute>} />

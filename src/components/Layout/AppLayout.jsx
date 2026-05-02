@@ -67,12 +67,19 @@ export default function AppLayout() {
     '/sales', '/purchases', '/payments',
     '/sales-returns', '/purchase-returns',
     '/reports/sales', '/reports/purchases',
-    '/reports/party-ledger', '/reports/profit-loss', '/reports/aging',
+    '/reports/party-ledger',                   // legacy redirect — keep listed so flash-of-padded-frame doesn't show during the bounce
+    '/reports/customer-statement',
+    '/reports/supplier-statement',
+    '/reports/ledger',
+    '/reports/profit-loss',
+    '/reports/aging', '/reports/receivables-aging', '/reports/payables-aging',
     '/reports/gstr1', '/reports/day-book',
     '/reports/bills-receivable', '/reports/bills-payable',
+    '/reports/customer-outstanding', '/reports/supplier-outstanding',
     '/reports/monthly-sales', '/reports/monthly-purchases',
     '/reports/monthly-payments', '/reports/monthly-receipts',
     '/reports/product-sales', '/reports/product-purchases',
+    '/reports/transfer-register',
     // Editorial financial reports — full-page shells with sticky
     // total bar + F-bar pinned to viewport bottom. Without these
     // listed, the wrapper paints them as a padded card and the

@@ -34,13 +34,16 @@
 //   Record Payment     → /payment/new with state.preselect
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Tag, Button, Input, DatePicker, Select, Tooltip, Popover, Checkbox, message, Dropdown, Space } from 'antd';
+import { Tag, Button, Input, DatePicker, Segmented, Select, Tooltip, Popover, Checkbox, message, Dropdown, Space } from 'antd';
 import {
   DownloadOutlined, SettingOutlined, SearchOutlined, ReloadOutlined,
   CloseOutlined, WarningOutlined, CheckCircleOutlined, EllipsisOutlined,
   PrinterOutlined, WhatsAppOutlined, FilterOutlined, GroupOutlined,
-  FilePdfOutlined,
+  FilePdfOutlined, UnorderedListOutlined, TeamOutlined,
+  ExpandAltOutlined, ShrinkOutlined,
 } from '@ant-design/icons';
+import PartyOutstandingView from './PartyOutstandingView';
+import './party-outstanding.css';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI, partyAPI } from '../../api';
@@ -131,7 +134,7 @@ const DEFAULT_COLS = {
 
 const COLS_KEY = 'erp_bills_outstanding_cols_v2';
 
-export default function BillsOutstanding({ side }) {
+export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   const cfg = SIDE[side];
   if (!cfg) throw new Error(`BillsOutstanding: unknown side "${side}"`);
   const navigate = useNavigate();
@@ -162,6 +165,47 @@ export default function BillsOutstanding({ side }) {
   const [dir, setDir]               = useState(() => initialFromUrl('dir') || 'desc');
   const [searchInput, setSearchInput] = useState(() => initialFromUrl('search'));
   const [search, setSearch]         = useState(() => initialFromUrl('search'));   // debounced
+
+  // ── View mode: bill vs party ────────────────────────────────────
+  // Two reports drive this:
+  //   • Bills Receivable / Bills Payable     → defaultView='bill'
+  //   • Customer Outstanding / Supplier ...  → defaultView='party'
+  // The segmented pill in the header lets the operator flip either
+  // way at any time. URL-shareable so a copy-paste of the link lands
+  // on the same view.
+  const [viewMode, setViewMode] = useState(() => {
+    const fromUrl = initialFromUrl('view');
+    return fromUrl === 'bill' || fromUrl === 'party' ? fromUrl : defaultView;
+  });
+
+  // Party-view expansion state lives here (not inside
+  // PartyOutstandingView) so the header's Expand-all / Collapse-all
+  // toggle can read + write it. Group count comes back via callback
+  // so the toggle's label flips between "Expand all" (when nothing
+  // or some are open) and "Collapse all" (when every party is open).
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [partyGroupCount, setPartyGroupCount] = useState(0);
+  const allExpanded = partyGroupCount > 0 && expanded.size >= partyGroupCount;
+  const anyExpanded = expanded.size > 0;
+  const toggleExpandAll = useCallback(() => {
+    // No groups loaded yet → no-op (button is disabled in that state).
+    if (!partyGroupCount) return;
+    if (allExpanded) {
+      setExpanded(new Set());
+    } else {
+      // Need a snapshot of every group's key. PartyOutstandingView
+      // groups by party_id (or 'cash:<name>' for system-cash-style
+      // entries). We don't have the rows here, but the simplest
+      // correct approach is "set a flag, child observes" — instead
+      // we expose this via a callback the child fills on render.
+      // Cheap workaround: have the child push group keys up too.
+      setExpandAllRequest(n => n + 1);     // bump counter, child reacts
+    }
+  }, [allExpanded, partyGroupCount]);
+  // Counter the child watches; on each tick it expands every loaded
+  // party. Clean-room state plumbing without lifting the entire
+  // group list out of the child.
+  const [expandAllRequest, setExpandAllRequest] = useState(0);
 
   // Debounce free-text search so we don't fire a request per keystroke.
   useEffect(() => {
@@ -222,8 +266,9 @@ export default function BillsOutstanding({ side }) {
     if (sort !== 'outstanding') next.sort = sort;
     if (dir !== 'desc')  next.dir = dir;
     if (search)          next.search = search;
+    if (viewMode !== defaultView) next.view = viewMode;
     setSearchParams(next, { replace: true });
-  }, [asOf, partyIds, buckets, cities, credit, minAmount, maxAmount, showZero, groupBy, sort, dir, search, setSearchParams]);
+  }, [asOf, partyIds, buckets, cities, credit, minAmount, maxAmount, showZero, groupBy, sort, dir, search, viewMode, defaultView, setSearchParams]);
 
   // ── Server filters object — passed to the virtualization hook ────
   const filters = useMemo(() => ({
@@ -268,13 +313,22 @@ export default function BillsOutstanding({ side }) {
   // Per-row drill actions.
   const drillBill         = useCallback((row) => navigate(cfg.billRoute(row.bill_id)), [navigate, cfg]);
   const drillPartyLedger  = useCallback((row) => {
+    // BillsOutstanding is a single page with two flavors (Receivable
+    // / Payable). The cfg block knows which side; we route directly
+    // to the matching statement page. The legacy /reports/party-
+    // ledger redirect would forward correctly too, but each redirect
+    // hop costs a party-API call to look up the type — pointless
+    // when we already know it.
     const qs = new URLSearchParams({
-      party_id: String(row.party_id),
+      id: String(row.party_id),
       from: dayjs(row.bill_date).format('YYYY-MM-DD'),
       to:   asOf,
     });
-    navigate(`/reports/party-ledger?${qs.toString()}`);
-  }, [navigate, asOf]);
+    const route = cfg.partyTypeQuery === 'Supplier'
+      ? '/reports/supplier-statement'
+      : '/reports/customer-statement';
+    navigate(`${route}?${qs.toString()}`);
+  }, [navigate, asOf, cfg]);
   const drillRecord       = useCallback((row) => {
     navigate(cfg.receiptRoute, {
       state: {
@@ -629,7 +683,24 @@ export default function BillsOutstanding({ side }) {
       <div className="bo-hd">
         <div className="bo-title">
           <h1>{cfg.title}</h1>
-          <span className="bo-as-of">as on {dayjs(asOf).format('D MMM YYYY')}</span>
+          {/* View toggle — bill-level (one row per bill) vs party-level
+              (one row per customer/supplier with chevron-expand to
+              the bills underneath). Bills Receivable / Payable land
+              on Bill view; Customer / Supplier Outstanding land on
+              Party view; either flips the other with one click. */}
+          <Segmented
+            size="small"
+            className="bo-view-toggle"
+            value={viewMode}
+            onChange={setViewMode}
+            options={[
+              { value: 'bill',  label: 'Bill Wise',                          icon: <UnorderedListOutlined /> },
+              // Plural — "Customers Wise" / "Suppliers Wise". Reads as
+              // "the report grouped by every customer/supplier", which
+              // is what the party view shows.
+              { value: 'party', label: `${cfg.partyLabel}s Wise`,            icon: <TeamOutlined /> },
+            ]}
+          />
         </div>
         <div className="bo-actions">
           <Select
@@ -643,8 +714,22 @@ export default function BillsOutstanding({ side }) {
               { value: 'city',   label: 'Group by City' },
             ]}
           />
-          <Popover content={colPickerContent} title="Columns" trigger="click" placement="bottomRight">
-            <Button size="small" icon={<SettingOutlined />}>Columns</Button>
+          {/* Expand-all / Collapse-all toggle — only meaningful in
+              party view (where every party can be expanded to show
+              its bills). Single button: label flips based on whether
+              every loaded party is currently expanded. Hidden in bill
+              view since there's nothing to expand there. */}
+          {viewMode === 'party' && partyGroupCount > 0 && (
+            <Button
+              size="small"
+              icon={allExpanded ? <ShrinkOutlined /> : <ExpandAltOutlined />}
+              onClick={() => allExpanded ? setExpanded(new Set()) : toggleExpandAll()}
+            >
+              {allExpanded ? 'Collapse all' : 'Expand all'}
+            </Button>
+          )}
+          <Popover content={colPickerContent} title="Customize" trigger="click" placement="bottomRight">
+            <Button size="small" icon={<SettingOutlined />}>Customize</Button>
           </Popover>
           <Button size="small" icon={<ReloadOutlined />} onClick={refresh}>Refresh</Button>
           <Button size="small" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
@@ -831,42 +916,75 @@ export default function BillsOutstanding({ side }) {
         )}
       </div>
 
-      {/* ── Virtualized table ──────────────────────────────────────── */}
+      {/* ── Body table ─────────────────────────────────────────────
+          Both views are rendered side-by-side; CSS toggles which one
+          is visible. This is the "Tally-solid" trick — switching
+          Bill Wise ↔ Customers Wise is just a display flip, no
+          unmount/remount, no re-fetch, no spinner blink. PartyOutstandingView
+          fetches its data once on first mount and keeps it; subsequent
+          toggles are instant. The bill view keeps its scroll position,
+          the party view keeps its expand state. */}
       <div className="bo-tablewrap">
-        {totalCount === 0 && !loading ? (
-          <div className="bo-empty">
-            {(partyIds.length || buckets.length || cities.length || minAmount || maxAmount || search)
-              ? (
-                <>
-                  <div>No bills match these filters.</div>
-                  <Button size="small" onClick={kpiClickAll} style={{ marginTop: 8 }}>Clear Filters</Button>
-                </>
-              )
-              : <div>All bills are paid. ✓</div>}
-          </div>
-        ) : (
-          <VirtualReportTable
-            columns={tableColumns}
-            rows={rows}
-            totalCount={totalCount}
-            ensureChunk={ensureChunk}
-            loading={loading}
-            rowKey={(r) => r.bill_id}
-            scroll={{ x: tableColumns.reduce((s, c) => s + (c.width || 100), 0) }}
-            summaryCells={summaryCells}
-            onHeaderRow={(col) => ({
-              onClick: () => col.sorter && onSort(col.key === 'overdue' ? 'overdue' : col.dataIndex || col.key),
-              style:   col.sorter ? { cursor: 'pointer' } : undefined,
-            })}
-            // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens the
-            // bill via the same drill-down used by the bill-no link.
-            // persistKey varies by side (receivable / payable) so
-            // each list keeps its own cursor across round-trips.
-            keyboardNav
-            persistKey={`bills-${side}`}
-            onRowEnter={(row) => row?.bill_id && drillBill(row)}
+        <div className={'bo-view-pane' + (viewMode === 'bill' ? '' : ' bo-view-hidden')}>
+          {totalCount === 0 && !loading ? (
+            <div className="bo-empty">
+              {(partyIds.length || buckets.length || cities.length || minAmount || maxAmount || search)
+                ? (
+                  <>
+                    <div>No bills match these filters.</div>
+                    <Button size="small" onClick={kpiClickAll} style={{ marginTop: 8 }}>Clear Filters</Button>
+                  </>
+                )
+                : <div>All bills are paid. ✓</div>}
+            </div>
+          ) : (
+            <VirtualReportTable
+              columns={tableColumns}
+              rows={rows}
+              totalCount={totalCount}
+              ensureChunk={ensureChunk}
+              loading={loading}
+              rowKey={(r) => r.bill_id}
+              scroll={{ x: tableColumns.reduce((s, c) => s + (c.width || 100), 0) }}
+              summaryCells={summaryCells}
+              onHeaderRow={(col) => ({
+                onClick: () => col.sorter && onSort(col.key === 'overdue' ? 'overdue' : col.dataIndex || col.key),
+                style:   col.sorter ? { cursor: 'pointer' } : undefined,
+              })}
+              // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens the
+              // bill via the same drill-down used by the bill-no link.
+              // persistKey varies by side (receivable / payable) so
+              // each list keeps its own cursor across round-trips.
+              //
+              // Only listen when this view is the active one. Both
+              // panes are kept mounted (for the instant view toggle),
+              // so without this gate the hidden bill-view's Enter
+              // handler would fire while the user is in Party view —
+              // which made Enter on a party row drill into the first
+              // bill in the bill-view's sparse rows array, bypassing
+              // the expand-collapse behaviour.
+              keyboardNav={viewMode === 'bill'}
+              persistKey={`bills-${side}`}
+              onRowEnter={(row) => row?.bill_id && drillBill(row)}
+            />
+          )}
+        </div>
+
+        <div className={'bo-view-pane' + (viewMode === 'party' ? '' : ' bo-view-hidden')}>
+          <PartyOutstandingView
+            cfg={cfg}
+            side={side}
+            filters={filters}
+            asOf={asOf}
+            bucketLabels={bucketLabels}
+            onDrillBill={drillBill}
+            isVisible={viewMode === 'party'}
+            expanded={expanded}
+            setExpanded={setExpanded}
+            onGroupCount={setPartyGroupCount}
+            expandAllRequest={expandAllRequest}
           />
-        )}
+        </div>
       </div>
     </div>
   );
