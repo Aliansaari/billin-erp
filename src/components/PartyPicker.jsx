@@ -29,10 +29,17 @@ const RECENT_KEY = (type) => `pp_recent_${type.toLowerCase()}`;
 const RECENT_MAX = 5;
 
 const fmtBal = (v) =>
-  parseFloat(v || 0).toLocaleString('en-IN', {
+  Math.abs(parseFloat(v || 0)).toLocaleString('en-IN', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 1,
   });
+
+// Tally convention: positive balance = Dr (the party owes us / asset
+// side), negative = Cr (we owe the party / liability side). Reading
+// "Cr" is unambiguous; reading "-64,940" prompts the question we keep
+// having to answer ("why is this minus?"). Mirrors the suffix the
+// LedgerStatement table itself uses on every balance cell.
+const drCr = (v) => (parseFloat(v || 0) >= 0 ? 'Dr' : 'Cr');
 
 function loadRecent(type) {
   try {
@@ -162,7 +169,7 @@ export default function PartyPicker({ partyType, value, onChange }) {
                       color: bal > 0 ? 'var(--success)' : bal < 0 ? 'var(--danger)' : 'var(--fg-tertiary)',
                     }}
                   >
-                    {fmtBal(bal)}
+                    {bal === 0 ? '0' : <>{fmtBal(bal)} <span style={{ fontSize: 9, fontWeight: 600, opacity: 0.75 }}>{drCr(bal)}</span></>}
                   </span>
                   <span style={{ flex: '0 0 70px', textAlign: 'center' }}>
                     <span
@@ -201,7 +208,7 @@ export default function PartyPicker({ partyType, value, onChange }) {
             {value.city && <span className="pp-meta-pill">{value.city}</span>}
             {value.mobile_1 && <span className="pp-meta-pill">📞 {value.mobile_1}</span>}
             <span className={'pp-meta-pill pp-meta-bal' + (parseFloat(value.current_balance || 0) >= 0 ? ' pos' : ' neg')}>
-              ₹{fmtBal(value.current_balance)}
+              ₹{fmtBal(value.current_balance)} <span className="pp-meta-drcr">{drCr(value.current_balance)}</span>
             </span>
           </div>
         )}

@@ -51,6 +51,12 @@
 .pp-meta-bal { font-weight: 700; }
 .pp-meta-bal.pos { color: var(--success, #2A8056); }
 .pp-meta-bal.neg { color: var(--danger,  #B1472F); }
+.pp-meta-drcr {
+  font-size: 9px;
+  font-weight: 600;
+  opacity: 0.75;
+  margin-left: 2px;
+}
 
 /* Dropdown header strip — repeats the optionRender column widths so
    the labels line up exactly above each row's data. */
