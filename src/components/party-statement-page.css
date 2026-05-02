@@ -1,0 +1,132 @@
+/* ── PartyStatementPage / Ledger page chrome ────────────────────────
+ *
+ * Full-height shell with a sticky picker bar and a flex-fill statement
+ * body. The page itself doesn't scroll — only LedgerStatement's inner
+ * .ls-scroll does. Header, sticky bar, and the body's totals row all
+ * stay pinned.
+ */
+
+.psp-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-page, var(--bg-secondary));
+  padding: 14px 20px 0;
+  gap: 12px;
+}
+
+/* Header — title left, action buttons right. Mirrors the Sales Report
+   / Trial Balance chrome so the report family reads consistently. */
+.psp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.psp-titles { display: flex; align-items: center; gap: 4px; }
+.psp-back   { color: var(--fg-secondary); }
+.psp-title  {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.psp-subtitle {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin-top: 1px;
+}
+.psp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Sticky bar — picker + period. Sticks to the page top inside the
+   scrolling page wrapper. position:sticky needs the parent to be the
+   scroll container; in our shell the body is flex-fill so we use
+   plain layout (the picker doesn't move). The "sticky" name is kept
+   for clarity — if the page later acquires a longer pre-bar header
+   that scrolls, this is where to add `position: sticky; top: 0`. */
+.psp-sticky {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.psp-period {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 6px 0 2px;
+}
+
+/* Period preset chips. Active state mirrors the report-hub favourites
+   pill: filled background, accent-colored text. Inactive: hairline
+   border, muted text. */
+.psp-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.psp-preset {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 3px 12px;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition: all 0.08s;
+  font-weight: 500;
+}
+.psp-preset:hover {
+  border-color: var(--accent, #B1472F);
+  color: var(--fg-primary);
+}
+.psp-preset.is-active {
+  background: var(--accent, #B1472F);
+  border-color: var(--accent, #B1472F);
+  color: #fff;
+  font-weight: 600;
+}
+
+.psp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  margin-left: auto;          /* pushes to the right edge of the bar */
+}
+
+/* Letterhead — only painted on @media print so the on-screen view
+   doesn't waste vertical space. The header carries enough party
+   identity inline (in the picker meta strip). On paper, an
+   accountant or recipient needs the full block. */
+.psp-print-letter { display: none; }
+
+@media print {
+  .psp-page    { padding: 0; }
+  .psp-header,
+  .psp-sticky  { display: none; }
+  .psp-print-letter {
+    display: block;
+    padding: 16px 24px;
+    border-bottom: 2px solid #000;
+    margin-bottom: 12px;
+  }
+  .psp-letter-from h2 { margin: 0 0 12px; font-size: 22px; }
+  .psp-letter-to-lbl  { font-size: 11px; text-transform: uppercase; color: #555; letter-spacing: 0.08em; font-weight: 700; }
+  .psp-letter-to-name { font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .psp-letter-to div  { font-size: 13px; line-height: 1.45; }
+  .psp-letter-period  { margin-top: 10px; font-size: 12px; color: #444; font-style: italic; }
+}
+
+/* Body — the table fills the rest of the column. min-height:0 is
+   required for the inner .ls-scroll to shrink instead of pushing the
+   page taller than 100vh. */
+.psp-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}

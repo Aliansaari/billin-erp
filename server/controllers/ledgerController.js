@@ -23,20 +23,92 @@ const {
   buildSalesReturnVouchers, buildPurchaseReturnVouchers,
   buildPaymentReceiptVouchers,
 } = require('../services/voucherBuilders');
+const {
+  getLedgerStatement, resolveLedgerForParty,
+} = require('../services/ledgerStatementService');
 
 exports.listAccounts = async (req, res) => {
   try {
-    const { search } = req.query || {};
+    const { search, exclude_party_ledgers } = req.query || {};
     const where = { is_active: true };
     if (search) where.ledger_name = { [Op.iLike]: `%${search}%` };
+    // The COA Ledger picker passes ?exclude_party_ledgers=1 — Customer /
+    // Supplier Statement own the party-side surface, the COA picker shows
+    // only the chart-of-accounts entries (Sales A/c, Bank, Office Rent,
+    // every JV-targetable ledger). Without the flag the JV form continues
+    // to receive every ledger as today.
+    if (exclude_party_ledgers === '1') where.is_party_ledger = false;
     const rows = await LedgerAccount.findAll({
       where,
       order: [['is_system_ledger', 'DESC'], ['ledger_group', 'ASC'], ['ledger_name', 'ASC']],
-      attributes: ['ledger_id', 'ledger_name', 'ledger_group', 'sub_group', 'is_system_ledger', 'is_party_ledger', 'party_id'],
+      attributes: ['ledger_id', 'ledger_name', 'ledger_group', 'sub_group', 'is_system_ledger', 'is_party_ledger', 'party_id', 'current_balance'],
     });
     res.json({ data: rows });
   } catch (err) {
     console.error('listAccounts error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ── Ledger statement ──────────────────────────────────────────────────
+//
+// Two access paths into the same service function:
+//
+//   GET /api/ledger/statement/:ledger_id           — direct (COA Ledger page)
+//   GET /api/ledger/statement/by-party/:party_id   — convenience (Customer
+//                                                    / Supplier Statement);
+//                                                    resolves party→ledger
+//                                                    server-side so the
+//                                                    client doesn't need to
+//                                                    cache the mapping.
+//
+// Both accept ?from_date and ?to_date (YYYY-MM-DD). Omit either for
+// open-ended (since-inception or until-today). Returns the shape
+// documented in services/ledgerStatementService.js.
+exports.statement = async (req, res) => {
+  try {
+    const ledgerId = parseInt(req.params.ledger_id, 10);
+    if (!Number.isFinite(ledgerId)) {
+      return res.status(400).json({ error: 'Invalid ledger_id' });
+    }
+    const { from_date, to_date } = req.query || {};
+    const out = await getLedgerStatement(ledgerId, {
+      fromDate: from_date || null,
+      toDate:   to_date   || null,
+    });
+    res.json({ data: out });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('ledger statement error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.statementByParty = async (req, res) => {
+  try {
+    const partyId = parseInt(req.params.party_id, 10);
+    if (!Number.isFinite(partyId)) {
+      return res.status(400).json({ error: 'Invalid party_id' });
+    }
+    const ledgerId = await resolveLedgerForParty(partyId);
+    if (!ledgerId) {
+      // Integrity issue — every party should have a backing ledger after
+      // the auto-creation hook ran. Surface as 404 + a hint to reconcile,
+      // rather than silently returning an empty statement that would mask
+      // the underlying data problem.
+      return res.status(404).json({
+        error: 'No ledger account for this party. Run /api/ledger/reconcile to backfill.',
+      });
+    }
+    const { from_date, to_date } = req.query || {};
+    const out = await getLedgerStatement(ledgerId, {
+      fromDate: from_date || null,
+      toDate:   to_date   || null,
+    });
+    res.json({ data: out });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('ledger statement (by party) error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };

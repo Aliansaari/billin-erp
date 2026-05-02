@@ -1,0 +1,170 @@
+/* ── LedgerStatement ─────────────────────────────────────────────────
+ *
+ * Editorial-language statement table. Same hairline / soft-warmth
+ * vocabulary as Trial Balance and Balance Sheet so the three financial
+ * reports read as one family. Row tinting (opening / totals / closing)
+ * uses the report theme's --bg-* tokens — re-skins automatically on
+ * theme switch.
+ *
+ * SCROLL MODEL
+ *   .ls-wrap    full-height flex column inside whatever the parent gives.
+ *   .ls-scroll  the only thing that scrolls — table thead is sticky to
+ *               its top, tfoot is sticky to its bottom. The page itself
+ *               (and the picker bar above) never moves.
+ */
+
+.ls-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;        /* lets .ls-scroll consume the column height */
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.ls-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  z-index: 5;
+}
+
+.ls-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ls-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;     /* aligns digits column-down */
+  font-size: 13px;
+  color: var(--fg-primary);
+}
+
+.ls-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--fg-tertiary);
+  padding: 9px 12px;
+  text-align: left;
+}
+.ls-table thead th.right { text-align: right; }
+
+.ls-table tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.ls-table tbody td.right { text-align: right; }
+
+.ls-num,
+.ls-balance { text-align: right; white-space: nowrap; }
+.ls-particulars { width: auto; }
+
+.ls-drcr {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  margin-left: 3px;
+}
+
+.ls-row.ls-clickable { cursor: pointer; transition: background 0.08s ease; }
+.ls-row.ls-clickable:hover { background: var(--bg-cell, var(--bg-secondary)); }
+
+/* Voucher-type pill — soft tint, no hard outline, matches Day Book.
+   The variant classes are injected by the renderer from a slug. */
+.ls-vt {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-secondary);
+  color: var(--fg-secondary);
+}
+.ls-vt--sales           { background: rgba( 56,142, 96,0.10); color: #2A8056; }
+.ls-vt--purchase        { background: rgba(177, 71, 47,0.10); color: #B1472F; }
+.ls-vt--receipt         { background: rgba( 60,120,180,0.10); color: #3C78B4; }
+.ls-vt--payment         { background: rgba(127, 90,163,0.10); color: #7F5AA3; }
+.ls-vt--sales-return    { background: rgba(177, 71, 47,0.16); color: #B1472F; }
+.ls-vt--purchase-return { background: rgba( 56,142, 96,0.16); color: #2A8056; }
+.ls-vt--journal         { background: rgba(120,120,120,0.12); color: #5b5b5b; }
+.ls-vt--contra          { background: rgba(140,110, 60,0.12); color: #8c6e3c; }
+
+/* Opening / totals / closing rows — soft warmth, no hard outlines. */
+.ls-opening td {
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  font-style: italic;
+  color: var(--fg-secondary);
+}
+
+.ls-no-activity td {
+  text-align: center;
+  padding: 26px 12px;
+  color: var(--fg-tertiary);
+  font-style: italic;
+}
+
+.ls-table tfoot tr {
+  background: var(--bg-primary);
+}
+.ls-table tfoot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--bg-secondary);
+  padding: 9px 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ls-totals td {
+  /* Totals stick first (above closing), so it gets a slightly higher
+     bottom offset. The two-row sticky-footer trick: totals stays on top
+     of the closing line so both are visible while the body scrolls. */
+  bottom: 35px;
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+
+.ls-closing td {
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  border-top: 2px solid var(--accent, #B1472F);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg-primary);
+}
+
+.ls-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 240px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-primary);
+}
+
+/* Print — strip chrome, keep numbers. The page wrapper supplies the
+   letterhead; the table itself just needs to be readable. */
+@media print {
+  .ls-wrap     { border: none; }
+  .ls-scroll   { overflow: visible; }
+  .ls-table thead th { position: static; background: #fff; }
+  .ls-table tfoot td { position: static; background: #fff; }
+}

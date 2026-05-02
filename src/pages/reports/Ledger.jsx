@@ -1,0 +1,277 @@
+// ── Ledger (Chart of Accounts) ─────────────────────────────────────────
+//
+// Voucher-level statement for ANY chart-of-accounts ledger — Sales A/c,
+// Bank A/c, Office Rent, Salaries, Capital, etc. Excludes party-backed
+// ledgers (those have their own Customer / Supplier Statement pages
+// with letterhead + WhatsApp + outstanding-only flow).
+//
+// Picker is a grouped Select rather than the big PartyPicker bar —
+// COA accounts are a fixed set (~20-50 per firm) and naturally sort
+// into Tally's five groups (Assets / Liabilities / Income /
+// Expenses / Capital), so a hierarchical dropdown reads cleaner than
+// a flat search. The user's mental model is "I want to see Office
+// Rent" → group → name; PartyPicker's autocomplete-by-typing UI is
+// overkill here.
+//
+// Reuses the same <LedgerStatement> table as the party flavors, so
+// totals / drill / opening / closing all behave identically. No
+// letterhead block (this is an internal accountant view, not a
+// document mailed to anyone).
+
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button, DatePicker, Select, message, Tooltip } from 'antd';
+import {
+  PrinterOutlined, FileExcelOutlined, ReloadOutlined,
+  CalendarOutlined, ArrowLeftOutlined,
+} from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import dayjs from 'dayjs';
+import { ledgerAPI } from '../../api';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
+import LedgerStatement from '../../components/LedgerStatement';
+import '../../components/ledger-statement.css';
+import '../../components/party-statement-page.css';
+import './ledger.css';
+
+const { RangePicker } = DatePicker;
+
+// Tally group order — assets first, capital last. Mirrors what
+// Trial Balance and the chart-of-accounts UI already use.
+const GROUP_ORDER = ['Assets', 'Liabilities', 'Income', 'Expenses', 'Capital'];
+
+function presets(fyStart, fyEnd) {
+  const today = dayjs();
+  return [
+    { key: 'month',   label: 'This Month',   from: today.startOf('month'),   to: today.endOf('month')   },
+    { key: 'quarter', label: 'This Quarter', from: today.startOf('quarter'), to: today.endOf('quarter') },
+    { key: 'fy',      label: 'Financial Year',
+      from: fyStart ? dayjs(fyStart) : today.month(3).startOf('month'),
+      to:   fyEnd   ? dayjs(fyEnd)   : today.month(2).endOf('month').add(1, 'year') },
+    { key: 'all',     label: 'All',          from: null, to: null },
+  ];
+}
+
+async function downloadExcel({ filename, rows, headers }) {
+  const ExcelJS = await import('exceljs').then(m => m.default || m);
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Ledger');
+  ws.addRow(headers);
+  rows.forEach(r => ws.addRow(r));
+  ws.getRow(1).font = { bold: true };
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export default function Ledger() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { fyStart, fyEnd } = useFinancialYear();
+
+  const [accounts, setAccounts] = useState([]);
+  const [ledgerId, setLedgerId] = useState(searchParams.get('id') ? parseInt(searchParams.get('id'), 10) : null);
+  const [statement, setStatement] = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [from, setFrom] = useState(searchParams.get('from') || fyStart || null);
+  const [to,   setTo]   = useState(searchParams.get('to')   || fyEnd   || null);
+
+  // Fetch the COA list once on mount. Filter out party-backed entries
+  // — Customer/Supplier Statement own those. The exclude flag is a
+  // server-side filter so we don't ship 5000 party rows to the client.
+  useEffect(() => {
+    ledgerAPI.listAccounts({ exclude_party_ledgers: 1 })
+      .then(res => setAccounts(res.data?.data || []))
+      .catch(() => message.error('Failed to load chart of accounts.'));
+  }, []);
+
+  // Fetch statement on ledgerId / period change. Same race-safety
+  // pattern as PartyStatementPage.
+  useEffect(() => {
+    if (!ledgerId) { setStatement(null); return; }
+    let stale = false;
+    setLoading(true);
+    ledgerAPI.statement(ledgerId, {
+      from_date: from || undefined,
+      to_date:   to   || undefined,
+    })
+      .then(res => { if (!stale) setStatement(res.data?.data || res.data); })
+      .catch(err => {
+        if (stale) return;
+        message.error(err?.response?.data?.error || 'Failed to load statement.');
+        setStatement(null);
+      })
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
+  }, [ledgerId, from, to]);
+
+  // URL writeback
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (ledgerId) next.set('id', String(ledgerId));
+    if (from)     next.set('from', from);
+    if (to)       next.set('to',   to);
+    setSearchParams(next, { replace: true });
+  }, [ledgerId, from, to, setSearchParams]);
+
+  // Group the accounts list into Tally's five primaries → grouped
+  // Select options. AntD Select renders OptGroup natively, so this
+  // gives us a tidy dropdown like the JV form's account picker.
+  const groupedOptions = useMemo(() => {
+    const buckets = new Map();
+    for (const a of accounts) {
+      const g = a.ledger_group || '(Uncategorised)';
+      if (!buckets.has(g)) buckets.set(g, []);
+      buckets.get(g).push(a);
+    }
+    const ordered = [
+      ...GROUP_ORDER.filter(g => buckets.has(g)),
+      ...[...buckets.keys()].filter(g => !GROUP_ORDER.includes(g)),
+    ];
+    return ordered.map(g => ({
+      label: g,
+      options: buckets.get(g)
+        .sort((a, b) => a.ledger_name.localeCompare(b.ledger_name))
+        .map(a => ({
+          value: a.ledger_id,
+          label: a.ledger_name,
+          // Stash sub_group for an inline secondary line in the
+          // dropdown — same pattern as the COA picker on JV.
+          _sub: a.sub_group,
+        })),
+    }));
+  }, [accounts]);
+
+  const activePreset = useMemo(() => {
+    const prs = presets(fyStart, fyEnd);
+    return prs.find(p =>
+      ((p.from?.format('YYYY-MM-DD') || null) === (from || null)) &&
+      ((p.to?.format('YYYY-MM-DD')   || null) === (to   || null))
+    )?.key || null;
+  }, [from, to, fyStart, fyEnd]);
+
+  const setPreset = (p) => {
+    setFrom(p.from?.format('YYYY-MM-DD') || null);
+    setTo  (p.to?.format('YYYY-MM-DD')   || null);
+  };
+
+  const onPrint = () => window.print();
+
+  const onExcel = () => {
+    if (!statement?.entries?.length) { message.info('Nothing to export.'); return; }
+    const acct = statement.account?.ledger_name || 'ledger';
+    const fileSuffix = acct.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    const headers = ['Date', 'Type', 'Voucher No', 'Particulars', 'Debit', 'Credit', 'Balance'];
+    const rows = [
+      [from || '', '', '', 'Opening Balance', '', '', statement.opening_balance],
+      ...statement.entries.map(e => [
+        e.date, e.voucher_type, e.voucher_no || '', e.narration || '',
+        e.debit || '', e.credit || '', e.balance,
+      ]),
+      ['', '', '', 'Period Totals', statement.total_debit, statement.total_credit, ''],
+      [to || '', '', '', 'Closing Balance', '', '', statement.closing_balance],
+    ];
+    downloadExcel({ filename: `ledger-${fileSuffix}.xlsx`, rows, headers });
+  };
+
+  const onDrill = (row) => {
+    const id = row.reference_id;
+    if (!id) return;
+    switch (row.source_type) {
+      case 'sales_bill':           navigate(`/sale/edit/${id}`);            break;
+      case 'sales_bill_receipt':   navigate(`/sale/edit/${id}`);            break;
+      case 'purchase_bill':        navigate(`/purchase/edit/${id}`);        break;
+      case 'sales_return_bill':    navigate(`/sales-return/edit/${id}`);    break;
+      case 'purchase_return_bill': navigate(`/purchase-return/edit/${id}`); break;
+      case 'payment_receipt':
+        navigate(row.voucher_type === 'Receipt' ? `/receipt/edit/${id}` : `/payment/edit/${id}`);
+        break;
+      case 'journal_voucher':      navigate(`/accounts/journals/edit/${id}`); break;
+      default: break;
+    }
+  };
+
+  return (
+    <div className="psp-page">
+      <div className="psp-header">
+        <div className="psp-titles">
+          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} className="psp-back" />
+          <div>
+            <h1 className="psp-title">Ledger</h1>
+            <div className="psp-subtitle">
+              {statement?.account
+                ? `${statement.account.ledger_group} · ${statement.account.sub_group || statement.account.ledger_name}`
+                : 'Voucher-level account-of-record · pick any ledger from the chart of accounts'}
+            </div>
+          </div>
+        </div>
+        <div className="psp-actions">
+          <Tooltip title="Refresh">
+            <Button icon={<ReloadOutlined />} onClick={() => ledgerId && setLedgerId(ledgerId)} disabled={!ledgerId} />
+          </Tooltip>
+          <Button icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length}>Excel</Button>
+          <Button type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
+        </div>
+      </div>
+
+      <div className="psp-sticky">
+        <div className="ledger-picker-bar">
+          <Select
+            placeholder="Pick a ledger account — Sales A/c, Bank, Office Rent, …"
+            value={ledgerId}
+            onChange={setLedgerId}
+            options={groupedOptions}
+            showSearch
+            // Match against the rendered label text. AntD's filterOption
+            // gets the option's `label` (a string here) so a substring
+            // match is enough for the in-memory list.
+            filterOption={(input, opt) =>
+              !input || (opt.label || '').toLowerCase().includes(input.toLowerCase())
+            }
+            allowClear
+            size="large"
+            style={{ width: 480, maxWidth: '100%' }}
+            popupMatchSelectWidth={false}
+          />
+        </div>
+
+        <div className="psp-period">
+          <div className="psp-presets">
+            {presets(fyStart, fyEnd).map(p => (
+              <button
+                type="button"
+                key={p.key}
+                className={'psp-preset' + (activePreset === p.key ? ' is-active' : '')}
+                onClick={() => setPreset(p)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <RangePicker
+            value={[from ? dayjs(from) : null, to ? dayjs(to) : null]}
+            onChange={(range) => {
+              setFrom(range?.[0]?.format('YYYY-MM-DD') || null);
+              setTo  (range?.[1]?.format('YYYY-MM-DD') || null);
+            }}
+            format="DD-MM-YYYY"
+            allowClear
+            suffixIcon={<CalendarOutlined />}
+          />
+        </div>
+      </div>
+
+      <div className="psp-body">
+        <LedgerStatement
+          statement={statement}
+          loading={loading}
+          onRowClick={onDrill}
+          emptyHint="Pick a ledger above to load the statement."
+        />
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,122 @@
+/* ── PartyPicker ─────────────────────────────────────────────────────
+ *
+ * Sticky search bar at the top of Customer Statement / Supplier
+ * Statement. The page wraps it in a position:sticky container so the
+ * bar follows the user as they scroll the table. The picker itself
+ * is non-sticky — it just lays out cleanly inside whatever container
+ * the page provides.
+ */
+
+.pp-bar {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px 14px;
+  /* Soft elevation — separates from the page background without the
+     hard shadow that competes with the report's own borders. */
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border-subtle) 60%, transparent);
+}
+
+.pp-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pp-input-wrap {
+  flex: 0 1 520px;
+  min-width: 280px;
+}
+
+/* Bigger input than the AntD default — 16px font, 44px height. The
+   bar is the page's primary action target; making it deliberately
+   large reduces mis-clicks and reads as "this is where you start". */
+.pp-input-wrap .ant-input,
+.pp-input-wrap .ant-input-affix-wrapper {
+  font-size: 15px;
+  height: 44px;
+}
+
+.pp-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 240px;
+  flex-wrap: wrap;
+}
+
+.pp-meta-name {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--fg-primary);
+  margin-right: 4px;
+}
+
+.pp-meta-pill {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--fg-secondary);
+  white-space: nowrap;
+}
+
+.pp-meta-bal { font-weight: 600; }
+.pp-meta-bal.pos { color: var(--success, #2A8056); }
+.pp-meta-bal.neg { color: var(--danger,  #B1472F); }
+
+/* Dropdown option — name + secondary metadata line. */
+.pp-opt-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--fg-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-opt-meta {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  display: flex;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+/* Recent-party chips */
+.pp-recent {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.pp-recent-lbl {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-tertiary);
+  font-weight: 700;
+}
+.pp-chip {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--fg-secondary);
+  transition: background 0.08s, color 0.08s;
+}
+.pp-chip:hover {
+  background: var(--bg-cell, var(--accent-soft, #f5e9e3));
+  color: var(--fg-primary);
+}
+
+/* Print — hide the picker entirely on a printed statement. The page's
+   letterhead block carries the party identity. */
+@media print {
+  .pp-bar { display: none; }
+}
