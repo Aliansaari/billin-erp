@@ -159,21 +159,36 @@ export const REPORTS = [
   },
 
   // ── Inventory ────────────────────────────────────────────────────
+  // Stock Report routes to the inventory-menu page (the duplicate
+  // /reports/stock and /reports/stock-summary pages were removed).
+  // Period opening/in/out/closing data lives there too via the
+  // movement-period range picker.
   {
     id: 'stock_report',
     name: 'Stock Report',
-    subtitle: 'Per-product current stock + value',
+    subtitle: 'Per-product stock, value, inward / outward',
     category: 'inventory',
-    route: '/reports/stock',
-    perm: 'reports.view',
+    route: '/stock-report',
+    perm: 'inventory.view',
+    aliases: ['stock summary'],
   },
   {
-    id: 'stock_summary',
-    name: 'Stock Summary',
-    subtitle: 'Period opening / in / out / closing',
+    id: 'smart_stock',
+    name: 'Smart Stock',
+    subtitle: 'Category-grouped stock with bulk edit',
     category: 'inventory',
-    route: '/reports/stock-summary',
-    perm: 'reports.view',
+    route: '/stock-report-pro',
+    perm: 'inventory.view',
+    aliases: ['category stock', 'stock pro'],
+  },
+  {
+    id: 'stock_movement',
+    name: 'Stock Movement',
+    subtitle: 'Per-product inward / outward history',
+    category: 'inventory',
+    route: '/stock-movement',
+    perm: 'inventory.view',
+    aliases: ['movement', 'transactions', 'ledger'],
   },
   {
     id: 'movers',

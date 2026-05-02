@@ -15,6 +15,7 @@ import ProductList from './pages/inventory/ProductList';
 import CategoryList from './pages/inventory/CategoryList';
 import StockReport from './pages/inventory/StockReport';
 import StockReportPro from './pages/inventory/StockReportPro';
+import SmartStockCategory from './pages/inventory/SmartStockCategory';
 import StockMovement from './pages/inventory/StockMovement';
 import StockTransferList from './pages/inventory/StockTransferList';
 import StockTransferForm from './pages/inventory/StockTransferForm';
@@ -32,7 +33,6 @@ import PaymentList from './pages/payments/PaymentList';
 import SalesReport from './pages/reports/SalesReport';
 import PurchaseReport from './pages/reports/PurchaseReport';
 import DayBook from './pages/reports/DayBook';
-import StockReportPage from './pages/reports/StockReportPage';
 import PartyLedger from './pages/reports/PartyLedger';
 import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
@@ -50,7 +50,6 @@ import TrialBalance from './pages/reports/TrialBalance';
 import BalanceSheet from './pages/reports/BalanceSheet';
 import CashFlow from './pages/reports/CashFlow';
 import HsnSummary from './pages/reports/HsnSummary';
-import StockSummary from './pages/reports/StockSummary';
 import Movers from './pages/reports/Movers';
 import GodownTransferRegister from './pages/reports/GodownTransferRegister';
 import GodownValuation from './pages/reports/GodownValuation';
@@ -159,6 +158,7 @@ export default function App() {
           <Route path="categories"                     element={<RoleRoute perm="inventory.view"><CategoryList /></RoleRoute>} />
           <Route path="stock-report"                   element={<RoleRoute perm="inventory.view"><StockReport /></RoleRoute>} />
           <Route path="stock-report-pro"               element={<RoleRoute perm="inventory.view"><StockReportPro /></RoleRoute>} />
+          <Route path="stock-report-pro/:categoryId"   element={<RoleRoute perm="inventory.view"><SmartStockCategory /></RoleRoute>} />
           {/* Splat route — keeps StockMovement mounted when navigating
                from /stock-movement to /stock-movement/:productId, so
                clicking a product doesn't remount the whole page (which
@@ -197,7 +197,9 @@ export default function App() {
           <Route path="reports"               element={<ReportsHub />} />
           <Route path="reports/sales"         element={<RoleRoute perm="reports.view"><SalesReport /></RoleRoute>} />
           <Route path="reports/purchases"     element={<RoleRoute perm="reports.view"><PurchaseReport /></RoleRoute>} />
-          <Route path="reports/stock"         element={<RoleRoute perm="reports.view"><StockReportPage /></RoleRoute>} />
+          {/* /reports/stock removed — Stock Report lives at /stock-report
+              (inventory menu). Old links rewired in BalanceSheet + the
+              reports-hub config. */}
           <Route path="reports/party-ledger"  element={<RoleRoute perm="accounts.view"><PartyLedger /></RoleRoute>} />
           <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
           <Route path="reports/aging"         element={<RoleRoute perm="reports.view"><AgingReport /></RoleRoute>} />
@@ -216,7 +218,9 @@ export default function App() {
           <Route path="reports/cash-flow"         element={<RoleRoute perm="accounts.view"><CashFlow /></RoleRoute>} />
           <Route path="reports/day-book"          element={<RoleRoute perm="accounts.view"><DayBook /></RoleRoute>} />
           <Route path="reports/hsn-summary"        element={<RoleRoute perm="reports.view"><HsnSummary /></RoleRoute>} />
-          <Route path="reports/stock-summary"      element={<RoleRoute perm="reports.view"><StockSummary /></RoleRoute>} />
+          {/* /reports/stock-summary removed — opening / inward / outward
+              now live on the inventory Stock Report via the movement-
+              period range picker. Drill-down from ProfitLoss rewired. */}
           <Route path="reports/movers"             element={<RoleRoute perm="reports.view"><Movers /></RoleRoute>} />
           <Route path="reports/transfer-register"  element={<RoleRoute perm="reports.view"><GodownTransferRegister /></RoleRoute>} />
           <Route path="reports/godown-valuation"   element={<RoleRoute perm="reports.view"><GodownValuation /></RoleRoute>} />

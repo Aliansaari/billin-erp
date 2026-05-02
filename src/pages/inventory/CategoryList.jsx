@@ -1,80 +1,72 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Input, Modal, Form, Select, message, Spin, Empty, Tooltip } from 'antd';
-import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, TagsOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Table, Modal, Form, Input, Select, message, Tooltip } from 'antd';
+import {
+  SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
+  TagsOutlined, ReloadOutlined,
+} from '@ant-design/icons';
 import { categoryAPI } from '../../api';
-
-const PAGE_SIZE = 60;
+import './category-list.css';
 
 export default function CategoryList() {
-  const [allData, setAllData]       = useState([]);
-  const [displayed, setDisplayed]   = useState([]);
-  const [loading, setLoading]       = useState(false);
-  const [search, setSearch]         = useState('');
-  const [page, setPage]             = useState(1);
+  const [allData,    setAllData]    = useState([]);
+  const [loading,    setLoading]    = useState(false);
+  const [search,     setSearch]     = useState('');
 
   const [formVisible, setFormVisible] = useState(false);
   const [editing, setEditing]         = useState(null);
   const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
 
-  const loaderRef = useRef(null);
-
   useEffect(() => { loadCategories(); }, []);
-
-  /* ── filter locally on search ── */
-  useEffect(() => {
-    const q = search.toLowerCase();
-    const filtered = q
-      ? allData.filter(c => (c.category_name || '').toLowerCase().includes(q) || (c.category_code || '').toLowerCase().includes(q))
-      : allData;
-    setDisplayed(filtered.slice(0, PAGE_SIZE));
-    setPage(1);
-  }, [search, allData]);
-
-  /* ── infinite scroll ── */
-  useEffect(() => {
-    const q = search.toLowerCase();
-    const filtered = q
-      ? allData.filter(c => (c.category_name || '').toLowerCase().includes(q) || (c.category_code || '').toLowerCase().includes(q))
-      : allData;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && displayed.length < filtered.length) {
-          const next = page + 1;
-          setPage(next);
-          setDisplayed(filtered.slice(0, next * PAGE_SIZE));
-        }
-      },
-      { threshold: 0.1 }
-    );
-    if (loaderRef.current) observer.observe(loaderRef.current);
-    return () => observer.disconnect();
-  }, [displayed, allData, page, search]);
 
   const loadCategories = async () => {
     setLoading(true);
     try {
       const { data } = await categoryAPI.getAll();
-      // Flatten tree into list with parent info
+      // Flatten the tree → flat list with parent metadata + a `subCount`
+      // attribute (nested children count), for the table + KPIs.
       const flat = [];
-      const flatten = (nodes, parentName = null) => {
+      const flatten = (nodes, parentName = null, parentId = null) => {
         (nodes || []).forEach(c => {
-          flat.push({ ...c, _parentName: parentName });
-          if (c.subCategories?.length) flatten(c.subCategories, c.category_name);
+          flat.push({
+            ...c,
+            _parentName: parentName,
+            _parentId:   parentId,
+            _subCount:   c.subCategories?.length || 0,
+          });
+          if (c.subCategories?.length) flatten(c.subCategories, c.category_name, c.category_id);
         });
       };
       flatten(data);
       setAllData(flat);
-      setDisplayed(flat.slice(0, PAGE_SIZE));
-      setPage(1);
     } catch { message.error('Failed to load categories'); }
     setLoading(false);
   };
 
+  /* ── Filtered list (search only) ── */
+  const filtered = useMemo(() => {
+    const q = (search || '').trim().toLowerCase();
+    if (!q) return allData;
+    return allData.filter(c => {
+      const hay = `${c.category_name || ''} ${c.category_code || ''} ${c._parentName || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [allData, search]);
+
+  /* ── Top-level categories (for the parent dropdown in the modal) ── */
+  const topLevel = useMemo(() => allData.filter(c => !c._parentId), [allData]);
+
   const openForm = (cat = null) => {
     setEditing(cat);
-    if (cat) form.setFieldsValue({ category_name: cat.category_name, category_code: cat.category_code, parent_category_id: cat.parent_category_id });
-    else form.resetFields();
+    if (cat) {
+      form.setFieldsValue({
+        category_name: cat.category_name,
+        category_code: cat.category_code,
+        parent_category_id: cat.parent_category_id,
+      });
+    } else {
+      form.resetFields();
+    }
     setFormVisible(true);
   };
 
@@ -82,17 +74,30 @@ export default function CategoryList() {
     setFormLoading(true);
     try {
       const values = await form.validateFields();
+      // Antd's Select with allowClear returns `undefined` when cleared,
+      // which JSON.stringify drops on the wire. Normalise to `null` so
+      // the server explicitly receives the "remove parent" signal — its
+      // update guard uses hasOwnProperty(parent_category_id) to decide
+      // whether to touch the field.
+      const payload = {
+        ...values,
+        parent_category_id: values.parent_category_id ?? null,
+      };
       if (editing) {
-        await categoryAPI.update(editing.category_id, values);
+        await categoryAPI.update(editing.category_id, payload);
         message.success('Category updated');
       } else {
-        await categoryAPI.create(values);
+        await categoryAPI.create(payload);
         message.success('Category created');
       }
       setFormVisible(false);
       setEditing(null);
       await loadCategories();
-    } catch (e) { message.error(e.response?.data?.error || 'Failed to save'); }
+    } catch (e) {
+      // Antd form-validation errors don't have a `response` — only show
+      // the toast for backend failures.
+      if (e?.response) message.error(e.response.data?.error || 'Failed to save');
+    }
     setFormLoading(false);
   };
 
@@ -112,149 +117,92 @@ export default function CategoryList() {
     });
   };
 
-  // Top-level categories only for parent dropdown
-  const topLevel = allData.filter(c => !c.parent_category_id);
+  /* ── Antd table columns ── */
+  const columns = [
+    {
+      key: 'name', title: 'Category Name', dataIndex: 'category_name',
+      render: (v, c) => (
+        <span className={`cl-name${c._parentId ? ' sub' : ''}`}>
+          {c._parentId && <span className="indent">↳</span>}
+          <TagsOutlined />
+          {v}
+        </span>
+      ),
+      sorter: (a, b) => (a.category_name || '').localeCompare(b.category_name || ''),
+    },
+    {
+      key: 'code', title: 'Code', dataIndex: 'category_code', width: 160,
+      render: (v) => v ? <span className="cl-code">{v}</span> : <span className="cl-muted">—</span>,
+    },
+    {
+      key: 'parent', title: 'Parent', dataIndex: '_parentName', width: 200,
+      render: (v) => v ? <span className="cl-parent-tag">{v}</span> : <span className="cl-muted">—</span>,
+    },
+    {
+      key: 'subs', title: 'Sub-cats', dataIndex: '_subCount', width: 100, align: 'right',
+      sorter: (a, b) => a._subCount - b._subCount,
+      render: (v) => v > 0 ? <span className="cl-subcat-tag">{v}</span> : <span className="cl-muted">—</span>,
+    },
+    {
+      key: 'actions', title: 'Actions', width: 110, align: 'right',
+      render: (_, c) => (
+        <span className="cl-row-actions">
+          <Tooltip title="Edit">
+            <button className="cl-row-btn" onClick={() => openForm(c)}><EditOutlined /></button>
+          </Tooltip>
+          <Tooltip title="Deactivate">
+            <button className="cl-row-btn danger" onClick={() => handleDelete(c)}><DeleteOutlined /></button>
+          </Tooltip>
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 64px)', background:'#f8fafc', overflow:'hidden' }}>
+    <div className="cl-page">
 
-      {/* ── Top bar ── */}
-      <div style={{ background:'#fff', borderBottom:'1px solid #e5e7eb', padding:'12px 24px', flexShrink:0 }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
-          {/* Title + count */}
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <span style={{ fontSize:16, fontWeight:700, color:'#111827' }}>Categories</span>
-            <span style={{ fontSize:12, background:'#eff6ff', color:'#1d4ed8', borderRadius:20, padding:'3px 12px', fontWeight:600 }}>
-              {allData.length} Categories
-            </span>
-          </div>
-
-          {/* Controls */}
-          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <Input
-              prefix={<SearchOutlined style={{ color:'#9ca3af' }}/>}
-              placeholder="Search categories…"
+      {/* ── HEADER ─────────────────────────────────────────────── */}
+      <div className="cl-hd">
+        <div className="cl-title">
+          <h1>Categories</h1>
+        </div>
+        <div className="cl-ctrls">
+          <div className="cl-search">
+            <SearchOutlined />
+            <input
+              placeholder="Search name, code, or parent…"
               value={search}
-              onChange={e => setSearch(e.target.value)}
-              allowClear
-              style={{ width:220 }}
+              onChange={(e) => setSearch(e.target.value)}
+              autoComplete="off"
             />
-            <button
-              onClick={() => openForm()}
-              style={{ display:'flex', alignItems:'center', gap:6, background:'#f59e0b', border:'none', borderRadius:8, color:'#fff', fontWeight:700, fontSize:13, padding:'7px 16px', cursor:'pointer' }}
-            >
-              <PlusOutlined/> Add Category
-            </button>
           </div>
+          <button className="cl-btn" onClick={loadCategories} title="Refresh">
+            <ReloadOutlined /> Refresh
+          </button>
+          <button className="cl-btn primary" onClick={() => openForm()}>
+            <PlusOutlined /> Add Category
+          </button>
         </div>
       </div>
 
-      {/* ── Column headers ── */}
-      <div style={{
-        display:'grid',
-        gridTemplateColumns:'1fr 200px 180px 80px 120px',
-        padding:'8px 24px',
-        borderBottom:'2px solid #e5e7eb',
-        background:'#f9fafb',
-        flexShrink:0,
-      }}>
-        {['Category Name','Code','Parent Category','Sub-cats','Actions'].map(h => (
-          <div key={h} style={{ fontSize:11, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:.5 }}>
-            {h}
-          </div>
-        ))}
-      </div>
-
-      {/* ── List ── */}
-      <div style={{ flex:1, overflowY:'auto' }}>
-        {loading ? (
-          <div style={{ display:'flex', justifyContent:'center', padding:60 }}><Spin size="large"/></div>
-        ) : allData.length === 0 ? (
-          <Empty description="No categories found" style={{ marginTop:60 }}/>
-        ) : (
-          <>
-            {displayed.map((cat, i) => {
-              const isSubCat = !!cat.parent_category_id;
-              return (
-                <div
-                  key={cat.category_id}
-                  style={{
-                    display:'grid',
-                    gridTemplateColumns:'1fr 200px 180px 80px 120px',
-                    padding:'10px 24px',
-                    borderBottom:'1px solid #f3f4f6',
-                    background: i % 2 === 0 ? '#fff' : '#fafafa',
-                    alignItems:'center',
-                    transition:'background .1s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background='#eff6ff'}
-                  onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafafa'}
-                >
-                  {/* Category Name */}
-                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    {isSubCat && <span style={{ width:16, color:'#d1d5db', fontSize:12 }}>↳</span>}
-                    <TagsOutlined style={{ color: isSubCat ? '#a78bfa' : '#6366f1', fontSize:14 }}/>
-                    <span style={{ fontSize:13, fontWeight: isSubCat ? 400 : 600, color:'#111827', marginLeft: isSubCat ? 0 : 4 }}>
-                      {cat.category_name}
-                    </span>
-                  </div>
-
-                  {/* Code */}
-                  <div style={{ fontSize:13, color:'#6b7280' }}>{cat.category_code || '—'}</div>
-
-                  {/* Parent */}
-                  <div style={{ fontSize:13, color:'#6b7280' }}>
-                    {cat._parentName
-                      ? <span style={{ background:'#f3f4f6', borderRadius:6, padding:'2px 8px', fontSize:12 }}>{cat._parentName}</span>
-                      : <span style={{ color:'#d1d5db' }}>—</span>
-                    }
-                  </div>
-
-                  {/* Sub-cat count */}
-                  <div style={{ fontSize:13, color:'#6b7280' }}>
-                    {cat.subCategories?.length > 0
-                      ? <span style={{ background:'#ede9fe', color:'#6d28d9', borderRadius:6, padding:'2px 8px', fontSize:12, fontWeight:600 }}>{cat.subCategories.length}</span>
-                      : <span style={{ color:'#d1d5db' }}>—</span>
-                    }
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display:'flex', gap:6 }}>
-                    <Tooltip title="Edit">
-                      <button
-                        onClick={() => openForm(cat)}
-                        style={{ background:'#eff6ff', border:'none', borderRadius:6, cursor:'pointer', padding:'5px 10px', color:'#2563eb', display:'flex', alignItems:'center' }}
-                      >
-                        <EditOutlined/>
-                      </button>
-                    </Tooltip>
-                    <Tooltip title="Deactivate">
-                      <button
-                        onClick={() => handleDelete(cat)}
-                        style={{ background:'#fef2f2', border:'none', borderRadius:6, cursor:'pointer', padding:'5px 10px', color:'#dc2626', display:'flex', alignItems:'center' }}
-                      >
-                        <DeleteOutlined/>
-                      </button>
-                    </Tooltip>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Sentinel */}
-            <div ref={loaderRef} style={{ padding:16, textAlign:'center' }}>
-              {displayed.length < allData.length
-                ? <Spin size="small"/>
-                : <span style={{ fontSize:12, color:'#9ca3af' }}>All {allData.length} categories loaded</span>
-              }
-            </div>
-          </>
-        )}
+      {/* ── TABLE ──────────────────────────────────────────────── */}
+      <div className="cl-tbl-wrap">
+        <Table
+          columns={columns}
+          dataSource={filtered}
+          rowKey="category_id"
+          rowClassName={(c) => c._parentId ? 'cl-row-sub' : ''}
+          loading={loading && allData.length === 0}
+          pagination={false}
+          scroll={{ y: 'calc(100vh - 180px)' }}
+          size="small"
+          locale={{ emptyText: search ? 'No categories match the search' : 'No categories yet' }}
+        />
       </div>
 
       {/* ── Add / Edit Modal ── */}
       <Modal
-        title={editing ? `Edit — ${editing.category_name}` : 'Add Category'}
+        title={editing ? `Edit · ${editing.category_name}` : 'Add Category'}
         open={formVisible}
         onCancel={() => { setFormVisible(false); setEditing(null); }}
         onOk={handleSubmit}
@@ -262,20 +210,20 @@ export default function CategoryList() {
         okText={editing ? 'Update' : 'Add Category'}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" style={{ marginTop:8 }}>
-          <Form.Item name="category_name" label="Category Name" rules={[{ required:true, message:'Required' }]}>
-            <Input placeholder="e.g. Frock, Jeans, T-Shirt" autoFocus/>
+        <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+          <Form.Item name="category_name" label="Category Name" rules={[{ required: true, message: 'Required' }]}>
+            <Input placeholder="e.g. Frock, Jeans, T-Shirt" autoFocus />
           </Form.Item>
           <Form.Item name="category_code" label="Category Code">
-            <Input placeholder="Optional short code"/>
+            <Input placeholder="Optional short code" />
           </Form.Item>
           <Form.Item name="parent_category_id" label="Parent Category">
-            <Select placeholder="None (top-level)" allowClear>
-              {topLevel
+            <Select placeholder="None (top-level)" allowClear showSearch optionFilterProp="label"
+              options={topLevel
                 .filter(c => c.category_id !== editing?.category_id)
-                .map(c => <Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)
+                .map(c => ({ value: c.category_id, label: c.category_name }))
               }
-            </Select>
+            />
           </Form.Item>
         </Form>
       </Modal>

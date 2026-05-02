@@ -70,6 +70,22 @@ export default function StockMovement() {
   const productId = params['*'] || undefined;
   const navigate = useNavigate();
 
+  // Esc → navigate back. The previous list page (Product List or Stock
+  // Report) restores its keyboard cursor from sessionStorage on mount,
+  // so the user lands back on the row they came from. We listen on the
+  // capture phase and fire even when an input has focus — typing-in-
+  // search-then-pressing-Esc is a natural "exit this page" gesture and
+  // matches the keyboard nav round-trip we built around it.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      navigate(-1);
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [navigate]);
+
   /* ── product picker ── */
   const [products, setProducts] = useState([]);
   const [loadingList, setLoadingList] = useState(false);

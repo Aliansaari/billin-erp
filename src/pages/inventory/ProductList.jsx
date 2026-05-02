@@ -265,25 +265,22 @@ export default function ProductList() {
     cols.stk && {
       key: 'stk', title: 'Stock', dataIndex: 'current_stock', width: 110, align: 'right',
       sorter: (a, b) => parseFloat(a.current_stock || 0) - parseFloat(b.current_stock || 0),
-      render: (v, p) => (
-        <span>
-          <span className={`qty-m${parseFloat(v || 0) === 0 ? ' zero' : ''}`}>{fmtQty(v)}</span>
-          <span className="qty-u" style={{ marginLeft: 4 }}>{p.unit_of_measurement || 'pcs'}</span>
-        </span>
+      render: (v) => (
+        <span className={`qty-m${parseFloat(v || 0) === 0 ? ' zero' : ''}`}>{fmtQty(v)}</span>
       ),
     },
     cols.tpur && {
       key: 'tpur', title: 'Total Pur.', dataIndex: 'total_purchased', width: 110, align: 'right',
       sorter: (a, b) => parseFloat(a.total_purchased || 0) - parseFloat(b.total_purchased || 0),
-      render: (v, p) => v != null
-        ? <span><span className="qty-m">{fmtQty(v)}</span><span className="qty-u" style={{ marginLeft: 4 }}>{p.unit_of_measurement || 'pcs'}</span></span>
+      render: (v) => v != null
+        ? <span className="qty-m">{fmtQty(v)}</span>
         : <span className="qty-m">—</span>,
     },
     cols.tsale && {
       key: 'tsale', title: 'Total Sold', dataIndex: 'total_sold', width: 110, align: 'right',
       sorter: (a, b) => parseFloat(a.total_sold || 0) - parseFloat(b.total_sold || 0),
-      render: (v, p) => v != null
-        ? <span><span className="qty-m">{fmtQty(v)}</span><span className="qty-u" style={{ marginLeft: 4 }}>{p.unit_of_measurement || 'pcs'}</span></span>
+      render: (v) => v != null
+        ? <span className="qty-m">{fmtQty(v)}</span>
         : <span className="qty-m">—</span>,
     },
     cols.pur && {
@@ -551,6 +548,12 @@ export default function ProductList() {
           })}
           summaryCells={cols.totalRow ? summaryCells : undefined}
           summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
+          // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens Stock
+          // Movement for the active product (matches click behaviour);
+          // Esc clears the cursor.
+          keyboardNav
+          persistKey="products"
+          onRowEnter={(row) => row?.product_id && navigate(`/stock-movement/${row.product_id}`)}
         />
       </div>
 

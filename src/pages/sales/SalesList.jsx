@@ -17,6 +17,9 @@ import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../servic
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import '../../styles/bill-list.css';
+// Pulled in solely for the `.sbf-drafts-*` editorial drafts-modal
+// classes so the Drafts dialog here matches the SalesBillForm version.
+import './sales-bill-form.css';
 
 // Optional columns the user can toggle via the Customize popover. Keys
 // match the state shape persisted to localStorage.
@@ -673,94 +676,125 @@ export default function SalesList() {
           rowClassName={(r) => r && r.is_cancelled ? 'blist-row-cancelled' : ''}
           summaryCells={cols.totalRow ? summaryCells : undefined}
           summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
+          // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens the
+          // sales-bill edit form for the active row; Esc clears the
+          // cursor (or, on the edit page, navigates back).
+          keyboardNav
+          persistKey="sales-list"
+          onRowEnter={(row) => row?.sales_bill_id && navigate(`/sale/edit/${row.sales_bill_id}`)}
         />
       </div>
 
       <ViewModal bill={viewBill} onClose={() => setViewBill(null)} />
 
-      {/* Drafts modal — list of held bills with Recall / Discard. */}
+      {/* Drafts modal — same editorial layout as the SalesBillForm
+          drafts panel so the operator sees a consistent UI whether
+          they open the dialog from the bill form (mid-bill) or from
+          the bill list. Reuses the `.sbf-drafts-*` classes from
+          sales-bill-form.css. */}
       <Modal
         open={draftsModalOpen}
         onCancel={() => setDraftsModalOpen(false)}
-        title={`Held drafts (${drafts.length})`}
+        title={
+          <div className="sbf-drafts-title">
+            <span className="sbf-chip">Drafts</span>
+            <span className="sbf-drafts-count">{drafts.length} held</span>
+          </div>
+        }
         footer={null}
-        width={840}
+        width="min(96vw, 1100px)"
+        className="sbf-drafts-modal"
+        styles={{ body: { padding: 0 } }}
       >
-        <div style={{ fontSize: 12, color: 'var(--fg-tertiary)', marginBottom: 12, lineHeight: 1.5 }}>
-          Drafts do <b>not</b> consume bill numbers, do <b>not</b> affect stock or party balances, and do <b>not</b>
-          appear in any GST report. Click <b>Recall</b> to resume a draft in the bill form.
-        </div>
         {drafts.length === 0 ? (
-          <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-tertiary)' }}>No drafts held.</div>
+          <div className="sbf-drafts-empty">
+            <div className="sbf-drafts-empty-icon">📋</div>
+            <div className="sbf-drafts-empty-main">No drafts held</div>
+          </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--fg-tertiary)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Draft #</th>
-                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Customer</th>
-                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Items</th>
-                <th style={{ textAlign: 'right', padding: '8px 6px' }}>Preview Total</th>
-                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Held by</th>
-                <th style={{ textAlign: 'left',  padding: '8px 6px' }}>Held at</th>
-                <th style={{ textAlign: 'right', padding: '8px 6px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {drafts.map(d => (
-                <tr key={d.draft_id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '10px 6px', fontWeight: 600 }}>{d.draft_number}</td>
-                  <td style={{ padding: '10px 6px' }}>{d.customer?.party_name || <span style={{ color: 'var(--fg-tertiary)', fontStyle: 'italic' }}>Walk-in</span>}</td>
-                  <td style={{ padding: '10px 6px' }}>
-                    {d.payload?.bill_mode === 'amount' ? (
-                      <Tag color="orange" style={{ marginRight: 0 }}>Amount</Tag>
-                    ) : (
-                      <span>{d.item_count || 0}</span>
-                    )}
-                  </td>
-                  <td style={{ padding: '10px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    ₹{parseFloat(d.total_preview || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td style={{ padding: '10px 6px', color: 'var(--fg-secondary)' }}>{d.creator?.username || '—'}</td>
-                  <td style={{ padding: '10px 6px', color: 'var(--fg-tertiary)', fontSize: 12 }}>
-                    {dayjs(d.created_date).format('DD MMM, HH:mm')}
-                  </td>
-                  <td style={{ padding: '10px 6px', textAlign: 'right' }}>
-                    <button
-                      onClick={() => {
-                        setDraftsModalOpen(false);
-                        navigate('/sale/new', { state: { recallDraft: d.draft_id } });
-                      }}
-                      style={{ padding: '4px 12px', border: '1px solid var(--accent-primary, #E26A4C)', background: 'var(--accent-primary, #E26A4C)', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', marginRight: 6 }}
-                    >
-                      <RollbackOutlined /> Recall
-                    </button>
-                    <button
-                      onClick={() => {
-                        Modal.confirm({
-                          title: `Discard ${d.draft_number}?`,
-                          content: 'This permanently deletes the draft. Cannot be undone.',
-                          okText: 'Discard',
-                          okType: 'danger',
-                          onOk: async () => {
-                            try {
-                              await salesDraftAPI.delete(d.draft_id);
-                              await loadDrafts();
-                              message.success(`${d.draft_number} discarded`);
-                            } catch (e) {
-                              message.error('Failed to discard: ' + (e.response?.data?.error || e.message));
-                            }
-                          },
-                        });
-                      }}
-                      style={{ padding: '4px 10px', border: '1px solid var(--border-subtle)', background: 'transparent', color: '#dc2626', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
-                    >
-                      <DeleteOutlined />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="sbf-drafts-table">
+            <div className="sbf-drafts-thead">
+              <span className="c-date">Date</span>
+              <span className="c-cust">Customer</span>
+              <span className="c-qty">Qty</span>
+              <span className="c-tot">Total</span>
+              <span className="c-user">User</span>
+              <span className="c-sm">Salesman</span>
+              <span className="c-act"></span>
+            </div>
+            <div className="sbf-drafts-tbody">
+              {drafts.map((d) => {
+                const isAmount = d.payload?.bill_mode === 'amount';
+                const totalQty = isAmount
+                  ? null
+                  : (d.payload?.items || []).reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0);
+                const dateObj = dayjs(d.created_date);
+                return (
+                  <div
+                    key={d.draft_id}
+                    className="sbf-drafts-tr"
+                    onDoubleClick={() => {
+                      setDraftsModalOpen(false);
+                      navigate('/sale/new', { state: { recallDraft: d.draft_id } });
+                    }}
+                  >
+                    <span className="c-date">
+                      <span className="c-date-d">{dateObj.format('DD MMM YYYY')}</span>
+                      <span className="c-date-t">{dateObj.format('HH:mm')}</span>
+                    </span>
+                    <span className="c-cust">
+                      {d.customer?.party_name || <span className="walk-in">Walk-in</span>}
+                      {isAmount && <span className="sbf-drafts-mode-tag amount">Amount</span>}
+                    </span>
+                    <span className="c-qty">
+                      {isAmount ? '—' : (totalQty % 1 === 0 ? totalQty : totalQty.toFixed(1))}
+                    </span>
+                    <span className="c-tot">
+                      ₹{parseFloat(d.total_preview || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                    <span className="c-user">{d.creator?.username || '—'}</span>
+                    <span className="c-sm">{d.payload?.salesman_name || '—'}</span>
+                    <span className="c-act">
+                      <button
+                        className="sbf-drafts-btn recall"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDraftsModalOpen(false);
+                          navigate('/sale/new', { state: { recallDraft: d.draft_id } });
+                        }}
+                      >
+                        <span className="sbf-drafts-btn-ico" aria-hidden>↩</span>
+                        <span>Recall</span>
+                      </button>
+                      <button
+                        className="sbf-drafts-btn discard"
+                        title="Discard draft"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          Modal.confirm({
+                            title: `Discard ${d.draft_number}?`,
+                            content: 'This permanently deletes the draft. Cannot be undone.',
+                            okText: 'Discard', okType: 'danger',
+                            onOk: async () => {
+                              try {
+                                await salesDraftAPI.delete(d.draft_id);
+                                await loadDrafts();
+                                message.success(`${d.draft_number} discarded`);
+                              } catch (err) {
+                                message.error('Failed to discard: ' + (err.response?.data?.error || err.message));
+                              }
+                            },
+                          });
+                        }}
+                      >
+                        Discard
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </Modal>
     </div>

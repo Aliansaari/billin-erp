@@ -168,7 +168,7 @@ export default function ProfitLoss() {
   // Per-section destinations:
   //   · Sales Account / Sales Return     →  /reports/sales
   //   · Purchase Account / Purchase Ret. →  /reports/purchases
-  //   · Opening Stock / Closing Stock    →  /reports/stock-summary
+  //   · Opening Stock / Closing Stock    →  /stock-report (inventory)
   //   · Anything else (Direct/Indirect Income/Expense ledgers, Round
   //     Off, Discount Allowed/Received)  →  /reports/day-book
   //
@@ -182,7 +182,7 @@ export default function ProfitLoss() {
 
   const drillSales    = useCallback(() => navigate(`/reports/sales?${periodQs()}`), [navigate, periodQs]);
   const drillPurchase = useCallback(() => navigate(`/reports/purchases?${periodQs()}`), [navigate, periodQs]);
-  const drillStock    = useCallback(() => navigate(`/reports/stock-summary`), [navigate]);
+  const drillStock    = useCallback(() => navigate(`/stock-report`), [navigate]);
 
   // Generic ledger drill — for ledgers without a dedicated report
   // (Round Off, Discount Allowed/Received, Direct/Indirect Income/

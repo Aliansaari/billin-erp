@@ -1,0 +1,149 @@
+/*
+ * Category List — editorial layout, sibling of Stock Report.
+ *
+ * Same shell, header, KPI strip and table-styling primitives as the
+ * Stock Report — uses theme tokens so it adapts to all four themes.
+ * `.cl-` prefix keeps the namespace clean (Stock Report keeps its own
+ * `.sr-` prefix; this file is independent so changes to one won't
+ * regress the other).
+ */
+
+.cl-page {
+  height: 100%;
+  display: flex; flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Page header ───────────────────────────────────────────────────── */
+.cl-hd {
+  flex-shrink: 0;
+  padding: 14px 24px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.cl-title h1 {
+  margin: 0;
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--fg-primary); line-height: 1;
+}
+.cl-ctrls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Header search — primary surface */
+.cl-search {
+  display: flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 12px;
+  background: var(--bg-elevated, var(--bg-panel));
+  border: 1px solid var(--border); border-radius: 8px;
+  width: 280px; transition: all .15s;
+}
+.cl-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.cl-search input {
+  flex: 1; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 13px; color: var(--fg-primary); font-weight: 500;
+}
+.cl-search input::placeholder { color: var(--fg-tertiary); font-weight: 500; }
+.cl-search .anticon { color: var(--fg-tertiary); }
+
+.cl-btn {
+  height: 34px; padding: 0 13px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 7px;
+  color: var(--fg-secondary); font: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  transition: all .12s;
+}
+.cl-btn:hover:not(:disabled) { border-color: var(--accent-border); color: var(--accent); }
+.cl-btn:disabled { opacity: .55; cursor: not-allowed; }
+.cl-btn.primary {
+  background: var(--accent); color: var(--fg-inverse, #fff); border-color: var(--accent);
+}
+.cl-btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--fg-inverse, #fff); }
+.cl-btn .anticon { font-size: 13px; }
+
+/* ── Table host (Antd Table inside) ────────────────────────────────── */
+.cl-tbl-wrap {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+}
+
+.cl-tbl-wrap .ant-table-wrapper,
+.cl-tbl-wrap .ant-table {
+  background: var(--bg-panel);
+  font-family: inherit;
+}
+.cl-tbl-wrap .ant-table-thead > tr > th {
+  background: var(--bg-muted) !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--fg-tertiary) !important;
+  font-size: 10.5px !important; font-weight: 700 !important;
+  letter-spacing: 0.5px !important; text-transform: uppercase;
+  white-space: nowrap;
+}
+.cl-tbl-wrap .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border-subtle) !important;
+  color: var(--fg-primary);
+  font-size: 13px;
+}
+.cl-tbl-wrap .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+
+/* Cell helpers */
+.cl-name {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 600; color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.cl-name.sub { font-weight: 500; color: var(--fg-secondary); }
+.cl-name .anticon { color: var(--accent); font-size: 14px; }
+.cl-name .indent { color: var(--fg-tertiary); font-size: 12px; margin-right: 2px; }
+
+.cl-code {
+  display: inline-block;
+  font-size: 11.5px; font-weight: 600; color: var(--fg-secondary);
+  background: var(--bg-muted); padding: 2px 7px; border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+
+.cl-parent-tag {
+  display: inline-block; font-size: 11.5px;
+  padding: 2px 8px; border-radius: 4px;
+  background: var(--bg-muted); color: var(--fg-secondary); font-weight: 500;
+}
+
+.cl-subcat-tag {
+  display: inline-block; font-size: 11.5px; font-weight: 700;
+  padding: 2px 8px; border-radius: 4px;
+  background: var(--success-bg); color: var(--success);
+  font-variant-numeric: tabular-nums;
+}
+
+.cl-muted { color: var(--fg-tertiary); font-weight: 500; }
+
+.cl-row-actions {
+  display: inline-flex; gap: 6px;
+}
+.cl-row-btn {
+  width: 28px; height: 28px; padding: 0;
+  background: transparent; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--fg-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .12s;
+}
+.cl-row-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.cl-row-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+.cl-row-btn .anticon { font-size: 13px; }
+
+/* Sub-category tint */
+.cl-tbl-wrap .cl-row-sub > td {
+  background: var(--bg-muted) !important;
+}
+.cl-tbl-wrap .cl-row-sub:hover > td {
+  background: var(--bg-hover) !important;
+}

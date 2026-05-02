@@ -1,4 +1,5 @@
-const { Category, Product, PurchaseBillItem, SalesBillItem } = require('../models');
+const { Op } = require('sequelize');
+const { Category, Product, PurchaseBillItem, SalesBillItem, PurchaseReturnBillItem, SalesReturnBillItem } = require('../models');
 
 // Whitelist of fields clients may send via POST/PUT. Blocks clients from
 // setting category_id directly or tampering with columns we may add later.
@@ -39,9 +40,20 @@ async function wouldCreateCycle(candidateId, parentId) {
 
 exports.getAll = async (req, res) => {
   try {
+    // Active-only by default. Deactivated rows must not appear in the
+    // tree — otherwise the UI shows a "deleted" category as if delete
+    // had failed. Both the top-level rows AND the nested subCategories
+    // include filter by is_active. The include is `required: false`
+    // (LEFT JOIN) so a top-level cat with no active sub-cats still
+    // shows up.
     const categories = await Category.findAll({
-      include: [{ model: Category, as: 'subCategories' }],
-      where: { parent_category_id: null },
+      where: { parent_category_id: null, is_active: true },
+      include: [{
+        model: Category,
+        as: 'subCategories',
+        where: { is_active: true },
+        required: false,
+      }],
       order: [['category_name', 'ASC']],
     });
     res.json(categories);
@@ -65,7 +77,7 @@ exports.getAllFlat = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { parent_category_id } = req.body;
+    const { parent_category_id, category_name } = req.body;
     // If a parent is specified, it must exist and be active. A newly-created
     // category cannot hang off a deactivated parent — that would orphan it
     // from the active tree.
@@ -78,6 +90,31 @@ exports.create = async (req, res) => {
         return res.status(400).json({ error: 'Parent category is inactive' });
       }
     }
+
+    // Inactive-ghost reclaim. The unique index on category_name doesn't
+    // distinguish active vs inactive rows, so a previously-soft-deleted
+    // category with the same name would otherwise block the create with
+    // "name already exists" — confusing because the user can't see it.
+    // If we find one, reactivate it (in place) so the user gets the row
+    // they expected without a fresh insert. Any new fields from req.body
+    // are applied so this acts like an upsert.
+    if (category_name) {
+      // Case-insensitive lookup so "Frock" matches a ghost stored as
+      // "frock" — the unique index is case-sensitive but reusing the
+      // ghost row regardless of casing matches user expectation.
+      const ghost = await Category.findOne({
+        where: { category_name: { [Op.iLike]: category_name }, is_active: false },
+      });
+      if (ghost) {
+        const safe = { is_active: true };
+        for (const k of CATEGORY_UPDATABLE_FIELDS) {
+          if (req.body[k] !== undefined) safe[k] = req.body[k];
+        }
+        await ghost.update(safe);
+        return res.status(201).json(ghost);
+      }
+    }
+
     const safe = {};
     for (const k of CATEGORY_UPDATABLE_FIELDS) {
       if (req.body[k] !== undefined) safe[k] = req.body[k];
@@ -149,28 +186,58 @@ exports.delete = async (req, res) => {
     const category = await Category.findByPk(req.params.id);
     if (!category) return res.status(404).json({ error: 'Category not found' });
 
-    // Block if any products in this category have transactions
-    const products = await Product.findAll({ where: { category_id: req.params.id } });
-    if (products.length > 0) {
-      const productIds = products.map(p => p.product_id);
+    // Anything pointing at this category — across products (any state),
+    // sub-categories (any state), and historical bill-item snapshots.
+    // We need this for both the FK-safety check below AND the hard-vs-
+    // soft delete decision. Bill-item categories are denormalised
+    // snapshots taken at sale time (so historical reports stay correct
+    // when a category is later renamed) — they FK back to categories.
+    const productCount = await Product.count({ where: { category_id: req.params.id } });
+    const subCount     = await Category.count({ where: { parent_category_id: req.params.id } });
+    const subActive    = await Category.count({ where: { parent_category_id: req.params.id, is_active: true } });
+    // Bill-item snapshots that FK back to categories. NOTE: purchase_bill_items
+    // only stores category_name (no category_id column on that table) so we
+    // skip it here — there's no FK to violate.
+    const itemCount    =
+      (await SalesBillItem.count({           where: { category_id: req.params.id } })) +
+      (await PurchaseReturnBillItem.count({ where: { category_id: req.params.id } })) +
+      (await SalesReturnBillItem.count({    where: { category_id: req.params.id } }));
+
+    // Block: real transactions on products in this category.
+    if (productCount > 0) {
+      const productIds = (await Product.findAll({
+        where: { category_id: req.params.id }, attributes: ['product_id'], raw: true,
+      })).map(p => p.product_id);
       const purchaseCount = await PurchaseBillItem.count({ where: { product_id: productIds } });
       const salesCount    = await SalesBillItem.count({   where: { product_id: productIds } });
-      const total = purchaseCount + salesCount;
-      if (total > 0) {
+      const txCount = purchaseCount + salesCount;
+      if (txCount > 0) {
         return res.status(400).json({
-          error: `Cannot deactivate "${category.category_name}" — it has ${products.length} product(s) with ${total} transaction(s). Reassign or deactivate the products first.`,
+          error: `Cannot deactivate "${category.category_name}" — it has ${productCount} product(s) with ${txCount} transaction(s). Reassign or deactivate the products first.`,
         });
       }
     }
 
-    // Also block if category has active sub-categories
-    const subCount = await Category.count({ where: { parent_category_id: req.params.id, is_active: true } });
-    if (subCount > 0) {
+    // Block: active sub-categories (matches the original guard).
+    if (subActive > 0) {
       return res.status(400).json({
-        error: `Cannot deactivate "${category.category_name}" — it has ${subCount} active sub-categorie(s). Deactivate them first.`,
+        error: `Cannot deactivate "${category.category_name}" — it has ${subActive} active sub-categorie(s). Deactivate them first.`,
       });
     }
 
+    // Hard-delete path: nothing references this row at all (no products,
+    // no sub-categories of any state, no historical bill items). Frees
+    // the unique-name slot so a fresh "Frock" can be created later
+    // without colliding with an inactive ghost.
+    if (productCount === 0 && subCount === 0 && itemCount === 0) {
+      await category.destroy();
+      return res.json({ message: 'Category deleted' });
+    }
+
+    // Soft-delete fallback: something still references the row, so we
+    // can't DELETE without an FK violation. Mark inactive instead. The
+    // category will hide from the picker (getAll filters by is_active)
+    // but the FK targets stay valid.
     await category.update({ is_active: false });
     res.json({ message: 'Category deactivated' });
   } catch (error) {
