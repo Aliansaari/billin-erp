@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trial Balance — Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+ *  Trial Balance — Editorial · TallyPrime-faithful, drill-by-page (in-file).
+ *
+ *  Two pages live in one file, swapped by body[data-page="tb"|"group"]:
+ *    1. Trial Balance       — primary groups + sub-groups, no leaf ledgers
+ *    2. Group Summary       — opens when user drills into a row, lists ledgers
+ *  Esc on the Group page returns to the Trial Balance.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-soft:     #FAF5E9;
+  --bg-strip:    #F1E9D6;
+  --bg-muted:    #F8F2E4;
+  --bg-hover:    #EEE6D3;
+
+  --ink:         #1D1A15;
+  --ink-2:       #5C5040;
+  --ink-3:       #8E8270;
+  --ink-4:       #BBAF98;
+  --ink-5:       #D7CDB8;
+  --rule:        #E5D9C0;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177, 71, 47, 0.10);
+
+  --dr:          #8F4A26;
+  --cr:          #657F50;
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-2:    #B2A791;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:#B1472F;
+  --sb-active-ink:#FDFAF2;
+
+  --sb-w: 224px;
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-panel:    #1A1713;
+  --bg-soft:     #15110D;
+  --bg-strip:    #1F1B16;
+  --bg-muted:    #14110D;
+  --bg-hover:    #24201B;
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --ink-5:       #3C3729;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+  --accent:      #E26A4C;
+  --accent-soft: rgba(226,106,76,0.14);
+  --dr:   #D58E5B;
+  --cr:   #94B885;
+  --sb-bg: #0B0807;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  min-height: 100vh;
+  font-variant-numeric: tabular-nums;
+  transition: background .25s, color .25s;
+}
+
+/* ══════════════ Sidebar ══════════════ */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 14px 10px 16px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  z-index: 20;
+  overflow-y: auto;
+}
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(245,238,226,0.10); border-radius: 3px; }
+.sb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 10px 14px;
+  border-bottom: 1px solid var(--sb-border);
+  margin-bottom: 8px;
+}
+.sb-brand-icon {
+  width: 26px; height: 26px; border-radius: 5px;
+  background: var(--accent); color: #FDFAF2;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 12px;
+}
+.sb-brand-name { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; color: #F5EEE2; }
+.sb-section {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--sb-ink-3);
+  padding: 12px 10px 4px;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 10px; border-radius: 5px;
+  font-size: 12.5px; cursor: pointer; margin-bottom: 1px;
+  color: var(--sb-ink);
+  transition: background .12s;
+}
+.sb-item:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-item .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-group { margin-bottom: 1px; }
+.sb-group-head {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 10px; border-radius: 5px;
+  font-size: 12.5px; cursor: pointer;
+  user-select: none; color: var(--sb-ink);
+  transition: background .12s;
+}
+.sb-group-head:hover { background: var(--sb-hover); }
+.sb-group-head.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+}
+.sb-group-head .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-group-head.active .ic, .sb-group-head.active .chev { color: var(--sb-active-ink); }
+.sb-group-head .label { flex: 1; }
+.sb-group-head .chev { font-size: 9px; color: var(--sb-ink-3); transition: transform .2s; }
+.sb-group.open > .sb-group-head .chev { transform: rotate(90deg); }
+.sb-group-children {
+  display: none;
+  padding: 2px 0 4px 8px;
+  border-left: 1px dashed var(--sb-border);
+  margin-left: 18px;
+}
+.sb-group.open > .sb-group-children { display: block; }
+.sb-leaf {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; margin-bottom: 1px;
+  border-radius: 4px;
+  font-size: 11.5px; color: var(--sb-ink-2);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.sb-leaf:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-leaf.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+}
+.sb-leaf .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--sb-ink-3); flex-shrink: 0; }
+.sb-spacer { flex: 1; min-height: 12px; }
+.sb-foot {
+  margin-top: auto;
+  padding: 12px 10px 4px;
+  border-top: 1px solid var(--sb-border);
+  display: flex; align-items: center; gap: 8px;
+}
+.sb-avatar {
+  width: 26px; height: 26px; border-radius: 5px;
+  background: rgba(245,238,226,0.10);
+  display: grid; place-items: center;
+  color: var(--sb-ink); font-weight: 600; font-size: 11px;
+  font-family: 'Fraunces', Georgia, serif;
+}
+.sb-foot-text { font-size: 11.5px; line-height: 1.25; min-width: 0; flex: 1; }
+.sb-foot-text b { color: #F5EEE2; font-weight: 600; display: block; }
+.sb-foot-text span { color: var(--sb-ink-3); font-size: 10.5px; }
+
+/* ══════════════ Page shell ══════════════ */
+.page {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* Show / hide whole pages based on body[data-page] */
+[data-page="tb"]    #page-group { display: none; }
+[data-page="group"] #page-tb    { display: none; }
+
+/* ── Title bar ── */
+.titlebar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px clamp(20px, 3vw, 36px) 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg);
+}
+.titlebar.compact { padding-top: 18px; padding-bottom: 14px; }
+
+/* ── Breadcrumb (only on group page) ── */
+.crumb {
+  display: flex; align-items: center; gap: 0;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.2px;
+  color: var(--ink-3);
+  margin-bottom: 5px;
+}
+.crumb a {
+  color: var(--ink-3);
+  text-decoration: none;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color .12s, background .12s;
+}
+.crumb a:hover { color: var(--accent); background: var(--bg-strip); }
+.crumb .sep { color: var(--ink-4); margin: 0 4px; }
+.crumb b {
+  color: var(--ink);
+  font-weight: 600;
+  padding: 2px 6px;
+  background: var(--accent-soft);
+  border-radius: 3px;
+}
+.crumb .back-hint {
+  margin-left: 12px;
+  padding: 2px 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font-size: 9.5px;
+  color: var(--ink-4);
+  font-weight: 500;
+}
+.crumb .back-hint kbd {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.tb-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+.tb-title h1 {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 24px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  line-height: 1;
+  white-space: nowrap;
+}
+.tb-title .meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.tb-title .meta b { color: var(--ink-2); font-weight: 600; }
+.tb-title .meta .sep { color: var(--ink-4); margin: 0 6px; }
+.tb-title .meta .as { color: var(--dr); font-weight: 600; }
+
+.tb-actions { display: flex; align-items: center; gap: 6px; }
+.btn {
+  height: 30px; padding: 0 11px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink-2);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.btn:hover { border-color: var(--ink-4); color: var(--ink); background: var(--bg-panel); }
+.btn .fk {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  color: var(--ink-4); letter-spacing: 0.4px;
+}
+.btn:hover .fk { color: var(--accent); }
+.btn.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn.on .fk { color: var(--accent); }
+.btn.icon { width: 30px; padding: 0; justify-content: center; }
+.btn svg { width: 13px; height: 13px; }
+
+.btn-back {
+  height: 30px;
+  padding: 0 11px 0 9px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink-2);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s, color .12s;
+}
+.btn-back:hover { border-color: var(--accent); color: var(--accent); }
+.btn-back .arr { font-size: 14px; line-height: 1; }
+
+.period {
+  display: inline-flex; align-items: center;
+  height: 30px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.period .lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 0 9px;
+  border-right: 1px solid var(--rule);
+  background: var(--bg-muted);
+  display: grid; place-items: center;
+  align-self: stretch;
+}
+.period .range {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink); font-weight: 500;
+  padding: 0 11px;
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer;
+}
+.period .range:hover { color: var(--accent); }
+.period .range .arrow-i { color: var(--ink-3); }
+.period .range .caret { color: var(--ink-3); margin-left: 4px; font-size: 9px; }
+
+.theme-toggle {
+  display: inline-flex; padding: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px; font-size: 11px;
+}
+.theme-toggle button {
+  padding: 3px 8px; border: none; background: transparent;
+  font-family: inherit; color: var(--ink-3);
+  cursor: pointer; border-radius: 4px;
+  font-weight: 500; transition: all .15s;
+  font-size: 11px;
+}
+.theme-toggle button:hover { color: var(--ink); }
+.theme-toggle button.on { background: var(--ink); color: var(--bg-panel); }
+
+/* ══════════════ Search row (group page) ══════════════ */
+.search-row {
+  flex-shrink: 0;
+  padding: 8px clamp(20px, 3vw, 36px);
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--bg-soft);
+}
+.search-wrap {
+  flex: 0 0 320px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  height: 30px;
+}
+.search-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.search-wrap .icon { color: var(--ink-3); font-size: 12px; }
+.search-wrap input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-family: inherit; font-size: 12px; color: var(--ink);
+}
+.search-wrap input::placeholder { color: var(--ink-3); }
+.search-wrap kbd {
+  font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--bg-strip); color: var(--ink-3);
+  border: 1px solid var(--rule);
+  font-weight: 500;
+}
+.sort-wrap {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+}
+.sort-wrap select {
+  font: inherit; font-size: 11.5px;
+  border: 1px solid var(--rule);
+  background: var(--bg-panel);
+  color: var(--ink);
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.sp { flex: 1; }
+
+/* ══════════════ Tables ══════════════ */
+.tb-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 clamp(20px, 3vw, 36px);
+}
+
+.tb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+.tb-table thead th {
+  position: sticky; top: 0; z-index: 4;
+  padding: 10px 14px;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: right;
+  background: var(--bg);
+  border-bottom: 1px solid var(--ink);
+  white-space: nowrap;
+}
+.tb-table thead th.l { text-align: left; }
+.tb-table thead th .sub {
+  display: block;
+  font-size: 9px; font-weight: 500;
+  color: var(--ink-4);
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+/* Group rows (5 primary groups, in TB) */
+.tb-table tr.tb-group { cursor: pointer; transition: background .1s; }
+.tb-table tr.tb-group:hover { background: var(--bg-soft); }
+.tb-table tr.tb-group:hover .arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.tb-table tr.tb-group td {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: middle;
+}
+.tb-table tr.tb-group .gh { display: flex; align-items: center; gap: 10px; }
+.tb-table tr.tb-group .name {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 14.5px;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+.tb-table tr.tb-group .meta {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 8px; font-weight: 500;
+}
+.tb-table tr.tb-group td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600; font-size: 13px;
+  color: var(--ink);
+}
+.tb-table tr.tb-group td.num.dr { color: var(--dr); }
+.tb-table tr.tb-group td.num.cr { color: var(--cr); }
+
+/* Sub-group rows (drill into Group Summary) */
+.tb-table tr.tb-sub { cursor: pointer; transition: background .1s; }
+.tb-table tr.tb-sub:hover { background: var(--bg-strip); }
+.tb-table tr.tb-sub:hover .arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.tb-table tr.tb-sub:hover .name { color: var(--accent); }
+.tb-table tr.tb-sub td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.tb-table tr.tb-sub .sh {
+  display: flex; align-items: center; gap: 10px;
+  padding-left: 24px;
+}
+.tb-table tr.tb-sub .name {
+  font-size: 13px; font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.05px;
+  transition: color .12s;
+}
+.tb-table tr.tb-sub .meta {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 4px;
+}
+.tb-table tr.tb-sub td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; color: var(--ink-2);
+  font-weight: 500;
+  text-align: right;
+}
+.tb-table tr.tb-sub td.num.dr { color: var(--dr); }
+.tb-table tr.tb-sub td.num.cr { color: var(--cr); }
+
+/* Ledger rows (Group Summary) */
+.tb-table tr.ledger { cursor: pointer; transition: background .1s; }
+.tb-table tr.ledger:hover { background: var(--bg-strip); }
+.tb-table tr.ledger:hover .arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.tb-table tr.ledger:hover .name { color: var(--accent); }
+.tb-table tr.ledger td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: middle;
+}
+.tb-table tr.ledger .lh { display: flex; align-items: baseline; gap: 8px; }
+.tb-table tr.ledger .name {
+  font-size: 13px; font-weight: 500;
+  color: var(--ink);
+  transition: color .12s;
+}
+.tb-table tr.ledger .pill {
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-transform: uppercase;
+}
+.tb-table tr.ledger .pill.system {
+  background: var(--bg-strip);
+  color: var(--ink-3);
+}
+.tb-table tr.ledger .meta {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 4px;
+  display: block;
+  margin-top: 2px;
+}
+.tb-table tr.ledger td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+.tb-table tr.ledger td.num.dr { color: var(--dr); }
+.tb-table tr.ledger td.num.cr { color: var(--cr); }
+.tb-table tr.ledger td.num.zero { color: var(--ink-5); font-weight: 400; }
+
+.arrow {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--ink-4);
+  opacity: 0;
+  transition: opacity .12s, color .12s, transform .12s;
+}
+
+/* Total row */
+.tb-table tr.tb-total td {
+  padding: 14px;
+  border-top: 1.5px solid var(--ink);
+  border-bottom: 1.5px double var(--ink);
+}
+.tb-table tr.tb-total .label {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 14px; font-weight: 700;
+  letter-spacing: 0.15px;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.tb-table tr.tb-total td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 700;
+  color: var(--ink); text-align: right;
+}
+.tb-table tr.tb-total td.num.dr { color: var(--dr); }
+.tb-table tr.tb-total td.num.cr { color: var(--cr); }
+
+/* ══════════════ F-key bar ══════════════ */
+.fbar {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 4px;
+  padding: 8px clamp(20px, 3vw, 36px);
+  border-top: 1px solid var(--rule);
+  background: var(--bg-panel);
+  font-size: 11px;
+  overflow-x: auto;
+}
+.fbar::-webkit-scrollbar { height: 4px; }
+.fbar::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 2px; }
+.fbar .fkey {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ink-2);
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.fbar .fkey:hover { background: var(--bg-hover); color: var(--ink); }
+.fbar .fkey kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  background: var(--bg-strip);
+  color: var(--accent);
+  padding: 2px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--rule);
+}
+.fbar .grow { flex: 1; }
+.fbar .meta {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+.fbar .meta b { color: var(--ink-2); font-weight: 600; }
+
+/* Hide columns based on view mode */
+[data-view="closing"] .col-opening,
+[data-view="closing"] .col-tx-dr,
+[data-view="closing"] .col-tx-cr { display: none; }
+
+@media print {
+  .sidebar, .tb-actions, .fbar, .search-row { display: none !important; }
+  .page { margin: 0; height: auto; }
+  .titlebar { padding: 8mm 0 4mm; }
+  .tb-scroll { overflow: visible; padding: 0; }
+  body { background: #fff; color: #000; }
+  .tb-table thead th { background: #fff; }
+}
+@media (max-width: 900px) {
+  .titlebar { grid-template-columns: 1fr; gap: 10px; }
+  .tb-actions { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body data-mode="light" data-view="closing" data-page="tb">
+
+<!-- ─────────── Sidebar ─────────── -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-brand-icon">⚡</div>
+    <div class="sb-brand-name">Billing ERP</div>
+  </div>
+
+  <div class="sb-section">General</div>
+  <div class="sb-item"><span class="ic">⊟</span> Dashboard</div>
+
+  <div class="sb-section">Transact</div>
+  <div class="sb-item"><span class="ic">+</span> New sales bill</div>
+  <div class="sb-item"><span class="ic">≡</span> Sales list</div>
+  <div class="sb-item"><span class="ic">+</span> New purchase bill</div>
+  <div class="sb-item"><span class="ic">≡</span> Purchase list</div>
+  <div class="sb-item"><span class="ic">₹</span> Receipts &amp; payments</div>
+
+  <div class="sb-section">Masters</div>
+  <div class="sb-item"><span class="ic">●</span> Customers</div>
+  <div class="sb-item"><span class="ic">●</span> Suppliers</div>
+  <div class="sb-item"><span class="ic">□</span> Products</div>
+
+  <div class="sb-section">Insight</div>
+  <div class="sb-group open">
+    <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open')">
+      <span class="ic">≋</span>
+      <span class="label">Reports</span>
+      <span class="chev">▸</span>
+    </div>
+    <div class="sb-group-children">
+      <div class="sb-group open" style="margin-bottom:0">
+        <div class="sb-group-head active" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()" style="padding:5px 10px;font-size:11px">
+          <span class="ic" style="font-size:8px">▢</span>
+          <span class="label">Financial</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+          <div class="sb-leaf"><span class="dot"></span> Day Book</div>
+          <div class="sb-leaf"><span class="dot"></span> Profit &amp; Loss</div>
+          <div class="sb-leaf"><span class="dot"></span> Balance Sheet</div>
+          <div class="sb-leaf active"><span class="dot"></span> Trial Balance</div>
+          <div class="sb-leaf"><span class="dot"></span> Cash Flow</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+
+  <div class="sb-spacer"></div>
+  <div class="sb-foot">
+    <div class="sb-avatar">A</div>
+    <div class="sb-foot-text">
+      <b>Ali Ansari</b>
+      <span>Admin · Acme Traders</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 1: Trial Balance
+════════════════════════════════════════════════════════════════════ -->
+<main class="page" id="page-tb">
+  <div class="titlebar compact">
+    <div class="tb-title">
+      <h1>Trial Balance</h1>
+      <span class="meta">
+        <b>Acme Traders</b>
+        <span class="sep">·</span>
+        1-Apr-2025 to 31-Mar-2026
+        <span class="sep">·</span>
+        <b>147</b> ledgers
+      </span>
+    </div>
+    <div class="tb-actions">
+      <div class="period">
+        <span class="lbl">FY 25–26</span>
+        <span class="range">
+          1-Apr-25 <span class="arrow-i">→</span> 31-Mar-26 <span class="caret">▾</span>
+        </span>
+      </div>
+      <button class="btn on" onclick="setView('closing')" id="btn-closing"><span class="fk">F5</span> Condensed</button>
+      <button class="btn" onclick="setView('tally')" id="btn-tally"><span class="fk">F5</span> Detailed</button>
+      <button class="btn icon" title="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+      <button class="btn icon" title="Excel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+      <div class="theme-toggle">
+        <button class="on" onclick="setMode('light',this)">☀</button>
+        <button onclick="setMode('dark',this)">☾</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tb-scroll">
+    <table class="tb-table">
+      <thead>
+        <tr>
+          <th class="l" style="min-width:340px">Particulars</th>
+          <th class="col-opening" style="width:150px">Opening Balance<span class="sub">as on 1-Apr-25</span></th>
+          <th class="col-tx-dr"   style="width:150px">Transactions<span class="sub">Debit</span></th>
+          <th class="col-tx-cr"   style="width:150px">Transactions<span class="sub">Credit</span></th>
+          <th style="width:160px">Closing Balance<span class="sub">Debit</span></th>
+          <th style="width:160px">Closing Balance<span class="sub">Credit</span></th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <!-- ASSETS -->
+        <tr class="tb-group" onclick="openGroup('Assets', 'Reports', '5 sub-groups · 78 ledgers', 'dr', '64,42,014.00')">
+          <td class="l"><div class="gh"><span class="name">Assets</span><span class="meta">5 sub-groups · 78 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num dr">47,21,000.00</td>
+          <td class="col-tx-dr num dr">2,18,40,221.00</td>
+          <td class="col-tx-cr num cr">2,01,19,207.00</td>
+          <td class="num dr">64,42,014.00</td>
+          <td class="num"></td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Sundry Debtors', 'Assets', '62 ledgers', 'dr', '31,91,411.00')">
+          <td class="l"><div class="sh"><span class="name">Sundry Debtors</span><span class="meta">62 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num dr">18,40,200.00</td>
+          <td class="col-tx-dr num dr">1,42,18,400.00</td>
+          <td class="col-tx-cr num cr">1,28,67,189.00</td>
+          <td class="num dr">31,91,411.00</td>
+          <td class="num"></td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Bank Accounts', 'Assets', '3 ledgers', 'dr', '15,07,400.00')">
+          <td class="l"><div class="sh"><span class="name">Bank Accounts</span><span class="meta">3 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num dr">8,42,000.00</td>
+          <td class="col-tx-dr num dr">38,84,200.00</td>
+          <td class="col-tx-cr num cr">32,18,800.00</td>
+          <td class="num dr">15,07,400.00</td>
+          <td class="num"></td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Cash-in-Hand', 'Assets', '2 ledgers', 'dr', '2,48,200.00')">
+          <td class="l"><div class="sh"><span class="name">Cash-in-Hand</span><span class="meta">2 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num dr">1,18,400.00</td>
+          <td class="col-tx-dr num dr">18,42,300.00</td>
+          <td class="col-tx-cr num cr">17,12,500.00</td>
+          <td class="num dr">2,48,200.00</td>
+          <td class="num"></td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Stock-in-Hand', 'Assets', '1 ledger · 3 godowns', 'dr', '11,75,000.00')">
+          <td class="l"><div class="sh"><span class="name">Stock-in-Hand</span><span class="meta">1 ledger · 3 godowns</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num dr">18,12,000.00</td>
+          <td class="col-tx-dr num"></td>
+          <td class="col-tx-cr num"></td>
+          <td class="num dr">11,75,000.00</td>
+          <td class="num"></td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Loans &amp; Advances (Asset)', 'Assets', '10 ledgers', 'dr', '3,00,003.00')">
+          <td class="l"><div class="sh"><span class="name">Loans &amp; Advances (Asset)</span><span class="meta">10 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num dr">1,08,400.00</td>
+          <td class="col-tx-dr num dr">18,95,321.00</td>
+          <td class="col-tx-cr num cr">17,03,718.00</td>
+          <td class="num dr">3,00,003.00</td>
+          <td class="num"></td>
+        </tr>
+
+        <!-- LIABILITIES -->
+        <tr class="tb-group" onclick="openGroup('Liabilities', 'Reports', '4 sub-groups · 31 ledgers', 'cr', '40,42,500.00')">
+          <td class="l"><div class="gh"><span class="name">Liabilities</span><span class="meta">4 sub-groups · 31 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num cr">28,12,000.00</td>
+          <td class="col-tx-dr num dr">1,18,42,300.00</td>
+          <td class="col-tx-cr num cr">1,30,72,800.00</td>
+          <td class="num"></td>
+          <td class="num cr">40,42,500.00</td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Sundry Creditors', 'Liabilities', '22 ledgers', 'cr', '21,58,500.00')">
+          <td class="l"><div class="sh"><span class="name">Sundry Creditors</span><span class="meta">22 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num cr">14,28,000.00</td>
+          <td class="col-tx-dr num dr">84,12,300.00</td>
+          <td class="col-tx-cr num cr">91,42,800.00</td>
+          <td class="num"></td>
+          <td class="num cr">21,58,500.00</td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Duties &amp; Taxes', 'Liabilities', '7 ledgers', 'cr', '13,08,500.00')">
+          <td class="l"><div class="sh"><span class="name">Duties &amp; Taxes</span><span class="meta">7 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num cr">8,42,000.00</td>
+          <td class="col-tx-dr num dr">24,18,300.00</td>
+          <td class="col-tx-cr num cr">28,84,800.00</td>
+          <td class="num"></td>
+          <td class="num cr">13,08,500.00</td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Loans (Liability)', 'Liabilities', '2 ledgers', 'cr', '4,75,000.00')">
+          <td class="l"><div class="sh"><span class="name">Loans (Liability)</span><span class="meta">2 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num cr">4,42,000.00</td>
+          <td class="col-tx-dr num dr">9,12,200.00</td>
+          <td class="col-tx-cr num cr">9,45,200.00</td>
+          <td class="num"></td>
+          <td class="num cr">4,75,000.00</td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Provisions', 'Liabilities', '0 active', 'cr', '1,00,500.00')">
+          <td class="l"><div class="sh"><span class="name">Provisions</span><span class="meta">0 active</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num cr">1,00,000.00</td>
+          <td class="col-tx-dr num dr">99,500.00</td>
+          <td class="col-tx-cr num cr">1,00,000.00</td>
+          <td class="num"></td>
+          <td class="num cr">1,00,500.00</td>
+        </tr>
+
+        <!-- INCOME -->
+        <tr class="tb-group" onclick="openGroup('Income', 'Reports', '2 sub-groups · 8 ledgers', 'cr', '24,50,000.00')">
+          <td class="l"><div class="gh"><span class="name">Income</span><span class="meta">2 sub-groups · 8 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num"></td>
+          <td class="col-tx-dr num dr">18,400.00</td>
+          <td class="col-tx-cr num cr">24,68,400.00</td>
+          <td class="num"></td>
+          <td class="num cr">24,50,000.00</td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Sales Account', 'Income', '5 GST tiers', 'cr', '22,65,800.00')">
+          <td class="l"><div class="sh"><span class="name">Sales Account</span><span class="meta">5 GST tiers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num"></td>
+          <td class="col-tx-dr num dr">18,400.00</td>
+          <td class="col-tx-cr num cr">22,84,200.00</td>
+          <td class="num"></td>
+          <td class="num cr">22,65,800.00</td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Indirect Income', 'Income', '3 ledgers', 'cr', '1,84,200.00')">
+          <td class="l"><div class="sh"><span class="name">Indirect Income</span><span class="meta">3 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num"></td>
+          <td class="col-tx-dr num"></td>
+          <td class="col-tx-cr num cr">1,84,200.00</td>
+          <td class="num"></td>
+          <td class="num cr">1,84,200.00</td>
+        </tr>
+
+        <!-- EXPENSES -->
+        <tr class="tb-group" onclick="openGroup('Expenses', 'Reports', '3 sub-groups · 24 ledgers', 'dr', '18,90,000.00')">
+          <td class="l"><div class="gh"><span class="name">Expenses</span><span class="meta">3 sub-groups · 24 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num"></td>
+          <td class="col-tx-dr num dr">19,12,400.00</td>
+          <td class="col-tx-cr num cr">22,400.00</td>
+          <td class="num dr">18,90,000.00</td>
+          <td class="num"></td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Direct Expenses', 'Expenses', '8 ledgers', 'dr', '14,72,000.00')">
+          <td class="l"><div class="sh"><span class="name">Direct Expenses</span><span class="meta">8 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num"></td>
+          <td class="col-tx-dr num dr">14,84,200.00</td>
+          <td class="col-tx-cr num cr">12,200.00</td>
+          <td class="num dr">14,72,000.00</td>
+          <td class="num"></td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Indirect Expenses', 'Expenses', '14 ledgers', 'dr', '4,09,000.00')">
+          <td class="l"><div class="sh"><span class="name">Indirect Expenses</span><span class="meta">14 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num"></td>
+          <td class="col-tx-dr num dr">4,18,200.00</td>
+          <td class="col-tx-cr num cr">9,200.00</td>
+          <td class="num dr">4,09,000.00</td>
+          <td class="num"></td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Bank Charges &amp; Interest', 'Expenses', '2 ledgers', 'dr', '9,000.00')">
+          <td class="l"><div class="sh"><span class="name">Bank Charges &amp; Interest</span><span class="meta">2 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num"></td>
+          <td class="col-tx-dr num dr">10,000.00</td>
+          <td class="col-tx-cr num cr">1,000.00</td>
+          <td class="num dr">9,000.00</td>
+          <td class="num"></td>
+        </tr>
+
+        <!-- CAPITAL -->
+        <tr class="tb-group" onclick="openGroup('Capital Account', 'Reports', '2 sub-groups · 6 ledgers', 'cr', '19,38,500.00')">
+          <td class="l"><div class="gh"><span class="name">Capital Account</span><span class="meta">2 sub-groups · 6 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num cr">12,00,000.00</td>
+          <td class="col-tx-dr num dr">3,42,000.00</td>
+          <td class="col-tx-cr num cr">10,80,500.00</td>
+          <td class="num"></td>
+          <td class="num cr">19,38,500.00</td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup(&quot;Owner's Capital&quot;, 'Capital Account', '2 ledgers', 'cr', '13,00,500.00')">
+          <td class="l"><div class="sh"><span class="name">Owner's Capital</span><span class="meta">2 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num cr">10,00,000.00</td>
+          <td class="col-tx-dr num dr">2,42,000.00</td>
+          <td class="col-tx-cr num cr">5,42,500.00</td>
+          <td class="num"></td>
+          <td class="num cr">13,00,500.00</td>
+        </tr>
+        <tr class="tb-sub" onclick="openGroup('Reserves &amp; Surplus', 'Capital Account', '4 ledgers', 'cr', '6,38,000.00')">
+          <td class="l"><div class="sh"><span class="name">Reserves &amp; Surplus</span><span class="meta">4 ledgers</span><span class="arrow">→</span></div></td>
+          <td class="col-opening num cr">2,00,000.00</td>
+          <td class="col-tx-dr num dr">1,00,000.00</td>
+          <td class="col-tx-cr num cr">5,38,000.00</td>
+          <td class="num"></td>
+          <td class="num cr">6,38,000.00</td>
+        </tr>
+
+        <tr class="tb-total">
+          <td class="l"><span class="label">Grand Total</span></td>
+          <td class="col-opening num"></td>
+          <td class="col-tx-dr num dr">3,59,75,545.00</td>
+          <td class="col-tx-cr num cr">3,59,75,545.00</td>
+          <td class="num dr">1,67,81,014.00</td>
+          <td class="num cr">1,67,81,014.00</td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <div class="fbar">
+    <span class="fkey"><kbd>F2</kbd> Period</span>
+    <span class="fkey"><kbd>F4</kbd> Group</span>
+    <span class="fkey"><kbd>F5</kbd> Detailed / Condensed</span>
+    <span class="fkey"><kbd>Ctrl+F</kbd> Search</span>
+    <span class="fkey"><kbd>Enter</kbd> Drill into group</span>
+    <span class="fkey"><kbd>Esc</kbd> Back</span>
+    <span class="grow"></span>
+    <span class="meta">As on <b>31-Mar-26</b> · 6,612 entries · refreshed just now</span>
+  </div>
+</main>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 2: Group Summary  (drilled from any sub-group click)
+════════════════════════════════════════════════════════════════════ -->
+<main class="page" id="page-group">
+  <div class="titlebar">
+    <div>
+      <div class="crumb">
+        <a onclick="goBack()" title="Back to Trial Balance">← Trial Balance</a>
+        <span class="sep">/</span>
+        <a onclick="goBack()" id="crumb-parent">Assets</a>
+        <span class="sep">/</span>
+        <b id="crumb-leaf">Sundry Debtors</b>
+        <span class="back-hint">Press <kbd>Esc</kbd> to go back</span>
+      </div>
+      <div class="tb-title">
+        <h1 id="g-title">Sundry Debtors</h1>
+        <span class="meta">
+          <b id="g-count">62 ledgers</b>
+          <span class="sep">·</span>
+          <b>Acme Traders</b>
+          <span class="sep">·</span>
+          1-Apr-2025 to 31-Mar-2026
+          <span class="sep">·</span>
+          Closing <span class="as" id="g-closing">Dr 31,91,411.00</span>
+        </span>
+      </div>
+    </div>
+    <div class="tb-actions">
+      <button class="btn-back" onclick="goBack()" title="Back · Esc"><span class="arr">←</span> Back</button>
+      <div class="period">
+        <span class="lbl">FY 25–26</span>
+        <span class="range">1-Apr-25 → 31-Mar-26 <span class="caret">▾</span></span>
+      </div>
+      <button class="btn on" onclick="setView('closing')" id="btn-closing-g"><span class="fk">F5</span> Condensed</button>
+      <button class="btn" onclick="setView('tally')" id="btn-tally-g"><span class="fk">F5</span> Detailed</button>
+      <button class="btn icon" title="Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+      <button class="btn icon" title="Excel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+      <div class="theme-toggle">
+        <button class="on" onclick="setMode('light',this)">☀</button>
+        <button onclick="setMode('dark',this)">☾</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="search-row">
+    <div class="search-wrap">
+      <span class="icon">⌕</span>
+      <input placeholder="Filter ledgers in this group…">
+      <kbd>⌘ F</kbd>
+    </div>
+    <div class="sort-wrap">
+      Sort
+      <select>
+        <option>Closing balance (high → low)</option>
+        <option>Alphabetical</option>
+        <option>Last entry (recent first)</option>
+        <option>Opening balance</option>
+      </select>
+    </div>
+    <span class="sp"></span>
+    <span style="font-size:11px;color:var(--ink-3);font-family:'JetBrains Mono',monospace">
+      <b id="g-count-2" style="color:var(--ink-2)">62</b> ledgers · total <b style="color:var(--dr)" id="g-total-inline">Dr 31,91,411.00</b>
+    </span>
+  </div>
+
+  <div class="tb-scroll">
+    <table class="tb-table">
+      <thead>
+        <tr>
+          <th class="l" style="min-width:340px">Particulars</th>
+          <th class="col-opening" style="width:150px">Opening Balance<span class="sub">as on 1-Apr-25</span></th>
+          <th class="col-tx-dr"   style="width:150px">Transactions<span class="sub">Debit</span></th>
+          <th class="col-tx-cr"   style="width:150px">Transactions<span class="sub">Credit</span></th>
+          <th style="width:160px">Closing Balance<span class="sub">Debit</span></th>
+          <th style="width:160px">Closing Balance<span class="sub">Credit</span></th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <tr class="ledger" onclick="openLedger('Jain Dresses')">
+          <td class="l">
+            <div class="lh"><span class="name">Jain Dresses</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Mumbai, MH · 9353 087 817 · GSTIN 27AAACS1234R1Z2</span>
+          </td>
+          <td class="col-opening num dr">2,12,400.00</td>
+          <td class="col-tx-dr num dr">14,84,200.00</td>
+          <td class="col-tx-cr num cr">7,12,189.00</td>
+          <td class="num dr">9,84,411.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Textiles Dresses')">
+          <td class="l">
+            <div class="lh"><span class="name">Textiles Dresses</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Delhi, DL · 9876 543 210 · GSTIN 07BBBBT5678P1Z9</span>
+          </td>
+          <td class="col-opening num dr">1,84,000.00</td>
+          <td class="col-tx-dr num dr">11,42,300.00</td>
+          <td class="col-tx-cr num cr">4,95,309.00</td>
+          <td class="num dr">8,30,991.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Ishaan Fabrics')">
+          <td class="l">
+            <div class="lh"><span class="name">Ishaan Fabrics</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Pune, MH · 8127 772 220 · GSTIN 27CCCCI9012K1Z1</span>
+          </td>
+          <td class="col-opening num dr">1,42,200.00</td>
+          <td class="col-tx-dr num dr">9,86,500.00</td>
+          <td class="col-tx-cr num cr">3,11,830.00</td>
+          <td class="num dr">8,16,870.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Hasibur Rahman Ansari')">
+          <td class="l">
+            <div class="lh"><span class="name">Hasibur Rahman Ansari</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Bengaluru, KA · 9844 103 222 · GSTIN 29DDDDH3456L1Z4</span>
+          </td>
+          <td class="col-opening num dr">84,500.00</td>
+          <td class="col-tx-dr num dr">7,12,800.00</td>
+          <td class="col-tx-cr num cr">2,54,180.00</td>
+          <td class="num dr">5,43,120.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Manjunatha Ishwara Naik')">
+          <td class="l">
+            <div class="lh"><span class="name">Manjunatha Ishwara Naik</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Hubballi, KA · 9631 082 417 · GSTIN 29EEEEM7890N1Z6</span>
+          </td>
+          <td class="col-opening num dr">41,200.00</td>
+          <td class="col-tx-dr num dr">4,12,800.00</td>
+          <td class="col-tx-cr num cr">1,99,601.00</td>
+          <td class="num dr">2,54,399.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('SY Kids Wear')">
+          <td class="l">
+            <div class="lh"><span class="name">SY Kids Wear</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Hyderabad, TG · 9912 437 891 · GSTIN 36FFFFS2345T1Z3</span>
+          </td>
+          <td class="col-opening num dr">38,400.00</td>
+          <td class="col-tx-dr num dr">3,84,200.00</td>
+          <td class="col-tx-cr num cr">1,98,600.00</td>
+          <td class="num dr">2,24,000.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Rahul Satle')">
+          <td class="l">
+            <div class="lh"><span class="name">Rahul Satle</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Indore, MP · 9826 116 220 · GSTIN 23GGGGR9876J1Z2</span>
+          </td>
+          <td class="col-opening num dr">28,200.00</td>
+          <td class="col-tx-dr num dr">3,12,400.00</td>
+          <td class="col-tx-cr num cr">1,42,600.00</td>
+          <td class="num dr">1,98,000.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Tulja Bhawani Co.')">
+          <td class="l">
+            <div class="lh"><span class="name">Tulja Bhawani Co.</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Solapur, MH · 9923 884 110 · GSTIN 27HHHHT4567L1Z8</span>
+          </td>
+          <td class="col-opening num dr">21,400.00</td>
+          <td class="col-tx-dr num dr">2,42,800.00</td>
+          <td class="col-tx-cr num cr">1,15,400.00</td>
+          <td class="num dr">1,48,800.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Rohit Garments')">
+          <td class="l">
+            <div class="lh"><span class="name">Rohit Garments</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Nashik, MH · 9763 421 008 · GSTIN 27IIIIR1234M1Z5</span>
+          </td>
+          <td class="col-opening num dr">14,800.00</td>
+          <td class="col-tx-dr num dr">1,84,200.00</td>
+          <td class="col-tx-cr num cr">86,400.00</td>
+          <td class="num dr">1,12,600.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Shree Textiles')">
+          <td class="l">
+            <div class="lh"><span class="name">Shree Textiles &amp; Co.</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Vijayawada, AP · 9440 887 213 · GSTIN 37JJJJS5678X1Z9</span>
+          </td>
+          <td class="col-opening num dr">11,200.00</td>
+          <td class="col-tx-dr num dr">1,42,400.00</td>
+          <td class="col-tx-cr num cr">62,400.00</td>
+          <td class="num dr">91,200.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Aakash Traders')">
+          <td class="l">
+            <div class="lh"><span class="name">Aakash Traders</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Surat, GJ · 9512 779 800 · GSTIN 24KKKKA9876B1Z3</span>
+          </td>
+          <td class="col-opening num dr">8,400.00</td>
+          <td class="col-tx-dr num dr">98,200.00</td>
+          <td class="col-tx-cr num cr">42,800.00</td>
+          <td class="num dr">63,800.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Kishan Cloth Stores')">
+          <td class="l">
+            <div class="lh"><span class="name">Kishan Cloth Stores</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Jaipur, RJ · 9314 882 010 · GSTIN 08LLLLK3456N1Z7</span>
+          </td>
+          <td class="col-opening num dr">6,200.00</td>
+          <td class="col-tx-dr num dr">84,400.00</td>
+          <td class="col-tx-cr num cr">36,200.00</td>
+          <td class="num dr">54,400.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger" onclick="openLedger('Priya Fashion Hub')">
+          <td class="l">
+            <div class="lh"><span class="name">Priya Fashion Hub</span><span class="pill">Party</span><span class="arrow">→</span></div>
+            <span class="meta">Kochi, KL · 9846 213 008 · GSTIN 32MMMMP7890Q1Z2</span>
+          </td>
+          <td class="col-opening num dr">4,200.00</td>
+          <td class="col-tx-dr num dr">62,300.00</td>
+          <td class="col-tx-cr num cr">28,800.00</td>
+          <td class="num dr">37,700.00</td>
+          <td class="num zero"></td>
+        </tr>
+        <tr class="ledger">
+          <td class="l">
+            <div class="lh"><span class="name" style="color:var(--ink-3);font-style:italic">… 49 more ledgers</span><span class="arrow">→</span></div>
+            <span class="meta">Click to expand · or use the search filter above</span>
+          </td>
+          <td class="col-opening num dr">10,45,300.00</td>
+          <td class="col-tx-dr num dr">93,82,000.00</td>
+          <td class="col-tx-cr num cr">1,03,90,879.00</td>
+          <td class="num dr">−9,69,879.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="tb-total">
+          <td class="l"><span class="label" id="g-tot-label">Group Total — Sundry Debtors</span></td>
+          <td class="col-opening num dr">18,40,200.00</td>
+          <td class="col-tx-dr num dr">1,42,18,400.00</td>
+          <td class="col-tx-cr num cr">1,28,67,189.00</td>
+          <td class="num dr">31,91,411.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <div class="fbar">
+    <span class="fkey" onclick="goBack()"><kbd>Esc</kbd> Back to Trial Balance</span>
+    <span class="fkey"><kbd>F2</kbd> Period</span>
+    <span class="fkey"><kbd>F5</kbd> Detailed / Condensed</span>
+    <span class="fkey"><kbd>⌘ F</kbd> Filter</span>
+    <span class="fkey"><kbd>Enter</kbd> Drill into ledger</span>
+    <span class="grow"></span>
+    <span class="meta" id="g-foot-meta">As on <b>31-Mar-26</b> · 62 ledgers · 1,968 entries</span>
+  </div>
+</main>
+
+<script>
+  // ── In-file page swap (TallyPrime "Enter" pattern, no real navigation) ──
+  function openGroup(name, parent, count, drcr, amount) {
+    document.getElementById('g-title').textContent = name;
+    document.getElementById('crumb-leaf').textContent = name;
+    document.getElementById('crumb-parent').textContent = parent;
+    document.getElementById('g-count').textContent = count;
+    document.getElementById('g-count-2').textContent = (count.match(/\d+/) || ['—'])[0];
+    const closing = (drcr === 'dr' ? 'Dr ' : 'Cr ') + amount;
+    document.getElementById('g-closing').textContent = closing;
+    document.getElementById('g-closing').style.color = drcr === 'dr' ? 'var(--dr)' : 'var(--cr)';
+    document.getElementById('g-total-inline').textContent = closing;
+    document.getElementById('g-total-inline').style.color = drcr === 'dr' ? 'var(--dr)' : 'var(--cr)';
+    document.getElementById('g-tot-label').textContent = 'Group Total — ' + name;
+    document.title = name + ' — Group Summary · Editorial';
+    document.body.dataset.page = 'group';
+    window.scrollTo(0, 0);
+  }
+
+  function goBack() {
+    document.body.dataset.page = 'tb';
+    document.title = 'Trial Balance — Editorial';
+    window.scrollTo(0, 0);
+  }
+
+  function openLedger(name) {
+    // In real app this routes to /reports/party-ledger?ledger_id=...
+    alert('Drill into ledger: ' + name + '\n\n(In production this opens the Party Ledger view.)');
+  }
+
+  // ── View mode swap ──
+  function setView(v) {
+    document.body.dataset.view = v;
+    ['btn-closing','btn-closing-g'].forEach(id => document.getElementById(id)?.classList.toggle('on', v === 'closing'));
+    ['btn-tally','btn-tally-g'].forEach(id => document.getElementById(id)?.classList.toggle('on', v === 'tally'));
+  }
+
+  // ── Theme toggle ──
+  function setMode(m, btn) {
+    document.body.dataset.mode = m;
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+  }
+
+  // ── Keyboard ──
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.dataset.page === 'group') {
+      e.preventDefault(); goBack();
+    }
+    if (e.key === 'F5') {
+      e.preventDefault();
+      setView(document.body.dataset.view === 'closing' ? 'tally' : 'closing');
+    }
+  });
+</script>
+
+</body>
+</html>

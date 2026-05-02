@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Group Summary — Sundry Debtors · Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+ *  Group Summary — opened by drilling into a row from the Trial Balance.
+ *  TallyPrime parallel: "Group Summary" / "Group Vouchers" page.
+ *
+ *  Same shell, same column structure as the Trial Balance — but scoped to
+ *  ONE group/sub-group, listing the ledgers under it. Click a ledger row →
+ *  ledger-detail page (party ledger or system ledger). Esc / Back returns
+ *  to the Trial Balance.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg:          #F5EFE3;
+  --bg-panel:    #FDFAF2;
+  --bg-soft:     #FAF5E9;
+  --bg-strip:    #F1E9D6;
+  --bg-muted:    #F8F2E4;
+  --bg-hover:    #EEE6D3;
+
+  --ink:         #1D1A15;
+  --ink-2:       #5C5040;
+  --ink-3:       #8E8270;
+  --ink-4:       #BBAF98;
+  --ink-5:       #D7CDB8;
+  --rule:        #E5D9C0;
+  --rule-soft:   #ECE2CD;
+
+  --accent:      #B1472F;
+  --accent-hover:#8B2E1F;
+  --accent-soft: rgba(177, 71, 47, 0.10);
+
+  --dr:          #8F4A26;
+  --cr:          #657F50;
+
+  --sb-bg:       #1D1814;
+  --sb-border:   #2C2821;
+  --sb-ink:      #E8DFC9;
+  --sb-ink-2:    #B2A791;
+  --sb-ink-3:    #8A7F6C;
+  --sb-hover:    rgba(245,238,226,0.06);
+  --sb-active-bg:#B1472F;
+  --sb-active-ink:#FDFAF2;
+
+  --sb-w: 224px;
+}
+
+[data-mode="dark"] {
+  --bg:          #0E0B08;
+  --bg-panel:    #1A1713;
+  --bg-soft:     #15110D;
+  --bg-strip:    #1F1B16;
+  --bg-muted:    #14110D;
+  --bg-hover:    #24201B;
+  --ink:         #F5EEE2;
+  --ink-2:       #B2A791;
+  --ink-3:       #8A7F6C;
+  --ink-4:       #55503F;
+  --ink-5:       #3C3729;
+  --rule:        #2E2922;
+  --rule-soft:   #24201A;
+  --accent:      #E26A4C;
+  --accent-soft: rgba(226,106,76,0.14);
+  --dr:   #D58E5B;
+  --cr:   #94B885;
+  --sb-bg: #0B0807;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11';
+  min-height: 100vh;
+  font-variant-numeric: tabular-nums;
+  transition: background .25s, color .25s;
+}
+
+/* ══════════════ Sidebar (same as Trial Balance) ══════════════ */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  padding: 14px 10px 16px;
+  display: flex; flex-direction: column;
+  color: var(--sb-ink);
+  z-index: 20;
+  overflow-y: auto;
+}
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(245,238,226,0.10); border-radius: 3px; }
+.sb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 10px 14px;
+  border-bottom: 1px solid var(--sb-border);
+  margin-bottom: 8px;
+}
+.sb-brand-icon {
+  width: 26px; height: 26px; border-radius: 5px;
+  background: var(--accent); color: #FDFAF2;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 12px;
+}
+.sb-brand-name { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; color: #F5EEE2; }
+.sb-section {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--sb-ink-3);
+  padding: 12px 10px 4px;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 10px; border-radius: 5px;
+  font-size: 12.5px; cursor: pointer; margin-bottom: 1px;
+  color: var(--sb-ink);
+  transition: background .12s;
+}
+.sb-item:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-item .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-group { margin-bottom: 1px; }
+.sb-group-head {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 10px; border-radius: 5px;
+  font-size: 12.5px; cursor: pointer;
+  user-select: none; color: var(--sb-ink);
+  transition: background .12s;
+}
+.sb-group-head:hover { background: var(--sb-hover); }
+.sb-group-head.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+}
+.sb-group-head .ic { width: 13px; text-align: center; font-size: 12px; color: var(--sb-ink-3); }
+.sb-group-head.active .ic, .sb-group-head.active .chev { color: var(--sb-active-ink); }
+.sb-group-head .label { flex: 1; }
+.sb-group-head .chev { font-size: 9px; color: var(--sb-ink-3); transition: transform .2s; }
+.sb-group.open > .sb-group-head .chev { transform: rotate(90deg); }
+.sb-group-children {
+  display: none;
+  padding: 2px 0 4px 8px;
+  border-left: 1px dashed var(--sb-border);
+  margin-left: 18px;
+}
+.sb-group.open > .sb-group-children { display: block; }
+.sb-leaf {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; margin-bottom: 1px;
+  border-radius: 4px;
+  font-size: 11.5px; color: var(--sb-ink-2);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.sb-leaf:hover { background: var(--sb-hover); color: #F5EEE2; }
+.sb-leaf.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-ink);
+  font-weight: 500;
+}
+.sb-leaf .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--sb-ink-3); flex-shrink: 0; }
+
+.sb-spacer { flex: 1; min-height: 12px; }
+.sb-foot {
+  margin-top: auto;
+  padding: 12px 10px 4px;
+  border-top: 1px solid var(--sb-border);
+  display: flex; align-items: center; gap: 8px;
+}
+.sb-avatar {
+  width: 26px; height: 26px; border-radius: 5px;
+  background: rgba(245,238,226,0.10);
+  display: grid; place-items: center;
+  color: var(--sb-ink); font-weight: 600; font-size: 11px;
+  font-family: 'Fraunces', Georgia, serif;
+}
+.sb-foot-text { font-size: 11.5px; line-height: 1.25; min-width: 0; flex: 1; }
+.sb-foot-text b { color: #F5EEE2; font-weight: 600; display: block; }
+.sb-foot-text span { color: var(--sb-ink-3); font-size: 10.5px; }
+
+/* ══════════════ Page ══════════════ */
+.page {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Title bar with breadcrumb back navigation ── */
+.titlebar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px clamp(20px, 3vw, 36px) 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg);
+}
+.crumb {
+  display: flex; align-items: center; gap: 0;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.2px;
+  color: var(--ink-3);
+  margin-bottom: 5px;
+}
+.crumb a {
+  color: var(--ink-3);
+  text-decoration: none;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color .12s, background .12s;
+}
+.crumb a:hover { color: var(--accent); background: var(--bg-strip); }
+.crumb .sep { color: var(--ink-4); margin: 0 4px; }
+.crumb b {
+  color: var(--ink);
+  font-weight: 600;
+  padding: 2px 6px;
+  background: var(--accent-soft);
+  border-radius: 3px;
+}
+.crumb .back-hint {
+  margin-left: 12px;
+  padding: 2px 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font-size: 9.5px;
+  color: var(--ink-4);
+  font-weight: 500;
+}
+.crumb .back-hint kbd {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.tb-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+.tb-title h1 {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600; font-size: 24px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  line-height: 1;
+  white-space: nowrap;
+}
+.tb-title .meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.tb-title .meta b { color: var(--ink-2); font-weight: 600; }
+.tb-title .meta .sep { color: var(--ink-4); margin: 0 6px; }
+.tb-title .meta .as {
+  color: var(--dr); font-weight: 600;
+}
+
+.tb-actions { display: flex; align-items: center; gap: 6px; }
+.btn {
+  height: 30px; padding: 0 11px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink-2);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.btn:hover { border-color: var(--ink-4); color: var(--ink); background: var(--bg-panel); }
+.btn .fk {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  color: var(--ink-4); letter-spacing: 0.4px;
+}
+.btn:hover .fk { color: var(--accent); }
+.btn.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn.on .fk { color: var(--accent); }
+.btn.icon { width: 30px; padding: 0; justify-content: center; }
+.btn svg { width: 13px; height: 13px; }
+
+.btn-back {
+  height: 30px;
+  padding: 0 11px 0 9px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink-2);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s, color .12s;
+}
+.btn-back:hover { border-color: var(--accent); color: var(--accent); }
+.btn-back .arr { font-size: 14px; line-height: 1; }
+
+.period {
+  display: inline-flex; align-items: center;
+  height: 30px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.period .lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 0 9px;
+  border-right: 1px solid var(--rule);
+  background: var(--bg-muted);
+  display: grid; place-items: center;
+  align-self: stretch;
+}
+.period .range {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink); font-weight: 500;
+  padding: 0 11px;
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer;
+}
+.period .range:hover { color: var(--accent); }
+.period .range .arrow { color: var(--ink-3); }
+.period .range .caret { color: var(--ink-3); margin-left: 4px; font-size: 9px; }
+
+.theme-toggle {
+  display: inline-flex; padding: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px; font-size: 11px;
+}
+.theme-toggle button {
+  padding: 3px 8px; border: none; background: transparent;
+  font-family: inherit; color: var(--ink-3);
+  cursor: pointer; border-radius: 4px;
+  font-weight: 500; transition: all .15s;
+  font-size: 11px;
+}
+.theme-toggle button:hover { color: var(--ink); }
+.theme-toggle button.on { background: var(--ink); color: var(--bg-panel); }
+
+/* ══════════════ Search row ══════════════ */
+.search-row {
+  flex-shrink: 0;
+  padding: 8px clamp(20px, 3vw, 36px);
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--bg-soft);
+}
+.search-wrap {
+  flex: 0 0 320px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  height: 30px;
+  transition: border-color .12s, box-shadow .12s;
+}
+.search-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.search-wrap .icon { color: var(--ink-3); font-size: 12px; }
+.search-wrap input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-family: inherit; font-size: 12px; color: var(--ink);
+}
+.search-wrap input::placeholder { color: var(--ink-3); }
+.search-wrap kbd {
+  font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--bg-strip); color: var(--ink-3);
+  border: 1px solid var(--rule);
+  font-weight: 500;
+}
+.sort-wrap {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+}
+.sort-wrap select {
+  font: inherit; font-size: 11.5px;
+  border: 1px solid var(--rule);
+  background: var(--bg-panel);
+  color: var(--ink);
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.sp { flex: 1; }
+
+/* ══════════════ Group Summary table ══════════════ */
+.tb-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 clamp(20px, 3vw, 36px);
+}
+
+.tb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+.tb-table thead th {
+  position: sticky; top: 0; z-index: 4;
+  padding: 10px 14px;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: right;
+  background: var(--bg);
+  border-bottom: 1px solid var(--ink);
+  white-space: nowrap;
+}
+.tb-table thead th.l { text-align: left; }
+.tb-table thead th .sub {
+  display: block;
+  font-size: 9px; font-weight: 500;
+  color: var(--ink-4);
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+/* Each ledger row is a navigable link to the ledger-detail page */
+.tb-table tr.ledger {
+  cursor: pointer;
+  transition: background .1s;
+}
+.tb-table tr.ledger:hover { background: var(--bg-strip); }
+.tb-table tr.ledger:hover .arrow { opacity: 1; color: var(--accent); transform: translateX(2px); }
+.tb-table tr.ledger:hover .name { color: var(--accent); }
+
+.tb-table tr.ledger td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: middle;
+}
+.tb-table tr.ledger .lh {
+  display: flex; align-items: baseline; gap: 8px;
+}
+.tb-table tr.ledger .name {
+  font-size: 13px; font-weight: 500;
+  color: var(--ink);
+  transition: color .12s;
+}
+.tb-table tr.ledger .pill {
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-transform: uppercase;
+}
+.tb-table tr.ledger .pill.system {
+  background: var(--bg-inset, var(--bg-strip));
+  color: var(--ink-3);
+}
+.tb-table tr.ledger .meta {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 4px;
+  display: block;
+  margin-top: 2px;
+}
+.tb-table tr.ledger td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+.tb-table tr.ledger td.num.dr { color: var(--dr); }
+.tb-table tr.ledger td.num.cr { color: var(--cr); }
+.tb-table tr.ledger td.num.zero { color: var(--ink-5); font-weight: 400; }
+
+.arrow {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--ink-4);
+  opacity: 0;
+  transition: opacity .12s, color .12s, transform .12s;
+}
+
+/* Group sub-total row (sticky to bottom of group) */
+.tb-table tr.tb-total td {
+  padding: 14px;
+  border-top: 1.5px solid var(--ink);
+  border-bottom: 1.5px double var(--ink);
+}
+.tb-table tr.tb-total .label {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 14px; font-weight: 700;
+  letter-spacing: 0.15px;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.tb-table tr.tb-total td.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 700;
+  color: var(--ink); text-align: right;
+}
+.tb-table tr.tb-total td.num.dr { color: var(--dr); }
+.tb-table tr.tb-total td.num.cr { color: var(--cr); }
+
+/* ══════════════ F-key bar ══════════════ */
+.fbar {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 4px;
+  padding: 8px clamp(20px, 3vw, 36px);
+  border-top: 1px solid var(--rule);
+  background: var(--bg-panel);
+  font-size: 11px;
+  overflow-x: auto;
+}
+.fbar::-webkit-scrollbar { height: 4px; }
+.fbar::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 2px; }
+.fbar .fkey {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ink-2);
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.fbar .fkey:hover { background: var(--bg-hover); color: var(--ink); }
+.fbar .fkey kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700;
+  background: var(--bg-strip);
+  color: var(--accent);
+  padding: 2px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--rule);
+}
+.fbar .grow { flex: 1; }
+.fbar .meta {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+.fbar .meta b { color: var(--ink-2); font-weight: 600; }
+
+/* Hide columns based on view mode */
+[data-view="closing"] .col-opening,
+[data-view="closing"] .col-tx-dr,
+[data-view="closing"] .col-tx-cr { display: none; }
+
+@media print {
+  .sidebar, .tb-actions, .fbar, .search-row { display: none !important; }
+  .page { margin: 0; height: auto; }
+  .titlebar { padding: 8mm 0 4mm; }
+  .tb-scroll { overflow: visible; padding: 0; }
+  body { background: #fff; color: #000; }
+  .tb-table thead th { background: #fff; }
+}
+
+@media (max-width: 900px) {
+  .titlebar { grid-template-columns: 1fr; gap: 10px; }
+  .tb-actions { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body data-mode="light" data-view="closing">
+
+<!-- ─────────── Sidebar ─────────── -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-brand-icon">⚡</div>
+    <div class="sb-brand-name">Billing ERP</div>
+  </div>
+
+  <div class="sb-section">General</div>
+  <div class="sb-item"><span class="ic">⊟</span> Dashboard</div>
+
+  <div class="sb-section">Transact</div>
+  <div class="sb-item"><span class="ic">+</span> New sales bill</div>
+  <div class="sb-item"><span class="ic">≡</span> Sales list</div>
+  <div class="sb-item"><span class="ic">+</span> New purchase bill</div>
+  <div class="sb-item"><span class="ic">≡</span> Purchase list</div>
+  <div class="sb-item"><span class="ic">₹</span> Receipts &amp; payments</div>
+
+  <div class="sb-section">Masters</div>
+  <div class="sb-item"><span class="ic">●</span> Customers</div>
+  <div class="sb-item"><span class="ic">●</span> Suppliers</div>
+  <div class="sb-item"><span class="ic">□</span> Products</div>
+
+  <div class="sb-section">Insight</div>
+  <div class="sb-group open">
+    <div class="sb-group-head" onclick="this.parentElement.classList.toggle('open')">
+      <span class="ic">≋</span>
+      <span class="label">Reports</span>
+      <span class="chev">▸</span>
+    </div>
+    <div class="sb-group-children">
+      <div class="sb-group open" style="margin-bottom:0">
+        <div class="sb-group-head active" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()" style="padding:5px 10px;font-size:11px">
+          <span class="ic" style="font-size:8px">▢</span>
+          <span class="label">Financial</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="sb-group-children" style="margin-left:14px;padding-left:6px">
+          <div class="sb-leaf"><span class="dot"></span> Day Book</div>
+          <div class="sb-leaf"><span class="dot"></span> Profit &amp; Loss</div>
+          <div class="sb-leaf"><span class="dot"></span> Balance Sheet</div>
+          <div class="sb-leaf active"><span class="dot"></span> Trial Balance</div>
+          <div class="sb-leaf"><span class="dot"></span> Cash Flow</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sb-item"><span class="ic">⚙</span> Settings</div>
+
+  <div class="sb-spacer"></div>
+  <div class="sb-foot">
+    <div class="sb-avatar">A</div>
+    <div class="sb-foot-text">
+      <b>Ali Ansari</b>
+      <span>Admin · Acme Traders</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ─────────── Page ─────────── -->
+<main class="page">
+
+  <!-- Title bar with breadcrumb back -->
+  <div class="titlebar">
+    <div>
+      <div class="crumb">
+        <a onclick="go_back()" title="Back to Trial Balance">← Trial Balance</a>
+        <span class="sep">/</span>
+        <a onclick="go_back()">Assets</a>
+        <span class="sep">/</span>
+        <b id="crumb-leaf">Sundry Debtors</b>
+        <span class="back-hint">Press <kbd>Esc</kbd> to go back</span>
+      </div>
+      <div class="tb-title">
+        <h1 id="title">Sundry Debtors</h1>
+        <span class="meta">
+          <b>62</b> ledgers
+          <span class="sep">·</span>
+          <b>Acme Traders</b>
+          <span class="sep">·</span>
+          1-Apr-2025 to 31-Mar-2026
+          <span class="sep">·</span>
+          Closing <span class="as">Dr 31,91,411.00</span>
+        </span>
+      </div>
+    </div>
+    <div class="tb-actions">
+      <button class="btn-back" onclick="go_back()" title="Back · Esc"><span class="arr">←</span> Back</button>
+      <div class="period">
+        <span class="lbl">FY 25–26</span>
+        <span class="range">
+          1-Apr-25 → 31-Mar-26 <span class="caret">▾</span>
+        </span>
+      </div>
+      <button class="btn on" onclick="setView('closing', this)" id="btn-closing"><span class="fk">F5</span> Condensed</button>
+      <button class="btn" onclick="setView('tally', this)" id="btn-tally"><span class="fk">F5</span> Detailed</button>
+      <button class="btn icon" title="Print">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      </button>
+      <button class="btn icon" title="Export Excel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <div class="theme-toggle">
+        <button class="on" onclick="document.body.dataset.mode='light';this.classList.add('on');this.nextElementSibling.classList.remove('on')">☀</button>
+        <button onclick="document.body.dataset.mode='dark';this.classList.add('on');this.previousElementSibling.classList.remove('on')">☾</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search + sort row -->
+  <div class="search-row">
+    <div class="search-wrap">
+      <span class="icon">⌕</span>
+      <input placeholder="Filter ledgers in this group…">
+      <kbd>⌘ F</kbd>
+    </div>
+    <div class="sort-wrap">
+      Sort
+      <select>
+        <option>Closing balance (high → low)</option>
+        <option>Alphabetical</option>
+        <option>Last entry (recent first)</option>
+        <option>Opening balance</option>
+      </select>
+    </div>
+    <span class="sp"></span>
+    <span style="font-size:11px;color:var(--ink-3);font-family:'JetBrains Mono',monospace">
+      <b style="color:var(--ink-2)">62</b> ledgers ·
+      total Dr <b style="color:var(--dr)">31,91,411.00</b>
+    </span>
+  </div>
+
+  <!-- Group ledger list -->
+  <div class="tb-scroll">
+    <table class="tb-table">
+      <thead>
+        <tr>
+          <th class="l" style="min-width:340px">Particulars</th>
+          <th class="col-opening" style="width:150px">Opening Balance<span class="sub">as on 1-Apr-25</span></th>
+          <th class="col-tx-dr"   style="width:150px">Transactions<span class="sub">Debit</span></th>
+          <th class="col-tx-cr"   style="width:150px">Transactions<span class="sub">Credit</span></th>
+          <th style="width:160px">Closing Balance<span class="sub">Debit</span></th>
+          <th style="width:160px">Closing Balance<span class="sub">Credit</span></th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <tr class="ledger" onclick="open_ledger('jain-dresses')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Jain Dresses</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Mumbai, MH · 9353 087 817 · GSTIN 27AAACS1234R1Z2</span>
+          </td>
+          <td class="col-opening num dr">2,12,400.00</td>
+          <td class="col-tx-dr num dr">14,84,200.00</td>
+          <td class="col-tx-cr num cr">7,12,189.00</td>
+          <td class="num dr">9,84,411.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('textiles-dresses')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Textiles Dresses</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Delhi, DL · 9876 543 210 · GSTIN 07BBBBT5678P1Z9</span>
+          </td>
+          <td class="col-opening num dr">1,84,000.00</td>
+          <td class="col-tx-dr num dr">11,42,300.00</td>
+          <td class="col-tx-cr num cr">4,95,309.00</td>
+          <td class="num dr">8,30,991.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('ishaan-fabrics')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Ishaan Fabrics</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Pune, MH · 8127 772 220 · GSTIN 27CCCCI9012K1Z1</span>
+          </td>
+          <td class="col-opening num dr">1,42,200.00</td>
+          <td class="col-tx-dr num dr">9,86,500.00</td>
+          <td class="col-tx-cr num cr">3,11,830.00</td>
+          <td class="num dr">8,16,870.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('hasibur-rahman-ansari')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Hasibur Rahman Ansari</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Bengaluru, KA · 9844 103 222 · GSTIN 29DDDDH3456L1Z4</span>
+          </td>
+          <td class="col-opening num dr">84,500.00</td>
+          <td class="col-tx-dr num dr">7,12,800.00</td>
+          <td class="col-tx-cr num cr">2,54,180.00</td>
+          <td class="num dr">5,43,120.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('manjunatha-naik')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Manjunatha Ishwara Naik</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Hubballi, KA · 9631 082 417 · GSTIN 29EEEEM7890N1Z6</span>
+          </td>
+          <td class="col-opening num dr">41,200.00</td>
+          <td class="col-tx-dr num dr">4,12,800.00</td>
+          <td class="col-tx-cr num cr">1,99,601.00</td>
+          <td class="num dr">2,54,399.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('sy-kids-wear')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">SY Kids Wear</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Hyderabad, TG · 9912 437 891 · GSTIN 36FFFFS2345T1Z3</span>
+          </td>
+          <td class="col-opening num dr">38,400.00</td>
+          <td class="col-tx-dr num dr">3,84,200.00</td>
+          <td class="col-tx-cr num cr">1,98,600.00</td>
+          <td class="num dr">2,24,000.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('rahul-satle')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Rahul Satle</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Indore, MP · 9826 116 220 · GSTIN 23GGGGR9876J1Z2</span>
+          </td>
+          <td class="col-opening num dr">28,200.00</td>
+          <td class="col-tx-dr num dr">3,12,400.00</td>
+          <td class="col-tx-cr num cr">1,42,600.00</td>
+          <td class="num dr">1,98,000.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('tulja-bhawani')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Tulja Bhawani Co.</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Solapur, MH · 9923 884 110 · GSTIN 27HHHHT4567L1Z8</span>
+          </td>
+          <td class="col-opening num dr">21,400.00</td>
+          <td class="col-tx-dr num dr">2,42,800.00</td>
+          <td class="col-tx-cr num cr">1,15,400.00</td>
+          <td class="num dr">1,48,800.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('rohit-garments')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Rohit Garments</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Nashik, MH · 9763 421 008 · GSTIN 27IIIIR1234M1Z5</span>
+          </td>
+          <td class="col-opening num dr">14,800.00</td>
+          <td class="col-tx-dr num dr">1,84,200.00</td>
+          <td class="col-tx-cr num cr">86,400.00</td>
+          <td class="num dr">1,12,600.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('shree-textiles')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Shree Textiles &amp; Co.</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Vijayawada, AP · 9440 887 213 · GSTIN 37JJJJS5678X1Z9</span>
+          </td>
+          <td class="col-opening num dr">11,200.00</td>
+          <td class="col-tx-dr num dr">1,42,400.00</td>
+          <td class="col-tx-cr num cr">62,400.00</td>
+          <td class="num dr">91,200.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('aakash-traders')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Aakash Traders</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Surat, GJ · 9512 779 800 · GSTIN 24KKKKA9876B1Z3</span>
+          </td>
+          <td class="col-opening num dr">8,400.00</td>
+          <td class="col-tx-dr num dr">98,200.00</td>
+          <td class="col-tx-cr num cr">42,800.00</td>
+          <td class="num dr">63,800.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('kishan-cloth')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Kishan Cloth Stores</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Jaipur, RJ · 9314 882 010 · GSTIN 08LLLLK3456N1Z7</span>
+          </td>
+          <td class="col-opening num dr">6,200.00</td>
+          <td class="col-tx-dr num dr">84,400.00</td>
+          <td class="col-tx-cr num cr">36,200.00</td>
+          <td class="num dr">54,400.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('priya-fashion')">
+          <td class="l">
+            <div class="lh">
+              <span class="name">Priya Fashion Hub</span>
+              <span class="pill">Party</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Kochi, KL · 9846 213 008 · GSTIN 32MMMMP7890Q1Z2</span>
+          </td>
+          <td class="col-opening num dr">4,200.00</td>
+          <td class="col-tx-dr num dr">62,300.00</td>
+          <td class="col-tx-cr num cr">28,800.00</td>
+          <td class="num dr">37,700.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <tr class="ledger" onclick="open_ledger('more-49')">
+          <td class="l">
+            <div class="lh">
+              <span class="name" style="color:var(--ink-3);font-style:italic">… 49 more ledgers</span>
+              <span class="arrow">→</span>
+            </div>
+            <span class="meta">Click to expand · or use search filter above</span>
+          </td>
+          <td class="col-opening num dr">10,45,300.00</td>
+          <td class="col-tx-dr num dr">93,82,000.00</td>
+          <td class="col-tx-cr num cr">1,03,90,879.00</td>
+          <td class="num dr">−9,69,879.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+        <!-- Group Total -->
+        <tr class="tb-total">
+          <td class="l"><span class="label">Group Total — Sundry Debtors</span></td>
+          <td class="col-opening num dr">18,40,200.00</td>
+          <td class="col-tx-dr num dr">1,42,18,400.00</td>
+          <td class="col-tx-cr num cr">1,28,67,189.00</td>
+          <td class="num dr">31,91,411.00</td>
+          <td class="num zero"></td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <!-- F-key footer -->
+  <div class="fbar">
+    <span class="fkey" onclick="go_back()"><kbd>Esc</kbd> Back to Trial Balance</span>
+    <span class="fkey"><kbd>F2</kbd> Period</span>
+    <span class="fkey"><kbd>F5</kbd> Detailed / Condensed</span>
+    <span class="fkey"><kbd>⌘ F</kbd> Filter</span>
+    <span class="fkey"><kbd>Enter</kbd> Drill into ledger</span>
+    <span class="grow"></span>
+    <span class="meta">As on <b>31-Mar-26</b> · 62 ledgers · 1,968 entries</span>
+  </div>
+
+</main>
+
+<script>
+  // ── Hydrate group name from URL hash (set by Trial Balance page) ──
+  (function () {
+    const raw = decodeURIComponent(location.hash.slice(1));
+    if (!raw) return;
+    document.title = `${raw} — Group Summary · Editorial`;
+    document.getElementById('title').textContent = raw;
+    document.getElementById('crumb-leaf').textContent = raw;
+  })();
+
+  // ── Drill into ledger detail (existing party-ledger view) ──
+  function open_ledger(slug) {
+    // Real route: /reports/party-ledger?ledger_id=...
+    window.location.href = `editorial-party-ledger-v4.html#${slug}`;
+  }
+
+  // ── Back to Trial Balance ──
+  function go_back() {
+    window.location.href = 'editorial-trial-balance.html';
+  }
+
+  // ── View mode swap ──
+  function setView(v) {
+    document.body.dataset.view = v;
+    document.getElementById('btn-closing').classList.toggle('on', v === 'closing');
+    document.getElementById('btn-tally').classList.toggle('on', v === 'tally');
+  }
+
+  // ── Keyboard ──
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      go_back();
+    }
+    if (e.key === 'F5') {
+      e.preventDefault();
+      setView(document.body.dataset.view === 'closing' ? 'tally' : 'closing');
+    }
+  });
+</script>
+
+</body>
+</html>
