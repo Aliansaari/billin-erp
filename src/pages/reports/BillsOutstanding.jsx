@@ -685,8 +685,8 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
               { value: 'city',   label: 'Group by City' },
             ]}
           />
-          <Popover content={colPickerContent} title="Columns" trigger="click" placement="bottomRight">
-            <Button size="small" icon={<SettingOutlined />}>Columns</Button>
+          <Popover content={colPickerContent} title="Customize" trigger="click" placement="bottomRight">
+            <Button size="small" icon={<SettingOutlined />}>Customize</Button>
           </Popover>
           <Button size="small" icon={<ReloadOutlined />} onClick={refresh}>Refresh</Button>
           <Button size="small" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
