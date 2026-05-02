@@ -190,11 +190,20 @@ exports.update = async (req, res) => {
 // from SystemSettings so admins can tune what counts as Watchful/Chase/Critical.
 exports.getAging = async (req, res) => {
   try {
-    const { party_type } = req.query;
+    const { party_type, status } = req.query;
     const isCust = party_type !== 'Supplier';
     const table  = isCust ? 'sales_bills'    : 'purchase_bills';
     const fk     = isCust ? 'customer_id'    : 'supplier_id';
     const { b1, b2, b3 } = await getAgingBuckets();
+
+    // Optional status filter (Regular / Priority / VIP / Blacklist) — parity
+    // with the customer + supplier list endpoints so the aging card on the
+    // dashboard can be scoped to a specific tier.
+    const ALLOWED_STATUSES = ['Regular', 'Priority', 'VIP', 'Blacklist'];
+    const statusClause = status && ALLOWED_STATUSES.includes(status)
+      ? `AND p.party_status = :status`
+      : '';
+
     const rows = await sequelize.query(
       `
       WITH open_bills AS (
@@ -213,6 +222,7 @@ exports.getAging = async (req, res) => {
           -- explicit filter keeps Receivables/Payables Aging strictly
           -- about real credit accounts.
           AND COALESCE(p.is_system_cash, false) = false
+          ${statusClause}
       )
       SELECT
         COUNT(DISTINCT party_id)                                              AS party_count,
@@ -230,7 +240,7 @@ exports.getAging = async (req, res) => {
       `,
       {
         type: sequelize.QueryTypes.SELECT,
-        replacements: { b1, b2, b3, b1p1: b1 + 1, b2p1: b2 + 1 },
+        replacements: { b1, b2, b3, b1p1: b1 + 1, b2p1: b2 + 1, status: status || null },
       }
     );
     const out = rows[0] || {};
@@ -995,11 +1005,20 @@ exports.recalculateAll = async (req, res) => {
 
 exports.getAging = async (req, res) => {
   try {
-    const { party_type } = req.query;
+    const { party_type, status } = req.query;
     const isCust = party_type !== 'Supplier';
     const table  = isCust ? 'sales_bills'    : 'purchase_bills';
     const fk     = isCust ? 'customer_id'    : 'supplier_id';
     const { b1, b2, b3 } = await getAgingBuckets();
+
+    // Optional status filter (Regular / Priority / VIP / Blacklist) — parity
+    // with the customer + supplier list endpoints so the aging card on the
+    // dashboard can be scoped to a specific tier.
+    const ALLOWED_STATUSES = ['Regular', 'Priority', 'VIP', 'Blacklist'];
+    const statusClause = status && ALLOWED_STATUSES.includes(status)
+      ? `AND p.party_status = :status`
+      : '';
+
     const rows = await sequelize.query(
       `
       WITH open_bills AS (
@@ -1018,6 +1037,7 @@ exports.getAging = async (req, res) => {
           -- explicit filter keeps Receivables/Payables Aging strictly
           -- about real credit accounts.
           AND COALESCE(p.is_system_cash, false) = false
+          ${statusClause}
       )
       SELECT
         COUNT(DISTINCT party_id)                                              AS party_count,
@@ -1035,7 +1055,7 @@ exports.getAging = async (req, res) => {
       `,
       {
         type: sequelize.QueryTypes.SELECT,
-        replacements: { b1, b2, b3, b1p1: b1 + 1, b2p1: b2 + 1 },
+        replacements: { b1, b2, b3, b1p1: b1 + 1, b2p1: b2 + 1, status: status || null },
       }
     );
     const out = rows[0] || {};

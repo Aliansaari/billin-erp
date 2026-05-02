@@ -9,6 +9,7 @@ const { buildPurchaseBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
+const { checkPartyForBillSave } = require('../utils/partyGuards');
 
 /**
  * Resolve or create a product for a purchase bill item.
@@ -409,6 +410,17 @@ exports.create = async (req, res) => {
     if (paidAmt >= totalAmount) paymentStatus = 'Paid';
     else if (paidAmt > 0) paymentStatus = 'Partial';
 
+    // Blacklist guard — suppliers flagged as Blacklist can't be transacted
+    // with. Credit-limit enforcement is sales-side only (see partyGuards.js).
+    if (billData.supplier_id) {
+      const supplier = await Party.findByPk(billData.supplier_id, { transaction: t });
+      const guard = checkPartyForBillSave({ party: supplier, newBillOutstanding: balanceAmount });
+      if (guard) {
+        await t.rollback();
+        return res.status(guard.status).json({ error: guard.error });
+      }
+    }
+
     const bill = await PurchaseBill.create({
       ...billData,
       total_items: items.length,
@@ -785,6 +797,18 @@ exports.update = async (req, res) => {
     let paymentStatus = 'Unpaid';
     if (totalEffectivePaid >= totalAmount)  paymentStatus = 'Paid';
     else if (totalEffectivePaid > 0)        paymentStatus = 'Partial';
+
+    // Blacklist guard on edit too — if a supplier was flagged Blacklist
+    // after the bill was created, don't let further edits land.
+    const editSupplierId = billData.supplier_id || existingBill.supplier_id;
+    if (editSupplierId) {
+      const supplier = await Party.findByPk(editSupplierId, { transaction: t });
+      const guard = checkPartyForBillSave({ party: supplier, newBillOutstanding: balanceAmount });
+      if (guard) {
+        await t.rollback();
+        return res.status(guard.status).json({ error: guard.error });
+      }
+    }
 
     // ── Step 5: Update bill record ─────────────────────────────────────────
     await existingBill.update({
