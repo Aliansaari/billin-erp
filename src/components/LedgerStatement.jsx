@@ -308,7 +308,6 @@ export default function LedgerStatement({
                     </td>
                   );
                 }
-                if (c.key === 'date')  return <td key={c.key} className="ls-nowrap">{fmtDate(statement.period?.to)}</td>;
                 if (c.key === 'debit')  return <td key={c.key} className="ls-num"><b>{fmt(recomputed.debit)}</b></td>;
                 if (c.key === 'credit') return <td key={c.key} className="ls-num"><b>{fmt(recomputed.credit)}</b></td>;
                 if (c.key === 'balance') {
