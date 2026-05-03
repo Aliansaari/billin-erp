@@ -1,7 +1,80 @@
 const { Op, col, fn, literal } = require('sequelize');
+const sequelize = require('../config/database');
 const { Product, Category, StockLedger } = require('../models');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { sanitizePagination } = require('../utils/helpers');
+
+/*
+ * Attach the per-mode "display" cost + stock value to a list of plain
+ * product rows. Frontend tiles + report columns read these instead of
+ * raw purchase_rate so the displayed number reflects the right basis
+ * for the product's mode:
+ *
+ *   • variant            → display_cost = purchase_rate
+ *                          display_stock_value = current_stock × purchase_rate
+ *   • single, no batch   → display_cost = weighted_avg_cost
+ *                          display_stock_value = current_stock × weighted_avg_cost
+ *   • single + batch     → display_cost = SUM(batch.qty × batch.rate) / SUM(batch.qty)
+ *                          display_stock_value = SUM(batch.qty × batch.rate)
+ *
+ * For the batch case we issue ONE aggregate SQL query against
+ * product_batch_stock × product_batches keyed on the product_ids in
+ * the page — O(1) round-trips regardless of page size.
+ *
+ * Stock Movement TABLE rows are NOT touched anywhere — they keep their
+ * per-transaction rate from stock_ledger.rate. This helper only feeds
+ * aggregate displays (tiles, summary columns).
+ */
+async function attachDisplayCost(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+  // Bulk-fetch batch aggregates for any single+batch product in the page.
+  // The query joins active batches with their stock; missing batches resolve
+  // to zero implicitly (the product just falls back to wac/purchase_rate).
+  const batchTrackedIds = rows
+    .filter(r => r.product_mode === 'single' && r.is_batch_tracked)
+    .map(r => r.product_id);
+  let batchAgg = new Map();
+  if (batchTrackedIds.length > 0) {
+    const aggRows = await sequelize.query(
+      `SELECT pbs.product_id,
+              SUM(pbs.current_stock * COALESCE(pb.purchase_rate, 0)) AS total_value,
+              SUM(pbs.current_stock)                                 AS total_qty
+         FROM product_batch_stock pbs
+         JOIN product_batches pb ON pb.batch_id = pbs.batch_id
+        WHERE pbs.product_id IN (:ids)
+          AND pbs.current_stock > 0
+          AND pb.is_active = true
+        GROUP BY pbs.product_id`,
+      { replacements: { ids: batchTrackedIds }, type: sequelize.QueryTypes.SELECT },
+    );
+    batchAgg = new Map(aggRows.map(r => [
+      r.product_id,
+      { total_value: parseFloat(r.total_value || 0), total_qty: parseFloat(r.total_qty || 0) },
+    ]));
+  }
+
+  return rows.map(r => {
+    const stock = parseFloat(r.current_stock || 0);
+    let display_cost, display_stock_value;
+    if (r.product_mode === 'single' && r.is_batch_tracked) {
+      const agg = batchAgg.get(r.product_id);
+      const tv = agg ? agg.total_value : 0;
+      const tq = agg ? agg.total_qty   : 0;
+      display_cost = tq > 0 ? +(tv / tq).toFixed(4) : 0;
+      display_stock_value = +tv.toFixed(2);
+    } else if (r.product_mode === 'single') {
+      const wac = parseFloat(r.weighted_avg_cost || 0);
+      display_cost = wac;
+      display_stock_value = +(stock * wac).toFixed(2);
+    } else {
+      const pr = parseFloat(r.purchase_rate || 0);
+      display_cost = pr;
+      display_stock_value = +(stock * pr).toFixed(2);
+    }
+    return { ...r, display_cost, display_stock_value };
+  });
+}
 
 // Bulk-fetch lifetime aggregates (total purchased / total sold / last sold)
 // for the given product_ids. Used by getAll when the client opts in via
@@ -237,7 +310,13 @@ exports.getAll = async (req, res) => {
       dead_count: parseInt(t.dead_count || 0, 10),
     };
 
-    res.json({ total: count, page, limit, data, summary });
+    // Attach mode-aware display_cost + display_stock_value to every row
+    // so list views (Stock Report, Smart Stock, Product List) render the
+    // right basis without each page reimplementing the per-mode math.
+    // Convert any remaining Sequelize instances to plain JSON first.
+    const dataPlain = data.map(r => (r && typeof r.toJSON === 'function') ? r.toJSON() : r);
+    const enriched = await attachDisplayCost(dataPlain);
+    res.json({ total: count, page, limit, data: enriched, summary });
   } catch (error) {
     console.error('Get products error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -277,7 +356,11 @@ exports.getById = async (req, res) => {
       include: [{ model: Category, attributes: ['category_name'] }],
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
-    res.json(product);
+    // Attach mode-aware display_cost + display_stock_value for tiles /
+    // summary views. Stock Movement transaction rows still read their
+    // own per-row rate from stock_ledger; this only feeds aggregates.
+    const [enriched] = await attachDisplayCost([product.toJSON()]);
+    return res.json(enriched);
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }

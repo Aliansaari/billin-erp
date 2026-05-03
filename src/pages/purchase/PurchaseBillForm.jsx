@@ -269,6 +269,15 @@ export default function PurchaseBillForm() {
   // as non-batch (the prompt is explicit about this — toggling global
   // must not break existing bills).
   const [batchTrackingEnabled, setBatchTrackingEnabled] = useState(false);
+  // Global default product mode — drives the entry-row simplification.
+  // When 'single', variant-only fields hide ALWAYS (regardless of which
+  // product was picked), because the operator's UX is shaped by their
+  // firm's mode, not the catalog row's mode. A leftover variant product
+  // gets used silently with its master fields. The picked product's
+  // own product_mode still drives backend persistence (frozen vs
+  // overwritten purchase_rate, wac vs no wac, etc.) — only the form
+  // UX is global-driven.
+  const [globalProductMode, setGlobalProductMode] = useState('variant');
   // +Add Product modal — purely a shortcut to the existing Inventory →
   // Products → Add flow so the operator can register a missing product
   // mid-bill without leaving the purchase form. After save, the new
@@ -363,6 +372,7 @@ export default function PurchaseBillForm() {
       // the migration). Treat literal `false` as off; anything else is on.
       setAmountOnlyEnabled(data?.data?.enable_amount_only_billing !== false);
       setBatchTrackingEnabled(!!data?.data?.batch_tracking_enabled);
+      setGlobalProductMode(data?.data?.default_product_mode || 'variant');
     }).catch(()=>{});
     // Predict the next bill number on new bills so the operator sees what
     // they'll get on save instead of "pending". Optimistic — actual
@@ -1713,16 +1723,19 @@ export default function PurchaseBillForm() {
             {billMode === 'item' && (
             <div className="pbf-entry-ledger">
               <div className="pbf-entry-grid">
-                {/* +Add Product — pure shortcut to the existing Inventory →
-                    Products → Add modal so the operator can register a
-                    missing product mid-bill without leaving the purchase
-                    form. After save, the new product is in the master
-                    and appears in the dropdown like any other; no auto-
-                    selection on the entry row. Visible in both modes. */}
-                <button className="pbf-cell add" onClick={() => setAddProductModalOpen(true)} type="button"
-                  title="Add a new product to the master list" style={{minWidth:60}}>
-                  <span className="pbf-cell-add-text">+ ADD</span>
-                </button>
+                {/* +Add Product — small icon affordance (40px) at the
+                    start of the row. Opens the existing Add Product
+                    modal so the operator can register a missing product
+                    mid-bill without leaving the purchase form. After
+                    save, the new product is in the master and appears
+                    in the dropdown like any other; no auto-selection
+                    on the entry row. Visible in both modes. Tooltip on
+                    hover names the action. */}
+                <button className="pbf-cell add-product"
+                  type="button"
+                  title="Add new product"
+                  aria-label="Add new product"
+                  onClick={() => setAddProductModalOpen(true)}>+</button>
                 <div className="pbf-cell">
                   <div className="pbf-cell-lbl">Barcode</div>
                   <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type"
@@ -1786,13 +1799,14 @@ export default function PurchaseBillForm() {
                  *  so handleEntryKey's ArrowUp/Down/Enter walk maps cell-
                  *  position to ref.
                  *
-                 *  Mode-aware visibility (Issue 2A): when a single-mode
-                 *  product is bound on the entry, hide the variant-only
-                 *  fields (Size / Art# / P/Box / Margin% / Sale ₹ / GST%).
-                 *  They're product master data in single mode, not per-
-                 *  line inputs. Backend reads them from products.* on save.
-                 *  Empty row (no product picked yet) shows everything —
-                 *  variant default — until the operator picks something. */}
+                 *  Mode-aware visibility: when the GLOBAL setting is
+                 *  'single', variant-only fields hide ALWAYS (regardless
+                 *  of which product is picked on the line). The entry
+                 *  row is shaped by the firm's mode, not the catalog
+                 *  row's mode — operators in single mode never see
+                 *  variant fields, even if a leftover variant product
+                 *  gets picked (its size/article/sale/mrp/gst are read
+                 *  silently from products.* on save). */}
                 {[
                   {lbl2:'Size',    ref:sizeRef,    field:'size',             val:entry.size,                        idx:1, t:'txt', variantOnly:true},
                   {lbl2:'Art #',   ref:articleRef, field:'article_number',   val:entry.article_number,              idx:2, t:'txt', wrapRef:articleWrapRef,
@@ -1804,7 +1818,7 @@ export default function PurchaseBillForm() {
                   {lbl2:'Margin%', ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,idx:6, t:'num', variantOnly:true},
                   {lbl2:'Sale ₹',  ref:saleRateRef,field:'sale_rate',        val:entry.sale_rate||undefined,        idx:7, t:'num', min:0, onBlur:handleRateBlur, variantOnly:true},
                   {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,         idx:8, t:'num', min:0, variantOnly:true},
-                ].filter(f => !(f.variantOnly && entry.product_id && entry.product_mode === 'single'))
+                ].filter(f => !(f.variantOnly && globalProductMode === 'single'))
                  .map(({lbl2,ref,field,val,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
                   <div key={field} className={`pbf-cell ${t==='num'?'numeric':''}`} ref={wrapRef||undefined}>
                     <div className="pbf-cell-lbl">{lbl2}</div>

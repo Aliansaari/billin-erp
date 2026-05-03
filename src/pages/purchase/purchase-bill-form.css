@@ -266,6 +266,9 @@
 .pbf-entry-grid {
   display: grid;
   grid-template-columns:
+    40px                   /* +Add product (icon affordance, sits before
+                              Barcode — opens the existing Add Product
+                              modal as a navigation shortcut) */
     minmax(130px, 170px)   /* Barcode  */
     minmax(180px, 250px)   /* Category — wider; long names like "Men's
                               Casual Wear" don't ellipsis here either */
@@ -280,6 +283,26 @@
     minmax(72px,  90px)    /* GST%     */
     minmax(96px, 110px);   /* +ADD     */
 }
+
+/* +Add product affordance — small icon button at the start of the
+ * entry row. Opens the existing Add Product modal so the operator
+ * doesn't have to leave the purchase form to register a missing
+ * product. Subtle styling (no dark fill like the +ADD-line cell at
+ * the end) so it reads as a utility, not a primary action. */
+.pbf-cell.add-product {
+  background: var(--bg-panel);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 18px;
+  color: var(--fg-secondary);
+  transition: background .14s, color .14s;
+}
+.pbf-cell.add-product:hover { background: var(--bg-muted); color: var(--accent); }
+.pbf-cell.add-product:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.pbf-cell.add-product:focus-within::before { display: none; }
 .pbf-cell {
   display: flex;
   flex-direction: column;

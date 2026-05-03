@@ -298,11 +298,15 @@ export default function StockReport() {
     },
     cols.val && {
       key: 'val', title: 'Stock Value', width: 130, align: 'right',
+      // display_stock_value is mode-aware (variant: stock × purchase_rate;
+      // single: stock × weighted_avg_cost; single+batch: SUM(qty × rate)
+      // across batches). Falls back to the legacy formula for older API
+      // responses that pre-date the field.
       sorter: (a, b) =>
-        parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0) -
-        parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0),
+        parseFloat(a.display_stock_value ?? (parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0))) -
+        parseFloat(b.display_stock_value ?? (parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0))),
       render: (_, p) => {
-        const v = parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0);
+        const v = parseFloat(p.display_stock_value ?? (parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0)));
         const cls = v < 0 ? 'sr-amt neg-amt' : 'sr-amt val';
         return <span className={cls}><span className="rs">{v < 0 ? '−₹' : '₹'}</span>{fmtN(Math.abs(v))}</span>;
       },
