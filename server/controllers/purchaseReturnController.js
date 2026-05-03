@@ -10,6 +10,7 @@ const { recalculatePartyBalance } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPurchaseReturnVouchers } = require('../services/voucherBuilders');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { recomputeWeightedAvgFromLedger } = require('../utils/weightedAvgCost');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
 // See salesReturnController.UNSAFE_BILL_FIELDS for rationale.
@@ -483,6 +484,7 @@ exports.create = async (req, res) => {
       refund_status: refundStatus,
     }, { transaction: t });
 
+    const returnTouchedProductIds = new Set();
     for (const item of totals.processedItems) {
       await PurchaseReturnBillItem.create({
         purchase_return_id: bill.purchase_return_id,
@@ -492,6 +494,7 @@ exports.create = async (req, res) => {
       if (item.product_id && return_mode === 'Items') {
         const product = await Product.findByPk(item.product_id, { transaction: t });
         if (!product) continue;
+        returnTouchedProductIds.add(item.product_id);
         const newStock = await applyGodownStockDelta({
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: -parseFloat(item.quantity), t,
@@ -516,6 +519,16 @@ exports.create = async (req, res) => {
     }
 
     await recalculatePartyBalance(billData.supplier_id, t);
+
+    // Recompute weighted_avg_cost for every single-mode product whose
+    // stock just rolled back from this return. The new Purchase Return
+    // ledger row(s) are in place; the helper walks the full history and
+    // produces the correct post-return wac. No-op for variant + batch
+    // products. If the return takes stock to zero, the helper resets
+    // wac to 0 so the next purchase starts a fresh basis.
+    for (const pid of returnTouchedProductIds) {
+      await recomputeWeightedAvgFromLedger({ product_id: pid, t });
+    }
 
     // ── Double-entry posting ──
     {
@@ -614,9 +627,11 @@ exports.update = async (req, res) => {
     // Reverse old stock outflows (+quantity back) at the EXISTING return's
     // godown — that's where the stock was originally pulled from.
     const oldGodownId = existing.godown_id;
+    const updateTouchedProductIds = new Set();
     if (existing.return_mode === 'Items') {
       for (const oldItem of existing.items) {
         if (oldItem.product_id && oldGodownId) {
+          updateTouchedProductIds.add(oldItem.product_id);
           await applyGodownStockDelta({
             product_id: oldItem.product_id, godown_id: oldGodownId,
             delta: +parseFloat(oldItem.quantity), t,
@@ -722,6 +737,7 @@ exports.update = async (req, res) => {
       if (item.product_id && return_mode === 'Items') {
         const product = await Product.findByPk(item.product_id, { transaction: t });
         if (!product) continue;
+        updateTouchedProductIds.add(item.product_id);
         const newStock = await applyGodownStockDelta({
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: -parseFloat(item.quantity), t,
@@ -740,6 +756,12 @@ exports.update = async (req, res) => {
           created_by: req.user.user_id,
         }, { transaction: t });
       }
+    }
+
+    // Recompute wac for every touched single-mode product. Same pattern
+    // as create: walk the post-edit ledger and produce the correct wac.
+    for (const pid of updateTouchedProductIds) {
+      await recomputeWeightedAvgFromLedger({ product_id: pid, t });
     }
 
     const oldSupplier = existing.supplier_id;
@@ -792,9 +814,11 @@ exports.cancel = async (req, res) => {
 
     // Cancellation restocks at the bill's own godown. Pure addition,
     // no pre-check needed.
+    const returnCancelTouchedProductIds = new Set();
     if (bill.return_mode === 'Items') {
       for (const item of bill.items) {
         if (item.product_id && bill.godown_id) {
+          returnCancelTouchedProductIds.add(item.product_id);
           await applyGodownStockDelta({
             product_id: item.product_id, godown_id: bill.godown_id,
             delta: +parseFloat(item.quantity), t,
@@ -806,6 +830,14 @@ exports.cancel = async (req, res) => {
       where: { reference_id: bill.purchase_return_id, transaction_type: 'Purchase Return' },
       transaction: t,
     });
+
+    // Recompute wac for every touched single-mode product. The Purchase
+    // Return ledger row(s) are gone; the helper walks the remaining
+    // history (Purchase, Opening, Adjustment) and produces the correct
+    // wac as if the return had never happened.
+    for (const pid of returnCancelTouchedProductIds) {
+      await recomputeWeightedAvgFromLedger({ product_id: pid, t });
+    }
 
     const { reason: cancellationReason } = req.body || {};
     await bill.update({

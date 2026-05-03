@@ -9,6 +9,7 @@ const { buildPurchaseBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
 const { resolveOrCreateBatch, applyBatchStockDelta } = require('../utils/batchStock');
+const { applyWeightedAvgIncrement, recomputeWeightedAvgFromLedger } = require('../utils/weightedAvgCost');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
 
@@ -25,7 +26,7 @@ const { checkPartyForBillSave } = require('../utils/partyGuards');
  *     → If ANY differ → generate NEW barcode + create NEW product.
  *  5. No match at all → generate NEW barcode + create NEW product.
  */
-async function resolveOrCreateProduct(item, t) {
+async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
   // ── Case 1: explicit product_id (selected from dropdown) ──────────────────
   if (item.product_id) {
     const p = await Product.findByPk(item.product_id, { transaction: t });
@@ -49,7 +50,18 @@ async function resolveOrCreateProduct(item, t) {
   }
 
   // ── Case 4: compare ALL fields if something was found ─────────────────────
+  //
+  // Mode-aware branching (audit-driven Phase 3):
+  //   • SINGLE-mode found product → return it as-is, NO 9-field strict check.
+  //     Single mode is "one product, many purchase prices over time" — a
+  //     differing rate is the whole point, not a signal to spawn a variant.
+  //   • VARIANT-mode found product → existing 9-field check. If any of
+  //     name / size / article / qpb / purchase_rate / sale_rate / margin /
+  //     mrp / gst_rate differs, fall through and create a new variant row.
   if (found) {
+    if (found.product_mode === 'single') {
+      return { product_id: found.product_id, barcode: found.barcode, isNew: false, product: found };
+    }
     const n  = (v) => +(parseFloat(v) || 0).toFixed(2);
     const s  = (v) => (v || '').toString().trim().toLowerCase();
     const allMatch =
@@ -80,6 +92,11 @@ async function resolveOrCreateProduct(item, t) {
   // Otherwise, generate one under the current transaction so the counter lock
   // is released atomically with the purchase bill commit/rollback.
   const newBarcode = item.barcode || await generateBarcode(t);
+  // Newly created products inherit the current default mode. Mode is
+  // permanent once a product exists (mirrors the is_batch_tracked lock
+  // pattern). For single-mode new products, weighted_avg_cost gets set
+  // below in the post-create wac update path; the catalog purchase_rate
+  // becomes the FROZEN reference rate.
   const newProduct = await Product.create({
     barcode:          newBarcode,
     product_name:     item.product_name,
@@ -94,6 +111,7 @@ async function resolveOrCreateProduct(item, t) {
     mrp:              item.mrp          || 0,
     quantity_per_box: item.quantity_per_box || 1,
     current_stock:    0,
+    product_mode:     defaultProductMode,
   }, { transaction: t });
 
   return { product_id: newProduct.product_id, barcode: newBarcode, isNew: true, product: newProduct };
@@ -266,6 +284,10 @@ exports.create = async (req, res) => {
     // Generate bill number using prefix from settings — inside transaction to prevent race condition
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.purchase_bill_prefix?.trim() || '';
+    // Default mode applied to NEW products created by this bill. Existing
+    // products keep their own product_mode (read off the row).
+    const defaultProductMode = settings?.default_product_mode || 'variant';
+    const batchTrackingEnabled = !!settings?.batch_tracking_enabled;
     // Bill number race fix: lock the "latest" row so concurrent creates can't
     // both read the same lastBill and issue duplicate bill numbers.
     const lastBill = await PurchaseBill.findOne({
@@ -331,7 +353,7 @@ exports.create = async (req, res) => {
       const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
       const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
-      const resolved = await resolveOrCreateProduct(item, t);
+      const resolved = await resolveOrCreateProduct(item, t, defaultProductMode);
       const product_id = resolved.product_id;
       const barcode    = resolved.barcode;
 
@@ -347,8 +369,8 @@ exports.create = async (req, res) => {
         igst_amount: 0,
         total_amount: 0,
         // Pin the resolved product on the processed line so the persistence
-        // pass can read is_batch_tracked without refetching. Stripped
-        // before insert.
+        // pass can read is_batch_tracked / product_mode without refetching.
+        // Stripped before insert.
         _product: resolved.product || null,
       });
 
@@ -363,8 +385,6 @@ exports.create = async (req, res) => {
     // explicit about this — toggling global must not break existing
     // bills). When ON, every line whose resolved product has
     // is_batch_tracked=true must carry a batch_number.
-    const settingsRow = await SystemSettings.findByPk(1, { transaction: t });
-    const batchTrackingEnabled = !!settingsRow?.batch_tracking_enabled;
     if (batchTrackingEnabled) {
       for (const it of processedItems) {
         if (it._product?.is_batch_tracked && !it.batch_number) {
@@ -486,9 +506,10 @@ exports.create = async (req, res) => {
       // helper: a re-purchase of an existing batch reuses the row, doesn't
       // overwrite mfg/exp/notes.
       let batchId = null;
+      let batchRow = null;
       if (item.product_id && batchTrackingEnabled
           && item._product?.is_batch_tracked && item.batch_number) {
-        const batch = await resolveOrCreateBatch({
+        batchRow = await resolveOrCreateBatch({
           product_id: item.product_id,
           batch_number: item.batch_number,
           manufacture_date: item.manufacture_date,
@@ -496,7 +517,7 @@ exports.create = async (req, res) => {
           notes: item.batch_notes,
           t,
         });
-        batchId = batch.batch_id;
+        batchId = batchRow.batch_id;
       }
 
       // Strip transient fields (_product, batch metadata) before insert —
@@ -516,6 +537,21 @@ exports.create = async (req, res) => {
       // per-godown pricing. Only inventory quantity is per-godown.
       if (item.product_id) {
         const product = item._product || await Product.findByPk(item.product_id, { transaction: t });
+        const isSingleMode = product.product_mode === 'single';
+        // ── Single-mode wac update runs BEFORE applyGodownStockDelta ───
+        // The helper reads product.current_stock as the pre-purchase old
+        // stock for the formula. If we ran it after the delta, current_stock
+        // would already include this line's qty and the formula would
+        // double-count. Order matters; do not flip without re-reading the
+        // helper. For variant mode this branch is a no-op.
+        if (isSingleMode && !product.is_batch_tracked) {
+          await applyWeightedAvgIncrement({
+            product_id: item.product_id,
+            qty: +parseFloat(item.quantity),
+            purchase_rate: item.purchase_rate,
+            t,
+          });
+        }
         const newStock = await applyGodownStockDelta({
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: +parseFloat(item.quantity), t,
@@ -529,12 +565,47 @@ exports.create = async (req, res) => {
             delta: +parseFloat(item.quantity), t,
           });
         }
-        await product.update({
-          purchase_rate: item.purchase_rate,
-          margin_percentage: item.margin_percentage || product.margin_percentage,
-          sale_rate: item.sale_rate || product.sale_rate,
-          mrp: item.mrp || product.mrp,
-        }, { transaction: t });
+        // ── Catalog field updates: mode-aware (audit-driven Phase 3) ────
+        //
+        // VARIANT mode: existing behaviour — overwrite catalog rates so
+        //   the master row reflects the latest landed cost. Differing
+        //   rates already created a new variant row above, so this only
+        //   ever rewrites a row whose rates already match the line.
+        //
+        // SINGLE mode without batch: catalog purchase_rate stays FROZEN
+        //   (overwriting it would obliterate cost basis — audit item
+        //   8.2). Cost moves to weighted_avg_cost via the helper above.
+        //   sale_rate / mrp / margin are sales-side concepts — operator
+        //   manages those from the Product form, not via purchases.
+        //   last_purchase_rate / last_purchase_date are convenience
+        //   snapshots so the operator sees latest landed price without
+        //   opening the bill.
+        //
+        // SINGLE mode with batch: cost lives on the batch row
+        //   (product_batches.purchase_rate, first-write-wins). wac is
+        //   not maintained — sales-time cost_rate snapshot reads from
+        //   the batch instead. Catalog purchase_rate also stays frozen.
+        if (!isSingleMode) {
+          await product.update({
+            purchase_rate: item.purchase_rate,
+            margin_percentage: item.margin_percentage || product.margin_percentage,
+            sale_rate: item.sale_rate || product.sale_rate,
+            mrp: item.mrp || product.mrp,
+          }, { transaction: t });
+        } else {
+          await product.update({
+            last_purchase_rate: item.purchase_rate,
+            last_purchase_date: billData.bill_date,
+          }, { transaction: t });
+          if (product.is_batch_tracked && batchRow
+              && (batchRow.purchase_rate == null || parseFloat(batchRow.purchase_rate) === 0)) {
+            // First-write-wins: only set rate if the batch was just
+            // created (or migrated in without a rate). A re-purchase of
+            // an existing batch keeps the original cost so historical
+            // attribution stays stable across restocks.
+            await batchRow.update({ purchase_rate: item.purchase_rate }, { transaction: t });
+          }
+        }
 
         await StockLedger.create({
           product_id: item.product_id,
@@ -683,6 +754,8 @@ exports.update = async (req, res) => {
     // inventory record and hide a real shortage from the user.
     const settings2 = await SystemSettings.findByPk(1, { transaction: t });
     const allowNeg2 = settings2?.allow_negative_stock || false;
+    const defaultProductMode2 = settings2?.default_product_mode || 'variant';
+    const batchTrackingEnabled = !!settings2?.batch_tracking_enabled;
 
     if (!allowNeg2) {
       // Aggregate net delta per product across both old and new items.
@@ -796,7 +869,7 @@ exports.update = async (req, res) => {
       const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
       const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
-      const resolved = await resolveOrCreateProduct(item, t);
+      const resolved = await resolveOrCreateProduct(item, t, defaultProductMode2);
       const product_id = resolved.product_id;
       const barcode    = resolved.barcode;
 
@@ -815,8 +888,6 @@ exports.update = async (req, res) => {
 
     // Same batch-tracking validation as create(). See note there for the
     // rationale around the global toggle gating per-product enforcement.
-    const settingsRow2 = await SystemSettings.findByPk(1, { transaction: t });
-    const batchTrackingEnabled = !!settingsRow2?.batch_tracking_enabled;
     if (batchTrackingEnabled) {
       for (const it of processedItems) {
         if (it._product?.is_batch_tracked && !it.batch_number) {
@@ -935,14 +1006,25 @@ exports.update = async (req, res) => {
     }, { transaction: t });
 
     // ── Step 6: Create new items + update stock ────────────────────────────
+    // Track every product touched by old/new lines so we can recompute
+    // weighted_avg_cost from ledger after the rebuild settles. Update path
+    // can't safely incrementally adjust wac (a line edit can swap batches,
+    // change rates, change qty, all at once). Full recompute is the
+    // simplest correctness guarantee — same approach as recalculatePartyBalance.
+    const touchedProductIds = new Set();
+    for (const oldItem of existingBill.items) {
+      if (oldItem.product_id) touchedProductIds.add(oldItem.product_id);
+    }
+
     for (const item of processedItems) {
       // Resolve / create the batch first so the inserted line carries the
       // batch_id and the StockLedger row tracks it. Same first-write-wins
       // semantics as create().
       let batchId = null;
+      let batchRow = null;
       if (item.product_id && batchTrackingEnabled
           && item._product?.is_batch_tracked && item.batch_number) {
-        const batch = await resolveOrCreateBatch({
+        batchRow = await resolveOrCreateBatch({
           product_id: item.product_id,
           batch_number: item.batch_number,
           manufacture_date: item.manufacture_date,
@@ -950,7 +1032,7 @@ exports.update = async (req, res) => {
           notes: item.batch_notes,
           t,
         });
-        batchId = batch.batch_id;
+        batchId = batchRow.batch_id;
       }
 
       const { _product, batch_number, manufacture_date, expiry_date, batch_notes, ...billItemData } = item;
@@ -961,7 +1043,9 @@ exports.update = async (req, res) => {
       }, { transaction: t });
 
       if (item.product_id) {
+        touchedProductIds.add(item.product_id);
         const product = item._product || await Product.findByPk(item.product_id, { transaction: t });
+        const isSingleMode = product.product_mode === 'single';
         const newStock = await applyGodownStockDelta({
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: +parseFloat(item.quantity), t,
@@ -973,12 +1057,26 @@ exports.update = async (req, res) => {
             delta: +parseFloat(item.quantity), t,
           });
         }
-        await product.update({
-          purchase_rate: item.purchase_rate,
-          margin_percentage: item.margin_percentage || product.margin_percentage,
-          sale_rate: item.sale_rate || product.sale_rate,
-          mrp: item.mrp || product.mrp,
-        }, { transaction: t });
+        // Mode-aware catalog field updates — see the equivalent block in
+        // create() for the rationale. Variant rewrites rates; single
+        // freezes purchase_rate and just bumps last_purchase_*.
+        if (!isSingleMode) {
+          await product.update({
+            purchase_rate: item.purchase_rate,
+            margin_percentage: item.margin_percentage || product.margin_percentage,
+            sale_rate: item.sale_rate || product.sale_rate,
+            mrp: item.mrp || product.mrp,
+          }, { transaction: t });
+        } else {
+          await product.update({
+            last_purchase_rate: item.purchase_rate,
+            last_purchase_date: billData.bill_date || existingBill.bill_date,
+          }, { transaction: t });
+          if (product.is_batch_tracked && batchRow
+              && (batchRow.purchase_rate == null || parseFloat(batchRow.purchase_rate) === 0)) {
+            await batchRow.update({ purchase_rate: item.purchase_rate }, { transaction: t });
+          }
+        }
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
@@ -992,6 +1090,14 @@ exports.update = async (req, res) => {
           created_by: req.user.user_id,
         }, { transaction: t });
       }
+    }
+
+    // Recompute wac for every touched single-mode non-batch product.
+    // The new ledger rows are now in place; recomputeWeightedAvgFromLedger
+    // walks them in chronological order and produces the correct final
+    // wac. No-ops for variant-mode and batch-tracked products.
+    for (const pid of touchedProductIds) {
+      await recomputeWeightedAvgFromLedger({ product_id: pid, t });
     }
 
     // ── Step 7: Recalculate supplier balance from scratch ──────────────────
@@ -1124,8 +1230,10 @@ exports.cancel = async (req, res) => {
     // guaranteed we won't go negative when allow_negative_stock is
     // disabled. allowGodownStockDelta handles the row-locked update +
     // products.current_stock mirror in one shot.
+    const cancelTouchedProductIds = new Set();
     for (const item of bill.items) {
       if (item.product_id && bill.godown_id) {
+        cancelTouchedProductIds.add(item.product_id);
         await applyGodownStockDelta({
           product_id: item.product_id, godown_id: bill.godown_id,
           delta: -parseFloat(item.quantity), t,
@@ -1149,6 +1257,14 @@ exports.cancel = async (req, res) => {
       where: { reference_id: bill.purchase_bill_id, transaction_type: 'Purchase' },
       transaction: t,
     });
+
+    // Recompute weighted_avg_cost for every single-mode product whose
+    // ledger we just touched. The cancel removed Purchase rows from the
+    // ledger; the helper walks what's left and produces the correct
+    // post-cancel wac. No-op for variant-mode and batch-tracked products.
+    for (const pid of cancelTouchedProductIds) {
+      await recomputeWeightedAvgFromLedger({ product_id: pid, t });
+    }
 
     // Zero out monetary fields + record who/when/why for the audit trail.
     const { reason: cancellationReason } = req.body || {};
