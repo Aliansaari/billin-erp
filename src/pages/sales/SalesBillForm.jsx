@@ -1499,7 +1499,26 @@ export default function SalesBillForm() {
   const cols=[
     {title:'#',width:40,align:'center',render:(_,__,i)=><span style={{color:'var(--fg-tertiary)',fontSize:13,fontWeight:600,textAlign:'center'}}>{i+1}</span>},
     {title:'Barcode',dataIndex:'barcode',width:120,render:(v)=>readCell(v,{color:'var(--fg-secondary)'})},
-    {title:'Product Name',dataIndex:'product_name',width:220,render:(v)=>readCell(v,{color:'var(--fg-primary)',fontWeight:600})},
+    {title:'Product Name',dataIndex:'product_name',width:220,render:(v,r)=>{
+      // Batch sub-line — shown below the product name when the line
+      // has a batch attached. Keeps the table column count steady
+      // while making per-row Lot / Mfg / Exp visible at a glance.
+      // Format: "Lot LOT-2401 · Mfd 01 Jan 25 · Exp 01 Jan 26".
+      const subParts = [];
+      if (r.batch_number) subParts.push(`Lot ${r.batch_number}`);
+      if (r.manufacture_date) subParts.push(`Mfd ${dayjs(r.manufacture_date).format('DD MMM YY')}`);
+      if (r.expiry_date) subParts.push(`Exp ${dayjs(r.expiry_date).format('DD MMM YY')}`);
+      return (
+        <div style={{ display:'flex', flexDirection:'column', gap:1 }}>
+          <span style={{ fontSize:13, fontWeight:600, color:'var(--fg-primary)' }}>{v||'—'}</span>
+          {subParts.length > 0 && (
+            <span style={{ fontSize:10, color:'var(--fg-tertiary)', fontWeight:500, lineHeight:1.3 }}>
+              {subParts.join(' · ')}
+            </span>
+          )}
+        </div>
+      );
+    }},
     {title:'Size',dataIndex:'size',width:70,render:(v)=>readCell(v,{color:'var(--fg-tertiary)'})},
     {title:'Unit',dataIndex:'unit_type',width:70,align:'center',render:(v)=>(
       <span style={{fontSize:12,fontWeight:600,color:'var(--fg-secondary)',textAlign:'center'}}>{v||'Pcs'}</span>
