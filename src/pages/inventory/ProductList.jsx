@@ -75,17 +75,17 @@ function healthOf(product) {
   return { kind: 'ok', label: 'Healthy' };
 }
 
-// Margin uses the mode-aware cost basis (display_cost) so single-mode
-// products read against weighted_avg_cost and single+batch rows read
-// against batch-weighted average. Falls back to purchase_rate when the
-// API hasn't enriched the row (older/cached payloads, edit-form pre-fill).
-// For variant products display_cost === purchase_rate, so the change is
-// a no-op there.
+// True margin % = (sale - cost) / sale × 100. Cost basis is mode-aware
+// via display_cost (variant: purchase_rate, single: weighted_avg_cost,
+// single+batch: batch-weighted average) — falls back to purchase_rate
+// for older/cached rows. Denominator is the sale price (not cost), so
+// the chip reads as "what fraction of the sale we keep" rather than
+// markup over cost.
 function marginPct(p) {
   const cost = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
   const sale = parseFloat(p.sale_rate || 0);
-  if (!cost) return null;
-  return ((sale - cost) / cost) * 100;
+  if (!sale || !cost) return null;
+  return ((sale - cost) / sale) * 100;
 }
 
 // Stable category dot palette — same product = same color across sessions.
@@ -302,9 +302,19 @@ export default function ProductList() {
         : <span className="qty-m">—</span>,
     },
     cols.pur && {
-      key: 'pur', title: 'Purchase', dataIndex: 'purchase_rate', width: 110, align: 'right',
-      sorter: (a, b) => parseFloat(a.purchase_rate || 0) - parseFloat(b.purchase_rate || 0),
-      render: (v) => <span className="mon-m"><span className="rs">₹</span>{fmtMoney(v)}</span>,
+      key: 'pur', title: 'Purchase', width: 110, align: 'right',
+      // Mode-aware cost basis (display_cost). For variant products
+      // display_cost === purchase_rate, so this is a no-op there. For
+      // single-mode it reads weighted_avg_cost; for single+batch it
+      // reads the batch-weighted average. Sort + render use the same
+      // value so the column is internally consistent.
+      sorter: (a, b) =>
+        parseFloat(a.display_cost ?? a.purchase_rate ?? 0)
+        - parseFloat(b.display_cost ?? b.purchase_rate ?? 0),
+      render: (_, p) => {
+        const v = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
+        return <span className="mon-m"><span className="rs">₹</span>{fmtMoney(v)}</span>;
+      },
     },
     cols.sale && {
       key: 'sale', title: 'Sale', dataIndex: 'sale_rate', width: 110, align: 'right',

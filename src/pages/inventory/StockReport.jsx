@@ -264,9 +264,17 @@ export default function StockReport() {
       render: (v) => parseFloat(v) > 0 ? <span className="sr-qty muted">{fmtN(v)}</span> : <span className="sr-amt muted">—</span>,
     },
     cols.pur && {
-      key: 'pur', title: 'Pur. Rate', dataIndex: 'purchase_rate', width: 110, align: 'right',
-      sorter: (a, b) => parseFloat(a.purchase_rate || 0) - parseFloat(b.purchase_rate || 0),
-      render: (v) => <span className="sr-amt"><span className="rs">₹</span>{fmtN(v)}</span>,
+      key: 'pur', title: 'Pur. Rate', width: 110, align: 'right',
+      // Mode-aware cost basis (display_cost). Variant: purchase_rate.
+      // Single: weighted_avg_cost. Single+batch: batch-weighted avg.
+      // Falls back to purchase_rate for older/cached rows.
+      sorter: (a, b) =>
+        parseFloat(a.display_cost ?? a.purchase_rate ?? 0)
+        - parseFloat(b.display_cost ?? b.purchase_rate ?? 0),
+      render: (_, p) => {
+        const v = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
+        return <span className="sr-amt"><span className="rs">₹</span>{fmtN(v)}</span>;
+      },
     },
     cols.sale && {
       key: 'sale', title: 'Sale Rate', dataIndex: 'sale_rate', width: 110, align: 'right',
@@ -275,24 +283,25 @@ export default function StockReport() {
     },
     cols.mrg && {
       key: 'mrg', title: 'Margin', width: 80, align: 'right',
-      // Margin% = (sale - cost) / cost. Cost basis is mode-aware via
-      // display_cost (variant: purchase_rate, single: weighted_avg_cost,
-      // single+batch: batch-weighted average) — falls back to
-      // purchase_rate for older/cached rows. Rows with no cost basis
-      // sort last regardless of direction (sentinel -Infinity).
+      // True margin % = (sale - cost) / sale × 100. Cost basis is mode-
+      // aware via display_cost (variant: purchase_rate, single:
+      // weighted_avg_cost, single+batch: batch-weighted average). Rows
+      // missing sale or cost sort last regardless of direction.
       sorter: (a, b) => {
         const m = (r) => {
           const cost = parseFloat(r.display_cost ?? r.purchase_rate ?? 0);
           const sale = parseFloat(r.sale_rate || 0);
-          return cost > 0 ? ((sale - cost) / cost) * 100 : Number.NEGATIVE_INFINITY;
+          return (sale > 0 && cost > 0)
+            ? ((sale - cost) / sale) * 100
+            : Number.NEGATIVE_INFINITY;
         };
         return m(a) - m(b);
       },
       render: (_, p) => {
         const cost = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
         const sale = parseFloat(p.sale_rate || 0);
-        if (cost <= 0) return <span className="sr-mrg warn">—</span>;
-        const pct = ((sale - cost) / cost) * 100;
+        if (sale <= 0 || cost <= 0) return <span className="sr-mrg warn">—</span>;
+        const pct = ((sale - cost) / sale) * 100;
         const tone = pct > 5 ? 'pos' : pct < 0 ? 'bad' : 'warn';
         const sign = pct > 0 ? '+' : '';
         return <span className={`sr-mrg ${tone}`}>{sign}{pct.toFixed(1)}%</span>;

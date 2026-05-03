@@ -201,7 +201,14 @@ export default function SmartStockCategory() {
         // formula stays as fallback for rows that pre-date enrichment.
         av = parseFloat(a.display_stock_value ?? (parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0)));
         bv = parseFloat(b.display_stock_value ?? (parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0)));
-      } else if (['current_stock', 'purchase_rate', 'sale_rate'].includes(sortKey)) {
+      } else if (sortKey === 'purchase_rate') {
+        // Sort by the same value the column displays — display_cost
+        // (mode-aware) for single / single+batch, purchase_rate for
+        // variant. Falls back to purchase_rate when display_cost is
+        // missing (older/cached rows).
+        av = parseFloat(a.display_cost ?? a.purchase_rate ?? 0);
+        bv = parseFloat(b.display_cost ?? b.purchase_rate ?? 0);
+      } else if (['current_stock', 'sale_rate'].includes(sortKey)) {
         av = parseFloat(a[sortKey] || 0);
         bv = parseFloat(b[sortKey] || 0);
       } else {
@@ -527,7 +534,7 @@ export default function SmartStockCategory() {
         );
       case 'size_value':  return <span className="ss-cell-size">{p.size_value || '—'}</span>;
       case 'current_stock': return <span className={`ss-cell-stk ${tone}`}>{fmtN(stock)}</span>;
-      case 'purchase_rate': return <span className="ss-cell-pur">{fmt(p.purchase_rate)}</span>;
+      case 'purchase_rate': return <span className="ss-cell-pur">{fmt(p.display_cost ?? p.purchase_rate)}</span>;
       case 'sale_rate':     return <span className="ss-cell-sale">{fmt(p.sale_rate)}</span>;
       case 'min_stock':     return <span className="ss-cell-min">{p.minimum_stock_level || '—'}</span>;
       case 'stock_value':   return <span className="ss-cell-val">{fmt(stVal)}</span>;
