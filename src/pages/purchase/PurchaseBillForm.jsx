@@ -312,13 +312,26 @@ export default function PurchaseBillForm() {
   const marginRef   = useRef(null);
   const saleRateRef = useRef(null);
   const gstRef      = useRef(null);
+  // Batch-strip refs — populated whenever batch_tracking_enabled is on
+  // (regardless of the picked product's flag). Keyboard nav threads
+  // them onto the end of entryRefs so Tab/Enter/Arrow walk lands on
+  // Lot → Mfg → Exp → Notes → ADD without breaking the rhythm.
+  const batchNumRef = useRef(null);
+  const mfgRef      = useRef(null);
+  const expRef      = useRef(null);
+  const batchNotesRef = useRef(null);
   // Tab/Enter/ArrowDown walk this array left → right; ArrowUp walks
   // back. Order MIRRORS the visual entry-row order: Product → Size →
   // Art# → Qty → Rate → P/Box → Margin% → Sale ₹ → GST% → (+ADD via
   // the addItem fall-through at the end of handleEntryKey).
   // Qty BEFORE Rate so the natural typing rhythm is "size, art, how
   // many, at what price" — same flow as the sales form.
-  const entryRefs   = [productRef,sizeRef,articleRef,qtyRef,rateRef,qpbRef,marginRef,saleRateRef,gstRef];
+  const entryRefs   = [productRef,sizeRef,articleRef,qtyRef,rateRef,qpbRef,marginRef,saleRateRef,gstRef,
+    // Batch refs are inserted at the end so the keyboard walk is:
+    // … GST% → Lot → Mfg → Exp → Notes → ADD (handled by addItem
+    // fall-through in handleEntryKey when idx >= entryRefs.length-1).
+    batchNumRef, mfgRef, expRef, batchNotesRef,
+  ];
 
   useLayoutEffect(()=>{
     const el = tableWrapRef.current;
@@ -848,18 +861,34 @@ export default function PurchaseBillForm() {
     // When picker is visible, the global capture handler owns Up/Down/Enter/Esc/Tab.
     // Bail out here so we don't double-handle and desync state.
     if(showVariantPicker && (e.key==='ArrowUp'||e.key==='ArrowDown'||e.key==='Enter'||e.key==='Escape'||e.key==='Tab')) return;
-    const isNum = idx >= 3;
+    // Numeric cells (idx 3..8) consume ArrowUp/Down for value-step;
+    // text + DatePicker cells (idx 0..2 + 9..12) let arrows walk
+    // between fields. Batch strip (Lot / Mfg / Exp / Notes) is the
+    // 9..12 range — explicit so a future re-order of the entry row
+    // doesn't accidentally make them numeric.
+    const isNum = idx >= 3 && idx <= 8;
     if(e.key==='Enter'||e.key==='Tab'||(e.key==='ArrowDown'&&!isNum)){
       e.preventDefault();
       if(LOOKUP_IDXS.has(idx)&&!showVariantPickerRef.current){
         if(skipNextLookupRef.current){ skipNextLookupRef.current = false; }
         else setEntry(snap=>{ lookupProduct(snap); return snap; });
       }
-      if(idx>=entryRefs.length-1) addItem();
-      else{const n=entryRefs[idx+1];if(n?.current){n.current.focus();n.current.select?.();}}
+      // Skip-walk past unmounted refs. variantOnly cells (size, art#,
+      // p/box, margin, sale, gst) are filtered out of the DOM in
+      // single mode, and batch cells (Lot/Mfg/Exp/Notes) only mount
+      // when batch_tracking_enabled. Their refs stay in entryRefs
+      // but .current === null — focus would silently no-op without
+      // this skip, leaving the operator stranded mid-row.
+      let nextIdx = idx + 1;
+      while (nextIdx < entryRefs.length && !entryRefs[nextIdx]?.current) nextIdx++;
+      if (nextIdx >= entryRefs.length) addItem();
+      else { entryRefs[nextIdx].current.focus(); entryRefs[nextIdx].current.select?.(); }
     }else if(e.key==='ArrowUp'&&!isNum){
       e.preventDefault();
-      if(idx>0){const p=entryRefs[idx-1];if(p?.current){p.current.focus();p.current.select?.();}}
+      // Symmetric skip-walk back through unmounted refs.
+      let prevIdx = idx - 1;
+      while (prevIdx >= 0 && !entryRefs[prevIdx]?.current) prevIdx--;
+      if (prevIdx >= 0) { entryRefs[prevIdx].current.focus(); entryRefs[prevIdx].current.select?.(); }
       else barcodeRef.current?.focus();
     }
   };
@@ -1861,38 +1890,52 @@ export default function PurchaseBillForm() {
                     articleFilter={pickerAnchorRef.current==='article'?pickerArticleFilter:null}
                   />
                 )}
-                {/* Batch fields — inline in the entry row when global
-                    batch_tracking is on AND the resolved product is
-                    batch-tracked. Same .pbf-cell shape as the field
-                    array above so keyboard nav (Tab / Enter / Arrow)
-                    flows through naturally. Notes column is dropped
-                    from the inline row to keep widths sane; operators
-                    who want to add a per-batch note can edit the line
-                    in the items table after Add. The original second-
-                    line strip wasted vertical space and broke the
-                    "type, type, type, ADD" rhythm. */}
-                {batchTrackingEnabled && entry.is_batch_tracked && (
+                {/* Batch fields — inline in the entry row whenever the
+                    global batch_tracking_enabled toggle is on. Per
+                    operator request, the strip is ALWAYS visible (not
+                    gated on the picked product's is_batch_tracked) so
+                    operators can type Lot first and pick the product
+                    afterwards if they prefer. The save path still
+                    respects per-product is_batch_tracked: lines for
+                    non-batch products simply ignore the batch fields.
+                    Keyboard nav: GST% → Lot → Mfg → Exp → Notes → ADD
+                    via Tab/Enter/Arrow (refs idx 9-12 in entryRefs).
+                    DD/MM/YYYY format on dates so typing is unambiguous
+                    (Y2 short-year would silently truncate "2026" to
+                    "26" and back to "1926" on parse).  */}
+                {batchTrackingEnabled && (
                   <>
                     <div className="pbf-cell">
-                      <div className="pbf-cell-lbl">Batch * </div>
-                      <Input value={entry.batch_number}
+                      <div className="pbf-cell-lbl">Lot{entry.is_batch_tracked ? ' *' : ''}</div>
+                      <Input ref={batchNumRef} value={entry.batch_number}
                         placeholder="Lot-2401"
                         onChange={e=>setEntry(p=>({...p,batch_number:e.target.value}))}
-                        onPressEnter={addItem}/>
+                        onKeyDown={e=>handleEntryKey(e,9)}/>
                     </div>
                     <div className="pbf-cell">
                       <div className="pbf-cell-lbl">Mfg</div>
-                      <DatePicker value={entry.manufacture_date?dayjs(entry.manufacture_date):null}
-                        format="DD/MM/YY"
+                      <DatePicker ref={mfgRef}
+                        value={entry.manufacture_date?dayjs(entry.manufacture_date):null}
+                        format={['DD/MM/YYYY','DD-MM-YYYY','D/M/YYYY','D-M-YYYY']}
                         onChange={d=>setEntry(p=>({...p,manufacture_date:d?d.format('YYYY-MM-DD'):null}))}
-                        style={{width:'100%'}} allowClear/>
+                        onKeyDown={e=>handleEntryKey(e,10)}
+                        style={{width:'100%'}} allowClear inputReadOnly={false}/>
                     </div>
                     <div className="pbf-cell">
                       <div className="pbf-cell-lbl">Exp</div>
-                      <DatePicker value={entry.expiry_date?dayjs(entry.expiry_date):null}
-                        format="DD/MM/YY"
+                      <DatePicker ref={expRef}
+                        value={entry.expiry_date?dayjs(entry.expiry_date):null}
+                        format={['DD/MM/YYYY','DD-MM-YYYY','D/M/YYYY','D-M-YYYY']}
                         onChange={d=>setEntry(p=>({...p,expiry_date:d?d.format('YYYY-MM-DD'):null}))}
-                        style={{width:'100%'}} allowClear/>
+                        onKeyDown={e=>handleEntryKey(e,11)}
+                        style={{width:'100%'}} allowClear inputReadOnly={false}/>
+                    </div>
+                    <div className="pbf-cell">
+                      <div className="pbf-cell-lbl">Notes</div>
+                      <Input ref={batchNotesRef} value={entry.batch_notes}
+                        placeholder="Optional"
+                        onChange={e=>setEntry(p=>({...p,batch_notes:e.target.value}))}
+                        onKeyDown={e=>handleEntryKey(e,12)}/>
                     </div>
                   </>
                 )}
