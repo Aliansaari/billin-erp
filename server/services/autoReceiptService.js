@@ -549,6 +549,45 @@ async function checkIntegrity() {
     });
   }
 
+  // I7 — for every batch-tracked product, the sum of per-batch on-hand
+  // across all godowns equals products.current_stock. Catches a
+  // batch-stock ↔ godown-stock ↔ product-stock chain drift after any
+  // batched sale / sales-return / purchase-return write path. Only
+  // batch-tracked products are checked; non-batched products legitimately
+  // have zero rows in product_batch_stock.
+  //
+  // Tolerance ±0.001 — three-decimal columns (pharma / food precision).
+  // A drift ≥ that surfaces as a violation with the per-product breakdown
+  // in `sample` so the integrity screen can pinpoint which batch chain
+  // diverged.
+  const i7 = await sequelize.query(
+    `WITH batch_sum AS (
+       SELECT pbs.product_id,
+              SUM(pbs.current_stock)::float AS batch_total
+         FROM product_batch_stock pbs
+        GROUP BY pbs.product_id
+     )
+     SELECT p.product_id, p.product_name,
+            COALESCE(p.current_stock, 0)::float        AS product_stock,
+            COALESCE(bs.batch_total, 0)::float          AS batch_total,
+            COALESCE(p.current_stock, 0)::float
+              - COALESCE(bs.batch_total, 0)::float      AS drift
+       FROM products p
+       LEFT JOIN batch_sum bs ON bs.product_id = p.product_id
+      WHERE p.is_batch_tracked = true
+        AND p.is_active = true
+        AND ABS(COALESCE(p.current_stock, 0) - COALESCE(bs.batch_total, 0)) > 0.001
+      LIMIT 50`,
+    { type: sequelize.QueryTypes.SELECT },
+  );
+  out.invariants.push({
+    id: 'I7',
+    name: 'I7: SUM(batch_stock) == products.current_stock for every batch-tracked product',
+    ok: i7.length === 0,
+    violation_count: i7.length,
+    sample: i7.slice(0, 10),
+  });
+
   out.all_pass = out.invariants.every((i) => i.ok);
   return out;
 }

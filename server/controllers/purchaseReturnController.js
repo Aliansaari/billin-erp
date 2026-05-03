@@ -10,6 +10,7 @@ const { recalculatePartyBalance } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPurchaseReturnVouchers } = require('../services/voucherBuilders');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { applyBatchStockDelta } = require('../utils/batchStock');
 const { recomputeWeightedAvgFromLedger } = require('../utils/weightedAvgCost');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
@@ -489,6 +490,7 @@ exports.create = async (req, res) => {
       await PurchaseReturnBillItem.create({
         purchase_return_id: bill.purchase_return_id,
         ...item,
+        batch_id: item.batch_id || null,
       }, { transaction: t });
 
       if (item.product_id && return_mode === 'Items') {
@@ -499,10 +501,23 @@ exports.create = async (req, res) => {
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: -parseFloat(item.quantity), t,
         });
+        // Batch dimension: a purchase return REMOVES stock from the
+        // originating batch (we're shipping the lot back to the
+        // supplier). Mirror of the sales-side decrement; both must move
+        // in the same transaction so a rollback restores both
+        // consistently. Only applies to batched lines.
+        if (item.batch_id && product.is_batch_tracked) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: item.batch_id,
+            godown_id: billData.godown_id,
+            delta: -parseFloat(item.quantity), t,
+          });
+        }
 
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
+          batch_id: item.batch_id || null,
           barcode: item.barcode,
           transaction_type: 'Purchase Return',
           transaction_date: billData.return_date,
@@ -636,6 +651,13 @@ exports.update = async (req, res) => {
             product_id: oldItem.product_id, godown_id: oldGodownId,
             delta: +parseFloat(oldItem.quantity), t,
           });
+          if (oldItem.batch_id) {
+            await applyBatchStockDelta({
+              product_id: oldItem.product_id, batch_id: oldItem.batch_id,
+              godown_id: oldGodownId,
+              delta: +parseFloat(oldItem.quantity), t,
+            });
+          }
         }
       }
     }
@@ -733,7 +755,11 @@ exports.update = async (req, res) => {
     }, { transaction: t });
 
     for (const item of totals.processedItems) {
-      await PurchaseReturnBillItem.create({ purchase_return_id: id, ...item }, { transaction: t });
+      await PurchaseReturnBillItem.create({
+        purchase_return_id: id,
+        ...item,
+        batch_id: item.batch_id || null,
+      }, { transaction: t });
       if (item.product_id && return_mode === 'Items') {
         const product = await Product.findByPk(item.product_id, { transaction: t });
         if (!product) continue;
@@ -742,9 +768,17 @@ exports.update = async (req, res) => {
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: -parseFloat(item.quantity), t,
         });
+        if (item.batch_id && product.is_batch_tracked) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: item.batch_id,
+            godown_id: billData.godown_id,
+            delta: -parseFloat(item.quantity), t,
+          });
+        }
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
+          batch_id: item.batch_id || null,
           barcode: item.barcode,
           transaction_type: 'Purchase Return',
           transaction_date: billData.return_date || existing.return_date,
@@ -823,6 +857,13 @@ exports.cancel = async (req, res) => {
             product_id: item.product_id, godown_id: bill.godown_id,
             delta: +parseFloat(item.quantity), t,
           });
+          if (item.batch_id) {
+            await applyBatchStockDelta({
+              product_id: item.product_id, batch_id: item.batch_id,
+              godown_id: bill.godown_id,
+              delta: +parseFloat(item.quantity), t,
+            });
+          }
         }
       }
     }

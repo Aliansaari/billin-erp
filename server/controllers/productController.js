@@ -318,6 +318,70 @@ exports.getByBarcode = async (req, res) => {
   }
 };
 
+// ── GET /api/products/:id/batches?godown_id=X&include_zero=false ──────
+//
+// Returns the active batches for a batch-tracked product at a specific
+// godown, sorted FEFO when any batch has an expiry date, FIFO otherwise.
+// Powers the sales-form / sales-return-form / purchase-return-form
+// batch dropdowns. Default scope drops batches with zero stock at this
+// godown (the picker can't sell from an empty batch); pass
+// include_zero=true to include them — useful for diagnostics and the
+// integrity-screen view.
+//
+// Sort rules (matching the brief):
+//   · If ANY batch has expiry_date set → FEFO
+//       (earliest expiry first; null expiries sort last; tiebreak on
+//        batch_id ascending for stability)
+//   · Else → FIFO
+//       (earliest manufacture_date first; null mfg sorts last;
+//        tiebreak on batch_id ascending)
+//
+// Each row: { batch_id, batch_number, manufacture_date, expiry_date,
+//             purchase_rate, current_stock, notes }. The form decides
+//             how to chip-render expiry status against the
+//             batch_expiry_alert_days setting.
+exports.getBatches = async (req, res) => {
+  try {
+    const productId = parseInt(req.params.id, 10);
+    if (!productId) return res.status(400).json({ error: 'product_id required' });
+    const godownId = req.query.godown_id ? parseInt(req.query.godown_id, 10) : null;
+    if (!godownId) return res.status(400).json({ error: 'godown_id required' });
+    const includeZero = req.query.include_zero === 'true';
+
+    const rows = await sequelize.query(
+      `SELECT pb.batch_id,
+              pb.batch_number,
+              pb.manufacture_date,
+              pb.expiry_date,
+              pb.purchase_rate::float AS purchase_rate,
+              pb.notes,
+              COALESCE(pbs.current_stock, 0)::float AS current_stock
+         FROM product_batches pb
+         LEFT JOIN product_batch_stock pbs
+               ON pbs.batch_id   = pb.batch_id
+              AND pbs.product_id = pb.product_id
+              AND pbs.godown_id  = :godown_id
+        WHERE pb.product_id = :product_id
+          AND pb.is_active  = true
+          ${includeZero ? '' : 'AND COALESCE(pbs.current_stock, 0) > 0'}
+        ORDER BY (pb.expiry_date IS NULL) ASC,
+                 pb.expiry_date ASC,
+                 (pb.manufacture_date IS NULL) ASC,
+                 pb.manufacture_date ASC,
+                 pb.batch_id ASC`,
+      {
+        replacements: { product_id: productId, godown_id: godownId },
+        type: sequelize.QueryTypes.SELECT,
+      },
+    );
+
+    return res.json({ data: rows });
+  } catch (err) {
+    console.error('getBatches error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
 exports.getById = async (req, res) => {
   try {
     const product = await Product.findByPk(req.params.id, {

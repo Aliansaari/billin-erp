@@ -18,6 +18,14 @@ const EMPTY = {
   article_number:'', rate:0, quantity:0, discount_percentage:0,
   hsn_code:'', gst_rate:0, product_id:null, mrp:0, available_stock:0, unit_type:'Pcs',
   quantity_per_box:1,
+  // Batch dimension — only meaningful when global batch_tracking_enabled
+  // is ON AND the resolved product has is_batch_tracked=true. Picker
+  // populates batch_id (auto-pick on product select); batch_number /
+  // expiry_date / available_stock come along for the items-table chip
+  // and per-batch stock guard. Defaults stay null/false so non-batch
+  // sales don't carry stale batch metadata.
+  is_batch_tracked:false, batch_id:null, batch_number:'',
+  manufacture_date:null, expiry_date:null, batch_stock:0,
 };
 
 // Style helper for the bill-mode toggle pills (Itemised / Amount-only).
@@ -79,6 +87,17 @@ export default function SalesBillForm() {
   const [pgLoading, setPgLoading] = useState(false);
   const [entry, setEntry]       = useState(EMPTY);
   const [prodOpts, setProdOpts] = useState([]);
+  // Batch picker state — populated when entry.product_id changes for a
+  // batch-tracked product at the selected godown. Server returns batches
+  // already sorted FEFO/FIFO so the first row is the auto-pick winner.
+  // batchTrackingOn / blockExpiredSales / batchAlertDays come from
+  // SystemSettings on mount; the form silently falls back to non-batch
+  // behaviour when batchTrackingOn is false.
+  const [batchOpts, setBatchOpts]               = useState([]);
+  const [batchOptsLoading, setBatchOptsLoading] = useState(false);
+  const [batchTrackingOn, setBatchTrackingOn]   = useState(false);
+  const [blockExpiredSales, setBlockExpiredSales] = useState(false);
+  const [batchAlertDays, setBatchAlertDays]     = useState(30);
   const [company, setCompany]   = useState('');
   // Whether the operator can switch to Amount-only mode. Controlled by
   // SystemSettings.enable_amount_only_billing — when off, the Mode strip
@@ -392,6 +411,12 @@ export default function SalesBillForm() {
       // haven't run the migration yet). Treat literal `false` as off;
       // anything else (true / null / undefined) means the toggle is on.
       setAmountOnlyEnabled(data?.data?.enable_amount_only_billing !== false);
+      // Batch picker gates: global toggle + expired-sales block + alert
+      // days. Same column names the purchase form's batch strip reads.
+      setBatchTrackingOn(!!data?.data?.batch_tracking_enabled);
+      setBlockExpiredSales(!!data?.data?.block_expired_sales);
+      const ad = parseInt(data?.data?.batch_expiry_alert_days, 10);
+      setBatchAlertDays(Number.isFinite(ad) && ad > 0 ? ad : 30);
     }).catch(()=>{});
     // Predict the next bill number so the operator sees what they'll
     // get on save instead of "pending". Asks the server for the latest
@@ -481,6 +506,16 @@ export default function SalesBillForm() {
         total_amount:parseFloat(it.total_amount)||0,
         mrp:parseFloat(it.mrp)||0, hsn_code:it.hsn_code||'',
         gst_rate:parseFloat(it.gst_rate)||0, available_stock:0,
+        // Preserve batch identity on edit-load so the saved batch
+        // round-trips through the form even when the operator only
+        // changes a non-batch field (qty, rate). Server's update path
+        // uses item.batch_id to (a) snapshot cost_rate and (b) restore /
+        // re-deduct per-batch on-hand for the right lot.
+        batch_id: it.batch_id || null,
+        is_batch_tracked: !!(it.product?.is_batch_tracked || it.batch_id),
+        batch_number: it.batch?.batch_number || '',
+        manufacture_date: it.batch?.manufacture_date || null,
+        expiry_date: it.batch?.expiry_date || null,
       }));
       // Advance monotonic key counter above any loaded row so new items
       // added in edit mode can't collide with existing keys.
@@ -578,11 +613,94 @@ export default function SalesBillForm() {
       hsn_code:p.hsn_code||'',gst_rate:parseFloat(p.gst_rate)||0,
       available_stock:parseFloat(p.current_stock)||0,
       quantity:qty,unit_type:unitType,quantity_per_box:parseFloat(p.quantity_per_box)||1,
+      is_batch_tracked:!!p.is_batch_tracked,
+      // Reset batch dimension on every product pick — the picker effect
+      // below (watching product_id + godown_id) re-fetches and auto-picks
+      // when the new product is batch-tracked.
+      batch_id:null, batch_number:'', manufacture_date:null, expiry_date:null,
+      batch_stock:0,
     }));
     // Flag so onFocus intercepts any AntD focus-restore and redirects to qty
     justSelectedRef.current=true;
     requestAnimationFrame(()=>{ prodRef.current?.blur(); qtyRef.current?.focus(); });
   },[]);
+
+  // ── Batch picker — fetch + auto-pick ─────────────────────────────────
+  // Watches (product_id, is_batch_tracked, godown_id, batchTrackingOn).
+  // For a batch-tracked product at a known godown with the global toggle
+  // ON, fetch the FEFO/FIFO-sorted batch list and auto-pick the top row
+  // (the FEFO winner if any expiry exists, else the FIFO winner). The
+  // operator can override by opening the dropdown — that path goes
+  // through pickBatch() below. The effect's dep array intentionally
+  // omits batchTrackingOn (a runtime-flippable setting) so the picker
+  // always reflects the current toggle state at fetch time.
+  const watchedGodownId = Form.useWatch('godown_id', form);
+  useEffect(() => {
+    if (!batchTrackingOn || !entry.is_batch_tracked
+        || !entry.product_id || !watchedGodownId) {
+      // Clear stale options when the gating conditions are not met.
+      setBatchOpts([]);
+      return;
+    }
+    let cancelled = false;
+    setBatchOptsLoading(true);
+    productAPI.getBatches(entry.product_id, { godown_id: watchedGodownId })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const rows = data?.data || [];
+        setBatchOpts(rows);
+        // Auto-pick: first row is the FEFO/FIFO winner per the server's
+        // sort. We only auto-pick when no batch is already chosen — on
+        // edit-load the pre-fill from the saved bill should win.
+        if (rows.length > 0 && !entry.batch_id) {
+          const top = rows[0];
+          setEntry(p => ({
+            ...p,
+            batch_id: top.batch_id,
+            batch_number: top.batch_number,
+            manufacture_date: top.manufacture_date,
+            expiry_date: top.expiry_date,
+            batch_stock: parseFloat(top.current_stock || 0),
+            // Per-batch on-hand replaces the godown-level available_stock
+            // for the inline stock chip — operator sees what THIS batch
+            // can actually sell.
+            available_stock: parseFloat(top.current_stock || 0),
+          }));
+        }
+      })
+      .catch(() => { if (!cancelled) setBatchOpts([]); })
+      .finally(() => { if (!cancelled) setBatchOptsLoading(false); });
+    return () => { cancelled = true; };
+  // Deliberately exclude entry.batch_id from deps — re-running on a manual
+  // pick would re-trigger the auto-pick branch and wipe the user's choice.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.product_id, entry.is_batch_tracked, watchedGodownId, batchTrackingOn]);
+
+  // Manual override — fires when the operator opens the dropdown and
+  // picks a different batch. We re-read available_stock from the picked
+  // batch so the qty chip + addItem stock guard track the per-batch
+  // on-hand rather than the godown total.
+  const pickBatch = (batchId) => {
+    const batch = batchOpts.find(b => b.batch_id === batchId);
+    if (!batch) return;
+    setEntry(p => ({
+      ...p,
+      batch_id: batch.batch_id,
+      batch_number: batch.batch_number,
+      manufacture_date: batch.manufacture_date,
+      expiry_date: batch.expiry_date,
+      batch_stock: parseFloat(batch.current_stock || 0),
+      available_stock: parseFloat(batch.current_stock || 0),
+    }));
+  };
+
+  // Days-until-expiry for chip rendering. null → no expiry on file →
+  // no chip. Positive → days to go. Negative → expired N days ago.
+  const daysUntilExpiry = (expiryDate) => {
+    if (!expiryDate) return null;
+    const today = dayjs().startOf('day');
+    return dayjs(expiryDate).startOf('day').diff(today, 'day');
+  };
 
   const ue=(f,v)=>setEntry(p=>({...p,[f]:v}));
 
@@ -602,8 +720,36 @@ export default function SalesBillForm() {
     if(!entry.product_name){message.warning('Enter product name');return;}
     if(!entry.quantity||entry.quantity<=0){message.warning('Enter quantity');return;}
     if(!entry.rate||entry.rate<=0){message.warning('Enter rate');return;}
-    if(entry.available_stock>0&&entry.quantity>entry.available_stock)
+    // Batch enforcement — mirror of the server-side guard. With the
+    // global setting ON and the picked product batch-tracked, the line
+    // MUST carry batch_id; otherwise the dropdown is disabled (no
+    // batches with stock) and the operator should pick a different
+    // product or wait for a purchase to land.
+    if(batchTrackingOn && entry.is_batch_tracked && !entry.batch_id){
+      if(batchOpts.length === 0){
+        message.warning(`"${entry.product_name}" has no batches with stock at this godown.`);
+      } else {
+        message.warning(`"${entry.product_name}" is batch-tracked. Pick a batch.`);
+      }
+      return;
+    }
+    // Per-batch stock guard — overrides the godown-level chip when a
+    // batch is picked. Allows the line to add but warns; server rejects
+    // hard via validateBatchLine.
+    if(entry.batch_id && entry.batch_stock > 0 && entry.quantity > entry.batch_stock){
+      message.warning(`Batch ${entry.batch_number} has only ${entry.batch_stock} available at this godown. Reduce qty or pick another batch.`);
+    } else if(entry.available_stock>0&&entry.quantity>entry.available_stock){
       message.warning(`Low stock! Available: ${entry.available_stock}`);
+    }
+    // Block expired sales pre-flight — server enforces too, but the
+    // form-side check spares the user a round trip on the obvious case.
+    if(blockExpiredSales && entry.batch_id && entry.expiry_date){
+      const d = daysUntilExpiry(entry.expiry_date);
+      if(d != null && d < 0){
+        message.error(`Batch ${entry.batch_number} expired ${dayjs(entry.expiry_date).format('DD MMM YYYY')}. "Block sales of expired batches" is enabled in Settings.`);
+        return;
+      }
+    }
     const lt=+(entry.quantity*entry.rate).toFixed(2);
     const da=+(lt*(entry.discount_percentage||0)/100).toFixed(2);
     setItems(prev=>[...prev,{...entry,key:nextKeyRef.current++,total_amount:lt-da,discount_amount:da}]);
@@ -611,7 +757,7 @@ export default function SalesBillForm() {
     setProdOpen(false);
     setEntry(EMPTY);
     setTimeout(()=>barcodeRef.current?.focus(),50);
-  },[entry]);
+  },[entry, batchTrackingOn, batchOpts, blockExpiredSales]);
 
   const removeItem=(key)=>setItems(prev=>prev.filter(i=>i.key!==key));
 
@@ -920,6 +1066,7 @@ export default function SalesBillForm() {
           quantity:i.quantity,rate:i.rate,mrp:i.mrp,
           discount_percentage:i.discount_percentage,gst_rate:i.gst_rate,
           quantity_per_box:parseFloat(i.quantity_per_box)||1,
+          batch_id: i.batch_id || null,
         })),
       };
       const{data}=isEdit?await salesAPI.update(id,body):await salesAPI.create(body);
@@ -1002,6 +1149,7 @@ export default function SalesBillForm() {
           quantity: i.quantity, rate: i.rate, mrp: i.mrp,
           discount_percentage: i.discount_percentage, gst_rate: i.gst_rate,
           quantity_per_box: parseFloat(i.quantity_per_box) || 1,
+          batch_id: i.batch_id || null,
         })) : [],
         // Amount-mode echo
         amount: billMode === 'amount' ? parseFloat(amountVal) || 0 : null,
@@ -1550,6 +1698,61 @@ export default function SalesBillForm() {
                     )})}
                   </Select>
                 </div>
+                {/* Batch picker — only renders for batch-tracked
+                 *  products when the global setting is ON. Server
+                 *  returns batches FEFO/FIFO sorted; auto-pick fires in
+                 *  the effect above. Each option shows batch_number ·
+                 *  qty available · expiry chip (red expired / amber
+                 *  approaching / no chip when distant or unset).
+                 *  Disabled state: empty list → "No batches with stock
+                 *  at this godown" — the operator can't sell until a
+                 *  purchase lands. */}
+                {batchTrackingOn && entry.is_batch_tracked && (
+                  <div className="sbf-cell has-arrow" style={{ minWidth: 180 }}>
+                    <div className="sbf-cell-lbl">Batch</div>
+                    <Select
+                      value={entry.batch_id || undefined}
+                      onChange={pickBatch}
+                      disabled={!entry.product_id || batchOptsLoading || batchOpts.length === 0}
+                      placeholder={batchOptsLoading
+                        ? 'Loading…'
+                        : (batchOpts.length === 0 ? 'No batches with stock at this godown' : 'Pick a batch')}
+                      showSearch optionLabelProp="label"
+                      filterOption={(input, opt) => !input || (opt.label || '').toLowerCase().includes(input.toLowerCase())}
+                      dropdownMatchSelectWidth={380}
+                    >
+                      {batchOpts.map((b) => {
+                        const d = daysUntilExpiry(b.expiry_date);
+                        const expChip = d == null
+                          ? null
+                          : d < 0
+                            ? <Tag color="red">Expired {dayjs(b.expiry_date).format('DD MMM')}</Tag>
+                            : d <= batchAlertDays
+                              ? <Tag color="orange">Expires in {d}d</Tag>
+                              : null;
+                        const meta = b.expiry_date
+                          ? null
+                          : (b.manufacture_date ? `Mfd ${dayjs(b.manufacture_date).format('DD MMM YY')}` : null);
+                        return (
+                          <Select.Option
+                            key={b.batch_id} value={b.batch_id}
+                            label={b.batch_number}
+                          >
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, padding:'2px 0' }}>
+                              <div style={{ minWidth:0, flex:1 }}>
+                                <div style={{ fontWeight:600, fontSize:13, color:'var(--fg-primary)' }}>{b.batch_number}</div>
+                                <div style={{ fontSize:10, color:'var(--fg-tertiary)', marginTop:1 }}>
+                                  Stock: {b.current_stock}{meta ? ` · ${meta}` : ''}
+                                </div>
+                              </div>
+                              <div style={{ flexShrink:0 }}>{expChip}</div>
+                            </div>
+                          </Select.Option>
+                        );
+                      })}
+                    </Select>
+                  </div>
+                )}
                 {/* Field array: Size · Art# · QTY · RATE · Disc% · GST%.
                  *  Indices 1–6 line up with eRefs[1..6] so eKey's
                  *  ArrowUp/Down/Enter walk maps cell-position to ref. */}
