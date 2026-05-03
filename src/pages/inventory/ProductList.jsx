@@ -75,11 +75,17 @@ function healthOf(product) {
   return { kind: 'ok', label: 'Healthy' };
 }
 
+// Margin uses the mode-aware cost basis (display_cost) so single-mode
+// products read against weighted_avg_cost and single+batch rows read
+// against batch-weighted average. Falls back to purchase_rate when the
+// API hasn't enriched the row (older/cached payloads, edit-form pre-fill).
+// For variant products display_cost === purchase_rate, so the change is
+// a no-op there.
 function marginPct(p) {
-  const pur = parseFloat(p.purchase_rate || 0);
+  const cost = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
   const sale = parseFloat(p.sale_rate || 0);
-  if (!pur) return null;
-  return ((sale - pur) / pur) * 100;
+  if (!cost) return null;
+  return ((sale - cost) / cost) * 100;
 }
 
 // Stable category dot palette — same product = same color across sessions.
@@ -345,11 +351,17 @@ export default function ProductList() {
     },
     cols.val && {
       key: 'val', title: 'Stock Value', width: 130, align: 'right',
-      sorter: (a, b) =>
-        (parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0)) -
-        (parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0)),
+      // Mode-aware: variant → stock × purchase_rate; single → stock ×
+      // weighted_avg_cost; single+batch → SUM(qty × batch.rate). The
+      // server attaches display_stock_value via attachDisplayCost; the
+      // legacy fallback applies only to rows from older/cached payloads.
+      sorter: (a, b) => {
+        const av = parseFloat(a.display_stock_value ?? (parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0)));
+        const bv = parseFloat(b.display_stock_value ?? (parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0)));
+        return av - bv;
+      },
       render: (_, p) => {
-        const v = parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0);
+        const v = parseFloat(p.display_stock_value ?? (parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0)));
         return v > 0
           ? <span className="mon-m"><span className="rs">₹</span>{fmtMoney(v)}</span>
           : <span className="mon-m zero">—</span>;

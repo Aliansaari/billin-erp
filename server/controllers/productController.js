@@ -307,7 +307,12 @@ exports.getByBarcode = async (req, res) => {
       include: [{ model: Category, attributes: ['category_name'] }],
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
-    res.json(product);
+    // Mirror getById — attach display_cost so callers like
+    // StockTransferForm's barcode-scan path get the mode-aware rate
+    // for pre-fill instead of the raw purchase_rate (which is wrong
+    // for single-mode and single+batch products).
+    const [enriched] = await attachDisplayCost([product.toJSON()]);
+    res.json(enriched);
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }

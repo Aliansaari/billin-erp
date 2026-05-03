@@ -3,7 +3,7 @@ const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, SystemSettings, ProductGodownStock } = require('../models');
 const { sanitizePagination } = require('../utils/helpers');
 const { aggregateAging } = require('../utils/aging');
-const { fetchBatchAggregate, computeDisplayCost } = require('../utils/displayCost');
+const { fetchBatchAggregate, computeDisplayCost, attachDisplayCost } = require('../utils/displayCost');
 
 // Local calendar date (YYYY-MM-DD) in the server's timezone. We deliberately
 // avoid toISOString().split('T')[0] here because that returns a UTC date — for
@@ -947,8 +947,35 @@ exports.stockReport = async (req, res) => {
     const totalPV = parseFloat(summaryRow.partial_purchase_value || 0) + batchPurchaseValue;
     const totalSV = parseFloat(summaryRow.total_sale_value || 0);
 
+    // Attach mode-aware display_cost + display_stock_value to each row so
+    // the page columns (margin %, stock value) compute against the right
+    // basis — variant: purchase_rate, single: weighted_avg_cost, single+
+    // batch: SUM(qty × batch.rate). Without this the frontend falls back
+    // to current_stock × purchase_rate, which understates batch stock and
+    // mis-states single-mode rows once their wac diverges from the master
+    // purchase_rate.
+    //
+    // For godown-filtered views, single+batch rows use the per-godown
+    // batch aggregate already fetched above (batchValueByProduct). This
+    // keeps display_stock_value consistent with the per-godown
+    // current_stock that was swapped onto the row at line ~875. attach-
+    // DisplayCost itself reads cross-godown batch totals, so we override
+    // for godown+batch rows.
+    const baseRows = pageProducts.map((p) => (typeof p.toJSON === 'function' ? p.toJSON() : p));
+    const enrichedRows = await attachDisplayCost(baseRows);
+    if (godownId) {
+      for (const r of enrichedRows) {
+        if (r.product_mode === 'single' && r.is_batch_tracked) {
+          const tv = batchValueByProduct.get(r.product_id) || 0;
+          const tq = parseFloat(r.current_stock || 0);
+          r.display_stock_value = +tv.toFixed(2);
+          r.display_cost = tq > 0 ? +(tv / tq).toFixed(4) : 0;
+        }
+      }
+    }
+
     res.json({
-      data: pageProducts,
+      data: enrichedRows,
       total: parseInt(summaryRow.total_items || 0),
       summary: {
         total_items:          parseInt(summaryRow.total_items || 0),

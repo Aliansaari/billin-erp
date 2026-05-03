@@ -275,22 +275,24 @@ export default function StockReport() {
     },
     cols.mrg && {
       key: 'mrg', title: 'Margin', width: 80, align: 'right',
+      // Margin% = (sale - cost) / cost. Cost basis is mode-aware via
+      // display_cost (variant: purchase_rate, single: weighted_avg_cost,
+      // single+batch: batch-weighted average) — falls back to
+      // purchase_rate for older/cached rows. Rows with no cost basis
+      // sort last regardless of direction (sentinel -Infinity).
       sorter: (a, b) => {
-        // Margin% = (sale - pur) / pur. Rows with no purchase rate sort
-        // last regardless of direction (treat as -Infinity for ASC, but
-        // Antd handles equal sorter values stably so use a sentinel).
         const m = (r) => {
-          const pur = parseFloat(r.purchase_rate || 0);
+          const cost = parseFloat(r.display_cost ?? r.purchase_rate ?? 0);
           const sale = parseFloat(r.sale_rate || 0);
-          return pur > 0 ? ((sale - pur) / pur) * 100 : Number.NEGATIVE_INFINITY;
+          return cost > 0 ? ((sale - cost) / cost) * 100 : Number.NEGATIVE_INFINITY;
         };
         return m(a) - m(b);
       },
       render: (_, p) => {
-        const pur = parseFloat(p.purchase_rate || 0);
+        const cost = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
         const sale = parseFloat(p.sale_rate || 0);
-        if (pur <= 0) return <span className="sr-mrg warn">—</span>;
-        const pct = ((sale - pur) / pur) * 100;
+        if (cost <= 0) return <span className="sr-mrg warn">—</span>;
+        const pct = ((sale - cost) / cost) * 100;
         const tone = pct > 5 ? 'pos' : pct < 0 ? 'bad' : 'warn';
         const sign = pct > 0 ? '+' : '';
         return <span className={`sr-mrg ${tone}`}>{sign}{pct.toFixed(1)}%</span>;
