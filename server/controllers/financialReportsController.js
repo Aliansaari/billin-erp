@@ -46,24 +46,42 @@ const INDIRECT_EXPENSE_SUB  = 'Indirect Expenses';
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function r2(v) { return Math.round(num(v) * 100) / 100; }
 
-// Stock-in-Hand value as of a date.
-//   For each product:
-//     · qty = sum of stock_ledger movements (quantity_in − quantity_out)
-//             with transaction_date ≤ as_of
-//     · if there are NO movements at or before as_of, fall back to
-//       products.opening_stock — handles two real cases:
-//         1. products created via paths that don't post to stock_ledger
-//            (test fixtures, manual SQL backfills); their opening
-//            balance still needs to be reflected
-//         2. as_of dates BEFORE the product's first movement; the
-//            opening stock IS its as-of value at those dates
-//     · value = qty × current purchase_rate
-// Sum across all products. Same formula serves Balance Sheet (as-of
-// stock value) and Profit & Loss (Opening + Closing Stock). Sharing
-// this helper is what makes invariant I6 hold paisa-exactly across
-// reports and across periods.
+const { computeDisplayCostAsOf, fetchBatchAggregateAsOf } = require('../utils/displayCost');
+
+// Stock-in-Hand value as of a date — mode-aware.
+//
+//   Step 1: per-product qty at as_of (from stock_ledger, with fallback
+//           to products.opening_stock for products that bypassed the
+//           ledger entirely).
+//   Step 2: per-mode cost basis (via computeDisplayCostAsOf):
+//             • variant            → product.purchase_rate
+//             • single, no batch   → product.weighted_avg_cost
+//                                    (approximation: current wac stands
+//                                     in for as-of-date wac — option B
+//                                     from the design; documented in
+//                                     displayCost.js)
+//             • single + batch     → SUM(batch.qty_at_asof × batch.rate)
+//                                    derived from stock_ledger filtered
+//                                    by batch_id + as_of (EXACT — batch
+//                                    rates are frozen at first-write)
+//   Step 3: per-product value = qty × cost (or batch SUM directly for
+//           single+batch). Sum across all active products.
+//
+// Same helper feeds Balance Sheet (as-of stock value), Profit & Loss
+// (Opening + Closing Stock), and Trial Balance (stock delta = closing −
+// opening). Invariant I6 (paisa-exact across reports + periods) is
+// preserved because all three callers share this single computation.
+//
+// The qty fallback (products.opening_stock when no ledger movements
+// exist at/before as_of) is preserved bit-exactly from the prior
+// implementation so legacy data paths (seeder fixtures, manual backfill,
+// products created via importers that bypassed stock_ledger) keep
+// behaving the same.
 async function stockValueAt(asOfDate) {
-  const [row] = await sequelize.query(
+  // Step 1: qty per product at as_of, AND product metadata in one
+  // round-trip. Products with no ledger movements still appear (LEFT
+  // JOIN) so the opening_stock fallback below can fire.
+  const rows = await sequelize.query(
     `WITH movements AS (
        SELECT product_id,
               SUM(COALESCE(quantity_in, 0) - COALESCE(quantity_out, 0)) AS qty
@@ -71,32 +89,62 @@ async function stockValueAt(asOfDate) {
         WHERE transaction_date <= :as_of
         GROUP BY product_id
      )
-     SELECT COALESCE(SUM(
-       CASE
-         -- Stock-ledger has movements at or before as_of: trust them.
-         WHEN m.qty IS NOT NULL THEN m.qty * p.purchase_rate
-         -- No movements but the product's opening_stock_date is at/
-         -- before as_of: use products.opening_stock as the effective
-         -- value (catches products created via paths that bypass
-         -- stock_ledger, like the seeder & test fixtures).
-         WHEN p.opening_stock_date IS NOT NULL
-              AND p.opening_stock_date <= :as_of
-              THEN COALESCE(p.opening_stock, 0) * p.purchase_rate
-         -- For products with no opening_stock_date column populated,
-         -- treat them as if their opening was at "epoch" — only
-         -- contributes when as_of is also a real ledger date.
-         WHEN p.opening_stock_date IS NULL
-              AND :as_of >= '2000-01-01'
-              THEN COALESCE(p.opening_stock, 0) * p.purchase_rate
-         ELSE 0
-       END
-     ), 0)::float AS v
+     SELECT p.product_id,
+            p.product_mode,
+            p.is_batch_tracked,
+            p.purchase_rate::float           AS purchase_rate,
+            p.weighted_avg_cost::float       AS weighted_avg_cost,
+            p.opening_stock::float           AS opening_stock,
+            p.opening_stock_date,
+            m.qty::float                     AS ledger_qty
        FROM products p
        LEFT JOIN movements m ON m.product_id = p.product_id
       WHERE p.is_active = true`,
     { replacements: { as_of: asOfDate }, type: sequelize.QueryTypes.SELECT },
   );
-  return r2(row.v);
+
+  // Step 2: for single+batch products, fetch as-of batch aggregate in
+  // one bulk query (per-batch ledger sums × batch.purchase_rate). Empty
+  // input → empty Map, no DB round-trip.
+  const batchProductIds = rows
+    .filter(r => r.product_mode === 'single' && r.is_batch_tracked)
+    .map(r => r.product_id);
+  const batchAggMap = await fetchBatchAggregateAsOf(batchProductIds, asOfDate);
+
+  // Step 3: per-product value, summed.
+  let total = 0;
+  for (const r of rows) {
+    // Resolve qty at as_of: ledger sum if present, else opening_stock
+    // when its date stamp permits. Mirrors the three CASE branches of
+    // the prior implementation.
+    let qty = 0;
+    if (r.ledger_qty != null) {
+      qty = parseFloat(r.ledger_qty) || 0;
+    } else if (r.opening_stock_date && String(r.opening_stock_date).slice(0, 10) <= asOfDate) {
+      qty = parseFloat(r.opening_stock) || 0;
+    } else if (!r.opening_stock_date && asOfDate >= '2000-01-01') {
+      qty = parseFloat(r.opening_stock) || 0;
+    }
+
+    if (qty === 0) continue;
+
+    let value;
+    if (r.product_mode === 'single' && r.is_batch_tracked) {
+      // Batch-tracked: total_value from the as-of batch aggregate IS
+      // the per-product stock value (each batch's qty × its frozen
+      // purchase_rate, summed). qty fallback above doesn't apply here
+      // — if a single+batch product has no batch ledger data at as_of,
+      // it has no value attributable to a batch and we contribute 0.
+      const agg = batchAggMap.get(r.product_id);
+      value = agg ? agg.total_value : 0;
+    } else {
+      const cost = computeDisplayCostAsOf(r, asOfDate);
+      value = qty * cost;
+    }
+    total += value;
+  }
+
+  return r2(total);
 }
 
 // Resolve the period bounds. Returns ISO YYYY-MM-DD strings.

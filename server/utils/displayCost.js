@@ -87,6 +87,53 @@ async function fetchBatchAggregate(productIds) {
 }
 
 /**
+ * As-of-date variant of fetchBatchAggregate. Derives each batch's qty
+ * at asOfDate from stock_ledger (instead of reading live
+ * product_batch_stock), then weights by batch.purchase_rate.
+ *
+ *   batch_qty_at_asof = SUM(quantity_in - quantity_out) for that batch
+ *                       across stock_ledger rows with transaction_date
+ *                       <= asOfDate
+ *
+ *   per-product totals = SUM(batch_qty_at_asof × batch.purchase_rate)
+ *                        across batches with batch_qty_at_asof > 0
+ *
+ * Out-of-stock batches at asOfDate (qty <= 0) are dropped — they don't
+ * contribute to the as-of stock value. Returns a Map keyed by
+ * product_id with { total_value, total_qty }.
+ *
+ * Internal — exported via computeDisplayCostAsOf.
+ */
+async function fetchBatchAggregateAsOf(productIds, asOfDate) {
+  if (!productIds || productIds.length === 0) return new Map();
+  const aggRows = await sequelize.query(
+    `WITH per_batch AS (
+       SELECT sl.product_id,
+              sl.batch_id,
+              COALESCE(pb.purchase_rate, 0) AS rate,
+              SUM(COALESCE(sl.quantity_in, 0) - COALESCE(sl.quantity_out, 0)) AS qty
+         FROM stock_ledger sl
+         JOIN product_batches pb ON pb.batch_id = sl.batch_id
+        WHERE sl.product_id IN (:ids)
+          AND sl.batch_id IS NOT NULL
+          AND sl.transaction_date <= :as_of
+        GROUP BY sl.product_id, sl.batch_id, pb.purchase_rate
+     )
+     SELECT product_id,
+            SUM(qty * rate) AS total_value,
+            SUM(qty)        AS total_qty
+       FROM per_batch
+      WHERE qty > 0
+      GROUP BY product_id`,
+    { replacements: { ids: productIds, as_of: asOfDate }, type: sequelize.QueryTypes.SELECT },
+  );
+  return new Map(aggRows.map(r => [
+    r.product_id,
+    { total_value: parseFloat(r.total_value || 0), total_qty: parseFloat(r.total_qty || 0) },
+  ]));
+}
+
+/**
  * Compute display_cost for one product (no display_stock_value, no array).
  * Used by single-product callers (e.g., a controller that already has the
  * product handle and just needs the right cost number). Variant + single-
@@ -114,6 +161,70 @@ function computeDisplayCost(product, batchAgg = null) {
   }
   if (product.product_mode === 'single') {
     return parseFloat(product.weighted_avg_cost || 0);
+  }
+  return parseFloat(product.purchase_rate || 0);
+}
+
+/**
+ * As-of-date variant of computeDisplayCost. Returns the cost basis for
+ * a product at a historical date.
+ *
+ * Per-mode behaviour:
+ *
+ *   • variant            → product.purchase_rate
+ *     Approximation: variant catalog rate is overwritten on every
+ *     purchase (by design — different rates spawn new variants), so
+ *     "current" == "as-of" for a row that still exists. Pre-fix
+ *     stockValueAt already used the current value; this matches that
+ *     behaviour bit-exactly. No regression.
+ *
+ *   • single, no batch   → product.weighted_avg_cost (with COALESCE
+ *                          fallback to purchase_rate, then 0)
+ *     APPROXIMATION (option B from the design): wac is the running
+ *     average across the product's lifetime, NOT the avg as it stood
+ *     at asOfDate. For closing stock (asOfDate ≈ today) this is
+ *     exact. For historical reads it drifts by inventory turnover
+ *     between asOfDate and today. Documented and accepted: a) books
+ *     reconciliation cares most about CURRENT closing stock, b)
+ *     variant mode already has the same approximation, c) walking
+ *     the ledger per-query (option A) is expensive at scale, d)
+ *     snapshot tables (option C) are over-engineering for this
+ *     phase. A future commit can upgrade to A or C if needed.
+ *
+ *   • single + batch     → SUM(batch.qty_at_asof × batch.purchase_rate)
+ *                          / SUM(batch.qty_at_asof)
+ *     EXACT historical: each batch's purchase_rate is frozen at
+ *     first-write so it IS the historical rate. The qty at asOfDate
+ *     is derived from stock_ledger (sum qty_in - qty_out for the
+ *     batch up to asOfDate). Out-of-stock batches drop out.
+ *
+ * @param {Object} product   Plain product row.
+ * @param {string} asOfDate  YYYY-MM-DD.
+ * @param {Object|null} batchAgg  Pre-fetched as-of batch aggregate
+ *                                ({ total_value, total_qty }) for
+ *                                this product. If absent for a
+ *                                single+batch product, the function
+ *                                returns 0 (caller is expected to
+ *                                pre-fetch via fetchBatchAggregateAsOf
+ *                                when computing batch values).
+ * @returns {number}         Cost rate per unit, rounded to 4 decimals.
+ */
+function computeDisplayCostAsOf(product, asOfDate, batchAgg = null) {
+  if (!product) return 0;
+  if (product.product_mode === 'single' && product.is_batch_tracked) {
+    const tv = batchAgg ? batchAgg.total_value : 0;
+    const tq = batchAgg ? batchAgg.total_qty   : 0;
+    return tq > 0 ? round4(tv / tq) : 0;
+  }
+  if (product.product_mode === 'single') {
+    // Approximation: current wac stands in for as-of-date wac (option B).
+    // Falls back through wac → purchase_rate → 0 to handle edge cases:
+    //   • brand-new single product with no purchases yet → wac NULL,
+    //     fall to purchase_rate (the catalog seed rate)
+    //   • single product with stock but never priced → 0 (defensive)
+    const wac = parseFloat(product.weighted_avg_cost);
+    if (Number.isFinite(wac) && wac !== 0) return wac;
+    return parseFloat(product.purchase_rate || 0);
   }
   return parseFloat(product.purchase_rate || 0);
 }
@@ -160,4 +271,6 @@ async function attachDisplayCost(rows) {
 module.exports = {
   attachDisplayCost,
   computeDisplayCost,
+  computeDisplayCostAsOf,
+  fetchBatchAggregateAsOf,
 };
