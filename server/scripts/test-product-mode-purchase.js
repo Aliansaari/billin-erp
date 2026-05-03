@@ -491,6 +491,55 @@ async function runTests() {
     check('DUP-3: exactly +1 product created under variant mode',
       afterCount === beforeCount + 1, `before=${beforeCount} after=${afterCount}`);
   }
+
+  // ── DUP-4: single-mode purchase binds to existing VARIANT-mode master ─
+  // The user's real-world setup has historical variant rows. When the
+  // global default flips to single, an operator typing the name of an
+  // existing variant product should resolve to that product (no spawn,
+  // no error). Case 4.5 now matches by name iLike across ALL modes.
+  {
+    await SystemSettings.update({ default_product_mode: 'single' }, { where: { setting_id: 1 } });
+    // Create an existing VARIANT-mode product with a unique name.
+    const variantName = FIXTURE_PREFIX + 'Existing-Variant-In-Single';
+    const existing = await Product.create({
+      barcode: FIXTURE_PREFIX + 'EVS01',
+      product_name: variantName,
+      category_id: fix.cat.category_id,
+      purchase_rate: 50, sale_rate: 80,
+      quantity_per_box: 1, is_active: true,
+      product_mode: 'variant', is_batch_tracked: false, gst_rate: 0,
+    });
+    const beforeCount = await Product.count();
+    const res = mockRes();
+    await purchaseController.create(buildReq({
+      bill_date: '2026-05-06',
+      supplier_id: fix.supplier.party_id,
+      godown_id: fix.godown.godown_id,
+      items: [{
+        product_id: null,                  // user typed the name, didn't pick from dropdown
+        product_name: variantName,          // exact-name match against the variant master
+        barcode: '',
+        size: '', article_number: '',
+        quantity: 4, purchase_rate: 60,
+        quantity_per_box: 1,
+      }],
+    }), res);
+    check('DUP-4: single-mode purchase resolves to existing variant product',
+      res._status === 201, `status=${res._status} body=${JSON.stringify(res._body)}`);
+    const afterCount = await Product.count();
+    check('DUP-4: no new product created (resolved to existing variant)',
+      afterCount === beforeCount, `before=${beforeCount} after=${afterCount}`);
+    // Verify the bill links to the existing variant pid.
+    if (res._body?.purchase_bill_id) {
+      const items = await sequelize.query(
+        `SELECT product_id FROM purchase_bill_items WHERE purchase_bill_id = :bid`,
+        { replacements: { bid: res._body.purchase_bill_id }, type: sequelize.QueryTypes.SELECT },
+      );
+      check('DUP-4: bill line links to the existing variant product',
+        items[0] && items[0].product_id === existing.product_id);
+    }
+    await SystemSettings.update({ default_product_mode: 'variant' }, { where: { setting_id: 1 } });
+  }
 }
 
 async function main() {

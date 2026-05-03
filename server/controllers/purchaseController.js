@@ -49,6 +49,44 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
     }, t);
   }
 
+  // ── Case 3.5: single-mode name-only resolver (early short-circuit) ────────
+  //
+  // In Single Product mode the operator's purchase line MUST bind to an
+  // existing master product — auto-create-from-purchase is disabled
+  // (Case 5 below short-circuits with a 400). The fingerprint cascade
+  // (Case 3 + Case 4) is variant-mode UX: it requires name + size +
+  // article + qpb match, then drops the match entirely if pricing
+  // differs (the "spawn a new variant" path). Neither helps in single
+  // mode — there's no per-rate / per-size sibling, just one canonical
+  // product per name.
+  //
+  // Run BEFORE Case 4's variant comparison so a Case 3 hit on a
+  // variant-mode legacy row doesn't get filtered out by the rate
+  // mismatch check. Name iLike across ALL modes is the right
+  // discriminator: catalog is heterogeneous (a firm that flipped to
+  // single still has historical variant rows), and the purchase
+  // should restock whatever matches the typed name regardless of how
+  // it was originally created. The mode flag governs how NEW products
+  // are created (Case 5), not how existing ones resolve.
+  //
+  // Variant mode keeps the strict fingerprint cascade unchanged —
+  // variants legitimately spawn per (size, article, rate) tuple.
+  if (item.product_name && defaultProductMode === 'single') {
+    const { Op } = require('sequelize');
+    const match = await Product.findOne({
+      where: {
+        product_name: { [Op.iLike]: String(item.product_name).trim() },
+        is_active: true,
+      },
+      transaction: t,
+    });
+    if (match) {
+      return { product_id: match.product_id, barcode: match.barcode, isNew: false, product: match };
+    }
+    // No name match → fall through to Case 5, which now hard-blocks
+    // single-mode creation with a 400 explaining the constraint.
+  }
+
   // ── Case 4: compare ALL fields if something was found ─────────────────────
   //
   // Mode-aware branching (audit-driven Phase 3):
@@ -81,32 +119,6 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
       return { product_id: found.product_id, barcode: found.barcode, isNew: false, product: found };
     }
     // Any field differs → fall through to create new product below
-  }
-
-  // ── Case 4.5: single-mode safety net ──────────────────────────────────────
-  //
-  // findExistingProduct fingerprints on (name, size, article, qpb). If the
-  // user's line carries a size/article that don't match the existing single-
-  // mode master (e.g., master has NULL size but the line was typed with a
-  // size, or the dropdown pick pre-filled size from a sibling), the lookup
-  // returns null and we'd fall through to create a duplicate single-mode
-  // product. Single mode is "one product per name" — defend against that.
-  //
-  // Only fires when the would-be-created product is going to be single mode
-  // (defaultProductMode === 'single'). Variant mode is untouched: it still
-  // gets the strict 9-field check and silent variant creation as today.
-  if (!found && item.product_name && defaultProductMode === 'single') {
-    const { Op } = require('sequelize');
-    const sameNameSingle = await Product.findOne({
-      where: {
-        product_mode: 'single',
-        product_name: { [Op.iLike]: String(item.product_name).trim() },
-      },
-      transaction: t,
-    });
-    if (sameNameSingle) {
-      return { product_id: sameNameSingle.product_id, barcode: sameNameSingle.barcode, isNew: false, product: sameNameSingle };
-    }
   }
 
   // ── Case 5: create brand-new traceable product with new barcode ────────────

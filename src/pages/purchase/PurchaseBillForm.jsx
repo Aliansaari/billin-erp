@@ -687,13 +687,17 @@ export default function PurchaseBillForm() {
   // If any differ → product_id=null, barcode='' → backend creates new barcode on save.
   const lookupProduct=useCallback(async(snap)=>{
     if(!snap.product_name) return;
-    // SINGLE-MODE short-circuit: handleProductSelect already bound the
-    // product_id directly off the dropdown pick, and single mode doesn't
-    // spawn variants — so there's nothing to look up. Skipping prevents
-    // the wipe-on-mismatch path below (which would null out product_id
-    // when the user types a different rate, then the save would fall
-    // through to fingerprint creation and spawn a duplicate product).
-    if (snap.product_mode === 'single' && snap.product_id) return;
+    // SINGLE-MODE short-circuit (unconditional). The fingerprint cascade
+    // below is variant-mode UX — it wipes product_id when size / rate /
+    // qpb differ from the matched row, expecting the server to spawn a
+    // new variant on save. In single mode the server refuses to spawn
+    // (Case 5 hard-block) and the matching is name-only at save time
+    // (Case 4.5 case-insensitive iLike across all modes), so running
+    // this lookup here can only HURT — a typed-but-not-picked product
+    // would get wiped client-side, the save would error with "not in
+    // master list", and the operator loses their typed line. Skip
+    // entirely; the server resolver does the right thing.
+    if (snap.product_mode === 'single' || globalProductMode === 'single') return;
     // If the picker/barcode scan already bound a product, don't wipe it on a subsequent
     // blur-triggered lookup just because the substring search missed the 200-row cap.
     // We'll still run the match logic to pre-fill hints, but we protect the existing binding.
@@ -907,6 +911,12 @@ export default function PurchaseBillForm() {
 
   // Article field — show ONLY variants whose article_number matches what's typed
   useEffect(() => {
+    // Single mode never spawns variants by definition — there's only
+    // one product per name. The picker is variant-mode-only UX; in
+    // single mode the operator's typed name + Case 4.5 server-side
+    // resolver bind to the existing master row, no per-rate / per-
+    // article disambiguation needed.
+    if (globalProductMode === 'single') { setShowVariantPicker(false); return; }
     const pname = (entry.product_name||'').trim();
     const aval  = (entry.article_number||'').trim();
     console.log('[Picker:Art] effect', { pname, aval, size:entry.size, cat:entry.category_id });
@@ -942,6 +952,11 @@ export default function PurchaseBillForm() {
 
   // Rate field — when article is blank, show ONLY variants whose purchase_rate matches
   useEffect(() => {
+    // Mirror of the article-anchored effect: skip the rate-anchored
+    // picker entirely in single mode. Single-mode purchase rate is
+    // just the per-line landed cost — it doesn't disambiguate across
+    // sibling SKUs because there are no siblings.
+    if (globalProductMode === 'single') { setShowVariantPicker(false); return; }
     const pname = (entry.product_name||'').trim();
     const aval  = (entry.article_number||'').trim();
     const rate  = parseFloat(entry.purchase_rate || 0);
