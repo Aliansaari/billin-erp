@@ -87,6 +87,39 @@ async function fetchBatchAggregate(productIds) {
 }
 
 /**
+ * Per-godown batch aggregate. Returns SUM(qty × rate) and SUM(qty)
+ * grouped by (product_id, godown_id). Used by godown-aware reports
+ * (Godown Valuation per-godown summary + per-product detail) where
+ * the same batch-tracked product can sit at different godowns with
+ * different on-hand quantities.
+ *
+ * Returns: Map<`${product_id}:${godown_id}`, { total_value, total_qty }>.
+ *
+ * Internal — exported for callers that need to enrich (godown_id,
+ * product_id) rows in JS.
+ */
+async function fetchBatchAggregateByGodown(productIds) {
+  if (!productIds || productIds.length === 0) return new Map();
+  const aggRows = await sequelize.query(
+    `SELECT pbs.product_id,
+            pbs.godown_id,
+            SUM(pbs.current_stock * COALESCE(pb.purchase_rate, 0)) AS total_value,
+            SUM(pbs.current_stock)                                 AS total_qty
+       FROM product_batch_stock pbs
+       JOIN product_batches pb ON pb.batch_id = pbs.batch_id
+      WHERE pbs.product_id IN (:ids)
+        AND pbs.current_stock > 0
+        AND pb.is_active = true
+      GROUP BY pbs.product_id, pbs.godown_id`,
+    { replacements: { ids: productIds }, type: sequelize.QueryTypes.SELECT },
+  );
+  return new Map(aggRows.map(r => [
+    `${r.product_id}:${r.godown_id}`,
+    { total_value: parseFloat(r.total_value || 0), total_qty: parseFloat(r.total_qty || 0) },
+  ]));
+}
+
+/**
  * As-of-date variant of fetchBatchAggregate. Derives each batch's qty
  * at asOfDate from stock_ledger (instead of reading live
  * product_batch_stock), then weights by batch.purchase_rate.
@@ -272,5 +305,7 @@ module.exports = {
   attachDisplayCost,
   computeDisplayCost,
   computeDisplayCostAsOf,
+  fetchBatchAggregate,
+  fetchBatchAggregateByGodown,
   fetchBatchAggregateAsOf,
 };

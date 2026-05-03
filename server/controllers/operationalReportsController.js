@@ -18,6 +18,7 @@
 
 const sequelize = require('../config/database');
 const { Op, fn, col, literal } = require('sequelize');
+const { fetchBatchAggregate, fetchBatchAggregateByGodown, computeDisplayCost } = require('../utils/displayCost');
 const {
   SystemSettings, SalesBillItem, PurchaseBillItem,
   Product, StockLedger, Category,
@@ -153,6 +154,11 @@ exports.stockSummary = async (req, res) => {
 
     // Opening = sum of (in − out) for entries STRICTLY BEFORE from_date.
     // In/Out = sum within [from, to].  Closing = opening + in − out.
+    // Pull mode + cost basis columns alongside the period-rollup so the
+    // post-query mapper can resolve closing_value via the per-mode
+    // helper (audit Hotspot F). For variant + single-no-batch the helper
+    // is pure JS; single+batch needs the per-product batch aggregate
+    // fetched after the main query.
     const sql = `
       WITH per_product AS (
         SELECT p.product_id,
@@ -161,6 +167,9 @@ exports.stockSummary = async (req, res) => {
                p.unit_of_measurement,
                p.hsn_code,
                p.purchase_rate,
+               p.weighted_avg_cost,
+               p.product_mode,
+               p.is_batch_tracked,
                p.category_id,
                c.category_name,
                COALESCE(SUM(CASE WHEN sl.transaction_date < :from
@@ -178,7 +187,9 @@ exports.stockSummary = async (req, res) => {
          WHERE p.is_active = true
            ${categoryFilter}
          GROUP BY p.product_id, p.product_name, p.barcode, p.unit_of_measurement,
-                  p.hsn_code, p.purchase_rate, p.category_id, c.category_name
+                  p.hsn_code, p.purchase_rate, p.weighted_avg_cost,
+                  p.product_mode, p.is_batch_tracked,
+                  p.category_id, c.category_name
       )
       SELECT *, (opening_qty + in_qty - out_qty) AS closing_qty
         FROM per_product
@@ -189,9 +200,30 @@ exports.stockSummary = async (req, res) => {
       type: sequelize.QueryTypes.SELECT,
     });
 
+    // For single+batch products, closing_value isn't qty × cost — it's
+    // SUM(batch.qty × batch.rate). Fetch the batch aggregate once for
+    // the page, then look up per-product. Approximation note: the
+    // batch aggregate reads CURRENT product_batch_stock, not as-of-date
+    // — Stock Summary is "current stock as of to_date" not "historical
+    // batch state", so this matches existing behaviour.
+    const batchPids = rows
+      .filter(r => r.product_mode === 'single' && r.is_batch_tracked)
+      .map(r => r.product_id);
+    const batchAgg = await fetchBatchAggregate(batchPids);
+
     const products = rows.map((r) => {
       const closing = num(r.closing_qty);
-      const rate    = num(r.purchase_rate);
+      let rate, closingValue;
+      if (r.product_mode === 'single' && r.is_batch_tracked) {
+        const agg = batchAgg.get(r.product_id);
+        const tv = agg ? agg.total_value : 0;
+        const tq = agg ? agg.total_qty   : 0;
+        rate = tq > 0 ? tv / tq : 0;
+        closingValue = tv;
+      } else {
+        rate = computeDisplayCost(r);
+        closingValue = closing * rate;
+      }
       return {
         product_id:    r.product_id,
         product_name:  r.product_name,
@@ -205,7 +237,7 @@ exports.stockSummary = async (req, res) => {
         in_qty:        r2(r.in_qty),
         out_qty:       r2(r.out_qty),
         closing_qty:   r2(closing),
-        closing_value: r2(closing * rate),
+        closing_value: r2(closingValue),
       };
     });
 
@@ -398,12 +430,22 @@ exports.transferRegister = async (req, res) => {
 // roll-up rows are returned (cheap default for the dashboard tile).
 exports.godownValuation = async (req, res) => {
   try {
+    // Mode-aware godown summary (audit Hotspots G + H). The SQL CASE
+    // handles variant + single-no-batch in one pass; single+batch
+    // contribution per-godown is added in JS via
+    // fetchBatchAggregateByGodown — single+batch values can differ per
+    // godown because batches sit at specific godowns.
     const summary = await sequelize.query(
       `SELECT g.godown_id, g.code, g.name, g.is_default,
               COUNT(DISTINCT pgs.product_id)::int                  AS products,
               COALESCE(SUM(pgs.current_stock), 0)::float           AS total_qty,
-              COALESCE(SUM(pgs.current_stock * p.purchase_rate), 0)::float
-                                                                   AS total_value
+              COALESCE(SUM(pgs.current_stock * (CASE
+                WHEN p.product_mode = 'single' AND p.is_batch_tracked = false
+                  THEN COALESCE(p.weighted_avg_cost, p.purchase_rate, 0)
+                WHEN p.product_mode = 'single' AND p.is_batch_tracked = true
+                  THEN 0
+                ELSE p.purchase_rate
+              END)), 0)::float                                     AS partial_total_value
          FROM godowns g
          LEFT JOIN product_godown_stock pgs ON pgs.godown_id = g.godown_id
          LEFT JOIN products p              ON p.product_id   = pgs.product_id
@@ -414,15 +456,45 @@ exports.godownValuation = async (req, res) => {
       { type: sequelize.QueryTypes.SELECT },
     );
 
+    // Single+batch product_ids that have stock somewhere. One fetch
+    // covers every godown — Map keyed by `${pid}:${gid}`.
+    const batchPidRows = await sequelize.query(
+      `SELECT DISTINCT p.product_id
+         FROM products p
+         JOIN product_batch_stock pbs ON pbs.product_id = p.product_id
+        WHERE p.is_active = true AND p.product_mode = 'single' AND p.is_batch_tracked = true
+          AND pbs.current_stock > 0`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+    const batchAggByGodown = await fetchBatchAggregateByGodown(batchPidRows.map(r => r.product_id));
+    // Per-godown roll-up of batch values for the summary row totals.
+    const batchValueByGodown = new Map();
+    for (const [key, v] of batchAggByGodown) {
+      const [, godownId] = key.split(':');
+      const gid = parseInt(godownId, 10);
+      batchValueByGodown.set(gid, (batchValueByGodown.get(gid) || 0) + (v.total_value || 0));
+    }
+    const enrichedSummary = summary.map(g => ({
+      ...g,
+      total_value: r2(parseFloat(g.partial_total_value || 0) + (batchValueByGodown.get(g.godown_id) || 0)),
+    }));
+
     let detail = null;
     if (req.query.detail === 'true') {
-      detail = await sequelize.query(
+      // Detail rows are still one per (godown, product). For single+
+      // batch products, value comes from the per-godown batch aggregate
+      // (since one product can have different batches at different
+      // godowns). Variant + single-no-batch use the master cost basis
+      // via computeDisplayCost.
+      const rawDetail = await sequelize.query(
         `SELECT pgs.godown_id, pgs.product_id,
                 p.product_name, p.barcode, p.unit_of_measurement,
                 p.category_id, c.category_name,
-                pgs.current_stock::float AS current_stock,
-                p.purchase_rate::float   AS purchase_rate,
-                (pgs.current_stock * p.purchase_rate)::float AS value
+                pgs.current_stock::float    AS current_stock,
+                p.purchase_rate::float      AS purchase_rate,
+                p.weighted_avg_cost::float  AS weighted_avg_cost,
+                p.product_mode              AS product_mode,
+                p.is_batch_tracked          AS is_batch_tracked
            FROM product_godown_stock pgs
            JOIN products p   ON p.product_id   = pgs.product_id AND p.is_active = true
            LEFT JOIN categories c ON c.category_id = p.category_id
@@ -430,9 +502,34 @@ exports.godownValuation = async (req, res) => {
           ORDER BY pgs.godown_id ASC, p.product_name ASC`,
         { type: sequelize.QueryTypes.SELECT },
       );
+      detail = rawDetail.map(r => {
+        let rate, value;
+        if (r.product_mode === 'single' && r.is_batch_tracked) {
+          const agg = batchAggByGodown.get(`${r.product_id}:${r.godown_id}`);
+          const tv = agg ? agg.total_value : 0;
+          const tq = agg ? agg.total_qty   : 0;
+          rate = tq > 0 ? tv / tq : 0;
+          value = tv;
+        } else {
+          rate = computeDisplayCost(r);
+          value = (parseFloat(r.current_stock) || 0) * rate;
+        }
+        return {
+          godown_id: r.godown_id,
+          product_id: r.product_id,
+          product_name: r.product_name,
+          barcode: r.barcode,
+          unit_of_measurement: r.unit_of_measurement,
+          category_id: r.category_id,
+          category_name: r.category_name,
+          current_stock: r.current_stock,
+          purchase_rate: r2(rate),
+          value: r2(value),
+        };
+      });
     }
 
-    const totals = summary.reduce((acc, g) => {
+    const totals = enrichedSummary.reduce((acc, g) => {
       acc.total_qty   += parseFloat(g.total_qty)   || 0;
       acc.total_value += parseFloat(g.total_value) || 0;
       acc.godowns     += 1;
@@ -441,7 +538,7 @@ exports.godownValuation = async (req, res) => {
     totals.total_qty   = r2(totals.total_qty);
     totals.total_value = r2(totals.total_value);
 
-    res.json({ summary, detail, totals });
+    res.json({ summary: enrichedSummary, detail, totals });
   } catch (err) {
     console.error('godownValuation error:', err);
     res.status(500).json({ error: 'Server error' });

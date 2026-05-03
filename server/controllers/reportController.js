@@ -3,6 +3,7 @@ const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, SystemSettings, ProductGodownStock } = require('../models');
 const { sanitizePagination } = require('../utils/helpers');
 const { aggregateAging } = require('../utils/aging');
+const { fetchBatchAggregate, computeDisplayCost } = require('../utils/displayCost');
 
 // Local calendar date (YYYY-MM-DD) in the server's timezone. We deliberately
 // avoid toISOString().split('T')[0] here because that returns a UTC date — for
@@ -155,15 +156,41 @@ exports.dashboardStats = async (req, res) => {
       },
     });
 
-    // Stock value
+    // Stock value — mode-aware (audit-driven, Commit 3c).
+    //   purchase_value: variant uses purchase_rate; single (no batch)
+    //                   uses weighted_avg_cost (with COALESCE to
+    //                   purchase_rate to 0); single+batch uses
+    //                   SUM(batch.qty × batch.rate) via separate query.
+    //   sale_value:     unchanged — sale_rate is the catalog list price
+    //                   in all modes.
     const stockValue = await Product.findAll({
       where: { is_active: true, current_stock: { [Op.gt]: 0 } },
       attributes: [
-        [fn('COALESCE', fn('SUM', literal('"current_stock" * "purchase_rate"')), 0), 'purchase_value'],
+        [fn('COALESCE', fn('SUM', literal(`
+          "current_stock" * (CASE
+            WHEN "product_mode" = 'single' AND "is_batch_tracked" = false
+              THEN COALESCE("weighted_avg_cost", "purchase_rate", 0)
+            WHEN "product_mode" = 'single' AND "is_batch_tracked" = true
+              THEN 0
+            ELSE "purchase_rate"
+          END)
+        `)), 0), 'partial_purchase_value'],
         [fn('COALESCE', fn('SUM', literal('"current_stock" * "sale_rate"')), 0), 'sale_value'],
       ],
       raw: true,
     });
+    // Single+batch contribution to purchase_value — same active-and-on-hand
+    // filter as the main aggregate. fetchBatchAggregate covers the batch
+    // dimension; we only need to sum the per-product total_value across
+    // the rows it returns for batch-tracked active products.
+    const batchProductIds = await Product.findAll({
+      where: { is_active: true, product_mode: 'single', is_batch_tracked: true },
+      attributes: ['product_id'],
+      raw: true,
+    });
+    const dashBatchAgg = await fetchBatchAggregate(batchProductIds.map(r => r.product_id));
+    const dashBatchPurchaseValue = Array.from(dashBatchAgg.values())
+      .reduce((s, a) => s + (a.total_value || 0), 0);
 
     // Recent bills
     const recentSales = await SalesBill.findAll({
@@ -239,7 +266,7 @@ exports.dashboardStats = async (req, res) => {
       payables:    { count: parseInt(payables[0].count    || 0), total: +parseFloat(payables[0].total    || 0).toFixed(2) },
       low_stock_count: lowStock,
       stock_value: {
-        purchase: parseFloat(stockValue[0].purchase_value),
+        purchase: +(parseFloat(stockValue[0].partial_purchase_value || 0) + dashBatchPurchaseValue).toFixed(2),
         sale: parseFloat(stockValue[0].sale_value),
       },
       recent_sales: recentSales,
@@ -658,13 +685,25 @@ exports.stockReport = async (req, res) => {
     }
 
     // Dynamic sort order (whitelisted)
+    //
+    // stock_value sort key is mode-aware (audit Hotspot C). Variant +
+    // single-no-batch sort EXACTLY by their per-mode cost basis. Single+
+    // batch products fall back to purchase_rate for sort positioning —
+    // approximate but defensible (their true value sums per-batch and
+    // can't be inlined into ORDER BY without a costly per-row JOIN).
+    // Operators sorting by "highest stock value" still see the right
+    // ordering for the dominant variant + single-no-batch population.
     const SORT_ORDERS = {
       product_name:  [['product_name', safeDir]],
       category_name: [[Category, 'category_name', safeDir], ['product_name', 'ASC']],
       current_stock: [['current_stock', safeDir], ['product_name', 'ASC']],
       purchase_rate: [['purchase_rate', safeDir], ['product_name', 'ASC']],
       sale_rate:     [['sale_rate', safeDir], ['product_name', 'ASC']],
-      stock_value:   [[literal('"Product"."current_stock" * "Product"."purchase_rate"'), safeDir], ['product_name', 'ASC']],
+      stock_value:   [[literal(`"Product"."current_stock" * (CASE
+        WHEN "Product"."product_mode" = 'single' AND "Product"."is_batch_tracked" = false
+          THEN COALESCE("Product"."weighted_avg_cost", "Product"."purchase_rate", 0)
+        ELSE "Product"."purchase_rate"
+      END)`), safeDir], ['product_name', 'ASC']],
     };
     const orderClause = SORT_ORDERS[sort_by] || SORT_ORDERS['product_name'];
 
@@ -724,18 +763,32 @@ exports.stockReport = async (req, res) => {
     summaryRepl.from = periodFrom;
     summaryRepl.to   = periodTo;
 
+    // Mode-aware cost basis used in the SUM expressions below (audit
+    // Hotspot B + the negative_value variant). Variant + single-no-
+    // batch resolve inside the SQL CASE for a single-pass aggregate.
+    // Single+batch products contribute 0 here; their value is added
+    // post-query via fetchBatchAggregate / fetchBatchAggregateByGodown
+    // (depending on whether the report is godown-filtered).
+    const costExpr = `(CASE
+      WHEN p.product_mode = 'single' AND p.is_batch_tracked = false
+        THEN COALESCE(p.weighted_avg_cost, p.purchase_rate, 0)
+      WHEN p.product_mode = 'single' AND p.is_batch_tracked = true
+        THEN 0
+      ELSE p.purchase_rate
+    END)`;
+
     const summarySql = `
       SELECT
         COUNT(*)::int                                          AS total_items,
-        COALESCE(SUM(${stkExpr} * p.purchase_rate), 0)::float  AS total_purchase_value,
-        COALESCE(SUM(${stkExpr} * p.sale_rate),     0)::float  AS total_sale_value,
+        COALESCE(SUM(${stkExpr} * ${costExpr}), 0)::float      AS partial_purchase_value,
+        COALESCE(SUM(${stkExpr} * p.sale_rate), 0)::float      AS total_sale_value,
         COALESCE(SUM(${openExpr}),                  0)::float  AS total_opening,
         COALESCE(SUM(${stkExpr}),                   0)::float  AS total_current_stock,
         COUNT(*) FILTER (WHERE ${stkExpr} < 0)::int            AS negative_count,
         COUNT(*) FILTER (WHERE ${stkExpr} = 0)::int            AS out_count,
         COUNT(*) FILTER (WHERE p.minimum_stock_level > 0 AND ${stkExpr} > 0 AND ${stkExpr} <= p.minimum_stock_level)::int AS low_count,
         COALESCE(SUM(CASE WHEN ${stkExpr} < 0 THEN ${stkExpr}                  ELSE 0 END), 0)::float AS negative_units,
-        COALESCE(SUM(CASE WHEN ${stkExpr} < 0 THEN ${stkExpr} * p.purchase_rate ELSE 0 END), 0)::float AS negative_value
+        COALESCE(SUM(CASE WHEN ${stkExpr} < 0 THEN ${stkExpr} * ${costExpr}    ELSE 0 END), 0)::float AS negative_value
       FROM products p
       ${stkJoin}
       WHERE ${rawWhere.join(' AND ')} ${rawStatusFrag}
@@ -760,10 +813,13 @@ exports.stockReport = async (req, res) => {
         ${godownId ? 'AND sl.godown_id = :godown_id' : ''}
     `;
 
+    // Category breakdown — same mode-aware cost expression. Per-
+    // category stock_value covers variant + single-no-batch in SQL;
+    // batch contribution is added in JS (per category) below.
     const categoryBreakdownSql = `
       SELECT p.category_id, c.category_name,
         COUNT(p.product_id)::int                                  AS item_count,
-        COALESCE(SUM(${stkExpr} * p.purchase_rate), 0)::float     AS stock_value
+        COALESCE(SUM(${stkExpr} * ${costExpr}), 0)::float         AS stock_value
       FROM products p
       ${stkJoin}
       LEFT JOIN categories c ON c.category_id = p.category_id
@@ -846,7 +902,49 @@ exports.stockReport = async (req, res) => {
       }
     }
 
-    const totalPV = parseFloat(summaryRow.total_purchase_value || 0);
+    // Batch contribution to total_purchase_value + category breakdown.
+    // Single+batch products contributed 0 in the SQL CASE above; their
+    // value lives on product_batches.purchase_rate, not the master row.
+    // Pull the filtered set's batch products + their category, then
+    // fetch per-product (or per-godown-product) batch aggregates and
+    // distribute into category buckets.
+    const batchProductsInScope = await sequelize.query(
+      `SELECT p.product_id, p.category_id
+         FROM products p
+         ${stkJoin}
+        WHERE ${rawWhere.join(' AND ')} ${rawStatusFrag}
+          AND p.product_mode = 'single' AND p.is_batch_tracked = true`,
+      { replacements: summaryRepl, type: sequelize.QueryTypes.SELECT },
+    );
+    const batchPids = batchProductsInScope.map(r => r.product_id);
+    const { fetchBatchAggregateByGodown } = require('../utils/displayCost');
+    let batchValueByProduct = new Map();
+    if (godownId) {
+      const aggByGodown = await fetchBatchAggregateByGodown(batchPids);
+      for (const pid of batchPids) {
+        const entry = aggByGodown.get(`${pid}:${godownId}`);
+        if (entry) batchValueByProduct.set(pid, entry.total_value);
+      }
+    } else {
+      const agg = await fetchBatchAggregate(batchPids);
+      for (const [pid, v] of agg) batchValueByProduct.set(pid, v.total_value);
+    }
+    const batchPurchaseValue = Array.from(batchValueByProduct.values())
+      .reduce((s, v) => s + (v || 0), 0);
+    // Distribute batch value into category buckets so the breakdown ties
+    // back to the summary total. category_id → SUM(batch_value).
+    const batchValueByCategory = new Map();
+    for (const r of batchProductsInScope) {
+      const v = batchValueByProduct.get(r.product_id) || 0;
+      if (v === 0) continue;
+      batchValueByCategory.set(r.category_id, (batchValueByCategory.get(r.category_id) || 0) + v);
+    }
+    const enrichedBreakdown = categoryBreakdown.map(c => ({
+      ...c,
+      stock_value: +(parseFloat(c.stock_value || 0) + (batchValueByCategory.get(c.category_id) || 0)).toFixed(2),
+    }));
+
+    const totalPV = parseFloat(summaryRow.partial_purchase_value || 0) + batchPurchaseValue;
     const totalSV = parseFloat(summaryRow.total_sale_value || 0);
 
     res.json({
@@ -869,7 +967,7 @@ exports.stockReport = async (req, res) => {
         period: { from: periodFrom, to: periodTo },
         godown_id:            godownId,
       },
-      category_breakdown: categoryBreakdown,
+      category_breakdown: enrichedBreakdown,
     });
   } catch (error) {
     console.error('Stock report error:', error);

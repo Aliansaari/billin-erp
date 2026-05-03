@@ -3,7 +3,7 @@ const sequelize = require('../config/database');
 const { Product, Category, StockLedger } = require('../models');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { sanitizePagination } = require('../utils/helpers');
-const { attachDisplayCost } = require('../utils/displayCost');
+const { attachDisplayCost, fetchBatchAggregate } = require('../utils/displayCost');
 
 // Bulk-fetch lifetime aggregates (total purchased / total sold / last sold)
 // for the given product_ids. Used by getAll when the client opts in via
@@ -185,13 +185,34 @@ exports.getAll = async (req, res) => {
     // Summary aggregates over the FULL filtered set — KPI cards and the
     // sticky bottom Total strip on the product list read these so they
     // stay correct regardless of which chunks the user has scrolled
-    // past. Stock value uses purchase_rate (cost basis) — same formula
-    // the editorial product list used client-side.
+    // past.
+    //
+    // Mode-aware stock_value (audit-driven, Commit 3c):
+    //   • variant            → current_stock × purchase_rate
+    //   • single, no batch   → current_stock × COALESCE(weighted_avg_cost,
+    //                                                  purchase_rate, 0)
+    //   • single + batch     → SUM(batch.qty × batch.rate) — fetched
+    //                          separately because the rate lives on
+    //                          product_batches, not the product master.
+    //
+    // The CASE WHEN below handles the first two modes in a single SUM
+    // (zero JS-side cost). Single+batch products contribute via a
+    // separate fetchBatchAggregate over the filtered product_ids set
+    // (small extra round-trip; one row per single+batch product, then
+    // reduced to a number in JS).
     const totals = await Product.findAll({
       where,
       attributes: [
         [fn('COUNT', col('Product.product_id')), 'total_count'],
-        [fn('COALESCE', fn('SUM', literal('current_stock * purchase_rate')), 0), 'total_stock_value'],
+        [fn('COALESCE', fn('SUM', literal(`
+          current_stock * (CASE
+            WHEN product_mode = 'single' AND is_batch_tracked = false
+              THEN COALESCE(weighted_avg_cost, purchase_rate, 0)
+            WHEN product_mode = 'single' AND is_batch_tracked = true
+              THEN 0
+            ELSE purchase_rate
+          END)
+        `)), 0), 'partial_stock_value'],
         // "Out of stock" — current_stock <= 0
         [fn('COUNT', literal('CASE WHEN current_stock <= 0 THEN 1 END')), 'out_count'],
         // "Low" — 0 < current_stock <= minimum_stock_level (and a min is set)
@@ -227,9 +248,22 @@ exports.getAll = async (req, res) => {
     const total_count       = parseInt(t.total_count || 0, 10);
     const out_count         = parseInt(t.out_count || 0, 10);
     const low_count         = parseInt(t.low_count || 0, 10);
+
+    // Single+batch contribution to total_stock_value. Pre-fetch the
+    // filtered product_ids that are batch-tracked, then sum their
+    // batch-aggregate total_value. Empty result → adds 0.
+    const filteredBatchIds = await Product.findAll({
+      where: { ...where, product_mode: 'single', is_batch_tracked: true },
+      attributes: ['product_id'],
+      raw: true,
+    });
+    const batchAgg = await fetchBatchAggregate(filteredBatchIds.map(r => r.product_id));
+    const batchStockValue = Array.from(batchAgg.values())
+      .reduce((s, a) => s + (a.total_value || 0), 0);
+
     const summary = {
       total_count,
-      total_stock_value: +parseFloat(t.total_stock_value || 0).toFixed(2),
+      total_stock_value: +(parseFloat(t.partial_stock_value || 0) + batchStockValue).toFixed(2),
       out_count,
       low_count,
       // "In stock" = total minus low minus out (kept consistent with the
