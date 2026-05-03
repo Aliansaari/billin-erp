@@ -2277,19 +2277,61 @@ export default function PurchaseBillForm() {
 
       {/* +Add Product shortcut — opens the existing Add Product form
           (shared component, same UX as Inventory → Products → Add).
-          After save, invalidate the local family cache so a re-search
-          for the new name fetches the fresh product. We do NOT auto-
-          select it on the entry row; operator picks it normally. */}
+          On successful save we (a) invalidate the family cache so a
+          re-search picks up the fresh product, and (b) auto-select the
+          new product onto the entry row that triggered the modal.
+          Without (b), single-mode users got duplicates: the entry row
+          stayed product_id=null, the qty/rate they typed flowed into
+          a save, and the controller's auto-create-from-purchase path
+          spun up a SECOND product with sale_rate auto-filled from
+          purchase_rate. The auto-select now mirrors a dropdown pick
+          (handleProductSelect) — same identity binding, same focus
+          jump to qty — so the operator's next keystroke goes into the
+          quantity field, not into a new fingerprint. Cancel still
+          leaves the entry row untouched (no setState fires there). */}
       <ProductFormModal
         open={addProductModalOpen}
         onCancel={() => setAddProductModalOpen(false)}
         onSaved={(p) => {
           setAddProductModalOpen(false);
           invalidateFamilyCache();
-          // Re-run any in-flight product search so the new name appears
-          // in the dropdown immediately. Cheap; no behaviour change if
-          // the operator wasn't searching.
-          if (entry.product_name) handleProductSearch(entry.product_name);
+          if (p) {
+            // Re-run any in-flight product search so the new name
+            // appears in the dropdown if the operator pulls it down.
+            if (p.product_name) handleProductSearch(p.product_name);
+            // Auto-select onto the entry row. We deliberately set ONLY
+            // the identity + meta fields the dropdown-pick path sets;
+            // qty / purchase_rate / margin already typed by the user
+            // are preserved. is_batch_tracked + product_mode flow
+            // through so the row's mode-aware filter and the batch
+            // strip render correctly without a refetch.
+            setEntry((prev) => ({
+              ...prev,
+              product_id: p.product_id,
+              barcode: p.barcode || '',
+              product_name: p.product_name,
+              category_id: p.category_id || prev.category_id,
+              category_name: p.Category?.category_name || prev.category_name,
+              size: p.size_value || '',
+              article_number: p.article_number || '',
+              hsn_code: p.hsn_code || '',
+              gst_rate: parseFloat(p.gst_rate) || 0,
+              quantity_per_box: parseFloat(p.quantity_per_box) || 1,
+              mrp: parseFloat(p.mrp) || prev.mrp || 0,
+              sale_rate: parseFloat(p.sale_rate) || prev.sale_rate || 0,
+              margin_percentage: parseFloat(p.margin_percentage) || prev.margin_percentage || 0,
+              is_batch_tracked: !!p.is_batch_tracked,
+              product_mode: p.product_mode || prev.product_mode || 'variant',
+            }));
+            setBarcodeError('');
+            // Same focus contract as handleProductSelect's single-mode
+            // branch — operator's next keystroke is qty.
+            justSelectedRef.current = true;
+            requestAnimationFrame(() => {
+              productRef.current?.blur(); qtyRef.current?.focus(); qtyRef.current?.select?.();
+            });
+            setTimeout(() => { justSelectedRef.current = false; }, 250);
+          }
         }}
         defaultName={entry.product_name || ''}
       />

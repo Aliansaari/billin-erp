@@ -561,6 +561,38 @@ export default function SalesBillForm() {
       const gst=parseFloat(data.gst_rate)||0;
       const qty=parseFloat(data.quantity_per_box)||1;
       const unitType=qty>1?'Box':'Pcs';
+      // Batch-tracked products with the global toggle ON cannot be
+      // direct-pushed into items[] — the operator needs to confirm /
+      // override the FEFO/FIFO batch via the entry-row picker. Route
+      // the scan through the entry row so the batch-fetch effect can
+      // populate the dropdown and auto-pick the top batch. Operator
+      // presses ADD to commit the line. Without this, scanned batch
+      // products went straight to items[] with batch_id=null and the
+      // server rejected the save.
+      if (batchTrackingOn && data.is_batch_tracked) {
+        setEntry(prev => ({
+          ...prev,
+          product_id: data.product_id, barcode: data.barcode,
+          category_id: data.category_id,
+          category_name: data.Category?.category_name || '',
+          product_name: data.product_name, size: data.size_value || '',
+          article_number: data.article_number || '',
+          rate, mrp: parseFloat(data.mrp) || 0,
+          hsn_code: data.hsn_code || '', gst_rate: gst,
+          available_stock: parseFloat(data.current_stock) || 0,
+          quantity: qty, unit_type: unitType,
+          quantity_per_box: parseFloat(data.quantity_per_box) || 1,
+          is_batch_tracked: true,
+          batch_id: null, batch_number: '',
+          manufacture_date: null, expiry_date: null, batch_stock: 0,
+        }));
+        setActiveCatId(data.category_id || null);
+        message.info(`${data.product_name} — pick a batch and press ADD`, 1.5);
+        // Focus qty so the operator can override the auto-picked batch
+        // before pressing ADD.
+        requestAnimationFrame(() => qtyRef.current?.focus());
+        return;
+      }
       const lt=+(qty*rate).toFixed(2);
       setItems(prev=>[...prev,{
         key:nextKeyRef.current++,
@@ -573,6 +605,8 @@ export default function SalesBillForm() {
         total_amount:lt, mrp:parseFloat(data.mrp)||0,
         hsn_code:data.hsn_code||'', gst_rate:gst,
         available_stock:parseFloat(data.current_stock)||0,
+        is_batch_tracked: !!data.is_batch_tracked,
+        batch_id: null,
       }]);
       message.success(`${data.product_name} added`,1);
     }catch{

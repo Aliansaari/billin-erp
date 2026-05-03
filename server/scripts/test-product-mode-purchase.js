@@ -430,6 +430,67 @@ async function runTests() {
       after === before, `before=${before} after=${after}`);
     await SystemSettings.update({ default_product_mode: 'variant' }, { where: { setting_id: 1 } });
   }
+
+  // ── DUP-2: single-mode HARD BLOCK on auto-create from purchase ────────
+  // Bug 1 + Bug 2 defense in depth. In single mode, a line with a name
+  // that doesn't match any existing product must NOT silently spawn a
+  // new product (which would also auto-fill sale_rate from purchase_rate
+  // — the Bug 2 symptom). The +Add Product modal is the only path to
+  // create a single-mode product. The server now refuses with a 400
+  // explaining the constraint.
+  {
+    await SystemSettings.update({ default_product_mode: 'single' }, { where: { setting_id: 1 } });
+    const beforeCount = await Product.count();
+    const res = mockRes();
+    await purchaseController.create(buildReq({
+      bill_date: '2026-05-06',
+      supplier_id: fix.supplier.party_id,
+      godown_id: fix.godown.godown_id,
+      items: [{
+        product_id: null,
+        // Name that doesn't exist in any mode → would normally auto-create
+        product_name: FIXTURE_PREFIX + 'Brand-New-Single-Name',
+        barcode: '',
+        quantity: 5, purchase_rate: 100, sale_rate: 100,
+        quantity_per_box: 1,
+      }],
+    }), res);
+    check('DUP-2: single-mode auto-create blocked → 400',
+      res._status === 400 && /not in your master list/i.test(res._body?.error || ''),
+      `status=${res._status} body=${JSON.stringify(res._body)}`);
+    const afterCount = await Product.count();
+    check('DUP-2: no product created when block fires',
+      afterCount === beforeCount, `before=${beforeCount} after=${afterCount}`);
+    await SystemSettings.update({ default_product_mode: 'variant' }, { where: { setting_id: 1 } });
+  }
+
+  // ── DUP-3: variant mode regression — auto-create still allowed ────────
+  // The single-mode block must not affect variant mode (variants spawn
+  // new SKUs by design — the master purchase flow). Same payload that
+  // gets refused in single mode should succeed under variant.
+  {
+    await SystemSettings.update({ default_product_mode: 'variant' }, { where: { setting_id: 1 } });
+    const beforeCount = await Product.count();
+    const res = mockRes();
+    await purchaseController.create(buildReq({
+      bill_date: '2026-05-06',
+      supplier_id: fix.supplier.party_id,
+      godown_id: fix.godown.godown_id,
+      items: [{
+        product_id: null,
+        product_name: FIXTURE_PREFIX + 'Brand-New-Variant-Name',
+        barcode: '',
+        size: 'L', article_number: 'V01',
+        quantity: 3, purchase_rate: 50, sale_rate: 75,
+        quantity_per_box: 1,
+      }],
+    }), res);
+    check('DUP-3: variant-mode auto-create still works', res._status === 201,
+      `status=${res._status} body=${JSON.stringify(res._body)}`);
+    const afterCount = await Product.count();
+    check('DUP-3: exactly +1 product created under variant mode',
+      afterCount === beforeCount + 1, `before=${beforeCount} after=${afterCount}`);
+  }
 }
 
 async function main() {

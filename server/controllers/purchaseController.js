@@ -112,6 +112,24 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
   // ── Case 5: create brand-new traceable product with new barcode ────────────
   if (!item.product_name) return { product_id: null, barcode: item.barcode || null, isNew: false, product: null };
 
+  // Single-mode hard block: refuse to silently auto-create a product
+  // from a purchase line. Single-mode is "one product per name" + the
+  // master record holds the canonical sale_rate / margin / mrp /
+  // is_batch_tracked — auto-creating from a purchase row would (a)
+  // pick up sale_rate auto-filled from purchase_rate × margin (Bug 2),
+  // (b) miss is_batch_tracked entirely (Bug 3 cause), and (c) bypass
+  // the operator's explicit "what is this product" decision. Defense
+  // in depth alongside the form's +Add auto-select fix: even if the
+  // form regresses, the server still won't spawn a duplicate.
+  // Variant-mode keeps existing auto-create behaviour (variants are
+  // PER-row, the whole point is fast spawning of new SKUs).
+  if (defaultProductMode === 'single') {
+    return {
+      product_id: null, barcode: null, isNew: false, product: null,
+      _error: `"${item.product_name}" is not in your master list. In Single Product mode, products must be added via the "+ Add Product" button before billing — auto-create from purchase is disabled to prevent duplicates and ensure sale_rate / batch flag / GST are explicitly set.`,
+    };
+  }
+
   // If the frontend pre-reserved a barcode via /products/next-barcode, use it as-is
   // (counter was already incremented) — avoids a second generateBarcode() call and
   // lets the displayed barcode match what the product actually gets saved with.
@@ -380,6 +398,7 @@ exports.create = async (req, res) => {
       const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
       const resolved = await resolveOrCreateProduct(item, t, defaultProductMode);
+      if (resolved._error) { await t.rollback(); return res.status(400).json({ error: resolved._error }); }
       const product_id = resolved.product_id;
       const barcode    = resolved.barcode;
 
@@ -896,6 +915,7 @@ exports.update = async (req, res) => {
       const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
       const resolved = await resolveOrCreateProduct(item, t, defaultProductMode2);
+      if (resolved._error) { await t.rollback(); return res.status(400).json({ error: resolved._error }); }
       const product_id = resolved.product_id;
       const barcode    = resolved.barcode;
 
