@@ -669,8 +669,6 @@ export default function SalesBillForm() {
       batch_id:null, batch_number:'', manufacture_date:null, expiry_date:null,
       batch_stock:0,
     }));
-    // Flag so onFocus intercepts any AntD focus-restore and redirects to qty
-    justSelectedRef.current=true;
     // For batch-tracked products with the global toggle on, jump to
     // the Lot dropdown and open it instead of qty — the operator's
     // first decision is "which batch", not "how many." Auto-pick has
@@ -680,6 +678,12 @@ export default function SalesBillForm() {
     // onSelect handler advances focus to qty (see Select onChange
     // below). For non-batch products, keep the historical fast-path
     // straight to qty.
+    //
+    // CRITICAL: justSelectedRef must stay FALSE on the batch path —
+    // setting it triggers the Product field's onFocus handler, which
+    // redirects focus to qty on any focus restoration. AntD's Select
+    // onSelect closes the dropdown and may briefly restore focus to
+    // the trigger; that focus event would then steal our batch focus.
     if (batchTrackingOn && p.is_batch_tracked) {
       // Defer the focus + open until the batch fetch completes (the
       // Select is disabled while batchOptsLoading is true). The
@@ -687,6 +691,9 @@ export default function SalesBillForm() {
       pendingBatchFocusRef.current = true;
       requestAnimationFrame(() => prodRef.current?.blur());
     } else {
+      // Flag so onFocus intercepts any AntD focus-restore and
+      // redirects to qty.
+      justSelectedRef.current=true;
       requestAnimationFrame(() => { prodRef.current?.blur(); qtyRef.current?.focus(); });
     }
   },[batchTrackingOn]);
@@ -1831,16 +1838,23 @@ export default function SalesBillForm() {
                     >
                       {batchOpts.map((b) => {
                         const d = daysUntilExpiry(b.expiry_date);
+                        // Expiry status chip — red expired / amber
+                        // approaching / no chip when distant or unset.
                         const expChip = d == null
                           ? null
                           : d < 0
-                            ? <Tag color="red">Expired {dayjs(b.expiry_date).format('DD MMM')}</Tag>
+                            ? <Tag color="red">Expired</Tag>
                             : d <= batchAlertDays
-                              ? <Tag color="orange">Expires in {d}d</Tag>
+                              ? <Tag color="orange">{d}d left</Tag>
                               : null;
-                        const meta = b.expiry_date
-                          ? null
-                          : (b.manufacture_date ? `Mfd ${dayjs(b.manufacture_date).format('DD MMM YY')}` : null);
+                        // Date metadata — both mfg and exp shown when
+                        // available so the operator can verify FEFO
+                        // ordering at a glance. Format DD MMM YY keeps
+                        // the option compact.
+                        const dateMeta = [
+                          b.manufacture_date ? `Mfd ${dayjs(b.manufacture_date).format('DD MMM YY')}` : null,
+                          b.expiry_date     ? `Exp ${dayjs(b.expiry_date).format('DD MMM YY')}` : null,
+                        ].filter(Boolean).join(' · ');
                         return (
                           <Select.Option
                             key={b.batch_id} value={b.batch_id}
@@ -1850,7 +1864,7 @@ export default function SalesBillForm() {
                               <div style={{ minWidth:0, flex:1 }}>
                                 <div style={{ fontWeight:600, fontSize:13, color:'var(--fg-primary)' }}>{b.batch_number}</div>
                                 <div style={{ fontSize:10, color:'var(--fg-tertiary)', marginTop:1 }}>
-                                  Stock: {b.current_stock}{meta ? ` · ${meta}` : ''}
+                                  Stock: {b.current_stock}{dateMeta ? ` · ${dateMeta}` : ''}
                                 </div>
                               </div>
                               <div style={{ flexShrink:0 }}>{expChip}</div>
