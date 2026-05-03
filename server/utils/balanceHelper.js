@@ -257,6 +257,35 @@ async function reconcileBillsForParty(partyId, t = null) {
   // Distribute (userAllocMap + overflow + unallocatedFIFO) across a set of
   // bills in FIFO order, honoring user intent first and returning nothing
   // leftover (accounting-closed).
+  //
+  // Maintains the invariant `paid_amount + balance_amount (+ return_amount
+  // for sales) = total_amount` on every bill it touches. This invariant is
+  // load-bearing: the aging / bills-receivable banner formula derives
+  // `paid_in_bills` from `paid_amount`, and any drift between paid_amount
+  // and the actual FIFO-applied amount surfaces as a banner discrepancy.
+  // (The pre-fix code only updated balance_amount, leaving paid_amount as
+  // a stale at-billing snapshot — a credit-sale bill covered later by an
+  // on-account receipt would read paid=0, balance=0, and the formula would
+  // double-count the receipt as both unallocated and unapplied.)
+  //
+  // Math: `cap = total - prev_paid (- return)` is the remaining headroom
+  // for new applications. After applying `applyThis` from FIFO/userAlloc,
+  // `newPaid = prev_paid + applyThis`, which by construction equals
+  // `total - newBalance (- return)`. Both forms are equivalent; the
+  // additive form is used so the increment is explicit.
+  //
+  // KNOWN LIMITATION — this patch keeps the banner formula honest but
+  // doesn't integrate with the Phase-R9 `bill_payment_allocations` table.
+  // For parties whose receipts pre-date a credit-sale bill (snapshot-at-
+  // date FIFO would treat those receipts as advances), this naive FIFO
+  // will still allocate them to the bill and bump paid_amount past
+  // SUM(allocations), violating the I1 invariant on the admin Integrity
+  // screen. The banner stays green either way (the formula's invariant
+  // is per-bill, not per-allocation). A follow-up commit should thread
+  // reconcile through bill_payment_allocations: subtract existing
+  // allocations from the pool before FIFO, INSERT new fifo_auto rows,
+  // and derive paid_amount from SUM(allocations) instead of the
+  // additive increment used here.
   const distributeToBills = async (bills, getId, getCapacity, userAllocMap, unallocatedFIFO) => {
     // Pass 1: build capacity map, clamp user allocations, collect overflow.
     const capacity = {};
@@ -289,12 +318,17 @@ async function reconcileBillsForParty(partyId, t = null) {
 
       const applyThis = +(userAlloc + fifoApply).toFixed(2);
       const newBalance = +(Math.max(0, cap - applyThis)).toFixed(2);
+      const prevPaid = +(parseFloat(bill.paid_amount) || 0).toFixed(2);
+      const newPaid = +(prevPaid + applyThis).toFixed(2);
       const status = newBalance <= 0
         ? 'Paid'
-        : applyThis > 0
+        : newPaid > 0
           ? 'Partial'
           : 'Unpaid';
-      await bill.update({ balance_amount: newBalance, payment_status: status }, opts);
+      await bill.update(
+        { balance_amount: newBalance, paid_amount: newPaid, payment_status: status },
+        opts,
+      );
     }
   };
 

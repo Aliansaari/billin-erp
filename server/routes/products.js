@@ -12,6 +12,7 @@ router.get('/',                   requirePermission('inventory.view'),   product
 router.get('/low-stock',          requirePermission('inventory.view'),   productController.getLowStock);
 router.get('/next-barcode',       requirePermission('inventory.create'), productController.getNextBarcode);
 router.get('/barcode/:barcode',   requirePermission('inventory.view'),   productController.getByBarcode);
+router.get('/:id/batches',        requirePermission('inventory.view'),   productController.getBatches);
 router.get('/:id',                requirePermission('inventory.view'),   productController.getById);
 router.get('/:id/stock-movement', requirePermission('inventory.view'),   productController.getStockMovement);
 router.post('/',                  requirePermission('inventory.create'), productController.create);

@@ -87,6 +87,7 @@ export const productAPI = {
   getAll: (params) => api.get('/products', { params }),
   search: (q, params={}) => api.get('/products', { params: { search: q, limit: 50, ...params } }),
   getByBarcode: (barcode) => api.get(`/products/barcode/${barcode}`),
+  getBatches:   (id, params) => api.get(`/products/${id}/batches`, { params }),
   getNextBarcode: () => api.get('/products/next-barcode'),
   getById: (id) => api.get(`/products/${id}`),
   getLowStock: () => api.get('/products/low-stock'),

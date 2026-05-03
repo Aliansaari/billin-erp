@@ -56,6 +56,14 @@ const StockTransferItem = sequelize.define('StockTransferItem', {
   remarks: {
     type: DataTypes.TEXT,
   },
+  // Batch identity preserved across the transfer — the same batch_id
+  // moves from the from_godown to the to_godown. NULL for non-batch-
+  // tracked products.
+  batch_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'product_batches', key: 'batch_id' },
+  },
 }, {
   tableName: 'stock_transfer_items',
   timestamps: false,

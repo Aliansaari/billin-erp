@@ -289,9 +289,17 @@ export default function StockReport() {
       render: (v) => parseFloat(v) > 0 ? <span className="sr-qty muted">{fmtN(v)}</span> : <span className="sr-amt muted">—</span>,
     },
     cols.pur && {
-      key: 'pur', title: 'Pur. Rate', dataIndex: 'purchase_rate', width: 110, align: 'right',
-      sorter: (a, b) => parseFloat(a.purchase_rate || 0) - parseFloat(b.purchase_rate || 0),
-      render: (v) => <span className="sr-amt"><span className="rs">₹</span>{fmtN(v)}</span>,
+      key: 'pur', title: 'Pur. Rate', width: 110, align: 'right',
+      // Mode-aware cost basis (display_cost). Variant: purchase_rate.
+      // Single: weighted_avg_cost. Single+batch: batch-weighted avg.
+      // Falls back to purchase_rate for older/cached rows.
+      sorter: (a, b) =>
+        parseFloat(a.display_cost ?? a.purchase_rate ?? 0)
+        - parseFloat(b.display_cost ?? b.purchase_rate ?? 0),
+      render: (_, p) => {
+        const v = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
+        return <span className="sr-amt"><span className="rs">₹</span>{fmtN(v)}</span>;
+      },
     },
     cols.sale && {
       key: 'sale', title: 'Sale Rate', dataIndex: 'sale_rate', width: 110, align: 'right',
@@ -300,22 +308,25 @@ export default function StockReport() {
     },
     cols.mrg && {
       key: 'mrg', title: 'Margin', width: 80, align: 'right',
+      // True margin % = (sale - cost) / sale × 100. Cost basis is mode-
+      // aware via display_cost (variant: purchase_rate, single:
+      // weighted_avg_cost, single+batch: batch-weighted average). Rows
+      // missing sale or cost sort last regardless of direction.
       sorter: (a, b) => {
-        // Margin% = (sale - pur) / pur. Rows with no purchase rate sort
-        // last regardless of direction (treat as -Infinity for ASC, but
-        // Antd handles equal sorter values stably so use a sentinel).
         const m = (r) => {
-          const pur = parseFloat(r.purchase_rate || 0);
+          const cost = parseFloat(r.display_cost ?? r.purchase_rate ?? 0);
           const sale = parseFloat(r.sale_rate || 0);
-          return pur > 0 ? ((sale - pur) / pur) * 100 : Number.NEGATIVE_INFINITY;
+          return (sale > 0 && cost > 0)
+            ? ((sale - cost) / sale) * 100
+            : Number.NEGATIVE_INFINITY;
         };
         return m(a) - m(b);
       },
       render: (_, p) => {
-        const pur = parseFloat(p.purchase_rate || 0);
+        const cost = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
         const sale = parseFloat(p.sale_rate || 0);
-        if (pur <= 0) return <span className="sr-mrg warn">—</span>;
-        const pct = ((sale - pur) / pur) * 100;
+        if (sale <= 0 || cost <= 0) return <span className="sr-mrg warn">—</span>;
+        const pct = ((sale - cost) / sale) * 100;
         const tone = pct > 5 ? 'pos' : pct < 0 ? 'bad' : 'warn';
         const sign = pct > 0 ? '+' : '';
         return <span className={`sr-mrg ${tone}`}>{sign}{pct.toFixed(1)}%</span>;
@@ -323,11 +334,15 @@ export default function StockReport() {
     },
     cols.val && {
       key: 'val', title: 'Stock Value', width: 130, align: 'right',
+      // display_stock_value is mode-aware (variant: stock × purchase_rate;
+      // single: stock × weighted_avg_cost; single+batch: SUM(qty × rate)
+      // across batches). Falls back to the legacy formula for older API
+      // responses that pre-date the field.
       sorter: (a, b) =>
-        parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0) -
-        parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0),
+        parseFloat(a.display_stock_value ?? (parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0))) -
+        parseFloat(b.display_stock_value ?? (parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0))),
       render: (_, p) => {
-        const v = parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0);
+        const v = parseFloat(p.display_stock_value ?? (parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0)));
         const cls = v < 0 ? 'sr-amt neg-amt' : 'sr-amt val';
         return <span className={cls}><span className="rs">{v < 0 ? '−₹' : '₹'}</span>{fmtN(Math.abs(v))}</span>;
       },

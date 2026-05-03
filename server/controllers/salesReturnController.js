@@ -10,6 +10,7 @@ const { recalculatePartyBalance } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesReturnVouchers } = require('../services/voucherBuilders');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { applyBatchStockDelta } = require('../utils/batchStock');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
 /**
@@ -561,6 +562,7 @@ exports.create = async (req, res) => {
       await SalesReturnBillItem.create({
         sales_return_id: bill.sales_return_id,
         ...item,
+        batch_id: item.batch_id || null,
       }, { transaction: t });
 
       if (item.product_id && return_mode === 'Items') {
@@ -570,10 +572,22 @@ exports.create = async (req, res) => {
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: +parseFloat(item.quantity), t,
         });
+        // For batched lines, restore stock at the originating batch so
+        // returns flow back into the same lot (matching how purchases
+        // increment the batch on the receiving side). Without this, the
+        // batch-level on-hand drifts under products.current_stock.
+        if (item.batch_id && product.is_batch_tracked) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: item.batch_id,
+            godown_id: billData.godown_id,
+            delta: +parseFloat(item.quantity), t,
+          });
+        }
 
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
+          batch_id: item.batch_id || null,
           barcode: item.barcode,
           transaction_type: 'Sales Return',
           transaction_date: billData.return_date,
@@ -691,6 +705,13 @@ exports.update = async (req, res) => {
           product_id: oldItem.product_id, godown_id: oldGodownId,
           delta: -parseFloat(oldItem.quantity), t,
         });
+        if (oldItem.batch_id) {
+          await applyBatchStockDelta({
+            product_id: oldItem.product_id, batch_id: oldItem.batch_id,
+            godown_id: oldGodownId,
+            delta: -parseFloat(oldItem.quantity), t,
+          });
+        }
       }
     }
     await StockLedger.destroy({
@@ -768,7 +789,11 @@ exports.update = async (req, res) => {
     }, { transaction: t });
 
     for (const item of totals.processedItems) {
-      await SalesReturnBillItem.create({ sales_return_id: id, ...item }, { transaction: t });
+      await SalesReturnBillItem.create({
+        sales_return_id: id,
+        ...item,
+        batch_id: item.batch_id || null,
+      }, { transaction: t });
       if (item.product_id && return_mode === 'Items') {
         const product = await Product.findByPk(item.product_id, { transaction: t });
         if (!product) continue;
@@ -776,9 +801,17 @@ exports.update = async (req, res) => {
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: +parseFloat(item.quantity), t,
         });
+        if (item.batch_id && product.is_batch_tracked) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: item.batch_id,
+            godown_id: billData.godown_id,
+            delta: +parseFloat(item.quantity), t,
+          });
+        }
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
+          batch_id: item.batch_id || null,
           barcode: item.barcode,
           transaction_type: 'Sales Return',
           transaction_date: billData.return_date || existing.return_date,
@@ -879,6 +912,13 @@ exports.cancel = async (req, res) => {
             product_id: item.product_id, godown_id: bill.godown_id,
             delta: -parseFloat(item.quantity), t,
           });
+          if (item.batch_id) {
+            await applyBatchStockDelta({
+              product_id: item.product_id, batch_id: item.batch_id,
+              godown_id: bill.godown_id,
+              delta: -parseFloat(item.quantity), t,
+            });
+          }
         }
       }
     }

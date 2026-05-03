@@ -8,8 +8,62 @@ const { postVoucher, reverseVoucher } = require('../services/ledgerPostingServic
 const { buildSalesBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { applyBatchStockDelta, getBatchStock } = require('../utils/batchStock');
+const { ProductBatch } = require('../models');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
+const { computeCostRateForSale } = require('../utils/displayCost');
+
+// Per-line batch validation for sales / sales-return / sales edits.
+// Centralised so the stock-out (sale) and stock-in (sales return) paths
+// apply the same expiry / availability rules. Returns null when the line
+// is fine, or an error string for the controller to surface as a 400.
+//
+// Inputs:
+//   product            — Sequelize Product instance (must already be loaded)
+//   item               — line being saved; reads .batch_id, .quantity
+//   godownId           — bill's godown
+//   t                  — transaction
+//   blockExpired       — bool (system_settings.block_expired_sales)
+//   isReturn           — return paths skip the per-batch stock guard,
+//                        because returns ADD stock back to the batch
+//                        rather than draw it down.
+async function validateBatchLine({ product, item, godownId, t, blockExpired, isReturn }) {
+  if (!product) return null;
+  if (!product.is_batch_tracked) return null;
+  if (!item.batch_id) return null;  // Form may have skipped picker; caller handles separately.
+
+  const batch = await ProductBatch.findByPk(item.batch_id, { transaction: t });
+  if (!batch) return `Batch not found (id=${item.batch_id}) for "${product.product_name}".`;
+  if (parseInt(batch.product_id, 10) !== parseInt(product.product_id, 10)) {
+    return `Batch ${batch.batch_number} does not belong to "${product.product_name}".`;
+  }
+  if (batch.is_active === false) {
+    return `Batch ${batch.batch_number} for "${product.product_name}" is inactive.`;
+  }
+
+  // Expiry guard — only on sale path. Returns can flow back into an
+  // expired batch; the operator may legitimately be returning stock that
+  // was sold before it expired.
+  if (!isReturn && blockExpired && batch.expiry_date) {
+    const expiry = new Date(batch.expiry_date);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (expiry < today) {
+      return `Batch ${batch.batch_number} for "${product.product_name}" expired on ${batch.expiry_date} and "Block sales of expired batches" is enabled in Settings.`;
+    }
+  }
+
+  if (!isReturn) {
+    const onHand = await getBatchStock({
+      product_id: product.product_id, batch_id: item.batch_id, godown_id: godownId, t,
+    });
+    if (parseFloat(item.quantity) > onHand + 0.001) {
+      return `Batch ${batch.batch_number} for "${product.product_name}" has only ${onHand} available at the selected godown. Reduce qty or pick another batch.`;
+    }
+  }
+
+  return null;
+}
 
 /**
  * Determine intra-state vs inter-state for a sales bill.
@@ -149,7 +203,18 @@ exports.getById = async (req, res) => {
     const bill = await SalesBill.findByPk(req.params.id, {
       include: [
         { model: Party, as: 'customer' },
-        { model: SalesBillItem, as: 'items' },
+        {
+          model: SalesBillItem, as: 'items',
+          include: [
+            // Pull product so edit-mode can re-detect is_batch_tracked
+            // (the picker's gating condition) without round-tripping for
+            // each line. Pull the batch row so the form can prefill
+            // batch_number / manufacture_date / expiry_date when a saved
+            // line already has a batch_id, mirroring the purchase form.
+            { model: Product, as: 'product', attributes: ['product_id', 'is_batch_tracked', 'product_mode'] },
+            { model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date'] },
+          ],
+        },
       ],
     });
     if (!bill) return res.status(404).json({ error: 'Bill not found' });
@@ -625,21 +690,70 @@ exports.create = async (req, res) => {
     // Check negative stock setting once for all items
     const sysSettings = await SystemSettings.findByPk(1, { transaction: t });
     const allowNegativeStock = sysSettings?.allow_negative_stock || false;
+    const blockExpiredSales  = !!sysSettings?.block_expired_sales;
+    const batchTrackingOn    = !!sysSettings?.batch_tracking_enabled;
 
     for (const item of processedItems) {
-      // Fetch the product once to (a) snapshot its purchase_rate as COGS
-      // for this line, and (b) reuse for the stock deduction below. Doing
-      // both off the same read avoids a second roundtrip and keeps the cost
-      // snapshot in the same transaction as the bill itself.
+      // Fetch the product once to (a) snapshot per-mode COGS for this
+      // line via the shared helper, and (b) reuse for the stock
+      // deduction below. Doing both off the same read avoids a second
+      // roundtrip and keeps the cost snapshot in the same transaction
+      // as the bill itself.
+      //
+      // computeCostRateForSale picks the right basis per mode:
+      //   variant            → product.purchase_rate
+      //   single, no batch   → product.weighted_avg_cost
+      //   single + batch     → product_batches.purchase_rate for the
+      //                        line's batch_id (per-batch frozen rate)
+      // See server/utils/displayCost.js for the full fallback cascade.
       let product = null;
       if (item.product_id) {
         product = await Product.findByPk(item.product_id, { transaction: t });
       }
-      const costRate = product ? parseFloat(product.purchase_rate || 0) : 0;
+
+      // Batch dimension: for batch-tracked products with the global
+      // setting ON, every line MUST carry batch_id (form picker
+      // enforces it; this guard catches direct API callers that bypass
+      // the UI). With the global setting OFF, batch-tracked products
+      // silently fall back to godown-only — same regression contract
+      // the purchase form follows.
+      const batchId = (batchTrackingOn && product && product.is_batch_tracked)
+        ? (item.batch_id || null)
+        : null;
+      if (batchTrackingOn && product && product.is_batch_tracked && !batchId) {
+        await t.rollback();
+        return res.status(400).json({
+          error: `"${item.product_name || product.product_name}" is batch-tracked. Pick a batch for this line.`,
+        });
+      }
+
+      // Expiry / per-batch availability guard. Returns null when fine,
+      // or a user-readable error string we surface as a 400.
+      if (batchId) {
+        const err = await validateBatchLine({
+          product, item: { ...item, batch_id: batchId },
+          godownId: billData.godown_id, t,
+          blockExpired: blockExpiredSales, isReturn: false,
+        });
+        if (err) { await t.rollback(); return res.status(400).json({ error: err }); }
+      }
+
+      const costRate = await computeCostRateForSale({
+        product, batch_id: batchId || null, t,
+      });
+
+      // Defensive log: a batch-tracked single-mode product saving with
+      // no batch_id means computeCostRateForSale fell back to wac. The
+      // guard above should prevent this in practice — leaving the log
+      // so any bypass surfaces in dev.
+      if (product && product.is_batch_tracked && !batchId) {
+        console.warn(`[salesController.create] batch-tracked product ${product.product_id} saved without batch_id on bill ${bill.sales_bill_id}; cost_rate fell back to wac.`);
+      }
 
       await SalesBillItem.create({
         sales_bill_id: bill.sales_bill_id,
         ...item,
+        batch_id: batchId,
         // Server-computed; overrides anything the client might have sent so
         // profit reports can't be manipulated by a tampered API call.
         cost_rate: costRate,
@@ -667,9 +781,21 @@ exports.create = async (req, res) => {
           delta: -parseFloat(item.quantity), t,
         });
 
+        // Per-batch on-hand mirrors the godown-level delta (same
+        // pattern as purchaseController). Both must move in the same
+        // transaction so a rollback restores both consistently.
+        if (batchId) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: batchId,
+            godown_id: billData.godown_id,
+            delta: -parseFloat(item.quantity), t,
+          });
+        }
+
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
+          batch_id: batchId,
           barcode: item.barcode,
           transaction_type: 'Sales',
           transaction_date: billData.bill_date,
@@ -866,6 +992,18 @@ exports.update = async (req, res) => {
           product_id: oldItem.product_id, godown_id: oldGodownId,
           delta: +parseFloat(oldItem.quantity), t,
         });
+        // Restore per-batch on-hand for the OLD batch the line had been
+        // attached to. Mirror of the godown-level reverse — both must
+        // move together so a rollback restores both consistently. The
+        // new batch (which may differ if the operator changed it) gets
+        // its decrement in the apply-new pass below.
+        if (oldItem.batch_id) {
+          await applyBatchStockDelta({
+            product_id: oldItem.product_id, batch_id: oldItem.batch_id,
+            godown_id: oldGodownId,
+            delta: +parseFloat(oldItem.quantity), t,
+          });
+        }
       }
     }
 
@@ -1062,22 +1200,47 @@ exports.update = async (req, res) => {
     // Check negative stock setting for update
     const sysSettingsU = await SystemSettings.findByPk(1, { transaction: t });
     const allowNegStockU = sysSettingsU?.allow_negative_stock || false;
+    const blockExpiredU  = !!sysSettingsU?.block_expired_sales;
+    const batchTrackingOnU = !!sysSettingsU?.batch_tracking_enabled;
 
     for (const item of processedItems) {
-      // Same pattern as create(): fetch the product once, snapshot its cost
-      // onto the line, reuse for stock update. Cost is re-snapshotted on edit
-      // so if the user corrects the line (e.g. fixes a wrong product on a
-      // bill) the COGS follows the new product's cost — matches the user's
-      // mental model of "this edit supersedes the original".
+      // Same pattern as create(): fetch the product once, snapshot its
+      // per-mode cost via the shared helper, reuse for stock update.
+      // Cost is re-snapshotted on edit so if the user corrects the line
+      // (e.g. fixes a wrong product on a bill) the COGS follows the new
+      // product's cost — matches the user's mental model of "this edit
+      // supersedes the original". For single-mode products the
+      // snapshot uses CURRENT wac, which means an edit after later
+      // purchases shifts cost_rate to reflect the new average. That's
+      // by-design — edits are point-in-time corrections.
       let product = null;
       if (item.product_id) {
         product = await Product.findByPk(item.product_id, { transaction: t });
       }
-      const costRate = product ? parseFloat(product.purchase_rate || 0) : 0;
+      const batchIdU = (batchTrackingOnU && product && product.is_batch_tracked)
+        ? (item.batch_id || null) : null;
+      if (batchTrackingOnU && product && product.is_batch_tracked && !batchIdU) {
+        await t.rollback();
+        return res.status(400).json({
+          error: `"${item.product_name || product.product_name}" is batch-tracked. Pick a batch for this line.`,
+        });
+      }
+      if (batchIdU) {
+        const err = await validateBatchLine({
+          product, item: { ...item, batch_id: batchIdU },
+          godownId: billData.godown_id, t,
+          blockExpired: blockExpiredU, isReturn: false,
+        });
+        if (err) { await t.rollback(); return res.status(400).json({ error: err }); }
+      }
+      const costRate = await computeCostRateForSale({
+        product, batch_id: batchIdU || null, t,
+      });
 
       await SalesBillItem.create({
         sales_bill_id: id,
         ...item,
+        batch_id: batchIdU,
         cost_rate: costRate,
       }, { transaction: t });
 
@@ -1098,9 +1261,17 @@ exports.update = async (req, res) => {
           product_id: item.product_id, godown_id: billData.godown_id,
           delta: -parseFloat(item.quantity), t,
         });
+        if (batchIdU) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: batchIdU,
+            godown_id: billData.godown_id,
+            delta: -parseFloat(item.quantity), t,
+          });
+        }
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
+          batch_id: batchIdU,
           barcode: item.barcode,
           transaction_type: 'Sales',
           transaction_date: billData.bill_date,
@@ -1211,6 +1382,16 @@ exports.cancel = async (req, res) => {
           product_id: item.product_id, godown_id: bill.godown_id,
           delta: +parseFloat(item.quantity), t,
         });
+        // Restore the per-batch on-hand for batched lines. Both the
+        // godown-level and batch-level deltas must move together so a
+        // rollback restores both consistently.
+        if (item.batch_id) {
+          await applyBatchStockDelta({
+            product_id: item.product_id, batch_id: item.batch_id,
+            godown_id: bill.godown_id,
+            delta: +parseFloat(item.quantity), t,
+          });
+        }
       }
     }
 

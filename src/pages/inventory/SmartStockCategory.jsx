@@ -197,9 +197,18 @@ export default function SmartStockCategory() {
     return [...rows].sort((a, b) => {
       let av, bv;
       if (sortKey === 'stock_value') {
-        av = parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0);
-        bv = parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0);
-      } else if (['current_stock', 'purchase_rate', 'sale_rate'].includes(sortKey)) {
+        // Mode-aware via display_stock_value (server-attached); legacy
+        // formula stays as fallback for rows that pre-date enrichment.
+        av = parseFloat(a.display_stock_value ?? (parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0)));
+        bv = parseFloat(b.display_stock_value ?? (parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0)));
+      } else if (sortKey === 'purchase_rate') {
+        // Sort by the same value the column displays — display_cost
+        // (mode-aware) for single / single+batch, purchase_rate for
+        // variant. Falls back to purchase_rate when display_cost is
+        // missing (older/cached rows).
+        av = parseFloat(a.display_cost ?? a.purchase_rate ?? 0);
+        bv = parseFloat(b.display_cost ?? b.purchase_rate ?? 0);
+      } else if (['current_stock', 'sale_rate'].includes(sortKey)) {
         av = parseFloat(a[sortKey] || 0);
         bv = parseFloat(b[sortKey] || 0);
       } else {
@@ -213,15 +222,24 @@ export default function SmartStockCategory() {
   }, [products, search, sortKey, sortDir]);
 
   // ─── derived: stats ──────────────────────────────────────────────
+  // Stock value (`pur`) and profit potential aggregate against the
+  // mode-aware basis. display_stock_value is server-attached for the
+  // SUM(stock × cost); display_cost feeds the unit-cost path used by
+  // single+batch rows whose `current_stock × display_cost` would
+  // diverge from display_stock_value (display_stock_value is the SUM
+  // of qty×rate per batch, not stock × weighted-average). Variant rows
+  // collapse to the legacy formula since display_cost === purchase_rate.
   const stats = useMemo(() => {
     if (!visibleProducts.length) return null;
     let qty = 0, pur = 0, sale = 0, neg = 0, out = 0, low = 0;
     visibleProducts.forEach(p => {
       const q = parseFloat(p.current_stock || 0);
-      const pr = parseFloat(p.purchase_rate || 0);
       const sr = parseFloat(p.sale_rate || 0);
       const mn = parseFloat(p.minimum_stock_level || 0);
-      qty += q; pur += q * pr; sale += q * sr;
+      const stockValue = parseFloat(
+        p.display_stock_value ?? (q * parseFloat(p.purchase_rate || 0)),
+      );
+      qty += q; pur += stockValue; sale += q * sr;
       if (q < 0) neg++;
       else if (q === 0) out++;
       else if (mn > 0 && q <= mn) low++;
@@ -468,7 +486,11 @@ export default function SmartStockCategory() {
   const renderCellBody = useCallback((col, p, rowIdx, isEditing, isActive) => {
     const stock = parseFloat(p.current_stock || 0);
     const tone  = stockTone(stock, p.minimum_stock_level);
-    const stVal = stock * parseFloat(p.purchase_rate || 0);
+    // Mode-aware stock value via display_stock_value; legacy fallback
+    // matches what the row would compute against the master purchase_rate.
+    const stVal = parseFloat(
+      p.display_stock_value ?? (stock * parseFloat(p.purchase_rate || 0)),
+    );
 
     if (bulkMode && col.editable) {
       return (
@@ -512,7 +534,7 @@ export default function SmartStockCategory() {
         );
       case 'size_value':  return <span className="ss-cell-size">{p.size_value || '—'}</span>;
       case 'current_stock': return <span className={`ss-cell-stk ${tone}`}>{fmtN(stock)}</span>;
-      case 'purchase_rate': return <span className="ss-cell-pur">{fmt(p.purchase_rate)}</span>;
+      case 'purchase_rate': return <span className="ss-cell-pur">{fmt(p.display_cost ?? p.purchase_rate)}</span>;
       case 'sale_rate':     return <span className="ss-cell-sale">{fmt(p.sale_rate)}</span>;
       case 'min_stock':     return <span className="ss-cell-min">{p.minimum_stock_level || '—'}</span>;
       case 'stock_value':   return <span className="ss-cell-val">{fmt(stVal)}</span>;

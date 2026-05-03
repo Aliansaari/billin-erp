@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Form, Switch, Select, Button, Input, InputNumber, Typography, Row, Col, Divider, message, Radio, Modal, Checkbox, Alert } from 'antd';
-import { SaveOutlined, SettingOutlined, CloudServerOutlined, CalendarOutlined, NumberOutlined, DeleteOutlined, WarningOutlined, FieldTimeOutlined } from '@ant-design/icons';
+import { SaveOutlined, SettingOutlined, CloudServerOutlined, CalendarOutlined, NumberOutlined, DeleteOutlined, WarningOutlined, FieldTimeOutlined, TagsOutlined } from '@ant-design/icons';
 import { settingsAPI } from '../../api';
 
 const { Title, Text } = Typography;
@@ -209,6 +209,11 @@ export default function ModuleSettings() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
+  // Mirror of the global batch toggle so the conditional batch-tracking card
+  // appears/disappears as the operator flicks the switch — without waiting
+  // for a save round-trip. Ant Form.useWatch could do this, but a piece of
+  // local state keeps the render cheap and the wiring obvious.
+  const [batchTrackingOn, setBatchTrackingOn] = useState(false);
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -228,6 +233,11 @@ export default function ModuleSettings() {
         enable_amount_only_billing: s.enable_amount_only_billing ?? true,
         multi_warehouse_enabled: !!s.multi_warehouse_enabled,
         audit_trail_enabled:     !!s.audit_trail_enabled,
+        batch_tracking_enabled:  !!s.batch_tracking_enabled,
+        batch_expiry_alert_days: s.batch_expiry_alert_days ?? 30,
+        block_expired_sales:     !!s.block_expired_sales,
+        allow_zero_stock_batches: s.allow_zero_stock_batches ?? true,
+        default_product_mode:    s.default_product_mode || 'variant',
         backup_frequency:        s.backup_frequency || 'Daily',
         sale_due_days_mode:      localStorage.getItem('sale_due_days_mode')  || 'bill_date',
         purchase_due_days_mode:  localStorage.getItem('purchase_due_days_mode') || 'bill_date',
@@ -238,6 +248,7 @@ export default function ModuleSettings() {
         aging_bucket_2_days:     s.aging_bucket_2_days ?? 60,
         aging_bucket_3_days:     s.aging_bucket_3_days ?? 90,
       });
+      setBatchTrackingOn(!!s.batch_tracking_enabled);
     } catch (error) {
       console.error('ModuleSettings load error:', error);
       message.error('Failed to load settings');
@@ -323,6 +334,17 @@ export default function ModuleSettings() {
               </Form.Item>
               <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
                 Track all changes made to bills and records
+              </Text>
+
+              <Form.Item name="batch_tracking_enabled" label="Enable Batch Tracking" valuePropName="checked">
+                <Switch
+                  checkedChildren="ON"
+                  unCheckedChildren="OFF"
+                  onChange={setBatchTrackingOn}
+                />
+              </Form.Item>
+              <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 0 }}>
+                Group identical units into batches with their own dates, quantities, and optional expiry. Toggle individual products into batch mode from the Product form. Existing data is preserved if turned OFF later.
               </Text>
             </Card>
           </Col>
@@ -415,6 +437,66 @@ export default function ModuleSettings() {
                 extra={<span style={{ fontSize: 12, color: '#6b7280' }}>Bills aged beyond this threshold are marked <b>Critical</b></span>}
               >
                 <InputNumber min={3} max={720} style={{ width: 160 }} addonAfter="days" />
+              </Form.Item>
+            </Card>
+          </Col>
+        </Row>
+
+        {batchTrackingOn && (
+          <Row gutter={16} style={{ marginTop: 16 }}>
+            <Col xs={24} lg={12}>
+              <Card loading={loading} title={<><TagsOutlined /> Batch Tracking</>}>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+                  Active when individual products are flipped to batch mode on the Product form. The settings below tune expiry alerts and sale-of-expired behaviour.
+                </Text>
+
+                <Form.Item
+                  name="batch_expiry_alert_days"
+                  label="Default expiry alert"
+                  extra={<span style={{ fontSize: 12, color: '#6b7280' }}>Batches within this many days of expiry are flagged with an amber chip on the picker and Expiry Report</span>}
+                >
+                  <InputNumber min={1} max={365} style={{ width: 160 }} addonAfter="days" />
+                </Form.Item>
+
+                <Form.Item name="block_expired_sales" label="Block sales of expired batches" valuePropName="checked">
+                  <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+                </Form.Item>
+                <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
+                  When ON — the sales bill refuses to save a line that draws from an expired batch. When OFF — operators can deliberately sell aged stock at a discount (typical wholesale behaviour).
+                </Text>
+
+                <Form.Item name="allow_zero_stock_batches" label="Allow zero-stock batches" valuePropName="checked" style={{ marginBottom: 0 }}>
+                  <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+                </Form.Item>
+                <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 0 }}>
+                  When ON — operators can pre-register a batch (e.g. an upcoming shipment) before any stock arrives. When OFF — batches can only be created via a purchase bill.
+                </Text>
+              </Card>
+            </Col>
+          </Row>
+        )}
+
+        <Row gutter={16} style={{ marginTop: 16 }}>
+          <Col xs={24} lg={12}>
+            <Card loading={loading} title={<><SettingOutlined /> Default Product Mode</>}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+                Applies to <strong>new products only</strong>. Existing products keep their mode permanently — flipping this won't reshape your catalog.
+              </Text>
+              <Form.Item name="default_product_mode" label="Mode for new products" style={{ marginBottom: 0 }}>
+                <Radio.Group>
+                  <Radio value="variant" style={{ display: 'block', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 500 }}>Variant</span>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                      A purchase at a different MRP / rate / size automatically creates a new product variant. Best for textiles, sarees, garments — each combination is its own SKU with its own barcode.
+                    </div>
+                  </Radio>
+                  <Radio value="single" style={{ display: 'block' }}>
+                    <span style={{ fontWeight: 500 }}>Single Product (Tally-style)</span>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                      One product, many purchase prices over time. Cost is tracked as a weighted average. Best for FMCG, hardware, pharma, food — same SKU bought repeatedly at varying prices. Required for batch tracking.
+                    </div>
+                  </Radio>
+                </Radio.Group>
               </Form.Item>
             </Card>
           </Col>

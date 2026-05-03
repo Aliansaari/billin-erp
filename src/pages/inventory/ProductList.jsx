@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Input, Button, Modal, Form, InputNumber, Select,
+  Input, Button, Modal, Form, InputNumber, Select, Switch,
   Row, Col, Divider, message, DatePicker, Dropdown, Tooltip,
 } from 'antd';
-import { BarcodeOutlined, SettingOutlined, EditOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { BarcodeOutlined, SettingOutlined, EditOutlined, ArrowRightOutlined, TagsOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { productAPI, categoryAPI, dataAPI } from '../../api';
+import { productAPI, categoryAPI, dataAPI, settingsAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 
@@ -75,11 +75,17 @@ function healthOf(product) {
   return { kind: 'ok', label: 'Healthy' };
 }
 
+// True margin % = (sale - cost) / sale × 100. Cost basis is mode-aware
+// via display_cost (variant: purchase_rate, single: weighted_avg_cost,
+// single+batch: batch-weighted average) — falls back to purchase_rate
+// for older/cached rows. Denominator is the sale price (not cost), so
+// the chip reads as "what fraction of the sale we keep" rather than
+// markup over cost.
 function marginPct(p) {
-  const pur = parseFloat(p.purchase_rate || 0);
+  const cost = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
   const sale = parseFloat(p.sale_rate || 0);
-  if (!pur) return null;
-  return ((sale - pur) / pur) * 100;
+  if (!sale || !cost) return null;
+  return ((sale - cost) / sale) * 100;
 }
 
 // Stable category dot palette — same product = same color across sessions.
@@ -114,6 +120,10 @@ export default function ProductList() {
   }, [searchInput]);
 
   const [categories, setCategories] = useState([]);
+  // Global batch-tracking toggle. Cached on mount so the form can hide the
+  // "Track by batch" field cleanly when the feature is off — same condition
+  // the bill forms and reports apply.
+  const [batchTrackingEnabled, setBatchTrackingEnabled] = useState(false);
 
   /* ── data layer ── */
   const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
@@ -135,11 +145,19 @@ export default function ProductList() {
   const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
 
-  useEffect(() => { loadCategories(); }, []);
+  useEffect(() => { loadCategories(); loadBatchSetting(); }, []);
 
   const loadCategories = async () => {
     try { const { data } = await categoryAPI.getAllFlat(); setCategories(data || []); }
     catch { /* ignore */ }
+  };
+
+  const loadBatchSetting = async () => {
+    try {
+      const { data } = await settingsAPI.getSystem();
+      const s = (data && data.data) ? data.data : data;
+      setBatchTrackingEnabled(!!s?.batch_tracking_enabled);
+    } catch { /* best effort — feature stays hidden if settings unavailable */ }
   };
 
   /* ── form helpers ── */
@@ -284,9 +302,19 @@ export default function ProductList() {
         : <span className="qty-m">—</span>,
     },
     cols.pur && {
-      key: 'pur', title: 'Purchase', dataIndex: 'purchase_rate', width: 110, align: 'right',
-      sorter: (a, b) => parseFloat(a.purchase_rate || 0) - parseFloat(b.purchase_rate || 0),
-      render: (v) => <span className="mon-m"><span className="rs">₹</span>{fmtMoney(v)}</span>,
+      key: 'pur', title: 'Purchase', width: 110, align: 'right',
+      // Mode-aware cost basis (display_cost). For variant products
+      // display_cost === purchase_rate, so this is a no-op there. For
+      // single-mode it reads weighted_avg_cost; for single+batch it
+      // reads the batch-weighted average. Sort + render use the same
+      // value so the column is internally consistent.
+      sorter: (a, b) =>
+        parseFloat(a.display_cost ?? a.purchase_rate ?? 0)
+        - parseFloat(b.display_cost ?? b.purchase_rate ?? 0),
+      render: (_, p) => {
+        const v = parseFloat(p.display_cost ?? p.purchase_rate ?? 0);
+        return <span className="mon-m"><span className="rs">₹</span>{fmtMoney(v)}</span>;
+      },
     },
     cols.sale && {
       key: 'sale', title: 'Sale', dataIndex: 'sale_rate', width: 110, align: 'right',
@@ -333,11 +361,17 @@ export default function ProductList() {
     },
     cols.val && {
       key: 'val', title: 'Stock Value', width: 130, align: 'right',
-      sorter: (a, b) =>
-        (parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0)) -
-        (parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0)),
+      // Mode-aware: variant → stock × purchase_rate; single → stock ×
+      // weighted_avg_cost; single+batch → SUM(qty × batch.rate). The
+      // server attaches display_stock_value via attachDisplayCost; the
+      // legacy fallback applies only to rows from older/cached payloads.
+      sorter: (a, b) => {
+        const av = parseFloat(a.display_stock_value ?? (parseFloat(a.current_stock || 0) * parseFloat(a.purchase_rate || 0)));
+        const bv = parseFloat(b.display_stock_value ?? (parseFloat(b.current_stock || 0) * parseFloat(b.purchase_rate || 0)));
+        return av - bv;
+      },
       render: (_, p) => {
-        const v = parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0);
+        const v = parseFloat(p.display_stock_value ?? (parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0)));
         return v > 0
           ? <span className="mon-m"><span className="rs">₹</span>{fmtMoney(v)}</span>
           : <span className="mon-m zero">—</span>;
@@ -627,6 +661,29 @@ export default function ProductList() {
               </Form.Item>
             </Col>
           </Row>
+
+          {batchTrackingEnabled && (
+            <>
+              <Divider plain><span style={{ fontWeight: 600 }}><TagsOutlined /> Batch Tracking</span></Divider>
+              <Row gutter={16}>
+                <Col span={24}>
+                  <Form.Item
+                    name="is_batch_tracked"
+                    label="Track by batch"
+                    valuePropName="checked"
+                    style={{ marginBottom: 4 }}
+                    extra={
+                      editing && editing.is_batch_tracked
+                        ? <span style={{ fontSize: 12, color: '#6b7280' }}>Once stock movements exist on a batch-tracked product, the toggle is locked. Move all batch stock to zero before disabling.</span>
+                        : <span style={{ fontSize: 12, color: '#6b7280' }}>Each unit can be grouped into a batch with its own dates and (optional) expiry. Batch picker appears on purchases, sales, returns, and transfers.</span>
+                    }
+                  >
+                    <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </>
+          )}
 
           <Divider plain><span style={{ color: 'var(--ed-accent)', fontWeight: 600 }}>Opening Stock</span></Divider>
           <div style={{ background: 'var(--ed-accent-s)', border: '1px solid var(--ed-accent-b)', borderRadius: 8, padding: '12px 16px' }}>

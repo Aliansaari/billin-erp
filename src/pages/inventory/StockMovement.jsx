@@ -383,9 +383,17 @@ export default function StockMovement() {
                   <div className="k">Total Out</div>
                   <div className="v out">−{fmtQty(stats.totOut)} {selected.unit_of_measurement || 'pcs'}</div>
                 </div>
+                {/* Cost tile: label + value branch on the product's mode.
+                    Variant uses the catalog purchase_rate (overwritten on
+                    each purchase). Single mode uses display_cost from the
+                    backend — weighted_avg_cost for non-batch products,
+                    or the per-batch weighted average for batch-tracked.
+                    The transaction TABLE below still shows each line's
+                    own rate from stock_ledger, so the operator can
+                    always see "Mill A charged ₹100, Mill B ₹120". */}
                 <div className="sm-stat">
-                  <div className="k">Purchase Rate</div>
-                  <div className="v">₹ {fmtMoney(selected.purchase_rate)}</div>
+                  <div className="k">{selected.product_mode === 'single' ? 'Avg Cost' : 'Purchase Rate'}</div>
+                  <div className="v">₹ {fmtMoney(selected.display_cost ?? selected.purchase_rate)}</div>
                 </div>
                 <div className="sm-stat">
                   <div className="k">Sale Rate</div>
@@ -393,7 +401,7 @@ export default function StockMovement() {
                 </div>
                 <div className="sm-stat">
                   <div className="k">Stock Value</div>
-                  <div className="v">₹ {fmtMoney(parseFloat(selected.current_stock || 0) * parseFloat(selected.purchase_rate || 0))}</div>
+                  <div className="v">₹ {fmtMoney(selected.display_stock_value ?? (parseFloat(selected.current_stock || 0) * parseFloat(selected.purchase_rate || 0)))}</div>
                 </div>
               </div>
             </div>

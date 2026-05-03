@@ -1391,6 +1391,146 @@ async function startServer() {
       console.warn('[R8 backfill] Skipped:', err.message);
     }
 
+    // ── Batch tracking schema ─────────────────────────────────────────
+    //
+    // The two new tables (product_batches, product_batch_stock) are created
+    // by sequelize.sync above. The block below is for COLUMN additions on
+    // existing tables (idempotent — IF NOT EXISTS gates re-runs).
+    //
+    // All new columns are nullable: a non-batch-tracked product / movement
+    // / bill line keeps batch_id NULL. The "required for batch-tracked
+    // products" rule is enforced at the application layer (controllers),
+    // not at the DB level — a single CHECK can't express "NULL only when
+    // products.is_batch_tracked = false".
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='is_batch_tracked') THEN
+          ALTER TABLE products ADD COLUMN is_batch_tracked BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='batch_expiry_alert_days') THEN
+          ALTER TABLE system_settings ADD COLUMN batch_expiry_alert_days INTEGER DEFAULT 30;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='block_expired_sales') THEN
+          ALTER TABLE system_settings ADD COLUMN block_expired_sales BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='allow_zero_stock_batches') THEN
+          ALTER TABLE system_settings ADD COLUMN allow_zero_stock_batches BOOLEAN DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='stock_ledger' AND column_name='batch_id') THEN
+          ALTER TABLE stock_ledger ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bill_items' AND column_name='batch_id') THEN
+          ALTER TABLE sales_bill_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_bill_items' AND column_name='batch_id') THEN
+          ALTER TABLE purchase_bill_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_return_bill_items' AND column_name='batch_id') THEN
+          ALTER TABLE sales_return_bill_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_return_bill_items' AND column_name='batch_id') THEN
+          ALTER TABLE purchase_return_bill_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='stock_transfer_items' AND column_name='batch_id') THEN
+          ALTER TABLE stock_transfer_items ADD COLUMN batch_id INTEGER REFERENCES product_batches(batch_id);
+        END IF;
+      END $$;
+      CREATE INDEX IF NOT EXISTS idx_stock_ledger_product_batch_date
+        ON stock_ledger (product_id, batch_id, transaction_date);
+      CREATE INDEX IF NOT EXISTS idx_sales_bill_items_batch
+        ON sales_bill_items (batch_id);
+      CREATE INDEX IF NOT EXISTS idx_purchase_bill_items_batch
+        ON purchase_bill_items (batch_id);
+      CREATE INDEX IF NOT EXISTS idx_product_batches_expiry
+        ON product_batches (expiry_date);
+      CREATE INDEX IF NOT EXISTS idx_product_batches_product_expiry
+        ON product_batches (product_id, expiry_date);
+    `).catch((err) => {
+      console.error('[Batch tracking migration] Error:', err.message);
+    });
+
+    // ── Single Product mode schema (Phase 1) ─────────────────────────
+    //
+    // Adds:
+    //   • products.product_mode ENUM('variant','single') NOT NULL DEFAULT 'variant'
+    //     Existing rows inherit 'variant' via the DEFAULT — preserves
+    //     existing behaviour bit-exactly. New rows pick up whatever
+    //     system_settings.default_product_mode is at create time
+    //     (controllers wire this in Commit 2; nothing changes for
+    //     existing flows in Commit 1).
+    //   • products.weighted_avg_cost / last_purchase_rate /
+    //     last_purchase_date — single-mode cost basis fields.
+    //     NULL for variant rows; populated by single-mode purchases.
+    //   • product_batches.purchase_rate — per-batch landed cost,
+    //     used as the cost_rate snapshot source for single+batch
+    //     products. NULL for batches created before Commit 2.
+    //   • system_settings.default_product_mode — global default
+    //     applied to NEW products only.
+    //
+    // All idempotent (IF NOT EXISTS gates). ENUM types use the
+    // Sequelize convention `enum_<table>_<column>`.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='products' AND column_name='product_mode') THEN
+          IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_products_product_mode') THEN
+            CREATE TYPE enum_products_product_mode AS ENUM ('variant', 'single');
+          END IF;
+          ALTER TABLE products ADD COLUMN product_mode enum_products_product_mode NOT NULL DEFAULT 'variant';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='products' AND column_name='weighted_avg_cost') THEN
+          ALTER TABLE products ADD COLUMN weighted_avg_cost DECIMAL(14,4);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='products' AND column_name='last_purchase_rate') THEN
+          ALTER TABLE products ADD COLUMN last_purchase_rate DECIMAL(14,4);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='products' AND column_name='last_purchase_date') THEN
+          ALTER TABLE products ADD COLUMN last_purchase_date DATE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='product_batches' AND column_name='purchase_rate') THEN
+          ALTER TABLE product_batches ADD COLUMN purchase_rate DECIMAL(14,4);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='default_product_mode') THEN
+          IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_system_settings_default_product_mode') THEN
+            CREATE TYPE enum_system_settings_default_product_mode AS ENUM ('variant', 'single');
+          END IF;
+          ALTER TABLE system_settings ADD COLUMN default_product_mode enum_system_settings_default_product_mode NOT NULL DEFAULT 'variant';
+        END IF;
+      END $$;
+      CREATE INDEX IF NOT EXISTS idx_products_product_mode
+        ON products (product_mode);
+    `).catch((err) => {
+      console.error('[Single mode migration] Error:', err.message);
+    });
+
+    // Audit-driven cleanup (Phase 6 of the design): clear is_batch_tracked
+    // on any variant-mode product that wrongly carried it. The flag was
+    // settable on variants pre-design but caused silent batch-info loss
+    // on save (lookupProduct could resolve to a non-batched sibling).
+    // Run AFTER the column addition above so product_mode exists.
+    // Idempotent — re-runs find zero affected rows.
+    try {
+      const [rows] = await sequelize.query(
+        `UPDATE products
+            SET is_batch_tracked = false
+          WHERE product_mode = 'variant' AND is_batch_tracked = true
+          RETURNING product_id, product_name`,
+      );
+      if (rows && rows.length > 0) {
+        console.log(`[Single mode migration] cleared is_batch_tracked on ${rows.length} variant product(s):`);
+        for (const r of rows) {
+          console.log(`  - id=${r.product_id} name="${r.product_name}"`);
+        }
+      }
+    } catch (err) {
+      console.error('[Single mode migration] cleanup error:', err.message);
+    }
+
     // Seed default data
     await seedDefaultData();
 

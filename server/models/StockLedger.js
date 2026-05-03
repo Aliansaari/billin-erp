@@ -23,6 +23,15 @@ const StockLedger = sequelize.define('StockLedger', {
     allowNull: true,
     references: { model: 'godowns', key: 'godown_id' },
   },
+  // Batch dimension. NULL for non-batch-tracked products (the common case);
+  // required at the application layer for batch-tracked products (no DB
+  // CHECK because the constraint is per-product, not table-wide). Indexed
+  // jointly with product_id for batch-stock rebuild queries.
+  batch_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'product_batches', key: 'batch_id' },
+  },
   barcode: {
     type: DataTypes.STRING(20),
   },
@@ -72,6 +81,10 @@ const StockLedger = sequelize.define('StockLedger', {
     { fields: ['product_id'] },
     { fields: ['barcode'] },
     { fields: ['transaction_date'] },
+    // Composite (product_id, batch_id, transaction_date) index is created by
+    // the batch-tracking migration block in server/index.js (CREATE INDEX IF
+    // NOT EXISTS) — declaring it here would have Sequelize sync attempt the
+    // index before the migration adds the batch_id column on existing DBs.
   ],
 });
 

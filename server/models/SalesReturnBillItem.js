@@ -104,6 +104,14 @@ const SalesReturnBillItem = sequelize.define('SalesReturnBillItem', {
   return_condition: {
     type: DataTypes.STRING(80),
   },
+  // Batch being returned. NULL when the parent product is not
+  // batch-tracked; required when it is, so the returned units flow back
+  // to the same batch they were sold from (preserves identity).
+  batch_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'product_batches', key: 'batch_id' },
+  },
 }, {
   tableName: 'sales_return_bill_items',
   timestamps: false,

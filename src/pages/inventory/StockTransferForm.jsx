@@ -256,7 +256,12 @@ export default function StockTransferForm() {
       article_number:  p.article_number || '',
       unit_type:       unit,
       quantity:        qty,
-      rate:            parseFloat(p.purchase_rate) || 0,
+      // Cost basis pre-fill — mode-aware via display_cost (variant:
+      // purchase_rate, single: weighted_avg_cost, single+batch: batch-
+      // weighted average). Falls back to purchase_rate for older rows.
+      // Without this, transfers of single-mode stock value at the master
+      // purchase_rate even when the wac has drifted from it.
+      rate:            parseFloat(p.display_cost ?? p.purchase_rate) || 0,
       available_stock: parseFloat(p.current_stock) || 0,
     }));
     // Flag carries through the next focus cycle so onFocus can redirect.
@@ -296,7 +301,9 @@ export default function StockTransferForm() {
           article_number: p.article_number || '',
           unit:           (parseFloat(p.quantity_per_box) || 1) > 1 ? 'Box' : 'Pcs',
           quantity:       parseFloat(p.quantity_per_box) || 1,
-          rate:           parseFloat(p.purchase_rate) || 0,
+          // Mode-aware cost basis (display_cost from getByBarcode) so
+          // single-mode + single+batch transfers reflect the right rate.
+          rate:           parseFloat(p.display_cost ?? p.purchase_rate) || 0,
         },
       ]);
       // Same flag/state cleanup as +ADD so the next focus-into-Product

@@ -1,7 +1,9 @@
 const { Op, col, fn, literal } = require('sequelize');
+const sequelize = require('../config/database');
 const { Product, Category, StockLedger } = require('../models');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { sanitizePagination } = require('../utils/helpers');
+const { attachDisplayCost, fetchBatchAggregate } = require('../utils/displayCost');
 
 // Bulk-fetch lifetime aggregates (total purchased / total sold / last sold)
 // for the given product_ids. Used by getAll when the client opts in via
@@ -48,6 +50,7 @@ const PRODUCT_UPDATABLE_FIELDS = [
   'current_stock',
   'purchase_rate', 'margin_percentage', 'sale_rate', 'mrp',
   'is_active',
+  'is_batch_tracked',
 ];
 
 exports.getAll = async (req, res) => {
@@ -182,13 +185,34 @@ exports.getAll = async (req, res) => {
     // Summary aggregates over the FULL filtered set — KPI cards and the
     // sticky bottom Total strip on the product list read these so they
     // stay correct regardless of which chunks the user has scrolled
-    // past. Stock value uses purchase_rate (cost basis) — same formula
-    // the editorial product list used client-side.
+    // past.
+    //
+    // Mode-aware stock_value (audit-driven, Commit 3c):
+    //   • variant            → current_stock × purchase_rate
+    //   • single, no batch   → current_stock × COALESCE(weighted_avg_cost,
+    //                                                  purchase_rate, 0)
+    //   • single + batch     → SUM(batch.qty × batch.rate) — fetched
+    //                          separately because the rate lives on
+    //                          product_batches, not the product master.
+    //
+    // The CASE WHEN below handles the first two modes in a single SUM
+    // (zero JS-side cost). Single+batch products contribute via a
+    // separate fetchBatchAggregate over the filtered product_ids set
+    // (small extra round-trip; one row per single+batch product, then
+    // reduced to a number in JS).
     const totals = await Product.findAll({
       where,
       attributes: [
         [fn('COUNT', col('Product.product_id')), 'total_count'],
-        [fn('COALESCE', fn('SUM', literal('current_stock * purchase_rate')), 0), 'total_stock_value'],
+        [fn('COALESCE', fn('SUM', literal(`
+          current_stock * (CASE
+            WHEN product_mode = 'single' AND is_batch_tracked = false
+              THEN COALESCE(weighted_avg_cost, purchase_rate, 0)
+            WHEN product_mode = 'single' AND is_batch_tracked = true
+              THEN 0
+            ELSE purchase_rate
+          END)
+        `)), 0), 'partial_stock_value'],
         // "Out of stock" — current_stock <= 0
         [fn('COUNT', literal('CASE WHEN current_stock <= 0 THEN 1 END')), 'out_count'],
         // "Low" — 0 < current_stock <= minimum_stock_level (and a min is set)
@@ -224,9 +248,22 @@ exports.getAll = async (req, res) => {
     const total_count       = parseInt(t.total_count || 0, 10);
     const out_count         = parseInt(t.out_count || 0, 10);
     const low_count         = parseInt(t.low_count || 0, 10);
+
+    // Single+batch contribution to total_stock_value. Pre-fetch the
+    // filtered product_ids that are batch-tracked, then sum their
+    // batch-aggregate total_value. Empty result → adds 0.
+    const filteredBatchIds = await Product.findAll({
+      where: { ...where, product_mode: 'single', is_batch_tracked: true },
+      attributes: ['product_id'],
+      raw: true,
+    });
+    const batchAgg = await fetchBatchAggregate(filteredBatchIds.map(r => r.product_id));
+    const batchStockValue = Array.from(batchAgg.values())
+      .reduce((s, a) => s + (a.total_value || 0), 0);
+
     const summary = {
       total_count,
-      total_stock_value: +parseFloat(t.total_stock_value || 0).toFixed(2),
+      total_stock_value: +(parseFloat(t.partial_stock_value || 0) + batchStockValue).toFixed(2),
       out_count,
       low_count,
       // "In stock" = total minus low minus out (kept consistent with the
@@ -236,7 +273,13 @@ exports.getAll = async (req, res) => {
       dead_count: parseInt(t.dead_count || 0, 10),
     };
 
-    res.json({ total: count, page, limit, data, summary });
+    // Attach mode-aware display_cost + display_stock_value to every row
+    // so list views (Stock Report, Smart Stock, Product List) render the
+    // right basis without each page reimplementing the per-mode math.
+    // Convert any remaining Sequelize instances to plain JSON first.
+    const dataPlain = data.map(r => (r && typeof r.toJSON === 'function') ? r.toJSON() : r);
+    const enriched = await attachDisplayCost(dataPlain);
+    res.json({ total: count, page, limit, data: enriched, summary });
   } catch (error) {
     console.error('Get products error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -264,9 +307,78 @@ exports.getByBarcode = async (req, res) => {
       include: [{ model: Category, attributes: ['category_name'] }],
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
-    res.json(product);
+    // Mirror getById — attach display_cost so callers like
+    // StockTransferForm's barcode-scan path get the mode-aware rate
+    // for pre-fill instead of the raw purchase_rate (which is wrong
+    // for single-mode and single+batch products).
+    const [enriched] = await attachDisplayCost([product.toJSON()]);
+    res.json(enriched);
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ── GET /api/products/:id/batches?godown_id=X&include_zero=false ──────
+//
+// Returns the active batches for a batch-tracked product at a specific
+// godown, sorted FEFO when any batch has an expiry date, FIFO otherwise.
+// Powers the sales-form / sales-return-form / purchase-return-form
+// batch dropdowns. Default scope drops batches with zero stock at this
+// godown (the picker can't sell from an empty batch); pass
+// include_zero=true to include them — useful for diagnostics and the
+// integrity-screen view.
+//
+// Sort rules (matching the brief):
+//   · If ANY batch has expiry_date set → FEFO
+//       (earliest expiry first; null expiries sort last; tiebreak on
+//        batch_id ascending for stability)
+//   · Else → FIFO
+//       (earliest manufacture_date first; null mfg sorts last;
+//        tiebreak on batch_id ascending)
+//
+// Each row: { batch_id, batch_number, manufacture_date, expiry_date,
+//             purchase_rate, current_stock, notes }. The form decides
+//             how to chip-render expiry status against the
+//             batch_expiry_alert_days setting.
+exports.getBatches = async (req, res) => {
+  try {
+    const productId = parseInt(req.params.id, 10);
+    if (!productId) return res.status(400).json({ error: 'product_id required' });
+    const godownId = req.query.godown_id ? parseInt(req.query.godown_id, 10) : null;
+    if (!godownId) return res.status(400).json({ error: 'godown_id required' });
+    const includeZero = req.query.include_zero === 'true';
+
+    const rows = await sequelize.query(
+      `SELECT pb.batch_id,
+              pb.batch_number,
+              pb.manufacture_date,
+              pb.expiry_date,
+              pb.purchase_rate::float AS purchase_rate,
+              pb.notes,
+              COALESCE(pbs.current_stock, 0)::float AS current_stock
+         FROM product_batches pb
+         LEFT JOIN product_batch_stock pbs
+               ON pbs.batch_id   = pb.batch_id
+              AND pbs.product_id = pb.product_id
+              AND pbs.godown_id  = :godown_id
+        WHERE pb.product_id = :product_id
+          AND pb.is_active  = true
+          ${includeZero ? '' : 'AND COALESCE(pbs.current_stock, 0) > 0'}
+        ORDER BY (pb.expiry_date IS NULL) ASC,
+                 pb.expiry_date ASC,
+                 (pb.manufacture_date IS NULL) ASC,
+                 pb.manufacture_date ASC,
+                 pb.batch_id ASC`,
+      {
+        replacements: { product_id: productId, godown_id: godownId },
+        type: sequelize.QueryTypes.SELECT,
+      },
+    );
+
+    return res.json({ data: rows });
+  } catch (err) {
+    console.error('getBatches error:', err);
+    return res.status(500).json({ error: 'Server error' });
   }
 };
 
@@ -276,7 +388,11 @@ exports.getById = async (req, res) => {
       include: [{ model: Category, attributes: ['category_name'] }],
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
-    res.json(product);
+    // Attach mode-aware display_cost + display_stock_value for tiles /
+    // summary views. Stock Movement transaction rows still read their
+    // own per-row rate from stock_ledger; this only feeds aggregates.
+    const [enriched] = await attachDisplayCost([product.toJSON()]);
+    return res.json(enriched);
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -354,6 +470,51 @@ exports.update = async (req, res) => {
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
     const product = await Product.findByPk(req.params.id, { transaction: t });
     if (!product) { await t.rollback(); return res.status(404).json({ error: 'Product not found' }); }
+
+    // Block disabling batch tracking on a product that already has movements.
+    // Once stock has flowed through batches, flipping the flag off would leave
+    // batch ledger rows orphaned (batch picker hidden but data still present).
+    // The user has to first move all batch stock to zero, then disable.
+    if (Object.prototype.hasOwnProperty.call(data, 'is_batch_tracked')
+        && data.is_batch_tracked === false
+        && product.is_batch_tracked === true) {
+      const movementCount = await StockLedger.count({
+        where: { product_id: req.params.id, batch_id: { [Op.ne]: null } },
+        transaction: t,
+      });
+      if (movementCount > 0) {
+        // Compute the live tally for the error message — far more useful
+        // than a bare "has movements" line.
+        const { ProductBatch, ProductBatchStock } = require('../models');
+        const batches = await ProductBatch.findAll({
+          where: { product_id: req.params.id },
+          attributes: ['batch_id'],
+          transaction: t,
+        });
+        const batchIds = batches.map((b) => b.batch_id);
+        let totalStock = 0;
+        let nBatchesWithStock = 0;
+        if (batchIds.length) {
+          const stocks = await ProductBatchStock.findAll({
+            where: { product_id: req.params.id, batch_id: batchIds },
+            transaction: t,
+          });
+          for (const s of stocks) {
+            const q = parseFloat(s.current_stock) || 0;
+            if (q > 0) { totalStock += q; nBatchesWithStock += 1; }
+          }
+        }
+        await t.rollback();
+        if (totalStock > 0) {
+          return res.status(400).json({
+            error: `Cannot disable batch tracking — product has ${totalStock} unit(s) across ${nBatchesWithStock} batch(es). Move all stock out before disabling.`,
+          });
+        }
+        return res.status(400).json({
+          error: 'Cannot disable batch tracking — product has historical batch movements. Reconcile all batches to zero before disabling.',
+        });
+      }
+    }
 
     // Handle opening stock change
     const newOpeningQty = parseFloat(opening_stock ?? '');

@@ -435,14 +435,11 @@
 .sbf-entry-grid {
   display: grid;
   grid-template-columns:
-    minmax(130px, 170px)   /* Barcode — 13-digit mono numbers (e.g.
-                              8901234567890) fit in ~130px; we don't need
-                              the extra 30px taken from the old 200px max. */
-    minmax(180px, 250px)   /* Category — picks up the width donated by the
-                              barcode cell. Names like "Men's Casual Wear"
-                              / "Women's Ethnic Wear" / "Kids — Winter
-                              Collection" now sit on a single line at any
-                              desktop viewport without ellipsis. */
+    minmax(110px, 140px)   /* Barcode — 13-digit mono numbers (e.g.
+                              8901234567890) fit; tightened from 130-170 to
+                              free width for the Batch cell when batch
+                              tracking adds a 12th column. */
+    minmax(180px, 250px)   /* Category */
     minmax(220px, 380px)   /* Product  */
     minmax(72px,  90px)    /* Size     */
     minmax(72px,  90px)    /* Art #    */
@@ -451,7 +448,32 @@
     minmax(72px,  90px)    /* Disc %   */
     minmax(72px,  90px)    /* GST %    */
     minmax(80px,  110px)   /* Unit     */
-    minmax(96px, 110px);   /* +ADD     */
+    minmax(70px,  88px);   /* +ADD — tightened from 96-110 to free
+                              width for Batch when batch tracking adds a
+                              12th column. The "+ ADD" label still fits
+                              inside 70px because the + glyph is small. */
+}
+/* When global batch_tracking_enabled is on, the entry row gets a 12th
+ * cell (Batch / Lot dropdown). The JSX inserts the Batch cell
+ * BETWEEN Product and the Size/Art#/Qty field array — so on the
+ * grid it sits at column 4. The picker stays disabled when the
+ * picked product isn't batch-tracked (or no product picked yet) —
+ * visible but inert, matching the "always visible while toggle on"
+ * rule. */
+.sbf-entry-grid.with-batch {
+  grid-template-columns:
+    minmax(110px, 140px)   /* Barcode      */
+    minmax(180px, 250px)   /* Category     */
+    minmax(220px, 360px)   /* Product      */
+    minmax(140px, 200px)   /* Batch (Lot)  */
+    minmax(72px,  90px)    /* Size         */
+    minmax(72px,  90px)    /* Art #        */
+    minmax(72px,  90px)    /* Qty          */
+    minmax(94px,  110px)   /* Rate         */
+    minmax(72px,  90px)    /* Disc %       */
+    minmax(72px,  90px)    /* GST %        */
+    minmax(80px,  110px)   /* Unit         */
+    minmax(70px,  88px);   /* +ADD         */
 }
 .sbf-cell {
   display: flex;
@@ -676,12 +698,14 @@
  * row. The dotted left-border between cells loses meaning when cells
  * stack vertically, so we drop it and add a top divider instead. */
 @media (max-width: 1200px) {
-  .sbf-entry-grid {
+  .sbf-entry-grid,
+  .sbf-entry-grid.with-batch {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
 @media (max-width: 760px) {
-  .sbf-entry-grid {
+  .sbf-entry-grid,
+  .sbf-entry-grid.with-batch {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .sbf-cell + .sbf-cell { border-left: 0; border-top: 1px dotted var(--border-subtle); }

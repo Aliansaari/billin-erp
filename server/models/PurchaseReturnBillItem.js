@@ -102,6 +102,13 @@ const PurchaseReturnBillItem = sequelize.define('PurchaseReturnBillItem', {
   return_condition: {
     type: DataTypes.STRING(80),
   },
+  // Batch being returned to supplier. NULL when the parent product is not
+  // batch-tracked; required when it is.
+  batch_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'product_batches', key: 'batch_id' },
+  },
 }, {
   tableName: 'purchase_return_bill_items',
   timestamps: false,
