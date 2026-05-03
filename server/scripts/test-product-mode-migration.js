@@ -75,8 +75,14 @@ async function runTests() {
     FROM products
   `, { type: sequelize.QueryTypes.SELECT });
   const d = dist[0];
-  check('MIGRATION: every pre-existing product defaulted to variant mode',
-    parseInt(d.variant_count) >= 1 && parseInt(d.single_count) === 0,
+  // Don't assert single_count === 0 — single-mode products created after
+  // the initial migration (via purchase flow or manual create) are
+  // legitimate and expected. The migration's contract is just "every
+  // pre-existing row backfilled to variant"; once the system has been
+  // used we can't observe that from a snapshot alone. Asserting
+  // variant_count >= 1 confirms the column exists with the default.
+  check('MIGRATION: variant-mode products present (column default applied)',
+    parseInt(d.variant_count) >= 1,
     `variant=${d.variant_count} single=${d.single_count}`);
   check('MIGRATION: no variant products carry is_batch_tracked=true (orphan defect cleared)',
     parseInt(d.orphan_count) === 0,

@@ -395,6 +395,41 @@ async function runTests() {
     check('SB-3: product weighted_avg_cost still NULL (single+batch never uses it)',
       p.weighted_avg_cost == null);
   }
+
+  // ── DUP-1: backend safety net rejects duplicate creation ────────────
+  // Reproduces the bug the user hit: handleProductSelect once wiped
+  // product_id, then any size/article on the line broke
+  // findExistingProduct's match (master has NULL size, line has 'M').
+  // The new safety net (case 4.5) catches this when the would-be-
+  // created product is single mode, doing a name+single-mode lookup.
+  {
+    // Make sure default is single so case 4.5 fires.
+    await SystemSettings.update({ default_product_mode: 'single' }, { where: { setting_id: 1 } });
+    const before = await Product.count({ where: { product_name: fix.singleProduct.product_name } });
+    // Send the line WITHOUT product_id (frontend wipe scenario) AND
+    // with size + article populated (the trigger condition). Should
+    // still resolve to the existing single product, not create a dup.
+    const res = mockRes();
+    await purchaseController.create(buildReq({
+      bill_date: '2026-05-06',
+      supplier_id: fix.supplier.party_id,
+      godown_id: fix.godown.godown_id,
+      items: [{
+        product_id: null,
+        product_name: fix.singleProduct.product_name,
+        barcode: '',
+        size: 'M', article_number: 'A99',
+        quantity: 2, purchase_rate: 105,
+        quantity_per_box: 1,
+      }],
+    }), res);
+    check('DUP-1: bill saves with safety net engaged', res._status === 201,
+      `status=${res._status} body=${JSON.stringify(res._body)}`);
+    const after = await Product.count({ where: { product_name: fix.singleProduct.product_name } });
+    check('DUP-1: no duplicate product created (count unchanged)',
+      after === before, `before=${before} after=${after}`);
+    await SystemSettings.update({ default_product_mode: 'variant' }, { where: { setting_id: 1 } });
+  }
 }
 
 async function main() {

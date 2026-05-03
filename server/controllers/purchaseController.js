@@ -83,6 +83,32 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
     // Any field differs → fall through to create new product below
   }
 
+  // ── Case 4.5: single-mode safety net ──────────────────────────────────────
+  //
+  // findExistingProduct fingerprints on (name, size, article, qpb). If the
+  // user's line carries a size/article that don't match the existing single-
+  // mode master (e.g., master has NULL size but the line was typed with a
+  // size, or the dropdown pick pre-filled size from a sibling), the lookup
+  // returns null and we'd fall through to create a duplicate single-mode
+  // product. Single mode is "one product per name" — defend against that.
+  //
+  // Only fires when the would-be-created product is going to be single mode
+  // (defaultProductMode === 'single'). Variant mode is untouched: it still
+  // gets the strict 9-field check and silent variant creation as today.
+  if (!found && item.product_name && defaultProductMode === 'single') {
+    const { Op } = require('sequelize');
+    const sameNameSingle = await Product.findOne({
+      where: {
+        product_mode: 'single',
+        product_name: { [Op.iLike]: String(item.product_name).trim() },
+      },
+      transaction: t,
+    });
+    if (sameNameSingle) {
+      return { product_id: sameNameSingle.product_id, barcode: sameNameSingle.barcode, isNew: false, product: sameNameSingle };
+    }
+  }
+
   // ── Case 5: create brand-new traceable product with new barcode ────────────
   if (!item.product_name) return { product_id: null, barcode: item.barcode || null, isNew: false, product: null };
 

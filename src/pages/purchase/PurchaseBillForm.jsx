@@ -8,6 +8,7 @@ import { printDocument } from '../../services/printer';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
+import ProductFormModal from '../../components/ProductFormModal';
 import './purchase-bill-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -26,6 +27,14 @@ const EMPTY_ENTRY = {
   // entry-row batch strip stays mounted but hidden otherwise.
   is_batch_tracked:false, batch_number:'', manufacture_date:null,
   expiry_date:null, batch_notes:'',
+  // Product mode — copied from the picked product (or 'variant' default).
+  // Drives two things on the entry row:
+  //   1. lookupProduct skips entirely for single mode (don't wipe the
+  //      product_id binding when the user types a different rate).
+  //   2. The variant-only fields (Size, Art#, P/Box, Margin%, Sale ₹, GST%)
+  //      hide when a single-mode product is bound — they're master data,
+  //      not per-line inputs in single mode.
+  product_mode:'variant',
 };
 
 /* ── Variant Picker Dropdown ─────────────────────────────────────────────── */
@@ -260,6 +269,12 @@ export default function PurchaseBillForm() {
   // as non-batch (the prompt is explicit about this — toggling global
   // must not break existing bills).
   const [batchTrackingEnabled, setBatchTrackingEnabled] = useState(false);
+  // +Add Product modal — purely a shortcut to the existing Inventory →
+  // Products → Add flow so the operator can register a missing product
+  // mid-bill without leaving the purchase form. After save, the new
+  // product is in the master and pickable from the dropdown like any
+  // other; we don't auto-select on the entry row.
+  const [addProductModalOpen, setAddProductModalOpen] = useState(false);
 
   // ── Hold / Recall / Drafts state ──
   // Tracks which draft (if any) the form was recalled from so handleSave
@@ -531,6 +546,7 @@ export default function PurchaseBillForm() {
         hsn_code:data.hsn_code||'',gst_rate:parseFloat(data.gst_rate)||0,
         quantity_per_box:parseFloat(data.quantity_per_box)||1,quantity:1,
         is_batch_tracked:!!data.is_batch_tracked,
+        product_mode:data.product_mode||'variant',
         batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
       }));
       setBarcodeError('');
@@ -554,6 +570,12 @@ export default function PurchaseBillForm() {
   // Silk Saree" is batch-tracked, the name-pick treats the family as
   // batch-tracked. Per-variant refinement happens when lookupProduct
   // resolves a specific (size, article, rate) match.
+  //
+  // product_mode preference: if any variant of a name is single-mode, the
+  // dropdown picks the single-mode one. Single mode is "one product per
+  // name", so prefer it when present — otherwise the dropdown's choice
+  // of "first variant in result order" can land on a stale variant-mode
+  // sibling and force the user through variant flow.
   const dedupedProducts=useMemo(()=>{
     const map=new Map();
     prodRawList.forEach(p=>{
@@ -564,6 +586,12 @@ export default function PurchaseBillForm() {
         const existing=map.get(key);
         existing._totalStock+=parseFloat(p.current_stock||0);
         if(p.is_batch_tracked) existing.is_batch_tracked=true;
+        // Replace with single-mode sibling if found — single takes priority.
+        if(p.product_mode==='single' && existing.product_mode!=='single'){
+          const carriedStock=existing._totalStock;
+          const carriedBatch=existing.is_batch_tracked;
+          map.set(key, {...p, _totalStock:carriedStock, is_batch_tracked:carriedBatch});
+        }
       }
     });
     return [...map.values()];
@@ -586,31 +614,59 @@ export default function PurchaseBillForm() {
   const handleProductSelect=(value,option)=>{
     if(!option?.product) return;
     const p=option.product;
-    // Only set name + category — do NOT fill other fields.
-    // Match lookup (by category+name+size+article) will run after article# is entered.
+    const isSingle = p.product_mode === 'single';
+
+    if (isSingle) {
+      // SINGLE mode: bind product_id + barcode immediately so the save
+      // payload references the existing product directly. No lookup
+      // needed — single mode = "one product per name", and the picker
+      // already resolved which product. Pre-fill master fields as
+      // hints; the operator typically only changes Qty + Rate.
+      // Variant-only entry-row fields (Size / Art# / P/Box / Margin /
+      // Sale / GST) get hidden by the mode-aware row filter below.
+      setEntry(prev=>({...prev,
+        product_id: p.product_id,
+        barcode: p.barcode || '',
+        product_name: p.product_name,
+        category_id: p.category_id || prev.category_id,
+        category_name: p.Category?.category_name || prev.category_name,
+        size: p.size_value || '',
+        article_number: p.article_number || '',
+        purchase_rate: parseFloat(p.purchase_rate) || 0,
+        sale_rate: parseFloat(p.sale_rate) || 0,
+        mrp: parseFloat(p.mrp) || 0,
+        margin_percentage: parseFloat(p.margin_percentage) || 0,
+        hsn_code: p.hsn_code || '',
+        gst_rate: parseFloat(p.gst_rate) || 0,
+        quantity_per_box: parseFloat(p.quantity_per_box) || 1,
+        is_batch_tracked: !!p.is_batch_tracked,
+        product_mode: 'single',
+        batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
+      }));
+      setBarcodeError('');
+      // Single mode has no Size / Art# entry — focus Qty directly.
+      justSelectedRef.current=true;
+      requestAnimationFrame(()=>{ productRef.current?.blur(); qtyRef.current?.focus(); qtyRef.current?.select?.(); });
+      setTimeout(()=>{ justSelectedRef.current=false; },250);
+      return;
+    }
+
+    // VARIANT mode (existing behaviour, unchanged) — only set name +
+    // category. Match lookup (by category+name+size+article) runs after
+    // article# is entered to resolve which specific variant the user means.
     setEntry(prev=>({...prev,
       product_name:p.product_name,
       category_id:p.category_id||prev.category_id,
       category_name:p.Category?.category_name||prev.category_name,
-      // reset identity + rate fields so user enters fresh — quantity_per_box
-      // stays at 0 (operator types it; downstream uses ||1 fallback).
       product_id:null, barcode:'',
       size:'', article_number:'',
       purchase_rate:0, sale_rate:0, mrp:0, margin_percentage:0,
       hsn_code:'', gst_rate:0, quantity_per_box:0,
-      // Carry batch tracking forward off the picked product so the entry-
-      // row strip appears immediately. The dropdown is the fourth
-      // product-fill path alongside barcode scan / variant pick / lookup
-      // fullMatch — this is the one most operators actually use.
-      // Batch metadata is reset because we're starting a new line.
       is_batch_tracked:!!p.is_batch_tracked,
+      product_mode: p.product_mode || 'variant',
       batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
     }));
     setBarcodeError('');
-    // Redirect focus to Size field — blur Select first so AntD can't steal focus back.
-    // The ref is a short-lived guard against AntD's own focus-restore after option click;
-    // auto-clear it after 250ms so later category changes don't accidentally trigger the
-    // same "jump to Size" behaviour when the Product field is re-focused.
     justSelectedRef.current=true;
     requestAnimationFrame(()=>{ productRef.current?.blur(); sizeRef.current?.focus(); sizeRef.current?.select?.(); });
     setTimeout(()=>{ justSelectedRef.current=false; },250);
@@ -621,6 +677,13 @@ export default function PurchaseBillForm() {
   // If any differ → product_id=null, barcode='' → backend creates new barcode on save.
   const lookupProduct=useCallback(async(snap)=>{
     if(!snap.product_name) return;
+    // SINGLE-MODE short-circuit: handleProductSelect already bound the
+    // product_id directly off the dropdown pick, and single mode doesn't
+    // spawn variants — so there's nothing to look up. Skipping prevents
+    // the wipe-on-mismatch path below (which would null out product_id
+    // when the user types a different rate, then the save would fall
+    // through to fingerprint creation and spawn a duplicate product).
+    if (snap.product_mode === 'single' && snap.product_id) return;
     // If the picker/barcode scan already bound a product, don't wipe it on a subsequent
     // blur-triggered lookup just because the substring search missed the 200-row cap.
     // We'll still run the match logic to pre-fill hints, but we protect the existing binding.
@@ -696,6 +759,7 @@ export default function PurchaseBillForm() {
           gst_rate:prev.gst_rate||parseFloat(fullMatch.gst_rate)||0,
           quantity_per_box:qpbEntered?prev.quantity_per_box:parseFloat(fullMatch.quantity_per_box)||1,
           is_batch_tracked:!!fullMatch.is_batch_tracked,
+          product_mode:fullMatch.product_mode||'variant',
         }));
       } else {
         // Identity matched but no variant has this exact pricing → new barcode variant
@@ -720,6 +784,7 @@ export default function PurchaseBillForm() {
       hsn_code:variant.hsn_code||'',
       gst_rate:parseFloat(variant.gst_rate)||0,
       is_batch_tracked:!!variant.is_batch_tracked,
+      product_mode:variant.product_mode||'variant',
     }));
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setTimeout(()=>{ qtyRef.current?.focus(); qtyRef.current?.select?.(); },50);
@@ -1648,6 +1713,16 @@ export default function PurchaseBillForm() {
             {billMode === 'item' && (
             <div className="pbf-entry-ledger">
               <div className="pbf-entry-grid">
+                {/* +Add Product — pure shortcut to the existing Inventory →
+                    Products → Add modal so the operator can register a
+                    missing product mid-bill without leaving the purchase
+                    form. After save, the new product is in the master
+                    and appears in the dropdown like any other; no auto-
+                    selection on the entry row. Visible in both modes. */}
+                <button className="pbf-cell add" onClick={() => setAddProductModalOpen(true)} type="button"
+                  title="Add a new product to the master list" style={{minWidth:60}}>
+                  <span className="pbf-cell-add-text">+ ADD</span>
+                </button>
                 <div className="pbf-cell">
                   <div className="pbf-cell-lbl">Barcode</div>
                   <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type"
@@ -1709,19 +1784,28 @@ export default function PurchaseBillForm() {
                 {/* Field array: Size · Art# · QTY · RATE · P/Box · Margin% ·
                  *  Sale ₹ · GST%. Indices 1–8 line up with entryRefs[1..8]
                  *  so handleEntryKey's ArrowUp/Down/Enter walk maps cell-
-                 *  position to ref. */}
+                 *  position to ref.
+                 *
+                 *  Mode-aware visibility (Issue 2A): when a single-mode
+                 *  product is bound on the entry, hide the variant-only
+                 *  fields (Size / Art# / P/Box / Margin% / Sale ₹ / GST%).
+                 *  They're product master data in single mode, not per-
+                 *  line inputs. Backend reads them from products.* on save.
+                 *  Empty row (no product picked yet) shows everything —
+                 *  variant default — until the operator picks something. */}
                 {[
-                  {lbl2:'Size',    ref:sizeRef,    field:'size',             val:entry.size,                        idx:1, t:'txt'},
+                  {lbl2:'Size',    ref:sizeRef,    field:'size',             val:entry.size,                        idx:1, t:'txt', variantOnly:true},
                   {lbl2:'Art #',   ref:articleRef, field:'article_number',   val:entry.article_number,              idx:2, t:'txt', wrapRef:articleWrapRef,
-                   onChangeFn:e=>handleArticleChange(e.target.value)},
+                   onChangeFn:e=>handleArticleChange(e.target.value), variantOnly:true},
                   {lbl2:'Qty',     ref:qtyRef,     field:'quantity',         val:entry.quantity||undefined,         idx:3, t:'num', min:0},
                   {lbl2:'Rate ₹',  ref:rateRef,    field:'purchase_rate',    val:entry.purchase_rate||undefined,    idx:4, t:'num', min:0, onBlur:handleRateBlur,
                    wrapRef:rateWrapRef, onChangeFn:v=>handleRateInputChange(v||0)},
-                  {lbl2:'P/Box',   ref:qpbRef,     field:'quantity_per_box', val:entry.quantity_per_box||undefined, idx:5, t:'num', min:1, onBlur:handleRateBlur},
-                  {lbl2:'Margin%', ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,idx:6, t:'num'},
-                  {lbl2:'Sale ₹',  ref:saleRateRef,field:'sale_rate',        val:entry.sale_rate||undefined,        idx:7, t:'num', min:0, onBlur:handleRateBlur},
-                  {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,         idx:8, t:'num', min:0},
-                ].map(({lbl2,ref,field,val,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
+                  {lbl2:'P/Box',   ref:qpbRef,     field:'quantity_per_box', val:entry.quantity_per_box||undefined, idx:5, t:'num', min:1, onBlur:handleRateBlur, variantOnly:true},
+                  {lbl2:'Margin%', ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,idx:6, t:'num', variantOnly:true},
+                  {lbl2:'Sale ₹',  ref:saleRateRef,field:'sale_rate',        val:entry.sale_rate||undefined,        idx:7, t:'num', min:0, onBlur:handleRateBlur, variantOnly:true},
+                  {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,         idx:8, t:'num', min:0, variantOnly:true},
+                ].filter(f => !(f.variantOnly && entry.product_id && entry.product_mode === 'single'))
+                 .map(({lbl2,ref,field,val,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
                   <div key={field} className={`pbf-cell ${t==='num'?'numeric':''}`} ref={wrapRef||undefined}>
                     <div className="pbf-cell-lbl">{lbl2}</div>
                     {t==='txt'
@@ -2175,6 +2259,25 @@ export default function PurchaseBillForm() {
         billNumber={printModal.bill?.bill_number}
         items={printModal.bill?.printItems||[]}
         initialCompany={companyName}
+      />
+
+      {/* +Add Product shortcut — opens the existing Add Product form
+          (shared component, same UX as Inventory → Products → Add).
+          After save, invalidate the local family cache so a re-search
+          for the new name fetches the fresh product. We do NOT auto-
+          select it on the entry row; operator picks it normally. */}
+      <ProductFormModal
+        open={addProductModalOpen}
+        onCancel={() => setAddProductModalOpen(false)}
+        onSaved={(p) => {
+          setAddProductModalOpen(false);
+          invalidateFamilyCache();
+          // Re-run any in-flight product search so the new name appears
+          // in the dropdown immediately. Cheap; no behaviour change if
+          // the operator wasn't searching.
+          if (entry.product_name) handleProductSearch(entry.product_name);
+        }}
+        defaultName={entry.product_name || ''}
       />
     </Form>
   );
