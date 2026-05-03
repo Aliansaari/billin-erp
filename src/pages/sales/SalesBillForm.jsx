@@ -605,7 +605,21 @@ export default function SalesBillForm() {
           batch_id: null, batch_number: '',
           manufacture_date: null, expiry_date: null, batch_stock: 0,
         }));
+        // Force-close the Product dropdown — under fast scanner input
+        // AntD sometimes flips prodOpen via its onSearch path (the
+        // scanner's chars look like a search query before Enter
+        // commits). Explicit close means the operator's focus can
+        // only land on the Lot Select once the drainer fires.
+        setProdOpen(false);
         setActiveCatId(data.category_id || null);
+        // Also blur the barcode input so focus has nowhere to settle
+        // except where the drainer puts it. Without this, focus stays
+        // on barcode and any subsequent re-render that re-mounts the
+        // Product Select (setActiveCatId triggers its `key` change)
+        // can briefly grab focus on remount before the drainer runs.
+        if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
         message.info(`${data.product_name} — pick a batch and press ADD`, 1.5);
         // Drainer effect (watches batchOptsLoading + batchOpts) will
         // focus + open the Lot dropdown once batches finish loading.
@@ -779,10 +793,24 @@ export default function SalesBillForm() {
       requestAnimationFrame(() => qtyRef.current?.focus());
       return;
     }
-    requestAnimationFrame(() => {
-      batchSelectRef.current?.focus();
-      setBatchOpen(true);
-    });
+    // Force-blur whatever currently has focus before moving — the
+    // Product Select sometimes retains focus after a barcode scan
+    // (especially when setActiveCatId triggers its remount via the
+    // `key` prop), and a direct .focus() on batchSelectRef can lose
+    // the race against AntD's internal focus restore. Blurring the
+    // active element first guarantees a clean transfer.
+    //
+    // Order matters: setBatchOpen(true) MUST land BEFORE focus() so
+    // the dropdown is mounted by the time we focus the trigger.
+    // Otherwise the focus call hits an unmounted node and AntD's
+    // controlled-open machinery has nothing to anchor to. We use a
+    // 60ms setTimeout (not requestAnimationFrame) to give React +
+    // AntD's effect chain a full tick to render the open dropdown.
+    setBatchOpen(true);
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setTimeout(() => batchSelectRef.current?.focus(), 60);
   }, [batchOptsLoading, batchOpts]);
 
   // Manual override — fires when the operator opens the dropdown and
