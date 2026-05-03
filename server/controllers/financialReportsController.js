@@ -815,160 +815,364 @@ async function computeProfitLoss(from, to) {
   };
 }
 
-// ── Cash Flow Statement ────────────────────────────────────────────────
+// ── Cash Flow Statement (Tally-style three-level drill) ───────────────
 //
-// Three sections — Operating, Investing, Financing — derived from
-// ledger_entries activity within the period. Cash + Bank ledgers are
-// tracked separately so we can show opening / closing reconciliation.
+// Three views, one resolver chain:
 //
-// Section detection runs on ledger_group + sub_group of the OTHER leg
-// of every cash/bank-touching voucher:
-//   Operating: party legs (Sundry Debtors / Sundry Creditors), Sales /
-//              Purchase / their returns, GST ledgers (Duties & Taxes),
-//              Indirect Income/Expense.
-//   Investing: Fixed Assets sub-group on either side.
-//   Financing: Capital / Loans sub-group.
+//   View 1 — Monthly register (cashFlowMonthly)
+//     One row per calendar month between from..to. Inflow = Σ debit on
+//     cash/bank ledgers; Outflow = Σ credit; Nett = Inflow − Outflow.
+//     Months with zero activity still appear (generate_series).
 //
-// Net change in cash MUST equal Closing − Opening of (Cash + Bank). If
-// not, banner — most likely a manual SQL edit on stock_ledger or a
-// double-write someone left behind.
-exports.cashFlow = async (req, res) => {
+//   View 2 — Two-column sub_group breakdown (cashFlowMonth)
+//     For a single month, group the contra-leg sub_groups: cash leg on
+//     the Dr side → Inflow column under contra's sub_group; cash leg
+//     on the Cr side → Outflow column. Negative-amount groups never
+//     appear (the per-row sign already encodes direction).
+//
+//   View 3 — Voucher list (cashFlowGroup)
+//     For one (month, sub_group, direction), list the actual vouchers
+//     chronologically. Date / Voucher / Contra Ledger / Amount.
+//
+// Cash detection (shared resolver, NOT changed from the previous
+// implementation): sub_group IN 'Cash-in-Hand' / 'Bank Accounts' /
+// 'Bank OD A/c' AND is_party_ledger = false. A party ledger is NEVER
+// cash by definition — this is what stops a Sundry Debtors stub
+// literally named "Cash Sales" from polluting the inflow column.
+
+// Resolve cash/bank ledger ids — the only place cash is defined.
+async function _resolveCashLedgerIds() {
+  const rows = await sequelize.query(
+    `SELECT ledger_id FROM ledger_accounts
+      WHERE is_active = true
+        AND is_party_ledger = false
+        AND sub_group IN ('Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c')`,
+    { type: sequelize.QueryTypes.SELECT },
+  );
+  return rows.map((r) => r.ledger_id);
+}
+
+// Format a YYYY-MM-01 ISO into "April 2026".
+function _monthLabel(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  const months = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+  return `${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+// View 1 — Monthly register. One row per calendar month between
+// from..to with totals at the bottom.
+exports.cashFlowMonthly = async (req, res) => {
   try {
     const { from, to } = await resolvePeriod(req.query);
-
-    // Resolve cash + bank ledger ids. The classification is by sub_group
-    // ONLY — not by name. The previous `ledger_name ILIKE '%Cash%'`
-    // bandage matched a Sundry Debtors party stub literally named
-    // "Cash Sales" (created by Tally import), which then had every
-    // sales-bill leg counted as a cash inflow. Fix: restrict to the
-    // canonical cash/bank sub_groups AND require is_party_ledger=false
-    // — a party ledger is NEVER cash by definition.
-    const cashRows = await sequelize.query(
-      `SELECT ledger_id, ledger_name, sub_group FROM ledger_accounts
-        WHERE is_active = true
-          AND is_party_ledger = false
-          AND sub_group IN ('Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c')`,
-      { type: sequelize.QueryTypes.SELECT },
-    );
-    const cashIds = cashRows.map((r) => r.ledger_id);
+    const cashIds = await _resolveCashLedgerIds();
     if (cashIds.length === 0) {
       return res.json({
         period: { from, to },
-        sections: { operating: [], investing: [], financing: [] },
-        totals: { operating: 0, investing: 0, financing: 0, net_change: 0 },
-        reconciliation: { opening: 0, closing: 0, computed_change: 0, balanced: true },
+        rows: [],
+        totals: { inflow: 0, outflow: 0, nett: 0 },
       });
     }
 
-    // Opening cash = net Dr − Cr on cash ledgers BEFORE from_date.
-    // Closing cash = net Dr − Cr on cash ledgers UP TO to_date.
-    const openingRow = (await sequelize.query(
-      `SELECT
-         COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float AS net
-        FROM ledger_entries le
-        WHERE le.ledger_id IN (:ids)
-          AND ${liveEntriesWhereSql('le', false, false)}
-          AND le.entry_date < :from_date`,
-      { replacements: { ids: cashIds, from_date: from }, type: sequelize.QueryTypes.SELECT },
-    ))[0];
-    const closingRow = (await sequelize.query(
-      `SELECT
-         COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float AS net
-        FROM ledger_entries le
-        WHERE le.ledger_id IN (:ids)
-          AND ${liveEntriesWhereSql('le', true, false)}
-          AND le.entry_date <= :to_date`,
-      { replacements: { ids: cashIds, to_date: to }, type: sequelize.QueryTypes.SELECT },
-    ))[0];
-    const opening = r2(openingRow.net);
-    const closing = r2(closingRow.net);
-    const computedChange = r2(closing - opening);
+    // generate_series produces every month start in the range so months
+    // with zero activity still appear. LEFT JOIN against the cash legs
+    // grouped by month start.
+    const rows = await sequelize.query(
+      `WITH months AS (
+         SELECT generate_series(
+           date_trunc('month', :from_date::date),
+           date_trunc('month', :to_date::date),
+           interval '1 month'
+         )::date AS month_start
+       ),
+       agg AS (
+         SELECT date_trunc('month', le.entry_date)::date AS month_start,
+                COALESCE(SUM(le.debit_amount),  0)::float AS inflow,
+                COALESCE(SUM(le.credit_amount), 0)::float AS outflow
+           FROM ledger_entries le
+          WHERE le.ledger_id IN (:ids)
+            AND ${liveEntriesWhereSql('le', true, true)}
+          GROUP BY date_trunc('month', le.entry_date)
+       )
+       SELECT to_char(m.month_start, 'YYYY-MM-01') AS month_iso,
+              COALESCE(a.inflow,  0)::float AS inflow,
+              COALESCE(a.outflow, 0)::float AS outflow
+         FROM months m
+         LEFT JOIN agg a ON a.month_start = m.month_start
+        ORDER BY m.month_start`,
+      { replacements: { ids: cashIds, from_date: from, to_date: to }, type: sequelize.QueryTypes.SELECT },
+    );
 
-    // Section attribution: for each entry on a cash/bank ledger inside
-    // the period, find the contra-leg(s) of the same voucher (same
-    // entry_number) and use their group/sub_group to classify.
+    let totIn = 0, totOut = 0;
+    const out = rows.map((r) => {
+      const inflow  = r2(r.inflow);
+      const outflow = r2(r.outflow);
+      const nett    = r2(inflow - outflow);
+      totIn  += inflow;
+      totOut += outflow;
+      return {
+        month_iso:   r.month_iso,
+        month_label: _monthLabel(r.month_iso),
+        inflow, outflow, nett,
+      };
+    });
+
+    res.json({
+      period: { from, to },
+      rows: out,
+      totals: { inflow: r2(totIn), outflow: r2(totOut), nett: r2(totIn - totOut) },
+    });
+  } catch (err) {
+    console.error('cashFlowMonthly error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+};
+
+// View 2 — Two-column sub_group drill for a single month.
+// `?month=YYYY-MM` (also accepts a YYYY-MM-DD; the day is ignored).
+exports.cashFlowMonth = async (req, res) => {
+  try {
+    const monthRaw = String(req.query.month || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}/.test(monthRaw)) {
+      return res.status(400).json({ error: 'month query param required (YYYY-MM)' });
+    }
+    // Normalize to month start / month end.
+    const [y, m] = monthRaw.split('-').map(Number);
+    const fromDate = `${y}-${String(m).padStart(2, '0')}-01`;
+    const monthEnd = new Date(Date.UTC(y, m, 0)); // day 0 of next month = last day of this
+    const toDate   = monthEnd.toISOString().slice(0, 10);
+
+    const cashIds = await _resolveCashLedgerIds();
+    if (cashIds.length === 0) {
+      return res.json({
+        period: { from: fromDate, to: toDate, month_label: _monthLabel(fromDate) },
+        inflow_groups: [], outflow_groups: [],
+        totals: { inflow: 0, outflow: 0, nett: 0 },
+      });
+    }
+
+    // Self-join cash legs to their contras (same entry_number, OTHER
+    // ledger). Sum the cash impact (Dr − Cr) per (sub_group, direction).
+    // Direction is determined by the sign of the cash leg, not by the
+    // contra: cash Dr (positive) → inflow; cash Cr (negative) → outflow.
     //
-    // SQL approach: join ledger_entries to itself by entry_number, group
-    // by entry_number AND classification, then sum the cash impact.
-    const cashLegRows = await sequelize.query(
+    // Multi-contra convention matches the Tally screenshots: attribute
+    // the whole cash impact to the FIRST contra's sub_group (picked by
+    // entry_id ascending, deterministic). We use a window function to
+    // pick that single contra per voucher.
+    const rows = await sequelize.query(
       `WITH cash_legs AS (
-         SELECT entry_id, entry_number, debit_amount, credit_amount, entry_date
+         SELECT entry_number,
+                entry_date,
+                debit_amount,
+                credit_amount,
+                (debit_amount - credit_amount) AS cash_net
            FROM ledger_entries le
           WHERE le.ledger_id IN (:ids)
             AND ${liveEntriesWhereSql('le', true, true)}
        ),
-       contra_legs AS (
-         SELECT cl.entry_number,
-                la.ledger_group,
+       contra_first AS (
+         SELECT DISTINCT ON (le.entry_number)
+                le.entry_number,
                 la.sub_group,
-                la.ledger_name,
-                SUM(le.debit_amount - le.credit_amount) AS contra_net
-           FROM cash_legs cl
-           JOIN ledger_entries le ON le.entry_number = cl.entry_number
-                                  AND le.ledger_id NOT IN (:ids)
+                la.ledger_group
+           FROM ledger_entries le
            JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
-          GROUP BY cl.entry_number, la.ledger_group, la.sub_group, la.ledger_name
+          WHERE le.ledger_id NOT IN (:ids)
+            AND le.entry_number IN (SELECT entry_number FROM cash_legs)
+            AND ${liveEntriesWhereSql('le', false, false)}
+          ORDER BY le.entry_number, le.entry_id
        )
-       SELECT cl.entry_number,
-              SUM(cl.debit_amount - cl.credit_amount)::float AS cash_net,
-              MAX(cl.entry_date)::text AS entry_date,
-              (SELECT json_agg(json_build_object(
-                  'ledger_group', cn.ledger_group,
-                  'sub_group',    cn.sub_group,
-                  'ledger_name',  cn.ledger_name,
-                  'contra_net',   cn.contra_net
-              )) FROM contra_legs cn WHERE cn.entry_number = cl.entry_number) AS contras
+       SELECT COALESCE(cf.sub_group, '(Uncategorised)') AS sub_group,
+              SUM(cl.debit_amount)::float  AS inflow,
+              SUM(cl.credit_amount)::float AS outflow
          FROM cash_legs cl
-        GROUP BY cl.entry_number`,
-      { replacements: { ids: cashIds, from_date: from, to_date: to }, type: sequelize.QueryTypes.SELECT },
+         LEFT JOIN contra_first cf ON cf.entry_number = cl.entry_number
+        GROUP BY cf.sub_group`,
+      { replacements: { ids: cashIds, from_date: fromDate, to_date: toDate }, type: sequelize.QueryTypes.SELECT },
     );
 
-    const operating = [], investing = [], financing = [];
-    let totOp = 0, totIn = 0, totFi = 0;
-    for (const row of cashLegRows) {
-      const cashImpact = r2(row.cash_net);
-      const contras = row.contras || [];
-      // Pick the first contra leg as the section classifier (typical
-      // single-contra voucher). Multi-contra vouchers are rare — we
-      // attribute the whole cash leg to the first contra's section.
-      const c = contras[0] || {};
-      const sub = String(c.sub_group || '').toLowerCase();
-      const grp = String(c.ledger_group || '').toLowerCase();
-      let section = 'operating';   // default
-      if (/fixed assets/.test(sub) || /investment/.test(sub)) section = 'investing';
-      else if (/capital/.test(sub) || /loan/.test(sub) || grp === 'capital') section = 'financing';
-
-      const item = {
-        entry_number: row.entry_number,
-        entry_date:   row.entry_date,
-        cash_impact:  cashImpact,        // + = inflow, − = outflow
-        contra_label: contras.map((x) => x.ledger_name).filter(Boolean).join(', '),
-        section,
-      };
-      if (section === 'operating') { operating.push(item); totOp += cashImpact; }
-      else if (section === 'investing') { investing.push(item); totIn += cashImpact; }
-      else { financing.push(item); totFi += cashImpact; }
+    const inflowGroups  = [];
+    const outflowGroups = [];
+    let totIn = 0, totOut = 0;
+    for (const r of rows) {
+      const inflow  = r2(r.inflow);
+      const outflow = r2(r.outflow);
+      if (inflow > 0.005) {
+        inflowGroups.push({ sub_group: r.sub_group, total: inflow });
+        totIn += inflow;
+      }
+      if (outflow > 0.005) {
+        outflowGroups.push({ sub_group: r.sub_group, total: outflow });
+        totOut += outflow;
+      }
     }
+    inflowGroups.sort((a, b) => b.total - a.total);
+    outflowGroups.sort((a, b) => b.total - a.total);
 
-    const totalsSum = r2(totOp + totIn + totFi);
     res.json({
-      period: { from, to },
-      sections: { operating, investing, financing },
-      totals: {
-        operating: r2(totOp),
-        investing: r2(totIn),
-        financing: r2(totFi),
-        net_change: totalsSum,
-      },
-      reconciliation: {
-        opening, closing,
-        computed_change: computedChange,
-        attributed_change: totalsSum,
-        balanced: Math.abs(totalsSum - computedChange) < 0.01,
-      },
+      period: { from: fromDate, to: toDate, month_label: _monthLabel(fromDate) },
+      inflow_groups:  inflowGroups,
+      outflow_groups: outflowGroups,
+      totals: { inflow: r2(totIn), outflow: r2(totOut), nett: r2(totIn - totOut) },
     });
   } catch (err) {
-    console.error('cashFlow error:', err);
+    console.error('cashFlowMonth error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+};
+
+// View 3 — Voucher list for one (month, sub_group, direction).
+// `?month=YYYY-MM&sub_group=...&direction=in|out`
+exports.cashFlowGroup = async (req, res) => {
+  try {
+    const monthRaw = String(req.query.month || '').slice(0, 10);
+    const subGroup = String(req.query.sub_group || '');
+    const direction = String(req.query.direction || '').toLowerCase();
+    if (!/^\d{4}-\d{2}/.test(monthRaw)) {
+      return res.status(400).json({ error: 'month query param required (YYYY-MM)' });
+    }
+    if (!subGroup) {
+      return res.status(400).json({ error: 'sub_group query param required' });
+    }
+    if (direction !== 'in' && direction !== 'out') {
+      return res.status(400).json({ error: 'direction must be "in" or "out"' });
+    }
+    const [y, m] = monthRaw.split('-').map(Number);
+    // Date range = month-derived by default; the client can override
+    // with explicit from_date / to_date params to widen / narrow the
+    // window. Used by the third view's date-range picker so the user
+    // can ask "show me everything between these two dates that
+    // contributed to this sub_group's cash flow", not just the month
+    // they originally drilled from.
+    const monthFrom = `${y}-${String(m).padStart(2, '0')}-01`;
+    const monthTo   = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const fromRaw = String(req.query.from_date || '').slice(0, 10);
+    const toRaw   = String(req.query.to_date   || '').slice(0, 10);
+    const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(fromRaw) ? fromRaw : monthFrom;
+    const toDate   = /^\d{4}-\d{2}-\d{2}$/.test(toRaw)   ? toRaw   : monthTo;
+
+    const cashIds = await _resolveCashLedgerIds();
+    if (cashIds.length === 0) {
+      return res.json({
+        period: { from: fromDate, to: toDate, month_label: _monthLabel(fromDate), sub_group: subGroup, direction },
+        rows: [],
+        total: 0,
+      });
+    }
+
+    // Same self-join as cashFlowMonth, but filter to (a) the chosen
+    // sub_group and (b) the chosen direction, then collapse to one
+    // row per voucher.
+    //
+    // CRITICAL — two bugs in the previous version that the user saw
+    // as "broken UI":
+    //   1. cash_legs returns one row per cash LEG; a voucher that hits
+    //      the cash ledger N times (one per item line on a sales bill,
+    //      etc.) produced N duplicate rows. Fix: aggregate cash_legs by
+    //      entry_number first.
+    //   2. contra_names used string_agg WITHOUT DISTINCT, so a SAL
+    //      voucher with 7 line items that all post to "Sales Account"
+    //      and "CGST Output" rendered as "Sales Account, Sales Account,
+    //      Sales Account, …, CGST Output, CGST Output, …" — a wall of
+    //      noise. Fix: string_agg(DISTINCT …).
+    // The "(Uncategorised)" bucket is matched explicitly when the
+    // sub_group string equals it.
+    const rows = await sequelize.query(
+      `WITH cash_legs AS (
+         SELECT entry_number,
+                MAX(entry_date) AS entry_date,
+                SUM(debit_amount)  AS debit_amount,
+                SUM(credit_amount) AS credit_amount
+           FROM ledger_entries le
+          WHERE le.ledger_id IN (:ids)
+            AND ${liveEntriesWhereSql('le', true, true)}
+            AND ${direction === 'in' ? 'le.debit_amount > 0' : 'le.credit_amount > 0'}
+          GROUP BY entry_number
+       ),
+       contra_first AS (
+         SELECT DISTINCT ON (le.entry_number)
+                le.entry_number,
+                la.sub_group
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE le.ledger_id NOT IN (:ids)
+            AND le.entry_number IN (SELECT entry_number FROM cash_legs)
+            AND ${liveEntriesWhereSql('le', false, false)}
+          ORDER BY le.entry_number, le.entry_id
+       ),
+       contra_names AS (
+         SELECT le.entry_number,
+                string_agg(DISTINCT la.ledger_name, ', ' ORDER BY la.ledger_name) AS contra_label
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE le.ledger_id NOT IN (:ids)
+            AND le.entry_number IN (SELECT entry_number FROM cash_legs)
+            AND ${liveEntriesWhereSql('le', false, false)}
+          GROUP BY le.entry_number
+       ),
+       /* party_names = subset of contra_names restricted to ledgers
+          flagged as parties (customers / suppliers). Lets the client
+          show a clean "Party" column with just the customer/supplier
+          name, while keeping the full contra-leg list available as a
+          separate "Details" column the user can opt into. The two
+          columns answer different questions:
+            - Party   → "who paid us / who we paid"  (the natural
+                        first answer for an operator scanning cash)
+            - Details → "what other accounts moved with this voucher"
+                        (CGST Output, Sales Account, etc. — useful
+                        when reconciling a single voucher's posting). */
+       party_names AS (
+         SELECT le.entry_number,
+                string_agg(DISTINCT la.ledger_name, ', ' ORDER BY la.ledger_name) AS party_label
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE le.ledger_id NOT IN (:ids)
+            AND la.is_party_ledger = true
+            AND le.entry_number IN (SELECT entry_number FROM cash_legs)
+            AND ${liveEntriesWhereSql('le', false, false)}
+          GROUP BY le.entry_number
+       )
+       SELECT cl.entry_number,
+              cl.entry_date::text AS entry_date,
+              ${direction === 'in' ? 'cl.debit_amount' : 'cl.credit_amount'}::float AS amount,
+              COALESCE(cn.contra_label, '') AS contra_label,
+              COALESCE(pn.party_label,  '') AS party_label
+         FROM cash_legs cl
+         JOIN contra_first cf ON cf.entry_number = cl.entry_number
+         LEFT JOIN contra_names cn ON cn.entry_number = cl.entry_number
+         LEFT JOIN party_names  pn ON pn.entry_number = cl.entry_number
+        WHERE COALESCE(cf.sub_group, '(Uncategorised)') = :sub_group
+        ORDER BY cl.entry_date, cl.entry_number`,
+      {
+        replacements: { ids: cashIds, from_date: fromDate, to_date: toDate, sub_group: subGroup },
+        type: sequelize.QueryTypes.SELECT,
+      },
+    );
+
+    let total = 0;
+    const out = rows.map((r) => {
+      const amount = r2(r.amount);
+      total += amount;
+      return {
+        entry_date:   r.entry_date,
+        entry_number: r.entry_number,
+        // party_label = customers/suppliers only; contra_label = full
+        // contra-leg list including tax + sales/purchase accounts.
+        // Client picks which to show via the Customize popover.
+        party_label:  r.party_label,
+        contra_label: r.contra_label,
+        amount,
+      };
+    });
+
+    res.json({
+      period: { from: fromDate, to: toDate, month_label: _monthLabel(fromDate), sub_group: subGroup, direction },
+      rows: out,
+      total: r2(total),
+    });
+  } catch (err) {
+    console.error('cashFlowGroup error:', err);
     res.status(500).json({ error: 'Server error: ' + err.message });
   }
 };

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Tag, Typography, message, Card, Space, DatePicker, Select, Popconfirm, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, PrinterOutlined, LinkOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
@@ -52,11 +52,32 @@ function ModeChip({ method, splits }) {
 export default function PaymentList() {
   const { fyStart, fyEnd } = useFinancialYear();
   const [deletingId, setDeletingId] = useState(null);
+  const navigate = useNavigate();
+  // URL-driven initial filters — lets other pages (e.g. Cash Flow
+  // Summary's Sundry Debtors / Creditors drill) deep-link into a
+  // pre-filtered Payments list. Read once on mount; subsequent user
+  // interactions live in `filters` state. Accepted params:
+  //   ?transaction_type=Receipt|Payment
+  //   ?source=manual|auto_from_bill
+  //   ?from_date=YYYY-MM-DD
+  //   ?to_date=YYYY-MM-DD
+  // Falls back to FY-wide defaults when params are absent.
+  const [searchParams] = useSearchParams();
   // Default to company FY for consistency. `source` filter (added in
   // R8 Phase 2) lets the user view manual-entered receipts/payments
   // separately from auto-generated bill-side ones.
-  const [filters, setFilters] = useState({ transaction_type: null, source: null, from_date: fyStart, to_date: fyEnd });
-  const navigate = useNavigate();
+  const [filters, setFilters] = useState(() => {
+    const tt = searchParams.get('transaction_type');
+    const validTT = (tt === 'Receipt' || tt === 'Payment') ? tt : null;
+    const src = searchParams.get('source');
+    const validSrc = (src === 'manual' || src === 'auto_from_bill') ? src : null;
+    return {
+      transaction_type: validTT,
+      source:           validSrc,
+      from_date:        searchParams.get('from_date') || fyStart,
+      to_date:          searchParams.get('to_date')   || fyEnd,
+    };
+  });
 
   // ── Virtualized data layer ────────────────────────────────────────
   // Server endpoint already returns { total, page, data }. Hook holds
