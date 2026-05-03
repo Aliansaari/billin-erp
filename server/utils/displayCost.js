@@ -301,10 +301,101 @@ async function attachDisplayCost(rows) {
   });
 }
 
+/**
+ * Per-mode cost basis at sale-time. Snapshotted into
+ * sales_bill_items.cost_rate so historic profit stays stable even if
+ * the product's catalog rate / wac later changes. Distinct from
+ * computeDisplayCost (which is for DISPLAY reads of current cost) in
+ * one important way:
+ *
+ *   • For single+batch products, computeCostRateForSale is PER-BATCH —
+ *     the sale knows which specific batch was sold, so we use that
+ *     batch's frozen purchase_rate. computeDisplayCost returns the
+ *     batch-weighted average across the whole product (because the
+ *     display tile doesn't know which batch the operator might pick
+ *     next).
+ *
+ * Both helpers MUST agree for the variant + single-no-batch cases.
+ *
+ * Per-mode logic:
+ *
+ *   • variant            → product.purchase_rate
+ *   • single, no batch   → product.weighted_avg_cost (with COALESCE
+ *                          to purchase_rate, then 0 — the second
+ *                          fallback covers the rare case of a brand-
+ *                          new single product sold before any
+ *                          purchase recorded its wac)
+ *   • single + batch (batch_id present)
+ *                        → product_batches.purchase_rate WHERE
+ *                          batch_id = line.batch_id, with COALESCE
+ *                          fallback through wac → purchase_rate → 0
+ *                          (legacy batches before Commit 2 may have
+ *                          NULL purchase_rate; audit finding 9.7)
+ *   • single + batch but line missing batch_id (defensive)
+ *                        → falls back to wac as if no-batch single,
+ *                          and logs a warning. Indicates a sale path
+ *                          that bypassed the batch picker on a batch-
+ *                          tracked product — should never happen but
+ *                          we'd rather snapshot SOMETHING reasonable
+ *                          than zero.
+ *
+ * @param {Object}   args
+ * @param {Object}   args.product   Plain or Sequelize product instance
+ *                                  with product_mode, is_batch_tracked,
+ *                                  purchase_rate, weighted_avg_cost.
+ * @param {number}   [args.batch_id]  Batch the sale line drew from.
+ * @param {Object}   [args.t]       Sequelize transaction (for batch
+ *                                  lookup; optional otherwise).
+ * @returns {Promise<number>}        cost_rate to write onto the bill
+ *                                   line. Always resolves to a number
+ *                                   (never NaN / undefined).
+ */
+async function computeCostRateForSale({ product, batch_id = null, t = null }) {
+  if (!product) return 0;
+  const mode = product.product_mode || 'variant';
+  const isBatch = !!product.is_batch_tracked;
+  const purchaseRate = parseFloat(product.purchase_rate);
+  const wac = parseFloat(product.weighted_avg_cost);
+
+  if (mode === 'variant') {
+    return Number.isFinite(purchaseRate) ? purchaseRate : 0;
+  }
+
+  if (mode === 'single' && !isBatch) {
+    if (Number.isFinite(wac) && wac !== 0) return wac;
+    if (Number.isFinite(purchaseRate)) return purchaseRate;
+    return 0;
+  }
+
+  // Single + batch from here on.
+  if (batch_id) {
+    const { ProductBatch } = require('../models');
+    const batch = await ProductBatch.findByPk(batch_id, { transaction: t });
+    if (batch) {
+      const batchRate = parseFloat(batch.purchase_rate);
+      if (Number.isFinite(batchRate) && batchRate !== 0) return batchRate;
+    }
+    // Batch row missing or has NULL/0 rate — fall through to wac /
+    // purchase_rate cascade. Don't warn here: it's a documented
+    // legacy case (batches created before product_batches.purchase_rate
+    // existed; audit 9.7).
+  } else {
+    // Defensive path: batch-tracked product with no batch on the line.
+    // Indicates a sale that bypassed the batch picker. Log loudly so
+    // it shows up in server logs without breaking the save.
+    console.warn(`[computeCostRateForSale] Batch-tracked product ${product.product_id || '(unknown)'} sold without batch_id; falling back to weighted_avg_cost`);
+  }
+
+  if (Number.isFinite(wac) && wac !== 0) return wac;
+  if (Number.isFinite(purchaseRate)) return purchaseRate;
+  return 0;
+}
+
 module.exports = {
   attachDisplayCost,
   computeDisplayCost,
   computeDisplayCostAsOf,
+  computeCostRateForSale,
   fetchBatchAggregate,
   fetchBatchAggregateByGodown,
   fetchBatchAggregateAsOf,

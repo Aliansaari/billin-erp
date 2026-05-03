@@ -10,6 +10,7 @@ const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../servic
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
+const { computeCostRateForSale } = require('../utils/displayCost');
 
 /**
  * Determine intra-state vs inter-state for a sales bill.
@@ -627,15 +628,25 @@ exports.create = async (req, res) => {
     const allowNegativeStock = sysSettings?.allow_negative_stock || false;
 
     for (const item of processedItems) {
-      // Fetch the product once to (a) snapshot its purchase_rate as COGS
-      // for this line, and (b) reuse for the stock deduction below. Doing
-      // both off the same read avoids a second roundtrip and keeps the cost
-      // snapshot in the same transaction as the bill itself.
+      // Fetch the product once to (a) snapshot per-mode COGS for this
+      // line via the shared helper, and (b) reuse for the stock
+      // deduction below. Doing both off the same read avoids a second
+      // roundtrip and keeps the cost snapshot in the same transaction
+      // as the bill itself.
+      //
+      // computeCostRateForSale picks the right basis per mode:
+      //   variant            → product.purchase_rate
+      //   single, no batch   → product.weighted_avg_cost
+      //   single + batch     → product_batches.purchase_rate for the
+      //                        line's batch_id (per-batch frozen rate)
+      // See server/utils/displayCost.js for the full fallback cascade.
       let product = null;
       if (item.product_id) {
         product = await Product.findByPk(item.product_id, { transaction: t });
       }
-      const costRate = product ? parseFloat(product.purchase_rate || 0) : 0;
+      const costRate = await computeCostRateForSale({
+        product, batch_id: item.batch_id || null, t,
+      });
 
       await SalesBillItem.create({
         sales_bill_id: bill.sales_bill_id,
@@ -1064,16 +1075,22 @@ exports.update = async (req, res) => {
     const allowNegStockU = sysSettingsU?.allow_negative_stock || false;
 
     for (const item of processedItems) {
-      // Same pattern as create(): fetch the product once, snapshot its cost
-      // onto the line, reuse for stock update. Cost is re-snapshotted on edit
-      // so if the user corrects the line (e.g. fixes a wrong product on a
-      // bill) the COGS follows the new product's cost — matches the user's
-      // mental model of "this edit supersedes the original".
+      // Same pattern as create(): fetch the product once, snapshot its
+      // per-mode cost via the shared helper, reuse for stock update.
+      // Cost is re-snapshotted on edit so if the user corrects the line
+      // (e.g. fixes a wrong product on a bill) the COGS follows the new
+      // product's cost — matches the user's mental model of "this edit
+      // supersedes the original". For single-mode products the
+      // snapshot uses CURRENT wac, which means an edit after later
+      // purchases shifts cost_rate to reflect the new average. That's
+      // by-design — edits are point-in-time corrections.
       let product = null;
       if (item.product_id) {
         product = await Product.findByPk(item.product_id, { transaction: t });
       }
-      const costRate = product ? parseFloat(product.purchase_rate || 0) : 0;
+      const costRate = await computeCostRateForSale({
+        product, batch_id: item.batch_id || null, t,
+      });
 
       await SalesBillItem.create({
         sales_bill_id: id,

@@ -21,6 +21,7 @@ const { SystemSettings, Party, Product, SalesBill, SalesBillItem,
         PurchaseBill, PurchaseBillItem, PaymentReceipt, StockLedger } = require('../models');
 const { Op } = require('sequelize');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { computeCostRateForSale } = require('../utils/displayCost');
 // Tally imports posting to the ledger run through the same posting service
 // + builders as every other create path. Without these calls, imported
 // bills land in sales_bills/purchase_bills/payments_receipts but never
@@ -959,7 +960,12 @@ async function ingestVouchersFromXml(xml, userId) {
 
           // Distribute bill-level tax across items by taxable share so the
           // per-line cgst/sgst/igst columns reflect the same totals.
-          await SalesBillItem.bulkCreate(resolved.map(r => {
+          // Mode-aware cost_rate snapshot via the shared helper (Commit
+          // 3d). Tally voucher batch info isn't carried into resolved[]
+          // today — for single+batch products the helper falls through
+          // to wac. If/when batch resolution is added to the importer,
+          // pass batch_id here.
+          const tallyItemRows = await Promise.all(resolved.map(async r => {
             const taxable = r.qty * r.rate;
             const share = subTotal > 0 ? taxable / subTotal : 0;
             return {
@@ -971,7 +977,9 @@ async function ingestVouchersFromXml(xml, userId) {
               hsn_code: r.product.hsn_code,
               quantity: r.qty,
               rate: r.rate,
-              cost_rate: r.product.purchase_rate || 0,
+              cost_rate: await computeCostRateForSale({
+                product: r.product, batch_id: r.batch_id || null, t,
+              }),
               gst_rate: r.product.gst_rate || 0,
               cgst_amount: round2(cgstAmt * share),
               sgst_amount: round2(sgstAmt * share),
@@ -980,7 +988,8 @@ async function ingestVouchersFromXml(xml, userId) {
               total_amount: taxable,
               quantity_per_box: r.product.quantity_per_box || 1,
             };
-          }), { transaction: t });
+          }));
+          await SalesBillItem.bulkCreate(tallyItemRows, { transaction: t });
 
           // Wire imports into stock — without these, Stock Movement (which
           // reads stock_ledger) stays empty for imported bills and the

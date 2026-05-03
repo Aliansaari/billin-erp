@@ -1,6 +1,7 @@
 const ExcelJS = require('exceljs');
 const { Op, col } = require('sequelize');
 const sequelize = require('../config/database');
+const { computeCostRateForSale } = require('../utils/displayCost');
 const {
   Party, Product, Category, StockLedger,
   SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, PaymentReceipt,
@@ -1276,21 +1277,33 @@ async function importBills({ workbook, moduleName, req, res }) {
         }, { transaction: t });
 
         const billId = billRec[billFk];
-        const itemCreate = resolvedItems.map(it => ({
-          [billFk]: billId,
-          product_id: it.product.product_id,
-          barcode: it.product.barcode,
-          product_name: it.product.product_name,
-          category_id: it.product.category_id,
-          hsn_code: it.product.hsn_code,
-          quantity: it.qty,
-          ...(isSales
-            ? { rate: it.rate, unit_type: it.unit, cost_rate: it.product.purchase_rate || 0 }
-            : { purchase_rate: it.rate }),
-          gst_rate: it.gst_rate,
-          taxable_amount: it.qty * it.rate,
-          total_amount: it.qty * it.rate,
-          quantity_per_box: it.product.quantity_per_box || 1,
+        // Mode-aware cost_rate snapshot for sales lines (Commit 3d).
+        // Variant: purchase_rate. Single (no batch): wac. Single+batch
+        // would need a per-line batch_id which Excel imports don't
+        // currently carry — falls through to wac fallback inside the
+        // helper. Map to async via Promise.all so each line resolves
+        // its cost via the shared helper before bulkCreate.
+        const itemCreate = await Promise.all(resolvedItems.map(async it => {
+          const baseSales = isSales ? {
+            rate: it.rate, unit_type: it.unit,
+            cost_rate: await computeCostRateForSale({
+              product: it.product, batch_id: it.batch_id || null, t,
+            }),
+          } : { purchase_rate: it.rate };
+          return {
+            [billFk]: billId,
+            product_id: it.product.product_id,
+            barcode: it.product.barcode,
+            product_name: it.product.product_name,
+            category_id: it.product.category_id,
+            hsn_code: it.product.hsn_code,
+            quantity: it.qty,
+            ...baseSales,
+            gst_rate: it.gst_rate,
+            taxable_amount: it.qty * it.rate,
+            total_amount: it.qty * it.rate,
+            quantity_per_box: it.product.quantity_per_box || 1,
+          };
         }));
         await ItemModel.bulkCreate(itemCreate, { transaction: t });
       });
