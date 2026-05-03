@@ -350,6 +350,20 @@ export default function SalesBillForm() {
   const qtyRef       = useRef(null);
   const discRef      = useRef(null);
   const gstRef       = useRef(null);
+  // Batch dropdown ref — used by handleProdSel + handleScan to focus
+  // and open the picker right after the operator binds a batch-tracked
+  // product, so the next keystroke lands on Lot selection rather than
+  // qty. Open state is controlled separately so we can force-open
+  // alongside the focus jump.
+  //
+  // pendingBatchFocusRef carries the "the operator just bound a batch-
+  // tracked product, please open the Lot dropdown when batches finish
+  // loading" intent across the async fetch. The Select is disabled
+  // during fetch (would no-op focus + open), so we defer until the
+  // batchOpts effect completes (watched by an effect below).
+  const batchSelectRef = useRef(null);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const pendingBatchFocusRef = useRef(false);
   const tableWrapRef = useRef(null);
   const [tblHeight, setTblHeight] = useState(300);
   // Tab/Enter/ArrowDown walk this array left → right; ArrowUp walks back.
@@ -588,9 +602,10 @@ export default function SalesBillForm() {
         }));
         setActiveCatId(data.category_id || null);
         message.info(`${data.product_name} — pick a batch and press ADD`, 1.5);
-        // Focus qty so the operator can override the auto-picked batch
-        // before pressing ADD.
-        requestAnimationFrame(() => qtyRef.current?.focus());
+        // Same deferred-focus pattern as handleProdSel — the Select
+        // is disabled while batches load; the effect below opens it
+        // once batchOpts populates.
+        pendingBatchFocusRef.current = true;
         return;
       }
       const lt=+(qty*rate).toFixed(2);
@@ -656,8 +671,25 @@ export default function SalesBillForm() {
     }));
     // Flag so onFocus intercepts any AntD focus-restore and redirects to qty
     justSelectedRef.current=true;
-    requestAnimationFrame(()=>{ prodRef.current?.blur(); qtyRef.current?.focus(); });
-  },[]);
+    // For batch-tracked products with the global toggle on, jump to
+    // the Lot dropdown and open it instead of qty — the operator's
+    // first decision is "which batch", not "how many." Auto-pick has
+    // already populated entry.batch_id from the FEFO/FIFO winner via
+    // the fetch-batches effect, so the dropdown opens with the
+    // default highlighted; pressing Enter accepts it and the picker's
+    // onSelect handler advances focus to qty (see Select onChange
+    // below). For non-batch products, keep the historical fast-path
+    // straight to qty.
+    if (batchTrackingOn && p.is_batch_tracked) {
+      // Defer the focus + open until the batch fetch completes (the
+      // Select is disabled while batchOptsLoading is true). The
+      // effect on batchOpts below picks up the flag and fires.
+      pendingBatchFocusRef.current = true;
+      requestAnimationFrame(() => prodRef.current?.blur());
+    } else {
+      requestAnimationFrame(() => { prodRef.current?.blur(); qtyRef.current?.focus(); });
+    }
+  },[batchTrackingOn]);
 
   // ── Batch picker — fetch + auto-pick ─────────────────────────────────
   // Watches (product_id, is_batch_tracked, godown_id, batchTrackingOn).
@@ -709,6 +741,35 @@ export default function SalesBillForm() {
   // pick would re-trigger the auto-pick branch and wipe the user's choice.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry.product_id, entry.is_batch_tracked, watchedGodownId, batchTrackingOn]);
+
+  // Pending-batch-focus drainer — the handleProdSel / handleScan path
+  // sets pendingBatchFocusRef when the operator binds a batch-tracked
+  // product. The batch-fetch effect above runs async; the Select is
+  // disabled during fetch and ignores focus/open calls. This effect
+  // waits for batchOpts to populate (or the loading flag to clear),
+  // then focuses the Select and opens its dropdown so the operator's
+  // next keystroke lands on Lot selection. Empty-batch case (no stock
+  // at this godown) still focuses the disabled Select so Tab from
+  // there walks to qty — better than stranding the cursor on Product.
+  useEffect(() => {
+    if (!pendingBatchFocusRef.current) return;
+    // Wait for the fetch to settle. batchOptsLoading flips to false
+    // when the request resolves; batchOpts is the list (possibly
+    // empty if no batches at godown).
+    if (batchOptsLoading) return;
+    pendingBatchFocusRef.current = false;
+    if (batchOpts.length === 0) {
+      // No batches — fall through to qty so the operator isn't stuck
+      // on a disabled dropdown. The picker still renders the
+      // "No batches with stock" placeholder for context.
+      requestAnimationFrame(() => qtyRef.current?.focus());
+      return;
+    }
+    requestAnimationFrame(() => {
+      batchSelectRef.current?.focus();
+      setBatchOpen(true);
+    });
+  }, [batchOptsLoading, batchOpts]);
 
   // Manual override — fires when the operator opens the dropdown and
   // picks a different batch. We re-read available_stock from the picked
@@ -1745,8 +1806,21 @@ export default function SalesBillForm() {
                   <div className="sbf-cell has-arrow" style={{ minWidth: 180 }}>
                     <div className="sbf-cell-lbl">Batch</div>
                     <Select
+                      ref={batchSelectRef}
                       value={entry.batch_id || undefined}
-                      onChange={pickBatch}
+                      onChange={(val, opt) => {
+                        pickBatch(val);
+                        // After the operator confirms a batch (Enter
+                        // on the highlighted row, or click), close the
+                        // dropdown and advance focus to qty so the
+                        // typing rhythm continues without a mouse
+                        // detour. Same contract as a dropdown pick on
+                        // the Product field.
+                        setBatchOpen(false);
+                        requestAnimationFrame(() => qtyRef.current?.focus());
+                      }}
+                      open={batchOpen}
+                      onDropdownVisibleChange={(v) => setBatchOpen(v)}
                       disabled={!entry.product_id || batchOptsLoading || batchOpts.length === 0}
                       placeholder={batchOptsLoading
                         ? 'Loading…'
