@@ -1883,14 +1883,16 @@ export default function SalesBillForm() {
                     <Select
                       ref={batchSelectRef}
                       value={entry.batch_id || undefined}
-                      onChange={(val, opt) => {
+                      // onSelect fires on every pick (click OR Enter on
+                      // highlighted row), even when the picked value
+                      // matches the current value. onChange would NOT
+                      // fire if the operator presses Enter on the auto-
+                      // picked top batch (no value diff), leaving the
+                      // dropdown open and focus stuck on the Select.
+                      // onSelect handles both the state update via
+                      // pickBatch and the focus advance to qty.
+                      onSelect={(val) => {
                         pickBatch(val);
-                        // After the operator confirms a batch (Enter
-                        // on the highlighted row, or click), close the
-                        // dropdown and advance focus to qty so the
-                        // typing rhythm continues without a mouse
-                        // detour. Same contract as a dropdown pick on
-                        // the Product field.
                         setBatchOpen(false);
                         requestAnimationFrame(() => qtyRef.current?.focus());
                       }}
