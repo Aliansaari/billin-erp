@@ -565,10 +565,14 @@ export default function SalesBillForm() {
   const handleScan=async(barcode)=>{
     if(!barcode?.trim()) return;
     const code=barcode.trim();
-    // Clear input immediately (before API call) so next scan chars go into a clean field
+    // Clear the input field so the next scan chars land in a clean
+    // box. We deliberately DON'T re-focus barcodeRef here — for
+    // batch-tracked products the drainer will move focus to the Lot
+    // dropdown, and an eager barcode.focus() would steal back from
+    // it on the next animation frame. Non-batch / error paths
+    // re-focus barcode at the bottom for fast repeat scanning.
     setEntry(EMPTY);
     if(barcodeRef.current?.input) barcodeRef.current.input.value='';
-    barcodeRef.current?.focus();
     try{
       const{data}=await productAPI.getByBarcode(code);
       const rate=parseFloat(data.sale_rate)||0;
@@ -576,13 +580,14 @@ export default function SalesBillForm() {
       const qty=parseFloat(data.quantity_per_box)||1;
       const unitType=qty>1?'Box':'Pcs';
       // Batch-tracked products with the global toggle ON cannot be
-      // direct-pushed into items[] — the operator needs to confirm /
-      // override the FEFO/FIFO batch via the entry-row picker. Route
-      // the scan through the entry row so the batch-fetch effect can
-      // populate the dropdown and auto-pick the top batch. Operator
-      // presses ADD to commit the line. Without this, scanned batch
-      // products went straight to items[] with batch_id=null and the
-      // server rejected the save.
+      // direct-pushed into items[] — the operator needs to pick a
+      // specific batch via the entry-row Lot dropdown. Route the
+      // scan through the entry row, then the batch-fetch effect
+      // populates the dropdown and the drainer effect focuses it.
+      // Operator picks a batch (Enter or click), the Select's
+      // onChange advances focus to qty, and they press ADD.
+      // Without this, scanned batch products went straight to
+      // items[] with batch_id=null and the server rejected the save.
       if (batchTrackingOn && data.is_batch_tracked) {
         setEntry(prev => ({
           ...prev,
@@ -602,9 +607,8 @@ export default function SalesBillForm() {
         }));
         setActiveCatId(data.category_id || null);
         message.info(`${data.product_name} — pick a batch and press ADD`, 1.5);
-        // Same deferred-focus pattern as handleProdSel — the Select
-        // is disabled while batches load; the effect below opens it
-        // once batchOpts populates.
+        // Drainer effect (watches batchOptsLoading + batchOpts) will
+        // focus + open the Lot dropdown once batches finish loading.
         pendingBatchFocusRef.current = true;
         return;
       }
@@ -624,8 +628,11 @@ export default function SalesBillForm() {
         batch_id: null,
       }]);
       message.success(`${data.product_name} added`,1);
+      // Re-focus barcode for the next scan (non-batch fast path).
+      barcodeRef.current?.focus();
     }catch{
       message.warning('Product not found');
+      barcodeRef.current?.focus();
     }
   };
 
