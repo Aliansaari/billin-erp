@@ -115,8 +115,26 @@
   letter-spacing: 0.3px;
 }
 
-/* ══ SPLIT BODY ══════════════════════════════════════════════════════ */
-.be-body { flex: 1; display: flex; overflow: hidden; }
+/* ══ SPLIT BODY ══════════════════════════════════════════════════════
+ * The body wraps both the form panel and the bills table inside a
+ * single floating rounded card. Previously these were flush-edge
+ * rectangles meeting the cool-grey app bg with no visible boundary,
+ * which made the whole page read as one undifferentiated white slab.
+ * The card treatment gives the page proper structure without any
+ * additional chrome — header and action bar stay flush as page-level
+ * strips, the body floats between them. */
+.be-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  margin: 14px 14px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 16px rgba(0, 0, 0, 0.045);
+}
 
 .be-left {
   width: 400px; flex-shrink: 0;
@@ -144,8 +162,17 @@
 .be-fld .ant-select .ant-select-selector,
 .be-fld .ant-picker {
   height: 40px !important;
-  border-color: var(--border);
+  /* Slightly stronger border so the input chrome is legible at a
+   * glance instead of disappearing into the panel background. */
+  border-color: var(--border-strong) !important;
   border-radius: 8px !important;
+  background: var(--bg-app);
+}
+.be-fld .ant-input:hover,
+.be-fld .ant-input-number:hover,
+.be-fld .ant-select:hover .ant-select-selector,
+.be-fld .ant-picker:hover {
+  border-color: var(--be-accent-border) !important;
 }
 .be-fld .ant-input-number-input-wrap { display: flex; align-items: center; height: 100%; }
 .be-fld .ant-input:focus,
@@ -215,7 +242,7 @@
   display: grid;
   grid-template-columns: 1fr 90px 120px 130px 50px 130px 80px;
   background: var(--bg-muted);
-  color: var(--fg-tertiary);
+  color: var(--fg-secondary);
   font-weight: 700; font-size: 10.5px;
   letter-spacing: 0.7px; text-transform: uppercase;
   padding: 11px 24px;
@@ -315,7 +342,12 @@
 .be-empty {
   padding: 80px 20px; text-align: center;
   color: var(--fg-tertiary); font-size: 14px;
+  font-style: italic;
 }
+
+/* Subtle inset on the form-side balance card so the gradient pops
+ * a little more against the now-rounded panel parent. */
+.be-bal-card { box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04)); }
 
 /* ══ BOTTOM ACTION BAR ══════════════════════════════════════════════ */
 .be-action-bar {

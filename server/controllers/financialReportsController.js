@@ -1149,3 +1149,736 @@ function bucketBySubGroup(rows) {
   for (const b of buckets.values()) b.total = r2(b.total);
   return [...buckets.values()];
 }
+
+// ── Fund Flow Statement ────────────────────────────────────────────────
+//
+// Tracks change in WORKING CAPITAL (Current Assets − Current Liabilities)
+// between two balance-sheet dates, plus the long-term sources and
+// applications that drove the change. Standard ICAI / Tally format.
+//
+// Two interlocking parts:
+//
+//   1. Schedule of Changes in Working Capital — line-by-line opening vs
+//      closing for every Current Asset and Current Liability ledger.
+//      Effect on WC:
+//        Current Asset:      ↑ Δ → Increase in WC | ↓ Δ → Decrease in WC
+//        Current Liability:  ↑ Δ → Decrease in WC | ↓ Δ → Increase in WC
+//
+//   2. Statement of Sources and Applications of Funds:
+//        Sources       = Funds From Operations
+//                      + Capital introduced
+//                      + Long-term loans raised
+//                      + Sale of fixed assets (net, at cost)
+//                      + Sale of investments (net)
+//                      + Decrease in Working Capital (if applicable)
+//        Applications  = Funds Lost in Operations (if loss)
+//                      + Drawings / Capital withdrawn
+//                      + Long-term loans repaid
+//                      + Purchase of fixed assets (net, at cost)
+//                      + Purchase of investments (net)
+//                      + Increase in Working Capital (if applicable)
+//
+// Core accounting identity (the report's own correctness check):
+//   Total Sources = Total Applications  (paisa-exact, ±0.01 tolerance)
+//
+// This is forced by the balance-sheet equation:
+//   ΔAssets = ΔLiabilities + ΔCapital + Net Profit
+//   (ΔCA + ΔFA + ΔInv + ΔMiscExp) = (ΔCL + ΔLTL) + ΔCap + NP
+//   ΔWC = NP + ΔLTL + ΔCap − ΔFA − ΔInv − ΔMiscExp
+//
+// Funds From Operations (FFO):
+//   FFO = Net Profit
+//       + non-fund expenses charged to P&L
+//       − non-fund incomes credited to P&L
+//   "Non-fund" = book entries that don't represent working-capital
+//   movement: depreciation, amortization, provisions, gains/losses on
+//   sale of fixed assets / investments, goodwill or preliminary
+//   expenses written off.
+//
+// Depreciation handling — the subtle bit:
+//   Depreciation reduces the closing FA balance below the opening, so a
+//   naïve ΔFA = closing − opening would show a phantom "Sale of FA"
+//   equal to the depreciation amount. The fix is to compute FA movement
+//   AT COST: ΔFA_at_cost = ΔFA + Depreciation_charged_in_period. Then:
+//     ΔFA_at_cost > 0 → "Purchase of Fixed Assets" (Application)
+//     ΔFA_at_cost < 0 → "Sale of Fixed Assets"     (Source)
+//   The same trick applies to Misc. Expenses (Asset) + amortization.
+//
+// Stock-in-Hand:
+//   This ERP has no dedicated Stock-in-Hand ledger; the value is
+//   derived from stock_ledger × current purchase_rate (same helper
+//   the Balance Sheet uses — stockValueAt). We surface it as a
+//   synthetic Current Asset line in the WC schedule so closing − opening
+//   stock movement flows through correctly.
+//
+// Period defaults (matches Cash Flow + P&L):
+//   from_date → SystemSettings.financial_year_start (fallback 1900-01-01)
+//   to_date   → today
+//
+// Heuristic detection of non-fund items:
+//   No dedicated tag exists on ledgers in this ERP; we match by ledger
+//   name (case-insensitive) restricted to ledgers in the Income/Expense
+//   groups. Patterns are intentionally broad — accountants use varied
+//   names ("Depreciation A/c", "Plant Depreciation Charge", etc.) and
+//   missing one breaks FFO. The response surfaces the matched ledgers
+//   so the operator can audit / rename anything that misfires.
+
+// Sub-group classifications. Mirrors src/pages/reports/TrialBalance.jsx's
+// SUB_TO_MID, reorganized as set membership for fund-flow's
+// current-vs-non-current question.
+const FF_CURRENT_ASSET_SUBS = new Set([
+  'Sundry Debtors', 'Cash-in-Hand', 'Bank Accounts', 'Bank Account',
+  'Stock-in-Hand',
+  'Loans & Advances (Asset)', 'Loans and Advances (Asset)',
+  'Deposits (Asset)', 'Other Current Assets',
+  // Duties & Taxes is in BOTH lists — disambiguated by ledger_group.
+  'Duties & Taxes', 'Duties and Taxes', 'Input GST',
+]);
+const FF_FIXED_ASSET_SUBS = new Set([
+  'Fixed Assets', 'Plant & Machinery', 'Furniture & Fixtures', 'Vehicles',
+  'Office Equipment', 'Computer & Equipment', 'Buildings', 'Land',
+]);
+const FF_INVESTMENT_SUBS = new Set(['Investments']);
+const FF_MISC_EXP_SUBS   = new Set(['Misc. Expenses (Asset)']);
+const FF_CURRENT_LIAB_SUBS = new Set([
+  'Sundry Creditors',
+  'Duties & Taxes', 'Duties and Taxes', 'Output GST',
+  'Provisions',
+  'Other Current Liabilities',
+]);
+const FF_LONG_TERM_LIAB_SUBS = new Set([
+  'Loans (Liability)',
+  'Bank OD/CC', 'Bank OD A/c',
+  'Secured Loans', 'Unsecured Loans',
+]);
+
+// Asset side: which "kind" is this ledger?
+function ffClassifyAsset(subGroup) {
+  const sg = subGroup || '';
+  if (FF_FIXED_ASSET_SUBS.has(sg))  return 'fixed_asset';
+  if (FF_INVESTMENT_SUBS.has(sg))   return 'investment';
+  if (FF_MISC_EXP_SUBS.has(sg))     return 'misc_exp';
+  // Everything else under Assets falls through to Current Asset. This
+  // catches: party debtor ledgers (no sub_group), seeded current-asset
+  // sub-groups, and anything new the user adds without changing the
+  // classifier — safer than dropping unknowns.
+  return 'current_asset';
+}
+// Liability side: current vs long-term.
+function ffClassifyLiability(subGroup) {
+  const sg = subGroup || '';
+  if (FF_LONG_TERM_LIAB_SUBS.has(sg)) return 'long_term';
+  // Everything else under Liabilities falls through to Current Liability.
+  // Same safety reasoning as above.
+  return 'current_liability';
+}
+
+// Heuristic patterns for non-fund items. Restricted at call site to
+// ledgers in Income/Expense groups (so a "Provision for Doubtful Debts"
+// sitting under Sundry Creditors as a liability doesn't misfire here).
+//
+// Order matters within a category — first-match wins so "Loss on sale
+// of investments" doesn't pre-empt "Loss on sale of fixed assets".
+const FF_NON_FUND_EXPENSE_PATTERNS = [
+  { id: 'loss_sale_inv',  label: 'Loss on sale of investments',
+    re: /\bloss\b.*\b(sale|disposal)\b.*\binvest/i },
+  { id: 'loss_sale_fa',   label: 'Loss on sale of fixed assets',
+    re: /\bloss\b.*\b(sale|disposal)\b.*\b(asset|fixed|plant|machine|vehicle|building|land|equipment|furniture)\b/i },
+  { id: 'depreciation',   label: 'Depreciation',
+    re: /\bdepreciation\b/i },
+  { id: 'amortization',   label: 'Amortization',
+    re: /\bamorti[sz]ation\b/i },
+  { id: 'goodwill_wo',    label: 'Goodwill written off',
+    re: /\bgoodwill\b.*\b(written|writ)\b.*\boff\b|\b(written|writ)\b.*\boff\b.*\bgoodwill\b/i },
+  { id: 'preliminary_wo', label: 'Preliminary expenses written off',
+    re: /\bpreliminary\b.*\b(written|writ)\b.*\boff\b|\b(written|writ)\b.*\boff\b.*\bpreliminary\b/i },
+  { id: 'provision',      label: 'Provisions (P&L charge)',
+    re: /\bprovision(s)?\b/i },
+];
+const FF_NON_FUND_INCOME_PATTERNS = [
+  { id: 'profit_sale_inv', label: 'Profit on sale of investments',
+    re: /\b(profit|gain)\b.*\b(sale|disposal)\b.*\binvest/i },
+  { id: 'profit_sale_fa',  label: 'Profit on sale of fixed assets',
+    re: /\b(profit|gain)\b.*\b(sale|disposal)\b.*\b(asset|fixed|plant|machine|vehicle|building|land|equipment|furniture)\b/i },
+];
+
+// Classify a ledger name against the non-fund-item patterns. Returns
+// the first matching pattern id + label, or null. Capital ledgers /
+// non-P&L groups should be filtered out before calling.
+function ffMatchNonFund(ledgerName, side /* 'expense' | 'income' */) {
+  const patterns = side === 'expense'
+    ? FF_NON_FUND_EXPENSE_PATTERNS
+    : FF_NON_FUND_INCOME_PATTERNS;
+  const name = ledgerName || '';
+  for (const p of patterns) {
+    if (p.re.test(name)) return { id: p.id, label: p.label };
+  }
+  return null;
+}
+
+// ISO date subtraction — returns the day before `iso`. Used to derive
+// the "opening balance as-of" date from from_date.
+function ffPreviousDay(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// Pull every ledger's opening balance, closing balance, and period
+// movement (Dr/Cr separately for both ends) in a single query.
+//
+// Six SUM columns per row:
+//   open_dr   — Σ debit_amount  for entries dated < from_date
+//   open_cr   — Σ credit_amount for entries dated < from_date
+//   close_dr  — Σ debit_amount  for entries dated ≤ to_date
+//   close_cr  — Σ credit_amount for entries dated ≤ to_date
+//   period_dr — Σ debit_amount  for entries dated in [from_date, to_date]
+//   period_cr — Σ credit_amount for entries dated in [from_date, to_date]
+// Live entries only (forward postings minus paired reversals).
+async function ffFetchLedgerBalances(fromDate, toDate) {
+  // We need entries < from_date for opening, so the JOIN can't pre-filter
+  // by date — the CASE expressions inside SUM do the filtering. Reversal
+  // pairs are excluded via the standard liveEntries clauses.
+  const rows = await sequelize.query(
+    `SELECT la.ledger_id, la.ledger_name, la.ledger_group, la.sub_group,
+            la.is_party_ledger,
+            COALESCE(SUM(CASE WHEN le.entry_date < :from_date  THEN le.debit_amount  ELSE 0 END), 0)::float AS open_dr,
+            COALESCE(SUM(CASE WHEN le.entry_date < :from_date  THEN le.credit_amount ELSE 0 END), 0)::float AS open_cr,
+            COALESCE(SUM(CASE WHEN le.entry_date <= :to_date   THEN le.debit_amount  ELSE 0 END), 0)::float AS close_dr,
+            COALESCE(SUM(CASE WHEN le.entry_date <= :to_date   THEN le.credit_amount ELSE 0 END), 0)::float AS close_cr,
+            COALESCE(SUM(CASE WHEN le.entry_date >= :from_date AND le.entry_date <= :to_date THEN le.debit_amount  ELSE 0 END), 0)::float AS period_dr,
+            COALESCE(SUM(CASE WHEN le.entry_date >= :from_date AND le.entry_date <= :to_date THEN le.credit_amount ELSE 0 END), 0)::float AS period_cr
+       FROM ledger_accounts la
+       LEFT JOIN ledger_entries le
+         ON le.ledger_id = la.ledger_id
+        AND le.reversal_of_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM ledger_entries m
+           WHERE m.reversal_of_id = le.entry_id
+        )
+      WHERE la.is_active = true
+      GROUP BY la.ledger_id, la.ledger_name, la.ledger_group, la.sub_group,
+               la.is_party_ledger
+      ORDER BY la.ledger_group ASC, la.sub_group ASC, la.ledger_name ASC`,
+    { replacements: { from_date: fromDate, to_date: toDate }, type: sequelize.QueryTypes.SELECT },
+  );
+  // Decorate with display-signed opening / closing balances. Convention:
+  //   Asset/Expense  → display = Dr − Cr  (positive on Dr side)
+  //   Liab/Inc/Cap   → display = Cr − Dr  (positive on Cr side)
+  return rows.map((r) => {
+    const isCrSide = r.ledger_group === LIABILITY_GROUP
+                  || r.ledger_group === INCOME_GROUP
+                  || r.ledger_group === CAPITAL_GROUP;
+    const openSigned  = r.open_dr  - r.open_cr;
+    const closeSigned = r.close_dr - r.close_cr;
+    const opening = r2(isCrSide ? -openSigned  : openSigned);
+    const closing = r2(isCrSide ? -closeSigned : closeSigned);
+    return {
+      ledger_id:       r.ledger_id,
+      ledger_name:     r.ledger_name,
+      ledger_group:    r.ledger_group,
+      sub_group:       r.sub_group || '(Uncategorised)',
+      is_party_ledger: r.is_party_ledger,
+      opening,                  // display-signed
+      closing,                  // display-signed
+      delta: r2(closing - opening),
+      period_dr: r2(r.period_dr),
+      period_cr: r2(r.period_cr),
+    };
+  });
+}
+
+exports.fundFlow = async (req, res) => {
+  try {
+    const { from, to } = await resolvePeriod(req.query);
+
+    // ── 1. Pull every ledger's opening + closing + period movement ──
+    const ledgers = await ffFetchLedgerBalances(from, to);
+
+    // ── 2. Stock-in-Hand: synthetic Current Asset line ──
+    // The ERP has no Stock-in-Hand ledger; closing/opening stock comes
+    // from stock_ledger × current purchase_rate. Same helper Balance
+    // Sheet uses, so closing-stock invariant I6 holds across reports.
+    const openingStockDate = ffPreviousDay(from);
+    const openingStock = await stockValueAt(openingStockDate);
+    const closingStock = await stockValueAt(to);
+
+    // ── 3. Working capital schedule ──
+    // For each Current Asset: Δ > 0 → Increase in WC; Δ < 0 → Decrease.
+    // For each Current Liability: Δ > 0 → Decrease in WC; Δ < 0 → Increase.
+    // (Liability balances above are already display-signed positive on
+    // Cr side, so a closing > opening is a real CL increase.)
+    const caRows = [];
+    const clRows = [];
+    let openingFA = 0, closingFA = 0;
+    let openingInv = 0, closingInv = 0;
+    let openingMiscExp = 0, closingMiscExp = 0;
+    let openingLTL = 0, closingLTL = 0;
+    let openingCap = 0, closingCap = 0;
+
+    for (const l of ledgers) {
+      // Skip ledgers with no activity AT ALL (zero open AND close AND period
+      // movement). Keeps the schedule readable.
+      if (l.opening === 0 && l.closing === 0 && l.period_dr === 0 && l.period_cr === 0) continue;
+      if (l.ledger_group === ASSET_GROUP) {
+        const kind = ffClassifyAsset(l.sub_group);
+        if (kind === 'current_asset') {
+          caRows.push(buildScheduleRow(l, 'asset'));
+        } else if (kind === 'fixed_asset') {
+          openingFA += l.opening; closingFA += l.closing;
+        } else if (kind === 'investment') {
+          openingInv += l.opening; closingInv += l.closing;
+        } else if (kind === 'misc_exp') {
+          openingMiscExp += l.opening; closingMiscExp += l.closing;
+        }
+      } else if (l.ledger_group === LIABILITY_GROUP) {
+        const kind = ffClassifyLiability(l.sub_group);
+        if (kind === 'current_liability') {
+          clRows.push(buildScheduleRow(l, 'liability'));
+        } else {
+          openingLTL += l.opening; closingLTL += l.closing;
+        }
+      } else if (l.ledger_group === CAPITAL_GROUP) {
+        openingCap += l.opening; closingCap += l.closing;
+      }
+      // Income / Expense ledgers contribute via Net Profit, not balance change.
+    }
+
+    // Synthetic Stock-in-Hand line (only if non-zero either end).
+    if (openingStock !== 0 || closingStock !== 0) {
+      const delta = r2(closingStock - openingStock);
+      caRows.push({
+        ledger_id:    null,
+        ledger_name:  'Stock-in-Hand',
+        sub_group:    'Stock-in-Hand',
+        is_synthetic: true,
+        opening:      r2(openingStock),
+        closing:      r2(closingStock),
+        delta,
+        increase_in_wc: delta > 0 ? delta : 0,
+        decrease_in_wc: delta < 0 ? -delta : 0,
+      });
+    }
+
+    // ── 4. Schedule totals ──
+    const caRowsSorted = caRows.slice().sort((a, b) => a.ledger_name.localeCompare(b.ledger_name));
+    const clRowsSorted = clRows.slice().sort((a, b) => a.ledger_name.localeCompare(b.ledger_name));
+    const sumOpening = (rows) => r2(rows.reduce((s, r) => s + r.opening, 0));
+    const sumClosing = (rows) => r2(rows.reduce((s, r) => s + r.closing, 0));
+    const sumIncWc   = (rows) => r2(rows.reduce((s, r) => s + r.increase_in_wc, 0));
+    const sumDecWc   = (rows) => r2(rows.reduce((s, r) => s + r.decrease_in_wc, 0));
+    const totIncWc = r2(sumIncWc(caRowsSorted) + sumIncWc(clRowsSorted));
+    const totDecWc = r2(sumDecWc(caRowsSorted) + sumDecWc(clRowsSorted));
+    const netChangeWc = r2(totIncWc - totDecWc);
+    const openingWC = r2(sumOpening(caRowsSorted) - sumOpening(clRowsSorted));
+    const closingWC = r2(sumClosing(caRowsSorted) - sumClosing(clRowsSorted));
+
+    // ── 5. Funds From Operations ──
+    // P&L for the period gives Net Profit. Then add back non-fund
+    // expenses charged and subtract non-fund incomes credited.
+    const pl = await computeProfitLoss(from, to);
+    // computeProfitLoss returns { summary: { net_profit, ... }, debit, credit, ... }
+    // — net_profit is signed (+ profit, − loss).
+    const netProfit = pl.summary.net_profit;
+
+    // Walk the Income/Expense ledgers, match against the heuristic
+    // patterns, and total the period_dr (for expenses) / period_cr
+    // (for incomes) across each pattern bucket.
+    const addBackBuckets = new Map();   // pattern_id → { label, amount, ledgers: [...] }
+    const lessBuckets    = new Map();
+    for (const l of ledgers) {
+      if (l.ledger_group === EXPENSE_GROUP) {
+        const m = ffMatchNonFund(l.ledger_name, 'expense');
+        if (!m) continue;
+        const amt = l.period_dr;
+        if (amt < 0.005) continue;
+        if (!addBackBuckets.has(m.id)) {
+          addBackBuckets.set(m.id, { id: m.id, label: m.label, amount: 0, ledgers: [] });
+        }
+        const b = addBackBuckets.get(m.id);
+        b.amount = r2(b.amount + amt);
+        b.ledgers.push({ ledger_id: l.ledger_id, ledger_name: l.ledger_name, amount: amt });
+      } else if (l.ledger_group === INCOME_GROUP) {
+        const m = ffMatchNonFund(l.ledger_name, 'income');
+        if (!m) continue;
+        const amt = l.period_cr;
+        if (amt < 0.005) continue;
+        if (!lessBuckets.has(m.id)) {
+          lessBuckets.set(m.id, { id: m.id, label: m.label, amount: 0, ledgers: [] });
+        }
+        const b = lessBuckets.get(m.id);
+        b.amount = r2(b.amount + amt);
+        b.ledgers.push({ ledger_id: l.ledger_id, ledger_name: l.ledger_name, amount: amt });
+      }
+    }
+    const addBackList = [...addBackBuckets.values()].sort((a, b) => b.amount - a.amount);
+    const lessList    = [...lessBuckets.values()].sort((a, b) => b.amount - a.amount);
+    const sumAddBack  = r2(addBackList.reduce((s, b) => s + b.amount, 0));
+    const sumLess     = r2(lessList.reduce((s, b) => s + b.amount, 0));
+    const ffo         = r2(netProfit + sumAddBack - sumLess);
+    // Detect what the depreciation/amortization buckets contributed —
+    // needed to back out the FA / Misc-Exp movement at COST below.
+    const depreciationCharge = r2((addBackBuckets.get('depreciation')?.amount) || 0);
+    const amortizationCharge = r2((addBackBuckets.get('amortization')?.amount) || 0);
+
+    // ── 6. Sources and Applications ──
+    //
+    // Capital change: + → Capital introduced (Source); − → Drawings/
+    // withdrawal (Application). We surface both directions if both
+    // happened — but on a SINGLE figure (net), since most of the time
+    // owner contributions and drawings net to one direction.
+    const capChange = r2(closingCap - openingCap);
+
+    // Long-term liabilities: + → loans raised (Source); − → repaid (App).
+    const ltlChange = r2(closingLTL - openingLTL);
+
+    // Fixed assets at COST. Naïve ΔFA = closing − opening would be
+    // distorted by depreciation (which reduced closing). Add depreciation
+    // back to recover the at-cost movement.
+    //   closing_FA = opening_FA + Purchases − Sales_at_cost − Depreciation
+    //   Therefore: Purchases − Sales_at_cost = ΔFA + Depreciation
+    const faChangeAtCost = r2((closingFA - openingFA) + depreciationCharge);
+
+    // Investments. Investments don't depreciate, but profit/loss on
+    // sale of investments lives in P&L and is already removed from FFO,
+    // so the at-cost net movement is just ΔInv.
+    const invChange = r2(closingInv - openingInv);
+
+    // Misc Expenses (Asset) — preliminary expenses, deferred revenue
+    // expenditure, etc. Same reasoning as FA: amortization reduced
+    // closing, add it back.
+    const miscExpChangeAtCost = r2((closingMiscExp - openingMiscExp) + amortizationCharge);
+
+    const sources = [];
+    const applications = [];
+
+    // FFO: positive → operating source; negative → operating application.
+    if (ffo > 0) {
+      sources.push({
+        id: 'ffo', label: 'Funds From Operations', amount: ffo,
+        detail: { net_profit: r2(netProfit), add_back: addBackList, less: lessList },
+      });
+    } else if (ffo < 0) {
+      applications.push({
+        id: 'ffl', label: 'Funds Lost in Operations', amount: r2(-ffo),
+        detail: { net_profit: r2(netProfit), add_back: addBackList, less: lessList },
+      });
+    }
+    // Capital
+    if (capChange > 0) {
+      sources.push({ id: 'cap_in',  label: 'Capital Introduced',         amount: capChange });
+    } else if (capChange < 0) {
+      applications.push({ id: 'cap_out', label: 'Drawings / Capital Withdrawn', amount: r2(-capChange) });
+    }
+    // Long-term liabilities
+    if (ltlChange > 0) {
+      sources.push({ id: 'ltl_raised', label: 'Long-term Loans Raised',  amount: ltlChange });
+    } else if (ltlChange < 0) {
+      applications.push({ id: 'ltl_repaid', label: 'Long-term Loans Repaid', amount: r2(-ltlChange) });
+    }
+    // Fixed assets (at cost)
+    if (faChangeAtCost > 0) {
+      applications.push({ id: 'fa_buy',  label: 'Purchase of Fixed Assets (at cost)', amount: faChangeAtCost });
+    } else if (faChangeAtCost < 0) {
+      sources.push({ id: 'fa_sell', label: 'Sale of Fixed Assets (at cost)',     amount: r2(-faChangeAtCost) });
+    }
+    // Investments
+    if (invChange > 0) {
+      applications.push({ id: 'inv_buy',  label: 'Purchase of Investments',        amount: invChange });
+    } else if (invChange < 0) {
+      sources.push({ id: 'inv_sell', label: 'Sale of Investments',                amount: r2(-invChange) });
+    }
+    // Misc Expenses (Asset)
+    if (miscExpChangeAtCost > 0) {
+      applications.push({ id: 'misc_exp_inc', label: 'Misc. Expenses (Asset) increased', amount: miscExpChangeAtCost });
+    }
+    // We don't show "decrease in misc exp" as a Source — amortization
+    // handles that case via the FFO add-back.
+
+    // ── 7. Reconciliation — Tally convention ──
+    //
+    // Tally's Funds Flow Summary does NOT add a synthetic "Increase /
+    // Decrease in Working Capital" balancing line to the Sources or
+    // Applications columns. The two columns show only REAL flows:
+    //   Sources       = NP + capital introduced + loans raised + FA sold
+    //   Applications  = drawings + loans repaid + FA purchased
+    // The bottom Working-Capital strip on the page conveys the
+    // remainder: ΔWC = Sources − Applications.
+    //
+    // Equivalent to the ICAI textbook formulation but presented
+    // differently — keeps the top columns honest about what funds
+    // genuinely came in/out, with the WC change as the closing
+    // arithmetic check rather than a forced balancing entry.
+    //
+    // The mathematical identity: Sources − Applications = ΔWC
+    // (force-balanced version: Sources = Applications + ΔWC). Both
+    // formulations are paisa-equivalent.
+    const totalSources = r2(sources.reduce((s, x) => s + x.amount, 0));
+    const totalApplications = r2(applications.reduce((s, x) => s + x.amount, 0));
+    // Reconciliation: Σ Sources − Σ Applications must equal ΔWC.
+    // A non-zero `drift` indicates classifier coverage gaps (eg. an FA
+    // sub_group not in our list, an unhandled non-fund item, etc.).
+    const drift = r2((totalSources - totalApplications) - netChangeWc);
+    const balanced = Math.abs(drift) < 0.01;
+    // Pre-WC totals retained for back-compat / debugging — they equal
+    // totalSources/totalApplications now since we no longer push the
+    // wc_inc/wc_dec line. Kept so consumers reading the old shape don't
+    // crash; the two pairs are identical.
+    const totalSourcesPre = totalSources;
+    const totalAppsPre    = totalApplications;
+
+    res.json({
+      period: { from, to },
+      schedule: {
+        current_assets:      caRowsSorted,
+        current_liabilities: clRowsSorted,
+        totals: {
+          opening_ca: r2(sumOpening(caRowsSorted)),
+          closing_ca: r2(sumClosing(caRowsSorted)),
+          opening_cl: r2(sumOpening(clRowsSorted)),
+          closing_cl: r2(sumClosing(clRowsSorted)),
+          opening_wc: openingWC,
+          closing_wc: closingWC,
+          increase_in_wc: totIncWc,
+          decrease_in_wc: totDecWc,
+          net_change_in_wc: netChangeWc,
+        },
+      },
+      ffo: {
+        net_profit: r2(netProfit),
+        is_loss:    netProfit < 0,
+        add_back:   addBackList,
+        less:       lessList,
+        sum_add_back: sumAddBack,
+        sum_less:     sumLess,
+        total:        ffo,
+      },
+      sources,
+      applications,
+      totals: {
+        total_sources:        totalSources,
+        total_applications:   totalApplications,
+        // Sources excluding the balancing WC line — useful when the UI
+        // wants to show what FFO + capital + sales drove on its own.
+        total_sources_pre_wc:      totalSourcesPre,
+        total_applications_pre_wc: totalAppsPre,
+        net_change_in_wc:     netChangeWc,
+        drift,
+        balanced,
+      },
+      // Surface the balance components that drove the statement so a
+      // user can audit any number against trial-balance source data.
+      breakdown: {
+        opening_fa: r2(openingFA), closing_fa: r2(closingFA), fa_change_at_cost: faChangeAtCost,
+        opening_inv: r2(openingInv), closing_inv: r2(closingInv),
+        opening_misc_exp: r2(openingMiscExp), closing_misc_exp: r2(closingMiscExp),
+        opening_ltl: r2(openingLTL), closing_ltl: r2(closingLTL),
+        opening_cap: r2(openingCap), closing_cap: r2(closingCap),
+        depreciation_charge: depreciationCharge,
+        amortization_charge: amortizationCharge,
+      },
+    });
+  } catch (err) {
+    console.error('fundFlow error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+};
+
+// ── Fund Flow — Monthly Register ───────────────────────────────────────
+//
+// View 1 of the Tally-style three-level drill (parallel of Cash Flow's
+// cashFlowMonthly). Returns one row per calendar month between
+// from..to with:
+//
+//   month_iso     — ISO YYYY-MM-01 (used as drill key)
+//   month_label   — "April 2026" (display)
+//   opening_wc    — Working capital as of (month_start − 1 day)
+//   closing_wc    — Working capital as of month_end (last day of month)
+//   funds_flow    — closing_wc − opening_wc  (= net funds flow that month)
+//
+// Cumulative running totals — month N's opening_wc equals month N−1's
+// closing_wc by construction. The Grand Total at the foot shows period-
+// level opening_wc, closing_wc, and Σ funds_flow (which must equal
+// closing_wc − opening_wc — the report's own internal check).
+//
+// Working capital = SUM(Current Asset balances) − SUM(Current Liability
+// balances), with sign flipped for liabilities so we get a positive WC
+// figure on a healthy balance sheet. Stock-in-Hand is included via the
+// shared stockValueAt() helper (no dedicated ledger in this ERP).
+exports.fundFlowMonthly = async (req, res) => {
+  try {
+    const { from, to } = await resolvePeriod(req.query);
+
+    // ── Build the list of month boundaries ────────────────────────
+    // generate_series in postgres to enumerate month-starts inside
+    // [from, to]. For each, we compute opening (day-before month_start)
+    // and closing (last day of month) WC values.
+    const boundaries = await sequelize.query(
+      `SELECT to_char(m.month_start, 'YYYY-MM-01') AS month_iso,
+              m.month_start::text AS month_start,
+              (m.month_start + interval '1 month' - interval '1 day')::date::text AS month_end
+         FROM (
+           SELECT generate_series(
+             date_trunc('month', :from_date::date),
+             date_trunc('month', :to_date::date),
+             interval '1 month'
+           )::date AS month_start
+         ) m
+        ORDER BY m.month_start`,
+      { replacements: { from_date: from, to_date: to }, type: sequelize.QueryTypes.SELECT },
+    );
+    if (boundaries.length === 0) {
+      return res.json({
+        period: { from, to },
+        rows: [],
+        totals: { opening_wc: 0, closing_wc: 0, funds_flow: 0 },
+      });
+    }
+
+    // ── WC ledger contribution per month-end ──────────────────────
+    // For each month_end, compute Σ(CA balances at that date) −
+    // Σ(CL balances at that date) over live (non-reversed) entries.
+    //
+    // Sign math: every entry's contribution is `(Dr − Cr)`. For a
+    // current-asset ledger this is naturally positive (Dr-side bal).
+    // For a current-liability ledger it's naturally negative (Cr-side
+    // bal expressed as a Dr-Cr signed delta — Σ Cr exceeds Σ Dr, so
+    // (Dr − Cr) is < 0). Therefore SUM(CA contribs) + SUM(CL contribs)
+    // = Σ CA balances − Σ CL balances = Working Capital.
+    //
+    // The earlier draft of this code negated the CL contribution,
+    // which double-flipped CL and produced CA + CL instead of CA − CL.
+    // That bug shipped `Opening WC = -7,58,005` against a true
+    // 91,40,712 — caught by the chain-coherence test below.
+    //
+    // FA / Investments / Misc.Exp(Asset) are EXCLUDED from CA. Long-term
+    // liabilities (Loans, Bank OD, Secured/Unsecured Loans) excluded
+    // from CL. Both lists mirror the JS-side classifiers above.
+    const fixedExcl = [...FF_FIXED_ASSET_SUBS, ...FF_INVESTMENT_SUBS, ...FF_MISC_EXP_SUBS];
+    const ltlExcl   = [...FF_LONG_TERM_LIAB_SUBS];
+
+    // Single SQL using a correlated sub-query per month-end. PostgreSQL
+    // executes the outer scan once and the sub-queries on indexed
+    // entry_date — fast even on six-figure entry counts.
+    const rows = await sequelize.query(
+      `WITH bounds AS (
+         SELECT to_char(m.month_start, 'YYYY-MM-01') AS month_iso,
+                m.month_start AS month_start,
+                (m.month_start + interval '1 month' - interval '1 day')::date AS month_end
+           FROM (
+             SELECT generate_series(
+               date_trunc('month', :from_date::date),
+               date_trunc('month', :to_date::date),
+               interval '1 month'
+             )::date AS month_start
+           ) m
+       ),
+       wc_legs AS (
+         SELECT le.entry_date,
+                (le.debit_amount - le.credit_amount) AS contrib
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE le.reversal_of_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM ledger_entries m
+               WHERE m.reversal_of_id = le.entry_id
+            )
+            AND la.is_active = true
+            AND (
+              (la.ledger_group = 'Assets'
+                AND (la.sub_group IS NULL OR la.sub_group NOT IN (:fixed_excl)))
+              OR
+              (la.ledger_group = 'Liabilities'
+                AND la.sub_group NOT IN (:ltl_excl))
+            )
+       )
+       SELECT b.month_iso,
+              b.month_start::text AS month_start,
+              b.month_end::text   AS month_end,
+              COALESCE((SELECT SUM(contrib) FROM wc_legs WHERE entry_date < b.month_start), 0)::float AS le_open,
+              COALESCE((SELECT SUM(contrib) FROM wc_legs WHERE entry_date <= b.month_end),  0)::float AS le_close
+         FROM bounds b
+        ORDER BY b.month_start`,
+      {
+        replacements: { from_date: from, to_date: to, fixed_excl: fixedExcl, ltl_excl: ltlExcl },
+        type: sequelize.QueryTypes.SELECT,
+      },
+    );
+
+    // ── Stock-in-Hand contribution per month boundary ──────────────
+    // No dedicated ledger; pulled from stock_ledger × current
+    // purchase_rate via stockValueAt(). One call per month boundary —
+    // for a year that's 13 calls; each is a single aggregate query.
+    const stockOpenByMonth = new Map();
+    const stockCloseByMonth = new Map();
+    for (const r of rows) {
+      // opening = day before month_start
+      const d = new Date(r.month_start + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() - 1);
+      const openingDate = d.toISOString().slice(0, 10);
+      stockOpenByMonth.set(r.month_iso, await stockValueAt(openingDate));
+      stockCloseByMonth.set(r.month_iso, await stockValueAt(r.month_end));
+    }
+
+    const out = rows.map((r) => {
+      const stockOpen  = stockOpenByMonth.get(r.month_iso) || 0;
+      const stockClose = stockCloseByMonth.get(r.month_iso) || 0;
+      const openingWc  = r2(r.le_open  + stockOpen);
+      const closingWc  = r2(r.le_close + stockClose);
+      const fundsFlow  = r2(closingWc - openingWc);
+      return {
+        month_iso:   r.month_iso,
+        month_label: _monthLabel(r.month_iso),
+        opening_wc:  openingWc,
+        closing_wc:  closingWc,
+        funds_flow:  fundsFlow,
+      };
+    });
+
+    // Period-level Grand Total — opening from FIRST row, closing from
+    // LAST, sum of monthly funds_flow. The closing − opening must equal
+    // Σ funds_flow (running totals tile cleanly); we surface both so a
+    // UI banner can flag any drift.
+    const first = out[0];
+    const last  = out[out.length - 1];
+    const sumFlows = r2(out.reduce((s, x) => s + x.funds_flow, 0));
+    const totals = {
+      opening_wc: first ? first.opening_wc : 0,
+      closing_wc: last  ? last.closing_wc  : 0,
+      funds_flow: sumFlows,
+    };
+
+    res.json({
+      period: { from, to },
+      rows: out,
+      totals,
+    });
+  } catch (err) {
+    console.error('fundFlowMonthly error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+};
+
+// Build one row of the WC schedule. Pure helper used twice (CA + CL).
+//   side='asset'     → CA up = WC up
+//   side='liability' → CL up = WC down
+function buildScheduleRow(l, side) {
+  const delta = r2(l.closing - l.opening);
+  let inc = 0, dec = 0;
+  if (side === 'asset') {
+    if (delta > 0) inc = delta; else if (delta < 0) dec = -delta;
+  } else {
+    if (delta > 0) dec = delta; else if (delta < 0) inc = -delta;
+  }
+  return {
+    ledger_id:    l.ledger_id,
+    ledger_name:  l.ledger_name,
+    sub_group:    l.sub_group,
+    is_party_ledger: !!l.is_party_ledger,
+    opening:      l.opening,
+    closing:      l.closing,
+    delta,
+    increase_in_wc: r2(inc),
+    decrease_in_wc: r2(dec),
+  };
+}

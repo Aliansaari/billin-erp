@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customer Receipt / Supplier Payment — Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+ *  Customer Receipt / Supplier Payment — redesign mockup.
+ *
+ *  Same workflow as the live page (party + bill picker on the right,
+ *  amount/mode form on the left, sticky save bar at the foot) — but
+ *  rebuilt against the app's classic-light design system so the page
+ *  reads as a sibling of Cash Flow / Trial Balance / Stock Reports.
+ *
+ *  Layout principles:
+ *    1. ONE primary action visible at a glance: Receive Amount. The
+ *       input is wider and gets an accent border on focus so the eye
+ *       lands here first.
+ *    2. Hide chrome that doesn't help data entry: no centred "Customer
+ *       Receipt" pill, no decorative emerald cards, no F-key hints
+ *       repeated next to every label.
+ *    3. Let the bills table BE a table — sticky header, alternating
+ *       row tint, indigo left-stripe on the active row. Same recipe as
+ *       the reports family (Cash Flow, Bills Outstanding, etc.).
+ *    4. Sticky footer is the dashboard for the operator: how many bills
+ *       selected, how much they're paying, paisa-exact remaining. Saves
+ *       on the right, keyboard shortcut next to Save.
+ *
+ *  Token discipline: cool-grey app bg, indigo accent, success/warning/
+ *  danger statuses, Source Sans 3 with tabular-nums for numerics. Maps
+ *  1:1 to src/theme/themes.css [data-theme="classic-light"].
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg-app:        #f5f7fa;
+  --bg-panel:      #ffffff;
+  --bg-muted:      #f9fafb;
+  --bg-hover:      #f3f4f6;
+
+  --fg-primary:    #1f2937;
+  --fg-secondary:  #6b7280;
+  --fg-tertiary:   #9ca3af;
+  --fg-quaternary: #d1d5db;
+  --fg-inverse:    #ffffff;
+
+  --accent:        #4F46E5;
+  --accent-hover:  #4338ca;
+  --accent-bg:     rgba(79, 70, 229, 0.08);
+  --accent-border: rgba(79, 70, 229, 0.20);
+
+  --success:       #10B981;
+  --success-bg:    rgba(16,185,129,0.10);
+  --warning:       #F59E0B;
+  --warning-bg:    rgba(245,158,11,0.10);
+  --danger:        #EF4444;
+  --danger-bg:     rgba(239,68,68,0.10);
+
+  --border:        #e5e7eb;
+  --border-subtle: #f0f0f0;
+  --border-strong: #d1d5db;
+  --shadow-sm:     0 1px 2px rgba(0,0,0,0.04);
+
+  --radius-sm:     6px;
+  --radius-md:     10px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg-app); color: var(--fg-primary);
+  font-family: 'Source Sans 3', -apple-system, system-ui, sans-serif;
+  font-size: 14px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+  height: 100vh; overflow: hidden;
+}
+
+/* ─── Page shell ─────────────────────────────────────────────────────── */
+.page {
+  height: 100vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─── Header strip ───────────────────────────────────────────────────── */
+.page-hd {
+  flex-shrink: 0;
+  padding: 12px 24px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 18px;
+}
+.page-hd .ttl {
+  font-size: 18px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--fg-primary);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.page-hd .ttl .ic {
+  width: 24px; height: 24px; border-radius: 6px;
+  background: var(--success-bg); color: var(--success);
+  display: grid; place-items: center;
+  font-size: 13px;
+}
+.page-hd .ttl.payment .ic { background: var(--danger-bg); color: var(--danger); }
+
+/* Receipt # / date "address strip" — small, monospaced numerals next
+ * to the title, gives the metadata without competing for attention. */
+.page-hd .meta {
+  display: flex; align-items: center; gap: 14px;
+  font-size: 12.5px; color: var(--fg-secondary);
+}
+.page-hd .meta .pair { display: flex; align-items: baseline; gap: 6px; }
+.page-hd .meta .lbl  { font-size: 10.5px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--fg-tertiary); font-weight: 600; }
+.page-hd .meta .val  { color: var(--fg-primary); font-weight: 600; }
+.page-hd .meta .kbd  { font-size: 10.5px; color: var(--fg-tertiary); margin-left: 2px; }
+.page-hd .meta .pair .input-mini {
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 2px 9px;
+  font: inherit; font-size: 13px; font-weight: 600;
+  background: var(--bg-app);
+  color: var(--fg-primary);
+  height: 28px;
+}
+.page-hd .meta .pair .input-mini.read {
+  background: var(--bg-muted);
+  border-color: var(--border-subtle);
+  color: var(--fg-secondary);
+}
+
+.page-hd .grow { flex: 1; }
+
+/* Header buttons — match .rpt-btn rhythm (32px, 6px radius) */
+.btn {
+  height: 32px;
+  padding: 0 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--fg-primary);
+  font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s, color .12s;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn svg   { width: 13px; height: 13px; }
+
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+
+.btn.success { background: var(--success); color: #fff; border-color: var(--success); }
+.btn.success:hover { background: #0d9b6c; border-color: #0d9b6c; color: #fff; }
+
+/* ─── Body — two-column split ────────────────────────────────────────── */
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 0;
+  overflow: hidden;
+}
+@media (max-width: 1100px) { .body { grid-template-columns: 1fr; } }
+
+/* ─── LEFT — entry form ────────────────────────────────────────────── */
+.form {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  padding: 22px 22px;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 130px;
+  gap: 10px;
+}
+
+.lbl-l {
+  font-size: 11px; letter-spacing: 0.6px;
+  text-transform: uppercase; color: var(--fg-secondary);
+  font-weight: 700;
+}
+.lbl-l .opt { color: var(--fg-quaternary); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; font-size: 11px; }
+
+.input, .select {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  font: inherit; font-size: 14px;
+  color: var(--fg-primary);
+  outline: 0;
+  transition: border-color .12s, box-shadow .12s;
+  font-variant-numeric: tabular-nums;
+}
+.input:focus, .select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.input::placeholder { color: var(--fg-tertiary); }
+
+/* Customer dropdown + chevron */
+.select {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer;
+}
+.select .chev {
+  width: 12px; height: 12px;
+  color: var(--fg-tertiary);
+}
+
+/* Customer summary strip — replaces the green tinted card. Reads as
+ * informational metadata, not a button or a card. */
+.party-meta {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+}
+.party-meta .lbl { color: var(--fg-secondary); }
+.party-meta .v {
+  font-weight: 700; color: var(--success);
+  font-variant-numeric: tabular-nums;
+}
+.party-meta.payable .v { color: var(--warning); }
+
+/* Hero input — Receive Amount. Slightly bigger, slightly stronger
+ * border, ₹ prefix tucked inside. The eye lands here first. */
+.field.hero { gap: 6px; }
+.field.hero .lbl-l { color: var(--accent); font-weight: 800; }
+.field.hero .input-shell {
+  position: relative;
+  display: flex; align-items: center;
+}
+.field.hero .input-shell .currency {
+  position: absolute;
+  left: 14px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--fg-secondary);
+  pointer-events: none;
+}
+.field.hero .input.amount {
+  height: 52px;
+  padding-left: 38px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  border-width: 1.5px;
+  letter-spacing: -0.01em;
+}
+.field.hero .input.amount:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-bg);
+}
+.field.hero .hint {
+  display: flex; justify-content: space-between;
+  font-size: 11.5px; color: var(--fg-tertiary);
+  margin-top: 2px;
+}
+.field.hero .hint .max {
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+}
+.field.hero .hint .max:hover { text-decoration: underline; }
+
+/* Mode chips — replace the dropdown for the most common case */
+.modes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+}
+.modes button {
+  height: 28px;
+  border: 0;
+  background: transparent;
+  font: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--fg-secondary);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.modes button:hover { color: var(--fg-primary); }
+.modes button.on {
+  background: var(--bg-panel);
+  color: var(--fg-primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Inline ₹ prefix for the Discount input */
+.input-with-cur {
+  position: relative;
+  display: flex; align-items: center;
+}
+.input-with-cur .cur {
+  position: absolute; left: 12px;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+}
+.input-with-cur .input { padding-left: 26px; }
+
+/* ─── RIGHT — bills table ───────────────────────────────────────── */
+.bills {
+  background: var(--bg-panel);
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+.bills-hd {
+  flex-shrink: 0;
+  padding: 14px 24px 12px;
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bills-hd .ttl {
+  font-size: 14.5px; font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.bills-hd .meta {
+  font-size: 12.5px; color: var(--fg-secondary);
+}
+.bills-hd .meta b { color: var(--fg-primary); font-weight: 600; }
+.bills-hd .filter {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 28px; padding: 0 11px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 12px; color: var(--fg-secondary);
+  cursor: pointer;
+}
+.bills-hd .filter:hover { color: var(--fg-primary); border-color: var(--border-strong); }
+.bills-hd .filter svg { width: 11px; height: 11px; }
+
+.bills-tbl {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+table.bills-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+}
+.bills-table thead th {
+  padding: 9px 16px;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--fg-secondary);
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+  position: sticky; top: 0;
+}
+.bills-table thead th:first-child,
+.bills-table thead th.l { text-align: left; }
+.bills-table thead th .checkbox { float: right; }
+
+.bills-table tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.bills-table tbody td:first-child,
+.bills-table tbody td.l { text-align: left; }
+.bills-table tbody tr:hover td { background: var(--bg-muted); }
+.bills-table tbody tr.selected td {
+  background: var(--accent-bg);
+}
+.bills-table tbody tr.selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.bills-table .bill-no { font-weight: 600; color: var(--fg-primary); }
+.bills-table .num { font-weight: 500; color: var(--fg-primary); }
+.bills-table .num.bold { font-weight: 700; }
+.bills-table .num.dim  { color: var(--fg-tertiary); }
+.bills-table .balance.due { color: var(--danger); font-weight: 600; }
+
+.age {
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+}
+.age.fresh   { background: var(--success-bg); color: var(--success); }
+.age.medium  { background: var(--warning-bg); color: var(--warning); }
+.age.overdue { background: var(--danger-bg);  color: var(--danger);  }
+
+/* Per-row Paying Now mini-input. Subtle by default; gets accent
+ * border + bg when the row is selected (auto-filled to balance). */
+.paying-input {
+  width: 110px;
+  height: 30px;
+  padding: 0 10px;
+  text-align: right;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 5px;
+  font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--fg-primary);
+  outline: 0;
+  font-variant-numeric: tabular-nums;
+}
+.paying-input:hover { background: var(--bg-app); border-color: var(--border); }
+.paying-input:focus { border-color: var(--accent); background: var(--bg-panel); }
+tr.selected .paying-input { border-color: var(--accent-border); background: var(--bg-panel); }
+tr.selected .paying-input.empty { color: var(--fg-tertiary); }
+
+/* AntD-style native checkbox replacement */
+.checkbox {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-panel);
+  cursor: pointer;
+  transition: all .12s;
+}
+.checkbox:hover { border-color: var(--accent); }
+.checkbox.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.checkbox.on::after {
+  content: '';
+  width: 5px; height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+.checkbox.indeterminate {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.checkbox.indeterminate::after {
+  content: '';
+  width: 8px; height: 2px;
+  background: #fff;
+  border-radius: 1px;
+}
+
+/* Empty state */
+.bills-empty {
+  flex: 1 1 auto;
+  display: grid; place-items: center;
+  padding: 40px;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* ─── Footer (sticky) ──────────────────────────────────────────────── */
+.foot {
+  flex-shrink: 0;
+  padding: 12px 24px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+}
+.foot-summary {
+  display: flex; align-items: center; gap: 18px;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+}
+.foot-summary .stat { display: flex; align-items: baseline; gap: 6px; }
+.foot-summary .stat .lbl {
+  font-size: 10.5px; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--fg-tertiary);
+  font-weight: 600;
+}
+.foot-summary .stat .v {
+  font-size: 13.5px; font-weight: 700;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.foot-summary .stat .v.accent { color: var(--accent); }
+.foot-summary .stat .v.muted  { color: var(--fg-secondary); font-weight: 600; }
+.foot-summary .sep { color: var(--fg-quaternary); }
+
+.foot-actions { display: flex; align-items: center; gap: 8px; }
+.foot-actions .kbd {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10.5px; color: var(--fg-tertiary);
+  margin-right: 8px;
+}
+.foot-actions .kbd kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 18px; min-width: 18px; padding: 0 5px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font: inherit; font-size: 10.5px; font-weight: 600;
+  color: var(--fg-secondary);
+  margin-right: 3px;
+}
+
+/* Save button gets the accent treatment + a primary feel */
+.btn.save { padding: 0 18px; }
+.btn.save kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 17px; min-width: 17px; padding: 0 4px;
+  background: rgba(255,255,255,0.22);
+  color: #fff;
+  border-radius: 3px;
+  font-size: 10px; font-weight: 700;
+  margin-left: 6px;
+}
+
+</style>
+</head>
+<body>
+
+<main class="page">
+
+  <!-- ─── Header strip ──────────────────────────────────────────────── -->
+  <header class="page-hd">
+    <div class="ttl">
+      <span class="ic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 5v14M19 12l-7 7-7-7"/>
+        </svg>
+      </span>
+      Customer Receipt
+    </div>
+
+    <div class="meta">
+      <div class="pair">
+        <span class="lbl">Date</span>
+        <input class="input-mini" value="03 May 2026" />
+        <span class="kbd">F2</span>
+      </div>
+      <div class="pair">
+        <span class="lbl">Receipt #</span>
+        <input class="input-mini read" value="REC-000001" readonly />
+      </div>
+    </div>
+
+    <div class="grow"></div>
+
+    <button class="btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Reset
+    </button>
+    <button class="btn">← Back</button>
+  </header>
+
+  <!-- ─── Body ──────────────────────────────────────────────────────── -->
+  <section class="body">
+
+    <!-- LEFT — entry form -->
+    <div class="form">
+
+      <!-- Party picker -->
+      <div class="field">
+        <label class="lbl-l">Customer
+          <span class="opt">F4 to search</span>
+        </label>
+        <div class="select">
+          <span>BALAJI COLLECTION (CHAKAN)</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+
+      <!-- Party balance summary — small neutral strip, NOT a green card -->
+      <div class="party-meta">
+        <span class="lbl">Outstanding receivable</span>
+        <span class="v">₹ 0.32</span>
+      </div>
+
+      <!-- Receive amount — primary action, hero input -->
+      <div class="field hero">
+        <label class="lbl-l">Receive Amount</label>
+        <div class="input-shell">
+          <span class="currency">₹</span>
+          <input class="input amount" placeholder="0.00" />
+        </div>
+        <div class="hint">
+          <span>Allocates to selected bills FIFO</span>
+          <span class="max">Use Max ₹ 0.32 →</span>
+        </div>
+      </div>
+
+      <!-- Payment mode — chip group, not a dropdown. Common values are
+           always 1-2-3-4; a dropdown adds a click for nothing. -->
+      <div class="field">
+        <label class="lbl-l">Payment Mode</label>
+        <div class="modes">
+          <button class="on">Cash</button>
+          <button>Bank</button>
+          <button>UPI</button>
+          <button>Cheque</button>
+        </div>
+      </div>
+
+      <!-- Discount + Ref/UTR — paired row, both short fields -->
+      <div class="field-row">
+        <div class="field">
+          <label class="lbl-l">Discount <span class="opt">optional</span></label>
+          <div class="input-with-cur">
+            <span class="cur">₹</span>
+            <input class="input" value="0" />
+          </div>
+        </div>
+        <div class="field">
+          <label class="lbl-l">Cheque / UTR</label>
+          <input class="input" placeholder="Optional" />
+        </div>
+      </div>
+
+      <!-- Invoice numbers — dim-ed since auto-populated from bill table.
+           Manual entry only when the user wants to type a one-off. -->
+      <div class="field">
+        <label class="lbl-l">Invoice Nos.
+          <span class="opt">auto-filled from selected bills</span>
+        </label>
+        <input class="input" value="25-26/815" readonly style="background: var(--bg-muted); color: var(--fg-secondary);" />
+      </div>
+
+      <!-- Notes — collapsed, optional -->
+      <div class="field">
+        <label class="lbl-l">Notes <span class="opt">optional</span></label>
+        <input class="input" placeholder="Any internal note for this receipt" />
+      </div>
+
+    </div>
+
+    <!-- RIGHT — bills table -->
+    <div class="bills">
+      <div class="bills-hd">
+        <div>
+          <div class="ttl">Outstanding bills</div>
+          <div class="meta">
+            <b>1</b> bill open ·
+            Σ <b>₹ 26,532.32</b> outstanding ·
+            <span style="color: var(--danger); font-weight: 600;">1 overdue 90+ d</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="filter">
+            <span>All bills</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <button class="filter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Search
+          </button>
+        </div>
+      </div>
+
+      <div class="bills-tbl">
+        <table class="bills-table">
+          <thead>
+            <tr>
+              <th class="l">Bill No.</th>
+              <th class="l">Date</th>
+              <th>Net Amount</th>
+              <th>Balance Due</th>
+              <th>Paying Now</th>
+              <th>Age</th>
+              <th><span class="checkbox"></span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="selected">
+              <td class="l"><span class="bill-no">25-26/815</span></td>
+              <td class="l"><span class="num dim">05 Oct 2025</span></td>
+              <td><span class="num">26,532.32</span></td>
+              <td><span class="num bold balance due">₹ 26,532.32</span></td>
+              <td><input class="paying-input" value="0.32" /></td>
+              <td><span class="age overdue">210 d</span></td>
+              <td><span class="checkbox on"></span></td>
+            </tr>
+            <!-- A few more sample rows for visual depth — these would be
+                 hidden by the "1 bill open" message in the live data,
+                 but a full party with 6 open bills illustrates the
+                 striping + age pills + auto-fill-on-select pattern. -->
+            <tr>
+              <td class="l"><span class="bill-no">25-26/812</span></td>
+              <td class="l"><span class="num dim">28 Sep 2025</span></td>
+              <td><span class="num">14,820.00</span></td>
+              <td><span class="num bold balance due">₹ 14,820.00</span></td>
+              <td><input class="paying-input empty" placeholder="—" /></td>
+              <td><span class="age overdue">217 d</span></td>
+              <td><span class="checkbox"></span></td>
+            </tr>
+            <tr>
+              <td class="l"><span class="bill-no">25-26/798</span></td>
+              <td class="l"><span class="num dim">12 Sep 2025</span></td>
+              <td><span class="num">8,640.00</span></td>
+              <td><span class="num bold balance due">₹ 8,640.00</span></td>
+              <td><input class="paying-input empty" placeholder="—" /></td>
+              <td><span class="age overdue">233 d</span></td>
+              <td><span class="checkbox"></span></td>
+            </tr>
+            <tr>
+              <td class="l"><span class="bill-no">25-26/762</span></td>
+              <td class="l"><span class="num dim">22 Aug 2025</span></td>
+              <td><span class="num">22,415.50</span></td>
+              <td><span class="num bold balance due">₹ 11,200.00</span></td>
+              <td><input class="paying-input empty" placeholder="—" /></td>
+              <td><span class="age overdue">254 d</span></td>
+              <td><span class="checkbox"></span></td>
+            </tr>
+            <tr>
+              <td class="l"><span class="bill-no">25-26/741</span></td>
+              <td class="l"><span class="num dim">07 Aug 2025</span></td>
+              <td><span class="num">5,260.00</span></td>
+              <td><span class="num bold balance due">₹ 5,260.00</span></td>
+              <td><input class="paying-input empty" placeholder="—" /></td>
+              <td><span class="age overdue">269 d</span></td>
+              <td><span class="checkbox"></span></td>
+            </tr>
+            <tr>
+              <td class="l"><span class="bill-no">25-26/718</span></td>
+              <td class="l"><span class="num dim">20 Jul 2025</span></td>
+              <td><span class="num">3,180.00</span></td>
+              <td><span class="num bold balance due">₹ 3,180.00</span></td>
+              <td><input class="paying-input empty" placeholder="—" /></td>
+              <td><span class="age overdue">287 d</span></td>
+              <td><span class="checkbox"></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Footer ──────────────────────────────────────────────────── -->
+  <footer class="foot">
+    <div class="foot-summary">
+      <div class="stat">
+        <span class="lbl">Bills</span>
+        <span class="v">1 of 6</span>
+      </div>
+      <span class="sep">·</span>
+      <div class="stat">
+        <span class="lbl">Max</span>
+        <span class="v muted">₹ 0.32</span>
+      </div>
+      <span class="sep">·</span>
+      <div class="stat">
+        <span class="lbl">Allocating</span>
+        <span class="v accent">₹ 0.32</span>
+      </div>
+      <span class="sep">·</span>
+      <div class="stat">
+        <span class="lbl">Remaining</span>
+        <span class="v muted">₹ 0.00</span>
+      </div>
+    </div>
+    <div class="foot-actions">
+      <span class="kbd"><kbd>Esc</kbd> Back</span>
+      <button class="btn save success">
+        ✓ Save Receipt <kbd>F1</kbd>
+      </button>
+    </div>
+  </footer>
+
+</main>
+
+</body>
+</html>

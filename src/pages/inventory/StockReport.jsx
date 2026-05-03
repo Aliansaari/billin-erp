@@ -8,7 +8,7 @@ import {
   SettingOutlined, ReloadOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { reportAPI, categoryAPI, godownAPI, dataAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
@@ -79,12 +79,37 @@ function stockStatus(v, min) {
 
 export default function StockReport() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [searchInput, setSearchInput] = useState('');
   // period_from / period_to drive the Inward / Outward columns. NULL on
   // both means "all time" — the server treats the absence as no date
   // floor (sentinel 1900-01-01).
+  //
+  // Drill-from-URL — when navigated to via ?godown_id=X (eg. from the
+  // Godown-wise Valuation page's "View items" drill-in), seed the
+  // filter state with the URL-supplied values. The Godown <Select>
+  // below picks up the same `filters.godown_id` and renders the right
+  // option as selected on first paint.
+  const initialGodownId = (() => {
+    const q = searchParams.get('godown_id');
+    if (!q) return null;
+    const n = parseInt(q, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+  const initialCategoryId = (() => {
+    const q = searchParams.get('category_id');
+    if (!q) return null;
+    const n = parseInt(q, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+  // stock_status from URL — only the four valid values. Anything else
+  // is ignored so a malformed URL doesn't break the chip highlighting.
+  const initialStockStatus = (() => {
+    const q = searchParams.get('stock_status');
+    return ['ok', 'low', 'out', 'neg'].includes(q) ? q : null;
+  })();
   const [filters, setFilters] = useState({
-    search: '', category_id: null, stock_status: null, godown_id: null,
+    search: '', category_id: initialCategoryId, stock_status: initialStockStatus, godown_id: initialGodownId,
     period_from: null, period_to: null,
   });
   useEffect(() => {

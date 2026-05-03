@@ -321,6 +321,356 @@ exports.movers = async (req, res) => {
   }
 };
 
+// ── Stock Velocity (v2 Movers report) ────────────────────────────────
+//
+// Powers the redesigned Fast & Slow Movers page. Returns per-product
+// velocity metrics + a single classification each row falls into:
+//
+//   fast     — cover < 30 days  AND qty_sold > 0
+//   average  — cover 30 – 90 days
+//   slow     — cover 90+ days   AND qty_sold > 0
+//   slow     — qty_sold == 0 in period AND last sale ≤ DEAD_DAYS ago
+//   dead     — qty_sold == 0 in period AND (no sale ever, or last sale > DEAD_DAYS ago)
+//
+// Classification math:
+//   period_days     = inclusive day count from..to (≥ 1)
+//   velocity_per_day  = qty_sold / period_days
+//   velocity_per_month = velocity_per_day × 30  (display unit)
+//   cover_days       = current_stock / velocity_per_day  (∞ when no sales)
+//
+// The cover-display class is computed independently — a "Fast" product
+// running out (cover < 7 days) gets a red Cover column even though its
+// row class is still 'fast'. That's deliberate: the action is "Reorder
+// urgently", not "this product is slow".
+//
+// Totals are always over the FULL dataset (no class filter applied) so
+// the tab counts on the UI stay constant across filter changes. The
+// `rows` array is filtered + sorted + top-N capped per the request.
+//
+// Query params:
+//   from_date      ISO YYYY-MM-DD (default = today − 89, i.e. 90-day window)
+//   to_date        ISO YYYY-MM-DD (default = today)
+//   class          'all' (default) | 'fast' | 'average' | 'slow' | 'dead'
+//   limit          int 1–10000 (default 50)  — Top-N
+//   sort           velocity_desc (default) | velocity_asc | cover_asc
+//                  | cover_desc | stock_desc | sold_desc | name_asc
+//   category_id    optional int filter
+//   godown_id      optional int filter (scopes the SALES window only)
+//   search         substring match on product_name / barcode / hsn_code
+exports.stockVelocity = async (req, res) => {
+  try {
+    // ── Period ─────────────────────────────────────────────────────
+    // Client always passes explicit dates (the frontend resolves the
+    // preset). But we default to the last 90 days to make this endpoint
+    // usable from a curl test without supplying dates.
+    let from = (req.query && req.query.from_date) ? String(req.query.from_date).slice(0, 10) : null;
+    let to   = (req.query && req.query.to_date)   ? String(req.query.to_date).slice(0, 10)   : null;
+    if (!to) to = new Date().toISOString().slice(0, 10);
+    if (!from) {
+      const d = new Date(to + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() - 89);
+      from = d.toISOString().slice(0, 10);
+    }
+
+    // Inclusive day count for velocity normalisation. Cap at 1 so a
+    // single-day query doesn't divide by zero.
+    const periodDays = Math.max(
+      1,
+      Math.round((new Date(to + 'T00:00:00Z') - new Date(from + 'T00:00:00Z')) / 86400000) + 1,
+    );
+
+    // ── Filter inputs ──────────────────────────────────────────────
+    const klass     = String(req.query.class || 'all').toLowerCase();
+    const limit     = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 10000);
+    const search    = String(req.query.search || '').trim();
+    const categoryId = req.query.category_id ? parseInt(req.query.category_id, 10) : null;
+    const godownId   = req.query.godown_id   ? parseInt(req.query.godown_id, 10)   : null;
+    const sort      = String(req.query.sort || 'velocity_desc').toLowerCase();
+
+    // ── Fetch ──────────────────────────────────────────────────────
+    // Same shape as exports.movers() but enriched with last-sale-date.
+    // The CASE-WHEN guards on b.sales_bill_id ensure line items from
+    // out-of-window or cancelled bills don't contribute via the LEFT
+    // JOIN — without them, future-window queries would return non-zero
+    // sales for any product that ever sold.
+    const godownSql = godownId ? ' AND b.godown_id = :gid ' : '';
+    const categorySql = categoryId ? ' AND p.category_id = :cid ' : '';
+    const searchSql = search
+      ? ` AND (p.product_name ILIKE :q OR p.barcode ILIKE :q OR p.hsn_code ILIKE :q) `
+      : '';
+    const replacements = { from, to };
+    if (godownId)   replacements.gid = godownId;
+    if (categoryId) replacements.cid = categoryId;
+    if (search)     replacements.q   = `%${search}%`;
+
+    const rows = await sequelize.query(
+      `SELECT p.product_id,
+              p.product_name,
+              p.barcode,
+              p.hsn_code,
+              p.size_value,
+              p.size_unit,
+              p.article_number,
+              p.unit_of_measurement,
+              p.purchase_rate,
+              p.sale_rate,
+              p.mrp,
+              p.minimum_stock_level,
+              p.reorder_level,
+              p.current_stock,
+              c.category_id,
+              c.category_name,
+              COALESCE(SUM(CASE WHEN b.sales_bill_id IS NOT NULL THEN it.quantity            ELSE 0 END), 0)::float AS qty_sold,
+              COALESCE(SUM(CASE WHEN b.sales_bill_id IS NOT NULL THEN it.taxable_amount      ELSE 0 END), 0)::float AS revenue,
+              COALESCE(SUM(CASE WHEN b.sales_bill_id IS NOT NULL THEN it.quantity * it.cost_rate ELSE 0 END), 0)::float AS cogs,
+              COUNT(DISTINCT b.sales_bill_id)::int AS bills_touched,
+              -- last-sale date — independent sub-query so the period
+              -- WHERE clause doesn't restrict it. Lets us detect dead
+              -- stock that hasn't sold in YEARS, not just outside the
+              -- selected period.
+              (SELECT MAX(b2.bill_date)::text
+                 FROM sales_bill_items it2
+                 JOIN sales_bills      b2 ON b2.sales_bill_id = it2.sales_bill_id
+                WHERE it2.product_id = p.product_id
+                  AND b2.is_cancelled = false) AS last_sale_date
+         FROM products p
+         LEFT JOIN categories c ON c.category_id = p.category_id
+         LEFT JOIN sales_bill_items it ON it.product_id = p.product_id
+         LEFT JOIN sales_bills b ON b.sales_bill_id = it.sales_bill_id
+                                AND b.is_cancelled = false
+                                AND b.bill_date BETWEEN :from AND :to
+                                ${godownSql}
+        WHERE p.is_active = true
+          ${categorySql}
+          ${searchSql}
+        GROUP BY p.product_id, p.product_name, p.barcode, p.hsn_code,
+                 p.size_value, p.size_unit, p.article_number,
+                 p.unit_of_measurement, p.purchase_rate, p.sale_rate, p.mrp,
+                 p.minimum_stock_level, p.reorder_level, p.current_stock,
+                 c.category_id, c.category_name`,
+      { replacements, type: sequelize.QueryTypes.SELECT },
+    );
+
+    // ── Classification thresholds (industry-standard / Tally defaults) ─
+    const COVER_FAST = 30;     // <30 days cover  → fast
+    const COVER_AVG  = 90;     // 30–90 days cover → average
+    const DEAD_DAYS  = 180;    // >180 days since last sale → dead
+
+    const todayD = new Date(to + 'T00:00:00Z');
+
+    const enriched = rows.map((r) => {
+      const qtySold       = num(r.qty_sold);
+      const stockQty      = num(r.current_stock);
+      const purchaseRate  = num(r.purchase_rate);
+      const stockValue    = r2(stockQty * purchaseRate);
+      const revenue       = r2(num(r.revenue));
+      const cogs          = r2(num(r.cogs));
+      const grossProfit   = r2(revenue - cogs);
+
+      const velocityPerDay   = qtySold / periodDays;
+      const velocityPerMonth = r2(velocityPerDay * 30);
+
+      // Cover days — current stock at the current sales pace. NULL
+      // (rendered as ∞) when there are no sales in the window.
+      // Clamped to ≥ 0: a product with negative current_stock (sold
+      // more than we have, eg. backorder) reports cover = 0 ("already
+      // stocked-out, reorder now") rather than a meaningless negative
+      // number. The classification then correctly lands in 'fast'.
+      let coverDays = null;
+      if (velocityPerDay > 0) {
+        coverDays = Math.max(0, r2(stockQty / velocityPerDay));
+      }
+
+      // Last-sale tracking — for dead-stock detection.
+      const lastSaleDate = r.last_sale_date || null;
+      let daysSinceLastSale = null;
+      if (lastSaleDate) {
+        daysSinceLastSale = Math.floor(
+          (todayD - new Date(lastSaleDate + 'T00:00:00Z')) / 86400000,
+        );
+      }
+
+      // Row classification.
+      let cls;
+      if (qtySold === 0) {
+        // No sales in the requested period.
+        if (lastSaleDate === null || (daysSinceLastSale != null && daysSinceLastSale > DEAD_DAYS)) {
+          cls = 'dead';
+        } else {
+          cls = 'slow';
+        }
+      } else if (coverDays !== null && coverDays < COVER_FAST) {
+        cls = 'fast';
+      } else if (coverDays !== null && coverDays < COVER_AVG) {
+        cls = 'average';
+      } else {
+        cls = 'slow';
+      }
+
+      // Cover-column display class — independent of row class. Lets the
+      // UI flag a "Fast" product about to stock out (cover < 7 d) in
+      // red even though the row pill says "Fast".
+      let coverClass;
+      if (qtySold === 0)              coverClass = cls;          // dead or slow
+      else if (coverDays < 7)         coverClass = 'low';        // < 1 week  → urgent reorder
+      else if (coverDays < COVER_FAST) coverClass = 'fast';      // healthy fast
+      else if (coverDays < COVER_AVG)  coverClass = 'avg';       // healthy
+      else                             coverClass = 'slow';      // overstocked
+
+      // Build a single "size" string the UI can render in its own
+      // column. size_value is free-form ("32", "Free", "Set of 3");
+      // size_unit is an enum (S/M/L/XL/XXL/Numeric/Custom). Combine
+      // sensibly: numeric/custom show only the value; S/M/L/XL/XXL
+      // show only the unit; otherwise both. Empty when neither set.
+      const sizeStr = (() => {
+        const v = (r.size_value || '').toString().trim();
+        const u = (r.size_unit  || '').toString().trim();
+        if (!v && !u) return '';
+        if (!v) return u;
+        if (!u || u === 'Numeric' || u === 'Custom') return v;
+        return `${v} ${u}`;
+      })();
+
+      // Margin % — gross profit as a percentage of revenue. Anchored
+      // on revenue (not COGS) because that's what accountants quote
+      // for retail/wholesale ("we made 22% on this product"). NULL
+      // when there's no revenue (no sales in period) so the UI can
+      // dim it rather than showing a misleading 0%.
+      const marginPct = revenue > 0 ? r2((grossProfit / revenue) * 100) : null;
+      const saleRate     = r2(num(r.sale_rate));
+      const mrp          = r2(num(r.mrp));
+      const minStock     = num(r.minimum_stock_level);
+      const reorderLevel = num(r.reorder_level);
+      const billsTouched = r.bills_touched || 0;
+
+      return {
+        product_id:    r.product_id,
+        product_name:  r.product_name,
+        barcode:       r.barcode,
+        hsn_code:      r.hsn_code,
+        size:          sizeStr,
+        size_value:    r.size_value || null,
+        size_unit:     r.size_unit  || null,
+        article_number: r.article_number || null,
+        unit:          r.unit_of_measurement || 'PCS',
+        category_id:   r.category_id,
+        category_name: r.category_name,
+        current_stock: stockQty,
+        minimum_stock: minStock,
+        reorder_level: reorderLevel,
+        purchase_rate: r2(purchaseRate),
+        sale_rate:     saleRate,
+        mrp,
+        stock_value:   stockValue,
+        qty_sold:      r2(qtySold),
+        revenue,
+        cogs,
+        gross_profit:  grossProfit,
+        margin_pct:    marginPct,
+        bills_touched: billsTouched,
+        velocity_per_month: velocityPerMonth,
+        cover_days:    coverDays,
+        last_sale_date: lastSaleDate,
+        days_since_last_sale: daysSinceLastSale,
+        class:         cls,
+        cover_class:   coverClass,
+      };
+    });
+
+    // ── Totals (over the full dataset, regardless of filter) ──────
+    const sumByClass = (cls, key) => r2(
+      enriched.filter((p) => p.class === cls).reduce((s, p) => s + (p[key] || 0), 0),
+    );
+
+    // KPI helpers
+    // ─ reorder_count: products whose cover-class is 'low' (<7d) — what
+    //   the operator must reorder this week.
+    // ─ capital_at_risk: stock value of slow + dead — money sitting on
+    //   shelves without moving. The single most actionable inventory
+    //   number on this page.
+    // ─ avg_cover_days: average over products WITH sales (excludes
+    //   dead/zero-velocity rows so they don't pull the average to ∞).
+    const reorderCount = enriched.filter((p) => p.cover_class === 'low').length;
+    const capitalAtRisk = r2(
+      enriched.filter((p) => p.class === 'slow' || p.class === 'dead')
+              .reduce((s, p) => s + p.stock_value, 0),
+    );
+    const withCover = enriched.filter((p) => p.cover_days != null);
+    const avgCoverDays = withCover.length > 0
+      ? r2(withCover.reduce((s, p) => s + p.cover_days, 0) / withCover.length)
+      : null;
+
+    // Margin % overall — revenue-weighted (not a simple average), so
+    // big-ticket products carry their proper weight.
+    const totalRevenue = enriched.reduce((s, p) => s + p.revenue, 0);
+    const totalGp      = enriched.reduce((s, p) => s + p.gross_profit, 0);
+    const overallMarginPct = totalRevenue > 0
+      ? r2((totalGp / totalRevenue) * 100)
+      : null;
+
+    const totals = {
+      products_active:  enriched.length,
+      products_fast:    enriched.filter((p) => p.class === 'fast').length,
+      products_average: enriched.filter((p) => p.class === 'average').length,
+      products_slow:    enriched.filter((p) => p.class === 'slow').length,
+      products_dead:    enriched.filter((p) => p.class === 'dead').length,
+
+      stock_value_total:   r2(enriched.reduce((s, p) => s + p.stock_value, 0)),
+      stock_value_fast:    sumByClass('fast',    'stock_value'),
+      stock_value_average: sumByClass('average', 'stock_value'),
+      stock_value_slow:    sumByClass('slow',    'stock_value'),
+      stock_value_dead:    sumByClass('dead',    'stock_value'),
+
+      qty_sold_total:     r2(enriched.reduce((s, p) => s + p.qty_sold, 0)),
+      revenue_total:      r2(totalRevenue),
+      gross_profit_total: r2(totalGp),
+      margin_pct_overall: overallMarginPct,
+
+      // Action-oriented aggregates for the KPI cards.
+      reorder_count:    reorderCount,
+      capital_at_risk:  capitalAtRisk,
+      avg_cover_days:   avgCoverDays,
+    };
+
+    // ── Filter by selected class ──────────────────────────────────
+    let filtered = enriched;
+    if (klass !== 'all') {
+      filtered = enriched.filter((p) => p.class === klass);
+    }
+
+    // ── Sort ──────────────────────────────────────────────────────
+    // Cover ascending must put nulls (no sales) at the END so the user
+    // sees "running out" rows first. Hence (a.cover_days ?? Infinity).
+    const sorters = {
+      velocity_desc: (a, b) => b.velocity_per_month - a.velocity_per_month,
+      velocity_asc:  (a, b) => a.velocity_per_month - b.velocity_per_month,
+      cover_asc:     (a, b) => (a.cover_days ?? Infinity) - (b.cover_days ?? Infinity),
+      cover_desc:    (a, b) => (b.cover_days ?? -1)        - (a.cover_days ?? -1),
+      stock_desc:    (a, b) => b.current_stock - a.current_stock,
+      stock_asc:     (a, b) => a.current_stock - b.current_stock,
+      sold_desc:     (a, b) => b.qty_sold - a.qty_sold,
+      sold_asc:      (a, b) => a.qty_sold - b.qty_sold,
+      name_asc:      (a, b) => (a.product_name || '').localeCompare(b.product_name || ''),
+      name_desc:     (a, b) => (b.product_name || '').localeCompare(a.product_name || ''),
+    };
+    filtered.sort(sorters[sort] || sorters.velocity_desc);
+
+    // ── Top-N cap ─────────────────────────────────────────────────
+    const paged = filtered.slice(0, limit);
+
+    res.json({
+      period:         { from, to, days: periodDays },
+      filters:        { class: klass, limit, sort, category_id: categoryId, godown_id: godownId, search },
+      filtered_count: filtered.length,
+      rows:           paged,
+      totals,
+    });
+  } catch (err) {
+    console.error('stockVelocity error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+};
+
 // ── Godown Transfer Register ─────────────────────────────────────────
 //
 // Date-windowed list of stock_transfers with optional from/to/status

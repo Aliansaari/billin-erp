@@ -1,0 +1,487 @@
+/* Fast & Slow Stock — inventory velocity report
+ *
+ * Layout discipline shared with Cash Flow / Fund Flow / Bills
+ * Outstanding: outer is a 100%-height flex column, only the table band
+ * is flex:1. Header / KPI / tabs / footer are all flex-shrink:0.
+ *
+ * Visual chrome is INHERITED from the .rpt-* design system in
+ * src/styles/global.css. This file contains only:
+ *   • .mv-page    — the outer flex shell
+ *   • .mv-topn    — page-specific Top-N picker (no rpt-* equivalent)
+ *   • .mv-tabs    — tabs strip (matches the convention used by
+ *                   bills-outstanding etc.)
+ *   • .mv-tbl*    — the data table
+ *   • .mv-customize-* — the Customize popover content
+ *   • .stat-fast / .stat-slow / .stat-dead — inline coloured callouts
+ *     in the .rpt-sub line
+ */
+
+.mv-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Coloured stat callouts inside .rpt-sub. Each uses its semantic
+ * token so the fast/slow/dead counts stand out without competing
+ * with the rest of the sub-line. */
+.stat-fast { color: var(--success); font-weight: 600; }
+.stat-slow { color: var(--warning); font-weight: 600; }
+.stat-dead { color: var(--danger);  font-weight: 600; }
+
+/* Top-N picker — page-specific control. Visually shaped to mirror
+ * .rpt-period proportions (same border-radius, padding, button font)
+ * so it reads as a sibling of the period chips even though it adds
+ * a numeric input. Active button uses --fg-primary (dark pill) to
+ * match the rpt-period.on convention, NOT --accent. */
+.mv-topn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 3px 3px 3px 10px;
+  height: 34px;
+}
+.mv-topn-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fg-secondary);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  margin-right: 6px;
+}
+.mv-topn button {
+  border: 0;
+  background: transparent;
+  padding: 4px 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+.mv-topn button:hover { color: var(--fg-primary); }
+.mv-topn button.on {
+  background: var(--fg-primary);
+  color: var(--fg-inverse);
+  font-weight: 600;
+}
+.mv-topn-input {
+  width: 64px;
+  height: 24px;
+  margin-left: 4px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: 0;
+  text-align: center;
+  -moz-appearance: textfield;
+  transition: border-color .12s, background .12s;
+}
+.mv-topn-input:hover  { border-color: var(--border-strong); }
+.mv-topn-input:focus  { border-color: var(--accent); background: var(--bg-panel); }
+.mv-topn-input::-webkit-outer-spin-button,
+.mv-topn-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* KPI strip — uses the shared .rpt-kpis / .rpt-kpi / tone-* classes
+ * from src/styles/global.css. Two page-specific touches:
+ *   1. .rpt-kpi-sub — small caption beneath the value (the global
+ *      rules define title + value but no subtitle slot).
+ *   2. Bottom padding on .rpt-kpis so the cards don't sit flush
+ *      against the tabs strip below. The global rule has padding-
+ *      bottom: 0 because most reports follow the strip with the
+ *      report body directly; this page has tabs in between. */
+.mv-page .rpt-kpis { padding-bottom: 14px; }
+.rpt-kpi-sub {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  margin-top: 4px;
+}
+.rpt-kpi-sub b { color: var(--fg-secondary); font-weight: 600; }
+
+/* ── Customize popover ────────────────────────────────────────────── */
+
+.mv-customize-popover .ant-popover-inner-content { padding: 0; }
+.mv-customize {
+  width: 280px;
+  max-height: 540px;
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+.mv-customize-row {
+  padding: 4px 0;
+  font-size: 13px;
+}
+.mv-customize-row .ant-checkbox-wrapper {
+  font-size: 13px;
+  color: var(--fg-primary);
+}
+.mv-customize-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 10px 0;
+}
+.mv-customize-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  margin-bottom: 6px;
+}
+.mv-customize-group {
+  margin-bottom: 10px;
+}
+.mv-customize-group:last-of-type { margin-bottom: 0; }
+.mv-customize-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+.mv-customize-required {
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  font-weight: 400;
+  font-style: italic;
+}
+.mv-customize-reset {
+  font-size: 12.5px;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 500;
+}
+.mv-customize-reset:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+/* ── 3. Tabs strip ─────────────────────────────────────────────── */
+
+.mv-tabs {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 8px 28px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  gap: 4px;
+}
+.mv-tabs button {
+  border: 0;
+  background: transparent;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  border-radius: 6px 6px 0 0;
+  transition: color .12s;
+}
+.mv-tabs button:hover { color: var(--fg-primary); }
+.mv-tabs button.on {
+  color: var(--accent);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.mv-tabs button .count {
+  /* Inherits Source Sans 3 from the app shell. Column alignment is
+   * preserved via font-variant-numeric: tabular-nums set on .mv-page. */
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+}
+.mv-tabs button.on .count { color: var(--accent); }
+
+.mv-tabs .grow { flex: 1; }
+
+.mv-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 11px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  width: 260px;
+}
+.mv-search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--fg-primary);
+}
+.mv-search input::placeholder { color: var(--fg-tertiary); }
+
+/* ── 3. Table ──────────────────────────────────────────────────── */
+
+.mv-tbl-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-panel);
+}
+
+.mv-tbl {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+}
+
+.mv-tbl thead th {
+  text-align: right;
+  padding: 10px 24px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.mv-tbl thead th:first-child,
+.mv-tbl thead th.l { text-align: left; }
+.mv-tbl thead th:hover { color: var(--fg-primary); }
+
+.mv-tbl tbody td {
+  padding: 13px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: right;
+  vertical-align: middle;
+}
+.mv-tbl tbody td:first-child,
+.mv-tbl tbody td.l { text-align: left; }
+
+.mv-row { cursor: pointer; transition: background-color .12s; }
+.mv-row:hover td { background: var(--bg-muted); }
+.mv-row:nth-child(even):not(:hover):not(.mv-row-active) td { background: rgba(0, 0, 0, 0.012); }
+
+/* Keyboard-active row — same recipe as Cash Flow's .cf-row-active.
+ * Pale accent fill plus a 3px indigo left stripe on the first cell. */
+.mv-row-active td {
+  background: var(--accent-bg) !important;
+}
+.mv-row-active td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.mv-empty {
+  padding: 48px 24px !important;
+  text-align: center !important;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* Product / Category / Size / Barcode cells — flat columns now,
+ * no stacked sub-line. The product name is the headline; everything
+ * else is its own cell so the user can scan one column at a time. */
+.mv-pname {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.mv-cat {
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+.mv-size {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+}
+.mv-barcode {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  /* Barcodes are long all-numeric strings; tabular-nums (set on
+   * .mv-page) keeps digit widths uniform when rows stack. */
+}
+.mv-dash {
+  color: var(--fg-quaternary, #d1d5db);
+  font-weight: 400;
+}
+
+/* Generic numeric cell */
+.mv-num {
+  /* Inherits Source Sans 3 from the app shell. Column alignment is
+   * preserved via font-variant-numeric: tabular-nums set on .mv-page. */
+  font-weight: 500;
+  color: var(--fg-primary);
+}
+.mv-num.bold { font-weight: 700; }
+.mv-num.dim  { color: var(--fg-tertiary); }
+.mv-num-sub {
+  /* Inherits Source Sans 3 from the app shell. Column alignment is
+   * preserved via font-variant-numeric: tabular-nums set on .mv-page. */
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  margin-top: 2px;
+}
+
+/* Velocity column — large number on top, units below */
+.mv-veloc {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+  gap: 1px;
+}
+.mv-veloc .qty {
+  /* Inherits Source Sans 3 from the app shell. Column alignment is
+   * preserved via font-variant-numeric: tabular-nums set on .mv-page. */
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--fg-primary);
+}
+.mv-veloc .qty.dim { color: var(--fg-tertiary); }
+.mv-veloc .unit {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+}
+
+/* Cover column — colour-coded by class */
+.mv-cover {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+  gap: 1px;
+}
+.mv-cover .days {
+  /* Inherits Source Sans 3 from the app shell. Column alignment is
+   * preserved via font-variant-numeric: tabular-nums set on .mv-page. */
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.mv-cover .hint {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+}
+.mv-cover-low  .days { color: var(--danger); }
+.mv-cover-fast .days { color: var(--success); }
+.mv-cover-avg  .days { color: var(--fg-primary); }
+.mv-cover-slow .days { color: var(--warning); }
+.mv-cover-dead .days { color: var(--danger); }
+
+/* Class pill */
+.mv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.mv-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.mv-pill-fast    { background: var(--success-bg, rgba(16,185,129,0.10)); color: var(--success); }
+.mv-pill-fast .dot    { background: var(--success); }
+.mv-pill-average { background: rgba(107,114,128,0.10);                   color: var(--fg-secondary); }
+.mv-pill-average .dot { background: var(--fg-secondary); }
+.mv-pill-slow    { background: var(--warning-bg, rgba(245,158,11,0.10)); color: var(--warning); }
+.mv-pill-slow .dot    { background: var(--warning); }
+.mv-pill-dead    { background: var(--danger-bg,  rgba(239,68,68,0.10));  color: var(--danger); }
+.mv-pill-dead .dot    { background: var(--danger); }
+
+/* Inline row action button */
+.mv-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .12s;
+}
+.mv-action:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--fg-inverse, #fff);
+}
+
+/* ── 4. Footer ─────────────────────────────────────────────────── */
+
+.mv-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 28px;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+.mv-foot b { color: var(--fg-primary); font-weight: 600; }
+.mv-foot-keys {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.mv-foot kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  min-width: 18px;
+  padding: 0 5px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+  /* Inherits Source Sans 3 from the app shell. Column alignment is
+   * preserved via font-variant-numeric: tabular-nums set on .mv-page. */
+  margin-right: 4px;
+}

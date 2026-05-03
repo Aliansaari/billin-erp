@@ -1,0 +1,274 @@
+/* Fund Flow — Tally-style two-level drill (register → month summary).
+ *
+ * Visual contract:
+ *   • Register view (View 1) reuses .cf-* classes from cash-flow.css
+ *     wholesale — same .cf-page shell, .rpt-page-hd header strip,
+ *     .cf-tablewrap + .cf-totalwrap split for sticky thead + sticky
+ *     bottom Grand-Total. Only the table HEADER columns differ
+ *     (Opening / Closing / Funds Flow vs Cash Flow's Inflow / Outflow
+ *     / Nett). All else is byte-for-byte parity.
+ *
+ *   • Month-summary view (View 2) is unique to fund flow — it's a
+ *     two-column Sources / Applications statement with a Working-
+ *     Capital strip at the bottom. New .ff-stmt-* and .ff-month-* class
+ *     set, but with the same density and tone tokens as .cf-*.
+ *
+ * Token discipline: only existing CSS variables (--bg-app, --bg-panel,
+ * --fg-primary, --fg-secondary, --accent, --accent-bg, --success,
+ * --success-bg, --warning, --warning-bg, --danger, --danger-bg,
+ * --border, --border-subtle, --bg-hover, --bg-muted, --border-strong,
+ * --fg-tertiary).
+ */
+
+/* ─────────────────────────────────────────────────────────────────
+ *  View 2 — Funds Flow Summary (single month) body
+ *  Layout: Sources/Apps two-column up top, WC summary strip below.
+ *  Outer .cf-page from cash-flow.css gives us the flex column shell.
+ * ───────────────────────────────────────────────────────────────── */
+
+.ff-month-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Two-column statement — Sources on left, Applications on right.
+ * A central rule mimics Tally's vertical divider; each column has its
+ * own header, body, and footer total (sticky inside the column). */
+.ff-stmt {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+}
+@media (max-width: 900px) { .ff-stmt { grid-template-columns: 1fr; } }
+.ff-stmt-side {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  min-height: 0;
+}
+.ff-stmt-side:last-child { border-right: 0; }
+.ff-stmt-side.ff-side-active {
+  background: linear-gradient(to bottom, var(--accent-bg), transparent 30%);
+}
+
+/* Side header — column label on the left, period range on the right
+ * mirroring Tally's "Particulars … Sabina Dresses 1-Apr-25 to 30-Apr-25". */
+.ff-stmt-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-muted);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.ff-stmt-hd-l {
+  letter-spacing: 4px;        /* Tally's "S o u r c e s" tracking */
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--fg-primary);
+  text-transform: capitalize;
+}
+.ff-stmt-hd-r {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+  letter-spacing: 0.2px;
+}
+
+/* Body rows. Each row is a flex line: label on left, amount right-
+ * aligned. Drillable rows (Net Profit / Funds From Operations) get an
+ * accent-tinted hover state. */
+.ff-stmt-rows {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.ff-stmt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 9px 18px;
+  font-size: 13px;
+  cursor: default;
+  transition: background-color .12s;
+}
+.ff-stmt-row-label {
+  flex: 1;
+  color: var(--fg-primary);
+  font-weight: 500;
+}
+.ff-stmt-row-amt {
+  font-weight: 600;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.ff-stmt-row.ff-stmt-row-drill { cursor: pointer; }
+.ff-stmt-row.ff-stmt-row-drill .ff-stmt-row-label::after {
+  content: ' →';
+  color: var(--accent);
+  font-weight: 600;
+  opacity: 0.5;
+  margin-left: 6px;
+  font-size: 11px;
+}
+.ff-stmt-row:hover { background: var(--bg-hover, rgba(99,102,241,0.06)); }
+.ff-stmt-row.ff-stmt-row-drill:hover .ff-stmt-row-label::after { opacity: 1; }
+/* Active row — match Cash Flow's keyboard-selection style. The
+ * recipe is from cash-flow.css line 320 (.cf-row-sub.cf-active):
+ *
+ *   background:  var(--accent-bg) — pale accent fill
+ *   border:      a continuous 2px accent outline drawn via four
+ *                stacked inset box-shadows (one per edge). Cash Flow
+ *                splits the shadows across td:first-child / td:last-
+ *                child because cells break the shadow at column
+ *                boundaries; here the row is a single flex div so we
+ *                stack all four shadows on it directly.
+ *   label colour: turns accent so the row reads "selected" even when
+ *                you skim the page on grayscale / colour-blind modes.
+ */
+.ff-stmt-row.ff-stmt-row-active {
+  background: var(--accent-bg, rgba(99,102,241,0.08)) !important;
+  box-shadow:
+    inset  2px  0   0 var(--accent, #6366F1),   /* left   */
+    inset -2px  0   0 var(--accent, #6366F1),   /* right  */
+    inset  0    2px 0 var(--accent, #6366F1),   /* top    */
+    inset  0   -2px 0 var(--accent, #6366F1);   /* bottom */
+}
+.ff-stmt-row.ff-stmt-row-active:hover {
+  background: var(--accent-bg, rgba(99,102,241,0.12)) !important;
+}
+.ff-stmt-row.ff-stmt-row-active .ff-stmt-row-label {
+  color: var(--accent, #6366F1);
+  font-weight: 600;
+}
+.ff-stmt-row.ff-stmt-row-active .ff-stmt-row-amt {
+  color: var(--accent, #6366F1);
+}
+.ff-stmt-row.ff-stmt-row-active .ff-stmt-row-label::after { opacity: 1; }
+
+.ff-stmt-empty {
+  padding: 18px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--fg-tertiary);
+}
+
+/* Side footer — "Total" line at the bottom of each column. Sticky so
+ * it stays visible while a long Sources list scrolls. */
+.ff-stmt-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 11px 18px;
+  border-top: 2px solid var(--border-strong);
+  background: var(--bg-muted);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ *  Working-Capital summary strip (bottom of month-summary page)
+ *  Three rows: Current Assets · Current Liabilities · Working Capital
+ *  Three columns: Opening Balance · Closing Balance · Wkg Cap Increase
+ *  Mirrors the Tally screenshot's bottom strip exactly.
+ * ───────────────────────────────────────────────────────────────── */
+
+.ff-month-wc {
+  flex-shrink: 0;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border-strong);
+  padding: 12px 18px 10px;
+}
+.ff-month-wc-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.ff-month-wc-tbl th,
+.ff-month-wc-tbl td {
+  padding: 7px 14px;
+  text-align: right;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ff-month-wc-tbl th.l,
+.ff-month-wc-tbl td.l { text-align: left; }
+.ff-month-wc-tbl th {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+  font-style: italic;
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+}
+.ff-month-wc-tbl td { color: var(--fg-primary); }
+.ff-month-wc-tbl td.l { font-weight: 600; }
+.ff-month-wc-tbl tr.ff-month-wc-row-net {
+  background: transparent;
+  border-top: 1px solid var(--border);
+}
+.ff-month-wc-tbl tr.ff-month-wc-row-net td {
+  font-weight: 700;
+  font-style: italic;
+  font-size: 13px;
+}
+.ff-side-tag {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  margin-left: 4px;
+  font-weight: 500;
+}
+.ff-wc-pos { color: var(--fg-primary); font-weight: 600; }
+
+/* Empty-period banner — surfaced on the register when every month in
+ * the range has zero funds flow. Common case: requesting a future FY
+ * that has no entries yet. Subtle accent-tinted strip; doesn't compete
+ * with the table below, just reassures the user the report isn't broken. */
+.ff-empty-period {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 28px;
+  background: var(--accent-bg, rgba(99,102,241,0.06));
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+}
+.ff-empty-period b { color: var(--fg-primary); font-weight: 600; }
+.ff-empty-period-icon {
+  display: inline-flex;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--fg-inverse, #fff);
+  font-size: 14px;
+  font-weight: 700;
+  align-items: center;
+  justify-content: center;
+  font-family: serif;
+  line-height: 1;
+}
+
+/* Verify banner under the WC strip. Three states (ok/warn/danger). */
+.ff-month-verify {
+  margin-top: 10px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+}
+.ff-month-verify.ff-ok      { background: var(--success-bg); border-color: rgba(16,185,129,0.40); color: var(--success); }
+.ff-month-verify.ff-warn    { background: var(--warning-bg); border-color: rgba(245,158,11,0.40); color: var(--warning); }
+.ff-month-verify.ff-danger  { background: var(--danger-bg);  border-color: rgba(239,68,68,0.40);  color: var(--danger); }

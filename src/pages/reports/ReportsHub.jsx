@@ -159,16 +159,43 @@ export default function ReportsHub() {
   }, [favIds, visibleReports]);
 
   return (
-    <div style={{ padding: '20px 24px', maxWidth: 1280, margin: '0 auto' }}>
+    // Page shell — pinned-header pattern matching Ledger Integrity and
+    // the other full-page reports. Outer is a 100%-height flex column
+    // with hidden overflow; the title strip is flex-shrink:0 so it stays
+    // fixed while the body (search + pinned + categories) scrolls
+    // beneath. AppLayout marks /reports as `isFullPage` so the parent
+    // Content gives us a viewport-tall container to fill.
+    <div style={{
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      background: 'var(--bg-app, #f5f7fa)',
+    }}>
 
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div style={{ marginBottom: 14 }}>
-        <Title level={2} style={{ margin: 0, fontWeight: 700, letterSpacing: '-0.02em' }}>Reports</Title>
-        <Text type="secondary" style={{ fontSize: 13.5 }}>
-          All financial, sales, and operational reports · {visibleReports.length} total
-          {pinned.length > 0 && <> · <b style={{ color: 'var(--fg-secondary)' }}>{pinned.length}</b> pinned</>}
-        </Text>
+      {/* ── Sticky title strip (full-width, content centered) ───── */}
+      <div style={{
+        flexShrink: 0,
+        padding: '14px 24px 12px',
+        borderBottom: '1px solid var(--border-subtle, #f0f0f0)',
+        background: 'var(--bg-app, #f5f7fa)',
+      }}>
+        <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+          <Title level={2} style={{ margin: 0, fontWeight: 700, letterSpacing: '-0.02em' }}>Reports</Title>
+          <Text type="secondary" style={{ fontSize: 13.5 }}>
+            All financial, sales, and operational reports · {visibleReports.length} total
+            {pinned.length > 0 && <> · <b style={{ color: 'var(--fg-secondary)' }}>{pinned.length}</b> pinned</>}
+          </Text>
+        </div>
       </div>
+
+      {/* ── Scrollable body ────────────────────────────────────── */}
+      <div style={{
+        flex: 1,
+        minHeight: 0,
+        overflowY: 'auto',
+      }}>
+        <div style={{ padding: '16px 24px 24px', maxWidth: 1280, margin: '0 auto' }}>
 
       {/* ── Search ──────────────────────────────────────────────── */}
       <Input
@@ -449,6 +476,8 @@ export default function ReportsHub() {
           })}
         </div>
       )}
+        </div>{/* /centered content */}
+      </div>{/* /scrollable body */}
     </div>
   );
 }

@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fast &amp; Slow Movers — v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+ *  Fast & Slow Movers — v2 (the simpler one).
+ *
+ *  v1 had FIVE sections fighting for attention: KPI strip, velocity bar,
+ *  Pareto chart, three action cards, detail table. The user lands on
+ *  the page and has to figure out which section to read first; the
+ *  TABLE — the only thing that's actionable — was buried at the bottom.
+ *
+ *  v2 strips everything that isn't directly actionable. The page is now
+ *  three thin horizontal bands and a table:
+ *
+ *    1. Title strip  — title, period chips, Refresh / Export.
+ *    2. Sub-headline — one line of stats, no cards. ₹ amounts only,
+ *                       coloured by class. Removable on tighter screens.
+ *    3. Tabs strip   — All / Fast / Slow / Dead with counts, plus
+ *                       search. The tabs ARE the filter; clicking Slow
+ *                       filters the table.
+ *    4. Table        — full bleed, the actual report. Seven columns,
+ *                       no extras. Inline action button per row.
+ *
+ *  Every column was either kept because it answers "what do I do with
+ *  this product?" or cut. Stock value, last-sale date, margin %, sales
+ *  revenue, and the inline trend sparkline are all GONE — they're
+ *  available on the product detail page if anyone needs them.
+ *
+ *  Token discipline: same as v1 — classic-light theme tokens (cool grey
+ *  background, indigo accent, Inter for UI, JetBrains Mono for figures).
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg-app:        #f5f7fa;
+  --bg-panel:      #ffffff;
+  --bg-muted:      #f9fafb;
+  --bg-hover:      #f3f4f6;
+
+  --fg-primary:    #1f2937;
+  --fg-secondary:  #6b7280;
+  --fg-tertiary:   #9ca3af;
+  --fg-quaternary: #d1d5db;
+
+  --accent:        #4F46E5;
+  --accent-hover:  #4338ca;
+  --accent-bg:     rgba(79, 70, 229, 0.08);
+
+  --fast:          #10B981;
+  --fast-bg:       rgba(16, 185, 129, 0.10);
+  --avg:           #6b7280;     /* neutral grey — average doesn't need highlighting */
+  --avg-bg:        rgba(107, 114, 128, 0.10);
+  --slow:          #F59E0B;
+  --slow-bg:       rgba(245, 158, 11, 0.10);
+  --dead:          #EF4444;
+  --dead-bg:       rgba(239, 68, 68, 0.10);
+
+  --border:        #e5e7eb;
+  --border-subtle: #f0f0f0;
+  --border-strong: #d1d5db;
+
+  --shadow-sm:     0 1px 2px rgba(0, 0, 0, 0.04);
+  --radius-sm:     6px;
+
+  --sidebar-bg:    #0f172a;
+  --sb-w:          220px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg-app); color: var(--fg-primary);
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  font-size: 14px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+  height: 100vh; overflow: hidden;
+}
+.mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+/* ─── Sidebar ─────────────────────────────────────────────────────── */
+
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sb-w);
+  background: var(--sidebar-bg);
+  color: rgba(255,255,255,0.85);
+  padding: 14px 8px;
+  display: flex; flex-direction: column;
+  z-index: 20;
+}
+.sb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 6px;
+}
+.sb-logo {
+  width: 28px; height: 28px; border-radius: 6px;
+  background: var(--accent); color: #fff;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 13px;
+}
+.sb-brand-name { font-size: 14px; font-weight: 600; color: #fff; }
+.sb-section {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.6px;
+  text-transform: uppercase; color: rgba(255,255,255,0.45);
+  padding: 12px 12px 4px;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; border-radius: 6px;
+  font-size: 13px; cursor: pointer;
+}
+.sb-item:hover { background: rgba(255,255,255,0.06); }
+.sb-item.active { background: var(--accent); color: #fff; }
+.sb-item .ic { width: 14px; text-align: center; font-size: 12px; opacity: 0.8; }
+
+/* ─── Page shell ──────────────────────────────────────────────────── */
+
+.page {
+  margin-left: var(--sb-w);
+  height: 100vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─── Title strip ─────────────────────────────────────────────────── */
+
+.page-hd {
+  flex-shrink: 0;
+  padding: 16px 28px 14px;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.page-hd h1 {
+  font-size: 20px; font-weight: 700; letter-spacing: -0.015em;
+  color: var(--fg-primary);
+  margin-bottom: 3px;
+}
+.page-hd .sub {
+  font-size: 12.5px; color: var(--fg-secondary);
+}
+.page-hd .sub b { color: var(--fg-primary); font-weight: 600; }
+.page-hd .sub .sep { color: var(--fg-quaternary); margin: 0 6px; }
+.page-hd .sub .stat-fast { color: var(--fast); font-weight: 600; }
+.page-hd .sub .stat-slow { color: var(--slow); font-weight: 600; }
+.page-hd .sub .stat-dead { color: var(--dead); font-weight: 600; }
+
+.actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.period {
+  display: inline-flex;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 3px;
+}
+.period button {
+  border: 0; background: transparent;
+  padding: 6px 12px;
+  font: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--fg-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.period button:hover { color: var(--fg-primary); }
+.period button.on { background: var(--accent); color: #fff; font-weight: 600; }
+
+.btn {
+  height: 32px; padding: 0 13px;
+  background: var(--bg-panel); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--fg-primary); font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn:hover { color: var(--accent); border-color: var(--accent); }
+.btn svg { width: 13px; height: 13px; }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+
+/* ─── Tabs strip ─────────────────────────────────────────────────── */
+
+.tabs {
+  flex-shrink: 0;
+  display: flex; align-items: center;
+  padding: 8px 28px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  gap: 4px;
+}
+.tabs button {
+  border: 0; background: transparent;
+  padding: 8px 14px;
+  font: inherit; font-size: 13px; font-weight: 500;
+  color: var(--fg-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  /* sit on top of the strip's bottom border so the active state
+     reads as a tab indicator without floating. */
+}
+.tabs button:hover { color: var(--fg-primary); }
+.tabs button.on {
+  color: var(--accent);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.tabs button .count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px; font-weight: 600;
+  color: var(--fg-tertiary);
+}
+.tabs button.on .count { color: var(--accent); }
+
+.tabs .grow { flex: 1; }
+.tabs .search {
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 11px;
+  background: var(--bg-app); border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  width: 260px;
+}
+.tabs .search input {
+  flex: 1; border: 0; outline: 0;
+  background: transparent;
+  font: inherit; font-size: 12.5px;
+  color: var(--fg-primary);
+}
+.tabs .search input::placeholder { color: var(--fg-tertiary); }
+.tabs .search svg { width: 13px; height: 13px; color: var(--fg-tertiary); }
+
+/* ─── Table ──────────────────────────────────────────────────────── */
+
+.tbl-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-panel);
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: separate; border-spacing: 0;
+  font-size: 13.5px;
+}
+.tbl thead th {
+  text-align: right;
+  padding: 10px 24px;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--fg-secondary);
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky; top: 0; z-index: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.tbl thead th:first-child,
+.tbl thead th.l { text-align: left; }
+.tbl thead th .arrow {
+  color: var(--accent);
+  font-size: 10px;
+  margin-left: 4px;
+}
+.tbl thead th:hover { color: var(--fg-primary); }
+
+.tbl tbody td {
+  padding: 13px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+.tbl tbody td:first-child,
+.tbl tbody td.l { text-align: left; }
+.tbl tbody tr:hover td { background: var(--bg-muted); cursor: pointer; }
+
+/* Subtle striping at every other row to make long lists trackable. */
+.tbl tbody tr:nth-child(even):not(:hover) td { background: rgba(0,0,0,0.012); }
+
+/* Keyboard-active row — same recipe as Cash Flow's .cf-row-active.
+   Pale accent fill plus a 3px indigo left stripe. */
+.tbl tbody tr.row-active td {
+  background: var(--accent-bg) !important;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Product cell — name on top, sku/category on a small line below. */
+.product { display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
+.product .name {
+  font-size: 14px; font-weight: 600;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.product .sub {
+  font-size: 11.5px; color: var(--fg-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+}
+.product .sub .cat {
+  font-family: 'Inter', sans-serif;
+  margin-right: 8px;
+}
+
+.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  color: var(--fg-primary);
+}
+.num.bold  { font-weight: 700; }
+.num.dim   { color: var(--fg-tertiary); }
+
+/* Velocity column — the speed at which this product moves. We render
+   it as a single bold number with units below, so the eye picks the
+   number first and the qualifier second. */
+.veloc {
+  display: flex; flex-direction: column; align-items: flex-end;
+  line-height: 1.2; gap: 1px;
+}
+.veloc .qty {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14.5px; font-weight: 700;
+  color: var(--fg-primary);
+}
+.veloc .unit {
+  font-size: 11px; color: var(--fg-tertiary);
+}
+
+/* Cover days — color-coded so the eye spots low-cover (urgent) at a
+   glance without reading numbers. */
+.cover {
+  display: flex; flex-direction: column; align-items: flex-end;
+  line-height: 1.2; gap: 1px;
+}
+.cover .days {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14.5px; font-weight: 700;
+}
+.cover.low   .days { color: var(--dead); }     /* < 7 days  — running out */
+.cover.fast  .days { color: var(--fast); }     /* 7-30 days — healthy fast */
+.cover.avg   .days { color: var(--fg-primary); } /* 30-90 days */
+.cover.slow  .days { color: var(--slow); }     /* 90-180 days */
+.cover.dead  .days { color: var(--dead); }     /* > 180 days */
+.cover .hint {
+  font-size: 11px; color: var(--fg-tertiary);
+}
+
+/* Class pill — subtle; one of four states. */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.pill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+}
+.pill.fast { background: var(--fast-bg); color: var(--fast); }
+.pill.fast .dot { background: var(--fast); }
+.pill.avg  { background: var(--avg-bg);  color: var(--avg); }
+.pill.avg  .dot { background: var(--avg); }
+.pill.slow { background: var(--slow-bg); color: var(--slow); }
+.pill.slow .dot { background: var(--slow); }
+.pill.dead { background: var(--dead-bg); color: var(--dead); }
+.pill.dead .dot { background: var(--dead); }
+
+/* Inline row action button — Reorder / Discount / Write-off based on
+   the row's class. Subtle by default, primary on hover. */
+.row-action {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 12px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .12s;
+}
+.row-action:hover {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+
+/* ─── Footer ──────────────────────────────────────────────────────── */
+
+.foot {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 28px;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--fg-secondary);
+}
+.foot b { color: var(--fg-primary); font-weight: 600; }
+.foot .kbd {
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.foot kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 18px; min-width: 18px; padding: 0 5px;
+  background: var(--bg-panel); border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font: inherit; font-size: 10.5px; font-weight: 600;
+  color: var(--fg-secondary);
+  font-family: 'JetBrains Mono', monospace;
+  margin-right: 4px;
+}
+
+</style>
+</head>
+<body>
+
+<!-- ─── Sidebar ─────────────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-logo">B</div>
+    <div class="sb-brand-name">Billing ERP</div>
+  </div>
+  <div class="sb-section">Core</div>
+  <div class="sb-item"><span class="ic">▣</span> Dashboard</div>
+  <div class="sb-item"><span class="ic">◈</span> Sales</div>
+  <div class="sb-item"><span class="ic">◉</span> Purchase</div>
+  <div class="sb-item"><span class="ic">◇</span> Parties</div>
+  <div class="sb-item active"><span class="ic">◆</span> Inventory</div>
+  <div class="sb-item"><span class="ic">₹</span> Payments</div>
+  <div class="sb-section">Reports</div>
+  <div class="sb-item"><span class="ic">▤</span> Sales</div>
+  <div class="sb-item"><span class="ic">▦</span> Stock</div>
+  <div class="sb-item"><span class="ic">⏱</span> Aging</div>
+  <div class="sb-item"><span class="ic">⚡</span> Fast / Slow Movers</div>
+</aside>
+
+<!-- ─── Main page ──────────────────────────────────────────────────── -->
+<main class="page">
+
+  <!-- ─── 1. Title strip ──────────────────────────────────────────── -->
+  <header class="page-hd">
+    <div>
+      <h1>Fast &amp; Slow Movers</h1>
+      <div class="sub">
+        Last 90 days
+        <span class="sep">·</span>
+        <b>2,486</b> SKUs ·
+        <span class="stat-fast">312 fast</span>
+        <span class="sep">·</span>
+        <span class="stat-slow">584 slow</span>
+        <span class="sep">·</span>
+        <span class="stat-dead">147 dead (₹ 14.78 L at risk)</span>
+      </div>
+    </div>
+    <div class="actions">
+      <div class="period">
+        <button>30 d</button>
+        <button class="on">90 d</button>
+        <button>180 d</button>
+        <button>This FY</button>
+      </div>
+      <button class="btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Refresh
+      </button>
+      <button class="btn primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export
+      </button>
+    </div>
+  </header>
+
+  <!-- ─── 2. Tabs strip ──────────────────────────────────────────── -->
+  <nav class="tabs">
+    <button class="on">All <span class="count">2,486</span></button>
+    <button>Fast <span class="count">312</span></button>
+    <button>Average <span class="count">1,443</span></button>
+    <button>Slow <span class="count">584</span></button>
+    <button>Dead <span class="count">147</span></button>
+    <span class="grow"></span>
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input placeholder="Search by name, barcode, HSN…" />
+    </div>
+  </nav>
+
+  <!-- ─── 3. Table ───────────────────────────────────────────────── -->
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th class="l">Product</th>
+          <th>Stock</th>
+          <th>Sold (90d)</th>
+          <th>Velocity</th>
+          <th>Cover</th>
+          <th class="l">Class <span class="arrow">↓</span></th>
+          <th class="l"></th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <!-- ─── Fast movers ──────────────────────────────────────── -->
+        <tr class="row-active">
+          <td class="l">
+            <div class="product">
+              <span class="name">A-LINE KURTI BLACK · M</span>
+              <span class="sub"><span class="cat">Ladies Kurti</span>SKU 8901234560123</span>
+            </div>
+          </td>
+          <td><span class="num bold">128</span></td>
+          <td><span class="num">412</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty">137</span>
+              <span class="unit">units / month</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover fast">
+              <span class="days">9 d</span>
+              <span class="hint">healthy</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill fast"><span class="dot"></span> Fast</span></td>
+          <td class="l"><button class="row-action">Reorder</button></td>
+        </tr>
+
+        <tr>
+          <td class="l">
+            <div class="product">
+              <span class="name">DENIM JEANS BOYS BLUE · 32</span>
+              <span class="sub"><span class="cat">Boys Denim</span>SKU 8907842201442</span>
+            </div>
+          </td>
+          <td><span class="num bold">204</span></td>
+          <td><span class="num">389</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty">130</span>
+              <span class="unit">units / month</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover fast">
+              <span class="days">15 d</span>
+              <span class="hint">healthy</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill fast"><span class="dot"></span> Fast</span></td>
+          <td class="l"><button class="row-action">Reorder</button></td>
+        </tr>
+
+        <tr>
+          <td class="l">
+            <div class="product">
+              <span class="name">COTTON SHIRT MENS WHITE · 40</span>
+              <span class="sub"><span class="cat">Mens Shirt</span>SKU 8908712340877</span>
+            </div>
+          </td>
+          <td><span class="num bold">26</span></td>
+          <td><span class="num">298</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty">99</span>
+              <span class="unit">units / month</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover low">
+              <span class="days">8 d</span>
+              <span class="hint">running out</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill fast"><span class="dot"></span> Fast</span></td>
+          <td class="l"><button class="row-action">Reorder</button></td>
+        </tr>
+
+        <tr>
+          <td class="l">
+            <div class="product">
+              <span class="name">LADIES TOP COTTON RED · L</span>
+              <span class="sub"><span class="cat">Ladies Top</span>SKU 8902209117823</span>
+            </div>
+          </td>
+          <td><span class="num bold">312</span></td>
+          <td><span class="num">241</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty">80</span>
+              <span class="unit">units / month</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover avg">
+              <span class="days">117 d</span>
+              <span class="hint">overstocked</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill avg"><span class="dot"></span> Average</span></td>
+          <td class="l"><button class="row-action">View</button></td>
+        </tr>
+
+        <tr>
+          <td class="l">
+            <div class="product">
+              <span class="name">CHURIDAR SUIT YELLOW · XL</span>
+              <span class="sub"><span class="cat">Ladies Churidar</span>SKU 8901456720931</span>
+            </div>
+          </td>
+          <td><span class="num bold">76</span></td>
+          <td><span class="num">142</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty">47</span>
+              <span class="unit">units / month</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover avg">
+              <span class="days">48 d</span>
+              <span class="hint">healthy</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill avg"><span class="dot"></span> Average</span></td>
+          <td class="l"><button class="row-action">View</button></td>
+        </tr>
+
+        <!-- ─── Slow movers ──────────────────────────────────────── -->
+        <tr>
+          <td class="l">
+            <div class="product">
+              <span class="name">EMBROIDERED LEHENGA RED · 38</span>
+              <span class="sub"><span class="cat">Bridal Wear</span>SKU 8902345661123</span>
+            </div>
+          </td>
+          <td><span class="num bold">42</span></td>
+          <td><span class="num">11</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty">3.7</span>
+              <span class="unit">units / month</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover slow">
+              <span class="days">114 d</span>
+              <span class="hint">slow</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill slow"><span class="dot"></span> Slow</span></td>
+          <td class="l"><button class="row-action">Discount</button></td>
+        </tr>
+
+        <tr>
+          <td class="l">
+            <div class="product">
+              <span class="name">WOOLEN SHAWL BROWN · FREE</span>
+              <span class="sub"><span class="cat">Winter Wear</span>SKU 8901567812345</span>
+            </div>
+          </td>
+          <td><span class="num bold">68</span></td>
+          <td><span class="num">9</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty">3.0</span>
+              <span class="unit">units / month</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover slow">
+              <span class="days">227 d</span>
+              <span class="hint">very slow</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill slow"><span class="dot"></span> Slow</span></td>
+          <td class="l"><button class="row-action">Discount</button></td>
+        </tr>
+
+        <tr>
+          <td class="l">
+            <div class="product">
+              <span class="name">FORMAL TROUSERS GREY · 38</span>
+              <span class="sub"><span class="cat">Mens Trouser</span>SKU 8907654321009</span>
+            </div>
+          </td>
+          <td><span class="num bold">94</span></td>
+          <td><span class="num">14</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty">4.7</span>
+              <span class="unit">units / month</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover slow">
+              <span class="days">201 d</span>
+              <span class="hint">very slow</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill slow"><span class="dot"></span> Slow</span></td>
+          <td class="l"><button class="row-action">Discount</button></td>
+        </tr>
+
+        <!-- ─── Dead stock ───────────────────────────────────────── -->
+        <tr>
+          <td class="l">
+            <div class="product">
+              <span class="name">SILK SAREE BLUE · TRADITIONAL</span>
+              <span class="sub"><span class="cat">Sarees Premium</span>SKU 8902345672891</span>
+            </div>
+          </td>
+          <td><span class="num bold">28</span></td>
+          <td><span class="num dim">0</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty dim">—</span>
+              <span class="unit">no sales</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover dead">
+              <span class="days">214 d</span>
+              <span class="hint">since last sale</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill dead"><span class="dot"></span> Dead</span></td>
+          <td class="l"><button class="row-action">Write-off</button></td>
+        </tr>
+
+        <tr>
+          <td class="l">
+            <div class="product">
+              <span class="name">KIDS NIGHTSUIT PINK · 4Y</span>
+              <span class="sub"><span class="cat">Kids Night</span>SKU 8908823145678</span>
+            </div>
+          </td>
+          <td><span class="num bold">52</span></td>
+          <td><span class="num dim">0</span></td>
+          <td>
+            <div class="veloc">
+              <span class="qty dim">—</span>
+              <span class="unit">no sales</span>
+            </div>
+          </td>
+          <td>
+            <div class="cover dead">
+              <span class="days">198 d</span>
+              <span class="hint">since last sale</span>
+            </div>
+          </td>
+          <td class="l"><span class="pill dead"><span class="dot"></span> Dead</span></td>
+          <td class="l"><button class="row-action">Write-off</button></td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ─── 4. Footer ──────────────────────────────────────────────── -->
+  <footer class="foot">
+    <span>Showing <b>10 of 2,486</b> SKUs</span>
+    <span>
+      <span class="kbd"><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+      &nbsp; · &nbsp;
+      <span class="kbd"><kbd>Enter</kbd> Open product</span>
+      &nbsp; · &nbsp;
+      <span class="kbd"><kbd>Esc</kbd> Back</span>
+    </span>
+  </footer>
+
+</main>
+
+</body>
+</html>

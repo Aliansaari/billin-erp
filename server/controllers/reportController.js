@@ -637,6 +637,7 @@ exports.stockReport = async (req, res) => {
     const where = { is_active: true };
     if (category_id) where.category_id = category_id;
     if (!godownId) {
+      if (stock_status === 'ok')  where.current_stock = { [Op.gt]: 0 };
       if (stock_status === 'low') {
         where.minimum_stock_level = { [Op.gt]: 0 };
         where.current_stock = { [Op.lte]: col('minimum_stock_level') };
@@ -713,6 +714,7 @@ exports.stockReport = async (req, res) => {
     // Status filter pushed into raw queries. Mirrors the Sequelize where
     // for the no-godown path; uses pgs.* values for the godown path.
     const rawStatusFrag = (() => {
+      if (stock_status === 'ok')  return `AND ${stkExpr} > 0`;
       if (stock_status === 'low') return `AND p.minimum_stock_level > 0 AND ${stkExpr} > 0 AND ${stkExpr} <= p.minimum_stock_level`;
       if (stock_status === 'out') return `AND ${stkExpr} = 0`;
       if (stock_status === 'neg') return `AND ${stkExpr} < 0`;
@@ -796,7 +798,7 @@ exports.stockReport = async (req, res) => {
     // Sequelize layer (the values live on the join), so re-filter the
     // page rows here. Counts are already correct in `summaryRow`.
     let pageProducts = products;
-    if (godownId && (stock_status === 'low' || stock_status === 'out' || stock_status === 'neg')) {
+    if (godownId && ['ok', 'low', 'out', 'neg'].includes(stock_status)) {
       const pickStock = (p) => {
         const g = p.godownStock?.[0];
         return g ? parseFloat(g.current_stock) : 0;
@@ -804,6 +806,7 @@ exports.stockReport = async (req, res) => {
       pageProducts = products.filter((p) => {
         const s   = pickStock(p);
         const min = parseFloat(p.minimum_stock_level || 0);
+        if (stock_status === 'ok')  return s > 0;
         if (stock_status === 'low') return min > 0 && s > 0 && s <= min;
         if (stock_status === 'out') return s === 0;
         if (stock_status === 'neg') return s < 0;

@@ -19,6 +19,12 @@ router.get('/balance-sheet',      requirePermission('accounts.view'), financialR
 router.get('/cash-flow/monthly',  requirePermission('accounts.view'), financialReports.cashFlowMonthly);
 router.get('/cash-flow/month',    requirePermission('accounts.view'), financialReports.cashFlowMonth);
 router.get('/cash-flow/group',    requirePermission('accounts.view'), financialReports.cashFlowGroup);
+// Fund Flow — Tally-style three-level drill (register → month → P&L).
+//   /fund-flow/monthly   — month-by-month WC opening/closing/flow register
+//   /fund-flow            — full Sources/Apps statement for ONE period; the
+//                            month-summary view feeds it month-start..month-end
+router.get('/fund-flow/monthly',  requirePermission('accounts.view'), financialReports.fundFlowMonthly);
+router.get('/fund-flow',          requirePermission('accounts.view'), financialReports.fundFlow);
 router.get('/day-book',           requirePermission('accounts.view'), dayBookController.dayBook);
 // Profit & Loss — full Tally-shape statement sourced from ledger_entries.
 // Replaces the legacy reportController.profitLoss which read from
@@ -34,6 +40,9 @@ router.get('/profit-loss',        requirePermission('accounts.view'), financialR
 router.get('/hsn-summary',        requirePermission('reports.view'),  operationalReports.hsnSummary);
 router.get('/stock-summary',      requirePermission('reports.view'),  operationalReports.stockSummary);
 router.get('/movers',             requirePermission('reports.view'),  operationalReports.movers);
+// v2 redesign — same data shape as `movers` but enriched with cover-
+// days, last-sale tracking, and a pre-classified row for each product.
+router.get('/stock-velocity',     requirePermission('reports.view'),  operationalReports.stockVelocity);
 router.get('/transfer-register',  requirePermission('reports.view'),  operationalReports.transferRegister);
 router.get('/godown-valuation',   requirePermission('reports.view'),  operationalReports.godownValuation);
 

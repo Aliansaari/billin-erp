@@ -35,7 +35,7 @@ import {
   PrinterOutlined, FileExcelOutlined, ReloadOutlined,
   CalendarOutlined, DownOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
@@ -105,16 +105,35 @@ function buildPresets(fyStart, fyEnd) {
 
 export default function ProfitLoss() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { fyStart, fyEnd } = useFinancialYear();
+
+  // Drill-from-URL — when navigated to via ?from_date=&to_date= (eg. from
+  // Fund Flow's "Net Profit" row drilling into P&L for a single month),
+  // honour those bounds AS the initial period and skip the FY-snap that
+  // would otherwise overwrite them. Validation is lax-on-purpose: any
+  // ISO-shaped date passes; bad input falls back to the FY default.
+  const initialFrom = (() => {
+    const q = searchParams.get('from_date');
+    return /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : null;
+  })();
+  const initialTo = (() => {
+    const q = searchParams.get('to_date');
+    return /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : null;
+  })();
+  // Sticky URL-driven flag — once set, the FY-snap effect below treats
+  // it like a user pick and stays out of the way.
+  const drilledFromUrl = !!(initialFrom && initialTo);
 
   const [data, setData]    = useState(null);
   const [loading, setLoad] = useState(true);
 
-  // Period state — defaults to current FY once the hook resolves.
-  const [from, setFrom] = useState(fyStart || dayjs().startOf('year').format('YYYY-MM-DD'));
-  const [to,   setTo]   = useState(fyEnd   || dayjs().format('YYYY-MM-DD'));
-  const [presetKey, setPresetKey] = useState('this_fy');
-  const [userPicked, setUserPicked] = useState(false);
+  // Period state — defaults to current FY once the hook resolves, unless
+  // we were navigated to with explicit ?from_date/to_date (drill).
+  const [from, setFrom] = useState(initialFrom || fyStart || dayjs().startOf('year').format('YYYY-MM-DD'));
+  const [to,   setTo]   = useState(initialTo   || fyEnd   || dayjs().format('YYYY-MM-DD'));
+  const [presetKey, setPresetKey] = useState(drilledFromUrl ? 'custom' : 'this_fy');
+  const [userPicked, setUserPicked] = useState(drilledFromUrl);
 
   // Comparative column toggle. Default off — P&L is single-period most
   // of the time; the toggle is one click for users who want YoY/QoQ.
