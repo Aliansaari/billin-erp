@@ -1861,6 +1861,41 @@ export default function PurchaseBillForm() {
                     articleFilter={pickerAnchorRef.current==='article'?pickerArticleFilter:null}
                   />
                 )}
+                {/* Batch fields — inline in the entry row when global
+                    batch_tracking is on AND the resolved product is
+                    batch-tracked. Same .pbf-cell shape as the field
+                    array above so keyboard nav (Tab / Enter / Arrow)
+                    flows through naturally. Notes column is dropped
+                    from the inline row to keep widths sane; operators
+                    who want to add a per-batch note can edit the line
+                    in the items table after Add. The original second-
+                    line strip wasted vertical space and broke the
+                    "type, type, type, ADD" rhythm. */}
+                {batchTrackingEnabled && entry.is_batch_tracked && (
+                  <>
+                    <div className="pbf-cell">
+                      <div className="pbf-cell-lbl">Batch * </div>
+                      <Input value={entry.batch_number}
+                        placeholder="Lot-2401"
+                        onChange={e=>setEntry(p=>({...p,batch_number:e.target.value}))}
+                        onPressEnter={addItem}/>
+                    </div>
+                    <div className="pbf-cell">
+                      <div className="pbf-cell-lbl">Mfg</div>
+                      <DatePicker value={entry.manufacture_date?dayjs(entry.manufacture_date):null}
+                        format="DD/MM/YY"
+                        onChange={d=>setEntry(p=>({...p,manufacture_date:d?d.format('YYYY-MM-DD'):null}))}
+                        style={{width:'100%'}} allowClear/>
+                    </div>
+                    <div className="pbf-cell">
+                      <div className="pbf-cell-lbl">Exp</div>
+                      <DatePicker value={entry.expiry_date?dayjs(entry.expiry_date):null}
+                        format="DD/MM/YY"
+                        onChange={d=>setEntry(p=>({...p,expiry_date:d?d.format('YYYY-MM-DD'):null}))}
+                        style={{width:'100%'}} allowClear/>
+                    </div>
+                  </>
+                )}
                 <button className="pbf-cell add" onClick={addItem} type="button">
                   <span className="pbf-cell-add-text">ADD</span>
                 </button>
@@ -1880,45 +1915,14 @@ export default function PurchaseBillForm() {
               </div>
             )}
 
-            {/* Batch strip — appears only when the resolved product is
-                batch-tracked AND the global toggle is on. Same compact
-                shape as the entry-row cells (same .pbf-cell + .pbf-cell-lbl
-                styling) so it reads as an extension of the entry row, not
-                a separate panel. Batch number is required; mfg / exp /
-                notes are optional. */}
-            {billMode === 'item' && batchTrackingEnabled && entry.is_batch_tracked && (
-              <div className="pbf-entry-ledger" style={{marginTop:6}}>
-                <div className="pbf-entry-grid" style={{gridTemplateColumns:'minmax(180px,1.2fr) 140px 140px 1fr'}}>
-                  <div className="pbf-cell">
-                    <div className="pbf-cell-lbl">Batch number *</div>
-                    <Input value={entry.batch_number}
-                      placeholder="e.g. Lot-2401"
-                      onChange={e=>setEntry(p=>({...p,batch_number:e.target.value}))}
-                      onPressEnter={addItem}/>
-                  </div>
-                  <div className="pbf-cell">
-                    <div className="pbf-cell-lbl">Mfg date</div>
-                    <DatePicker value={entry.manufacture_date?dayjs(entry.manufacture_date):null}
-                      format="DD/MM/YYYY"
-                      onChange={d=>setEntry(p=>({...p,manufacture_date:d?d.format('YYYY-MM-DD'):null}))}
-                      style={{width:'100%'}} allowClear/>
-                  </div>
-                  <div className="pbf-cell">
-                    <div className="pbf-cell-lbl">Expiry date</div>
-                    <DatePicker value={entry.expiry_date?dayjs(entry.expiry_date):null}
-                      format="DD/MM/YYYY"
-                      onChange={d=>setEntry(p=>({...p,expiry_date:d?d.format('YYYY-MM-DD'):null}))}
-                      style={{width:'100%'}} allowClear/>
-                  </div>
-                  <div className="pbf-cell">
-                    <div className="pbf-cell-lbl">Notes</div>
-                    <Input value={entry.batch_notes} placeholder="Optional"
-                      onChange={e=>setEntry(p=>({...p,batch_notes:e.target.value}))}
-                      onPressEnter={addItem}/>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Batch fields are now INLINE inside the entry-grid above
+                (Batch / Mfg / Exp cells). The previous second-line
+                strip wasted vertical space and broke the "type, type,
+                type, ADD" rhythm — operators were asking to keep the
+                whole entry on one row. The optional `batch_notes`
+                field stays accessible via the items-table edit path
+                (rare-enough that it doesn't earn a permanent slot in
+                the entry row). */}
 
             {/* Amount-only entry panel — single synthetic line for service /
                 freight / on-account purchases. Mirrors SalesBillForm. */}
