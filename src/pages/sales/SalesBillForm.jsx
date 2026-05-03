@@ -1768,7 +1768,7 @@ export default function SalesBillForm() {
              * ────────────────────────────────────────────────────────── */}
             {billMode === 'item' && (
             <div className="sbf-entry-ledger">
-              <div className="sbf-entry-grid">
+              <div className={`sbf-entry-grid${batchTrackingOn ? ' with-batch' : ''}`}>
                 <div className="sbf-cell">
                   <div className="sbf-cell-lbl">Barcode</div>
                   <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type"
@@ -1809,7 +1809,21 @@ export default function SalesBillForm() {
                         requestAnimationFrame(()=>{ prodRef.current?.blur(); qtyRef.current?.focus(); });
                       }
                     }}
-                    onClear={()=>{ setProdOpen(false); setEntry(p=>({...p,product_id:null,product_name:''})); }}
+                    onClear={()=>{
+                      setProdOpen(false);
+                      // Reset both product identity AND batch state so
+                      // the always-visible Lot picker reverts to its
+                      // disabled placeholder until a new product is
+                      // picked. Without this, an old is_batch_tracked
+                      // flag would leave the picker enabled but with
+                      // stale options.
+                      setEntry(p=>({
+                        ...p, product_id:null, product_name:'',
+                        is_batch_tracked:false,
+                        batch_id:null, batch_number:'',
+                        manufacture_date:null, expiry_date:null, batch_stock:0,
+                      }));
+                    }}
                     allowClear
                     placeholder="Product name" notFoundContent={null}
                     listHeight={320} dropdownMatchSelectWidth={460}
@@ -1844,8 +1858,8 @@ export default function SalesBillForm() {
                  *  Disabled state: empty list → "No batches with stock
                  *  at this godown" — the operator can't sell until a
                  *  purchase lands. */}
-                {batchTrackingOn && entry.is_batch_tracked && (
-                  <div className="sbf-cell has-arrow" style={{ minWidth: 180 }}>
+                {batchTrackingOn && (
+                  <div className="sbf-cell has-arrow batch-cell">
                     <div className="sbf-cell-lbl">Batch</div>
                     <Select
                       ref={batchSelectRef}
@@ -1863,10 +1877,14 @@ export default function SalesBillForm() {
                       }}
                       open={batchOpen}
                       onDropdownVisibleChange={(v) => setBatchOpen(v)}
-                      disabled={!entry.product_id || batchOptsLoading || batchOpts.length === 0}
-                      placeholder={batchOptsLoading
-                        ? 'Loading…'
-                        : (batchOpts.length === 0 ? 'No batches with stock at this godown' : 'Pick a batch')}
+                      disabled={!entry.product_id || !entry.is_batch_tracked || batchOptsLoading || batchOpts.length === 0}
+                      placeholder={!entry.product_id
+                        ? 'Pick a product first'
+                        : !entry.is_batch_tracked
+                          ? 'Not batch-tracked'
+                          : batchOptsLoading
+                            ? 'Loading…'
+                            : (batchOpts.length === 0 ? 'No batches with stock' : 'Pick a batch')}
                       showSearch optionLabelProp="label"
                       filterOption={(input, opt) => !input || (opt.label || '').toLowerCase().includes(input.toLowerCase())}
                       dropdownMatchSelectWidth={380}
