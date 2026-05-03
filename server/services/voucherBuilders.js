@@ -65,11 +65,47 @@ async function getPartyLedger(party, transaction) {
   return LedgerAccount.findOne({ where: { party_id: party.party_id }, transaction });
 }
 
-// Map a payment method string to the right system ledger.
-// 'Cash' and anything cash-like → Cash; everything else → Bank Account.
-async function paymentMethodToLedger(method, cache, transaction) {
-  const m = String(method || 'Cash').toLowerCase();
-  if (m === 'cash') return getSystemLedger('Cash', cache, transaction);
+// Resolve the cash-or-bank ledger leg for a payment. The argument is a
+// "context" object — typically a payment_split, a sales_bill, or a
+// purchase_bill. Three cases, in order of preference:
+//
+//   1. ctx.bank_ledger_id is set → look up that exact ledger. This is
+//      the modern path (the form picked a specific bank).
+//   2. mode is Cash (or unset) → the system 'Cash' ledger.
+//   3. Legacy fallback → the system 'Bank Account' ledger. This keeps
+//      pre-migration rows posting consistently while we phase out the
+//      single-bank model.
+//
+// We never throw on a dangling bank_ledger_id; instead we fall through
+// to the legacy bank lookup so a stale FK from a deleted ledger still
+// posts somewhere sensible. The Ledger Integrity report will surface
+// any drift this introduces.
+async function paymentMethodToLedger(ctx, cache, transaction) {
+  // Backwards-compat: callers used to pass a method string. Tolerate it.
+  if (typeof ctx === 'string' || ctx == null) {
+    ctx = { payment_mode: ctx };
+  }
+
+  // Mode lives on splits as `payment_mode`; on sales/purchase bills as
+  // `payment_method`. Read both so we don't care which kind of object
+  // the caller passed.
+  const mode = String(
+    ctx.payment_mode || ctx.payment_method || 'Cash',
+  ).toLowerCase();
+
+  // 1. Explicit bank ledger wins.
+  if (ctx.bank_ledger_id) {
+    const cacheKey = `__bank_${ctx.bank_ledger_id}`;
+    if (cache[cacheKey]) return cache[cacheKey];
+    const row = await LedgerAccount.findByPk(ctx.bank_ledger_id, { transaction });
+    if (row) { cache[cacheKey] = row; return row; }
+    // Dangling FK — fall through.
+  }
+
+  // 2. Cash.
+  if (mode === 'cash') return getSystemLedger('Cash', cache, transaction);
+
+  // 3. Legacy bank.
   return getSystemLedger('Bank Account', cache, transaction);
 }
 
@@ -172,7 +208,9 @@ async function buildSalesBillVouchers(bill, opts = {}) {
   const vouchers = [primary];
   if (!isCashCustomer && paidAmount > 0) {
     const partyLedger = await getPartyLedger(customer, t);
-    const cashOrBank = await paymentMethodToLedger(bill.payment_method, cache, t);
+    // Pass the bill itself so the resolver can read both
+    // payment_method and the (newer) bank_ledger_id off of it.
+    const cashOrBank = await paymentMethodToLedger(bill, cache, t);
     vouchers.push({
       voucherType: 'Receipt',
       sourceType:  'sales_bill_receipt',   // distinct from a standalone payment_receipt
@@ -254,7 +292,8 @@ async function buildPurchaseBillVouchers(bill, opts = {}) {
   const vouchers = [primary];
   if (!isCashSupplier && paidAmount > 0) {
     const partyLedger = await getPartyLedger(supplier, t);
-    const cashOrBank = await paymentMethodToLedger(bill.payment_method, cache, t);
+    // Pass the bill so the resolver can read bank_ledger_id when set.
+    const cashOrBank = await paymentMethodToLedger(bill, cache, t);
     vouchers.push({
       voucherType: 'Payment',
       sourceType:  'purchase_bill_payment',
@@ -415,18 +454,27 @@ async function buildPaymentReceiptVouchers(receipt, opts = {}) {
   const totalAmount = r2(receipt.total_amount);
   const isReceipt = receipt.transaction_type === 'Receipt';
 
-  // Build cash/bank legs from splits if present, else single from payment_method.
+  // Build cash/bank legs from splits if present, else single from the
+  // header's payment_method.
+  //
+  // Pre-bank-FK history note: the previous version of this loop read
+  // `s.payment_method` — but the column on payment_splits is
+  // `payment_mode`. That meant every split silently fell through to
+  // 'Cash' (the resolver's null-safe default), so multi-method receipts
+  // were posting all legs to Cash. Reading the right field here is part
+  // of the bank-FK migration: pass the whole split so the resolver can
+  // read `payment_mode` AND `bank_ledger_id`.
   const splits = Array.isArray(receipt.splits) ? receipt.splits : [];
   const methodLegs = [];
   if (splits.length > 0) {
     for (const s of splits) {
       const amt = r2(s.amount);
       if (amt <= 0) continue;
-      const lg = await paymentMethodToLedger(s.payment_method, cache, t);
+      const lg = await paymentMethodToLedger(s, cache, t);
       methodLegs.push({ ledger: lg, amount: amt });
     }
   } else {
-    const lg = await paymentMethodToLedger(receipt.payment_method, cache, t);
+    const lg = await paymentMethodToLedger(receipt, cache, t);
     methodLegs.push({ ledger: lg, amount: totalAmount });
   }
 

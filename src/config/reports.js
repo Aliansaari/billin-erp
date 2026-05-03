@@ -216,13 +216,28 @@ export const REPORTS = [
     aliases: ['movement', 'transactions', 'ledger'],
   },
   {
-    id: 'movers',
-    name: 'Fast / Slow Movers',
-    subtitle: 'Top & bottom by quantity sold',
+    id: 'fast_slow_stock',
+    // Legacy id retained so any UserReportFavorite row that pre-dates
+    // the rename still resolves. The server-side migration in
+    // server/index.js bulk-renames `report_id='movers'` → 'fast_slow_stock'
+    // on boot; legacy_ids is the in-flight safety net + a long-term
+    // marker so the next dev knows what was renamed.
+    legacy_ids: ['movers'],
+    name: 'Fast & Slow Stock',
+    subtitle: 'Velocity & cover · fast / slow / dead classification',
     category: 'inventory',
-    route: '/reports/movers',
+    route: '/reports/fast-slow-stock',
     perm: 'reports.view',
-    aliases: ['velocity', 'dead stock'],
+    // Aliases drive the Reports Hub search. Cover every word a user
+    // might type — "stock" + "movers" are the canonical pair, but
+    // velocity / cover / dead / aging / abc all surface this report.
+    aliases: [
+      'stock', 'movers', 'moving', 'movement',
+      'fast', 'slow', 'dead', 'dead stock',
+      'velocity', 'turnover', 'cover',
+      'reorder', 'discount', 'inventory analysis',
+      'abc', 'pareto',
+    ],
   },
   {
     id: 'transfer_register',
@@ -280,12 +295,48 @@ export const REPORTS = [
     aliases: ['tb'],
   },
   {
+    id: 'banks',
+    name: 'Banks',
+    subtitle: 'Bank balances · statements · reconciliation',
+    category: 'financial',
+    route: '/banks',
+    perm: 'accounts.view',
+    aliases: ['bank', 'bank statement', 'reconcile', 'cheques', 'cleared', 'uncleared'],
+  },
+  {
+    id: 'loans',
+    name: 'Loans',
+    subtitle: 'Loan tracking · EMI schedule · interest paid',
+    category: 'financial',
+    route: '/loans',
+    perm: 'accounts.view',
+    aliases: ['loan', 'emi', 'interest', 'principal', 'amortization', 'borrowing', 'lending', 'debt'],
+  },
+  {
+    id: 'loan_schedule',
+    name: 'Loan Schedule',
+    subtitle: 'Upcoming + overdue EMIs across all loans',
+    category: 'financial',
+    route: '/loans/schedule',
+    perm: 'accounts.view',
+    aliases: ['emi', 'overdue emi', 'upcoming emi', 'amortization', 'loan due'],
+  },
+  {
     id: 'cash_flow',
     name: 'Cash Flow',
     subtitle: 'Cash in vs cash out',
     category: 'financial',
     route: '/reports/cash-flow',
     perm: 'accounts.view',
+  },
+  {
+    id: 'fund_flow',
+    name: 'Fund Flow',
+    subtitle: 'Working-capital changes · sources & applications',
+    category: 'financial',
+    route: '/reports/fund-flow',
+    perm: 'accounts.view',
+    aliases: ['ff', 'funds', 'working capital'],
   },
 
   // ── Parties ──────────────────────────────────────────────────────
@@ -386,7 +437,15 @@ export const REPORTS = [
 ];
 
 // Lookup helpers — the consumer code shouldn't `find()` over REPORTS.
-const BY_ID = REPORTS.reduce((m, r) => ((m[r.id] = r), m), {});
+// BY_ID lookup. Each report registers under its canonical `id` AND
+// every `legacy_ids` it lists, so a favourite row stored under an
+// old slug still resolves to the right report after a rename. New
+// pins always use the canonical id (server migration has run by then).
+const BY_ID = REPORTS.reduce((m, r) => {
+  m[r.id] = r;
+  for (const old of (r.legacy_ids || [])) m[old] = r;
+  return m;
+}, {});
 export function getReportById(id) { return BY_ID[id]; }
 
 export function getReportsByCategory(cat) {

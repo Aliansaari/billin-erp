@@ -85,6 +85,18 @@ const PaymentReceipt = sequelize.define('PaymentReceipt', {
     type: DataTypes.STRING(20),
     allowNull: true,
   },
+  // Bank reconciliation (Tier 2). NULL = uncleared / in transit;
+  // a timestamp = the operator marked this row as cleared on the
+  // Bank Statement view. cleared_by tracks who, for the audit trail.
+  cleared_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  cleared_by: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'users', key: 'user_id' },
+  },
 }, {
   tableName: 'payments_receipts',
   timestamps: true,

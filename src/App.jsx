@@ -56,14 +56,21 @@ import GSTR3BReport from './pages/reports/GSTR3BReport';
 import TrialBalance from './pages/reports/TrialBalance';
 import BalanceSheet from './pages/reports/BalanceSheet';
 import CashFlow from './pages/reports/CashFlow';
+import FundFlow from './pages/reports/FundFlow';
 import HsnSummary from './pages/reports/HsnSummary';
-import Movers from './pages/reports/Movers';
+import FastSlowStock from './pages/reports/FastSlowStock';
 import GodownTransferRegister from './pages/reports/GodownTransferRegister';
 import GodownValuation from './pages/reports/GodownValuation';
 import ReportsHub from './pages/reports/ReportsHub';
 import JournalVoucherList from './pages/accounts/JournalVoucherList';
 import JournalVoucherForm from './pages/accounts/JournalVoucherForm';
 import LedgerIntegrity from './pages/accounts/LedgerIntegrity';
+import BankList            from './pages/banks/BankList';
+import BankStatement       from './pages/banks/BankStatement';
+import BankReconciliation  from './pages/banks/BankReconciliation';
+import LoanList            from './pages/loans/LoanList';
+import LoanStatement       from './pages/loans/LoanStatement';
+import LoanSchedule        from './pages/loans/LoanSchedule';
 import ImportV2 from './pages/settings/ImportV2';
 import CompanyProfile from './pages/settings/CompanyProfile';
 import UserManagement from './pages/settings/UserManagement';
@@ -314,12 +321,18 @@ export default function App() {
           <Route path="reports/trial-balance"     element={<RoleRoute perm="accounts.view"><TrialBalance /></RoleRoute>} />
           <Route path="reports/balance-sheet"     element={<RoleRoute perm="accounts.view"><BalanceSheet /></RoleRoute>} />
           <Route path="reports/cash-flow"         element={<RoleRoute perm="accounts.view"><CashFlow /></RoleRoute>} />
+          <Route path="reports/fund-flow"         element={<RoleRoute perm="accounts.view"><FundFlow /></RoleRoute>} />
           <Route path="reports/day-book"          element={<RoleRoute perm="accounts.view"><DayBook /></RoleRoute>} />
           <Route path="reports/hsn-summary"        element={<RoleRoute perm="reports.view"><HsnSummary /></RoleRoute>} />
           {/* /reports/stock-summary removed — opening / inward / outward
               now live on the inventory Stock Report via the movement-
               period range picker. Drill-down from ProfitLoss rewired. */}
-          <Route path="reports/movers"             element={<RoleRoute perm="reports.view"><Movers /></RoleRoute>} />
+          <Route path="reports/fast-slow-stock"    element={<RoleRoute perm="reports.view"><FastSlowStock /></RoleRoute>} />
+          {/* Redirect — keep the legacy /reports/movers slug alive
+              forever so any user-saved bookmark, copy-pasted URL, or
+              cached favourite resolves to the new path.  Replace=true
+              so the redirect doesn't pollute history. */}
+          <Route path="reports/movers"             element={<Navigate to="/reports/fast-slow-stock" replace />} />
           <Route path="reports/transfer-register"  element={<RoleRoute perm="reports.view"><GodownTransferRegister /></RoleRoute>} />
           <Route path="reports/godown-valuation"   element={<RoleRoute perm="reports.view"><GodownValuation /></RoleRoute>} />
 
@@ -328,6 +341,17 @@ export default function App() {
           <Route path="accounts/journal/new"      element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
           <Route path="accounts/journal/edit/:id" element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
           <Route path="accounts/integrity"        element={<RoleRoute perm="accounts.view"><LedgerIntegrity /></RoleRoute>} />
+          <Route path="banks"                      element={<RoleRoute perm="accounts.view"><BankList /></RoleRoute>} />
+          {/* /banks/reconciliation must come before /banks/:ledger_id/statement —
+              otherwise React Router would try to use 'reconciliation' as a ledger_id. */}
+          <Route path="banks/reconciliation"       element={<RoleRoute perm="accounts.view"><BankReconciliation /></RoleRoute>} />
+          <Route path="banks/:ledger_id/statement" element={<RoleRoute perm="accounts.view"><BankStatement /></RoleRoute>} />
+
+          {/* Loans — same shape as banks. /loans/schedule is the cross-loan
+              upcoming-EMI dashboard (mirror of bank reconciliation). */}
+          <Route path="loans"                      element={<RoleRoute perm="accounts.view"><LoanList /></RoleRoute>} />
+          <Route path="loans/schedule"             element={<RoleRoute perm="accounts.view"><LoanSchedule /></RoleRoute>} />
+          <Route path="loans/:ledger_id/statement" element={<RoleRoute perm="accounts.view"><LoanStatement /></RoleRoute>} />
 
           {/* Settings */}
           <Route path="settings/company"        element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />

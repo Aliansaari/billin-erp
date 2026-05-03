@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import BankLedgerSelect from '../../components/BankLedgerSelect';
 import '../../styles/bill-entry.css';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -36,6 +37,10 @@ export default function PaymentEntry() {
   const [bills, setBills]                 = useState([]);
   const [date, setDate]                   = useState(dayjs());
   const [payMode, setPayMode]             = useState('Cash');
+  // Selected bank ledger ID. Only meaningful when payMode != 'Cash'.
+  // Driven by <BankLedgerSelect> which auto-defaults to last-used /
+  // first available.  Null = cash leg or no bank chosen yet.
+  const [bankLedgerId, setBankLedgerId]   = useState(null);
   const [payNo, setPayNo]                 = useState('');
   const [payAmt, setPayAmt]               = useState(null);
   const [discAmt, setDiscAmt]             = useState(0);
@@ -174,6 +179,11 @@ export default function PaymentEntry() {
     setBills([]);
     setDate(dayjs());
     setPayMode('Cash');
+    // Don't clear the bank — the user almost certainly wants the same
+    // bank for the next payment, and BankLedgerSelect's auto-default
+    // would re-pick it anyway. But snap to null when mode is Cash so
+    // a stale selection doesn't sneak into the next payload.
+    setBankLedgerId(null);
     setPayNo('');
     setPayAmt(null);
     setDiscAmt(0);
@@ -228,7 +238,13 @@ export default function PaymentEntry() {
         reference_bill_id:   refBill?.purchase_bill_id || null,
         reference_bill_type: refBill ? 'Purchase' : null,
         remarks:             selectedInvNos ? `Bills: ${selectedInvNos}` : payNo,
-        splits:              [{ payment_mode: payMode, amount: netAmount }],
+        splits: [{
+          payment_mode:   payMode,
+          amount:         netAmount,
+          // Only attach bank_ledger_id for non-cash modes; cash splits
+          // post against the Cash ledger and shouldn't reference a bank.
+          ...(payMode !== 'Cash' && bankLedgerId ? { bank_ledger_id: bankLedgerId } : {}),
+        }],
         bill_allocations,
       });
       message.success(`Payment ${result.transaction_number} saved! ✓`);
@@ -240,7 +256,7 @@ export default function PaymentEntry() {
       setLoading(false);
       submittingRef.current = false;
     }
-  }, [selectedParty, payAmt, netAmount, date, payMode, payNo, checkedBills, selectedInvNos, billsWithAlloc]);
+  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, checkedBills, selectedInvNos, billsWithAlloc]);
 
   handleSaveRef.current = handleSave;
 
@@ -353,6 +369,21 @@ export default function PaymentEntry() {
               {MODES.map(m => <Select.Option key={m} value={m}>{m}</Select.Option>)}
             </Select>
           </div>
+
+          {/* Bank picker — shows only for non-cash modes. Posts to the
+              chosen bank's ledger so it appears in that bank's statement
+              and the cross-bank reconciliation view. */}
+          {payMode !== 'Cash' && (
+            <div className="be-fld">
+              <label className="be-lbl">Bank</label>
+              <BankLedgerSelect
+                value={bankLedgerId}
+                onChange={setBankLedgerId}
+                mode={payMode}
+                style={{ width: '100%' }}
+              />
+            </div>
+          )}
 
           <div className="be-row-2">
             <div className="be-fld">

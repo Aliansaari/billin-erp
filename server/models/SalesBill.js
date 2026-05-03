@@ -146,6 +146,15 @@ const SalesBill = sequelize.define('SalesBill', {
     type: DataTypes.STRING(30),
     defaultValue: 'Cash',
   },
+  // Which bank ledger the at-sale receipt landed in. NULL for Cash bills
+  // (or pre-migration non-cash rows that point at the legacy singleton).
+  // Read by voucherBuilders.buildSalesBillVouchers when paid_amount > 0
+  // to pick the Dr-leg of the receipt voucher.
+  bank_ledger_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'ledger_accounts', key: 'ledger_id' },
+  },
   remarks: {
     type: DataTypes.TEXT,
   },

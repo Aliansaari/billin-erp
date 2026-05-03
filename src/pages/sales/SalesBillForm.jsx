@@ -6,6 +6,7 @@ import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI
 import { printDocument } from '../../services/printer';
 import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import BankLedgerSelect from '../../components/BankLedgerSelect';
 import './sales-bill-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -447,6 +448,7 @@ export default function SalesBillForm() {
         other_charges:parseFloat(data.other_charges)||0,
         freight_charges:parseFloat(data.freight_charges)||0,
         payment_method:data.payment_method||'Cash',
+        bank_ledger_id:data.bank_ledger_id||undefined,  // restore bank pick when editing
         remarks:data.remarks||'',
       });
       const loadedCgstPct = parseFloat(data.cgst_pct)||0;
@@ -868,6 +870,13 @@ export default function SalesBillForm() {
         // window even if a future migration reads the field directly.
         return_amount: hasInlineReturn ? 0 : (parseFloat(returnAmt)||0),
         payment_method:vals.payment_method||'Cash',
+        // Bank ledger FK for at-sale receipts on non-cash modes. Null for
+        // Cash / Credit bills — no bank involved. The voucher builder
+        // prefers this when set; otherwise falls back to the legacy
+        // 'Bank Account' system ledger so existing flows still work.
+        bank_ledger_id: (vals.payment_method && vals.payment_method !== 'Cash' && vals.payment_method !== 'Credit')
+          ? (vals.bank_ledger_id || null)
+          : null,
         remarks:(vals.remarks||'').trim(),
         // payFull = "Save & Receive": settle the bill in full. With inline
         // returns the customer's actual cash exchange is (total − return),
@@ -986,6 +995,7 @@ export default function SalesBillForm() {
         freight_charges: parseFloat(freightChr) || 0,
         return_amount: parseFloat(returnAmt) || 0,
         payment_method: vals.payment_method || 'Cash',
+        bank_ledger_id: vals.bank_ledger_id || null,  // preserve bank pick across drafts
         remarks: (vals.remarks || '').trim(),
         paid_amount: parseFloat(vals.paid_amount) || 0,
         discount_percentage: discPct,
@@ -1061,6 +1071,7 @@ export default function SalesBillForm() {
         sale_type:          p.sale_type || 'Retail',
         salesman_name:      p.salesman_name || '',
         payment_method:     p.payment_method || 'Cash',
+        bank_ledger_id:     p.bank_ledger_id || undefined,  // restore bank pick from draft
         remarks:            p.remarks || '',
         paid_amount:        p.paid_amount || 0,
         return_amount:      p.return_amount || 0,
@@ -1812,6 +1823,19 @@ export default function SalesBillForm() {
                     </Select>
                   </Form.Item>
                 </div>
+                {/* Bank picker — appears only for non-cash modes. The
+                    chosen bank's ledger ID is saved on sales_bills and
+                    used by buildSalesBillVouchers when paid_amount>0
+                    so the at-sale receipt voucher posts against the
+                    right bank (instead of the legacy 'Bank Account'). */}
+                {paymentMethod !== 'Cash' && paymentMethod !== 'Credit' && (
+                  <div className="sbf-pay-line">
+                    <span className="k">Bank</span>
+                    <Form.Item name="bank_ledger_id" noStyle>
+                      <BankLedgerSelect mode={paymentMethod} style={{ width: '100%' }} />
+                    </Form.Item>
+                  </div>
+                )}
                 {/* 3-column row so the Return button sits BETWEEN the
                     "Return ₹" label and the amount box (visible by default
                     so the operator notices it without hovering). Smaller

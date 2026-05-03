@@ -62,7 +62,7 @@ export default function AppLayout() {
   // partial-match `sale` and then fail the trailing \/, falling through to
   // the padded layout. That made the return forms visibly shrink to content
   // height instead of filling the screen.
-  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|stock-movement|stock-report-pro)\//.test(location.pathname) || [
+  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|stock-movement|stock-report-pro|banks|loans)\//.test(location.pathname) || [
     '/products', '/stock-report', '/stock-report-pro', '/stock-movement', '/categories', '/customers', '/suppliers',
     '/sales', '/purchases', '/payments',
     '/sales-returns', '/purchase-returns',
@@ -80,11 +80,37 @@ export default function AppLayout() {
     '/reports/monthly-payments', '/reports/monthly-receipts',
     '/reports/product-sales', '/reports/product-purchases',
     '/reports/transfer-register',
+    '/reports/godown-valuation',
+    // Fast & Slow Stock — full-bleed table with sticky header /
+    // tabs / footer; same layout discipline as the other reports.
+    // The legacy /reports/movers slug also resolves (via a Navigate
+    // in App.jsx) but only the canonical path needs to be in
+    // isFullPage — the redirect renders before this check runs.
+    '/reports/fast-slow-stock',
     // Editorial financial reports — full-page shells with sticky
     // total bar + F-bar pinned to viewport bottom. Without these
     // listed, the wrapper paints them as a padded card and the
     // sticky bottom drifts up into the middle of the page.
     '/reports/balance-sheet', '/reports/trial-balance', '/reports/cash-flow',
+    '/reports/fund-flow',
+    // Ledger Integrity — sticky page header (title + Refresh +
+    // Run Reconciliation badge) with collapsible cards scrolling
+    // beneath it.
+    '/accounts/integrity',
+    // Banks — list view, statement view, and cross-bank reconciliation,
+    // all full-bleed flex shells with sticky header / table / footer.
+    // Bare /banks lands the list; /banks/reconciliation and
+    // /banks/:id/statement are caught by the regex above.
+    '/banks',
+    // Loans — same shape as banks: list, per-loan statement+schedule,
+    // and cross-loan upcoming EMIs page. The regex above catches the
+    // child routes; this entry covers the bare /loans landing.
+    '/loans',
+    // Reports Hub — sticky title strip; search + pinned strip +
+    // category grid scroll beneath. Without /reports here, the
+    // page reverts to padded auto-scroll where the title slides
+    // off-screen on long category lists.
+    '/reports',
   ].includes(location.pathname);
 
   // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.

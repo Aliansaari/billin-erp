@@ -1,0 +1,756 @@
+/* Banks — list + statement
+ *
+ * Both pages share the .bank-page outer flex shell and inherit the
+ * .rpt-* chrome (page header, KPI strip, buttons) from
+ * src/styles/global.css. Only the page-specific bits live here:
+ *   • .bank-grid + .bank-card  — list view
+ *   • .bank-tabs + .bank-tbl   — statement view
+ *   • .bank-recon              — reconciliation banner
+ */
+
+.bank-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Padding under the KPI strip — same pattern as Stock Movers / Godown
+ * Valuation. The global rule has padding-bottom: 0. */
+.bank-page .rpt-kpis { padding-bottom: 14px; }
+
+.bank-kpi-sub {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  margin-top: 4px;
+}
+
+/* ─── List view ────────────────────────────────────────────────── */
+
+.bank-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 28px 24px;
+}
+
+.bank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+
+.bank-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: transform .12s, box-shadow .12s, border-color .12s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  display: flex; flex-direction: column;
+  gap: 14px;
+}
+.bank-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.07);
+  border-color: var(--accent-border, rgba(79, 70, 229, 0.20));
+}
+
+/* Inactive variant — muted so the eye doesn't pull toward retired
+ * accounts, but still clickable so the operator can drill in for
+ * historical statements / reconciliation. */
+.bank-card-inactive {
+  opacity: 0.62;
+  background: var(--bg-muted, #F9FAFB);
+  border-style: dashed;
+}
+.bank-card-inactive:hover {
+  opacity: 0.92;
+  transform: none;  /* don't lift muted cards — they're not the focus */
+}
+.bank-inactive-badge {
+  display: inline-flex; align-items: center;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(107, 114, 128, 0.12);
+  color: #6B7280;
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.4px;
+  vertical-align: middle;
+}
+.bank-sys-badge {
+  display: inline-flex; align-items: center;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(79, 70, 229, 0.10);
+  color: #4F46E5;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.4px;
+  cursor: help;
+}
+
+/* 3-dot menu trigger — sits in the top-right next to the balance
+ * column.  Subtle until hovered so it doesn't compete with the
+ * balance number for visual weight. */
+.bank-card-actions {
+  display: flex; align-items: flex-start; gap: 4px;
+  flex-shrink: 0;
+}
+.bank-card-menu {
+  width: 28px; height: 28px;
+  border: 0; background: transparent;
+  border-radius: 6px;
+  color: var(--fg-tertiary);
+  display: grid; place-items: center;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.bank-card-menu:hover {
+  background: var(--bg-muted);
+  color: var(--fg-primary);
+}
+
+/* Card header — name + balance */
+.bank-card-hd {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px;
+}
+.bank-card-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.bank-card-id .ic {
+  width: 38px; height: 38px;
+  border-radius: 9px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  display: grid; place-items: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.bank-card-id .name {
+  font-size: 15.5px; font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+}
+.bank-card-id .meta {
+  font-size: 11.5px; color: var(--fg-secondary);
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 2px;
+}
+.od-badge {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--warning-bg, rgba(245,158,11,0.10));
+  color: var(--warning, #F59E0B);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.bank-card-bal {
+  text-align: right;
+  flex-shrink: 0;
+}
+.bank-card-bal .amt {
+  font-size: 19px; font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--fg-primary);
+}
+.bank-card-bal.bal-neg .amt { color: var(--danger, #EF4444); }
+.bank-card-bal .side {
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-top: 1px;
+}
+
+/* Flow row — 30-day inflow / outflow */
+.bank-card-flow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.flow-cell .lbl {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-bottom: 3px;
+}
+.flow-cell .val {
+  font-size: 14px; font-weight: 700;
+  letter-spacing: -0.005em;
+}
+.flow-cell .val.pos { color: var(--success, #10B981); }
+.flow-cell .val.neg { color: var(--danger,  #EF4444); }
+
+/* Footer line — uncleared status + last activity */
+.bank-card-foot {
+  display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 12px;
+  gap: 12px;
+}
+.foot-l { display: flex; align-items: center; gap: 6px; }
+.foot-uncl {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--warning, #F59E0B);
+  font-weight: 500;
+}
+.foot-uncl b { color: var(--fg-primary); font-weight: 700; }
+.foot-uncl .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--warning, #F59E0B);
+}
+.foot-clear {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--success, #10B981);
+}
+.foot-clear .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--success, #10B981);
+}
+.foot-r {
+  color: var(--fg-secondary);
+}
+.foot-r.dormant { color: var(--warning, #F59E0B); }
+
+.bank-card-cta {
+  text-align: right;
+  font-size: 12.5px; font-weight: 600;
+  color: var(--accent, #4F46E5);
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+  margin-top: -2px;
+}
+
+.bank-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--fg-tertiary);
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* ─── Statement view ───────────────────────────────────────────── */
+
+.bank-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit; font-size: 12px; font-weight: 500;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-bottom: 6px;
+  transition: all .12s;
+}
+.bank-back:hover { color: var(--accent); border-color: var(--accent); }
+.bank-back .anticon { font-size: 11px; }
+
+/* Reconciliation banner */
+.bank-recon {
+  flex-shrink: 0;
+  margin: 0 28px;
+  margin-top: -6px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+}
+.bank-recon-ok {
+  border-color: rgba(16, 185, 129, 0.30);
+  background: linear-gradient(135deg, rgba(16,185,129,0.08), var(--bg-panel) 60%);
+}
+.bank-recon-warning {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: linear-gradient(135deg, rgba(245,158,11,0.10), var(--bg-panel) 60%);
+}
+.bank-recon-danger {
+  border-color: rgba(239, 68, 68, 0.40);
+  background: linear-gradient(135deg, rgba(239,68,68,0.10), var(--bg-panel) 60%);
+}
+
+.bank-recon-icon {
+  width: 36px; height: 36px;
+  border-radius: 9px;
+  display: grid; place-items: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.bank-recon-ok      .bank-recon-icon { background: var(--success, #10B981); color: #fff; }
+.bank-recon-warning .bank-recon-icon { background: var(--warning, #F59E0B); color: #fff; }
+.bank-recon-danger  .bank-recon-icon { background: var(--danger,  #EF4444); color: #fff; }
+
+.bank-recon-ttl {
+  font-size: 14px; font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.bank-recon-formula {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.bank-recon-formula b { color: var(--fg-primary); font-weight: 700; }
+
+.bank-recon-stats {
+  display: flex; gap: 18px;
+  flex-shrink: 0;
+}
+.bank-recon-stats .stat .lbl {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-bottom: 2px;
+}
+.bank-recon-stats .stat .val {
+  font-size: 14px; font-weight: 700;
+  color: var(--fg-primary);
+}
+.bank-recon-stats .stat .val.warn { color: var(--warning, #F59E0B); }
+
+/* Tabs strip — All / Cleared / Uncleared filters */
+.bank-tabs {
+  flex-shrink: 0;
+  display: flex; align-items: center;
+  padding: 12px 28px 10px;
+  gap: 4px;
+}
+.bank-tabs button {
+  border: 0; background: transparent;
+  padding: 7px 14px;
+  font: inherit; font-size: 13px; font-weight: 500;
+  color: var(--fg-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.bank-tabs button:hover { color: var(--fg-primary); }
+.bank-tabs button.on {
+  color: var(--accent);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.bank-tabs button .count {
+  font-size: 11.5px; font-weight: 600;
+  color: var(--fg-tertiary);
+}
+.bank-tabs button.on .count { color: var(--accent); }
+
+.bank-tabs .grow { flex: 1; }
+.bank-tabs-meta {
+  font-size: 12.5px; color: var(--fg-secondary);
+}
+.bank-tabs-meta b { color: var(--fg-primary); font-weight: 700; }
+.bank-tabs-meta .sep { color: var(--fg-quaternary); margin: 0 6px; }
+.bank-side {
+  font-size: 11px; font-weight: 700;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.4px;
+}
+
+/* Statement table */
+.bank-tbl-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  margin: 0 28px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.bank-tbl {
+  width: 100%;
+  border-collapse: separate; border-spacing: 0;
+  font-size: 13.5px;
+}
+.bank-tbl thead th {
+  text-align: right;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky; top: 0; z-index: 1;
+}
+.bank-tbl thead th:first-child,
+.bank-tbl thead th.l { text-align: left; }
+.bank-tbl thead th.c { text-align: center; }
+
+.bank-tbl tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: right;
+  vertical-align: middle;
+}
+.bank-tbl tbody td:first-child,
+.bank-tbl tbody td.l { text-align: left; }
+.bank-tbl tbody td.c { text-align: center; }
+.bank-tbl tbody tr:hover td { background: var(--bg-muted); }
+.bank-tbl tbody tr.cleared td { background: rgba(16, 185, 129, 0.04); }
+.bank-tbl tbody tr.cleared:hover td { background: rgba(16, 185, 129, 0.08); }
+
+.bank-num { font-weight: 500; color: var(--fg-primary); }
+.bank-num.bold { font-weight: 700; }
+.bank-num.pos  { color: var(--success, #10B981); font-weight: 600; }
+.bank-num.neg  { color: var(--danger,  #EF4444); font-weight: 600; }
+.bank-dash     { color: var(--fg-quaternary, #d1d5db); }
+
+.bank-particulars {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.bank-particulars .primary {
+  font-weight: 600; color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.bank-particulars .meta {
+  font-size: 11.5px; color: var(--fg-tertiary);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.mode-pill {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  font-size: 10.5px; font-weight: 600;
+  color: var(--fg-secondary);
+}
+
+.bank-cheque {
+  font-size: 12.5px;
+  color: var(--fg-primary);
+  font-weight: 500;
+}
+
+/* Cleared/uncleared toggle button */
+.bank-tick {
+  width: 24px; height: 24px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-panel);
+  cursor: pointer;
+  display: inline-grid; place-items: center;
+  font-size: 14px;
+  color: transparent;
+  transition: all .12s;
+  padding: 0;
+}
+.bank-tick:hover { border-color: var(--success, #10B981); }
+.bank-tick.on {
+  background: var(--success, #10B981);
+  border-color: var(--success, #10B981);
+  color: #fff;
+}
+.bank-tick.on .anticon { font-size: 14px; }
+
+.bank-foot {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 28px;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--fg-secondary);
+}
+.bank-foot b { color: var(--fg-primary); font-weight: 600; }
+.bank-foot-keys b { color: var(--accent); }
+
+/* ───────────────────────────────────────────────────────────────────
+ * Bank Reconciliation (cross-bank view)
+ *
+ * A wider table with extra columns (Bank, Aging) compared to the
+ * per-bank statement, plus two extra strips above the table:
+ *
+ *   • Aging chips strip — quick filter by "how stale is the entry"
+ *   • Per-bank tiles    — at-a-glance "which banks are clean / dirty"
+ *
+ * Reuses .bank-tbl, .bank-num, .bank-tick, .mode-pill and friends.
+ * ─────────────────────────────────────────────────────────────────── */
+
+/* Filter selects sitting in the page header — match the .rpt-btn
+ * height (32px) so the row of controls reads as a single tidy strip. */
+.bank-recon-page .bank-recon-select.ant-select .ant-select-selector {
+  height: 32px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.bank-recon-page .bank-recon-select.ant-select .ant-select-selection-item {
+  line-height: 30px;
+}
+
+/* ─── Aging strip ─────────────────────────────────────────────────── */
+.bank-aging {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 28px 12px;
+  flex-wrap: wrap;
+}
+.bank-aging-lbl {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-right: 4px;
+}
+.bank-aging-lbl .anticon { font-size: 13px; }
+
+.bank-aging-chip {
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-radius: 999px;
+  padding: 5px 12px 5px 14px;
+  font: inherit;
+  font-size: 12.5px; font-weight: 500;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: all .12s;
+  font-variant-numeric: tabular-nums;
+}
+.bank-aging-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--fg-primary);
+}
+.bank-aging-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.bank-aging-chip .lbl { font-weight: 600; }
+.bank-aging-chip .cnt {
+  display: inline-grid; place-items: center;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--bg-muted);
+  color: var(--fg-secondary);
+  font-size: 11px; font-weight: 700;
+}
+.bank-aging-chip .amt {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  font-weight: 600;
+  margin-left: 2px;
+}
+.bank-aging-chip.on {
+  border-color: var(--accent);
+  background: var(--accent-bg, rgba(79,70,229,0.08));
+  color: var(--accent);
+  font-weight: 600;
+}
+.bank-aging-chip.on .cnt {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Per-bucket tone tints — the chip itself stays neutral until selected,
+ * but the count badge picks up severity colour so the eye lands on the
+ * "90+ days" bucket first.  This is the core triage signal. */
+.bank-aging-chip.tone-fresh  .cnt { background: rgba(16,185,129,0.12); color: var(--success, #10B981); }
+.bank-aging-chip.tone-warm   .cnt { background: rgba(59,130,246,0.12); color: #3B82F6; }
+.bank-aging-chip.tone-warn   .cnt { background: rgba(245,158,11,0.18); color: var(--warning, #F59E0B); }
+.bank-aging-chip.tone-danger .cnt { background: rgba(239,68,68,0.18);  color: var(--danger,  #EF4444); }
+
+.bank-aging-chip.tone-warn:not(:disabled) .cnt   { font-weight: 800; }
+.bank-aging-chip.tone-danger:not(:disabled) .cnt { font-weight: 800; }
+
+/* ─── Per-bank tiles ─────────────────────────────────────────────── */
+.bank-tile-row {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 0 28px 14px;
+}
+
+.bank-tile {
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-radius: 10px;
+  padding: 11px 14px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  display: flex; flex-direction: column;
+  gap: 8px;
+  transition: all .12s;
+  position: relative;
+}
+.bank-tile:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+  border-color: var(--accent);
+}
+.bank-tile.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--accent-bg, rgba(79,70,229,0.04));
+}
+
+.bank-tile-hd {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+}
+.bank-tile-hd .anticon { font-size: 13px; color: var(--fg-tertiary); }
+.bank-tile-hd .name {
+  flex: 1; min-width: 0;
+  font-weight: 600;
+  color: var(--fg-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  letter-spacing: -0.005em;
+}
+.bank-tile-hd .od-badge.sm {
+  font-size: 9.5px; padding: 0px 5px;
+}
+
+.bank-tile-body {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12.5px; color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.bank-tile-body .cnt {
+  font-size: 21px; font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--fg-primary);
+  line-height: 1;
+}
+.bank-tile-body .ic.ok {
+  color: var(--success, #10B981);
+  font-size: 18px;
+}
+.bank-tile-body .msg {
+  flex: 1;
+}
+
+.bank-tile-ok     { border-color: rgba(16,185,129,0.30); }
+.bank-tile-ok     .bank-tile-body .msg { color: var(--success, #10B981); font-weight: 600; }
+.bank-tile-warn   { border-color: rgba(245,158,11,0.35); }
+.bank-tile-warn   .bank-tile-body .cnt { color: var(--warning, #F59E0B); }
+.bank-tile-danger { border-color: rgba(239,68,68,0.40); }
+.bank-tile-danger .bank-tile-body .cnt { color: var(--danger, #EF4444); }
+
+/* Subtle gradient backgrounds keyed to severity — keeps the tile
+ * legible in a sea of cards while still flagging "hot" banks. */
+.bank-tile-ok     { background: linear-gradient(135deg, rgba(16,185,129,0.05), var(--bg-panel) 70%); }
+.bank-tile-warn   { background: linear-gradient(135deg, rgba(245,158,11,0.06), var(--bg-panel) 70%); }
+.bank-tile-danger { background: linear-gradient(135deg, rgba(239,68,68,0.07),  var(--bg-panel) 70%); }
+
+/* ─── Reconciliation table extras ─────────────────────────────────── */
+
+/* Bank-name link in the table — looks like the cell text, but reveals
+ * itself as a link on hover.  Click to drill into that bank's
+ * statement, scoped to its FY default. */
+.bank-recon-banklink {
+  border: 0; background: transparent;
+  padding: 3px 8px 3px 6px; margin: -3px -8px -3px -6px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px; font-weight: 600;
+  color: var(--fg-primary);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all .12s;
+}
+.bank-recon-banklink:hover {
+  background: var(--accent-bg, rgba(79,70,229,0.06));
+  color: var(--accent);
+}
+.bank-recon-banklink .anticon { font-size: 12px; color: var(--fg-tertiary); }
+.bank-recon-banklink:hover .anticon { color: var(--accent); }
+.bank-recon-banklink .od-badge.sm {
+  font-size: 9.5px;
+  padding: 0px 5px;
+  margin-left: 2px;
+}
+
+/* Aging pill in the row — smaller than the chip strip, just shows the
+ * day count + tone colour. */
+.bank-age-pill {
+  display: inline-grid; place-items: center;
+  min-width: 36px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px; font-weight: 700;
+  letter-spacing: 0.2px;
+  font-variant-numeric: tabular-nums;
+}
+.bank-age-pill.tone-fresh {
+  background: rgba(16,185,129,0.10);
+  color: var(--success, #10B981);
+}
+.bank-age-pill.tone-warm {
+  background: rgba(59,130,246,0.10);
+  color: #3B82F6;
+}
+.bank-age-pill.tone-warn {
+  background: rgba(245,158,11,0.14);
+  color: var(--warning, #F59E0B);
+}
+.bank-age-pill.tone-danger {
+  background: rgba(239,68,68,0.14);
+  color: var(--danger, #EF4444);
+}
+
+/* Transaction-type label inside the particulars meta. */
+.bank-recon-txtype {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  color: var(--fg-tertiary);
+}
+
+/* The Reconciliation table is wider — give the bank column some breathing
+ * room and the cheque column a fixed-ish width so wide UTRs don't
+ * shove the amount columns around. */
+.bank-recon-tbl thead th:nth-child(2),
+.bank-recon-tbl tbody td:nth-child(2) { min-width: 160px; }
+.bank-recon-tbl thead th:nth-child(4),
+.bank-recon-tbl tbody td:nth-child(4) { min-width: 130px; max-width: 200px; }
+
+/* ─── Bank Statement colgroup widths (paired with .stmt-tbl) ────
+ *
+ * Same layout discipline as LoanStatement: table-layout:fixed (via
+ * .stmt-tbl in loans.css) + a shared <colgroup> between the data
+ * table and the totals bar, so columns line up exactly across both.
+ *
+ * Width budget — 7 columns:
+ *   • Date     130px (DD MMM YYYY fits at 13.5px tabular-nums)
+ *   • Particulars  flexible (auto, takes remaining space)
+ *   • Cheque   180px (UTRs / RTGS refs can run long)
+ *   • Withdrawal/Deposit/Balance  130px each (₹99,99,999.99)
+ *   • Cleared  78px  (just the round toggle button)
+ */
+.stmt-tbl col.bstmt-col-date         { width: 130px; }
+.stmt-tbl col.bstmt-col-particulars  { width: auto;  }
+.stmt-tbl col.bstmt-col-cheque       { width: 180px; }
+.stmt-tbl col.bstmt-col-num          { width: 130px; }
+.stmt-tbl col.bstmt-col-cleared      { width: 78px;  }

@@ -1,0 +1,229 @@
+/* Loans — extends banks.css patterns
+ *
+ * The loan pages reuse .bank-page, .bank-grid, .bank-card, .bank-tbl,
+ * .bank-aging-chip, .rpt-* etc. unmodified — only loan-specific
+ * additions live here:
+ *   • taken vs given icon tints on the card header
+ *   • "closed" loan styling (greyed out + checkmark)
+ *   • loan EMI progress bar margins
+ *   • schedule table specifics (status pills, overdue row)
+ */
+
+.loan-page {
+  /* Same shell as bank-page; .loan-page is a marker for any loan-only
+     overrides without copy-pasting all of bank-page. */
+}
+
+/* ─── Card icon tints ─────────────────────────────────────────────── */
+
+/* Taken (liability) — red-tinted; money flows out */
+.loan-card .bank-card-id .ic.ic-taken {
+  background: rgba(239, 68, 68, 0.10);
+  color: #EF4444;
+}
+
+/* Given (asset) — green-tinted; money flows in */
+.loan-card .bank-card-id .ic.ic-given {
+  background: rgba(16, 185, 129, 0.10);
+  color: #10B981;
+}
+
+/* ─── Closed loan styling ────────────────────────────────────────── */
+
+.loan-card-closed {
+  opacity: 0.78;
+  background: linear-gradient(135deg, rgba(16,185,129,0.04), var(--bg-panel) 60%);
+  border-color: rgba(16, 185, 129, 0.20);
+}
+.loan-card-closed .bank-card-bal .amt { color: #9CA3AF !important; }
+.loan-card-closed .bank-card-cta { color: #6B7280; }
+
+.loan-closed-badge {
+  display: inline-flex; align-items: center;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10B981;
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+/* ─── EMI progress bar ─────────────────────────────────────────── */
+
+.loan-card-progress {
+  padding: 6px 4px;
+  margin-top: 2px;
+}
+.loan-progress-stats {
+  display: flex; align-items: baseline; gap: 4px;
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+  margin-bottom: 4px;
+}
+.loan-progress-stats b { color: var(--fg-primary); font-weight: 700; }
+.loan-progress-stats .grow { flex: 1; }
+
+/* AntD Progress's wrapper has its own margin; pull it tight under
+ * the stats line so the card doesn't bloat. */
+.loan-card-progress .ant-progress-line { margin: 0; }
+.loan-card-progress .ant-progress-bg   { transition: all .25s ease; }
+
+/* ─── Schedule table specifics ─────────────────────────────────── */
+
+.loan-schedule-tbl thead th:first-child,
+.loan-schedule-tbl tbody td:first-child {
+  width: 56px;
+}
+
+.loan-emi-no {
+  display: inline-grid; place-items: center;
+  min-width: 28px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-muted);
+  font-size: 11.5px; font-weight: 700;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status pill in the schedule table */
+.loan-status-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.2px;
+}
+.loan-status-pill.paid {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10B981;
+}
+.loan-status-pill.paid .anticon { font-size: 11px; }
+.loan-status-pill.due {
+  background: rgba(59, 130, 246, 0.10);
+  color: #3B82F6;
+}
+.loan-status-pill.upcoming {
+  background: rgba(107, 114, 128, 0.10);
+  color: #6B7280;
+}
+.loan-status-pill.overdue {
+  background: rgba(239, 68, 68, 0.14);
+  color: #EF4444;
+}
+
+/* Overdue row — subtle red wash */
+.loan-row-overdue td { background: rgba(239, 68, 68, 0.04); }
+.loan-row-overdue:hover td { background: rgba(239, 68, 68, 0.08); }
+
+/* ─── Statement tables (loan + bank) ──────────────────────────────
+ *
+ * Both LoanStatement and BankStatement render their data table on
+ * top of a fixed totals bar, with shared <colgroup> widths so the
+ * totals row's cells line up exactly under their column headers.
+ *
+ * The base layout rules (table-layout:fixed, totals-bar position,
+ * scroll-area chrome) live under the shared .stmt-* selectors
+ * below. Page-specific colgroup widths sit under .lstmt-col-*
+ * (loan) and .bstmt-col-* (bank) — see those further down /
+ * banks.css respectively.
+ *
+ * Why table-layout:fixed: browsers default to auto-layout, which
+ * sizes columns to their cell content. With the totals as a
+ * separate sibling table, each table would size its own columns,
+ * and the totals would drift left of the data columns. Fixed
+ * layout makes the <col> widths authoritative.
+ */
+.stmt-tbl {
+  table-layout: fixed;
+}
+
+/* Loan-specific colgroup widths */
+.stmt-tbl col.lstmt-col-date         { width: 130px; }
+.stmt-tbl col.lstmt-col-particulars  { width: auto;  }   /* takes remaining */
+.stmt-tbl col.lstmt-col-voucher      { width: 220px; }
+.stmt-tbl col.lstmt-col-num          { width: 130px; }
+
+/* Disbursement-row tint — subtle blue, distinguishes the initial
+ * loan inflow from the EMI repayments below it. */
+.loan-row-disb td {
+  background: rgba(79, 70, 229, 0.03);
+}
+.loan-row-disb:hover td {
+  background: rgba(79, 70, 229, 0.06);
+}
+
+/* The dedicated colour for disbursement amounts — blue-violet so it
+ * doesn't compete with the green Principal-paid / red Interest-paid
+ * tones used for EMI rows. */
+.bank-num.disb {
+  color: #4F46E5;
+  font-weight: 600;
+}
+
+/* ─── Statement totals bar (shared by Loan + Bank Statement) ────
+ *
+ * Rendered OUTSIDE the scrolling .bank-tbl-wrap so it's always at
+ * the bottom of the page, even when the table has only 2 rows. The
+ * scroll area takes flex:1 above; this bar takes flex:0 below.
+ *
+ * `position:sticky;bottom:0` was the first attempt — it doesn't
+ * work because sticky only fires when the element would otherwise
+ * scroll out of view. With a short table there's nothing to scroll;
+ * the row just sits there in the middle of the page. Pulling the
+ * totals into a sibling element pinned to the page bottom is the
+ * only reliable "always at bottom" pattern for varying row counts.
+ */
+.stmt-totals-bar {
+  flex-shrink: 0;
+  margin: 0 28px;
+  margin-top: -1px;  /* fold up against the scroll area's bottom border */
+  background: var(--bg-app, #FAFAF9);
+  border: 1px solid var(--border, #E5E7EB);
+  border-top: 2px solid var(--border-strong, #D1D5DB);
+  border-radius: 0 0 10px 10px;
+  /* A subtle upward shadow gives the bar a sense of weight — same
+   * cue we use on the page-level F-bar elsewhere in the app. */
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+}
+
+/* The mini-table inside the totals bar. Inherits .stmt-tbl rules
+ * (table-layout:fixed + colgroup widths) so cells align with the
+ * data table above. */
+.stmt-foot-tbl {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.stmt-foot-tbl tbody td {
+  border: 0;  /* no row borders — bar's own border handles framing */
+}
+
+.stmt-foot td {
+  background: var(--bg-app, #FAFAF9);
+  font-size: 13px;
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+.stmt-foot td b {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--fg-secondary, #6B7280);
+  font-weight: 700;
+}
+.stmt-foot:hover td {
+  background: var(--bg-app, #FAFAF9);   /* don't lift on hover */
+}
+
+/* Above-the-bar scroll area: keep its bottom corners square so they
+ * meet the totals bar cleanly (which has its OWN bottom radius).
+ * Without this the rounded corners of bank-tbl-wrap would clash
+ * with the squared top of the bar. */
+.bank-tbl-wrap.stmt-scroll {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: 0;  /* totals bar's top border replaces this */
+}

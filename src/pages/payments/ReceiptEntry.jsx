@@ -8,6 +8,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import BankLedgerSelect from '../../components/BankLedgerSelect';
 import '../../styles/bill-entry.css';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -41,6 +42,10 @@ export default function ReceiptEntry() {
   const [bills, setBills]                 = useState([]);
   const [date, setDate]                   = useState(dayjs());
   const [payMode, setPayMode]             = useState('Cash');
+  // Selected bank ledger ID — only meaningful for non-cash modes. See
+  // BankLedgerSelect for the smart-default logic; the form simply
+  // forwards the chosen id into the split payload.
+  const [bankLedgerId, setBankLedgerId]   = useState(null);
   const [payNo, setPayNo]                 = useState('');
   const [payAmt, setPayAmt]               = useState(null);
   const [discAmt, setDiscAmt]             = useState(0);
@@ -205,6 +210,9 @@ export default function ReceiptEntry() {
     setBills([]);
     setDate(dayjs());
     setPayMode('Cash');
+    // Bank: snap to null on reset; BankLedgerSelect will re-pick the
+    // last-used bank when the operator switches mode away from Cash.
+    setBankLedgerId(null);
     setPayNo('');
     setPayAmt(null);
     setDiscAmt(0);
@@ -260,7 +268,13 @@ export default function ReceiptEntry() {
         reference_bill_id:   refBill?.sales_bill_id || null,
         reference_bill_type: refBill ? 'Sales' : null,
         remarks:             selectedInvNos ? `Bills: ${selectedInvNos}` : payNo,
-        splits:              [{ payment_mode: payMode, amount: netAmount }],
+        splits: [{
+          payment_mode:   payMode,
+          amount:         netAmount,
+          // Same convention as PaymentEntry — only attach the bank FK
+          // for non-cash splits.
+          ...(payMode !== 'Cash' && bankLedgerId ? { bank_ledger_id: bankLedgerId } : {}),
+        }],
         bill_allocations,
       });
       message.success(`Receipt ${result.transaction_number} saved! ✓`);
@@ -272,7 +286,7 @@ export default function ReceiptEntry() {
       setLoading(false);
       submittingRef.current = false;
     }
-  }, [selectedParty, payAmt, netAmount, date, payMode, payNo, checkedBills, selectedInvNos, billsWithAlloc]);
+  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, checkedBills, selectedInvNos, billsWithAlloc]);
 
   handleSaveRef.current = handleSave;
 
@@ -386,6 +400,21 @@ export default function ReceiptEntry() {
               {MODES.map(m => <Select.Option key={m} value={m}>{m}</Select.Option>)}
             </Select>
           </div>
+
+          {/* Bank picker — only for non-cash modes. The receipt posts to
+              this bank's ledger so it surfaces in the bank's statement
+              + reconciliation views. */}
+          {payMode !== 'Cash' && (
+            <div className="be-fld">
+              <label className="be-lbl">Bank</label>
+              <BankLedgerSelect
+                value={bankLedgerId}
+                onChange={setBankLedgerId}
+                mode={payMode}
+                style={{ width: '100%' }}
+              />
+            </div>
+          )}
 
           <div className="be-row-2">
             <div className="be-fld">

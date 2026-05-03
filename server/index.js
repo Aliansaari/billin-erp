@@ -43,6 +43,8 @@ app.use('/api/print', require('./routes/print'));
 app.use('/api/godowns', require('./routes/godowns'));
 app.use('/api/stock-transfers', require('./routes/stockTransfers'));
 app.use('/api/user/favorites', require('./routes/userFavorites'));
+app.use('/api/banks', require('./routes/banks'));
+app.use('/api/loans', require('./routes/loans'));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -84,6 +86,174 @@ async function startServer() {
       "END LOOP; END $do$;",
     ).catch((err) => {
       console.error('[Pre-migration drop entry_number unique] Error:', err.message);
+    });
+
+    // ── Bank reconciliation: cleared_at on payment_receipts ──────
+    // Tier-2 bank statement feature. NULL = uncleared (cheque in
+    // transit, deposit not yet posted by the bank). Set to a date
+    // when the operator ticks the row in the Bank Statement view.
+    // cleared_by tracks who reconciled for the audit trail.
+    // Idempotent — IF NOT EXISTS guards.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'payments_receipts' AND column_name = 'cleared_at'
+        ) THEN
+          ALTER TABLE payments_receipts ADD COLUMN cleared_at TIMESTAMP WITH TIME ZONE;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'payments_receipts' AND column_name = 'cleared_by'
+        ) THEN
+          ALTER TABLE payments_receipts ADD COLUMN cleared_by INTEGER REFERENCES users(user_id);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Bank reconciliation migration] Error:', err.message);
+    });
+
+    // ── Loan accounts ─────────────────────────────────────────────
+    //
+    // A loan has two parts: the underlying ledger account (so it lives
+    // in trial balance / ledger statement / journal posting like every
+    // other ledger) and a sidecar table of loan-specific metadata
+    // (principal, rate, tenure, EMI amount, dates). The sidecar joins
+    // 1:1 to ledger_accounts by ledger_id.
+    //
+    // Loan types:
+    //   • taken  → liability, sub_group='Loans (Liability)'
+    //   • given  → asset,     sub_group='Loans & Advances (Asset)'
+    //
+    // We also pre-seed two system ledgers ('Interest Expense' under
+    // Indirect Expenses, 'Interest Income' under Indirect Incomes) so
+    // the Record-EMI flow always has a destination for the interest
+    // leg without asking the operator to set them up. They're created
+    // idempotently — IF NOT EXISTS guards.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.tables
+           WHERE table_schema = 'public' AND table_name = 'loan_accounts'
+        ) THEN
+          CREATE TABLE loan_accounts (
+            loan_id            SERIAL PRIMARY KEY,
+            ledger_id          INTEGER NOT NULL UNIQUE
+                               REFERENCES ledger_accounts(ledger_id) ON DELETE CASCADE,
+            loan_type          VARCHAR(10)  NOT NULL CHECK (loan_type IN ('taken','given')),
+            party_id           INTEGER REFERENCES parties(party_id),
+            principal          DECIMAL(15,2) NOT NULL DEFAULT 0,
+            interest_rate      DECIMAL(6,3)  NOT NULL DEFAULT 0,
+            tenure_months      INTEGER       NOT NULL DEFAULT 0,
+            disbursement_date  DATE,
+            first_emi_date     DATE,
+            emi_amount         DECIMAL(15,2),
+            emi_day            INTEGER,
+            notes              TEXT,
+            created_at         TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at         TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+          CREATE INDEX idx_loan_accounts_ledger ON loan_accounts(ledger_id);
+          CREATE INDEX idx_loan_accounts_party  ON loan_accounts(party_id);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Loan accounts migration] Error:', err.message);
+    });
+
+    // Pre-seed Interest Expense / Interest Income system ledgers used by
+    // the Record-EMI flow. We pick the existing canonical groups so the
+    // P&L places them under the right heading.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM ledger_accounts WHERE ledger_name = 'Interest Expense'
+        ) THEN
+          INSERT INTO ledger_accounts (ledger_name, ledger_group, sub_group,
+                                       opening_balance, opening_balance_type,
+                                       current_balance, is_system_ledger, is_active,
+                                       created_date)
+          VALUES ('Interest Expense', 'Expenses', 'Indirect Expenses',
+                  0, 'Debit', 0, false, true, CURRENT_DATE);
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM ledger_accounts WHERE ledger_name = 'Interest Income'
+        ) THEN
+          INSERT INTO ledger_accounts (ledger_name, ledger_group, sub_group,
+                                       opening_balance, opening_balance_type,
+                                       current_balance, is_system_ledger, is_active,
+                                       created_date)
+          VALUES ('Interest Income', 'Income', 'Indirect Incomes',
+                  0, 'Credit', 0, false, true, CURRENT_DATE);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Interest ledgers seed] Error:', err.message);
+    });
+
+    // ── Per-bank posting: bank_ledger_id on splits + sales_bills ──
+    //
+    // Before this migration, every non-cash payment posted to a single
+    // hardcoded ledger named 'Bank Account' (see voucherBuilders.js
+    // paymentMethodToLedger). That made multi-bank reconciliation
+    // impossible — every bank ledger but the system one was empty.
+    //
+    // Now each split / sales-bill carries the chosen bank ledger as a
+    // FK. NULL means cash (or legacy not-yet-backfilled). The voucher
+    // builder prefers bank_ledger_id; falls back to ledger_name='Bank
+    // Account' for compatibility with rows created before the form
+    // change shipped.
+    //
+    // Backfill: every existing non-cash row points at the singleton
+    // 'Bank Account' ledger so historical reconciliation totals and
+    // ledger statements stay consistent. Cash rows stay NULL.
+    await sequelize.query(`
+      DO $$
+      DECLARE
+        bank_account_id INTEGER;
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'payment_splits' AND column_name = 'bank_ledger_id'
+        ) THEN
+          ALTER TABLE payment_splits
+            ADD COLUMN bank_ledger_id INTEGER REFERENCES ledger_accounts(ledger_id);
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'sales_bills' AND column_name = 'bank_ledger_id'
+        ) THEN
+          ALTER TABLE sales_bills
+            ADD COLUMN bank_ledger_id INTEGER REFERENCES ledger_accounts(ledger_id);
+        END IF;
+
+        -- Find the seeded singleton bank ledger. If it's missing (a
+        -- reseed that renamed it, or a fresh DB without seeds yet),
+        -- skip the backfill silently — there's nothing to point at.
+        SELECT ledger_id INTO bank_account_id
+          FROM ledger_accounts
+         WHERE ledger_name = 'Bank Account'
+         LIMIT 1;
+
+        IF bank_account_id IS NOT NULL THEN
+          -- Splits: anything that wasn't cash points at the legacy bank.
+          UPDATE payment_splits
+             SET bank_ledger_id = bank_account_id
+           WHERE bank_ledger_id IS NULL
+             AND payment_mode IS NOT NULL
+             AND payment_mode <> 'Cash';
+
+          -- Sales bills: same rule — non-cash payment_method backfills.
+          UPDATE sales_bills
+             SET bank_ledger_id = bank_account_id
+           WHERE bank_ledger_id IS NULL
+             AND payment_method IS NOT NULL
+             AND payment_method <> 'Cash'
+             AND paid_amount > 0;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Bank ledger FK migration] Error:', err.message);
     });
 
     // Safe migrations — add columns if they don't exist
@@ -821,6 +991,44 @@ async function startServer() {
       // missing column would make every SELECT fail, but the user would
       // only see the symptom "page is empty" with no obvious cause).
       console.error('[Safe migrations] Error:', err.message);
+    });
+
+    // ── Report favourites: rename 'movers' → 'fast_slow_stock' ──────
+    // The Fast & Slow Stock report's registry id was renamed from
+    // 'movers' so the code matches the user-facing label. This bulk
+    // updates any pre-existing pinned-favourite row to the new id so
+    // the user keeps their pin without having to re-star the report.
+    //
+    // Idempotent: running on a fresh DB or after the rename has
+    // already happened is a no-op (no rows match the WHERE clause).
+    // The (user_id, report_id) UNIQUE index protects against double
+    // entries if a user had pinned the report under both ids during
+    // an in-flight upgrade — ON CONFLICT DO NOTHING keeps the older
+    // pin (oldest pinned_at wins, matches store ordering semantics).
+    await sequelize.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.tables
+           WHERE table_name = 'user_report_favorites'
+        ) THEN
+          -- Drop any duplicates first so the rename can't violate
+          -- the (user_id, report_id) UNIQUE index. Keep the OLDER
+          -- pinned_at row in each duplicate pair.
+          DELETE FROM user_report_favorites a
+            USING user_report_favorites b
+            WHERE a.user_id = b.user_id
+              AND a.report_id = 'movers'
+              AND b.report_id = 'fast_slow_stock'
+              AND a.pinned_at >= b.pinned_at;
+          UPDATE user_report_favorites
+             SET report_id = 'fast_slow_stock'
+           WHERE report_id = 'movers';
+        END IF;
+      END
+      $$;
+    `).catch((err) => {
+      console.error('[Favourites rename movers→fast_slow_stock]', err.message);
     });
 
     // ── Books-integrity FK hardening ─────────────────────────────────

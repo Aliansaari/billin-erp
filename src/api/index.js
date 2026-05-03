@@ -214,11 +214,15 @@ export const reportAPI = {
   cashFlowMonthly:    (params) => api.get('/reports/cash-flow/monthly', { params }),
   cashFlowMonth:      (params) => api.get('/reports/cash-flow/month',   { params }),
   cashFlowGroup:      (params) => api.get('/reports/cash-flow/group',   { params }),
+  // Fund Flow — Tally-style three-level drill.
+  fundFlowMonthly:    (params) => api.get('/reports/fund-flow/monthly', { params }),
+  fundFlow:           (params) => api.get('/reports/fund-flow',         { params }),
   dayBook:            (params) => api.get('/reports/day-book',           { params }),
   // Phase R3 — Operational summaries (Sales/Purchase Registers folded
   // into the canonical /reports/sales and /reports/purchases above).
   hsnSummary:         (params) => api.get('/reports/hsn-summary',        { params }),
   movers:             (params) => api.get('/reports/movers',             { params }),
+  stockVelocity:      (params) => api.get('/reports/stock-velocity',     { params }),
   // Phase Godown — multi-warehouse reports
   transferRegister:   (params) => api.get('/reports/transfer-register',  { params }),
   godownValuation:    (params) => api.get('/reports/godown-valuation',   { params }),
@@ -358,6 +362,45 @@ export const ledgerAPI = {
   // party→ledger resolution server-side).
   statement:              (ledgerId, params = {}) => api.get(`/ledger/statement/${ledgerId}`, { params }),
   statementByParty:       (partyId,  params = {}) => api.get(`/ledger/statement/by-party/${partyId}`, { params }),
+};
+
+// Banks — bank-flavoured surface over ledger accounts under the
+// 'Bank Accounts' / 'Bank OD A/c' sub-groups.
+export const bankAPI = {
+  // List with optional include_inactive=true (used by the management
+  // page so the operator can see + reactivate retired banks). Picker
+  // surfaces (BankLedgerSelect) leave the flag off so they only see
+  // active banks.
+  list:           (params = {})          => api.get('/banks', { params }),
+  statement:      (ledgerId, params = {}) => api.get(`/banks/${ledgerId}/statement`, { params }),
+  // Cross-bank reconciliation. Accepts { status: 'uncleared'|'cleared'|'all',
+  // bank_id, from_date, to_date }.
+  reconciliation: (params = {})          => api.get('/banks/reconciliation', { params }),
+  markCleared:    (txnId, body = {})     => api.post(`/banks/clear/${txnId}`, body),
+  markUncleared:  (txnId)                => api.post(`/banks/unclear/${txnId}`),
+
+  // Lifecycle. The server enforces all the safety rules (uniqueness,
+  // sub_group reclassification needs zero entries, system ledgers can't
+  // deactivate, deletion needs zero references). The UI just calls and
+  // displays whatever the server says.
+  create:         (body)                 => api.post('/banks', body),
+  update:         (ledgerId, body)       => api.patch(`/banks/${ledgerId}`, body),
+  remove:         (ledgerId)             => api.delete(`/banks/${ledgerId}`),
+};
+
+// Loans — same shape as banks, plus per-loan amortization schedule and
+// the cross-loan upcoming EMIs view, plus the recordEMI action that
+// posts the proper double-entry split (Loan Dr + Interest Dr / Bank Cr).
+export const loanAPI = {
+  list:           (params = {})          => api.get('/loans', { params }),
+  upcoming:       (params = {})          => api.get('/loans/upcoming', { params }),
+  calculate:      (params)               => api.get('/loans/calculate', { params }),
+  statement:      (ledgerId, params = {}) => api.get(`/loans/${ledgerId}/statement`, { params }),
+  schedule:       (ledgerId)             => api.get(`/loans/${ledgerId}/schedule`),
+  create:         (body)                 => api.post('/loans', body),
+  update:         (ledgerId, body)       => api.patch(`/loans/${ledgerId}`, body),
+  remove:         (ledgerId)             => api.delete(`/loans/${ledgerId}`),
+  recordEmi:      (ledgerId, body)       => api.post(`/loans/${ledgerId}/emi`, body),
 };
 
 export const importsAPI = {

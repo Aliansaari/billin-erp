@@ -27,6 +27,7 @@ import {
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
   SwapOutlined, ApiOutlined, PrinterOutlined,
   StarFilled, RiseOutlined, PieChartOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
 import useFavoritesStore from '../../store/favoritesStore';
@@ -86,6 +87,33 @@ export const menuItems = [
       { key: '/payment/new', icon: <PlusCircleOutlined />,    label: 'Make Payment',     perm: 'payments.create' },
       { key: '/receipt/new', icon: <WalletOutlined />,        label: 'Receive Payment',  perm: 'payments.create' },
       { key: '/payments',    icon: <UnorderedListOutlined />, label: 'All Transactions', perm: 'payments.view' },
+    ],
+  },
+  // Bank — top-level dropdown covering bank accounts AND loans.
+  //
+  // Loans were originally a separate top-level entry, but operators
+  // think of "money flowing in/out of the company" as one section,
+  // and tucking loans under Bank keeps the sidebar from growing one
+  // entry per finance feature.
+  //
+  //   Accounts        list of bank ledgers + per-bank metrics
+  //   Reconciliation  cross-bank uncleared cheques + aging
+  //   Loans           list of loan ledgers (taken & given) with EMI
+  //                   status, outstanding, principal/interest paid
+  //   Loan Schedule   cross-loan upcoming + overdue EMIs
+  //
+  // Per-bank Statement and per-loan Statement are reached by clicking
+  // a card on the respective list page — no top-level entries of
+  // their own (no useful landing without an account selected).
+  {
+    key: 'bank-menu',
+    icon: <BankOutlined />,
+    label: 'Bank',
+    children: [
+      { key: '/banks',                icon: <WalletOutlined />,      label: 'Accounts',       perm: 'accounts.view' },
+      { key: '/banks/reconciliation', icon: <CheckCircleOutlined />, label: 'Reconciliation', perm: 'accounts.view' },
+      { key: '/loans',                icon: <FieldTimeOutlined />,   label: 'Loans',          perm: 'accounts.view' },
+      { key: '/loans/schedule',       icon: <FieldTimeOutlined />,   label: 'Loan Schedule',  perm: 'accounts.view' },
     ],
   },
   {
@@ -231,6 +259,9 @@ export function getOpenKeys(pathname) {
   if (pathname.startsWith('/customer') || pathname.startsWith('/supplier')) return ['parties-menu'];
   if (pathname.startsWith('/product') || pathname.startsWith('/categor') || pathname.startsWith('/stock-movement') || pathname.startsWith('/stock-transfer') || pathname === '/stock-report' || pathname === '/stock-report-pro') return ['inventory-menu'];
   if (pathname.startsWith('/payment') || pathname.startsWith('/receipt')) return ['payments-menu'];
+  // Both /banks/* and /loans/* highlight the Bank dropdown — loans
+  // are nested under Bank in the sidebar (see menuItems above).
+  if (pathname.startsWith('/banks') || pathname.startsWith('/loans')) return ['bank-menu'];
   if (pathname.startsWith('/accounts')) return ['accounts-menu'];
   if (pathname.startsWith('/reports')) return ['reports-menu'];
   if (pathname.startsWith('/settings')) return ['settings-menu'];

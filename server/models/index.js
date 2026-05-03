@@ -31,6 +31,7 @@ const ProductGodownStock = require('./ProductGodownStock');
 const StockTransfer = require('./StockTransfer');
 const StockTransferItem = require('./StockTransferItem');
 const UserReportFavorite = require('./UserReportFavorite');
+const LoanAccount = require('./LoanAccount');
 
 // ── Associations ──
 
@@ -212,6 +213,15 @@ StockTransfer.belongsTo(User,              { foreignKey: 'received_by',    as: '
 User.hasMany(UserReportFavorite,   { foreignKey: 'user_id', as: 'reportFavorites', onDelete: 'CASCADE' });
 UserReportFavorite.belongsTo(User, { foreignKey: 'user_id' });
 
+// LoanAccount sidecar — 1:1 to LedgerAccount, many:1 to Party (lender
+// or borrower). Loans are first-class ledgers (visible in trial
+// balance, journal posting, etc.); the sidecar holds the loan-only
+// metadata (principal, rate, tenure, EMI dates).
+LedgerAccount.hasOne(LoanAccount,   { foreignKey: 'ledger_id', as: 'loan',   onDelete: 'CASCADE' });
+LoanAccount.belongsTo(LedgerAccount,{ foreignKey: 'ledger_id', as: 'ledger' });
+Party.hasMany(LoanAccount,          { foreignKey: 'party_id',  as: 'loans' });
+LoanAccount.belongsTo(Party,        { foreignKey: 'party_id',  as: 'party' });
+
 module.exports = {
   sequelize,
   Role,
@@ -246,4 +256,5 @@ module.exports = {
   StockTransfer,
   StockTransferItem,
   UserReportFavorite,
+  LoanAccount,
 };
