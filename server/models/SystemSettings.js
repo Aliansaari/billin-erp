@@ -41,6 +41,17 @@ const SystemSettings = sequelize.define('SystemSettings', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  // Default mode for NEW products. Existing products keep their mode
+  // permanently — flipping this only affects the next product created
+  // (via any path: manual form, auto-from-purchase, Excel import,
+  // Tally import). 'variant' = current behavior (one product per
+  // unique MRP/rate/size combo). 'single' = Tally-style (one product,
+  // many purchase prices over time, cost as weighted average).
+  default_product_mode: {
+    type: DataTypes.ENUM('variant', 'single'),
+    defaultValue: 'variant',
+    allowNull: false,
+  },
   // Days-before-expiry threshold for the "Expiring soon" amber chip on the
   // batch picker + Expiry Report dashboard widget. Configurable because
   // pharma needs ~90 days lead time while a fast-moving food shop wants 7.

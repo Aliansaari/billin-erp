@@ -237,6 +237,7 @@ export default function ModuleSettings() {
         batch_expiry_alert_days: s.batch_expiry_alert_days ?? 30,
         block_expired_sales:     !!s.block_expired_sales,
         allow_zero_stock_batches: s.allow_zero_stock_batches ?? true,
+        default_product_mode:    s.default_product_mode || 'variant',
         backup_frequency:        s.backup_frequency || 'Daily',
         sale_due_days_mode:      localStorage.getItem('sale_due_days_mode')  || 'bill_date',
         purchase_due_days_mode:  localStorage.getItem('purchase_due_days_mode') || 'bill_date',
@@ -474,6 +475,32 @@ export default function ModuleSettings() {
             </Col>
           </Row>
         )}
+
+        <Row gutter={16} style={{ marginTop: 16 }}>
+          <Col xs={24} lg={12}>
+            <Card loading={loading} title={<><SettingOutlined /> Default Product Mode</>}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+                Applies to <strong>new products only</strong>. Existing products keep their mode permanently — flipping this won't reshape your catalog.
+              </Text>
+              <Form.Item name="default_product_mode" label="Mode for new products" style={{ marginBottom: 0 }}>
+                <Radio.Group>
+                  <Radio value="variant" style={{ display: 'block', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 500 }}>Variant</span>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                      A purchase at a different MRP / rate / size automatically creates a new product variant. Best for textiles, sarees, garments — each combination is its own SKU with its own barcode.
+                    </div>
+                  </Radio>
+                  <Radio value="single" style={{ display: 'block' }}>
+                    <span style={{ fontWeight: 500 }}>Single Product (Tally-style)</span>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                      One product, many purchase prices over time. Cost is tracked as a weighted average. Best for FMCG, hardware, pharma, food — same SKU bought repeatedly at varying prices. Required for batch tracking.
+                    </div>
+                  </Radio>
+                </Radio.Group>
+              </Form.Item>
+            </Card>
+          </Col>
+        </Row>
 
         <Row gutter={16} style={{ marginTop: 16 }}>
           <Col xs={24} lg={12}>

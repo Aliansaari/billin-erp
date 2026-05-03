@@ -43,6 +43,17 @@ const ProductBatch = sequelize.define('ProductBatch', {
     type: DataTypes.TEXT,
     allowNull: true,
   },
+  // Per-batch landed cost. Set on batch creation from the purchase
+  // line's purchase_rate; first-write-wins (a re-purchase of an
+  // existing batch keeps the original rate so historical cost
+  // attribution stays stable). Used by single-mode profit reports
+  // when the parent product is_batch_tracked — cost_rate snapshot on
+  // the sales line reads from this rather than products.weighted_avg_cost.
+  // 4 decimals to match weighted_avg_cost precision.
+  purchase_rate: {
+    type: DataTypes.DECIMAL(14, 4),
+    allowNull: true,
+  },
   is_active: {
     type: DataTypes.BOOLEAN,
     defaultValue: true,
