@@ -56,6 +56,12 @@ const ROLES = [
       settings:         { view: true, manage_company: true, import_export: true, tally: true, print: true, theme: true, barcode: true },
       godowns:          { view: true, manage: true },
       stock_transfers:  { view: true, create: true },
+      // Batch tracking (Commit 5) — Admin gets full batch surface
+      // (list/detail/expiry report) + the right to flip the global
+      // toggle in Settings. batches.manage covers any future per-batch
+      // adjustment voucher path.
+      batches:          { view: true, manage: true },
+      batch_tracking:   { settings: true },
       // NO manage_users / backup / cleanup — reserved for Super Admin.
     },
     can_view_reports: true, can_delete_bills: true, can_edit_rates: true,
@@ -76,6 +82,10 @@ const ROLES = [
       settings:         { view: true, theme: true, print: true },
       godowns:          { view: true },
       stock_transfers:  { view: true, create: true },
+      // Batches: read-only for Manager (matches the Operator/Manager
+      // default in the Commit-5 spec). batch_tracking.settings stays
+      // off — flipping the global toggle is an admin-only call.
+      batches:          { view: true },
     },
     can_view_reports: true, can_delete_bills: false, can_edit_rates: true,
     can_access_accounts: true, can_manage_users: false,
@@ -94,6 +104,7 @@ const ROLES = [
       settings:         { view: true, theme: true, print: true },
       godowns:          { view: true },
       stock_transfers:  { view: true },
+      batches:          { view: true },
     },
     can_view_reports: true, can_delete_bills: false, can_edit_rates: false,
     can_access_accounts: true, can_manage_users: false,
@@ -111,6 +122,7 @@ const ROLES = [
       payments:      { view: true, create: true },
       reports:       { view: true },
       settings:      { view: true, theme: true },
+      batches:       { view: true },
     },
     can_view_reports: true, can_delete_bills: false, can_edit_rates: false,
     can_access_accounts: false, can_manage_users: false,
@@ -124,6 +136,9 @@ const ROLES = [
       inventory:        { view: true, create: true, edit: true },
       reports:          { view: true },
       settings:         { view: true, theme: true },
+      // Inventory Staff manages stock day-to-day, so they get manage
+      // (per-batch adjustments) too — matches the godowns.manage grant.
+      batches:          { view: true, manage: true },
     },
     can_view_reports: true, can_delete_bills: false, can_edit_rates: true,
     can_access_accounts: false, can_manage_users: false,

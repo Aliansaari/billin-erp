@@ -639,6 +639,87 @@ async function checkIntegrity() {
     sample: i8.slice(0, 10),
   });
 
+  // ─── Batch invariants (Commit 5) ───────────────────────────────────
+  // The Ledger-Integrity UI surfaces I7 + I8 + B3..B5 in a "Batch
+  // Integrity" section. We emit the B3..B5 results here so the same
+  // single integrity-check call covers everything; the UI groups the
+  // invariants by id-prefix.
+
+  // B3 — every stock_ledger row whose product is batch-tracked must
+  // carry a non-NULL batch_id. A NULL batch_id on a batched product
+  // means a movement bypassed the per-batch wiring (a data-entry
+  // pre-Commit-2 row, or a controller path that forgot to thread
+  // batch_id through). Catches the regression where an old import
+  // path still writes ledger rows without batch_id.
+  const b3 = await sequelize.query(
+    `SELECT sl.ledger_id, sl.product_id, p.product_name,
+            sl.transaction_type, sl.transaction_date::text,
+            sl.reference_number, sl.godown_id,
+            sl.quantity_in::float  AS quantity_in,
+            sl.quantity_out::float AS quantity_out
+       FROM stock_ledger sl
+       JOIN products p ON p.product_id = sl.product_id
+      WHERE p.is_batch_tracked = true
+        AND p.is_active = true
+        AND sl.batch_id IS NULL
+      ORDER BY sl.transaction_date DESC, sl.ledger_id DESC
+      LIMIT 50`,
+    { type: sequelize.QueryTypes.SELECT },
+  );
+  out.invariants.push({
+    id: 'B3',
+    name: 'B3: stock_ledger.batch_id NOT NULL for every batch-tracked product movement',
+    ok: b3.length === 0,
+    violation_count: b3.length,
+    sample: b3.slice(0, 10),
+  });
+
+  // B4 — every product_batches row references a real product. The DB
+  // FK should already enforce this; the check exists so a hand-written
+  // SQL fix that bypasses the constraint (or a missed migration) shows
+  // up as a violation in the UI rather than a silent dangling reference.
+  const b4 = await sequelize.query(
+    `SELECT pb.batch_id, pb.batch_number, pb.product_id
+       FROM product_batches pb
+  LEFT JOIN products p ON p.product_id = pb.product_id
+      WHERE p.product_id IS NULL
+      LIMIT 50`,
+    { type: sequelize.QueryTypes.SELECT },
+  );
+  out.invariants.push({
+    id: 'B4',
+    name: 'B4: product_batches.product_id references a valid products row',
+    ok: b4.length === 0,
+    violation_count: b4.length,
+    sample: b4.slice(0, 10),
+  });
+
+  // B5 — no batch may have negative on-hand at any godown. Negative
+  // batch stock means a sale wrote past the batch's inventory (the
+  // server-side validateBatchLine should reject this, but a manual
+  // adjustment or a race against an unlocked code path could slip
+  // through). Sample shows which (batch, godown) pairs to investigate.
+  const b5 = await sequelize.query(
+    `SELECT pbs.product_id, pbs.batch_id, pbs.godown_id,
+            pb.batch_number, p.product_name, g.name AS godown_name,
+            pbs.current_stock::float AS current_stock
+       FROM product_batch_stock pbs
+       JOIN product_batches pb ON pb.batch_id = pbs.batch_id
+       JOIN products p         ON p.product_id = pbs.product_id
+       JOIN godowns g          ON g.godown_id  = pbs.godown_id
+      WHERE pbs.current_stock < -0.001
+      ORDER BY pbs.current_stock ASC
+      LIMIT 50`,
+    { type: sequelize.QueryTypes.SELECT },
+  );
+  out.invariants.push({
+    id: 'B5',
+    name: 'B5: no batch with negative current_stock at any godown',
+    ok: b5.length === 0,
+    violation_count: b5.length,
+    sample: b5.slice(0, 10),
+  });
+
   out.all_pass = out.invariants.every((i) => i.ok);
   return out;
 }

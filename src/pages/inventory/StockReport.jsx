@@ -679,7 +679,21 @@ export default function StockReport() {
           onClick={() => setStatus(activeStatus === 'neg' ? null : 'neg')}
         ><span className="dot neg"></span>Negative</span>
 
-        <div className="ml-auto">
+        <div className="ml-auto" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+          {/* Group-by-batch link (Commit 5 — Part D). The Stock Summary
+           *  table virtualizes a flat per-product dataset, so per-batch
+           *  in-row expansion lives on its own page (/inventory/batches)
+           *  rather than re-flowing the virtual rows here. The link is
+           *  always visible so operators discover the per-batch view;
+           *  the Batches page renders an "Enable batch tracking"
+           *  placeholder when the global toggle is off. */}
+          <button
+            className="sr-btn"
+            onClick={() => navigate('/inventory/batches')}
+            title="View stock grouped by batch / lot"
+          >
+            View by batch →
+          </button>
           <Dropdown
             trigger={['click']}
             placement="bottomRight"

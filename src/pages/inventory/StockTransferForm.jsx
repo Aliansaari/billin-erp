@@ -11,6 +11,11 @@ import { stockTransferAPI, godownAPI, productAPI, categoryAPI, settingsAPI } fro
 // has hardcoded 11-column layout in CSS) so the cells line up exactly
 // with what an operator sees on Sales.
 import '../sales/sales-bill-form.css';
+// Page-specific styling — document-style header card (FROM → TO routing
+// + date + notes in one panel), items card, summary footer card. Pulls
+// theme tokens (--bg-elevated, --border, --fg-*, --accent-*) so light /
+// dark / sepia themes inherit without per-mode overrides in the JSX.
+import './stock-transfer-form.css';
 
 // Same canonical unit list the Sales/Purchase forms use; keeping it
 // identical here so the Unit dropdown's options match across pages.
@@ -802,68 +807,111 @@ export default function StockTransferForm() {
 
   return (
     <Spin spinning={pgLoading} tip="Loading transfer...">
-      <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
-        {/* Header strip */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => nav('/stock-transfers')}>Back</Button>
-          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <SwapOutlined /> {isEdit ? 'Stock Transfer' : 'New Stock Transfer'}
-          </h2>
-          {isEdit && (
-            <>
-              <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, fontSize: 14 }}>
-                {transferNo}
-              </span>
-              <Tag color={STATUS_TONE[status] || 'default'} style={{ fontWeight: 600 }}>{status}</Tag>
-            </>
-          )}
+      {/* `.sbf-page` is the same wrapper Sales / Purchase forms use —
+       *  pulls var(--bg-app) + var(--fg-primary) + the form's font and
+       *  AntD overrides so this page looks part of the same software
+       *  rather than a flat-cream rectangle. Stock Transfer is the
+       *  third member of the same form family (sales / purchase /
+       *  transfer), so reusing the wrapper keeps the design consistent
+       *  by construction. */}
+      <div className="stf-page">
+        {/* Top context bar — back button + breadcrumb + status pill.
+         *  No loud accent chips up here; the visual weight belongs in
+         *  the routing card below where the FROM → TO relationship is
+         *  the actual subject of the page. */}
+        <div className="stf-topbar">
+          <Button size="middle" icon={<ArrowLeftOutlined />} onClick={() => nav('/stock-transfers')}>Back</Button>
+          <div className="stf-topbar-crumb">
+            <a onClick={(e) => { e.preventDefault(); nav('/stock-transfers'); }} href="/stock-transfers">Stock Transfers</a>
+            <span className="stf-crumb-sep">/</span>
+            <strong>{isEdit ? transferNo : 'New Transfer'}</strong>
+          </div>
+          <div className="stf-topbar-spacer" />
+          {isEdit && <Tag color={STATUS_TONE[status] || 'default'} style={{ fontWeight: 600, fontSize: 12, padding: '2px 12px' }}>{status}</Tag>}
         </div>
 
-        {/* Form header — godowns + date + notes */}
-        <Form form={form} layout="vertical" disabled={readOnly}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 200px', columnGap: 12 }}>
-            <Form.Item
-              name="from_godown_id" label="From godown"
-              rules={[{ required: true, message: 'Pick source godown' }]}
-            >
-              <Select
-                placeholder="Source"
-                disabled={isEdit}
-                options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
-              />
-            </Form.Item>
-            <Form.Item
-              name="to_godown_id" label="To godown"
-              rules={[
-                { required: true, message: 'Pick destination godown' },
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    if (value && value === getFieldValue('from_godown_id')) {
-                      return Promise.reject(new Error('From and To must differ'));
-                    }
-                    return Promise.resolve();
-                  },
-                }),
-              ]}
-            >
-              <Select
-                placeholder="Destination"
-                disabled={isEdit}
-                options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
-              />
-            </Form.Item>
-            <Form.Item
-              name="transfer_date" label="Date"
-              rules={[{ required: true, message: 'Date required' }]}
-            >
-              <DatePicker style={{ width: '100%' }} format="DD-MM-YYYY" />
-            </Form.Item>
+        {/* Document header card — FROM → TO routing on top, notes
+         *  underneath. The arrow between FROM and TO communicates the
+         *  movement at a glance; a transfer challan operator should
+         *  see source/destination instantly without label-hunting. */}
+        <Form form={form} component={false} disabled={readOnly}>
+          <div className="stf-card">
+            <div className="stf-card-header">
+              <h3 className="stf-card-title">Routing</h3>
+              <span className="stf-card-meta">
+                {readOnly ? 'Read-only — transfer is in a terminal state' : 'Same legal entity, internal movement (no GST, no party).'}
+              </span>
+            </div>
+            <div className="stf-card-body">
+              <div className="stf-routing">
+                <div className="stf-route-cell">
+                  <div className="stf-route-lbl">From godown<span className="req">*</span></div>
+                  <Form.Item name="from_godown_id" noStyle rules={[{ required: true, message: 'Pick source godown' }]}>
+                    <Select
+                      placeholder="Source"
+                      disabled={isEdit}
+                      options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+                    />
+                  </Form.Item>
+                </div>
+                <div className="stf-route-arrow"><SwapOutlined /></div>
+                <div className="stf-route-cell">
+                  <div className="stf-route-lbl">To godown<span className="req">*</span></div>
+                  <Form.Item
+                    name="to_godown_id" noStyle
+                    rules={[
+                      { required: true, message: 'Pick destination godown' },
+                      ({ getFieldValue }) => ({
+                        validator(_, value) {
+                          if (value && value === getFieldValue('from_godown_id')) {
+                            return Promise.reject(new Error('From and To must differ'));
+                          }
+                          return Promise.resolve();
+                        },
+                      }),
+                    ]}
+                  >
+                    <Select
+                      placeholder="Destination"
+                      disabled={isEdit}
+                      options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+                    />
+                  </Form.Item>
+                </div>
+                <div className="stf-route-cell">
+                  <div className="stf-route-lbl">Date<span className="req">*</span></div>
+                  <Form.Item name="transfer_date" noStyle rules={[{ required: true, message: 'Date required' }]}>
+                    <DatePicker style={{ width: '100%' }} format="DD-MM-YYYY" />
+                  </Form.Item>
+                </div>
+              </div>
+              <div className="stf-notes-row">
+                <div className="stf-route-lbl">Notes</div>
+                <Form.Item name="notes" noStyle>
+                  <Input
+                    maxLength={500}
+                    placeholder="Reason / vehicle / driver / anything useful for the destination (optional)"
+                  />
+                </Form.Item>
+              </div>
+            </div>
           </div>
-          <Form.Item name="notes" label="Notes (optional)">
-            <Input.TextArea rows={2} maxLength={500} placeholder="Reason / vehicle / driver / anything useful for the destination" />
-          </Form.Item>
         </Form>
 
+        {/* Items section — entry strip + items table inside one card.
+         *  The card has a clean header showing the items count so an
+         *  operator scanning a transfer at a glance sees how many lines
+         *  it carries. The entry row + table render as a single dense
+         *  block (the card body has padding:0 so the strip + table
+         *  occupy the full card width — same hairlines, no gap). */}
+        <div className="stf-card stf-items">
+          <div className="stf-card-header">
+            <h3 className="stf-card-title">Items</h3>
+            <span className="stf-card-meta">
+              {items.length === 0 ? 'No items yet' : `${items.length} ${items.length === 1 ? 'line' : 'lines'} · ${fmtN(totals.totalQty)} total qty`}
+            </span>
+          </div>
+          <div className="stf-card-body">
         {/* Entry row — full 11-cell strip matching SalesBillForm's
          * .sbf-entry-grid layout 1:1 (same cells, same widths, same
          * order). Two cells are intentionally disabled: Disc% and
@@ -1150,77 +1198,87 @@ export default function StockTransferForm() {
           </div>
         )}
 
-        {/* Items table */}
-        <Table
-          rowKey="key"
-          dataSource={items}
-          columns={itemColumns}
-          pagination={false}
-          size="small"
-          locale={{ emptyText: readOnly ? 'No items.' : 'No items yet — add one above.' }}
-          style={{ background: 'var(--bg-elevated, white)' }}
-          summary={() => items.length === 0 ? null : (
-            <Table.Summary.Row>
-              {/* Columns now: # · Barcode · Product · Size · Unit · Art#
-                  · Qty · Rate · Amount · (Action). Span the first 6 to
-                  carry the "Total" label across product-meta columns,
-                  then put totals under Qty + Amount. Action cell empty. */}
-              <Table.Summary.Cell index={0} colSpan={6}><b>Total</b></Table.Summary.Cell>
-              <Table.Summary.Cell index={6} align="right"><b>{fmtN(totals.totalQty)}</b></Table.Summary.Cell>
-              <Table.Summary.Cell index={7} />
-              <Table.Summary.Cell index={8} align="right"><b>₹ {fmtN(totals.totalVal)}</b></Table.Summary.Cell>
-              {!readOnly && <Table.Summary.Cell index={9} />}
-            </Table.Summary.Row>
-          )}
-        />
+            {/* Items table — table summary row removed in favour of the
+             *  card footer summary below. The footer is more readable
+             *  than a sub-row tucked into the table chrome and matches
+             *  the pattern used on Sales / Purchase footers. */}
+            <Table
+              rowKey="key"
+              dataSource={items}
+              columns={itemColumns}
+              pagination={false}
+              size="small"
+              locale={{ emptyText: <div className="stf-items-empty">No items yet — scan a barcode or pick a product above to add the first line.</div> }}
+            />
+          </div>
+        </div>
 
-        {/* Action bar */}
-        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          {/* Create mode buttons */}
-          {!isEdit && (
-            <>
-              <Button icon={<SaveOutlined />} loading={loading} onClick={saveDraft}>
-                Save Draft
-              </Button>
-              <Tooltip title="Saves and immediately deducts stock from the source godown">
-                <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={saveAndSubmit}>
-                  Submit (In-Transit)
+        {/* Footer — summary metrics on the left, primary actions on the
+         *  right. Mirrors the rhythm a sales bill closes on (totals +
+         *  save) so an operator's eye lands in the right place to commit
+         *  the transfer. */}
+        <div className="stf-footer">
+          <div className="stf-summary">
+            <div className="stf-summary-item">
+              <span className="stf-summary-lbl">Total qty</span>
+              <span className="stf-summary-val">{fmtN(totals.totalQty)}</span>
+            </div>
+            <div className="stf-summary-item">
+              <span className="stf-summary-lbl">Total value</span>
+              <span className="stf-summary-val is-money">₹ {fmtN(totals.totalVal)}</span>
+            </div>
+            <div className="stf-summary-item">
+              <span className="stf-summary-lbl">Lines</span>
+              <span className="stf-summary-val">{items.length}</span>
+            </div>
+          </div>
+          <div className="stf-actions">
+            {/* Create mode buttons */}
+            {!isEdit && (
+              <>
+                <Button icon={<SaveOutlined />} loading={loading} onClick={saveDraft} size="large">
+                  Save Draft
                 </Button>
-              </Tooltip>
-            </>
-          )}
-          {/* Edit mode — Draft */}
-          {isEdit && status === 'Draft' && (
-            <>
-              <Tooltip title="Deduct from source godown — moves to In-Transit">
-                <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={onSubmitDraft}>
-                  Submit
-                </Button>
-              </Tooltip>
-              <Popconfirm title={`Cancel ${transferNo}?`} okText="Cancel transfer" okButtonProps={{ danger: true }} onConfirm={onCancel}>
-                <Button danger icon={<CloseCircleOutlined />} loading={loading}>Cancel</Button>
-              </Popconfirm>
-            </>
-          )}
-          {/* Edit mode — In-Transit */}
-          {isEdit && status === 'In-Transit' && (
-            <>
-              <Tooltip title="Add to destination godown — moves to Received">
-                <Button type="primary" icon={<CheckCircleOutlined />} loading={loading} onClick={onReceive}>
-                  Mark Received
-                </Button>
-              </Tooltip>
-              <Popconfirm
-                title={`Cancel ${transferNo}?`}
-                description="Stock at the source will be restored."
-                okText="Cancel transfer" okButtonProps={{ danger: true }}
-                onConfirm={onCancel}
-              >
-                <Button danger icon={<CloseCircleOutlined />} loading={loading}>Cancel</Button>
-              </Popconfirm>
-            </>
-          )}
-          {/* Terminal states — view only */}
+                <Tooltip title="Saves and immediately deducts stock from the source godown">
+                  <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={saveAndSubmit} size="large">
+                    Submit (In-Transit)
+                  </Button>
+                </Tooltip>
+              </>
+            )}
+            {/* Edit mode — Draft */}
+            {isEdit && status === 'Draft' && (
+              <>
+                <Popconfirm title={`Cancel ${transferNo}?`} okText="Cancel transfer" okButtonProps={{ danger: true }} onConfirm={onCancel}>
+                  <Button danger icon={<CloseCircleOutlined />} loading={loading} size="large">Cancel</Button>
+                </Popconfirm>
+                <Tooltip title="Deduct from source godown — moves to In-Transit">
+                  <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={onSubmitDraft} size="large">
+                    Submit
+                  </Button>
+                </Tooltip>
+              </>
+            )}
+            {/* Edit mode — In-Transit */}
+            {isEdit && status === 'In-Transit' && (
+              <>
+                <Popconfirm
+                  title={`Cancel ${transferNo}?`}
+                  description="Stock at the source will be restored."
+                  okText="Cancel transfer" okButtonProps={{ danger: true }}
+                  onConfirm={onCancel}
+                >
+                  <Button danger icon={<CloseCircleOutlined />} loading={loading} size="large">Cancel</Button>
+                </Popconfirm>
+                <Tooltip title="Add to destination godown — moves to Received">
+                  <Button type="primary" icon={<CheckCircleOutlined />} loading={loading} onClick={onReceive} size="large">
+                    Mark Received
+                  </Button>
+                </Tooltip>
+              </>
+            )}
+            {/* Terminal states (Received / Cancelled) — read-only, no actions. */}
+          </div>
         </div>
       </div>
     </Spin>

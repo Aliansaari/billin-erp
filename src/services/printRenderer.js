@@ -116,6 +116,32 @@ const renderItemsTable = (items, profile) => {
   cols.push({ k: 'amt',  h: 'Amount', cls: 'c-amt' });
 
   const head = cols.map(c => `<th class="${c.cls}">${c.h}</th>`).join('');
+  // Batch sub-line (Commit 5) — for any line carrying batch metadata
+  // (lot number / mfg date / expiry date), emit a second row spanning
+  // every column with `Lot: … · Mfd: … · Exp: …`. Format gracefully
+  // omits parts that aren't present, so a line with only Lot+Exp shows
+  // "Lot: LOT-2401 · Exp: 31 May 2026" rather than empty separators.
+  // Renders for both A4 and thermal templates because both call this
+  // helper. The `show_batch` profile column above continues to render
+  // a dedicated Batch column when set; the sub-line is additive and
+  // shows even when that column is hidden so per-lot identity always
+  // prints on every customer copy.
+  const renderBatchSubLine = (it) => {
+    // Source values from either the item's own field (if a controller
+    // hand-rolls them) or the included `batch` association (Sequelize
+    // shape: it.batch.batch_number etc., emitted by the *.getById
+    // includes after Commit 5). Either resolves to the same string.
+    const lot = it.batch_number    || it.batch?.batch_number;
+    const mfd = it.manufacture_date || it.batch?.manufacture_date;
+    const exp = it.expiry_date     || it.batch?.expiry_date;
+    const parts = [];
+    if (lot) parts.push(`Lot: ${esc(lot)}`);
+    if (mfd) parts.push(`Mfd: ${esc(fmtDate(mfd))}`);
+    if (exp) parts.push(`Exp: ${esc(fmtDate(exp))}`);
+    if (parts.length === 0) return '';
+    return `<tr class="batch-subline"><td colspan="${cols.length}" style="font-size:0.85em;color:#6b7280;padding:2px 8px 6px;font-style:italic">${parts.join(' · ')}</td></tr>`;
+  };
+
   const body = items.map((it, i) => {
     const row = {
       sn: i + 1,
@@ -131,7 +157,7 @@ const renderItemsTable = (items, profile) => {
       igst: fmtMoney(it.igst_amount, profile),
       amt:  fmtMoney(it.total_amount, profile),
     };
-    return `<tr>${cols.map(c => `<td class="${c.cls}">${row[c.k]}</td>`).join('')}</tr>`;
+    return `<tr>${cols.map(c => `<td class="${c.cls}">${row[c.k]}</td>`).join('')}</tr>${renderBatchSubLine(it)}`;
   }).join('');
   return `<table class="items"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 };

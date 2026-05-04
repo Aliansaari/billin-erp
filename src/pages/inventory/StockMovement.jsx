@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Input, Spin, message } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { Input, Spin, message, Select } from 'antd';
+import { SearchOutlined, AppstoreOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { productAPI, dataAPI } from '../../api';
+import { productAPI, dataAPI, settingsAPI } from '../../api';
 import '../../styles/editorial-product-list.css';
 
 dayjs.extend(relativeTime);
@@ -98,6 +98,12 @@ export default function StockMovement() {
   const [transactions, setTransactions] = useState([]);
   const [txType, setTxType] = useState('All');
   const [txSearch, setTxSearch] = useState('');
+  // Batch filter (Commit 5 — Part E). Only meaningful when global
+  // batch tracking is on AND the selected product is batch-tracked.
+  // 'All' shows every movement regardless of batch_id; a specific id
+  // restricts the table to rows where stock_ledger.batch_id matches.
+  const [batchFilter, setBatchFilter] = useState('All');
+  const [batchTrackingOn, setBatchTrackingOn] = useState(false);
 
   /* Load product list when search changes (debounced) */
   useEffect(() => {
@@ -105,6 +111,20 @@ export default function StockMovement() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
+
+  // Batch-tracking toggle — read once on mount. Used to gate the
+  // batch-filter dropdown (we don't want to render an inert filter
+  // on installs that never enabled batch tracking).
+  useEffect(() => {
+    settingsAPI.getSystem()
+      .then(({ data }) => setBatchTrackingOn(!!data?.data?.batch_tracking_enabled))
+      .catch(() => {});
+  }, []);
+
+  // Reset batch filter whenever the selected product changes — the
+  // dropdown options come from the new product's movements, so the
+  // old selection would point at a batch this product doesn't have.
+  useEffect(() => { setBatchFilter('All'); }, [selected?.product_id]);
 
   /* Deep-link: if URL has productId, fetch + select it */
   useEffect(() => {
@@ -224,19 +244,51 @@ export default function StockMovement() {
     return counts;
   }, [groupedTx]);
 
+  // Distinct batches that touched this product, sorted FEFO/FIFO so
+  // the dropdown reads in the same order the picker does on the bill
+  // form. Built from the raw transactions before grouping (we need
+  // batch_id at the per-row level — grouping collapses identity).
+  const batchOpts = useMemo(() => {
+    if (!selected?.is_batch_tracked || !batchTrackingOn) return [];
+    const map = new Map();
+    for (const tx of (transactions || [])) {
+      if (!tx.batch_id || !tx.batch) continue;
+      if (!map.has(tx.batch_id)) {
+        map.set(tx.batch_id, {
+          batch_id:        tx.batch_id,
+          batch_number:    tx.batch.batch_number,
+          manufacture_date: tx.batch.manufacture_date,
+          expiry_date:     tx.batch.expiry_date,
+        });
+      }
+    }
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      const ax = a.expiry_date ? new Date(a.expiry_date).getTime() : Number.POSITIVE_INFINITY;
+      const bx = b.expiry_date ? new Date(b.expiry_date).getTime() : Number.POSITIVE_INFINITY;
+      if (ax !== bx) return ax - bx;
+      return (a.batch_number || '').localeCompare(b.batch_number || '');
+    });
+    return list;
+  }, [transactions, selected?.is_batch_tracked, batchTrackingOn]);
+
   const filteredTx = useMemo(() => {
     return groupedTx.filter(tx => {
       if (txType !== 'All' && tx.transaction_type !== txType) return false;
+      // Batch filter: 'All' passes everything; a specific id restricts
+      // to rows where the underlying ledger row's batch_id matches.
+      if (batchFilter !== 'All' && tx.batch_id !== batchFilter) return false;
       if (!txSearch) return true;
       const q = txSearch.toLowerCase();
       return (
         (tx.transaction_type || '').toLowerCase().includes(q) ||
         (tx.reference_number || '').toLowerCase().includes(q) ||
         (tx.remarks || '').toLowerCase().includes(q) ||
-        (tx.party_name || '').toLowerCase().includes(q)
+        (tx.party_name || '').toLowerCase().includes(q) ||
+        (tx.batch?.batch_number || '').toLowerCase().includes(q)
       );
     });
-  }, [groupedTx, txType, txSearch]);
+  }, [groupedTx, txType, txSearch, batchFilter]);
 
   /* Stats for the header — Opening Stock is its own bucket, NOT a "Total In"
    * event, so the four numbers add up cleanly:
@@ -427,6 +479,28 @@ export default function StockMovement() {
                 </button>
               ))}
               <span style={{ flex: 1 }} />
+              {/* Batch filter (Commit 5) — appears for batch-tracked
+               *  products when the global toggle is on. Default 'All
+               *  Batches' reads the full ledger; selecting a specific
+               *  batch restricts the table to that lot's movements
+               *  and updates the running balance to the per-batch
+               *  ledger rather than the per-product total. */}
+              {batchTrackingOn && selected?.is_batch_tracked && batchOpts.length > 0 && (
+                <Select
+                  size="middle"
+                  prefix={<AppstoreOutlined />}
+                  value={batchFilter}
+                  onChange={setBatchFilter}
+                  style={{ width: 220 }}
+                  options={[
+                    { value: 'All', label: `All Batches (${batchOpts.length})` },
+                    ...batchOpts.map((b) => ({
+                      value: b.batch_id,
+                      label: `${b.batch_number}${b.expiry_date ? ` · Exp ${dayjs(b.expiry_date).format('DD MMM YY')}` : ''}`,
+                    })),
+                  ]}
+                />
+              )}
               <Input
                 placeholder="Search bill, party, remark"
                 prefix={<SearchOutlined />}
@@ -497,6 +571,15 @@ export default function StockMovement() {
                               {tx.party_name || tx.remarks || '—'}
                               {tx._count > 1 && <span className="r">{tx._count} items bundled</span>}
                               {tx.remarks && tx.party_name && tx.remarks !== tx.party_name && <span className="r">{tx.remarks}</span>}
+                              {/* Lot sub-line — visible only in 'All Batches'
+                               *  mode for batched products. When the operator
+                               *  filters to a specific batch the column would
+                               *  be redundant. */}
+                              {batchTrackingOn && batchFilter === 'All' && tx.batch?.batch_number && (
+                                <span className="r" style={{ color: 'var(--accent, #4F46E5)', fontWeight: 600 }}>
+                                  Lot {tx.batch.batch_number}
+                                </span>
+                              )}
                             </span>
                           </div>
                           <div className="sm-c-qty">

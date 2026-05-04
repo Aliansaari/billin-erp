@@ -20,6 +20,9 @@ import SmartStockCategory from './pages/inventory/SmartStockCategory';
 import StockMovement from './pages/inventory/StockMovement';
 import StockTransferList from './pages/inventory/StockTransferList';
 import StockTransferForm from './pages/inventory/StockTransferForm';
+import BatchesList       from './pages/inventory/BatchesList';
+import BatchDetail       from './pages/inventory/BatchDetail';
+import ExpiryReport      from './pages/reports/ExpiryReport';
 import PurchaseBillForm from './pages/purchase/PurchaseBillForm';
 import PurchaseList from './pages/purchase/PurchaseList';
 import SalesBillForm from './pages/sales/SalesBillForm';
@@ -255,6 +258,13 @@ export default function App() {
           <Route path="stock-transfers"                element={<RoleRoute perm="stock_transfers.view"><StockTransferList /></RoleRoute>} />
           <Route path="stock-transfer/new"             element={<RoleRoute perm="stock_transfers.create"><StockTransferForm /></RoleRoute>} />
           <Route path="stock-transfer/edit/:id"        element={<RoleRoute perm="stock_transfers.view"><StockTransferForm /></RoleRoute>} />
+
+          {/* Batches (Commit 5) — list + per-batch detail. Same
+              .report-editorial shell as Stock Transfers list / Sales
+              Report so cross-page navigation feels uniform. */}
+          <Route path="inventory/batches"              element={<RoleRoute perm="batches.view"><BatchesList /></RoleRoute>} />
+          <Route path="inventory/batches/:batch_id"    element={<RoleRoute perm="batches.view"><BatchDetail /></RoleRoute>} />
+          <Route path="reports/expiry"                 element={<RoleRoute perm="batches.view"><ExpiryReport /></RoleRoute>} />
 
           {/* Purchase */}
           <Route path="purchase/new"     element={<RoleRoute perm="purchase.create"><PurchaseBillForm /></RoleRoute>} />

@@ -1,0 +1,629 @@
+/*
+ * Stock Transfer form — document-style layout.
+ *
+ * Design intent:
+ *   The page reads as a transfer challan, not a generic data-entry form.
+ *   Three stacked sections (header / items / footer) live in card-style
+ *   panels with consistent radii + shadow + interior padding. The
+ *   FROM → TO routing is the visual centerpiece of the header card so
+ *   an operator sees the source/destination relationship at a glance.
+ *   All colours route through theme tokens (--bg-elevated, --border,
+ *   --fg-*, --accent-*) so light + dark + sepia themes inherit
+ *   automatically without per-mode overrides here.
+ */
+
+/* Full-viewport-height grid: topbar + routing card pinned at top,
+ * items card grows-and-scrolls in the middle (1fr + min-height:0 so it
+ * actually clips), footer pinned at bottom. AppLayout's `isFullPage`
+ * branch sets the parent to height:100vh + overflow:hidden, so giving
+ * .stf-page height:100% inherits a real bounded box — the items card's
+ * body can then own its own scroll without bleeding the whole page.
+ *
+ * Without this, browsers expand the page to the natural content height
+ * and the entire window scrolls — losing the back-button + routing
+ * context the moment the operator scrolls down to inspect items.
+ */
+/* AntD's <Spin> wraps children in two divs that don't propagate
+ * height:100% by default. Without overriding them, .stf-page collapses
+ * to its content height (~649px in a 900px viewport) and the parent
+ * isFullPage container's spare space goes unused — meaning the items
+ * card never has room to grow, so internal scroll never engages.
+ * Scoping these overrides to descendants of .stf-page keeps them from
+ * leaking onto other pages that legitimately want auto-sized Spin. */
+.ant-spin-nested-loading:has(.stf-page),
+.ant-spin-nested-loading:has(.stf-page) > .ant-spin-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.ant-spin-nested-loading:has(.stf-page) > .ant-spin-container > .stf-page {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.stf-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 16px 24px;
+  background: var(--bg-app);
+  color: var(--fg-primary);
+  font-family: 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Top context bar ──────────────────────────────────────────────── */
+.stf-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px;
+}
+.stf-topbar-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-tertiary);
+}
+.stf-topbar-crumb a {
+  color: var(--fg-secondary);
+  text-decoration: none;
+}
+.stf-topbar-crumb a:hover { color: var(--accent-text, var(--accent)); }
+.stf-topbar-crumb .stf-crumb-sep {
+  color: var(--fg-tertiary);
+  opacity: 0.6;
+}
+.stf-topbar-crumb strong {
+  color: var(--fg-primary);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+.stf-topbar-spacer { flex: 1; }
+
+/* ── Card primitive ───────────────────────────────────────────────── */
+.stf-card {
+  background: var(--bg-elevated, var(--bg-panel));
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.stf-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+  background: var(--bg-muted, transparent);
+}
+.stf-card-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-tertiary);
+}
+.stf-card-meta {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+}
+.stf-card-body {
+  padding: 20px;
+}
+
+/* ── Routing (FROM → TO) ──────────────────────────────────────────── */
+.stf-routing {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr 200px;
+  gap: 16px;
+  align-items: end;
+}
+.stf-route-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stf-route-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fg-tertiary);
+}
+.stf-route-lbl .req {
+  color: var(--danger);
+  margin-left: 2px;
+}
+/* Route inputs — pull AntD select height up to feel substantial without
+ * looking like a generic form. The Select trigger gets 40px height and
+ * 14px font so an operator reads the godown name easily. */
+.stf-route-cell .ant-select .ant-select-selector,
+.stf-route-cell .ant-picker {
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 14px;
+}
+.stf-route-cell .ant-select-selection-item,
+.stf-route-cell .ant-picker-input > input {
+  font-size: 14px;
+  color: var(--fg-primary);
+  font-weight: 500;
+}
+.stf-route-cell .ant-select-selection-item {
+  line-height: 38px;
+}
+/* The arrow between FROM and TO — visual emphasis for the routing
+ * relationship. Lifts above the inputs by half a row's height. */
+.stf-route-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  width: 32px;
+  font-size: 18px;
+  color: var(--accent, var(--accent-text));
+  opacity: 0.7;
+}
+
+/* ── Notes row ────────────────────────────────────────────────────── */
+.stf-notes-row {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border-subtle, var(--border));
+}
+.stf-notes-row .stf-route-lbl { padding-left: 0; }
+.stf-notes-row .ant-input {
+  height: 36px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+/* ── Items section card — owns the scroll. The card itself fills the
+ *  middle grid track (height:100% + min-height:0 so the inner body can
+ *  shrink), and the body uses overflow:auto so the entry strip stays
+ *  pinned at top while the items table scrolls inside. ───────────── */
+.stf-items {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.stf-items .stf-card-header {
+  flex: 0 0 auto;
+}
+.stf-items .stf-card-body {
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.stf-items .sbf-entry-ledger {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-elevated, var(--bg-panel));
+}
+.stf-items .ant-table-wrapper,
+.stf-items .ant-spin-nested-loading,
+.stf-items .ant-spin-container,
+.stf-items .ant-table {
+  /* Let the table grow to its natural content height. The
+   * .stf-card-body parent has overflow:auto, so it owns the scroll —
+   * but only if its inner descendants don't clip. AntD's default
+   * Spin / table chrome silently clips with min-height:0 + flex:1,
+   * which traps the rows inside the wrapper and hides them from the
+   * card-body scroll. Setting flex:none + height:auto here lets the
+   * tbody bubble its real height up, so the card body sees overflow
+   * and engages its scroll. */
+  flex: 0 0 auto;
+  height: auto;
+  overflow: visible;
+}
+/* Note: the table's column headers are NOT sticky — the entry strip
+ * above is also at top:0 and would collide. The entry strip's per-cell
+ * labels (BARCODE / PRODUCT / QTY / RATE …) carry the same column
+ * meaning, so once the table body scrolls the operator still has
+ * orientation from the strip pinned overhead. */
+.stf-items .sbf-entry-ledger {
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+.stf-items .ant-table {
+  background: transparent;
+}
+.stf-items .ant-table-thead > tr > th {
+  background: var(--bg-muted, var(--bg-panel));
+  color: var(--fg-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+.stf-items .ant-table-tbody > tr > td {
+  padding: 10px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+.stf-items .ant-table-tbody > tr:last-child > td {
+  border-bottom: none;
+}
+.stf-items .ant-table-placeholder {
+  background: transparent;
+}
+.stf-items .ant-table-placeholder .ant-empty {
+  margin: 28px 0;
+}
+.stf-items-empty {
+  padding: 36px 20px;
+  text-align: center;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+}
+
+/* ── Footer (summary + actions) ───────────────────────────────────── */
+.stf-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--bg-elevated, var(--bg-panel));
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+.stf-summary {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+.stf-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stf-summary-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-tertiary);
+}
+.stf-summary-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.stf-summary-val.is-money {
+  color: var(--accent-text, var(--accent));
+}
+.stf-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Stock chip beneath the entry strip — keeps Sales-form parity ─── */
+.stf-items .sbf-stock-chip {
+  margin: 8px 16px 12px;
+}
+
+/* ── Responsive break: stack the routing into two columns on
+ *  narrower windows so the From/To/Date don't squeeze into unreadable
+ *  widths. The arrow drops out of the visual flow on narrow widths
+ *  since it can't sit between stacked rows. ──────────────────────── */
+@media (max-width: 980px) {
+  .stf-routing {
+    grid-template-columns: 1fr 1fr;
+  }
+  .stf-route-arrow {
+    display: none;
+  }
+  .stf-routing .stf-route-cell:nth-child(4) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ╔════════════════════════════════════════════════════════════════╗
+ * ║ Stock Transfer LIST page (.stf-list)                           ║
+ * ║ Sits on top of .blist-page so it inherits the shared shell —   ║
+ * ║ these styles only paint the transfer-specific bits: filter row,║
+ * ║ KPI variant tints, route cell, action buttons, empty state.    ║
+ * ╚════════════════════════════════════════════════════════════════╝ */
+
+/* Filter row sits between header and KPIs. Same horizontal padding as
+ * the rest of the page so the inputs line up under the title. */
+.stf-list .stf-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 28px 8px;
+  flex-shrink: 0;
+}
+
+/* KPI tints — Drafts get a neutral muted card, In-Transit gets the
+ * warning amber, Received reuses the shared success tint, and the
+ * Total card stays neutral. */
+.stf-list .kpi-card.stf-kpi-draft {
+  background: linear-gradient(135deg, var(--bg-muted), transparent 70%);
+  border-color: var(--border);
+}
+.stf-list .kpi-card.stf-kpi-draft .v { color: var(--fg-secondary); }
+.stf-list .kpi-card.stf-kpi-transit {
+  background: linear-gradient(135deg, var(--warning-bg), transparent 70%);
+  border-color: color-mix(in srgb, var(--warning) 28%, transparent);
+}
+.stf-list .kpi-card.stf-kpi-transit .v { color: var(--warning); }
+
+/* From → To cell — codes prominent, names muted. The arrow signals
+ * direction at a glance the same way the routing card on the form
+ * does, so the read-side and write-side look like one product. */
+.stf-route {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.stf-route-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.stf-route-code {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--fg-primary);
+  font-family: 'Source Sans 3', sans-serif;
+  letter-spacing: 0.01em;
+}
+.stf-route-name {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+  margin-top: 1px;
+}
+.stf-route-arrow {
+  color: var(--accent);
+  opacity: 0.7;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* Per-row action group — always visible (operators rely on these to
+ * progress transfers through Submit / Receive / Cancel). The bill-list
+ * .abtn primitive provides the base; we add a danger variant for the
+ * cancel button. */
+.stf-actions {
+  display: inline-flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.stf-actions .abtn {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+.stf-actions .abtn.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 25%, var(--border));
+}
+.stf-actions .abtn.danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+.stf-actions .abtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Table card — let it own its own border-radius so the AntD table
+ * chrome inside doesn't bleed past the rounded corners. The bill-list
+ * .blist primitive already does most of this; this just tightens the
+ * AntD-specific overrides. */
+.stf-list .stf-table-card {
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+}
+.stf-list .stf-table-card .ant-table {
+  background: transparent;
+}
+.stf-list .stf-table-card .ant-table-thead > tr > th {
+  background: var(--bg-muted);
+  color: var(--fg-tertiary);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.stf-list .stf-table-card .ant-table-tbody > tr > td {
+  padding: 12px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.stf-list .stf-table-card .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover);
+}
+
+/* Empty-state — friendlier than AntD's stock "No data" placeholder,
+ * matches the "no transfers yet — create one" call to action that
+ * sales / purchase lists use. */
+.stf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 16px;
+}
+.stf-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  margin-top: 8px;
+}
+.stf-empty-sub {
+  font-size: 13px;
+  color: var(--fg-tertiary);
+  max-width: 360px;
+  text-align: center;
+}
+.stf-empty-sub a {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/* ── Sticky table footer (totals row) ───────────────────────────────
+ * The AntD <Table> doesn't expose a footer that's actually pinned to
+ * the bottom of a scroll container — its `summary` prop renders
+ * inside the body and scrolls with the rows. So the totals row lives
+ * OUTSIDE the AntD table here, as a real flex row anchored to the
+ * card's flex bottom. The card itself is `display:flex; column` so
+ * the AntD table grows-and-scrolls (overflow:auto on .ant-table-body
+ * via the .rpt-tbl rule in global.css) and our footer takes its
+ * natural height. Header sticky + body scrolls + footer pinned —
+ * matches the Sales Report shape.
+ *
+ * Column widths must mirror the JSX columns so the footer cells line
+ * up under their data cells. Widths used:
+ *   SR (56) · Transfer# (130) · Date (110) · From→To (flex) ·
+ *   Items (110, right) · Value (150, right) · Status (130) ·
+ *   Actions (200, right)
+ * The first four columns share the "Total (N)" label via flex:1 on
+ * stf-tbl-foot-spacer, then values right-align in the Items + Value
+ * positions, with blank pads for Status + Actions. */
+.stf-list .stf-tbl-card {
+  display: flex;
+  flex-direction: column;
+}
+.stf-list .stf-tbl-card .ant-spin-nested-loading,
+.stf-list .stf-tbl-card .ant-spin-nested-loading > .ant-spin-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.stf-tbl-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-muted);
+  border-top: 2px solid var(--border-strong);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  gap: 0;
+}
+.stf-tbl-foot-lbl {
+  /* Sits in the leftmost area, spans the SR/Transfer/Date/Route
+   * columns visually. flex:1 below uses up the From→To column's
+   * flexible width so the rest of the cells align under their
+   * fixed-width data columns. */
+  font-weight: 700;
+  color: var(--fg-primary);
+}
+.stf-tbl-foot-spacer { flex: 1 1 auto; }
+.stf-tbl-foot-val {
+  width: 110px;
+  text-align: right;
+  padding-right: 16px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.stf-tbl-foot-val.money {
+  width: 150px;
+  color: var(--fg-primary);
+}
+.stf-tbl-foot-pad {
+  /* Empty cells matching Status (130) and Actions (200) widths so
+   * the totals values right-align under their data columns rather
+   * than drifting to the page's right edge. */
+  width: 130px;
+  flex-shrink: 0;
+}
+.stf-tbl-foot-pad + .stf-tbl-foot-pad {
+  width: 200px;
+}
+
+/* ── Batch detail page sections ────────────────────────────────────
+ * Three stacked panels (Stock by Godown / Movement / Bills Touched)
+ * inside the scrollable body. Same card chrome as the rest of the
+ * editorial-report skin — bordered + soft shadow + rounded corners.
+ * The page itself is height:100% with overflow:hidden, the parent
+ * .rpt-tbl-wrap scrolls vertically. */
+.bd-section {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.bd-section-hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bd-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bd-section-sub {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--fg-tertiary);
+}
+.bd-section .ant-table {
+  background: transparent;
+}
+.bd-section .ant-table-thead > tr > th {
+  background: transparent;
+  color: var(--fg-tertiary);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+}
+.bd-section .ant-table-tbody > tr > td {
+  padding: 10px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bd-section .ant-table-tbody > tr:last-child > td {
+  border-bottom: none;
+}
+.bd-section .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover);
+}

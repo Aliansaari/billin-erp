@@ -3,7 +3,7 @@ const sequelize = require('../config/database');
 const {
   PurchaseReturnBill, PurchaseReturnBillItem,
   PurchaseBill, PurchaseBillItem,
-  Party, Product, StockLedger, SystemSettings, Godown,
+  Party, Product, StockLedger, SystemSettings, Godown, ProductBatch,
 } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
@@ -185,7 +185,13 @@ exports.getById = async (req, res) => {
     const bill = await PurchaseReturnBill.findByPk(req.params.id, {
       include: [
         { model: Party, as: 'supplier' },
-        { model: PurchaseReturnBillItem, as: 'items' },
+        // Include the batch row on each line so the print template can
+        // emit the "Lot · Mfd · Exp" sub-line under the product name
+        // (Commit 5).
+        {
+          model: PurchaseReturnBillItem, as: 'items',
+          include: [{ model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date'] }],
+        },
         { model: PurchaseBill, as: 'referenceBill', attributes: ['purchase_bill_id', 'bill_number', 'bill_date', 'total_amount'] },
       ],
     });

@@ -257,6 +257,20 @@ export const REPORTS = [
     perm: 'reports.view',
     isNew: true,
   },
+  // Expiry Report (Commit 5) — bucketed view of every batch with an
+  // expiry date, plus a "no expiry" group. Same editorial-report skin
+  // as Sales Report. perm: 'batches.view' so it hides when the global
+  // batch toggle is OFF / role lacks the perm.
+  {
+    id: 'expiry_report',
+    name: 'Expiry Report',
+    subtitle: 'Batches by expiry bucket · expired / 0-30 / 31-60 / 61-90 / 91+',
+    category: 'inventory',
+    route: '/reports/expiry',
+    perm: 'batches.view',
+    aliases: ['expiry', 'batch expiry', 'shelf life', 'stock expiry', 'expired'],
+    isNew: true,
+  },
 
   // ── Financial ────────────────────────────────────────────────────
   {

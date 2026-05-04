@@ -458,4 +458,13 @@ export const stockTransferAPI = {
   cancel:  (id, reason) => api.post(`/stock-transfers/${id}/cancel`, { reason }),
 };
 
+// Batches (Commit 5) — list of every batch in the system, per-batch
+// detail (movement + stock-by-godown + bills-touched), and the bucketed
+// expiry report. Read-only API; mutations live on the bill controllers.
+export const batchAPI = {
+  list:         (params) => api.get('/batches', { params }),
+  getById:      (id)     => api.get(`/batches/${id}`),
+  expiryReport: (params) => api.get('/batches/expiry-report', { params }),
+};
+
 export default api;

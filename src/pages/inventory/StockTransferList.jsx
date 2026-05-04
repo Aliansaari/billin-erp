@@ -1,47 +1,88 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Tag, Space, Input, Select, DatePicker, Popconfirm, message, Tooltip } from 'antd';
-import { SwapOutlined, PlusOutlined, EyeOutlined, SendOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { Table, Button, Tag, Input, Select, DatePicker, Popconfirm, message, Tooltip } from 'antd';
+import {
+  SwapOutlined, PlusOutlined, EyeOutlined, SendOutlined, CheckCircleOutlined,
+  CloseCircleOutlined, EditOutlined, ReloadOutlined, SearchOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { stockTransferAPI, godownAPI } from '../../api';
+// Editorial report skin (same .rpt-page-hd / .rpt-kpis / .rpt-filter /
+// .rpt-tbl-wrap classes Sales Report / Day Book / Trial Balance use,
+// living in src/styles/global.css). Pulls in all theme-aware tinted KPI
+// gradients, sticky header / KPI / table / footer layout, and the
+// uppercase column headers — no per-page CSS needed.
+import './stock-transfer-form.css';
 
 /*
- * Stock Transfers — list view.
+ * Stock Transfers — list view (editorial report skin).
  *
- * Lists godown-to-godown movements. Status drives the available actions:
- *   Draft        → Submit (deduct source) | Cancel | Edit
- *   In-Transit   → Receive (add destination) | Cancel
- *   Received     → View only (terminal)
- *   Cancelled    → View only (terminal)
+ * Behavioural surface kept identical to the prior list:
+ *   • Filters: from_godown_id, to_godown_id, status, date range, search
+ *   • Per-row actions: Edit / View / Submit / Receive / Cancel
+ *   • KPIs derived from currently-loaded rows (so they reflect filters)
+ *   • Footer totals: count, qty, value
  *
- * Filters: from godown, to godown, status, date range, free-text on
- * transfer number. All forwarded as query params; server applies
- * allowed_godowns scoping (a transfer is visible if either side touches
- * an allowed godown).
+ * Visual layer aligned to .rpt-* primitives so the page looks like a
+ * sibling of Sales Report — same header rhythm, same KPI card shape,
+ * same chip-driven status filter, same scrolling table panel.
+ *
+ * Period chips (This FY / Last FY / This Q / This Month / Custom) are
+ * UI conveniences over the existing date range filter — they pre-fill
+ * the range and don't introduce any new server param.
  */
 
 const STATUS_TONE = {
-  'Draft':      { color: 'default', desc: 'Items entered, no stock movement yet' },
-  'In-Transit': { color: 'orange',  desc: 'Stock deducted from source; awaiting receipt' },
-  'Received':   { color: 'green',   desc: 'Stock arrived at destination' },
-  'Cancelled':  { color: 'red',     desc: 'Reversed; no stock impact remaining' },
+  'Draft':      { color: 'default', desc: 'Items entered, no stock movement yet',         tone: 'neutral' },
+  'In-Transit': { color: 'orange',  desc: 'Stock deducted from source; awaiting receipt', tone: 'warning' },
+  'Received':   { color: 'green',   desc: 'Stock arrived at destination',                 tone: 'success' },
+  'Cancelled':  { color: 'red',     desc: 'Reversed; no stock impact remaining',          tone: 'danger'  },
 };
 
-const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtN     = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtMoney = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtInt   = (v) => `₹ ${Math.round(parseFloat(v || 0)).toLocaleString('en-IN')}`;
+
+// Period preset → date range. Indian FY (Apr–Mar). Used by the chip
+// strip in the header to set filters.range without changing the server
+// contract — server still consumes start_date / end_date as today.
+function presetRange(preset, today = dayjs()) {
+  const fyStart = today.month() < 3 ? today.subtract(1, 'year').month(3).date(1) : today.month(3).date(1);
+  const fyEnd   = fyStart.add(1, 'year').subtract(1, 'day');
+  switch (preset) {
+    case 'this_fy':    return [fyStart.startOf('day'), fyEnd.endOf('day')];
+    case 'last_fy':    return [fyStart.subtract(1, 'year'), fyStart.subtract(1, 'day')];
+    case 'this_q': {
+      const m = today.month(); const qStart = today.month(m - (m % 3)).date(1);
+      return [qStart.startOf('day'), qStart.add(3, 'month').subtract(1, 'day').endOf('day')];
+    }
+    case 'this_month': return [today.startOf('month'), today.endOf('month')];
+    default:           return null;
+  }
+}
 
 export default function StockTransferList() {
   const nav = useNavigate();
   const [rows, setRows]         = useState([]);
   const [godowns, setGodowns]   = useState([]);
   const [loading, setLoading]   = useState(false);
-  const [busy, setBusy]         = useState({});  // per-row busy state for submit/receive/cancel
-  const [filters, setFilters]   = useState({
+  const [busy, setBusy]         = useState({});
+  const [preset, setPreset]     = useState('this_fy');
+  const [filters, setFilters]   = useState(() => ({
     from_godown_id: undefined,
     to_godown_id:   undefined,
     status:         undefined,
-    range:          null,
+    range:          presetRange('this_fy'),
     q:              '',
-  });
+  }));
+
+  // Fold preset → range whenever preset changes (except 'custom', where
+  // the operator drives the range picker directly).
+  useEffect(() => {
+    if (preset === 'custom') return;
+    const r = presetRange(preset);
+    if (r) setFilters((f) => ({ ...f, range: r }));
+  }, [preset]);
 
   const load = async () => {
     setLoading(true);
@@ -79,7 +120,6 @@ export default function StockTransferList() {
       message.error(err?.response?.data?.error || 'Submit failed');
     } finally { setBusyRow(row.transfer_id, false); }
   };
-
   const onReceive = async (row) => {
     setBusyRow(row.transfer_id, true);
     try {
@@ -90,7 +130,6 @@ export default function StockTransferList() {
       message.error(err?.response?.data?.error || 'Receive failed');
     } finally { setBusyRow(row.transfer_id, false); }
   };
-
   const onCancel = async (row) => {
     setBusyRow(row.transfer_id, true);
     try {
@@ -102,147 +141,287 @@ export default function StockTransferList() {
     } finally { setBusyRow(row.transfer_id, false); }
   };
 
+  // KPI rollups — derived from the currently-loaded rows so the cards
+  // reflect the active filter (rather than always showing all-time
+  // counts, which would be misleading next to a filtered table).
+  const kpis = useMemo(() => {
+    const k = { total: rows.length, draft: 0, inTransit: 0, received: 0, cancelled: 0, totalQty: 0, totalValue: 0 };
+    rows.forEach((r) => {
+      if (r.status === 'Draft')      k.draft++;
+      if (r.status === 'In-Transit') k.inTransit++;
+      if (r.status === 'Received')   k.received++;
+      if (r.status === 'Cancelled')  k.cancelled++;
+      k.totalQty   += parseFloat(r.total_quantity || 0);
+      k.totalValue += parseFloat(r.total_value || 0);
+    });
+    return k;
+  }, [rows]);
+
+  // Sub-line under the title. "{n} transfers · FY 2026-27" for FY
+  // presets, plain count for custom ranges.
+  const subLabel = useMemo(() => {
+    if (preset === 'this_fy' && filters.range?.[0]) {
+      const y1 = filters.range[0].year(); return `FY ${y1}-${String(y1 + 1).slice(2)}`;
+    }
+    if (preset === 'last_fy' && filters.range?.[0]) {
+      const y1 = filters.range[0].year(); return `FY ${y1}-${String(y1 + 1).slice(2)}`;
+    }
+    if (preset === 'this_q' && filters.range?.[0])    return `Q${Math.floor(filters.range[0].month() / 3) + 1} ${filters.range[0].year()}`;
+    if (preset === 'this_month' && filters.range?.[0]) return filters.range[0].format('MMM YYYY');
+    if (filters.range?.[0])                            return `${filters.range[0].format('DD MMM YY')} – ${filters.range[1].format('DD MMM YY')}`;
+    return '';
+  }, [preset, filters.range]);
+
   const columns = useMemo(() => [
     {
+      title: 'SR', key: 'sr', width: 56, align: 'center',
+      render: (_, __, idx) => <span style={{ color: 'var(--fg-tertiary)', fontVariantNumeric: 'tabular-nums' }}>{idx + 1}</span>,
+    },
+    {
       title: 'Transfer #', dataIndex: 'transfer_number', width: 130,
-      render: (v) => <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>{v}</span>,
+      render: (v) => <span className="rpt-bill-no">{v}</span>,
     },
     {
-      title: 'Date', dataIndex: 'transfer_date', width: 120,
-      render: (v) => v ? dayjs(v).format('DD MMM YYYY') : '—',
+      title: 'Date', dataIndex: 'transfer_date', width: 110,
+      render: (v) => <span style={{ color: 'var(--fg-secondary)' }}>{v ? dayjs(v).format('DD/MM/YYYY') : '—'}</span>,
     },
     {
-      title: 'From → To', key: 'route', width: 280,
+      title: 'From → To', key: 'route',
       render: (_, r) => (
-        <Space size={8} style={{ whiteSpace: 'nowrap' }}>
-          <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>{r.fromGodown?.code || '—'}</span>
-          <SwapOutlined style={{ color: 'var(--fg-tertiary, #9ca3af)' }} />
-          <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>{r.toGodown?.code || '—'}</span>
-          <span style={{ color: 'var(--fg-tertiary, #9ca3af)', fontSize: 12 }}>
-            ({r.fromGodown?.name} → {r.toGodown?.name})
-          </span>
-        </Space>
+        <div className="stf-route">
+          <div className="stf-route-side">
+            <span className="stf-route-code">{r.fromGodown?.code || '—'}</span>
+            <span className="stf-route-name">{r.fromGodown?.name || ''}</span>
+          </div>
+          <SwapOutlined className="stf-route-arrow" />
+          <div className="stf-route-side">
+            <span className="stf-route-code">{r.toGodown?.code || '—'}</span>
+            <span className="stf-route-name">{r.toGodown?.name || ''}</span>
+          </div>
+        </div>
       ),
     },
     {
-      title: 'Qty', dataIndex: 'total_quantity', width: 90, align: 'right',
-      render: (v) => fmtN(v),
+      title: 'Items', dataIndex: 'total_quantity', width: 110, align: 'right',
+      render: (v) => <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmtN(v)}</span>,
     },
     {
-      title: 'Value', dataIndex: 'total_value', width: 120, align: 'right',
-      render: (v) => `₹ ${fmtN(v)}`,
+      title: 'Value', dataIndex: 'total_value', width: 150, align: 'right',
+      render: (v) => <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{fmtInt(v)}</span>,
     },
     {
       title: 'Status', dataIndex: 'status', width: 130,
       render: (s) => {
-        const t = STATUS_TONE[s] || { color: 'default' };
-        return <Tooltip title={t.desc}><Tag color={t.color} style={{ fontWeight: 600 }}>{s}</Tag></Tooltip>;
+        const t = STATUS_TONE[s] || { tone: 'neutral', desc: '' };
+        return <Tooltip title={t.desc}><span className={`rpt-pill type-${t.tone}`}>{s}</span></Tooltip>;
       },
     },
     {
-      title: 'Actions', key: 'actions', width: 320, align: 'right',
+      title: 'Actions', key: 'actions', width: 200, align: 'right', fixed: 'right',
       render: (_, r) => {
         const b = !!busy[r.transfer_id];
+        const isDraft     = r.status === 'Draft';
+        const isInTransit = r.status === 'In-Transit';
+        const isOpen      = isDraft || isInTransit;
         return (
-          <Space size={4}>
-            <Button size="small" icon={<EyeOutlined />} onClick={() => nav(`/stock-transfer/edit/${r.transfer_id}`)}>
-              {r.status === 'Draft' ? 'Edit' : 'View'}
-            </Button>
-            {r.status === 'Draft' && (
-              <Tooltip title="Deduct from source godown — moves to In-Transit">
-                <Button size="small" type="primary" loading={b} icon={<SendOutlined />} onClick={() => onSubmit(r)}>
-                  Submit
-                </Button>
+          <div className="stf-actions">
+            <Tooltip title={isDraft ? 'Edit transfer' : 'View transfer'}>
+              <button
+                className="abtn"
+                onClick={() => nav(`/stock-transfer/edit/${r.transfer_id}`)}
+                aria-label={isDraft ? 'Edit' : 'View'}
+              >
+                {isDraft ? <EditOutlined /> : <EyeOutlined />}
+              </button>
+            </Tooltip>
+            {isDraft && (
+              <Tooltip title="Submit — deduct from source, move to In-Transit">
+                <button className="abtn primary" disabled={b} onClick={() => onSubmit(r)} aria-label="Submit">
+                  <SendOutlined />
+                </button>
               </Tooltip>
             )}
-            {r.status === 'In-Transit' && (
-              <Tooltip title="Add to destination godown — moves to Received">
-                <Button size="small" type="primary" loading={b} icon={<CheckCircleOutlined />} onClick={() => onReceive(r)}>
-                  Receive
-                </Button>
+            {isInTransit && (
+              <Tooltip title="Mark Received — add to destination godown">
+                <button className="abtn primary" disabled={b} onClick={() => onReceive(r)} aria-label="Receive">
+                  <CheckCircleOutlined />
+                </button>
               </Tooltip>
             )}
-            {(r.status === 'Draft' || r.status === 'In-Transit') && (
+            {isOpen && (
               <Popconfirm
                 title={`Cancel ${r.transfer_number}?`}
-                description={r.status === 'In-Transit'
+                description={isInTransit
                   ? 'Stock at the source will be restored.'
                   : 'No stock has moved — this just marks it cancelled.'}
                 okText="Cancel transfer" okButtonProps={{ danger: true }}
                 onConfirm={() => onCancel(r)}
               >
-                <Button size="small" danger loading={b} icon={<CloseCircleOutlined />}>Cancel</Button>
+                <Tooltip title="Cancel transfer">
+                  <button className="abtn danger" disabled={b} aria-label="Cancel">
+                    <CloseCircleOutlined />
+                  </button>
+                </Tooltip>
               </Popconfirm>
             )}
-          </Space>
+          </div>
         );
       },
     },
   ], [busy, nav]); // eslint-disable-line
 
+  // Status-chip filter — same dot-pill UI as Sales Report's Unpaid /
+  // Partial / Paid chips, ours map to the four lifecycle states.
+  const statusChips = ['Draft', 'In-Transit', 'Received', 'Cancelled'];
+
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <SwapOutlined /> Stock Transfers
-        </h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => nav('/stock-transfer/new')}>
-          New Transfer
-        </Button>
+    <div className="report-editorial stf-list" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* ─── HEADER ─── */}
+      <div className="rpt-page-hd">
+        <div className="rpt-title">
+          <h1>Stock Transfers</h1>
+          <div className="rpt-sub">
+            <b>{kpis.total}</b> {kpis.total === 1 ? 'transfer' : 'transfers'}
+            {subLabel && <><span className="sep">·</span>{subLabel}</>}
+          </div>
+        </div>
+        <div className="rpt-hd-ctrl">
+          <div className="rpt-period">
+            {[
+              { v: 'this_fy',    l: 'This FY' },
+              { v: 'last_fy',    l: 'Last FY' },
+              { v: 'this_q',     l: 'This Q' },
+              { v: 'this_month', l: 'This Month' },
+              { v: 'custom',     l: 'Custom' },
+            ].map((p) => (
+              <button key={p.v} className={preset === p.v ? 'on' : ''} onClick={() => setPreset(p.v)}>{p.l}</button>
+            ))}
+          </div>
+          <DatePicker.RangePicker
+            format="DD/MM/YYYY" className="rpt-date"
+            allowClear={false}
+            value={filters.range}
+            onChange={(v) => {
+              setPreset('custom');
+              setFilters((f) => ({ ...f, range: v }));
+            }}
+          />
+          <Button icon={<ReloadOutlined />} onClick={load} className="rpt-btn">Refresh</Button>
+          <Button icon={<PlusOutlined />} type="primary" onClick={() => nav('/stock-transfer/new')} className="rpt-btn">
+            New Transfer
+          </Button>
+        </div>
       </div>
 
-      <p style={{ color: 'var(--fg-secondary, #6b7280)', marginTop: 0, marginBottom: 14, fontSize: 13 }}>
-        Move inventory between godowns. Transfers do not affect books — same legal entity, no GST, no party balance.
-      </p>
+      {/* ─── KPI STRIP ─── */}
+      <div className="rpt-kpis">
+        <div className="rpt-kpi tone-accent">
+          <div className="rpt-kpi-k">Total Value</div>
+          <div className="rpt-kpi-v">{fmtMoney(kpis.totalValue)}</div>
+        </div>
+        <div className="rpt-kpi tone-neutral">
+          <div className="rpt-kpi-k">Total Quantity</div>
+          <div className="rpt-kpi-v">{fmtN(kpis.totalQty)}</div>
+        </div>
+        <div className="rpt-kpi tone-neutral">
+          <div className="rpt-kpi-k">Drafts</div>
+          <div className="rpt-kpi-v">{kpis.draft}</div>
+        </div>
+        <div className="rpt-kpi tone-warning">
+          <div className="rpt-kpi-k">In Transit</div>
+          <div className="rpt-kpi-v">{kpis.inTransit}</div>
+        </div>
+        <div className="rpt-kpi tone-success">
+          <div className="rpt-kpi-k">Received</div>
+          <div className="rpt-kpi-v">{kpis.received}</div>
+        </div>
+        <div className="rpt-kpi tone-danger">
+          <div className="rpt-kpi-k">Cancelled</div>
+          <div className="rpt-kpi-v">{kpis.cancelled}</div>
+        </div>
+      </div>
 
-      {/* Filter strip — godown / status / date range / search */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+      {/* ─── FILTER BAR — search + status chips + godown selects ─── */}
+      <div className="rpt-filter">
+        <Input
+          className="rpt-search"
+          prefix={<SearchOutlined />}
+          placeholder="Search transfer #"
+          value={filters.q}
+          onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+          allowClear
+        />
+        <span className="rpt-sep" />
+        {statusChips.map((s) => {
+          const t = STATUS_TONE[s];
+          return (
+            <button
+              key={s}
+              className={`rpt-chip ${filters.status === s ? 'on' : ''}`}
+              onClick={() => setFilters((f) => ({ ...f, status: f.status === s ? undefined : s }))}
+            >
+              <span className={`rpt-dot tone-${t.tone}`} />{s}
+            </button>
+          );
+        })}
+        <span className="rpt-sep" />
         <Select
           allowClear placeholder="From godown"
           value={filters.from_godown_id}
           onChange={(v) => setFilters((f) => ({ ...f, from_godown_id: v }))}
           options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
           style={{ minWidth: 180 }}
+          size="middle"
         />
+        <SwapOutlined style={{ color: 'var(--fg-tertiary)' }} />
         <Select
           allowClear placeholder="To godown"
           value={filters.to_godown_id}
           onChange={(v) => setFilters((f) => ({ ...f, to_godown_id: v }))}
           options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
           style={{ minWidth: 180 }}
-        />
-        <Select
-          allowClear placeholder="Status"
-          value={filters.status}
-          onChange={(v) => setFilters((f) => ({ ...f, status: v }))}
-          options={['Draft','In-Transit','Received','Cancelled'].map((s) => ({ value: s, label: s }))}
-          style={{ minWidth: 140 }}
-        />
-        <DatePicker.RangePicker
-          value={filters.range} onChange={(r) => setFilters((f) => ({ ...f, range: r }))}
-          format="DD-MM-YYYY" style={{ minWidth: 240 }}
-        />
-        <Input.Search
-          allowClear placeholder="Search transfer #" style={{ maxWidth: 240 }}
-          onSearch={(v) => setFilters((f) => ({ ...f, q: v }))}
-          onChange={(e) => !e.target.value && setFilters((f) => ({ ...f, q: '' }))}
+          size="middle"
         />
       </div>
 
-      <Table
-        rowKey="transfer_id"
-        loading={loading}
-        dataSource={rows}
-        columns={columns}
-        pagination={false}
-        size="middle"
-        style={{ background: 'var(--bg-elevated, white)' }}
-      />
-
-      <div style={{ display: 'flex', gap: 24, marginTop: 12, fontSize: 12, color: 'var(--fg-secondary)' }}>
-        <span>{rows.length} transfer(s)</span>
-        <span>Total qty: <b>{fmtN(rows.reduce((s, r) => s + parseFloat(r.total_quantity || 0), 0))}</b></span>
-        <span>Total value: <b>₹ {fmtN(rows.reduce((s, r) => s + parseFloat(r.total_value || 0), 0))}</b></span>
+      {/* ─── TABLE ─── */}
+      {/* Layout discipline: the .stf-tbl-card is the bounded box that
+       *  fills the rest of the page. Inside it, the AntD table body
+       *  scrolls vertically (its own ant-table-body owns the overflow
+       *  via the .rpt-tbl !important rule from global.css), the
+       *  ant-table thead is sticky at the top, and our hand-rolled
+       *  .stf-tbl-foot below — outside the AntD table — pins to the
+       *  bottom of the card so totals stay visible while rows scroll. */}
+      <div className="rpt-tbl-wrap">
+        <div className="rpt-tbl report-table-scroll stf-tbl-card">
+          <Table
+            rowKey="transfer_id"
+            loading={loading}
+            dataSource={rows}
+            columns={columns}
+            pagination={false}
+            size="middle"
+            scroll={{ x: 1100 }}
+            sticky
+            locale={{ emptyText: (
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--fg-tertiary)' }}>
+                <SwapOutlined style={{ fontSize: 32, opacity: 0.4 }} />
+                <div style={{ marginTop: 8, fontSize: 14, fontWeight: 600, color: 'var(--fg-secondary)' }}>No transfers in this period</div>
+                <div style={{ fontSize: 12 }}>Try widening the date range or clearing filters.</div>
+              </div>
+            ) }}
+          />
+          {rows.length > 0 && (
+            <div className="stf-tbl-foot">
+              <span className="stf-tbl-foot-lbl">Total ({rows.length})</span>
+              <span className="stf-tbl-foot-spacer" />
+              <span className="stf-tbl-foot-val">{fmtN(kpis.totalQty)}</span>
+              <span className="stf-tbl-foot-val money">{fmtInt(kpis.totalValue)}</span>
+              <span className="stf-tbl-foot-pad" />
+              <span className="stf-tbl-foot-pad" />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -29,7 +29,7 @@ import {
   ReloadOutlined, EyeOutlined, SyncOutlined,
   CheckCircleFilled, WarningFilled, CloseCircleFilled,
   CaretRightOutlined, BookOutlined, InboxOutlined,
-  SafetyCertificateOutlined, DatabaseOutlined,
+  SafetyCertificateOutlined, DatabaseOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import { ledgerAPI } from '../../api';
 
@@ -63,6 +63,15 @@ const I_LABEL_HINT = {
   'I4':          'Every auto-generated row must point at a real bill — no orphan source_bill_id values.',
   'I5':          '6-term reconciliation between Sundry Debtors ledger and the bill side.',
   'I6':          '6-term reconciliation between Sundry Creditors ledger and the bill side.',
+  // Batch invariants (Commit 5) — surfaced under the Batch Integrity
+  // section. I7/I8 keep their numbering so existing test scripts stay
+  // valid; B3..B5 are batch-specific and only meaningful with the
+  // global toggle on.
+  'I7':          'For every batch-tracked product, Σ per-batch on-hand across godowns must equal product on-hand.',
+  'I8':          'For every batch-tracked product, Σ per-batch on-hand must equal Σ batch-tagged ledger movements.',
+  'B3':          'Every stock_ledger row whose product is batch-tracked must carry a non-NULL batch_id.',
+  'B4':          'Every product_batches row must reference a real products row (FK).',
+  'B5':          'No batch may have negative current_stock at any godown.',
 };
 
 // Sample table columns — different shape per invariant family.
@@ -94,6 +103,43 @@ function sampleColumns(invariantId) {
     { title: 'Receipt #',      dataIndex: 'transaction_number', width: 160 },
     { title: 'Type',           dataIndex: 'transaction_type', width: 90 },
     { title: 'source_bill_id', dataIndex: 'source_bill_id', align: 'right', width: 130 },
+  ];
+  // I7 / I8 — batch-vs-product / batch-vs-ledger drift. Sample row carries
+  // product_id, product_name, the two compared totals, and the drift.
+  if (invariantId === 'I7') return [
+    { title: 'Product', dataIndex: 'product_name' },
+    { title: 'Product stock', dataIndex: 'product_stock', align: 'right', width: 130, render: (v) => fmt(v) },
+    { title: 'Σ batch stock', dataIndex: 'batch_total',  align: 'right', width: 130, render: (v) => fmt(v) },
+    { title: 'Drift',         dataIndex: 'drift',        align: 'right', width: 110, render: (v) => <Tag color="red">{fmt(v)}</Tag> },
+  ];
+  if (invariantId === 'I8') return [
+    { title: 'Product', dataIndex: 'product_name' },
+    { title: 'Σ batch stock', dataIndex: 'batch_total',  align: 'right', width: 130, render: (v) => fmt(v) },
+    { title: 'Σ ledger qty',  dataIndex: 'ledger_net',   align: 'right', width: 130, render: (v) => fmt(v) },
+    { title: 'Drift',         dataIndex: 'drift',        align: 'right', width: 110, render: (v) => <Tag color="red">{fmt(v)}</Tag> },
+  ];
+  // B3 — stock_ledger rows on a batch-tracked product with NULL batch_id.
+  if (invariantId === 'B3') return [
+    { title: 'Ledger ID', dataIndex: 'ledger_id', width: 110 },
+    { title: 'Product',   dataIndex: 'product_name' },
+    { title: 'Type',      dataIndex: 'transaction_type', width: 130 },
+    { title: 'Date',      dataIndex: 'transaction_date', width: 110 },
+    { title: 'Reference', dataIndex: 'reference_number', width: 130 },
+    { title: 'In',  dataIndex: 'quantity_in',  align: 'right', width: 80, render: (v) => fmt(v) },
+    { title: 'Out', dataIndex: 'quantity_out', align: 'right', width: 80, render: (v) => fmt(v) },
+  ];
+  // B4 — orphan ProductBatch rows with no matching products row.
+  if (invariantId === 'B4') return [
+    { title: 'Batch ID',     dataIndex: 'batch_id', width: 110 },
+    { title: 'Batch Number', dataIndex: 'batch_number', width: 200 },
+    { title: 'Product ID',   dataIndex: 'product_id', width: 110 },
+  ];
+  // B5 — (batch, godown) pairs with negative on-hand.
+  if (invariantId === 'B5') return [
+    { title: 'Batch',         dataIndex: 'batch_number', width: 180 },
+    { title: 'Product',       dataIndex: 'product_name' },
+    { title: 'Godown',        dataIndex: 'godown_name', width: 160 },
+    { title: 'Current stock', dataIndex: 'current_stock', align: 'right', width: 130, render: (v) => <Tag color="red">{fmt(v)}</Tag> },
   ];
   // I5 / I6 don't return a row sample — the breakdown panel shows the
   // 6 terms explicitly instead of a violator list.
@@ -829,9 +875,13 @@ export default function LedgerIntegrity() {
           }
         >
           {!autoData && <Text type="secondary">Loading invariants…</Text>}
-          {autoData && autoData.invariants.map((inv) => (
-            <InvariantRow key={inv.id} inv={inv} />
-          ))}
+          {/* Auto-receipt section shows I1..I6 only; the batch
+              invariants (I7/I8/B*) live in their own section below so
+              the admin can find them without scrolling through every
+              receipt-side rule. */}
+          {autoData && autoData.invariants
+            .filter((i) => !/^I[78]$|^B/.test(i.id))
+            .map((inv) => <InvariantRow key={inv.id} inv={inv} />)}
         </CollapsibleCard>
       )}
 
@@ -899,6 +949,39 @@ export default function LedgerIntegrity() {
           )}
         </CollapsibleCard>
       )}
+      {/* ── Section 5: Batch Integrity (Commit 5) ──────────────────
+          Renders only when the auto-receipt response contains any of
+          the batch invariants (I7, I8, B3..B5) — those only fire when
+          the global batch toggle is on, so the section auto-hides on
+          installs that never enabled batch tracking. Auto-expands when
+          any batch invariant fails. */}
+      {(() => {
+        if (!autoData) return null;
+        const batchInvs = autoData.invariants.filter((i) => /^I[78]$|^B/.test(i.id));
+        if (batchInvs.length === 0) return null;
+        const allOk        = batchInvs.every((i) => i.ok);
+        const violatedCount = batchInvs.filter((i) => !i.ok).length;
+        return (
+          <CollapsibleCard
+            icon={<AppstoreOutlined />}
+            title="Batch Integrity"
+            subtitle="Per-batch on-hand must agree with product totals, the ledger, and the schema's NOT-NULL contract."
+            status={allOk ? 'ok' : 'bad'}
+            statusLabel={allOk
+              ? `${batchInvs.length} of ${batchInvs.length} green`
+              : `${violatedCount} of ${batchInvs.length} violated`}
+            defaultOpen={!allOk}
+            extra={
+              <Button size="small" icon={<ReloadOutlined />} loading={autoLoading} onClick={loadAutoReceipt}>
+                Refresh
+              </Button>
+            }
+          >
+            {batchInvs.map((inv) => <InvariantRow key={inv.id} inv={inv} />)}
+          </CollapsibleCard>
+        );
+      })()}
+
       </div>{/* /scrollable body */}
     </div>
   );

@@ -1,6 +1,6 @@
 const { Op, col, fn, literal } = require('sequelize');
 const sequelize = require('../config/database');
-const { Product, Category, StockLedger } = require('../models');
+const { Product, Category, StockLedger, ProductBatch } = require('../models');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { sanitizePagination } = require('../utils/helpers');
 const { attachDisplayCost, fetchBatchAggregate } = require('../utils/displayCost');
@@ -699,6 +699,10 @@ exports.getStockMovement = async (req, res) => {
 
     const movements = await StockLedger.findAll({
       where,
+      // Include the batch row so the Stock Movement page can render
+      // batch_number per movement (Commit 5 — Part E adds a Batch
+      // filter dropdown that reads this field).
+      include: [{ model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date'], required: false }],
       order: [['transaction_date', 'ASC'], ['created_date', 'ASC']],
     });
 

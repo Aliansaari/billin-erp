@@ -62,7 +62,7 @@ export default function AppLayout() {
   // partial-match `sale` and then fail the trailing \/, falling through to
   // the padded layout. That made the return forms visibly shrink to content
   // height instead of filling the screen.
-  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|stock-movement|stock-report-pro|banks|loans)\//.test(location.pathname) || [
+  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|stock-movement|stock-report-pro|stock-transfer|banks|loans|inventory\/batches)\//.test(location.pathname) || [
     '/products', '/stock-report', '/stock-report-pro', '/stock-movement', '/categories', '/customers', '/suppliers',
     '/sales', '/purchases', '/payments',
     '/sales-returns', '/purchase-returns',
@@ -106,6 +106,17 @@ export default function AppLayout() {
     // and cross-loan upcoming EMIs page. The regex above catches the
     // child routes; this entry covers the bare /loans landing.
     '/loans',
+    // Stock Transfers — list view uses the shared .blist-page shell
+    // (sticky title + KPIs + internally scrolling table + sticky
+    // footer). Form routes /stock-transfer/new and /stock-transfer/edit
+    // are caught by the regex above.
+    '/stock-transfers',
+    // Batches (Commit 5) — list + detail use the same .report-editorial
+    // shell with sticky header + KPIs + scrolling body + sticky footer.
+    // The /:batch_id detail route is caught by the regex below.
+    '/inventory/batches',
+    // Expiry Report — same editorial-report shell as Sales Report.
+    '/reports/expiry',
     // Reports Hub — sticky title strip; search + pinned strip +
     // category grid scroll beneath. Without /reports here, the
     // page reverts to padded auto-scroll where the title slides
