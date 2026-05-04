@@ -2,8 +2,10 @@ import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 export const SHORTCUTS_LIST = [
-  { keys: 'Alt + S', description: 'New Sales Bill' },
-  { keys: 'Alt + P', description: 'New Purchase Bill' },
+  { keys: 'Cmd/Ctrl + K', description: 'Open global search' },
+  { keys: 'Alt + H', description: 'Home (Command Center)' },
+  { keys: 'Alt + S', description: 'Sale (new customer invoice)' },
+  { keys: 'Alt + P', description: 'Purchase (new supplier bill)' },
   { keys: 'Alt + D', description: 'Dashboard' },
   { keys: 'Alt + M', description: 'Payments' },
   { keys: 'Alt + C', description: 'Customers' },
@@ -25,11 +27,23 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       const tag = e.target.tagName;
       const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable;
 
+      // Cmd/Ctrl + K — open the global search palette. Highest-priority
+      // verb on the page, so it lives at the top of the handler before the
+      // Alt block to avoid conflicting with any future Alt+K binding.
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        window.dispatchEvent(new Event('global-search:open'));
+        return;
+      }
+
       if (e.altKey) {
         switch (e.key.toLowerCase()) {
+          case 'h': e.preventDefault(); navigate('/'); break;
           case 's': e.preventDefault(); navigate('/sale/new'); break;
           case 'p': e.preventDefault(); navigate('/purchase/new'); break;
-          case 'd': e.preventDefault(); navigate('/'); break;
+          // Alt+D is Dashboard — / is now the Command Center (Home), so
+          // the deep 9-tile dashboard moved to /dashboard.
+          case 'd': e.preventDefault(); navigate('/dashboard'); break;
           case 'm': e.preventDefault(); navigate('/payments'); break;
           case 'c': e.preventDefault(); navigate('/customers'); break;
           case 'i': e.preventDefault(); navigate('/products'); break;

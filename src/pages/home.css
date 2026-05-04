@@ -1,0 +1,489 @@
+/* ===========================================================================
+ * Home / Command Center styles. Reads only from theme tokens so the page
+ * looks right in classic-light, classic-dark, modern-light, modern-dark.
+ *
+ * Layout — three pinned regions inside a fixed-height shell:
+ *
+ *   ┌─────────────────────────────────────────────┐
+ *   │  KPI ribbon — full bleed, fixed height      │  ← top
+ *   ├─────────────────────────────────────────────┤
+ *   │                                             │
+ *   │            B I G   C L O C K                │
+ *   │            small caps · date                │
+ *   │                                             │  ← middle
+ *   │      WORKING LATE, ALI                      │     (flex: 1, centered,
+ *   │      What would you like to do?             │      min-height: 0)
+ *   │   [ ──── search bar ──────── ⌘K ]           │
+ *   │                                             │
+ *   ├─────────────────────────────────────────────┤
+ *   │  [Sale] [Purchase] [Receipt] [Pay] [...]    │  ← bottom
+ *   └─────────────────────────────────────────────┘
+ *
+ * Class prefix: .cc- (command center)
+ * ========================================================================== */
+
+/* ── Shell — fills the AppLayout's full-page Content (which is height:100vh,
+ *           overflow:hidden), so the three regions land flush to viewport
+ *           edges and the page never scrolls. */
+.cc-home {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  /* Cancel any inherited horizontal padding from .erp-page-content so the
+   * ribbons go true full-bleed. AppLayout already removes padding for full-
+   * page routes; this is belt-and-braces for the case where Home is served
+   * from a non-fullpage shell. */
+  margin: 0;
+  padding: 0;
+}
+
+/* Optional ambient gradient — opt-in via Settings → Home. Tints derive
+ * from the live accent + success colors via color-mix() so the wash has
+ * the same perceived strength in both light and dark themes; the bare
+ * `--accent-bg` token (rgba 0.08) is too faint on a light background but
+ * fine on dark, so we mix the source color directly with transparent at
+ * a fixed percentage that reads well in either mode.
+ *
+ * Two soft blobs: a top-centre accent glow and a bottom-centre success
+ * glow. Stays gentle so the page never feels busy. */
+.cc-ambient {
+  background:
+    radial-gradient(ellipse 90% 60% at 50% 0%,   color-mix(in oklab, var(--accent)  20%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 45% at 50% 100%, color-mix(in oklab, var(--success) 18%, transparent) 0%, transparent 65%),
+    var(--bg-app);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 1. KPI ribbon — five editorial-style cards along the top.
+ *
+ * Visual language matches EditorialTile (.e-tile): white panel, 1px border,
+ * subtle hover lift, small-caps label, big tabular value, dashed-rule trend
+ * row at the bottom with sparkline. Compressed for the row format.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.cc-kpi-ribbon {
+  display: grid;
+  grid-template-columns: repeat(var(--cc-kpi-cols, 5), minmax(0, 1fr));
+  gap: 6px;
+  padding: 18px 18px 6px;
+  /* Transparent so the page gradient (when ambient is on) flows through
+   * the KPI strip without a visible seam. The strip becomes part of the
+   * page rather than a separate band. */
+  background: transparent;
+  flex: 0 0 auto;
+}
+.cc-kpi-ribbon[data-cols="1"] { --cc-kpi-cols: 1; }
+.cc-kpi-ribbon[data-cols="2"] { --cc-kpi-cols: 2; }
+.cc-kpi-ribbon[data-cols="3"] { --cc-kpi-cols: 3; }
+.cc-kpi-ribbon[data-cols="4"] { --cc-kpi-cols: 4; }
+.cc-kpi-ribbon[data-cols="5"] { --cc-kpi-cols: 5; }
+
+/* KPI cards use a unified frosted-glass treatment that works on every
+ * theme (classic + modern, light + dark) regardless of whether the
+ * ambient gradient is on:
+ *
+ *   • A translucent panel tint gives the card visible substance, so the
+ *     border has something to outline rather than vanishing on top of a
+ *     gradient (Classic's #e5e7eb border was disappearing into the warm
+ *     cream wash before this).
+ *   • backdrop-filter blur softens whatever shows through, so the card
+ *     reads as a box but the gradient still subtly bleeds behind it.
+ *   • saturate(110%) keeps the gradient color vivid through the glass
+ *     instead of washing flat.
+ *   • One 1px border for the box outline. Hover firms it + lifts.
+ *
+ * The same rule renders correctly on solid backgrounds too — when the
+ * ambient gradient is off, the translucent tint sits on bg-app and the
+ * card looks like a normal panel-tinted card. */
+.cc-kpi {
+  background: color-mix(in oklab, var(--bg-panel) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(110%);
+  -webkit-backdrop-filter: blur(10px) saturate(110%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  padding: 12px 14px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--fg-primary);
+  transition:
+    background-color .18s ease,
+    border-color .18s ease,
+    transform .18s ease,
+    box-shadow .18s ease;
+  min-width: 0;
+  position: relative;
+}
+.cc-kpi:hover {
+  background: color-mix(in oklab, var(--bg-panel) 78%, transparent);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.cc-kpi:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.cc-kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cc-kpi-label {
+  font-size: 10.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tier-style status dot in the top-right — mirrors the .e-tier badge from
+ * EditorialTile but as a pure dot to keep the compact card uncluttered. */
+.cc-kpi-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--fg-tertiary);
+}
+.cc-kpi-dot-good   { background: var(--success); }
+.cc-kpi-dot-warn   { background: var(--warning); }
+.cc-kpi-dot-danger { background: var(--danger);  }
+.cc-kpi-dot-accent { background: var(--accent);  }
+.cc-kpi-dot-muted  { background: var(--fg-tertiary); }
+
+.cc-kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-kpi-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-subtle);
+  min-height: 26px;
+}
+.cc-kpi-detail {
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.cc-kpi-spark {
+  width: 64px;
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+/* Tone-coded detail + sparkline colors — match the dot/tier pattern. */
+.cc-kpi-good   .cc-kpi-detail, .cc-kpi-good   .cc-kpi-spark { color: var(--success); }
+.cc-kpi-warn   .cc-kpi-detail, .cc-kpi-warn   .cc-kpi-spark { color: var(--warning); }
+.cc-kpi-danger .cc-kpi-detail, .cc-kpi-danger .cc-kpi-spark { color: var(--danger);  }
+.cc-kpi-accent .cc-kpi-detail, .cc-kpi-accent .cc-kpi-spark { color: var(--accent);  }
+.cc-kpi-muted  .cc-kpi-detail, .cc-kpi-muted  .cc-kpi-spark { color: var(--fg-tertiary); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 2. Middle — the hero block. Centered both axes, absorbs all leftover
+ *    height between the two ribbons. min-height: 0 lets it shrink under
+ *    pressure (small viewport / many open KPIs) without forcing scroll.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.cc-middle {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Stack order = eyebrow → headline → search → hint → clock. With the
+   * search anchored above the (visually heavy) clock, simple centering
+   * lands the search around the upper-mid of the hero — where the eye
+   * naturally rests and action UI reads as "ready". */
+  justify-content: center;
+  padding: clamp(20px, 3.5vh, 44px) 24px;
+  gap: clamp(14px, 2.2vh, 22px);
+  min-height: 0;
+  /* Subtle on-mount fade-in. All heights are static so this only animates
+   * opacity — the layout never shifts. */
+  animation: ccMiddleIn .42s cubic-bezier(.2,.7,.2,1) both;
+}
+
+/* Extra breathing room above the clock so it reads as a separate "anchor"
+ * region rather than just another stack item. The double-gap keeps the
+ * action cluster (greet/headline/search/hint) tight at the top and lets
+ * the clock sit visually distinct below. */
+.cc-middle .cc-clock {
+  margin-top: clamp(8px, 2vh, 24px);
+}
+@keyframes ccMiddleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.cc-greeting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(8px, 1.4vh, 14px);
+  text-align: center;
+  max-width: 920px;
+}
+
+.cc-eyebrow {
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.cc-headline {
+  margin: 0;
+  font-size: clamp(28px, 3.8vw, 42px);
+  font-weight: 600;
+  letter-spacing: -0.026em;
+  color: var(--fg-primary);
+  line-height: 1.05;
+}
+
+/* ── Clock — the visual anchor. Big tabular numerals, small-caps date
+ *           directly underneath. Date is bumped to fg-secondary (not
+ *           tertiary) so it reads confidently — the user asked for it. */
+.cc-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.cc-clock-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', monospace;
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: var(--fg-primary);
+  line-height: 1;
+}
+
+.cc-clock-date {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  font-feature-settings: 'tnum';
+}
+
+/* Live pulse — soft halo dot. animation runs on the page idle and is paused
+ * by prefers-reduced-motion users. */
+.cc-pulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 4px var(--success-bg);
+  animation: ccPulse 2.4s ease-in-out infinite;
+  flex: 0 0 auto;
+}
+@keyframes ccPulse {
+  0%, 100% { box-shadow: 0 0 0 4px var(--success-bg); transform: scale(1); }
+  50%      { box-shadow: 0 0 0 7px var(--success-bg); transform: scale(1.05); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-pulse { animation: none; }
+  .cc-middle { animation: none; }
+}
+
+/* ── Hero search wrapper ────────────────────────────────────────────────── */
+.cc-search-section {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* Quiet hint line under the search bar — surfaces the keyboard verbs without
+ * feeling like advertising. */
+.cc-hint {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  letter-spacing: 0.1px;
+}
+.cc-hint .gs-kbd { margin: 0 2px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 3. Action ribbon — pinned to the bottom, full bleed.
+ *    Pill rows with icon + (label / sub) + optional kbd shortcut.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.cc-actions {
+  display: grid;
+  grid-template-columns: repeat(var(--cc-actions-cols, 6), minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px 18px;
+  background: var(--bg-muted);
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.cc-actions[data-count="1"] { --cc-actions-cols: 1; }
+.cc-actions[data-count="2"] { --cc-actions-cols: 2; }
+.cc-actions[data-count="3"] { --cc-actions-cols: 3; }
+.cc-actions[data-count="4"] { --cc-actions-cols: 4; }
+.cc-actions[data-count="5"] { --cc-actions-cols: 5; }
+.cc-actions[data-count="6"] { --cc-actions-cols: 6; }
+.cc-actions[data-count="7"] { --cc-actions-cols: 7; }
+.cc-actions[data-count="8"] { --cc-actions-cols: 8; }
+
+.cc-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--fg-primary);
+  transition:
+    transform .15s ease,
+    border-color .15s ease,
+    box-shadow .15s ease,
+    background .15s ease;
+  min-width: 0;
+  height: 52px;
+}
+.cc-action:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-md);
+  background: var(--bg-elevated);
+}
+.cc-action:active   { transform: translateY(0); }
+.cc-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.cc-action-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 15px;
+}
+
+.cc-action-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.15;
+}
+.cc-action-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-action-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-action-kbd {
+  display: flex;
+  gap: 3px;
+  flex: 0 0 auto;
+  margin-right: -2px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Responsive — keep the page un-scrollable at every breakpoint by collapsing
+ * the ribbons rather than forcing horizontal overflow.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 1280px) {
+  .cc-kpi-ribbon[data-cols="5"] { --cc-kpi-cols: 5; }
+  .cc-actions[data-count="6"]   { --cc-actions-cols: 6; }
+}
+@media (max-width: 1024px) {
+  .cc-kpi-ribbon[data-cols="5"] { --cc-kpi-cols: 3; }
+  .cc-kpi-ribbon[data-cols="4"] { --cc-kpi-cols: 2; }
+  .cc-actions[data-count="6"]   { --cc-actions-cols: 3; }
+  .cc-actions[data-count="5"]   { --cc-actions-cols: 3; }
+  .cc-actions[data-count="4"]   { --cc-actions-cols: 2; }
+  .cc-action-sub                { display: none; }
+}
+@media (max-width: 720px) {
+  .cc-kpi-ribbon[data-cols] { --cc-kpi-cols: 2; }
+  .cc-actions[data-count]   { --cc-actions-cols: 2; }
+  .cc-action                { height: 44px; }
+  .cc-clock-time            { font-size: 38px; }
+  .cc-headline              { font-size: 24px; }
+  .cc-hint                  { display: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Modern themes — glass-tinted action ribbon to match the frosted feel.
+ *
+ * The KPI cards use the unified glass treatment in the base `.cc-kpi`
+ * rule above, and the ambient gradient now uses a single strength
+ * (20% / 18%) for both Classic and Modern, so the only Modern-specific
+ * piece left is the action ribbon at the bottom.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+[data-theme="modern-light"] .cc-action,
+[data-theme="modern-dark"]  .cc-action {
+  backdrop-filter: blur(var(--blur, 12px));
+  -webkit-backdrop-filter: blur(var(--blur, 12px));
+  background: var(--glass-tint, var(--bg-panel));
+}

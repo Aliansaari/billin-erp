@@ -1827,7 +1827,7 @@ export default function SalesBillForm() {
           <div className="sbf-top-head sbf-top-head--compact">
             <div className="sbf-top-head-left">
               <span className="sbf-chip">
-                {isEdit ? 'Edit Sales Bill' : 'Sales Invoice'}
+                {isEdit ? 'Edit Sale' : 'New Sale'}
               </span>
               {/* Bill number now sits in its own box. Label and value share
                   the SAME font size so the eye reads them as one unit. */}

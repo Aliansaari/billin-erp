@@ -1,17 +1,18 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import { partyAPI } from './api';
 import { refreshFinancialYear } from './hooks/useFinancialYear';
 import { useGlobalShortcuts, SHORTCUTS_LIST } from './hooks/useKeyboardShortcuts';
 import AppLayout from './components/Layout/AppLayout';
 import RoleRoute from './components/RoleRoute';
+import { GlobalSearchModal } from './components/GlobalSearch';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
+import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import CustomerList from './pages/parties/CustomerList';
 import SupplierList from './pages/parties/SupplierList';
-import PartyDetail from './pages/parties/PartyDetail';
 import ProductList from './pages/inventory/ProductList';
 import CategoryList from './pages/inventory/CategoryList';
 import StockReport from './pages/inventory/StockReport';
@@ -85,6 +86,7 @@ import ThemeSettings from './pages/settings/ThemeSettings';
 import ImportExport from './pages/settings/ImportExport';
 import TallySync from './pages/settings/TallySync';
 import PrintSettings from './pages/settings/PrintSettings';
+import HomeSettings from './pages/settings/HomeSettings';
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -207,6 +209,31 @@ function useSearchParamsHack() {
   return [params];
 }
 
+// Legacy /parties/:id redirect. The old PartyDetail page (a Ledger/Info
+// tab view at /parties/:id) has been retired in favour of the unified
+// Customer / Supplier Statement pages. Old bookmarks, deep links, and
+// any in-app navigation that hadn't been rewired all land here, get
+// the party type resolved, and bounce to the correct statement page
+// with ?id=<party_id> so the picker comes up pre-selected.
+function PartyDetailRedirect() {
+  const { id } = useParams();
+  const [target, setTarget] = useState(null);
+  useEffect(() => {
+    if (!id) { setTarget('/customers'); return; }
+    partyAPI.getById(id)
+      .then(res => {
+        const p = res.data?.data || res.data;
+        const route = p?.party_type === 'Supplier'
+          ? '/reports/supplier-statement'
+          : '/reports/customer-statement';
+        setTarget(`${route}?id=${id}`);
+      })
+      .catch(() => setTarget('/customers'));
+  }, [id]);
+  if (!target) return null;
+  return <Navigate to={target} replace />;
+}
+
 export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -229,20 +256,34 @@ export default function App() {
   return (
     <>
       <ShortcutsOverlay visible={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      {/* Global ⌘K palette — mounted once for all authenticated routes; opens
+          via the `global-search:open` window event dispatched by callers
+          like the keyboard hook or any topbar trigger. The modal manages
+          its own visibility and Esc handling. Only render when authenticated
+          so the login screen stays clean and the palette never tries to
+          fetch parties unauthed. */}
+      {isAuthenticated && <GlobalSearchModal />}
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
           {/*
-            Dashboard is always reachable — it's the redirect target for
-            users whose starting route is gated off.
+            / is the Command Center (Home) — greeting, global search, quick
+            actions, KPI strip. The deep 9-up Dashboard moved to /dashboard
+            so the home page stays a single-screen launchpad. Both routes
+            are always reachable; either is a safe fallback when an
+            operator's intended starting route is gated off.
           */}
-          <Route index element={<Dashboard />} />
+          <Route index element={<Home />} />
+          <Route path="dashboard" element={<Dashboard />} />
 
           {/* Parties */}
           <Route path="customers"    element={<RoleRoute perm="parties.view"><CustomerList /></RoleRoute>} />
           <Route path="suppliers"    element={<RoleRoute perm="parties.view"><SupplierList /></RoleRoute>} />
-          <Route path="parties/:id"  element={<RoleRoute perm="parties.view"><PartyDetail /></RoleRoute>} />
+          {/* /parties/:id — legacy detail page retired. The redirect below
+              resolves party type and bounces to Customer / Supplier
+              Statement (with ?id= so the picker pre-selects). */}
+          <Route path="parties/:id"  element={<RoleRoute perm="parties.view"><PartyDetailRedirect /></RoleRoute>} />
 
           {/* Inventory */}
           <Route path="products"                       element={<RoleRoute perm="inventory.view"><ProductList /></RoleRoute>} />
@@ -376,6 +417,9 @@ export default function App() {
           <Route path="settings/tally"          element={<RoleRoute perm="settings.tally"><TallySync /></RoleRoute>} />
           <Route path="settings/print"          element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
           <Route path="settings/godowns"        element={<RoleRoute perm="godowns.view"><GodownList /></RoleRoute>} />
+          {/* Home page customization — no perm gate; every operator can
+              pick what shows on their own landing page. */}
+          <Route path="settings/home"           element={<HomeSettings />} />
         </Route>
       </Routes>
     </>
