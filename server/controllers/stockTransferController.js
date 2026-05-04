@@ -32,11 +32,45 @@ const sequelize = require('../config/database');
 const { Op } = require('sequelize');
 const {
   StockTransfer, StockTransferItem, Product, Godown, StockLedger,
-  ProductGodownStock,
+  ProductGodownStock, ProductBatch, SystemSettings,
 } = require('../models');
 const { applyGodownStockDelta, getGodownStock } = require('../utils/godownStock');
+const { applyBatchStockDelta, getBatchStock } = require('../utils/batchStock');
 const { scopeWhereByGodownEither, denyIfGodownInaccessible } = require('../middleware/godownScope');
 const { generateBillNumber } = require('../utils/helpers');
+
+/**
+ * Per-line batch validation. Mirrors validateBatchLine in salesController
+ * but trimmed for the transfer flow:
+ *   - No expiry block — internal movement of expired stock between
+ *     godowns is a legitimate "consolidate to a quarantine godown"
+ *     workflow. Sales / Purchase honour block_expired_sales; transfers
+ *     don't, by design.
+ *   - Source-side stock check uses getBatchStock at from_godown rather
+ *     than billData.godown_id.
+ * Returns null on success, a human-readable error string on failure.
+ */
+async function validateTransferBatchLine({ product, item, fromGodownId, t }) {
+  if (!product) return null;
+  if (!product.is_batch_tracked) return null;
+  if (!item.batch_id) return null;  // Caller decides whether to enforce.
+
+  const batch = await ProductBatch.findByPk(item.batch_id, { transaction: t });
+  if (!batch) return `Batch not found (id=${item.batch_id}) for "${product.product_name}".`;
+  if (parseInt(batch.product_id, 10) !== parseInt(product.product_id, 10)) {
+    return `Batch ${batch.batch_number} does not belong to "${product.product_name}".`;
+  }
+  if (batch.is_active === false) {
+    return `Batch ${batch.batch_number} for "${product.product_name}" is inactive.`;
+  }
+  const onHand = await getBatchStock({
+    product_id: product.product_id, batch_id: item.batch_id, godown_id: fromGodownId, t,
+  });
+  if (parseFloat(item.quantity) > onHand + 0.001) {
+    return `Batch ${batch.batch_number} for "${product.product_name}" has only ${onHand} available at the source godown. Reduce qty or pick another batch.`;
+  }
+  return null;
+}
 
 /** Pull the next transfer number atomically. Locks the latest row's number
  * row inside the transaction so two concurrent creates don't both pick the
@@ -94,7 +128,14 @@ exports.getById = async (req, res) => {
         { model: Godown, as: 'toGodown' },
         {
           model: StockTransferItem, as: 'items',
-          include: [{ model: Product, as: 'product', attributes: ['product_id', 'product_name', 'barcode', 'unit_of_measurement'] }],
+          // is_batch_tracked is needed so the form can re-light the picker
+          // on edit-load; the batch include carries the same lot identity
+          // that moved at submission time so re-opens / cancels operate on
+          // the correct batch row.
+          include: [
+            { model: Product,      as: 'product', attributes: ['product_id', 'product_name', 'barcode', 'unit_of_measurement', 'is_batch_tracked'] },
+            { model: ProductBatch, as: 'batch',   attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date'] },
+          ],
         },
       ],
     });
@@ -138,19 +179,66 @@ exports.create = async (req, res) => {
 
   const t = await sequelize.transaction();
   try {
-    // Pre-check stock availability at the source godown when going
-    // straight to In-Transit. Drafts skip — operator can fix the issue
-    // before submitting.
+    // Global batch toggle gate. When OFF, any incoming batch_id on
+    // items is silently dropped — the system is in non-batch mode and
+    // the per-batch table stays untouched (regression preserved).
+    const sysSettings = await SystemSettings.findByPk(1, { transaction: t });
+    const batchTrackingOn = !!sysSettings?.batch_tracking_enabled;
+
+    // Pre-resolve products so we can both stock-check AND batch-validate
+    // in one pass. Skip the godown-level pre-check for batch-tracked
+    // products on In-Transit — the per-batch validator below does a
+    // strictly tighter check (batch on-hand ≤ godown on-hand).
+    const productMap = new Map();
+    for (const it of items) {
+      if (!productMap.has(it.product_id)) {
+        const p = await Product.findByPk(it.product_id, { transaction: t });
+        productMap.set(it.product_id, p);
+      }
+    }
+
     if (initialStatus === 'In-Transit') {
       for (const it of items) {
-        const have = await getGodownStock({
-          product_id: it.product_id, godown_id: from_godown_id, t,
-        });
-        if (parseFloat(have) < parseFloat(it.quantity)) {
+        const product = productMap.get(it.product_id);
+        const isBatched = batchTrackingOn && product?.is_batch_tracked;
+        if (isBatched) {
+          // Per-batch validator covers stock + identity + active flag.
+          if (!it.batch_id) {
+            await t.rollback();
+            return res.status(400).json({
+              error: `"${product.product_name}" is batch-tracked but no batch was picked. Open the line and select a batch.`,
+            });
+          }
+          const err = await validateTransferBatchLine({
+            product, item: it, fromGodownId: from_godown_id, t,
+          });
+          if (err) {
+            await t.rollback();
+            return res.status(400).json({ error: err });
+          }
+        } else {
+          // Non-batch: godown-level check.
+          const have = await getGodownStock({
+            product_id: it.product_id, godown_id: from_godown_id, t,
+          });
+          if (parseFloat(have) < parseFloat(it.quantity)) {
+            await t.rollback();
+            return res.status(400).json({
+              error: `Insufficient stock for ${product?.product_name || `product ${it.product_id}`} at source godown (have ${have}, need ${it.quantity}).`,
+            });
+          }
+        }
+      }
+    } else if (batchTrackingOn) {
+      // Draft path — relax stock checks (operator may fix later) but
+      // still enforce that batch-tracked products carry a batch_id so
+      // the saved Draft can be submitted later without re-editing.
+      for (const it of items) {
+        const product = productMap.get(it.product_id);
+        if (product?.is_batch_tracked && !it.batch_id) {
           await t.rollback();
-          const p = await Product.findByPk(it.product_id);
           return res.status(400).json({
-            error: `Insufficient stock for ${p?.product_name || `product ${it.product_id}`} at source godown (have ${have}, need ${it.quantity}).`,
+            error: `"${product.product_name}" is batch-tracked but no batch was picked. Open the line and select a batch.`,
           });
         }
       }
@@ -174,7 +262,14 @@ exports.create = async (req, res) => {
 
     // Item rows.
     for (const it of items) {
-      const product = await Product.findByPk(it.product_id, { transaction: t });
+      const product = productMap.get(it.product_id);
+      // Persist batch_id only when the product is genuinely batch-tracked
+      // AND the global toggle is on — silently drops a stray batch_id
+      // from a non-batch product so a misconfigured client can't pollute
+      // the stock_transfer_items.batch_id column.
+      const batchId = (batchTrackingOn && product?.is_batch_tracked)
+        ? (it.batch_id || null)
+        : null;
       const lineAmount = parseFloat(it.quantity || 0) * parseFloat(it.rate || 0);
       await StockTransferItem.create({
         transfer_id: transfer.transfer_id,
@@ -184,6 +279,7 @@ exports.create = async (req, res) => {
         rate:        it.rate || 0,
         amount:      lineAmount,
         remarks:     it.remarks,
+        batch_id:    batchId,
       }, { transaction: t });
 
       // Out-legs only when going straight to In-Transit. Drafts don't
@@ -193,9 +289,22 @@ exports.create = async (req, res) => {
           product_id: it.product_id, godown_id: from_godown_id,
           delta: -parseFloat(it.quantity), t,
         });
+        // Per-batch decrement at source — keeps product_batch_stock in
+        // step with the godown-level total. NB: product_batch_stock
+        // never gets a row CREATED on the Out leg (the batch must
+        // already exist at from_godown to have stock to take), so this
+        // is always an update against an existing row.
+        if (batchId) {
+          await applyBatchStockDelta({
+            product_id: it.product_id, batch_id: batchId,
+            godown_id: from_godown_id,
+            delta: -parseFloat(it.quantity), t,
+          });
+        }
         await StockLedger.create({
           product_id:       it.product_id,
           godown_id:        from_godown_id,
+          batch_id:         batchId,
           barcode:          product?.barcode,
           transaction_type: 'Stock Transfer',
           transaction_date: transfer.transfer_date,
@@ -253,23 +362,48 @@ exports.submit = async (req, res) => {
       return res.status(400).json({ error: `Cannot submit a transfer in status ${transfer.status}` });
     }
 
+    const sysSettings = await SystemSettings.findByPk(1, { transaction: t });
+    const batchTrackingOn = !!sysSettings?.batch_tracking_enabled;
+
     for (const it of transfer.items) {
-      const have = await getGodownStock({
-        product_id: it.product_id, godown_id: transfer.from_godown_id, t,
-      });
-      if (parseFloat(have) < parseFloat(it.quantity)) {
-        await t.rollback();
-        return res.status(400).json({
-          error: `Insufficient stock for product ${it.product_id} at source (have ${have}, need ${it.quantity}).`,
+      // Pull product to gate per-batch logic; batch_id on the item row
+      // was already persisted at draft-create time.
+      const product = await Product.findByPk(it.product_id, { transaction: t });
+      const isBatched = batchTrackingOn && product?.is_batch_tracked && it.batch_id;
+      if (isBatched) {
+        const err = await validateTransferBatchLine({
+          product, item: it, fromGodownId: transfer.from_godown_id, t,
         });
+        if (err) {
+          await t.rollback();
+          return res.status(400).json({ error: err });
+        }
+      } else {
+        const have = await getGodownStock({
+          product_id: it.product_id, godown_id: transfer.from_godown_id, t,
+        });
+        if (parseFloat(have) < parseFloat(it.quantity)) {
+          await t.rollback();
+          return res.status(400).json({
+            error: `Insufficient stock for product ${it.product_id} at source (have ${have}, need ${it.quantity}).`,
+          });
+        }
       }
       await applyGodownStockDelta({
         product_id: it.product_id, godown_id: transfer.from_godown_id,
         delta: -parseFloat(it.quantity), t,
       });
+      if (isBatched) {
+        await applyBatchStockDelta({
+          product_id: it.product_id, batch_id: it.batch_id,
+          godown_id: transfer.from_godown_id,
+          delta: -parseFloat(it.quantity), t,
+        });
+      }
       await StockLedger.create({
         product_id:       it.product_id,
         godown_id:        transfer.from_godown_id,
+        batch_id:         isBatched ? it.batch_id : null,
         barcode:          it.barcode,
         transaction_type: 'Stock Transfer',
         transaction_date: transfer.transfer_date,
@@ -321,14 +455,31 @@ exports.receive = async (req, res) => {
       });
     }
 
+    const sysSettings = await SystemSettings.findByPk(1, { transaction: t });
+    const batchTrackingOn = !!sysSettings?.batch_tracking_enabled;
+
     for (const it of transfer.items) {
       await applyGodownStockDelta({
         product_id: it.product_id, godown_id: transfer.to_godown_id,
         delta: +parseFloat(it.quantity), t,
       });
+      // Per-batch increment at destination — UPSERT pattern via
+      // applyBatchStockDelta (which findOrCreate's the
+      // (product, batch, godown) row when this destination has never
+      // held this batch before, then increments). Same batch_id flows
+      // through; we never create a new ProductBatch row, just a new
+      // ProductBatchStock row at the destination godown.
+      if (batchTrackingOn && it.batch_id) {
+        await applyBatchStockDelta({
+          product_id: it.product_id, batch_id: it.batch_id,
+          godown_id: transfer.to_godown_id,
+          delta: +parseFloat(it.quantity), t,
+        });
+      }
       await StockLedger.create({
         product_id:       it.product_id,
         godown_id:        transfer.to_godown_id,
+        batch_id:         (batchTrackingOn && it.batch_id) ? it.batch_id : null,
         barcode:          it.barcode,
         transaction_type: 'Stock Transfer',
         transaction_date: req.body.received_date || transfer.transfer_date,
@@ -398,12 +549,26 @@ exports.cancel = async (req, res) => {
 
     if (transfer.status === 'In-Transit') {
       // Reverse Out-legs: add back at source godown, destroy the ledger
-      // rows we wrote on submit.
+      // rows we wrote on submit. Received cancels are explicitly
+      // rejected above, so by definition only the Out leg has fired —
+      // no destination-side reversal needed here. (If the lifecycle
+      // ever grows to allow Received cancels, the destination-side
+      // reversal slots in symmetrically: applyBatchStockDelta with
+      // godown_id=to_godown_id and delta=-qty.)
+      const sysSettings = await SystemSettings.findByPk(1, { transaction: t });
+      const batchTrackingOn = !!sysSettings?.batch_tracking_enabled;
       for (const it of transfer.items) {
         await applyGodownStockDelta({
           product_id: it.product_id, godown_id: transfer.from_godown_id,
           delta: +parseFloat(it.quantity), t,
         });
+        if (batchTrackingOn && it.batch_id) {
+          await applyBatchStockDelta({
+            product_id: it.product_id, batch_id: it.batch_id,
+            godown_id: transfer.from_godown_id,
+            delta: +parseFloat(it.quantity), t,
+          });
+        }
       }
       await StockLedger.destroy({
         where: {

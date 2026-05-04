@@ -3,7 +3,7 @@ import { Form, DatePicker, Select, Input, InputNumber, Button, Table, Tag, Space
 import { useNavigate, useParams } from 'react-router-dom';
 import { SwapOutlined, DeleteOutlined, SaveOutlined, SendOutlined, CheckCircleOutlined, CloseCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { stockTransferAPI, godownAPI, productAPI, categoryAPI } from '../../api';
+import { stockTransferAPI, godownAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
 // Reuse the Sales bill form's entry-ledger CSS verbatim so the entry
 // row visually matches its sibling on the Sales/Purchase forms — same
 // hairlines, same cell padding, same focus state, same dotted column
@@ -88,6 +88,13 @@ export default function StockTransferForm() {
     size: '', article_number: '',
     unit_type: 'Pcs', quantity: 1, rate: 0,
     available_stock: 0,
+    // Batch dimension — only meaningful when global batch_tracking_enabled
+    // is ON AND the resolved product has is_batch_tracked=true. Picker
+    // populates batch_id (auto-pick from FEFO/FIFO winner at the SOURCE
+    // godown). Mirrors SalesBillForm's EMPTY shape so cross-form copy/
+    // paste of cell logic stays straightforward.
+    is_batch_tracked: false, batch_id: null, batch_number: '',
+    manufacture_date: null, expiry_date: null, batch_stock: 0,
   };
   const [entry, setEntry] = useState(EMPTY_ENTRY);
   const itemKeyRef    = useRef(1);
@@ -104,6 +111,21 @@ export default function StockTransferForm() {
   const artRef     = useRef(null);
   const qtyRef     = useRef(null);
   const rateRef    = useRef(null);
+  // Batch picker state — populated when entry.product_id changes for a
+  // batch-tracked product at the SOURCE godown. Server returns batches
+  // already FEFO/FIFO sorted so the first row is the auto-pick winner.
+  // batchTrackingOn comes from SystemSettings on mount; the form silently
+  // falls back to non-batch behaviour when the global toggle is OFF.
+  const [batchOpts, setBatchOpts]               = useState([]);
+  const [batchOptsLoading, setBatchOptsLoading] = useState(false);
+  const [batchTrackingOn, setBatchTrackingOn]   = useState(false);
+  const [batchAlertDays, setBatchAlertDays]     = useState(30);
+  const batchSelectRef = useRef(null);
+  const [batchOpen, setBatchOpen] = useState(false);
+  // pendingBatchFocusRef carries a flag from product-pick (or barcode
+  // scan) into the next batch-fetch settle, then drains by focusing the
+  // batch Select. Decouples async fetch timing from focus timing.
+  const pendingBatchFocusRef = useRef(false);
 
   const fromGodownId = Form.useWatch('from_godown_id', form);
   const toGodownId   = Form.useWatch('to_godown_id', form);
@@ -129,6 +151,15 @@ export default function StockTransferForm() {
     }).catch(() => {});
     // Categories — drives the Category cell's filter on product search.
     categoryAPI.getAllFlat().then(({ data }) => setCats(data || [])).catch(() => {});
+    // Global batch toggle + expiry-alert window. Same names SalesBillForm
+    // reads (Commit 3); the form silently falls back to the non-batch
+    // entry layout when the toggle is OFF, so older instances keep the
+    // pre-batch experience untouched.
+    settingsAPI.getSystem().then(({ data }) => {
+      setBatchTrackingOn(!!data?.data?.batch_tracking_enabled);
+      const ad = parseInt(data?.data?.batch_expiry_alert_days, 10);
+      setBatchAlertDays(Number.isFinite(ad) && ad > 0 ? ad : 30);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -160,6 +191,15 @@ export default function StockTransferForm() {
         unit:         it.product?.unit_of_measurement || 'PCS',
         quantity:     parseFloat(it.quantity) || 0,
         rate:         parseFloat(it.rate) || 0,
+        // Batch fields — persisted from the original transfer so re-opens
+        // (and the cancel cascade) carry the same batch identity that
+        // moved at submission time. Falls back gracefully to null on
+        // older non-batch transfer rows.
+        batch_id:         it.batch_id || null,
+        batch_number:     it.batch?.batch_number || '',
+        manufacture_date: it.batch?.manufacture_date || null,
+        expiry_date:      it.batch?.expiry_date || null,
+        is_batch_tracked: !!(it.product?.is_batch_tracked || it.batch_id),
       }));
       setItems(loaded);
     } catch (err) {
@@ -260,17 +300,32 @@ export default function StockTransferForm() {
       // purchase_rate, single: weighted_avg_cost, single+batch: batch-
       // weighted average). Falls back to purchase_rate for older rows.
       // Without this, transfers of single-mode stock value at the master
-      // purchase_rate even when the wac has drifted from it.
+      // purchase_rate even when the wac has drifted from it. For
+      // batch-tracked products the rate gets refined to the picked
+      // batch's purchase_rate by pickBatch / the auto-pick branch below.
       rate:            parseFloat(p.display_cost ?? p.purchase_rate) || 0,
       available_stock: parseFloat(p.current_stock) || 0,
+      // Reset batch fields on every new product pick so a stale batch_id
+      // from the previous product can't leak into the next line. The
+      // fetch effect below repopulates if the product is batch-tracked.
+      is_batch_tracked: !!p.is_batch_tracked,
+      batch_id: null, batch_number: '',
+      manufacture_date: null, expiry_date: null, batch_stock: 0,
     }));
     // Flag carries through the next focus cycle so onFocus can redirect.
     justSelectedRef.current = true;
-    requestAnimationFrame(() => {
-      prodRef.current?.blur();
-      qtyRef.current?.focus();
-    });
-  }, []);
+    if (batchTrackingOn && p.is_batch_tracked) {
+      // Defer focus to the batch fetch's settle: the picker is disabled
+      // during fetch, so we set the pending flag and let the drainer
+      // effect below land focus on the batch Select once batches load.
+      pendingBatchFocusRef.current = true;
+    } else {
+      requestAnimationFrame(() => {
+        prodRef.current?.blur();
+        qtyRef.current?.focus();
+      });
+    }
+  }, [batchTrackingOn]);
 
   // Barcode scan → look up product, fill entry, push immediately.
   // Same pattern Sales uses (barcode is the fast-path bypass for the
@@ -286,8 +341,43 @@ export default function StockTransferForm() {
       const { data } = await productAPI.getByBarcode(code);
       const p = data;
       if (!p) { message.warning(`No product with barcode ${code}`); return; }
-      // For barcode-driven entry: push directly with quantity 1, the
-      // way scanner-led counters expect ("scan, scan, scan, save").
+      // Batch-tracked products with the global toggle ON cannot be
+      // direct-pushed into items[] — the operator needs to pick a
+      // specific batch via the entry-row Lot dropdown. Route the scan
+      // through the entry buffer (same as Sales' handleScan from Commit
+      // 3); the batch-fetch effect populates the dropdown and the
+      // drainer effect focuses it. Without this, scanned batch products
+      // would land in items[] with batch_id=null and the server would
+      // reject the save.
+      if (batchTrackingOn && p.is_batch_tracked) {
+        setEntry((prev) => ({
+          ...prev,
+          product_id:      p.product_id,
+          product_name:    p.product_name,
+          barcode:         p.barcode,
+          category_id:     p.category_id,
+          category_name:   p.Category?.category_name || '',
+          size:            p.size_value || '',
+          article_number:  p.article_number || '',
+          unit_type:       (parseFloat(p.quantity_per_box) || 1) > 1 ? 'Box' : 'Pcs',
+          quantity:        parseFloat(p.quantity_per_box) || 1,
+          rate:            parseFloat(p.display_cost ?? p.purchase_rate) || 0,
+          available_stock: parseFloat(p.current_stock) || 0,
+          is_batch_tracked: true,
+          batch_id: null, batch_number: '',
+          manufacture_date: null, expiry_date: null, batch_stock: 0,
+        }));
+        setProdOpen(false);
+        setActiveCatId(p.category_id || null);
+        if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        message.info(`${p.product_name} — pick a batch and press ADD`, 1.5);
+        pendingBatchFocusRef.current = true;
+        return;
+      }
+      // Non-batch fast path: push directly with quantity 1, the way
+      // scanner-led counters expect ("scan, scan, scan, save").
       setItems((prev) => [
         ...prev,
         {
@@ -304,6 +394,8 @@ export default function StockTransferForm() {
           // Mode-aware cost basis (display_cost from getByBarcode) so
           // single-mode + single+batch transfers reflect the right rate.
           rate:           parseFloat(p.display_cost ?? p.purchase_rate) || 0,
+          is_batch_tracked: !!p.is_batch_tracked,
+          batch_id:       null,
         },
       ]);
       // Same flag/state cleanup as +ADD so the next focus-into-Product
@@ -316,6 +408,135 @@ export default function StockTransferForm() {
     } catch (err) {
       message.error(err?.response?.data?.error || `Failed to look up ${code}`);
     }
+  };
+
+  /* ── Batch picker — fetch + auto-pick ───────────────────────────────
+   * Watches (product_id, is_batch_tracked, fromGodownId, batchTrackingOn).
+   * For a batch-tracked product at a known SOURCE godown with the global
+   * toggle ON, fetch the FEFO/FIFO-sorted batch list at from_godown and
+   * auto-pick the top row (FEFO winner if any expiry exists, else FIFO
+   * winner). Operator can override by opening the dropdown — that path
+   * goes through pickBatch(). NB: source-godown constraint only — the
+   * destination doesn't constrain because we're moving stock TO it. */
+  useEffect(() => {
+    if (!batchTrackingOn || !entry.is_batch_tracked
+        || !entry.product_id || !fromGodownId) {
+      setBatchOpts([]);
+      return;
+    }
+    let cancelled = false;
+    setBatchOptsLoading(true);
+    productAPI.getBatches(entry.product_id, { godown_id: fromGodownId })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const rows = data?.data || [];
+        setBatchOpts(rows);
+        if (rows.length > 0 && !entry.batch_id) {
+          const top = rows[0];
+          setEntry((p) => ({
+            ...p,
+            batch_id:         top.batch_id,
+            batch_number:     top.batch_number,
+            manufacture_date: top.manufacture_date,
+            expiry_date:      top.expiry_date,
+            batch_stock:      parseFloat(top.current_stock || 0),
+            available_stock:  parseFloat(top.current_stock || 0),
+            // Refine rate to the picked batch's purchase_rate — more
+            // precise than display_cost (a batch-weighted average) for
+            // valuing a transfer of a SPECIFIC lot. Falls back to the
+            // existing rate if the batch row has no purchase_rate.
+            rate: parseFloat(top.purchase_rate) || p.rate || 0,
+          }));
+        }
+      })
+      .catch(() => { if (!cancelled) setBatchOpts([]); })
+      .finally(() => { if (!cancelled) setBatchOptsLoading(false); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.product_id, entry.is_batch_tracked, fromGodownId, batchTrackingOn]);
+
+  // Drain pendingBatchFocusRef once the batch fetch settles. Mirrors
+  // SalesBillForm's drainer exactly — order matters: setBatchOpen(true)
+  // BEFORE focus() so the dropdown is mounted by the time we focus the
+  // trigger. 60ms setTimeout (not rAF) gives React + AntD a full tick
+  // to render the open dropdown. Empty-batch case still focuses qty so
+  // the cursor isn't stranded on a disabled Select.
+  useEffect(() => {
+    if (!pendingBatchFocusRef.current) return;
+    if (batchOptsLoading) return;
+    pendingBatchFocusRef.current = false;
+    if (batchOpts.length === 0) {
+      requestAnimationFrame(() => qtyRef.current?.focus());
+      return;
+    }
+    setBatchOpen(true);
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setTimeout(() => batchSelectRef.current?.focus(), 60);
+  }, [batchOptsLoading, batchOpts]);
+
+  // Switch-from-godown handling: when fromGodownId changes after a batch
+  // has already been picked, re-evaluate. If the picked batch has stock
+  // at the new source, keep it (the fetch effect refreshes batch_stock);
+  // if it has zero stock, clear the pick so the operator must re-select.
+  // Surfaces inline message so the operator understands why the picker
+  // suddenly emptied. Skipped on initial load (no prior pick yet).
+  const prevFromGodownRef = useRef(fromGodownId);
+  useEffect(() => {
+    const prev = prevFromGodownRef.current;
+    prevFromGodownRef.current = fromGodownId;
+    if (prev === fromGodownId) return;
+    if (!entry.batch_id || !batchTrackingOn || !entry.is_batch_tracked) return;
+    if (!fromGodownId) return;
+    // Re-check the picked batch's stock at the NEW source godown.
+    productAPI.getBatches(entry.product_id, { godown_id: fromGodownId })
+      .then(({ data }) => {
+        const rows = data?.data || [];
+        const stillThere = rows.find((b) => b.batch_id === entry.batch_id);
+        if (stillThere) {
+          setEntry((p) => ({ ...p,
+            batch_stock: parseFloat(stillThere.current_stock || 0),
+            available_stock: parseFloat(stillThere.current_stock || 0),
+          }));
+        } else {
+          const gname = godowns.find((g) => g.godown_id === fromGodownId)?.name || 'this godown';
+          message.warning(`Selected batch has no stock at ${gname}. Pick another.`);
+          setEntry((p) => ({ ...p,
+            batch_id: null, batch_number: '',
+            manufacture_date: null, expiry_date: null, batch_stock: 0,
+          }));
+        }
+      })
+      .catch(() => { /* swallow — fetch effect will re-run */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromGodownId]);
+
+  // Manual override — fires when the operator opens the dropdown and
+  // picks a different batch. Refreshes batch_stock + available_stock so
+  // the qty chip + addItem stock guard track per-batch on-hand. Also
+  // refines the rate to the batch's purchase_rate (per-lot precision).
+  const pickBatch = (batchId) => {
+    const batch = batchOpts.find((b) => b.batch_id === batchId);
+    if (!batch) return;
+    setEntry((p) => ({
+      ...p,
+      batch_id:         batch.batch_id,
+      batch_number:     batch.batch_number,
+      manufacture_date: batch.manufacture_date,
+      expiry_date:      batch.expiry_date,
+      batch_stock:      parseFloat(batch.current_stock || 0),
+      available_stock:  parseFloat(batch.current_stock || 0),
+      rate: parseFloat(batch.purchase_rate) || p.rate || 0,
+    }));
+  };
+
+  // Days-until-expiry for chip rendering. null → no expiry on file → no
+  // chip. Positive → days to go. Negative → expired N days ago.
+  const daysUntilExpiry = (expiryDate) => {
+    if (!expiryDate) return null;
+    const today = dayjs().startOf('day');
+    return dayjs(expiryDate).startOf('day').diff(today, 'day');
   };
 
   // +ADD — push the entry-row buffer onto items. Validates qty>0 and
@@ -340,20 +561,43 @@ export default function StockTransferForm() {
       qtyRef.current?.focus();
       return;
     }
+    // Batch enforcement — global toggle ON + product is batch-tracked
+    // ⇒ line MUST carry batch_id. Mirror of the server-side guard.
+    if (batchTrackingOn && entry.is_batch_tracked && !entry.batch_id) {
+      if (batchOpts.length === 0) {
+        message.warning(`"${entry.product_name}" has no batches with stock at this godown.`);
+      } else {
+        message.warning(`"${entry.product_name}" is batch-tracked. Pick a batch.`);
+      }
+      return;
+    }
+    // Per-batch stock guard — overrides the godown-level chip when a
+    // batch is picked.
+    if (entry.batch_id && entry.batch_stock > 0 && q > entry.batch_stock) {
+      message.warning(`Batch ${entry.batch_number} has only ${entry.batch_stock} available at the source godown. Reduce qty or pick another batch.`);
+      return;
+    }
     setItems((prev) => [
       ...prev,
       {
-        key:            itemKeyRef.current++,
-        product_id:     entry.product_id,
-        product_name:   entry.product_name,
-        barcode:        entry.barcode,
-        category_id:    entry.category_id,
-        category_name:  entry.category_name,
-        size:           entry.size,
-        article_number: entry.article_number,
-        unit:           entry.unit_type,
-        quantity:       q,
-        rate:           parseFloat(entry.rate) || 0,
+        key:              itemKeyRef.current++,
+        product_id:       entry.product_id,
+        product_name:     entry.product_name,
+        barcode:          entry.barcode,
+        category_id:      entry.category_id,
+        category_name:    entry.category_name,
+        size:             entry.size,
+        article_number:   entry.article_number,
+        unit:             entry.unit_type,
+        quantity:         q,
+        rate:             parseFloat(entry.rate) || 0,
+        // Batch identity carried into the persisted line so submit /
+        // receive / cancel all operate on the same lot.
+        is_batch_tracked: !!entry.is_batch_tracked,
+        batch_id:         entry.batch_id || null,
+        batch_number:     entry.batch_number || '',
+        manufacture_date: entry.manufacture_date || null,
+        expiry_date:      entry.expiry_date || null,
       },
     ]);
     // Same cleanup Sales does in addItem (line ~610): clearing
@@ -412,6 +656,10 @@ export default function StockTransferForm() {
         barcode:    it.barcode,
         quantity:   it.quantity,
         rate:       it.rate || 0,
+        // batch_id flows from the picker; null for non-batch products.
+        // Server validates that batch-tracked products carry a batch_id
+        // when global batch_tracking_enabled is ON.
+        batch_id:   it.batch_id || null,
       })),
     };
   };
@@ -499,7 +747,25 @@ export default function StockTransferForm() {
     },
     {
       title: 'Product Name', dataIndex: 'product_name',
-      render: (v) => <span style={{ fontWeight: 600 }}>{v || '—'}</span>,
+      render: (v, r) => {
+        // Batch sub-line — mirrors the recent SalesBillForm items-table
+        // commit so an operator scanning the transfer sees lot identity
+        // at a glance. Only renders when the line carries batch_id.
+        const subParts = [];
+        if (r.batch_number) subParts.push(`Lot ${r.batch_number}`);
+        if (r.manufacture_date) subParts.push(`Mfg ${dayjs(r.manufacture_date).format('DD MMM YY')}`);
+        if (r.expiry_date)      subParts.push(`Exp ${dayjs(r.expiry_date).format('DD MMM YY')}`);
+        return (
+          <div>
+            <span style={{ fontWeight: 600 }}>{v || '—'}</span>
+            {subParts.length > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--fg-tertiary)', marginTop: 2 }}>
+                {subParts.join(' · ')}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     { title: 'Size', dataIndex: 'size', width: 80, render: (v) => v || '—' },
     { title: 'Unit', dataIndex: 'unit', width: 70, render: (v) => v || 'Pcs' },
@@ -615,7 +881,7 @@ export default function StockTransferForm() {
          */}
         {!readOnly && (
           <div className="sbf-entry-ledger">
-            <div className="sbf-entry-grid">
+            <div className={`sbf-entry-grid${batchTrackingOn ? ' with-batch' : ''}`}>
               <div className="sbf-cell">
                 <div className="sbf-cell-lbl">Barcode</div>
                 <Input
@@ -744,6 +1010,71 @@ export default function StockTransferForm() {
                   })}
                 </Select>
               </div>
+              {/* Batch picker — only renders when global batch_tracking_enabled
+               * is ON. For non-batch products the Select stays disabled
+               * (visible-but-inert) so the grid layout doesn't shift on
+               * every product pick. Auto-pick + FEFO/FIFO sort + expiry
+               * chips all match the SalesBillForm picker (Commit 3) byte-
+               * for-byte; same `dropdownMatchSelectWidth`, same
+               * `optionLabelProp="label"`, same `onSelect` (not onChange)
+               * so Enter on the auto-picked top batch still advances. */}
+              {batchTrackingOn && (
+                <div className="sbf-cell has-arrow batch-cell">
+                  <div className="sbf-cell-lbl">Batch</div>
+                  <Select
+                    ref={batchSelectRef}
+                    value={entry.batch_id || undefined}
+                    onSelect={(val) => {
+                      pickBatch(val);
+                      setBatchOpen(false);
+                      requestAnimationFrame(() => qtyRef.current?.focus());
+                    }}
+                    open={batchOpen}
+                    onDropdownVisibleChange={(v) => setBatchOpen(v)}
+                    disabled={!entry.product_id || !entry.is_batch_tracked || batchOptsLoading || batchOpts.length === 0}
+                    placeholder={!entry.product_id
+                      ? 'Pick a product first'
+                      : !entry.is_batch_tracked
+                        ? 'Not batch-tracked'
+                        : batchOptsLoading
+                          ? 'Loading…'
+                          : (batchOpts.length === 0
+                              ? `No batches with stock at ${godowns.find((g) => g.godown_id === fromGodownId)?.name || 'source'}`
+                              : 'Pick a batch')}
+                    showSearch optionLabelProp="label"
+                    filterOption={(input, opt) => !input || (opt.label || '').toLowerCase().includes(input.toLowerCase())}
+                    dropdownMatchSelectWidth={380}
+                  >
+                    {batchOpts.map((b) => {
+                      const d = daysUntilExpiry(b.expiry_date);
+                      const expChip = d == null
+                        ? null
+                        : d < 0
+                          ? <Tag color="red">Expired</Tag>
+                          : d <= batchAlertDays
+                            ? <Tag color="orange">{d}d left</Tag>
+                            : null;
+                      const dateMeta = [
+                        b.manufacture_date ? `Mfd ${dayjs(b.manufacture_date).format('DD MMM YY')}` : null,
+                        b.expiry_date     ? `Exp ${dayjs(b.expiry_date).format('DD MMM YY')}` : null,
+                      ].filter(Boolean).join(' · ');
+                      return (
+                        <Select.Option key={b.batch_id} value={b.batch_id} label={b.batch_number}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '2px 0' }}>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg-primary)' }}>{b.batch_number}</div>
+                              <div style={{ fontSize: 10, color: 'var(--fg-tertiary)', marginTop: 1 }}>
+                                Stock: {b.current_stock}{dateMeta ? ` · ${dateMeta}` : ''}
+                              </div>
+                            </div>
+                            <div style={{ flexShrink: 0 }}>{expChip}</div>
+                          </div>
+                        </Select.Option>
+                      );
+                    })}
+                  </Select>
+                </div>
+              )}
               <div className="sbf-cell">
                 <div className="sbf-cell-lbl">Size</div>
                 <Input ref={sizeRef} value={entry.size} placeholder=""

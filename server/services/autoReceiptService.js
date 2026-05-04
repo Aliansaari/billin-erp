@@ -588,6 +588,57 @@ async function checkIntegrity() {
     sample: i7.slice(0, 10),
   });
 
+  // I8 — for every batch-tracked product, the sum of per-batch on-hand
+  // (across all godowns) equals the net of batch-tagged ledger movements
+  // for that product. Catches drift between the per-batch table and the
+  // ledger truth specifically: if a sale / purchase / transfer wrote to
+  // stock_ledger with batch_id but failed to call applyBatchStockDelta
+  // (or the other way around), I8 surfaces the gap. I7 guarantees the
+  // batch table stays in step with the godown total; I8 guarantees the
+  // batch table stays in step with the ledger.
+  //
+  // Why batch-tagged ledger rows only: non-batch products have no
+  // batch_id rows in product_batch_stock, so summing all ledger rows
+  // would over-count for them. Restricting to batch_id IS NOT NULL
+  // gives an apples-to-apples comparison.
+  //
+  // Tolerance ±0.001 — three-decimal precision on both sides.
+  const i8 = await sequelize.query(
+    `WITH batch_sum AS (
+       SELECT pbs.product_id,
+              SUM(pbs.current_stock)::float AS batch_total
+         FROM product_batch_stock pbs
+        GROUP BY pbs.product_id
+     ),
+     ledger_sum AS (
+       SELECT sl.product_id,
+              SUM(COALESCE(sl.quantity_in, 0) - COALESCE(sl.quantity_out, 0))::float AS ledger_net
+         FROM stock_ledger sl
+        WHERE sl.batch_id IS NOT NULL
+        GROUP BY sl.product_id
+     )
+     SELECT p.product_id, p.product_name,
+            COALESCE(bs.batch_total, 0)::float  AS batch_total,
+            COALESCE(ls.ledger_net, 0)::float   AS ledger_net,
+            COALESCE(bs.batch_total, 0)::float
+              - COALESCE(ls.ledger_net, 0)::float AS drift
+       FROM products p
+       LEFT JOIN batch_sum  bs ON bs.product_id = p.product_id
+       LEFT JOIN ledger_sum ls ON ls.product_id = p.product_id
+      WHERE p.is_batch_tracked = true
+        AND p.is_active = true
+        AND ABS(COALESCE(bs.batch_total, 0) - COALESCE(ls.ledger_net, 0)) > 0.001
+      LIMIT 50`,
+    { type: sequelize.QueryTypes.SELECT },
+  );
+  out.invariants.push({
+    id: 'I8',
+    name: 'I8: SUM(batch_stock) == SUM(stock_ledger batch movements) per batch-tracked product',
+    ok: i8.length === 0,
+    violation_count: i8.length,
+    sample: i8.slice(0, 10),
+  });
+
   out.all_pass = out.invariants.every((i) => i.ok);
   return out;
 }
