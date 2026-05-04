@@ -121,7 +121,7 @@
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 12px;
 }
-.bank-card-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.bank-card-id { display: flex; align-items: flex-start; gap: 12px; min-width: 0; flex: 1; }
 .bank-card-id .ic {
   width: 38px; height: 38px;
   border-radius: 9px;
@@ -131,17 +131,28 @@
   font-size: 18px;
   flex-shrink: 0;
 }
+.bank-card-id-stack { min-width: 0; flex: 1; }
 .bank-card-id .name {
   font-size: 15.5px; font-weight: 700;
   color: var(--fg-primary);
   letter-spacing: -0.005em;
-  line-height: 1.25;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
 }
 .bank-card-id .meta {
   font-size: 11.5px; color: var(--fg-secondary);
   display: flex; align-items: center; gap: 6px;
-  margin-top: 2px;
+  margin-top: 4px;
+  flex-wrap: wrap;
 }
+.bank-card-id .meta .meta-grp { color: var(--fg-tertiary); }
+.bank-card-id .meta .bank-inactive-badge,
+.bank-card-id .meta .bank-sys-badge,
+.bank-card-id .meta .od-badge { margin-left: 0; }
 .od-badge {
   display: inline-flex; align-items: center;
   padding: 1px 7px;
@@ -152,6 +163,49 @@
   letter-spacing: 0.4px;
 }
 
+/* Unified metrics block — balance hero + flow split */
+.bank-card-metrics {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex; flex-direction: column;
+  gap: 12px;
+}
+.metric-bal .lbl {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-bottom: 4px;
+}
+.metric-bal .row {
+  display: flex; align-items: baseline; gap: 6px;
+}
+.metric-bal .amt {
+  font-size: 22px; font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  color: var(--fg-primary);
+}
+.metric-bal.bal-neg .amt { color: var(--danger, #EF4444); }
+.metric-bal .side {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.metric-flow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Legacy: still used by LoanList cards. */
 .bank-card-bal {
   text-align: right;
   flex-shrink: 0;
@@ -170,8 +224,6 @@
   letter-spacing: 0.5px;
   margin-top: 1px;
 }
-
-/* Flow row — 30-day inflow / outflow */
 .bank-card-flow {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -181,6 +233,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
 }
+
 .flow-cell .lbl {
   font-size: 10.5px;
   font-weight: 600;

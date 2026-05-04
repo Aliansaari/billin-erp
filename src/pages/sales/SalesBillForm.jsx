@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Tag } from 'antd';
+import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Tag, Checkbox } from 'antd';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
@@ -339,9 +339,46 @@ export default function SalesBillForm() {
 
   const [activeCatId, setActiveCatId] = useState(null); // drives product list loading
   const [prodOpen, setProdOpen]       = useState(false); // controls product dropdown visibility
+  // Global product-mode setting from SystemSettings.default_product_mode.
+  // 'variant' (default) → Product dropdown shows one row per name, Size
+  // is a Select listing siblings (same-name rows). 'single' → existing
+  // flat per-row picker is used.
+  const [globalProductMode, setGlobalProductMode] = useState('variant');
+  // Siblings of the picked product family (variant mode only). Loaded
+  // when handleProdSel fires for a family pick; rendered as Select
+  // options in the Size cell. Cleared on Category change and after ADD.
+  const [siblings, setSiblings] = useState([]);
+  const [siblingsLoading, setSiblingsLoading] = useState(false);
+  const [sizeOpen, setSizeOpen] = useState(false); // controls Size Select visibility in variant mode
+
+  // ── Items table column visibility ─────────────────────────────────────
+  // Each operator can toggle which optional columns appear in the items
+  // table via the Columns button. The set of visible keys persists in
+  // localStorage so the choice survives a reload. Required columns
+  // (number, product, qty, rate, amount, tick, delete) are always
+  // rendered regardless of this state.
+  const COL_DEFAULTS = ['barcode','size','unit','article','disc_pct','gst_pct','verified'];
+  const [colsModalOpen, setColsModalOpen] = useState(false);
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try {
+      const raw = localStorage.getItem('sbf_visible_cols');
+      if (raw) return new Set(JSON.parse(raw));
+    } catch {}
+    return new Set(COL_DEFAULTS);
+  });
+  const toggleCol = (key) => {
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem('sbf_visible_cols', JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
   const searchTimerRef  = useRef(null); // debounce timer for product search
   const searchReqRef    = useRef(0);   // stale-response guard for product search
   const justSelectedRef = useRef(false); // redirect focus to qty after product selection
+  const prodReopenLockRef = useRef(0);   // timestamp until which AntD reopen attempts are ignored (post-select grace)
+  const skipCatAutoOpenRef = useRef(false); // skips the activeCatId-effect's auto-open of the product dropdown when the category was set as a side-effect of a product pick (vs. a direct user category pick)
   const barcodeRef   = useRef(null);
   const prodRef      = useRef(null);
   const prodWrapRef  = useRef(null);
@@ -385,19 +422,35 @@ export default function SalesBillForm() {
     return ()=>ro.disconnect();
   },[]);
 
-  // Load products whenever the active category changes
+  // Load products whenever the active category changes. In variant mode
+  // we ask the server for one row per product_name (families); in single
+  // mode we keep the original flat per-row list.
   useEffect(()=>{
     if(!activeCatId){ setProdOpts([]); return; }
     let cancelled=false;
-    productAPI.search('',{category_id:activeCatId,name_only:'true'})
+    const params = {
+      category_id: activeCatId,
+      name_only: 'true',
+      ...(globalProductMode === 'variant' ? { families: 'true' } : {}),
+      limit: 500,
+    };
+    productAPI.search('', params)
       .then(({data})=>{
         if(cancelled) return;
         setProdOpts(data.data||[]);
+        // Skip the auto-open guidance step when the category was set
+        // as a side-effect of a product pick (handleProdSel) — the
+        // operator already chose the product, the dropdown should
+        // stay closed.
+        if (skipCatAutoOpenRef.current) {
+          skipCatAutoOpenRef.current = false;
+          return;
+        }
         setTimeout(()=>{ prodRef.current?.focus(); setProdOpen(true); },30);
       })
       .catch(()=>{ if(!cancelled) setProdOpts([]); });
     return ()=>{ cancelled=true; };
-  },[activeCatId]);
+  },[activeCatId, globalProductMode]);
 
   useEffect(() => {
     partyAPI.getCustomers({limit:1000}).then(({data}) =>
@@ -432,6 +485,8 @@ export default function SalesBillForm() {
       setBlockExpiredSales(!!data?.data?.block_expired_sales);
       const ad = parseInt(data?.data?.batch_expiry_alert_days, 10);
       setBatchAlertDays(Number.isFinite(ad) && ad > 0 ? ad : 30);
+      // Drives the family-picker flow (variant) vs per-row flow (single).
+      setGlobalProductMode(data?.data?.default_product_mode || 'variant');
     }).catch(()=>{});
     // Predict the next bill number so the operator sees what they'll
     // get on save instead of "pending". Asks the server for the latest
@@ -574,6 +629,10 @@ export default function SalesBillForm() {
     // it on the next animation frame. Non-batch / error paths
     // re-focus barcode at the bottom for fast repeat scanning.
     setEntry(EMPTY);
+    // Wipe any staged variant siblings so the Size cell drops back
+    // to its plain Input — the scanned product fills entry directly.
+    setSiblings([]);
+    setSizeOpen(false);
     if(barcodeRef.current?.input) barcodeRef.current.input.value='';
     try{
       const{data}=await productAPI.getByBarcode(code);
@@ -652,22 +711,86 @@ export default function SalesBillForm() {
     }
   };
 
-  // handleProdSearch — fires when user types in the Select search box
+  // handleProdSearch — fires when user types in the Select search box.
+  // Family mode (variant) collapses results to one row per product_name;
+  // single mode keeps the flat per-row list so behaviour is unchanged.
   const handleProdSearch=useCallback((v)=>{
     if(searchTimerRef.current) clearTimeout(searchTimerRef.current);
     if(!v){ if(!activeCatId) setProdOpts([]); return; }
     searchTimerRef.current=setTimeout(async()=>{
       const reqId=++searchReqRef.current;
       try{
-        const{data}=await productAPI.search(v,{name_only:'true',...(activeCatId?{category_id:activeCatId}:{})});
+        const params = {
+          name_only: 'true',
+          ...(activeCatId ? { category_id: activeCatId } : {}),
+          ...(globalProductMode === 'variant' ? { families: 'true' } : {}),
+          limit: 500,
+        };
+        const{data}=await productAPI.search(v, params);
         if(reqId!==searchReqRef.current) return;
         setProdOpts(data.data||[]);
       }catch{}
     },150);
-  },[activeCatId]);
+  },[activeCatId, globalProductMode]);
 
   // handleProdSel — fires when user picks a product from the Select dropdown
   const handleProdSel=useCallback((val,opt)=>{
+    // ─── Variant mode: family pick → fetch siblings → focus Size ──────────
+    //
+    // The Product dropdown showed one row per product_name (families).
+    // The operator picked a NAME, not a specific variant. We fetch every
+    // row sharing that name in this category, stage the family on
+    // `entry.product_name`, and shift focus to the Size cell which
+    // renders the siblings as Select options. The actual product_id
+    // (and all the variant-specific fields) only get filled when the
+    // operator confirms a specific size via handleSizeSel.
+    if (globalProductMode === 'variant') {
+      const fam = opt?.family;
+      if (!fam) return;
+      setProdOpen(false);
+      setSiblingsLoading(true);
+      // search=<name> + name_exact=true filters to rows whose product_name
+      // is an exact (case-insensitive) match. Passing name_exact alone
+      // does nothing — the server's where-clause is only built when a
+      // search term is present.
+      productAPI.search(fam.product_name, {
+        category_id: activeCatId,
+        name_exact: 'true',
+        name_only: 'true',
+        limit: 500,
+      })
+        .then(({ data }) => {
+          const sibs = data.data || [];
+          setSiblings(sibs);
+          setSiblingsLoading(false);
+          // Stage just the family name on entry. Wipe any stale variant
+          // fields from a previous unconfirmed family pick so the cells
+          // visibly clear until the operator confirms via Size.
+          setEntry(prev => ({
+            ...prev,
+            product_id: null,
+            product_name: fam.product_name,
+            barcode: '',
+            size: '', article_number: '',
+            rate: 0, mrp: 0, hsn_code: '', gst_rate: 0,
+            available_stock: 0,
+            quantity: 0, unit_type: 'Pcs', quantity_per_box: 1,
+            is_batch_tracked: false,
+            batch_id: null, batch_number: '',
+            manufacture_date: null, expiry_date: null, batch_stock: 0,
+          }));
+          // Hand focus to Size and open the Select so Enter on the
+          // highlighted top sibling commits fast.
+          requestAnimationFrame(() => {
+            prodRef.current?.blur();
+            sizeRef.current?.focus();
+            setSizeOpen(true);
+          });
+        })
+        .catch(() => { setSiblings([]); setSiblingsLoading(false); });
+      return;
+    }
+    // ─── Single mode: original per-row pick ───────────────────────────────
     const p=opt?.product;
     if(!p) return;
     // Auto-fill qty from the product's quantity_per_box — that's the value
@@ -677,11 +800,18 @@ export default function SalesBillForm() {
     // P/Box set, so the qty cell is never empty after a product pick.
     const qty=parseFloat(p.quantity_per_box)||1;
     const unitType=qty>1?'Box':'Pcs';
+    // Tell the activeCatId effect: don't auto-open the product
+    // dropdown; we just picked one, we're moving on to qty/batch.
+    skipCatAutoOpenRef.current = true;
     setActiveCatId(p.category_id||null);
     setEntry(prev=>({...prev,product_id:p.product_id,barcode:p.barcode,product_name:p.product_name,
       category_id:p.category_id,category_name:p.Category?.category_name||'',
       size:p.size_value||'',article_number:p.article_number||'',
-      rate:parseFloat(p.sale_rate)||0,mrp:parseFloat(p.mrp)||0,
+      rate:parseFloat(p.sale_rate)||0,
+      // Stage purchase_rate so the optional "Cost" column has data.
+      // Client-side only — never persisted to the server.
+      purchase_rate:parseFloat(p.purchase_rate)||0,
+      mrp:parseFloat(p.mrp)||0,
       hsn_code:p.hsn_code||'',gst_rate:parseFloat(p.gst_rate)||0,
       available_stock:parseFloat(p.current_stock)||0,
       quantity:qty,unit_type:unitType,quantity_per_box:parseFloat(p.quantity_per_box)||1,
@@ -715,11 +845,64 @@ export default function SalesBillForm() {
       requestAnimationFrame(() => prodRef.current?.blur());
     } else {
       // Flag so onFocus intercepts any AntD focus-restore and
-      // redirects to qty.
+      // redirects to qty. Auto-clear after AntD's focus-restore
+      // window so a *later* Tab navigation back to Product (a
+      // fresh user action, not a focus-bounce) lands normally
+      // and does NOT get redirected to qty again.
       justSelectedRef.current=true;
       requestAnimationFrame(() => { prodRef.current?.blur(); qtyRef.current?.focus(); });
+      setTimeout(() => { justSelectedRef.current = false; }, 200);
     }
-  },[batchTrackingOn]);
+  },[batchTrackingOn, globalProductMode, activeCatId]);
+
+  // handleSizeSel — fires when the operator picks a sibling from the Size
+  // Select in variant mode. The picked sibling carries the full Product
+  // row, so this is where product_id / barcode / rate / article / qpb /
+  // GST / batch flag get filled. Equivalent of handleProdSel's single-
+  // mode body, but driven off the Size dropdown instead.
+  const handleSizeSel = useCallback((productId, opt) => {
+    const sib = opt?.sibling;
+    if (!sib) return;
+    const qpb = parseFloat(sib.quantity_per_box) || 1;
+    const unitType = qpb > 1 ? 'Box' : 'Pcs';
+    setEntry(prev => ({
+      ...prev,
+      product_id:        sib.product_id,
+      barcode:           sib.barcode || '',
+      product_name:      sib.product_name,
+      category_id:       sib.category_id,
+      category_name:     sib.Category?.category_name || prev.category_name || '',
+      size:              sib.size_value || '',
+      article_number:    sib.article_number || '',
+      rate:              parseFloat(sib.sale_rate) || 0,
+      // Stage purchase_rate on the line so the optional "Cost" column
+      // can read it without an extra round-trip. Stays client-side
+      // only — the save payloads (lines 1358 / 1443) cherry-pick the
+      // server-needed fields so this never hits the DB.
+      purchase_rate:     parseFloat(sib.purchase_rate) || 0,
+      mrp:               parseFloat(sib.mrp) || 0,
+      hsn_code:          sib.hsn_code || '',
+      gst_rate:          parseFloat(sib.gst_rate) || 0,
+      available_stock:   parseFloat(sib.current_stock) || 0,
+      quantity:          qpb,
+      unit_type:         unitType,
+      quantity_per_box:  qpb,
+      is_batch_tracked:  !!sib.is_batch_tracked,
+      // Reset batch dimension on each variant pick — the watcher effect
+      // re-fetches and auto-picks the FEFO/FIFO winner if applicable.
+      batch_id: null, batch_number: '',
+      manufacture_date: null, expiry_date: null, batch_stock: 0,
+    }));
+    setSizeOpen(false);
+    if (batchTrackingOn && sib.is_batch_tracked) {
+      // Same fast-path as the single-mode batch branch: defer focus to
+      // the batch picker via the drainer effect once batches load.
+      pendingBatchFocusRef.current = true;
+      requestAnimationFrame(() => sizeRef.current?.blur());
+    } else {
+      requestAnimationFrame(() => { sizeRef.current?.blur(); qtyRef.current?.focus(); });
+    }
+  }, [batchTrackingOn]);
 
   // ── Batch picker — fetch + auto-pick ─────────────────────────────────
   // Watches (product_id, is_batch_tracked, godown_id, batchTrackingOn).
@@ -894,6 +1077,8 @@ export default function SalesBillForm() {
     setItems(prev=>[...prev,{...entry,key:nextKeyRef.current++,total_amount:lt-da,discount_amount:da}]);
     setActiveCatId(null); // triggers useEffect → clears prodOpts automatically
     setProdOpen(false);
+    setSizeOpen(false);
+    setSiblings([]); // clear staged variants from the previous family pick
     setEntry(EMPTY);
     setTimeout(()=>barcodeRef.current?.focus(),50);
   },[entry, batchTrackingOn, batchOpts, blockExpiredSales]);
@@ -1230,6 +1415,7 @@ export default function SalesBillForm() {
   const handleReset=()=>{
     setItems([]);setEntry(EMPTY);
     setActiveCatId(null); setProdOpen(false);
+    setSiblings([]); setSizeOpen(false);
     form.resetFields(['customer_id','walk_in_name','due_date','discount_percentage','paid_amount','return_amount','special_discount','other_charges','freight_charges','salesman_name','remarks']);
     setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
     setRecalledDraftId(null);
@@ -1504,13 +1690,18 @@ export default function SalesBillForm() {
   );
 
   const readCell=(v,style={})=>(
-    <span style={{fontSize:13,fontWeight:500,...style}}>{v||'—'}</span>
+    <span style={{fontSize:13,fontWeight:700,color:'var(--fg-primary)',fontFamily:'inherit',...style}}>{v||'—'}</span>
   );
 
-  const cols=[
-    {title:'#',width:40,align:'center',render:(_,__,i)=><span style={{color:'var(--fg-tertiary)',fontSize:13,fontWeight:600,textAlign:'center'}}>{i+1}</span>},
-    {title:'Barcode',dataIndex:'barcode',width:120,render:(v)=>readCell(v,{color:'var(--fg-secondary)'})},
-    {title:'Product Name',dataIndex:'product_name',width:220,render:(v,r)=>{
+  // Column catalogue — `key` is the visibility-toggle ID, `required:true`
+  // pins a column on regardless of the operator's preferences. New
+  // columns can be appended here and they'll show up in the Customize
+  // modal automatically.
+  const allCols=[
+    {key:'index',required:true,title:'#',width:40,align:'center',render:(_,__,i)=><span style={{color:'var(--fg-primary)',fontSize:13,fontWeight:700,fontFamily:'inherit',textAlign:'center'}}>{i+1}</span>},
+    {key:'barcode',title:'Barcode',dataIndex:'barcode',width:120,render:(v)=>readCell(v,{fontVariantNumeric:'tabular-nums'})},
+    {key:'category',title:'Category',dataIndex:'category_name',width:130,render:(v)=>readCell(v,{color:'var(--fg-secondary)',fontWeight:600})},
+    {key:'product_name',required:true,title:'Product Name',dataIndex:'product_name',width:220,render:(v,r)=>{
       // Batch sub-line — shown below the product name when the line
       // has a batch attached. Keeps the table column count steady
       // while making per-row Lot / Mfg / Exp visible at a glance.
@@ -1521,7 +1712,7 @@ export default function SalesBillForm() {
       if (r.expiry_date) subParts.push(`Exp ${dayjs(r.expiry_date).format('DD MMM YY')}`);
       return (
         <div style={{ display:'flex', flexDirection:'column', gap:1 }}>
-          <span style={{ fontSize:13, fontWeight:600, color:'var(--fg-primary)' }}>{v||'—'}</span>
+          <span style={{ fontSize:13, fontWeight:700, color:'var(--fg-primary)', fontFamily:'inherit' }}>{v||'—'}</span>
           {subParts.length > 0 && (
             <span style={{ fontSize:10, color:'var(--fg-tertiary)', fontWeight:500, lineHeight:1.3 }}>
               {subParts.join(' · ')}
@@ -1530,26 +1721,91 @@ export default function SalesBillForm() {
         </div>
       );
     }},
-    {title:'Size',dataIndex:'size',width:70,render:(v)=>readCell(v,{color:'var(--fg-tertiary)'})},
-    {title:'Unit',dataIndex:'unit_type',width:70,align:'center',render:(v)=>(
-      <span style={{fontSize:12,fontWeight:600,color:'var(--fg-secondary)',textAlign:'center'}}>{v||'Pcs'}</span>
+    {key:'size',title:'Size',dataIndex:'size',width:70,render:(v)=>readCell(v)},
+    {key:'unit',title:'Unit',dataIndex:'unit_type',width:70,align:'center',render:(v)=>(
+      <span style={{fontSize:13,fontWeight:700,color:'var(--fg-primary)',fontFamily:'inherit',textAlign:'center'}}>{v||'Pcs'}</span>
     )},
-    {title:'Art#',dataIndex:'article_number',width:80,render:(v)=>readCell(v,{color:'var(--fg-tertiary)'})},
-    {title:'Qty',dataIndex:'quantity',width:80,align:'center',className:'num-cell',render:(v,r,ri)=>numCell(ri,5,v,'quantity',0)},
-    {title:'Rate ₹',dataIndex:'rate',width:110,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,6,v,'rate',0)},
-    {title:'Disc%',dataIndex:'discount_percentage',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,7,v,'discount_percentage',0)},
-    {title:'GST%',dataIndex:'gst_rate',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,8,v,'gst_rate',0)},
-    {title:'Amount ₹',width:120,align:'right',className:'num-cell',render:(_,r)=>{
+    {key:'article',title:'Art#',dataIndex:'article_number',width:80,render:(v)=>readCell(v)},
+    {key:'mrp',title:'MRP ₹',dataIndex:'mrp',width:90,align:'right',render:(v)=>readCell(v?fmtN(parseFloat(v)||0):'',{fontVariantNumeric:'tabular-nums',textAlign:'right',display:'block'})},
+    // Cost (purchase rate) — staged client-side from product master at
+    // pick time. Tinted by margin so the operator gets a quick glance at
+    // healthy/thin/loss lines without needing the Margin% column.
+    {key:'cost',title:'Cost ₹',dataIndex:'purchase_rate',width:90,align:'right',render:(v,r)=>{
+      const cost=parseFloat(v||0);
+      const sale=parseFloat(r.rate||0);
+      // Red when selling at or below cost (loss); amber when margin <10%;
+      // grey when healthy. The amber threshold is conservative so it
+      // doesn't flag every wholesale margin.
+      const tone = cost<=0 ? 'var(--fg-tertiary)'
+        : sale<=cost ? 'var(--danger)'
+        : (sale-cost)/sale < 0.10 ? 'var(--warning)'
+        : 'var(--fg-secondary)';
+      return <span style={{color:tone,fontWeight:600,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{cost>0?fmtN(cost):'—'}</span>;
+    }},
+    {key:'hsn',title:'HSN',dataIndex:'hsn_code',width:90,render:(v)=>readCell(v,{fontVariantNumeric:'tabular-nums'})},
+    {key:'qty',required:true,title:'Qty',dataIndex:'quantity',width:80,align:'center',className:'num-cell',render:(v,r,ri)=>numCell(ri,5,v,'quantity',0)},
+    {key:'rate',required:true,title:'Rate ₹',dataIndex:'rate',width:110,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,6,v,'rate',0)},
+    {key:'disc_pct',title:'Disc%',dataIndex:'discount_percentage',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,7,v,'discount_percentage',0)},
+    {key:'disc_amt',title:'Disc ₹',width:90,align:'right',render:(_,r)=>{
+      const lt=(r.quantity||0)*(r.rate||0);
+      const da=lt*(r.discount_percentage||0)/100;
+      return <span style={{color:'var(--fg-secondary)',fontWeight:600,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{da>0?fmtN(da):'—'}</span>;
+    }},
+    {key:'gst_pct',title:'GST%',dataIndex:'gst_rate',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,8,v,'gst_rate',0)},
+    {key:'gst_amt',title:'GST ₹',width:90,align:'right',render:(_,r)=>{
+      const lt=(r.quantity||0)*(r.rate||0);
+      const da=lt*(r.discount_percentage||0)/100;
+      const taxable=lt-da;
+      const gst=taxable*((r.gst_rate||0)/100);
+      return <span style={{color:'var(--fg-secondary)',fontWeight:600,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{gst>0?fmtN(gst):'—'}</span>;
+    }},
+    {key:'amount',required:true,title:'Amount ₹',width:120,align:'right',className:'num-cell',render:(_,r)=>{
       const lt=(r.quantity||0)*(r.rate||0);
       const da=lt*(r.discount_percentage||0)/100;
       return <span style={{color:'var(--fg-primary)',fontWeight:700,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{fmtN(lt-da)}</span>;
     }},
-    {title:'',width:36,align:'center',render:(_,r)=>(
+    {key:'net_amt',title:'Net ₹',width:120,align:'right',render:(_,r)=>{
+      const lt=(r.quantity||0)*(r.rate||0);
+      const da=lt*(r.discount_percentage||0)/100;
+      const taxable=lt-da;
+      const net=taxable+taxable*((r.gst_rate||0)/100);
+      return <span style={{color:'var(--fg-primary)',fontWeight:700,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{fmtN(net)}</span>;
+    }},
+    {key:'stock',title:'Stock',dataIndex:'available_stock',width:80,align:'right',render:(v,r)=>{
+      const stock=parseFloat(v||0);
+      const tone=stock<=0?'var(--danger)':stock<r.quantity?'var(--warning)':'var(--fg-secondary)';
+      return <span style={{color:tone,fontWeight:600,fontSize:12,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{stock||'—'}</span>;
+    }},
+    // Tick column — operator's "did I verify / hand over this line" check.
+    // Toggles a `verified` flag on the line item; visual confirmation lives
+    // on the row (see .sbf-tbl-wrap tr.row-verified styling).
+    {key:'verified',title:'✓',width:44,align:'center',render:(_,r)=>(
+      <Checkbox
+        checked={!!r.verified}
+        onChange={(e)=>updateItem(r.key,'verified',e.target.checked)}
+        onClick={(e)=>e.stopPropagation()}
+      />
+    )},
+    {key:'remove',required:true,title:'',width:36,align:'center',render:(_,r)=>(
       <button onClick={()=>removeItem(r.key)}
         style={{background:'none',border:'none',cursor:'pointer',color:'var(--danger)',
           padding:'6px 8px',borderRadius:0,lineHeight:1,fontSize:16,width:'100%',height:'100%'}}>×</button>
     )},
+    // Display options — listed in the Customize modal but NOT rendered
+    // as table columns. The `option:true` flag tells the cols filter
+    // below to skip them, while the modal still surfaces them as
+    // toggles so operators can opt in.
+    {key:'row_margin_color',option:true,title:'Color rows by margin (red = loss, amber = thin)'},
   ];
+  // Filter to the columns the operator wants to see. Required columns
+  // (index/product/qty/rate/amount/remove) are always passed through
+  // regardless of `visibleCols`. `option:true` entries are display
+  // toggles surfaced in the Customize modal but never rendered as
+  // table columns — skip those here.
+  const cols = allCols.filter(c => !c.option && (c.required || visibleCols.has(c.key)));
+  // Sum of widths so the table's horizontal scroll-x stays correct as
+  // optional columns toggle in/out.
+  const colsTotalWidth = cols.reduce((s, c) => s + (c.width || 0), 0);
 
   /* ─── Status badge (Paid / Balance / Overpaid) ───────────────────────── */
   const isOverpaid = balance < -0.001;
@@ -1627,6 +1883,18 @@ export default function SalesBillForm() {
               <Form.Item name="due_date" noStyle>
                 <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Due date" size="small"/>
               </Form.Item>
+              {/* Customize — opens the column-picker modal so the operator
+                  can choose which optional columns the items table renders.
+                  Sits in the header strip after Due date so the control is
+                  visible regardless of bill mode (Items / Amount). */}
+              <button
+                type="button"
+                className="sbf-cols-btn"
+                onClick={() => setColsModalOpen(true)}
+                title="Customize the items table columns"
+              >
+                ⚙ Customize
+              </button>
             </div>
           </div>
 
@@ -1815,6 +2083,15 @@ export default function SalesBillForm() {
                   <Select value={activeCatId}
                     onChange={(v,opt)=>{
                       justSelectedRef.current = false;
+                      // Clear any stale skip flag from a previous product
+                      // pick — a fresh user-driven category change always
+                      // wants the auto-open guidance flow.
+                      skipCatAutoOpenRef.current = false;
+                      // Wipe siblings staged from a previous family — they
+                      // belong to the old category and would mislead the
+                      // operator if rendered against the new one.
+                      setSiblings([]);
+                      setSizeOpen(false);
                       setActiveCatId(v||null);
                       setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
                     }}
@@ -1828,11 +2105,27 @@ export default function SalesBillForm() {
                   <div className="sbf-cell-lbl">Product</div>
                   <Select key={activeCatId??'no-cat'} ref={prodRef}
                     showSearch filterOption={false} optionLabelProp="label"
-                    value={entry.product_id||undefined}
+                    value={
+                      globalProductMode === 'variant'
+                        ? (entry.product_name || undefined)
+                        : (entry.product_id || undefined)
+                    }
                     open={prodOpen}
-                    onDropdownVisibleChange={v=>setProdOpen(v)}
-                    onSearch={v=>{ setProdOpen(true); handleProdSearch(v); }}
-                    onSelect={(val,opt)=>{ setProdOpen(false); handleProdSel(val,opt); }}
+                    onDropdownVisibleChange={v=>{
+                      // AntD can fire (true) right after onSelect because the
+                      // trigger gets focus / search input refreshes — that
+                      // would reopen the dropdown we just closed. Honour
+                      // close events always; ignore reopen attempts inside
+                      // the post-select grace window.
+                      if (v && Date.now() < prodReopenLockRef.current) return;
+                      setProdOpen(v);
+                    }}
+                    onSearch={v=>{ if(v) setProdOpen(true); handleProdSearch(v); }}
+                    onSelect={(val,opt)=>{
+                      setProdOpen(false);
+                      prodReopenLockRef.current = Date.now() + 300;
+                      handleProdSel(val,opt);
+                    }}
                     onFocus={()=>{
                       if(justSelectedRef.current){
                         justSelectedRef.current=false;
@@ -1844,11 +2137,12 @@ export default function SalesBillForm() {
                       // Reset both product identity AND batch state so
                       // the always-visible Lot picker reverts to its
                       // disabled placeholder until a new product is
-                      // picked. Without this, an old is_batch_tracked
-                      // flag would leave the picker enabled but with
-                      // stale options.
+                      // picked. Also wipes the staged variant siblings
+                      // so the Size dropdown empties to its placeholder.
+                      setSiblings([]);
                       setEntry(p=>({
                         ...p, product_id:null, product_name:'',
+                        size:'', article_number:'',
                         is_batch_tracked:false,
                         batch_id:null, batch_number:'',
                         manufacture_date:null, expiry_date:null, batch_stock:0,
@@ -1859,6 +2153,34 @@ export default function SalesBillForm() {
                     listHeight={320} dropdownMatchSelectWidth={460}
                   >
                     {prodOpts.map(p=>{
+                      // Variant-mode (family) row — one entry per product_name.
+                      // We surface total_stock (SUM across siblings) so the
+                      // operator sees on-hand quantity at the family level
+                      // before drilling into the size picker. Stock colour
+                      // mirrors the per-variant convention: red ≤0, amber
+                      // ≤5, grey otherwise.
+                      if (globalProductMode === 'variant') {
+                        const famStock = parseFloat(p.total_stock || 0);
+                        const famStockColor = famStock <= 0 ? 'var(--danger)' : famStock <= 5 ? 'var(--warning)' : 'var(--fg-secondary)';
+                        return (
+                          <Select.Option
+                            key={p.product_name}
+                            value={p.product_name}
+                            label={p.product_name}
+                            family={p}
+                          >
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
+                              <div style={{minWidth:0,flex:1,fontWeight:600,fontSize:13,color:'var(--fg-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                                {p.product_name}
+                              </div>
+                              <div style={{flexShrink:0,fontSize:12,color:famStockColor,fontWeight:700}}>
+                                {famStock <= 0 ? 'Out of stock' : `Stock: ${famStock}`}
+                              </div>
+                            </div>
+                          </Select.Option>
+                        );
+                      }
+                      // Single-mode (per-row) — original rendering.
                       const stock=parseFloat(p.current_stock||0);
                       const stockColor=stock<=0?'var(--danger)':stock<=5?'var(--warning)':'var(--fg-tertiary)';
                       return(
@@ -1960,11 +2282,87 @@ export default function SalesBillForm() {
                     </Select>
                   </div>
                 )}
-                {/* Field array: Size · Art# · QTY · RATE · Disc% · GST%.
-                 *  Indices 1–6 line up with eRefs[1..6] so eKey's
+                {/* Size cell — variant mode + family staged renders a
+                 *  Select listing siblings (one row per size/article/rate
+                 *  combo); the operator confirms the specific variant
+                 *  here. All other modes / states keep the original
+                 *  free-text Input. */}
+                {globalProductMode === 'variant' && siblings.length > 0 ? (
+                  <div className="sbf-cell has-arrow">
+                    <div className="sbf-cell-lbl">Size</div>
+                    <Select
+                      ref={sizeRef}
+                      value={entry.product_id || undefined}
+                      open={sizeOpen}
+                      onDropdownVisibleChange={setSizeOpen}
+                      onSelect={handleSizeSel}
+                      placeholder={siblingsLoading ? 'Loading…' : 'Pick a size'}
+                      loading={siblingsLoading}
+                      optionLabelProp="label"
+                      dropdownMatchSelectWidth={420}
+                      listHeight={320}
+                    >
+                      {siblings.map((s) => {
+                        const stock = parseFloat(s.current_stock || 0);
+                        const stockColor = stock <= 0 ? 'var(--danger)' : stock <= 5 ? 'var(--warning)' : 'var(--fg-tertiary)';
+                        const qpb = parseFloat(s.quantity_per_box) || 1;
+                        // Trigger label: show whatever's most meaningful for
+                        // this row. Size > Art# > Barcode, so even rows with
+                        // null size/article still get a unique-looking label
+                        // in the cell after the pick instead of a bare "—".
+                        const triggerLabel = s.size_value || s.article_number || s.barcode || '—';
+                        return (
+                          <Select.Option
+                            key={s.product_id}
+                            value={s.product_id}
+                            label={triggerLabel}
+                            sibling={s}
+                          >
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, padding:'4px 0' }}>
+                              <div style={{ minWidth:0, flex:1 }}>
+                                {/* Three-tier layout — siblings all share the
+                                 *  same product_name (that's the family key),
+                                 *  so the actual differentiator is Art# +
+                                 *  Size. Promote those to their own bolder
+                                 *  line; demote barcode + qty/box to small
+                                 *  grey support text below. */}
+                                <div style={{ fontWeight:700, fontSize:13, color:'var(--fg-primary)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                                  {s.product_name}
+                                </div>
+                                <div style={{ fontWeight:600, fontSize:12, color:'var(--fg-secondary)', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                                  {[
+                                    s.article_number && `Art# ${s.article_number}`,
+                                    s.size_value && `Size ${s.size_value}`,
+                                  ].filter(Boolean).join(' · ') || <span style={{color:'var(--fg-tertiary)',fontWeight:500,fontStyle:'italic'}}>No size / article</span>}
+                                </div>
+                                <div style={{ fontSize:10.5, color:'var(--fg-tertiary)', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                                  {[
+                                    qpb > 1 ? `${qpb} pcs/box` : null,
+                                    s.barcode,
+                                  ].filter(Boolean).join(' · ')}
+                                </div>
+                              </div>
+                              <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, flexShrink:0 }}>
+                                <span style={{ color:'var(--success)', fontWeight:700, fontSize:13 }}>₹{parseFloat(s.sale_rate||0).toFixed(2)}</span>
+                                <span style={{ color:stockColor, fontSize:10.5, fontWeight:600 }}>{stock <= 0 ? 'Out of stock' : `Stock: ${stock}`}</span>
+                              </div>
+                            </div>
+                          </Select.Option>
+                        );
+                      })}
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="sbf-cell">
+                    <div className="sbf-cell-lbl">Size</div>
+                    <Input ref={sizeRef} value={entry.size} placeholder=""
+                      onChange={e=>ue('size',e.target.value)} onKeyDown={e=>eKey(e,1)}/>
+                  </div>
+                )}
+                {/* Field array: Art# · QTY · RATE · Disc% · GST%.
+                 *  Indices 2–6 line up with eRefs[2..6] so eKey's
                  *  ArrowUp/Down/Enter walk maps cell-position to ref. */}
                 {[
-                  {l:'Size',  ref:sizeRef, f:'size',               v:entry.size,                          i:1,t:'txt'},
                   {l:'Art #', ref:artRef,  f:'article_number',     v:entry.article_number,                i:2,t:'txt'},
                   {l:'Qty',   ref:qtyRef,  f:'quantity',           v:entry.quantity||undefined,           i:3,t:'num',min:0},
                   {l:'Rate ₹',ref:rateRef, f:'rate',               v:entry.rate||undefined,               i:4,t:'num',min:0},
@@ -2056,7 +2454,25 @@ export default function SalesBillForm() {
                 <Table
                   columns={cols} dataSource={items} rowKey="key"
                   size="small" pagination={false} loading={pgLoading}
-                  scroll={items.length?{x:1086,y:tblHeight}:{y:tblHeight}}
+                  scroll={items.length?{x:colsTotalWidth,y:tblHeight}:{y:tblHeight}}
+                  rowClassName={(r)=>{
+                    // Verified always wins — that's the operator's explicit
+                    // green-light, takes priority over margin signals.
+                    if (r.verified) return 'row-verified';
+                    // Margin tints are opt-in via the "Color rows by
+                    // margin" toggle in the Customize modal. Without it,
+                    // never paint the row — keeps the table calm by
+                    // default. When on, also require cost on file so a
+                    // missing purchase_rate doesn't paint a misleading
+                    // green/red signal.
+                    if (!visibleCols.has('row_margin_color')) return '';
+                    const cost = parseFloat(r.purchase_rate || 0);
+                    const sale = parseFloat(r.rate || 0);
+                    if (cost <= 0 || sale <= 0) return '';
+                    if (sale <= cost) return 'row-loss';
+                    if ((sale - cost) / sale < 0.10) return 'row-thin';
+                    return '';
+                  }}
                   // Empty state intentionally blank — the entry row above
                   // already tells the operator what to do; another hero
                   // copy block under the header just adds noise. AntD's
@@ -2352,6 +2768,74 @@ export default function SalesBillForm() {
 
       </div>
 
+      {/* Columns picker — toggles which optional columns the items table
+          renders. Choice persists per-browser via localStorage. Required
+          columns (number, product, qty, rate, amount, tick, delete) are
+          locked on regardless of selection. */}
+      <Modal
+        open={colsModalOpen}
+        onCancel={() => setColsModalOpen(false)}
+        title="Customize columns"
+        footer={
+          <div className="sbf-cols-footer">
+            <button
+              type="button"
+              className="sbf-cols-reset"
+              onClick={() => {
+                setVisibleCols(new Set(COL_DEFAULTS));
+                try { localStorage.removeItem('sbf_visible_cols'); } catch {}
+              }}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="sbf-cols-done"
+              onClick={() => setColsModalOpen(false)}
+            >
+              Done
+            </button>
+          </div>
+        }
+        width={340}
+        styles={{ body: { padding: 0 } }}
+        className="sbf-cust-modal"
+      >
+        <div className="sbf-cust-list">
+          {[
+            { label: 'Item details',  keys: ['barcode','category','size','unit','article','hsn'] },
+            { label: 'Pricing',       keys: ['mrp','cost','disc_pct','disc_amt','gst_pct','gst_amt','net_amt'] },
+            { label: 'Inventory',     keys: ['stock'] },
+            { label: 'Display',       keys: ['verified','row_margin_color'] },
+          ].map(group => {
+            const rows = group.keys
+              .map(k => allCols.find(c => c.key === k))
+              .filter(c => c && c.title && !c.required);
+            if (!rows.length) return null;
+            return (
+              <div key={group.label} className="sbf-cust-group">
+                <div className="sbf-cust-group-lbl">{group.label}</div>
+                {rows.map(c => {
+                  const isOn = visibleCols.has(c.key);
+                  return (
+                    <label
+                      key={c.key}
+                      className={`sbf-cust-row${isOn ? ' on' : ''}`}
+                    >
+                      <Checkbox
+                        checked={isOn}
+                        onChange={() => toggleCol(c.key)}
+                      />
+                      <span className="sbf-cust-row-lbl">{c.title}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
+
       {/* In-form Drafts modal — Recall replays into THIS form (no route
           change) so the operator stays in their billing flow. */}
       <Modal
@@ -2516,7 +3000,7 @@ export default function SalesBillForm() {
                 value={retEntry.product_id || undefined}
                 open={retProdOpen}
                 onDropdownVisibleChange={v => setRetProdOpen(v)}
-                onSearch={v => { setRetProdOpen(true); handleRetProdSearch(v); }}
+                onSearch={v => { if (v) setRetProdOpen(true); handleRetProdSearch(v); }}
                 onSelect={(val, opt) => { setRetProdOpen(false); handleRetProdSel(val, opt); }}
                 onFocus={() => {
                   if (retJustSelectedRef.current) {

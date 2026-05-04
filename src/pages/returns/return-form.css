@@ -386,9 +386,10 @@
 .rtn-tbl-wrap .ant-input-number-input,
 .rtn-tbl-wrap .ant-input {
   font-size: 13px !important;
-  font-weight: 600 !important;
+  font-weight: 700 !important;
   color: var(--fg-primary) !important;
   text-align: right !important;
+  font-variant-numeric: tabular-nums !important;
 }
 .rtn-tbl-wrap .ant-table-tbody > tr > td:has(.ant-input-number-focused),
 .rtn-tbl-wrap .ant-table-tbody > tr > td:has(.ant-input:focus) {

@@ -573,6 +573,7 @@
   min-height: 22px !important;
   line-height: 22px !important;
   font-size: 13px !important;
+  font-weight: 700 !important;
   color: var(--fg-primary) !important;
 }
 .sbf-entry-ledger .sbf-cell .ant-input-number,
@@ -585,6 +586,7 @@
   line-height: 22px !important;
   padding: 0 !important;
   font-size: 13px !important;
+  font-weight: 700 !important;
 }
 /* Hide AntD Select's chevron — we render our own via .has-arrow::after,
  * which sits in the right gutter we already reserve for it. */
@@ -594,6 +596,7 @@
 .sbf-entry-ledger .sbf-cell .ant-input-number-input::placeholder,
 .sbf-entry-ledger .sbf-cell .ant-select-selection-placeholder {
   color: var(--fg-tertiary) !important;
+  font-weight: 500 !important;
   opacity: .8;
 }
 /* Focused-input default browser ring — kill it so the only "you are
@@ -616,20 +619,13 @@
   border: 0 !important;
   box-shadow: none !important;
 }
-/* Numeric cells — right-align + tabular monospace so values column-align
- * with the items table beneath. */
+/* Numeric cells — right-align + tabular figures so values column-align
+ * with the items table beneath. Font stays the page default (Source Sans 3)
+ * so the row reads as one consistent type voice. */
 .sbf-entry-ledger .sbf-cell.numeric .ant-input,
 .sbf-entry-ledger .sbf-cell.numeric .ant-input-number-input {
   text-align: right !important;
-  font-family: 'Geist Mono', ui-monospace, 'SF Mono', monospace !important;
   font-variant-numeric: tabular-nums !important;
-  letter-spacing: -0.01em !important;
-}
-/* Mono barcode for scan readability. */
-.sbf-entry-grid > .sbf-cell:first-child .ant-input {
-  font-family: 'Geist Mono', ui-monospace, 'SF Mono', monospace !important;
-  font-size: 12.5px !important;
-  letter-spacing: -0.005em !important;
 }
 /* Dropdown chevron rendered as a CSS triangle in the right gutter of
  * cells that have one. Position is identical to the AntD chevron the
@@ -802,6 +798,205 @@
   background: var(--bg-hover) !important;
 }
 
+/* Verified rows — soft green tint + green left rail so the operator can
+ * scan down the bill and see at a glance which lines have been ticked
+ * off. Kept subtle; overpowered tints fight the readability of
+ * adjacent unverified rows the operator still needs to focus on. */
+.sbf-tbl-wrap .ant-table-tbody > tr.row-verified > td {
+  background: rgba(16, 185, 129, 0.08) !important;
+}
+.sbf-tbl-wrap .ant-table-tbody > tr.row-verified:hover > td {
+  background: rgba(16, 185, 129, 0.14) !important;
+}
+.sbf-tbl-wrap .ant-table-tbody > tr.row-verified > td:first-child {
+  box-shadow: inset 3px 0 0 var(--success, #10B981);
+}
+
+/* Loss row — selling at or below cost. Red tint + red left rail so the
+ * operator can't miss it before saving. Only painted when the Cost
+ * column is visible (rowClassName guards against tinting without an
+ * on-screen explanation). Verified green wins over loss red — once
+ * the operator explicitly oks the line, the warning quiets. */
+.sbf-tbl-wrap .ant-table-tbody > tr.row-loss > td {
+  background: rgba(239, 68, 68, 0.10) !important;
+}
+.sbf-tbl-wrap .ant-table-tbody > tr.row-loss:hover > td {
+  background: rgba(239, 68, 68, 0.16) !important;
+}
+.sbf-tbl-wrap .ant-table-tbody > tr.row-loss > td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger, #EF4444);
+}
+
+/* Thin margin row — sale price is above cost but margin is < 10%.
+ * Softer amber tint than the loss row so the operator notices but
+ * isn't alarmed; many wholesale lines run at 8-10%. */
+.sbf-tbl-wrap .ant-table-tbody > tr.row-thin > td {
+  background: rgba(245, 158, 11, 0.08) !important;
+}
+.sbf-tbl-wrap .ant-table-tbody > tr.row-thin:hover > td {
+  background: rgba(245, 158, 11, 0.14) !important;
+}
+.sbf-tbl-wrap .ant-table-tbody > tr.row-thin > td:first-child {
+  box-shadow: inset 3px 0 0 var(--warning, #F59E0B);
+}
+
+/* Customize trigger — sits in the top header strip alongside the
+ * DatePickers (size="small"). Height is tuned to match AntD's small
+ * input height (24px) so the row doesn't look ragged. */
+.sbf-cols-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--fg-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 0 12px;
+  height: 24px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: all .12s;
+  white-space: nowrap;
+}
+.sbf-cols-btn:hover {
+  background: var(--bg-muted);
+  color: var(--fg-primary);
+  border-color: var(--accent, #4F46E5);
+}
+.sbf-cols-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0;
+}
+.sbf-cols-reset {
+  background: transparent;
+  border: 0;
+  color: var(--fg-tertiary);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+.sbf-cols-reset:hover { color: var(--fg-secondary); }
+.sbf-cols-done {
+  background: var(--accent, #4F46E5);
+  border: 0;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 6px 22px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sbf-cols-done:hover { filter: brightness(1.08); }
+
+/* ── Customize modal — grouped column toggles ────────────────────────
+ *
+ * Visual model:
+ *   • The dialog stays compact (340px wide) — no "stretched form" feel.
+ *   • Required columns are dropped from the list entirely; showing
+ *     greyed-out unactionable rows just makes the dialog feel cluttered.
+ *   • Toggles group by domain (Item details / Pricing / Inventory /
+ *     Display). Each group carries a tiny uppercase eyebrow label —
+ *     the operator's eye can scan to the section they care about.
+ *   • Rows are flat (no per-row borders). On-state shows via a 3px
+ *     accent rail on the left edge + a faint accent tint, matching
+ *     the verified-row pattern in the items table itself. Hover
+ *     gives a subtle bg lift so the row reads as clickable.
+ *   • The outer container caps height + scrolls; section labels stay
+ *     in flow (don't pin to the modal top) — keeps things simple. */
+/* ── Customize modal ─────────────────────────────────────────────────
+ *
+ * Density target: each row ~24px tall (vs. AntD default ~32-40px), so
+ * a typical catalogue (15-20 toggles + 4 group headers) fits in roughly
+ * a viewport-height-friendly 420px without scrolling for most users.
+ * Group separators are hairlines, not gutters — the eye picks them up
+ * without paying for extra vertical real estate. */
+.sbf-cust-modal .ant-modal-content { padding: 16px 0 8px; }
+.sbf-cust-modal .ant-modal-header { padding: 0 16px 10px; margin-bottom: 0; }
+.sbf-cust-modal .ant-modal-body { padding: 0; }
+.sbf-cust-modal .ant-modal-footer { padding: 8px 16px 0; margin-top: 6px; border-top: 1px solid var(--border-subtle); }
+
+.sbf-cust-list {
+  max-height: 380px;
+  overflow-y: auto;
+  /* Left/right gutter so rows + on-state pills sit inset from the
+   * modal walls. The 3px accent rail on selected rows now floats in
+   * its own column instead of slamming into the dialog edge. */
+  padding: 0 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) transparent;
+}
+.sbf-cust-list::-webkit-scrollbar { width: 5px; }
+.sbf-cust-list::-webkit-scrollbar-track { background: transparent; }
+.sbf-cust-list::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+.sbf-cust-list::-webkit-scrollbar-thumb:hover { background: var(--fg-tertiary); }
+
+.sbf-cust-group { padding: 4px 0 6px; }
+.sbf-cust-group + .sbf-cust-group {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 6px;
+  padding-top: 8px;
+}
+.sbf-cust-group-lbl {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  /* Eyebrow sits 4px deeper than rows so the section header reads as
+   * a "title above list" rather than aligning with row text — small
+   * indentation cue that adds to the hierarchy. */
+  padding: 0 12px 6px;
+}
+
+.sbf-cust-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 4px 14px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s, box-shadow .12s;
+  position: relative;
+}
+.sbf-cust-row + .sbf-cust-row { margin-top: 2px; }
+.sbf-cust-row:hover {
+  background: var(--bg-muted);
+}
+.sbf-cust-row.on {
+  background: rgba(79,70,229,0.06);
+  box-shadow: inset 3px 0 0 var(--accent, #4F46E5);
+}
+.sbf-cust-row.on:hover {
+  background: rgba(79,70,229,0.11);
+}
+.sbf-cust-row-lbl {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  letter-spacing: 0.1px;
+}
+/* Checkbox sized to feel proportionate to the 12.5px label — neither
+ * dwarfed (AntD default 16px would dominate the row) nor squinty. */
+.sbf-cust-row .ant-checkbox-wrapper { font-size: 0; line-height: 1; }
+.sbf-cust-row .ant-checkbox-inner { width: 14px; height: 14px; }
+.sbf-cust-row .ant-checkbox-inner::after { width: 5.5px; height: 8.5px; }
+
 /* Read-only cells: their content needs its own padding since td padding
    is 0 now. The child span in readCell() already applies padding. */
 .sbf-tbl-wrap .ant-table-tbody > tr > td > span {
@@ -836,9 +1031,10 @@
 .sbf-tbl-wrap .ant-input-number-input,
 .sbf-tbl-wrap .ant-input {
   font-size: 13px !important;
-  font-weight: 600 !important;
+  font-weight: 700 !important;
   color: var(--fg-primary) !important;
   text-align: right !important;
+  font-variant-numeric: tabular-nums !important;
 }
 .sbf-tbl-wrap .ant-table-tbody > tr > td:has(.ant-input-number-focused),
 .sbf-tbl-wrap .ant-table-tbody > tr > td:has(.ant-input:focus) {

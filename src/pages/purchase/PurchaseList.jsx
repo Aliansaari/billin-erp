@@ -21,7 +21,11 @@ import '../../styles/bill-list.css';
 // Purchases don't carry a return amount — just items / GST / discount.
 const PURCHASE_OPTIONAL_COLS = [
   { key: 'time',     label: 'Time' },
-  { key: 'items',    label: 'Items (count · pcs)' },
+  { key: 'phone',    label: 'Phone' },
+  { key: 'gstin',    label: 'GSTIN' },
+  { key: 'supplierBill', label: 'Supplier bill #' },
+  { key: 'items',    label: 'Items (count)' },
+  { key: 'pieces',   label: 'Pieces' },
   { key: 'gst',      label: 'GST amount' },
   { key: 'discount', label: 'Discount' },
 ];
@@ -30,10 +34,15 @@ const PURCHASE_OPTIONAL_COLS = [
 const PURCHASE_SECTIONS = [
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-// v3 introduces the `totalRow` section toggle.
-const COLS_STORAGE_KEY = 'purchaseList_cols_v3';
+// v5 splits the combined "Phone / Supplier bill" column into three
+// pure-purpose columns: `phone`, `gstin`, `supplierBill`. v4 users
+// inherit `phone` and `supplierBill` as default-true so the data
+// they used to see stays visible; `gstin` is opt-in.
+const COLS_STORAGE_KEY = 'purchaseList_cols_v5';
 const DEFAULT_COLS = {
-  time: true, items: true, gst: false, discount: false,
+  time: true, phone: true, gstin: false, supplierBill: true,
+  items: true, pieces: true,
+  gst: false, discount: false,
   totalRow: true,
 };
 
@@ -307,35 +316,76 @@ export default function PurchaseList() {
       },
     },
     {
-      key: 'sup', title: 'Supplier', dataIndex: ['supplier', 'party_name'], width: 220,
+      // Supplier column is single-line now (just the party name). The
+      // mobile / supplier-bill sub-line moved to its own optional
+      // `phone` column below — toggleable via the Customize popover.
+      key: 'sup', title: 'Supplier', dataIndex: ['supplier', 'party_name'], width: 200,
       render: (v, r) => {
         const isSystemCash = !!r.supplier?.is_system_cash;
         const isCash = !v || isSystemCash;
-        const walkInName = String(r.walk_in_name || '').trim();
-        const rawPhone = r.supplier?.mobile_1;
-        const supplierPhone = isCash ? null : rawPhone;
-        const secondary = isCash
-          ? (walkInName || (r.supplier_bill_number ? `Supplier bill ${r.supplier_bill_number}` : 'Walk-in'))
-          : (supplierPhone || (r.supplier_bill_number ? `Supplier bill ${r.supplier_bill_number}` : null));
         return (
-          <div className={`stk${isCash ? ' cash' : ''}`}>
-            <span className="m">{isCash ? 'Cash' : v}</span>
-            <span className="s">{secondary || '—'}</span>
-          </div>
+          <span className={`bill-sup${isCash ? ' cash' : ''}`}>
+            {isCash ? 'Cash' : v}
+          </span>
         );
       },
     },
+    cols.phone && {
+      // Phone column — pure mobile number from the supplier master.
+      // Cash purchases without a saved phone show a dash; the walk-in
+      // name (if any) lives in the View modal of the bill.
+      key: 'phone', title: 'Phone', width: 130,
+      render: (_, r) => {
+        const m = r.supplier?.mobile_1;
+        return m
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)', fontVariantNumeric: 'tabular-nums' }}>{m}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
+    },
+    cols.gstin && {
+      // GSTIN column — supplier's tax ID. Useful for compliance reports
+      // and verifying the right business is being paid. Off by default;
+      // operators turn it on when they need it on-screen.
+      key: 'gstin', title: 'GSTIN', width: 160,
+      render: (_, r) => {
+        const g = r.supplier?.gstin;
+        return g
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em' }}>{g}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
+    },
+    cols.supplierBill && {
+      // Supplier's invoice number — the reference printed on the
+      // physical bill the supplier handed over. Sits in its own
+      // column so phone and supplier-bill don't compete for space.
+      key: 'supplierBill', title: 'Supplier bill #', width: 140,
+      render: (_, r) => {
+        const sb = r.supplier_bill_number;
+        return sb
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)', fontVariantNumeric: 'tabular-nums' }}>{sb}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
+    },
     cols.items && {
-      key: 'items', title: 'Items', width: 90, align: 'right',
+      // Items count only — pcs total moved to its own optional
+      // `pieces` column below to keep the row single-line.
+      key: 'items', title: 'Items', width: 70, align: 'right',
       render: (_, r) => {
         const itemCount = r._item_count ?? r.items?.length ?? null;
-        const pcsTotal = r._pcs_total ?? (r.items ? r.items.reduce((s, it) => s + parseFloat(it.quantity || 0), 0) : null);
         return (
-          <div className="stk">
-            <span className="m">{itemCount != null ? itemCount : '—'}</span>
-            <span className="s">{pcsTotal != null ? `${pcsTotal} pcs` : ' '}</span>
-          </div>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {itemCount != null ? itemCount : '—'}
+          </span>
         );
+      },
+    },
+    cols.pieces && {
+      key: 'pieces', title: 'Pieces', width: 80, align: 'right',
+      render: (_, r) => {
+        const pcsTotal = r._pcs_total ?? (r.items ? r.items.reduce((s, it) => s + parseFloat(it.quantity || 0), 0) : null);
+        return pcsTotal != null
+          ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--fg-secondary)' }}>{pcsTotal}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
       },
     },
     {
@@ -477,7 +527,6 @@ export default function PurchaseList() {
       <div className="blist-hd">
         <div className="blist-title">
           <h1>Purchase Bills</h1>
-          <div className="sub"><b>{totalCount}</b> bills total</div>
         </div>
         <div className="blist-ctrl">
           <div className="blist-search">

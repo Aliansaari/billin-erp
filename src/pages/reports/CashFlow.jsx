@@ -956,17 +956,22 @@ function CashFlowGroupView() {
     return 1;
   };
 
+  // Uses the shared `.cols-menu` markup so the global customize-menu
+  // styles in styles/global.css drive the look — pill rows, accent rail
+  // when checked. Functional state (colsVisible) untouched.
   const customizePopoverContent = (
-    <div style={{ width: 280 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
-        Columns
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+    <div className="cols-menu" style={{ width: 260 }}>
+      <div className="grp">
+        <div className="mh">Columns</div>
         {CFG_ALL_COLS.map((c) => (
-          <Checkbox key={c.key} checked={!!colsVisible[c.key]}
-            onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}>
-            {c.label}
-          </Checkbox>
+          <label key={c.key} className="opt">
+            <input
+              type="checkbox"
+              checked={!!colsVisible[c.key]}
+              onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}
+            />
+            <span>{c.label}</span>
+          </label>
         ))}
       </div>
     </div>

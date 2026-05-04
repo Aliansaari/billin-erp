@@ -689,7 +689,7 @@ export default function StockTransferForm() {
                   value={entry.product_id || undefined}
                   open={prodOpen}
                   onDropdownVisibleChange={(v) => setProdOpen(v)}
-                  onSearch={(v) => { setProdOpen(true); handleProdSearch(v); }}
+                  onSearch={(v) => { if (v) setProdOpen(true); handleProdSearch(v); }}
                   onSelect={(val, opt) => { setProdOpen(false); handleProdSel(val, opt); }}
                   onFocus={() => {
                     if (justSelectedRef.current) {

@@ -141,6 +141,56 @@ exports.getAll = async (req, res) => {
         ]
       : [['product_name', 'ASC']];
 
+    // ── Family mode (variant-mode browsing) ─────────────────────────────────
+    //
+    // When `families=true`, return one row per `product_name` within the
+    // current where-clause filters (category + optional search). Each row
+    // carries a variant_count so the dropdown can render "BABLA SUIT · 4
+    // sizes"-style hints. Used by the Sales entry row's Product picker
+    // when SystemSettings.default_product_mode === 'variant' — the
+    // operator picks a name first, then disambiguates via the Size
+    // dropdown which lists every sibling row sharing the name.
+    //
+    // This branch sidesteps the 50-row pagination cap on the flat-list
+    // path: if a category has 200 variants of "BABLA SUIT" they collapse
+    // to one family row, so newly-created variants are never hidden
+    // behind page boundaries.
+    if (req.query.families === 'true') {
+      const familyOrder = (search && name_only === 'true')
+        ? [
+            [literal(`CASE WHEN "product_name" ILIKE '${search.replace(/'/g, "''")}%' THEN 0 ELSE 1 END`), 'ASC'],
+            ['product_name', 'ASC'],
+          ]
+        : [['product_name', 'ASC']];
+      const familyRows = await Product.findAll({
+        where,
+        attributes: [
+          'product_name',
+          [fn('COUNT', col('Product.product_id')), 'variant_count'],
+          // Sum current_stock across every variant under this family —
+          // the dropdown surfaces this as "Stock: 50" so the operator
+          // sees on-hand quantity at the family level before drilling
+          // into the size picker.
+          [fn('COALESCE', fn('SUM', col('current_stock')), 0), 'total_stock'],
+          [fn('MIN', col('Product.product_id')), 'sample_product_id'],
+        ],
+        group: ['product_name'],
+        order: familyOrder,
+        limit,
+        offset,
+        raw: true,
+      });
+      return res.json({
+        success: true,
+        data: familyRows.map((r) => ({
+          product_name:      r.product_name,
+          variant_count:     parseInt(r.variant_count, 10),
+          total_stock:       parseFloat(r.total_stock || 0),
+          sample_product_id: parseInt(r.sample_product_id, 10),
+        })),
+      });
+    }
+
     const { count, rows } = await Product.findAndCountAll({
       where,
       include: [{ model: Category, attributes: ['category_name'] }],

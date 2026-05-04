@@ -424,22 +424,35 @@ export default function ProductItemsReport({ side }) {
   }, [colsForSide, colsVisible, COL_SPECS]);
 
   // ── Customize popover ────────────────────────────────────────────
+  // Uses shared `.cols-menu` markup (styles/global.css). The All/Default
+  // pill row stays as buttons since they're actions, not toggles.
   const customizePopover = (
-    <div className="pi-customize">
-      <div className="pi-customize-row">
-        <Button size="small"
-          onClick={() => setColsVisible(Object.fromEntries(colsForSide.map((c) => [c.key, true])))}>
-          All
-        </Button>
-        <Button size="small" onClick={() => setColsVisible(defaultCols)}>Default</Button>
-      </div>
-      <div className="pi-customize-grid">
+    <div className="cols-menu">
+      <div className="grp">
+        <div className="gh">
+          <span>Columns</span>
+          <button
+            className="gh-reset"
+            type="button"
+            onClick={() => setColsVisible(defaultCols)}
+          >Reset</button>
+        </div>
+        <div style={{ display: 'flex', gap: 6, padding: '0 12px 6px' }}>
+          <Button size="small"
+            onClick={() => setColsVisible(Object.fromEntries(colsForSide.map((c) => [c.key, true])))}>
+            All
+          </Button>
+          <Button size="small" onClick={() => setColsVisible(defaultCols)}>Default</Button>
+        </div>
         {colsForSide.map((c) => (
-          <Checkbox key={c.key}
-            checked={!!colsVisible[c.key]}
-            onChange={(e) => setColsVisible((cv) => ({ ...cv, [c.key]: e.target.checked }))}>
-            {c.label}
-          </Checkbox>
+          <label key={c.key} className="opt">
+            <input
+              type="checkbox"
+              checked={!!colsVisible[c.key]}
+              onChange={(e) => setColsVisible((cv) => ({ ...cv, [c.key]: e.target.checked }))}
+            />
+            <span>{c.label}</span>
+          </label>
         ))}
       </div>
     </div>

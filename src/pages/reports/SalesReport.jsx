@@ -341,26 +341,35 @@ export default function SalesReport() {
 
   // Customize popover — two sections: KPI cards (top) + table columns (bottom).
   // Two-column grid so the toggles don't push the popover off-screen.
+  // Shared `.cols-menu` markup so the global customize-menu styles
+  // (styles/global.css) drive the look — pill rows + accent rail when
+  // checked. Functional state untouched.
   const customizePopoverContent = (
-    <div style={{ width: 360, maxHeight: '70vh', overflowY: 'auto' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary, #6b7280)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>KPI Cards</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 14 }}>
+    <div className="cols-menu" style={{ width: 280, maxHeight: '70vh', overflowY: 'auto' }}>
+      <div className="grp">
+        <div className="mh">KPI Cards</div>
         {ALL_KPIS.map((k) => (
-          <div key={k.key}>
-            <Checkbox checked={!!kpisVisible[k.key]} onChange={(e) => setKpisVisible((v) => ({ ...v, [k.key]: e.target.checked }))}>
-              {k.label}
-            </Checkbox>
-          </div>
+          <label key={k.key} className="opt">
+            <input
+              type="checkbox"
+              checked={!!kpisVisible[k.key]}
+              onChange={(e) => setKpisVisible((v) => ({ ...v, [k.key]: e.target.checked }))}
+            />
+            <span>{k.label}</span>
+          </label>
         ))}
       </div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-secondary, #6b7280)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Columns</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+      <div className="grp">
+        <div className="mh">Columns</div>
         {ALL_COLS.map((c) => (
-          <div key={c.key}>
-            <Checkbox checked={!!colsVisible[c.key]} onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}>
-              {c.label}
-            </Checkbox>
-          </div>
+          <label key={c.key} className="opt">
+            <input
+              type="checkbox"
+              checked={!!colsVisible[c.key]}
+              onChange={(e) => setColsVisible((v) => ({ ...v, [c.key]: e.target.checked }))}
+            />
+            <span>{c.label}</span>
+          </label>
         ))}
       </div>
     </div>

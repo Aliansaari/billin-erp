@@ -421,7 +421,7 @@ export default function ProductList() {
 
   /* ── Customize popover content ── */
   const customizePopoverContent = (
-    <div className="cols-menu" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 0 }}>
+    <div className="cols-menu" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.12)' }}>
       <div className="grp">
         <div className="gh">
           <span>Columns</span>

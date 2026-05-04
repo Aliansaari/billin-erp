@@ -322,47 +322,48 @@ function BankCard({ bank, onOpen, onEdit, onToggleActive, onDelete }) {
           <div className="ic">
             <BankOutlined />
           </div>
-          <div>
-            <div className="name">
-              {bank.name}
-              {isInactive && <span className="bank-inactive-badge">Inactive</span>}
-            </div>
+          <div className="bank-card-id-stack">
+            <div className="name" title={bank.name}>{bank.name}</div>
             <div className="meta">
-              {bank.sub_group}
+              <span className="meta-grp">{bank.sub_group}</span>
+              {isInactive && <span className="bank-inactive-badge">Inactive</span>}
               {bank.is_overdraft && <span className="od-badge">OD</span>}
               {bank.is_system_ledger && <span className="bank-sys-badge" title="System ledger — used as fallback for legacy postings">System</span>}
             </div>
           </div>
         </div>
-        <div className="bank-card-actions">
-          <div className={`bank-card-bal bal-${balanceColor}`}>
-            <div className="amt">{fmtRupees(Math.abs(bank.balance))}</div>
-            <div className="side">{bank.balance_side}</div>
-          </div>
-          <Dropdown
-            menu={{ items: menuItems, onClick: onMenuClick }}
-            trigger={['click']}
-            placement="bottomRight"
+        <Dropdown
+          menu={{ items: menuItems, onClick: onMenuClick }}
+          trigger={['click']}
+          placement="bottomRight"
+        >
+          <button
+            className="bank-card-menu"
+            onClick={stop}
+            aria-label="More options"
           >
-            <button
-              className="bank-card-menu"
-              onClick={stop}
-              aria-label="More options"
-            >
-              <MoreOutlined />
-            </button>
-          </Dropdown>
-        </div>
+            <MoreOutlined />
+          </button>
+        </Dropdown>
       </div>
 
-      <div className="bank-card-flow">
-        <div className="flow-cell">
-          <div className="lbl">30-day Inflow</div>
-          <div className="val pos">+{fmtRupees(bank.monthly_inflow)}</div>
+      <div className="bank-card-metrics">
+        <div className={`metric-bal bal-${balanceColor}`}>
+          <div className="lbl">Current Balance</div>
+          <div className="row">
+            <span className="amt">{fmtRupees(Math.abs(bank.balance))}</span>
+            <span className="side">{bank.balance_side}</span>
+          </div>
         </div>
-        <div className="flow-cell">
-          <div className="lbl">30-day Outflow</div>
-          <div className="val neg">−{fmtRupees(bank.monthly_outflow)}</div>
+        <div className="metric-flow">
+          <div className="flow-cell">
+            <div className="lbl">30-day Inflow</div>
+            <div className="val pos">+{fmtRupees(bank.monthly_inflow)}</div>
+          </div>
+          <div className="flow-cell">
+            <div className="lbl">30-day Outflow</div>
+            <div className="val neg">−{fmtRupees(bank.monthly_outflow)}</div>
+          </div>
         </div>
       </div>
 

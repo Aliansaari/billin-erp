@@ -573,74 +573,71 @@ export default function SmartStockCategory() {
   }, [bulkMode]);
 
   /* Customize popover — grouped by Identifiers / Quantity / Pricing,
-     plus Page Sections (matches the Stock Report customize popover so
-     the affordance reads the same across inventory pages). */
+     plus Display radios + Page Sections. Uses the shared `.cols-menu`
+     markup so the global customize-menu styles drive the look. */
   const renderColGroup = (groupKey) =>
     COLS.filter(c => c.group === groupKey && !c.always).map(col => (
-      <label key={col.key}>
+      <label key={col.key} className="opt">
         <input
           type="checkbox"
           checked={!!colVis[col.key]}
           onChange={() => setColVis(v => ({ ...v, [col.key]: !v[col.key] }))}
         />
-        {col.label}
+        <span>{col.label}</span>
       </label>
     ));
 
   const customizePopover = (
-    <div className="ss-cols-pop ss-cust-grouped">
-      <div className="ss-cust-grp">
-        <div className="ss-cust-gh">
+    <div className="cols-menu">
+      <div className="grp">
+        <div className="gh">
           <span>Identifiers</span>
-          <button className="ss-cust-reset" type="button" onClick={() => setColVis({ ...DEFAULT_VIS })}>Reset</button>
+          <button className="gh-reset" type="button" onClick={() => setColVis({ ...DEFAULT_VIS })}>Reset</button>
         </div>
         {renderColGroup('id')}
       </div>
-      <div className="ss-cust-grp">
-        <div className="ss-cust-gh"><span>Quantity</span></div>
+      <div className="grp">
+        <div className="gh"><span>Quantity</span></div>
         {renderColGroup('qty')}
       </div>
-      <div className="ss-cust-grp">
-        <div className="ss-cust-gh"><span>Pricing &amp; Value</span></div>
+      <div className="grp">
+        <div className="gh"><span>Pricing &amp; Value</span></div>
         {renderColGroup('price')}
       </div>
-      <div className="ss-cust-grp">
-        <div className="ss-cust-gh"><span>Display</span></div>
-        <label className="ss-cust-radio">
+      <div className="grp">
+        <div className="gh"><span>Display</span></div>
+        {/* Radios use the same .opt row styling as the checkboxes — the
+         * accent-rail-on-checked treatment fires off any input:checked
+         * inside an .opt label, so radios light up the same way. */}
+        <label className="opt">
           <input
             type="radio"
             name="viewMode"
             checked={colVis.viewMode === 'cells'}
             onChange={() => setColVis(v => ({ ...v, viewMode: 'cells' }))}
           />
-          <span>
-            <b>Cell grid</b>
-            <span className="ss-cust-hint">Excel-style — bordered cells, focus ring</span>
-          </span>
+          <span><b>Cell grid</b> <span style={{color:'var(--fg-tertiary)',fontWeight:500,fontSize:11}}>· Excel-style</span></span>
         </label>
-        <label className="ss-cust-radio">
+        <label className="opt">
           <input
             type="radio"
             name="viewMode"
             checked={colVis.viewMode === 'clean'}
             onChange={() => setColVis(v => ({ ...v, viewMode: 'clean' }))}
           />
-          <span>
-            <b>Clean table</b>
-            <span className="ss-cust-hint">Minimal borders, soft row highlight</span>
-          </span>
+          <span><b>Clean table</b> <span style={{color:'var(--fg-tertiary)',fontWeight:500,fontSize:11}}>· Minimal borders</span></span>
         </label>
       </div>
-      <div className="ss-cust-grp">
-        <div className="ss-cust-gh"><span>Page Sections</span></div>
+      <div className="grp">
+        <div className="gh"><span>Page Sections</span></div>
         {SEC_DEFS.map(s => (
-          <label key={s.key}>
+          <label key={s.key} className="opt">
             <input
               type="checkbox"
               checked={!!colVis[s.key]}
               onChange={() => setColVis(v => ({ ...v, [s.key]: !v[s.key] }))}
             />
-            {s.label}
+            <span>{s.label}</span>
           </label>
         ))}
       </div>

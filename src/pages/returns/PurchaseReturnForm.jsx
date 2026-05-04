@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Form, Input, DatePicker, Select, InputNumber, Table, Modal, message } from 'antd';
+import { Form, Input, DatePicker, Select, InputNumber, Table, Modal, message, Popover, Checkbox } from 'antd';
+import { SettingOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
@@ -48,6 +49,25 @@ export default function PurchaseReturnForm() {
   const [prodOpts, setProdOpts]   = useState([]);
   const [company, setCompany]     = useState('');
   const [returnNo, setReturnNo]   = useState('');
+
+  // Items table column visibility — Customize popover writes to this
+  // Set, persists to localStorage. Required columns pinned on.
+  const PRF_COL_DEFAULTS = ['barcode','size','unit','article','disc_pct','gst_pct'];
+  const [prfVisibleCols, setPrfVisibleCols] = useState(() => {
+    try {
+      const raw = localStorage.getItem('prf_visible_cols');
+      if (raw) return new Set(JSON.parse(raw));
+    } catch {}
+    return new Set(PRF_COL_DEFAULTS);
+  });
+  const togglePrfCol = (key) => {
+    setPrfVisibleCols(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem('prf_visible_cols', JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
   const [gstMode]                 = useState(() => localStorage.getItem('gst_mode') || 'product');
   const [cgstPct, setCgstPct]     = useState(0);
   const [sgstPct, setSgstPct]     = useState(0);
@@ -514,34 +534,89 @@ export default function PurchaseReturnForm() {
     </div>
   );
   const readCell = (v, style = {}) => (
-    <span style={{ fontSize: 13, fontWeight: 500, ...style }}>{v || '—'}</span>
+    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg-primary)', fontFamily: 'inherit', ...style }}>{v || '—'}</span>
   );
 
-  const cols = [
-    { title: '#', width: 40, align: 'center',
-      render: (_, __, i) => <span style={{ color: 'var(--fg-tertiary)', fontSize: 13, fontWeight: 600 }}>{i + 1}</span> },
-    { title: 'Barcode', dataIndex: 'barcode', width: 120, render: (v) => readCell(v, { color: 'var(--fg-secondary)' }) },
-    { title: 'Product Name', dataIndex: 'product_name', width: 220, render: (v) => readCell(v, { color: 'var(--fg-primary)', fontWeight: 600 }) },
-    { title: 'Size', dataIndex: 'size', width: 70, render: (v) => readCell(v, { color: 'var(--fg-tertiary)' }) },
-    { title: 'Unit', dataIndex: 'unit_type', width: 70, align: 'center',
-      render: (v) => <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg-secondary)' }}>{v || 'Pcs'}</span> },
-    { title: 'Qty', dataIndex: 'quantity', width: 80, align: 'center', className: 'num-cell', render: (v, r, ri) => numCell(ri, 5, v, 'quantity', 0) },
-    { title: 'Rate ₹', dataIndex: 'rate', width: 110, align: 'right', className: 'num-cell', render: (v, r, ri) => numCell(ri, 6, v, 'rate', 0) },
-    { title: 'Disc%', dataIndex: 'discount_percentage', width: 70, align: 'right', className: 'num-cell', render: (v, r, ri) => numCell(ri, 7, v, 'discount_percentage', 0) },
-    { title: 'GST%', dataIndex: 'gst_rate', width: 70, align: 'right', className: 'num-cell', render: (v, r, ri) => numCell(ri, 8, v, 'gst_rate', 0) },
-    { title: 'Amount ₹', width: 120, align: 'right', className: 'num-cell',
+  // Column catalogue — `key` + `required` props let the Customize
+  // popover filter optional columns on/off via `prfVisibleCols`.
+  const allCols = [
+    { key: 'index', required: true, title: '#', width: 40, align: 'center',
+      render: (_, __, i) => <span style={{ color: 'var(--fg-primary)', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>{i + 1}</span> },
+    { key: 'barcode', title: 'Barcode', dataIndex: 'barcode', width: 120, render: (v) => readCell(v, { fontVariantNumeric: 'tabular-nums' }) },
+    { key: 'product_name', required: true, title: 'Product Name', dataIndex: 'product_name', width: 220, render: (v) => readCell(v) },
+    { key: 'size', title: 'Size', dataIndex: 'size', width: 70, render: (v) => readCell(v) },
+    { key: 'unit', title: 'Unit', dataIndex: 'unit_type', width: 70, align: 'center',
+      render: (v) => <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg-primary)', fontFamily: 'inherit' }}>{v || 'Pcs'}</span> },
+    { key: 'article', title: 'Art#', dataIndex: 'article_number', width: 80, render: (v) => readCell(v) },
+    { key: 'qty', required: true, title: 'Qty', dataIndex: 'quantity', width: 80, align: 'center', className: 'num-cell', render: (v, r, ri) => numCell(ri, 5, v, 'quantity', 0) },
+    { key: 'rate', required: true, title: 'Rate ₹', dataIndex: 'rate', width: 110, align: 'right', className: 'num-cell', render: (v, r, ri) => numCell(ri, 6, v, 'rate', 0) },
+    { key: 'disc_pct', title: 'Disc%', dataIndex: 'discount_percentage', width: 70, align: 'right', className: 'num-cell', render: (v, r, ri) => numCell(ri, 7, v, 'discount_percentage', 0) },
+    { key: 'gst_pct', title: 'GST%', dataIndex: 'gst_rate', width: 70, align: 'right', className: 'num-cell', render: (v, r, ri) => numCell(ri, 8, v, 'gst_rate', 0) },
+    { key: 'amount', required: true, title: 'Amount ₹', width: 120, align: 'right', className: 'num-cell',
       render: (_, r) => {
         const lt = (r.quantity || 0) * (r.rate || 0);
         const da = lt * (r.discount_percentage || 0) / 100;
-        return <span style={{ color: 'var(--fg-primary)', fontWeight: 700, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmtN(lt - da)}</span>;
+        return <span style={{ color: 'var(--fg-primary)', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{fmtN(lt - da)}</span>;
       } },
-    { title: '', width: 36, align: 'center',
+    { key: 'remove', required: true, title: '', width: 36, align: 'center',
       render: (_, r) => (
         <button onClick={() => removeItem(r.key)}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)',
                    padding: '6px 8px', lineHeight: 1, fontSize: 16, width: '100%', height: '100%' }}>×</button>
       ) },
   ];
+  const cols = allCols.filter(c => c.required || prfVisibleCols.has(c.key));
+
+  // Customize popover — uses the shared `.cols-menu` markup so the
+  // global customize-menu styles in styles/global.css drive the look.
+  const prfCustomizeContent = (
+    <div className="cols-menu" style={{ width: 240 }}>
+      <div className="grp">
+        <div className="gh">
+          <span>Item details</span>
+          <button
+            className="gh-reset"
+            type="button"
+            onClick={() => {
+              setPrfVisibleCols(new Set(PRF_COL_DEFAULTS));
+              try { localStorage.removeItem('prf_visible_cols'); } catch {}
+            }}
+          >Reset</button>
+        </div>
+        {[
+          {key:'barcode',title:'Barcode'},
+          {key:'size',   title:'Size'},
+          {key:'unit',   title:'Unit'},
+          {key:'article',title:'Art#'},
+        ].map(c => (
+          <label key={c.key} className="opt">
+            <input
+              type="checkbox"
+              checked={prfVisibleCols.has(c.key)}
+              onChange={() => togglePrfCol(c.key)}
+            />
+            <span>{c.title}</span>
+          </label>
+        ))}
+      </div>
+      <div className="grp">
+        <div className="mh">Tax</div>
+        {[
+          {key:'disc_pct',title:'Disc%'},
+          {key:'gst_pct', title:'GST%'},
+        ].map(c => (
+          <label key={c.key} className="opt">
+            <input
+              type="checkbox"
+              checked={prfVisibleCols.has(c.key)}
+              onChange={() => togglePrfCol(c.key)}
+            />
+            <span>{c.title}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
 
   const isPending = balance > 0.001;
   const isPartial = parseFloat(refundAmt || 0) > 0 && isPending;
@@ -578,6 +653,14 @@ export default function PurchaseReturnForm() {
                   </button>
                 </div>
               )}
+              {/* Customize — column-toggle popover. Pushed to the right
+                  edge of the head strip via margin-left: auto so it
+                  reads as a separate affordance from the mode toggle. */}
+              <Popover content={prfCustomizeContent} title="Customize columns" trigger="click" placement="bottomRight">
+                <button type="button" className="sbf-cols-btn" style={{ marginLeft: 'auto' }} title="Customize the items table columns">
+                  <SettingOutlined /> Customize
+                </button>
+              </Popover>
             </div>
 
             <div className="rtn-top-row">
@@ -660,7 +743,7 @@ export default function PurchaseReturnForm() {
                     value={entry.product_id || undefined}
                     open={prodOpen}
                     onDropdownVisibleChange={(v) => setProdOpen(v)}
-                    onSearch={(v) => { setProdOpen(true); handleProdSearch(v); }}
+                    onSearch={(v) => { if (v) setProdOpen(true); handleProdSearch(v); }}
                     onSelect={(val, opt) => { setProdOpen(false); handleProdSel(val, opt); }}
                     onFocus={() => {
                       if (justSelectedRef.current) {

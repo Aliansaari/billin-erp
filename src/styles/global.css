@@ -1384,3 +1384,148 @@ body {
 body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp-confirm-modal) .ant-modal-mask {
   /* Safari-era :has() needs recent browsers; safe fallback is the default mask. */
 }
+
+/* ── Customize popover (shared) ─────────────────────────────────────
+ *
+ * Lives in global.css (vs a per-page import) so every consumer of the
+ * `.cols-menu` markup picks up the redesign automatically — including
+ * report popovers (DayBook, CashFlow) that don't import bill-list.css.
+ *
+ * Visual model: pill-shaped rows with an accent rail on the left when
+ * selected, eyebrow-style group/header labels, hairline group
+ * separators, and an 8px gutter so the on-state pills don't slam into
+ * the popover edge. Mirrors the SalesBillForm Customize modal so the
+ * whole app speaks one customize-menu language. */
+.cols-menu {
+  min-width: 240px;
+  padding: 4px 8px 8px;
+}
+
+.cols-menu .grp { padding: 4px 0 6px; }
+.cols-menu .grp + .grp {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 6px;
+  padding-top: 8px;
+}
+
+.cols-menu .gh,
+.cols-menu .mh {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  padding: 4px 12px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cols-menu .gh-reset {
+  background: transparent;
+  border: 0;
+  color: var(--fg-tertiary);
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.cols-menu .gh-reset:hover { color: var(--fg-secondary); }
+
+.cols-menu .opt {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 4px 14px;
+  height: 32px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  cursor: pointer;
+  user-select: none;
+  transition: background .12s, box-shadow .12s;
+  position: relative;
+}
+.cols-menu .opt + .opt { margin-top: 2px; }
+.cols-menu .opt:hover { background: var(--bg-muted); }
+
+/* "On" state — derived from the underlying checkbox so no JSX changes
+ * are needed. Electron's Chromium supports :has() natively. */
+.cols-menu .opt:has(input:checked) {
+  background: rgba(79, 70, 229, 0.06);
+  box-shadow: inset 3px 0 0 var(--accent, #4F46E5);
+}
+.cols-menu .opt:has(input:checked):hover {
+  background: rgba(79, 70, 229, 0.11);
+}
+
+.cols-menu .opt.fixed {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.cols-menu .opt.fixed:has(input:checked) {
+  background: transparent;
+  box-shadow: none;
+}
+
+.cols-menu .opt input {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  margin: 0;
+  flex-shrink: 0;
+}
+.cols-menu .opt input[disabled] { cursor: not-allowed; }
+
+.cols-menu .opt .pin {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.cols-menu .sep {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 6px 8px;
+}
+
+/* Customize trigger button — used in bill-form headers (sales,
+ * purchase, sales return, purchase return). Same height as AntD
+ * size="small" controls so the header strip stays visually aligned.
+ * Kept in global.css so every form picks it up without per-file
+ * imports. */
+.sbf-cols-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--fg-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 0 12px;
+  height: 24px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: all .12s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sbf-cols-btn:hover {
+  background: var(--bg-muted);
+  color: var(--fg-primary);
+  border-color: var(--accent, #4F46E5);
+}
+.sbf-cols-btn .anticon { font-size: 12px; }

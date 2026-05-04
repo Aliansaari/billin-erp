@@ -31,6 +31,8 @@ import './return-list.css';
 
 const OPTIONAL_COLS = [
   { key: 'time',     label: 'Time' },
+  { key: 'mobile',   label: 'Mobile' },
+  { key: 'gstin',    label: 'GSTIN' },
   { key: 'ref',      label: 'Reference bill' },
   { key: 'mode',     label: 'Return mode' },
   { key: 'reason',   label: 'Reason' },
@@ -41,11 +43,12 @@ const OPTIONAL_COLS = [
 const SECTIONS = [
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-// v2 introduces the `time` column + `totalRow` section toggle. Existing
-// users on v1 get the new keys merged with their saved prefs.
-const COLS_STORAGE_KEY = 'salesReturnList_cols_v2';
+// v4 adds a separate `gstin` column alongside `mobile` so the customer
+// tax ID is its own toggleable column.
+const COLS_STORAGE_KEY = 'salesReturnList_cols_v4';
 const DEFAULT_COLS = {
-  time: true, ref: true, mode: true, reason: false, gst: false, discount: false,
+  time: true, mobile: true, gstin: false, ref: true, mode: true,
+  reason: false, gst: false, discount: false,
   totalRow: true,
 };
 
@@ -291,13 +294,28 @@ export default function SalesReturnList() {
       },
     },
     {
+      // Single-line Customer name. Mobile moved to its own optional
+      // `mobile` column below — toggleable via Customize.
       key: 'cust', title: 'Customer', dataIndex: ['customer', 'party_name'], width: 200,
-      render: (v, r) => (
-        <div className="stk">
-          <span className="m">{v || '—'}</span>
-          <span className="s">{r.customer?.mobile_1 || ' '}</span>
-        </div>
-      ),
+      render: (v) => <span className="bill-cust">{v || '—'}</span>,
+    },
+    cols.mobile && {
+      key: 'mobile', title: 'Mobile', width: 130,
+      render: (_, r) => {
+        const m = r.customer?.mobile_1;
+        return m
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)', fontVariantNumeric: 'tabular-nums' }}>{m}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
+    },
+    cols.gstin && {
+      key: 'gstin', title: 'GSTIN', width: 160,
+      render: (_, r) => {
+        const g = r.customer?.gstin;
+        return g
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em' }}>{g}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
     },
     cols.ref && {
       key: 'ref', title: 'Ref bill', dataIndex: 'reference_bill_number', width: 160,
@@ -451,7 +469,6 @@ export default function SalesReturnList() {
       <div className="blist-hd">
         <div className="blist-title">
           <h1>Sales Returns</h1>
-          <div className="sub"><b>{totalCount}</b> credit note{totalCount === 1 ? '' : 's'}</div>
         </div>
         <div className="blist-ctrl">
           <div className="blist-search">
