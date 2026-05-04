@@ -480,18 +480,16 @@ export default function AgingReport({ partyType = 'Customer' }) {
               <SettingOutlined /> Customize
             </button>
             {displayOpen && (
-              <div className="ar-customize-pop" onClick={(e) => e.stopPropagation()}>
-                <div className="ar-customize-hd">
-                  <span>Show on this page</span>
-                  <button
-                    className="ar-link-btn"
-                    onClick={() => setDisplay(DEFAULT_DISPLAY)}
-                  >Reset</button>
-                </div>
-                <div className="ar-customize-list">
+              <div className="cols-menu ar-customize-pop" onClick={(e) => e.stopPropagation()}>
+                <div className="grp">
+                  <div className="gh">
+                    <span>Show on this page</span>
+                    <button className="gh-reset" type="button" onClick={() => setDisplay(DEFAULT_DISPLAY)}>Reset</button>
+                  </div>
                   {DISPLAY_KEYS.map(d => (
-                    <label key={d.k} className="ar-customize-row">
-                      <Checkbox
+                    <label key={d.k} className="opt">
+                      <input
+                        type="checkbox"
                         checked={!!display[d.k]}
                         onChange={(e) => setDisplay(s => ({ ...s, [d.k]: e.target.checked }))}
                       />

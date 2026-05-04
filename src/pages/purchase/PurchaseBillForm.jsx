@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal } from 'antd';
+import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Popover, Checkbox } from 'antd';
+import { SettingOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
@@ -238,6 +239,28 @@ export default function PurchaseBillForm() {
   const searchReqRef                            = useRef(0);              // stale-response guard for text search
   const [barcodeError, setBarcodeError]         = useState('');
   const [printModal, setPrintModal] = useState({ visible:false, bill:null });
+
+  // Items table column visibility — operator picks via the Customize
+  // popover in the top header. Required columns are pinned on; default
+  // visible set covers all the optional pricing columns since purchase
+  // entry typically wants the full pricing rhythm. Persists per-browser
+  // via localStorage so the choice survives reloads.
+  const PBF_COL_DEFAULTS = ['barcode','size','article','qpb','margin','sale_rate','mrp','gst'];
+  const [pbfVisibleCols, setPbfVisibleCols] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pbf_visible_cols');
+      if (raw) return new Set(JSON.parse(raw));
+    } catch {}
+    return new Set(PBF_COL_DEFAULTS);
+  });
+  const togglePbfCol = (key) => {
+    setPbfVisibleCols(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem('pbf_visible_cols', JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
   const [companyName, setCompanyName] = useState('');
   const [billNumber, setBillNumber]   = useState('');
   // Predicted next bill number for new bills — operator sees what they'll get
@@ -1544,12 +1567,15 @@ export default function PurchaseBillForm() {
     </div>
   );
   const readCell=(v,style={})=>(
-    <span style={{fontSize:13,fontWeight:600,...style}}>{v||'—'}</span>
+    <span style={{fontSize:13,fontWeight:700,color:'var(--fg-primary)',fontFamily:'inherit',...style}}>{v||'—'}</span>
   );
 
-  const itemColumns=[
-    { title:'#', width:40, align:'center', render:(_,__,i)=><span style={{color:'var(--fg-tertiary)',fontSize:13,fontWeight:600,textAlign:'center'}}>{i+1}</span> },
-    { title:'Barcode', dataIndex:'barcode', width:120,
+  // Column catalogue — every column tagged with a `key` so the
+  // Customize popover can flip them on/off; `required:true` columns
+  // are pinned on. Filtered through `pbfVisibleCols` below.
+  const allItemColumns=[
+    { key:'index', required:true, title:'#', width:40, align:'center', render:(_,__,i)=><span style={{color:'var(--fg-primary)',fontSize:13,fontWeight:700,fontFamily:'inherit',textAlign:'center'}}>{i+1}</span> },
+    { key:'barcode', title:'Barcode', dataIndex:'barcode', width:120,
       render:(v,r,ri)=>(
         <div id={`tc-${ri}-0`}>
           <Input variant="borderless" value={v}
@@ -1560,11 +1586,12 @@ export default function PurchaseBillForm() {
         </div>
       ),
     },
-    // Batch column — only mounted when the global toggle is on AND at
-    // least one line in the bill is batch-tracked. Avoids polluting the
-    // table with a blank column for non-batch shops.
+    // Batch column — auto-mounted (NOT operator-toggleable) when the
+    // global toggle is on AND at least one line in the bill is batch-
+    // tracked. Tagged with key:'__batch' so the Customize filter still
+    // lets it through — `required:true` keeps it on whenever rendered.
     ...(batchTrackingEnabled && items.some(i=>i.is_batch_tracked) ? [{
-      title:'Batch', dataIndex:'batch_number', width:130,
+      key:'__batch', required:true, title:'Batch', dataIndex:'batch_number', width:130,
       render:(v,r)=>r.is_batch_tracked ? (
         <div style={{fontSize:12,lineHeight:1.3}}>
           <div style={{fontWeight:600,color:'var(--fg-primary)'}}>{v||'—'}</div>
@@ -1578,7 +1605,7 @@ export default function PurchaseBillForm() {
         </div>
       ) : <span style={{color:'var(--fg-tertiary)'}}>—</span>,
     }] : []),
-    { title:'Product Name', dataIndex:'product_name', width:180,
+    { key:'product_name', required:true, title:'Product Name', dataIndex:'product_name', width:180,
       render:(v,r,ri)=>(
         <div id={`tc-${ri}-1`}>
           <Input variant="borderless" value={v} onChange={e=>updateItem(r.key,'product_name',e.target.value)}
@@ -1586,22 +1613,79 @@ export default function PurchaseBillForm() {
         </div>
       ),
     },
-    { title:'Size',  dataIndex:'size',             width:70,  render:(v,r,ri)=>txtCell(ri,2,v,'size') },
-    { title:'Art#',  dataIndex:'article_number',   width:80,  render:(v,r,ri)=>txtCell(ri,3,v,'article_number') },
-    { title:'Qty',   dataIndex:'quantity',          width:80,  align:'center', className:'num-cell', render:(v,r,ri)=>numCell(ri,4,v,'quantity',0) },
-    { title:'P/Box', dataIndex:'quantity_per_box',  width:70,  align:'center', className:'num-cell', render:(v,r,ri)=>numCell(ri,5,v,'quantity_per_box',1) },
-    { title:'Rate ₹',dataIndex:'purchase_rate',    width:100, align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,6,v,'purchase_rate',0) },
-    { title:'MG%',   dataIndex:'margin_percentage', width:70,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,7,v,'margin_percentage',null) },
-    { title:'Sale ₹',dataIndex:'sale_rate',         width:100, align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,8,v,'sale_rate',0) },
-    { title:'MRP ₹', dataIndex:'mrp',               width:90,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,9,v,'mrp',0) },
-    { title:'GST%',  dataIndex:'gst_rate',          width:70,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,10,v,'gst_rate',0) },
-    { title:'Amount ₹', width:116, align:'right', className:'num-cell',
-      render:(_,r)=><span style={{color:'var(--fg-primary)',fontWeight:700,fontSize:13,fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{fmtN((r.quantity||0)*(r.purchase_rate||0))}</span>,
+    { key:'size',     title:'Size',  dataIndex:'size',             width:70,  render:(v,r,ri)=>txtCell(ri,2,v,'size') },
+    { key:'article',  title:'Art#',  dataIndex:'article_number',   width:80,  render:(v,r,ri)=>txtCell(ri,3,v,'article_number') },
+    { key:'qty',      required:true, title:'Qty',   dataIndex:'quantity',          width:80,  align:'center', className:'num-cell', render:(v,r,ri)=>numCell(ri,4,v,'quantity',0) },
+    { key:'qpb',      title:'P/Box', dataIndex:'quantity_per_box',  width:70,  align:'center', className:'num-cell', render:(v,r,ri)=>numCell(ri,5,v,'quantity_per_box',1) },
+    { key:'rate',     required:true, title:'Rate ₹',dataIndex:'purchase_rate',    width:100, align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,6,v,'purchase_rate',0) },
+    { key:'margin',   title:'MG%',   dataIndex:'margin_percentage', width:70,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,7,v,'margin_percentage',null) },
+    { key:'sale_rate',title:'Sale ₹',dataIndex:'sale_rate',         width:100, align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,8,v,'sale_rate',0) },
+    { key:'mrp',      title:'MRP ₹', dataIndex:'mrp',               width:90,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,9,v,'mrp',0) },
+    { key:'gst',      title:'GST%',  dataIndex:'gst_rate',          width:70,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,10,v,'gst_rate',0) },
+    { key:'amount',   required:true, title:'Amount ₹', width:116, align:'right', className:'num-cell',
+      render:(_,r)=><span style={{color:'var(--fg-primary)',fontWeight:700,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{fmtN((r.quantity||0)*(r.purchase_rate||0))}</span>,
     },
-    { title:'', width:36, align:'center',
+    { key:'remove',   required:true, title:'', width:36, align:'center',
       render:(_,r)=><button onClick={()=>removeItem(r.key)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--danger)',fontSize:16,padding:'6px 8px',borderRadius:0,lineHeight:1,width:'100%',height:'100%'}}>×</button>,
     },
   ];
+  // Filter to operator-chosen columns. Required ones always pass.
+  const itemColumns = allItemColumns.filter(c => c.required || pbfVisibleCols.has(c.key));
+
+  // Customize popover — uses the shared `.cols-menu` markup so the
+  // global customize-menu styles in styles/global.css drive the look.
+  // Required + batch columns are deliberately NOT shown in the modal
+  // (they're either auto-mounted from data state or always-on).
+  const pbfCustomizeContent = (
+    <div className="cols-menu" style={{ width: 240 }}>
+      <div className="grp">
+        <div className="gh">
+          <span>Item details</span>
+          <button
+            className="gh-reset"
+            type="button"
+            onClick={() => {
+              setPbfVisibleCols(new Set(PBF_COL_DEFAULTS));
+              try { localStorage.removeItem('pbf_visible_cols'); } catch {}
+            }}
+          >Reset</button>
+        </div>
+        {[
+          {key:'barcode',title:'Barcode'},
+          {key:'size',   title:'Size'},
+          {key:'article',title:'Art#'},
+          {key:'qpb',    title:'P/Box'},
+        ].map(c => (
+          <label key={c.key} className="opt">
+            <input
+              type="checkbox"
+              checked={pbfVisibleCols.has(c.key)}
+              onChange={() => togglePbfCol(c.key)}
+            />
+            <span>{c.title}</span>
+          </label>
+        ))}
+      </div>
+      <div className="grp">
+        <div className="mh">Pricing &amp; Tax</div>
+        {[
+          {key:'margin',   title:'MG%'},
+          {key:'sale_rate',title:'Sale ₹'},
+          {key:'mrp',      title:'MRP ₹'},
+          {key:'gst',      title:'GST%'},
+        ].map(c => (
+          <label key={c.key} className="opt">
+            <input
+              type="checkbox"
+              checked={pbfVisibleCols.has(c.key)}
+              onChange={() => togglePbfCol(c.key)}
+            />
+            <span>{c.title}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
 
   /* ─── Status for badge (Paid / Balance / Overpaid) ──────────────────── */
   const isOverpaid = balance < -0.001;
@@ -1680,6 +1764,13 @@ export default function PurchaseBillForm() {
                 <Form.Item name="due_date" noStyle>
                   <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Due date" size="small"/>
                 </Form.Item>
+                {/* Customize — column-toggle popover. Lives in the
+                    header so it's reachable regardless of bill mode. */}
+                <Popover content={pbfCustomizeContent} title="Customize columns" trigger="click" placement="bottomRight">
+                  <button type="button" className="sbf-cols-btn" title="Customize the items table columns">
+                    <SettingOutlined /> Customize
+                  </button>
+                </Popover>
               </div>
             </div>
 

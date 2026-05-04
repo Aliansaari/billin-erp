@@ -30,6 +30,8 @@ import './return-list.css';
 
 const OPTIONAL_COLS = [
   { key: 'time',     label: 'Time' },
+  { key: 'phone',    label: 'Phone' },
+  { key: 'gstin',    label: 'GSTIN' },
   { key: 'ref',      label: 'Reference bill' },
   { key: 'mode',     label: 'Return mode' },
   { key: 'reason',   label: 'Reason' },
@@ -39,9 +41,12 @@ const OPTIONAL_COLS = [
 const SECTIONS = [
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-const COLS_STORAGE_KEY = 'purchaseReturnList_cols_v2';
+// v4 adds a separate `gstin` column alongside `phone` so the supplier
+// tax ID is its own toggleable column.
+const COLS_STORAGE_KEY = 'purchaseReturnList_cols_v4';
 const DEFAULT_COLS = {
-  time: true, ref: true, mode: true, reason: false, gst: false, discount: false,
+  time: true, phone: true, gstin: false, ref: true, mode: true,
+  reason: false, gst: false, discount: false,
   totalRow: true,
 };
 
@@ -281,13 +286,28 @@ export default function PurchaseReturnList() {
       },
     },
     {
+      // Single-line Supplier name. Mobile moved to its own optional
+      // `phone` column below — toggleable via Customize.
       key: 'sup', title: 'Supplier', dataIndex: ['supplier', 'party_name'], width: 200,
-      render: (v, r) => (
-        <div className="stk">
-          <span className="m">{v || '—'}</span>
-          <span className="s">{r.supplier?.mobile_1 || ' '}</span>
-        </div>
-      ),
+      render: (v) => <span className="bill-sup">{v || '—'}</span>,
+    },
+    cols.phone && {
+      key: 'phone', title: 'Phone', width: 130,
+      render: (_, r) => {
+        const m = r.supplier?.mobile_1;
+        return m
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)', fontVariantNumeric: 'tabular-nums' }}>{m}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
+    },
+    cols.gstin && {
+      key: 'gstin', title: 'GSTIN', width: 160,
+      render: (_, r) => {
+        const g = r.supplier?.gstin;
+        return g
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em' }}>{g}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
     },
     cols.ref && {
       key: 'ref', title: 'Ref bill', dataIndex: 'reference_bill_number', width: 160,
@@ -438,7 +458,6 @@ export default function PurchaseReturnList() {
       <div className="blist-hd">
         <div className="blist-title">
           <h1>Purchase Returns</h1>
-          <div className="sub"><b>{totalCount}</b> debit note{totalCount === 1 ? '' : 's'}</div>
         </div>
         <div className="blist-ctrl">
           <div className="blist-search">

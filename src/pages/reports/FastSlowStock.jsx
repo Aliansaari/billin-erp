@@ -443,45 +443,52 @@ export default function FastSlowStock() {
     return `${f.format('D MMM YYYY')} — ${t.format('D MMM YYYY')}`;
   }, [fromDate, toDate, presetKey]);
 
+  // Shared `.cols-menu` markup — see styles/global.css. Required
+  // columns get the `.fixed` dimmer + a "Always on" pin. Reset link
+  // sits in the last group's header.
   const customizeContent = (
-    <div className="mv-customize">
-      <div className="mv-customize-row">
-        <Checkbox checked={showKpi} onChange={(e) => setShowKpi(e.target.checked)}>
-          <b>Show KPI cards</b>
-        </Checkbox>
+    <div className="cols-menu">
+      <div className="grp">
+        <div className="mh">Page Sections</div>
+        <label className="opt">
+          <input
+            type="checkbox"
+            checked={showKpi}
+            onChange={(e) => setShowKpi(e.target.checked)}
+          />
+          <span>KPI cards (top)</span>
+        </label>
       </div>
-      <div className="mv-customize-divider" />
-      <div className="mv-customize-label">Columns</div>
       {(() => {
-        // Group columns by their `group` field so the popover reads
-        // as Identity / Inventory / Sales / Movement / Pricing /
-        // Decision rather than one long list.
         const groups = {};
         for (const c of COLUMNS) {
           if (!groups[c.group]) groups[c.group] = [];
           groups[c.group].push(c);
         }
-        return Object.entries(groups).map(([group, cols]) => (
-          <div key={group} className="mv-customize-group">
-            <div className="mv-customize-group-label">{group}</div>
+        const entries = Object.entries(groups);
+        return entries.map(([group, cols], gIdx) => (
+          <div key={group} className="grp">
+            <div className="gh">
+              <span>{group}</span>
+              {gIdx === entries.length - 1 && (
+                <button className="gh-reset" type="button" onClick={resetCols}>Reset</button>
+              )}
+            </div>
             {cols.map((c) => (
-              <div className="mv-customize-row" key={c.id}>
-                <Checkbox
+              <label key={c.id} className={`opt${c.required ? ' fixed' : ''}`}>
+                <input
+                  type="checkbox"
                   checked={visibleCols.has(c.id)}
                   disabled={c.required}
                   onChange={() => toggleCol(c.id)}
-                >
-                  {c.label}{c.required && <span className="mv-customize-required"> · always on</span>}
-                </Checkbox>
-              </div>
+                />
+                <span>{c.label}</span>
+                {c.required && <span className="pin">Always on</span>}
+              </label>
             ))}
           </div>
         ));
       })()}
-      <div className="mv-customize-divider" />
-      <div className="mv-customize-row">
-        <a className="mv-customize-reset" onClick={resetCols}>Reset to defaults</a>
-      </div>
     </div>
   );
 

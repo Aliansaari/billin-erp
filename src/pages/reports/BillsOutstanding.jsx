@@ -455,31 +455,32 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   // (separated by a divider) lets the user hide whole-page parts —
   // currently only the KPI strip, but the slot is set up so other
   // sections (banners, etc.) can plug in later.
+  // Shared `.cols-menu` markup — see styles/global.css.
   const colPickerContent = (
-    <div className="bo-col-picker-wrap">
-      <div className="bo-col-picker-h">Columns</div>
-      <div className="bo-col-picker">
+    <div className="cols-menu">
+      <div className="grp">
+        <div className="mh">Columns</div>
         {COL_ORDER.map((k) => (
-          <div key={k}>
-            <Checkbox
+          <label key={k} className="opt">
+            <input
+              type="checkbox"
               checked={!!colsVisible[k]}
               onChange={(e) => setColsVisible((c) => ({ ...c, [k]: e.target.checked }))}
-            >
-              {COL_SPECS[k]?.title || k}
-            </Checkbox>
-          </div>
+            />
+            <span>{COL_SPECS[k]?.title || k}</span>
+          </label>
         ))}
       </div>
-      <div className="bo-col-picker-h" style={{ marginTop: 10 }}>Page Sections</div>
-      <div className="bo-col-picker">
-        <div>
-          <Checkbox
+      <div className="grp">
+        <div className="mh">Page Sections</div>
+        <label className="opt">
+          <input
+            type="checkbox"
             checked={colsVisible.__kpis !== false}
             onChange={(e) => setColsVisible((c) => ({ ...c, __kpis: e.target.checked }))}
-          >
-            KPI cards (top)
-          </Checkbox>
-        </div>
+          />
+          <span>KPI cards (top)</span>
+        </label>
       </div>
     </div>
   );

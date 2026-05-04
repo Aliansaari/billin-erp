@@ -391,10 +391,16 @@ export default function StockReport() {
     return 1;
   };
 
-  /* ── Customize popover ── */
+  /* ── Customize popover ──
+   *
+   * Uses the shared `.cols-menu` markup so the global customize-menu
+   * styles in styles/global.css drive the look — pill rows + accent
+   * rail when checked. Functional state (prefs / cols / SEC_DEFS)
+   * untouched — only class names changed from the SR-specific
+   * `sr-cust-*` prefix to the shared vocabulary. */
   const renderColGroup = (groupKey) =>
     COL_DEFS.filter(c => c.group === groupKey).map(c => (
-      <label key={c.key} className={`sr-cust-opt${c.fixed ? ' fixed' : ''}`}>
+      <label key={c.key} className={`opt${c.fixed ? ' fixed' : ''}`}>
         <input
           type="checkbox"
           checked={!!cols[c.key] || !!c.fixed}
@@ -402,31 +408,31 @@ export default function StockReport() {
           onChange={(e) => setPrefs(p => ({ ...p, [c.key]: e.target.checked }))}
         />
         <span>{c.label}</span>
-        {c.fixed && <span className="sr-cust-pin">Fixed</span>}
+        {c.fixed && <span className="pin">Fixed</span>}
       </label>
     ));
 
   const customizePopoverContent = (
-    <div className="sr-cust-pop">
-      <div className="sr-cust-grp">
-        <div className="sr-cust-gh">
+    <div className="cols-menu">
+      <div className="grp">
+        <div className="gh">
           <span>Identifiers</span>
-          <button className="sr-cust-reset" type="button" onClick={() => setPrefs(DEFAULT_PREFS)}>Reset</button>
+          <button className="gh-reset" type="button" onClick={() => setPrefs(DEFAULT_PREFS)}>Reset</button>
         </div>
         {renderColGroup('id')}
       </div>
-      <div className="sr-cust-grp">
-        <div className="sr-cust-gh"><span>Quantity</span></div>
+      <div className="grp">
+        <div className="gh"><span>Quantity</span></div>
         {renderColGroup('qty')}
       </div>
-      <div className="sr-cust-grp">
-        <div className="sr-cust-gh"><span>Pricing &amp; Value</span></div>
+      <div className="grp">
+        <div className="gh"><span>Pricing &amp; Value</span></div>
         {renderColGroup('price')}
       </div>
-      <div className="sr-cust-grp">
-        <div className="sr-cust-gh"><span>Page Sections</span></div>
+      <div className="grp">
+        <div className="gh"><span>Page Sections</span></div>
         {SEC_DEFS.map(s => (
-          <label key={s.key} className="sr-cust-opt">
+          <label key={s.key} className="opt">
             <input
               type="checkbox"
               checked={!!cols[s.key]}

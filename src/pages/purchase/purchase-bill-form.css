@@ -369,6 +369,7 @@
   min-height: 22px !important;
   line-height: 22px !important;
   font-size: 13px !important;
+  font-weight: 700 !important;
   color: var(--fg-primary) !important;
 }
 .pbf-entry-ledger .pbf-cell .ant-input-number,
@@ -381,6 +382,7 @@
   line-height: 22px !important;
   padding: 0 !important;
   font-size: 13px !important;
+  font-weight: 700 !important;
 }
 .pbf-entry-ledger .pbf-cell .ant-select-arrow,
 .pbf-entry-ledger .pbf-cell .ant-select-clear { display: none !important; }
@@ -388,6 +390,7 @@
 .pbf-entry-ledger .pbf-cell .ant-input-number-input::placeholder,
 .pbf-entry-ledger .pbf-cell .ant-select-selection-placeholder {
   color: var(--fg-tertiary) !important;
+  font-weight: 500 !important;
   opacity: .8;
 }
 /* Strip default browser/AntD focus + hover rings — the only "you are
@@ -405,19 +408,13 @@
   box-shadow: none !important;
   outline: 0 !important;
 }
-/* Numeric cells right-align in tabular Geist Mono so digits column-
- * align with the items table beneath. */
+/* Numeric cells right-align with tabular figures so digits column-align
+ * with the items table beneath. Font stays the page default (Source
+ * Sans 3) — one font everywhere across the bill forms. */
 .pbf-entry-ledger .pbf-cell.numeric .ant-input,
 .pbf-entry-ledger .pbf-cell.numeric .ant-input-number-input {
   text-align: right !important;
-  font-family: 'Geist Mono', ui-monospace, 'SF Mono', monospace !important;
   font-variant-numeric: tabular-nums !important;
-  letter-spacing: -0.01em !important;
-}
-.pbf-entry-grid > .pbf-cell:first-child .ant-input {
-  font-family: 'Geist Mono', ui-monospace, 'SF Mono', monospace !important;
-  font-size: 12.5px !important;
-  letter-spacing: -0.005em !important;
 }
 .pbf-cell.has-arrow { padding-right: 22px; }
 .pbf-cell.has-arrow::after {
@@ -623,9 +620,10 @@
 .pbf-tbl-wrap .ant-input-number-input,
 .pbf-tbl-wrap .ant-input {
   font-size: 13px !important;
-  font-weight: 600 !important;
+  font-weight: 700 !important;
   color: var(--fg-primary) !important;
   text-align: right !important;
+  font-variant-numeric: tabular-nums !important;
 }
 .pbf-tbl-wrap .ant-table-tbody > tr > td:has(.ant-input-number-focused),
 .pbf-tbl-wrap .ant-table-tbody > tr > td:has(.ant-input:focus) {

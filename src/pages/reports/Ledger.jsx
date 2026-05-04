@@ -213,19 +213,26 @@ export default function Ledger() {
     () => ALL_COLUMNS.filter(c => c.required || colVis[c.key]).map(c => c.key),
     [colVis],
   );
+  // Shared `.cols-menu` markup so the global customize-menu styles
+  // (styles/global.css) drive the look — pill rows + accent rail when
+  // checked. Required columns fade + get a "Required" pin.
   const customizeContent = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 180 }}>
-      {ALL_COLUMNS.map(c => (
-        <Checkbox
-          key={c.key}
-          checked={c.required || !!colVis[c.key]}
-          disabled={c.required}
-          onChange={() => toggleCol(c.key)}
-        >
-          {c.label}
-          {c.required && <span style={{ color: 'var(--fg-tertiary)', fontSize: 10, marginLeft: 6 }}>required</span>}
-        </Checkbox>
-      ))}
+    <div className="cols-menu">
+      <div className="grp">
+        <div className="mh">Columns</div>
+        {ALL_COLUMNS.map(c => (
+          <label key={c.key} className={`opt${c.required ? ' fixed' : ''}`}>
+            <input
+              type="checkbox"
+              checked={c.required || !!colVis[c.key]}
+              disabled={c.required}
+              onChange={() => toggleCol(c.key)}
+            />
+            <span>{c.label}</span>
+            {c.required && <span className="pin">Required</span>}
+          </label>
+        ))}
+      </div>
     </div>
   );
 

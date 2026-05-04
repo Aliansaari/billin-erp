@@ -25,7 +25,10 @@ import './sales-bill-form.css';
 // match the state shape persisted to localStorage.
 const SALES_OPTIONAL_COLS = [
   { key: 'time',     label: 'Time' },
-  { key: 'items',    label: 'Items (count · pcs)' },
+  { key: 'mobile',   label: 'Mobile' },
+  { key: 'gstin',    label: 'GSTIN' },
+  { key: 'items',    label: 'Items (count)' },
+  { key: 'pieces',   label: 'Pieces' },
   { key: 'gst',      label: 'GST amount' },
   { key: 'discount', label: 'Discount' },
   { key: 'return',   label: 'Return amount' },
@@ -36,11 +39,13 @@ const SALES_OPTIONAL_COLS = [
 const SALES_SECTIONS = [
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-// v3 introduces the `totalRow` section toggle. Existing users on v2
-// get the new key with its default value (true) merged in.
-const COLS_STORAGE_KEY = 'salesList_cols_v3';
+// v5 splits the combined Mobile/GSTIN column into two pure-purpose
+// columns: `mobile` shows mobile_1 only, `gstin` shows the GSTIN only.
+// Walk-in names no longer appear in the row (still in the View modal).
+const COLS_STORAGE_KEY = 'salesList_cols_v5';
 const DEFAULT_COLS = {
-  time: true, items: true, gst: false, discount: false, return: false,
+  time: true, mobile: true, gstin: false, items: true, pieces: true,
+  gst: false, discount: false, return: false,
   totalRow: true,
 };
 
@@ -339,36 +344,67 @@ export default function SalesList() {
       },
     },
     {
-      key: 'cust', title: 'Customer', dataIndex: ['customer', 'party_name'], width: 220,
+      // Customer column is now single-line (just the party name) so the
+      // row height stays compact. The previous mobile/GSTIN/walk-in
+      // sub-line moved to its own optional `mobile` column below — the
+      // operator toggles via the Customize popover.
+      key: 'cust', title: 'Customer', dataIndex: ['customer', 'party_name'], width: 200,
       render: (v, r) => {
         const isSystemCash = !!r.customer?.is_system_cash;
         const isCash = !v || isSystemCash;
-        const walkInName = String(r.walk_in_name || '').trim();
-        const customerGstin = r.customer?.gstin;
-        const rawMobile = r.customer?.mobile_1;
-        const cleanMobile = rawMobile && !/^TLY/i.test(rawMobile) ? rawMobile : null;
-        const customerSecondary = isCash
-          ? (walkInName || 'Walk-in')
-          : (customerGstin || cleanMobile || null);
         return (
-          <div className={`stk${isCash ? ' cash' : ''}`}>
-            <span className="m">{isCash ? 'Cash' : v}</span>
-            <span className="s">{customerSecondary || '—'}</span>
-          </div>
+          <span className={`bill-cust${isCash ? ' cash' : ''}`}>
+            {isCash ? 'Cash' : v}
+          </span>
         );
       },
     },
+    cols.mobile && {
+      // Mobile column — pure mobile number. TLY-prefixed mobiles from
+      // Tally imports are filtered out (those are placeholder strings,
+      // not real numbers). Cash sales without a saved mobile show a
+      // dash; the walk-in name (if any) lives in the View modal.
+      key: 'mobile', title: 'Mobile', width: 130,
+      render: (_, r) => {
+        const rawMobile = r.customer?.mobile_1;
+        const cleanMobile = rawMobile && !/^TLY/i.test(rawMobile) ? rawMobile : null;
+        return cleanMobile
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)', fontVariantNumeric: 'tabular-nums' }}>{cleanMobile}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
+    },
+    cols.gstin && {
+      // GSTIN column — pure tax ID. Useful for compliance reports and
+      // for confirming the right business is being billed. Off by
+      // default since most daily ops don't need it on-screen.
+      key: 'gstin', title: 'GSTIN', width: 160,
+      render: (_, r) => {
+        const g = r.customer?.gstin;
+        return g
+          ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em' }}>{g}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
+      },
+    },
     cols.items && {
-      key: 'items', title: 'Items', width: 90, align: 'right',
+      // Items count only — pcs total moved to its own optional `pieces`
+      // column below. Single-line cell keeps the row compact.
+      key: 'items', title: 'Items', width: 70, align: 'right',
       render: (_, r) => {
         const itemCount = r._item_count ?? r.items?.length ?? null;
-        const pcsTotal = r._pcs_total ?? (r.items ? r.items.reduce((s, it) => s + parseFloat(it.quantity || 0), 0) : null);
         return (
-          <div className="stk">
-            <span className="m">{itemCount != null ? itemCount : '—'}</span>
-            <span className="s">{pcsTotal != null ? `${pcsTotal} pcs` : ' '}</span>
-          </div>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {itemCount != null ? itemCount : '—'}
+          </span>
         );
+      },
+    },
+    cols.pieces && {
+      key: 'pieces', title: 'Pieces', width: 80, align: 'right',
+      render: (_, r) => {
+        const pcsTotal = r._pcs_total ?? (r.items ? r.items.reduce((s, it) => s + parseFloat(it.quantity || 0), 0) : null);
+        return pcsTotal != null
+          ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--fg-secondary)' }}>{pcsTotal}</span>
+          : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>;
       },
     },
     {
@@ -536,7 +572,6 @@ export default function SalesList() {
       <div className="blist-hd">
         <div className="blist-title">
           <h1>Sales Bills</h1>
-          <div className="sub"><b>{totalCount}</b> bills total</div>
         </div>
         <div className="blist-ctrl">
           <div className="blist-search">
