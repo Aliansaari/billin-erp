@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { message, Modal, Spin } from 'antd';
 import dayjs from 'dayjs';
 import { partyAPI, authAPI, dataAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import PartyForm from './PartyForm';
 import './party-list-view.css';
 
@@ -96,8 +98,9 @@ export default function PartyListView({ partyType }) {
   });
   const [colsOpen, setColsOpen] = useState(false);
   const colsRef = useRef(null);
-  const [rowMenu, setRowMenu] = useState(null);  // {partyId, x, y}
-  const rowMenuRef = useRef(null);
+
+  // F4 = Find target — focused by the action strip.
+  const searchInputRef = useRef(null);
 
   // Party form (Edit/Create modal)
   const [formOpen, setFormOpen] = useState(false);
@@ -138,15 +141,14 @@ export default function PartyListView({ partyType }) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Close the columns menu + row menu when clicking outside.
+  // Close the columns menu when clicking outside.
   useEffect(() => {
     const handler = (e) => {
       if (colsOpen && colsRef.current && !colsRef.current.contains(e.target)) setColsOpen(false);
-      if (rowMenu && rowMenuRef.current && !rowMenuRef.current.contains(e.target)) setRowMenu(null);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [colsOpen, rowMenu]);
+  }, [colsOpen]);
 
   // Persist column choices so admin's picks stick across reloads.
   useEffect(() => {
@@ -322,7 +324,7 @@ export default function PartyListView({ partyType }) {
 
   /* ── Row actions ───────────────────────────────────────────────────────── */
   const handleEditParty = (p) => {
-    setEditingParty(p); setFormOpen(true); setRowMenu(null);
+    setEditingParty(p); setFormOpen(true);
   };
   const handleViewReport = (p) => {
     // Route to the proper Customer / Supplier Statement page (with the
@@ -331,28 +333,61 @@ export default function PartyListView({ partyType }) {
     // unified statement pages.
     const route = isCustomer ? '/reports/customer-statement' : '/reports/supplier-statement';
     navigate(`${route}?id=${p.party_id}`);
-    setRowMenu(null);
   };
-  const handleToggleActive = (p) => {
-    setRowMenu(null);
+  // Toggle active state for one or many parties. Single-row preserves
+  // the original confirm copy. Multi-row counts the to-activate vs
+  // to-deactivate split and asks once. Both go through partyAPI.toggleActive
+  // serially so per-row error semantics survive.
+  const handleBulkToggleActive = (rowsToToggle) => {
+    if (!rowsToToggle || rowsToToggle.length === 0) return;
+    if (rowsToToggle.length === 1) {
+      const p = rowsToToggle[0];
+      Modal.confirm({
+        title: `${p.is_active ? 'Deactivate' : 'Activate'} ${p.party_name}?`,
+        content: p.is_active
+          ? `Deactivated ${partyType.toLowerCase()}s are hidden from selection lists. Transactions stay intact.`
+          : `Reactivate this ${partyType.toLowerCase()} so they appear in selection lists again.`,
+        okText: p.is_active ? 'Deactivate' : 'Activate',
+        cancelText: 'Cancel',
+        okButtonProps: { danger: !!p.is_active, size: 'large', style: { minWidth: 140 } },
+        cancelButtonProps: { size: 'large', style: { minWidth: 100 } },
+        centered: true,
+        onOk: async () => {
+          try {
+            await partyAPI.toggleActive(p.party_id);
+            message.success(p.is_active ? 'Deactivated' : 'Activated');
+            loadData();
+          } catch (err) {
+            message.error(err.response?.data?.error || 'Failed to update');
+          }
+        },
+      });
+      return;
+    }
+    // Multi: split by current state so the confirm dialog is honest about
+    // what's about to happen. Each row still flips individually server-side.
+    const toDeactivate = rowsToToggle.filter(p => p.is_active).length;
+    const toActivate   = rowsToToggle.length - toDeactivate;
+    const parts = [];
+    if (toDeactivate) parts.push(`${toDeactivate} to deactivate`);
+    if (toActivate)   parts.push(`${toActivate} to activate`);
     Modal.confirm({
-      title: `${p.is_active ? 'Deactivate' : 'Activate'} ${p.party_name}?`,
-      content: p.is_active
-        ? `Deactivated ${partyType.toLowerCase()}s are hidden from selection lists. Transactions stay intact.`
-        : `Reactivate this ${partyType.toLowerCase()} so they appear in selection lists again.`,
-      okText: p.is_active ? 'Deactivate' : 'Activate',
+      title: `Toggle ${rowsToToggle.length} ${partyType.toLowerCase()}s?`,
+      content: `${parts.join(' · ')}. Each row's active state will be flipped.`,
+      okText: 'Continue',
       cancelText: 'Cancel',
-      okButtonProps: { danger: !!p.is_active, size: 'large', style: { minWidth: 140 } },
+      okButtonProps: { danger: toDeactivate > 0, size: 'large', style: { minWidth: 140 } },
       cancelButtonProps: { size: 'large', style: { minWidth: 100 } },
       centered: true,
       onOk: async () => {
-        try {
-          await partyAPI.toggleActive(p.party_id);
-          message.success(p.is_active ? 'Deactivated' : 'Activated');
-          loadData();
-        } catch (err) {
-          message.error(err.response?.data?.error || 'Failed to update');
+        let ok = 0, fail = 0;
+        for (const p of rowsToToggle) {
+          try { await partyAPI.toggleActive(p.party_id); ok++; }
+          catch { fail++; }
         }
+        loadData();
+        if (fail === 0) message.success(`Updated ${ok} ${partyType.toLowerCase()}s.`);
+        else message.warning(`${ok} updated, ${fail} failed.`);
       },
     });
   };
@@ -398,12 +433,28 @@ export default function PartyListView({ partyType }) {
     } catch { message.error('Export failed'); }
   };
 
-  /* ── Row actions trigger (⋯ menu on small screen) ──────────────────────── */
-  const openRowMenu = (e, partyId) => {
-    e.stopPropagation();
-    const r = e.currentTarget.getBoundingClientRect();
-    setRowMenu({ partyId, x: r.right - 200, y: r.bottom + 4 });
-  };
+  /* ── Selection model — cursor + multi-select ──
+     Plain <table> means we drive cursor/selection from useListSelection
+     directly (no VRT). Cursor index runs over `filteredParties` (the
+     currently visible list, not the unfiltered `parties` array) so
+     navigation tracks what the operator can actually see. */
+  const sel = useListSelection({ totalCount: filteredParties.length, rows: filteredParties });
+  const activeRow      = sel.activeRow;
+  const selectedRows   = sel.selectedRows;
+  const selectionCount = sel.selectionCount;
+  const isMulti        = selectionCount > 1;
+  const single         = !isMulti ? activeRow : null;
+
+  // Click handler shared by every row. Plain click = move cursor + let
+  // the existing expand toggle run. Shift / Ctrl click extend or toggle
+  // selection without expanding (we'd otherwise expand 100 rows in a
+  // shift-drag).
+  const handleRowClick = useCallback((idx, ev, p) => {
+    if (ev.shiftKey)             { sel.extendTo(idx);   ev.stopPropagation(); return false; }
+    if (ev.ctrlKey || ev.metaKey){ sel.toggleRow(idx);  ev.stopPropagation(); return false; }
+    sel.setCursor(idx);
+    return true;  // allow the row to also expand
+  }, [sel]);
 
   /* ── Render ────────────────────────────────────────────────────────────── */
   const overdueCount = aging?.overdue_count ?? lensCounts.overdue;
@@ -538,6 +589,7 @@ export default function PartyListView({ partyType }) {
           <div className="plv-search">
             <Ico.Search/>
             <input
+              ref={searchInputRef}
               type="text"
               placeholder={`Search ${partyType.toLowerCase()}s…`}
               value={search}
@@ -638,19 +690,19 @@ export default function PartyListView({ partyType }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredParties.map(p => (
+                  {filteredParties.map((p, idx) => (
                     <PartyRow
                       key={p.party_id}
                       p={p}
+                      idx={idx}
                       cols={cols}
                       isCustomer={isCustomer}
                       expanded={expandedId === p.party_id}
                       expandData={expandedId === p.party_id ? expandData : null}
+                      onClickRow={handleRowClick}
                       onExpand={() => handleExpand(p)}
-                      onOpenMenu={openRowMenu}
-                      onEdit={() => handleEditParty(p)}
-                      onReport={() => handleViewReport(p)}
-                      onToggle={() => handleToggleActive(p)}
+                      isCursor={sel.cursorIdx === idx}
+                      isMultiSelected={sel.selectedSet.has(idx) && sel.cursorIdx !== idx}
                       profitPeriod={profitPeriod}
                       onProfitPeriodChange={handleProfitPeriodChange}
                     />
@@ -662,24 +714,69 @@ export default function PartyListView({ partyType }) {
         </div>
       </div>
 
-      {/* ── Row ⋯ menu (floats above the table) ── */}
-      {rowMenu && (() => {
-        const p = parties.find(x => x.party_id === rowMenu.partyId);
-        if (!p) return null;
-        return (
-          <div
-            className="plv-rowmenu"
-            ref={rowMenuRef}
-            style={{ left: rowMenu.x, top: rowMenu.y }}
-          >
-            <div className="opt" onClick={() => handleViewReport(p)}><Ico.Report/>View full report</div>
-            <div className="opt" onClick={() => handleEditParty(p)}><Ico.Edit/>Edit details</div>
-            <div className="opt danger" onClick={() => handleToggleActive(p)}>
-              <Ico.Block/>{p.is_active ? 'Deactivate' : 'Activate'}
-            </div>
-          </div>
-        );
-      })()}
+      {/* ── Bottom action strip — all party actions on F-keys.
+          F1 Open jumps to the statement page; F2 opens the edit modal;
+          F3 opens "new party" form; F6 quick-creates a Receipt (cust)
+          / Payment (sup) preselected to the cursored party; F7 same
+          for Sale / Purchase; F8 toggles active state (multi-bulk);
+          F10 exports the current filtered view to Excel. F4 focuses
+          search; F5 reloads from server. */}
+      <ActionStrip
+        info={isMulti ? `${selectionCount} selected` : null}
+        actions={[
+          {
+            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
+            disabled: isMulti || !single,
+            onAction: () => single && handleViewReport(single),
+          },
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: isMulti || !single,
+            onAction: () => single && handleEditParty(single),
+          },
+          {
+            id: 'new', key: 'F3', label: `New ${partyType}`,
+            onAction: () => { setEditingParty(null); setFormOpen(true); },
+          },
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => loadData(),
+          },
+          {
+            id: 'recv-pay', key: 'F6',
+            label: isCustomer ? 'Receipt' : 'Payment',
+            disabled: isMulti || !single,
+            onAction: () => single && navigate(
+              isCustomer ? '/receipt/new' : '/payment/new',
+              { state: { preselect: { party_id: single.party_id } } },
+            ),
+          },
+          {
+            id: 'sale-pur', key: 'F7',
+            label: isCustomer ? 'Sale' : 'Purchase',
+            disabled: isMulti || !single,
+            onAction: () => single && navigate(
+              isCustomer ? '/sale/new' : '/purchase/new',
+              { state: { preselect: { party_id: single.party_id } } },
+            ),
+          },
+          {
+            id: 'toggle', key: 'F8',
+            label: (single && !single.is_active) ? 'Activate' : 'Deactivate',
+            tone: 'danger',
+            disabled: !activeRow,
+            onAction: () => handleBulkToggleActive(isMulti ? selectedRows : [single]),
+          },
+          {
+            id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExport(),
+          },
+        ]}
+      />
 
       {/* ── Party form modal (Edit/Create) ── */}
       <PartyForm
@@ -732,7 +829,7 @@ export default function PartyListView({ partyType }) {
 }
 
 /* ── Row component ────────────────────────────────────────────────────────── */
-function PartyRow({ p, cols, isCustomer, expanded, expandData, onExpand, onOpenMenu, onEdit, onReport, onToggle, profitPeriod, onProfitPeriodChange }) {
+function PartyRow({ p, idx, cols, isCustomer, expanded, expandData, onExpand, onClickRow, isCursor, isMultiSelected, profitPeriod, onProfitPeriodChange }) {
   const bal = parseFloat(p.current_balance || 0);
   const owing = isCustomer ? bal : -bal;
   const absBal = Math.abs(bal);
@@ -744,12 +841,27 @@ function PartyRow({ p, cols, isCustomer, expanded, expandData, onExpand, onOpenM
   const creditPct = creditLimit > 0 ? Math.min(100, Math.round((owing / creditLimit) * 100)) : 0;
   const creditFillCls = creditPct >= 90 ? 'over' : creditPct >= 70 ? 'high' : creditPct >= 40 ? 'mid' : '';
 
+  // Cursor / multi-select painting — reuses the .vrt-row-* classes from
+  // VirtualReportTable's stylesheet so the visual treatment matches the
+  // rest of the app (accent wash + left border on cursor; softer wash
+  // for non-cursor multi rows). Plain-table rows pick these classes up
+  // because the selectors target generic `tr.vrt-row-active > td`.
+  const cursorClass = isCursor ? ' vrt-row-active' : (isMultiSelected ? ' vrt-row-multi' : '');
+
   // Last transaction (not loaded until expand — show dash for now)
   const lastTxn = null;
 
   return (
     <>
-      <tr className={`row${expanded ? ' expanded' : ''}`} onClick={onExpand}>
+      <tr
+        className={`row${expanded ? ' expanded' : ''}${cursorClass}`}
+        onClick={(e) => {
+          // Selection-modifier clicks bypass the expand toggle so a
+          // shift-drag through 50 rows doesn't expand 50 ledgers.
+          const allowExpand = onClickRow ? onClickRow(idx, e, p) : true;
+          if (allowExpand) onExpand();
+        }}
+      >
         <td>
           <div className="plv-party-inline">
             <Ico.ChevRight className="plv-chev"/>
@@ -830,17 +942,12 @@ function PartyRow({ p, cols, isCustomer, expanded, expandData, onExpand, onOpenM
           </td>
         )}
 
-        <td onClick={(e) => e.stopPropagation()}>
-          <div className="plv-actions-cell">
-            <button
-              className="plv-rowbtn icon"
-              onClick={(e) => onOpenMenu(e, p.party_id)}
-              title="More actions"
-              aria-label="More actions"
-            >
-              <Ico.More/>
-            </button>
-          </div>
+        {/* Per-row actions column removed — actions live in the bottom
+            ActionStrip and operate on the cursored / selected rows.
+            Keeping the <td> empty preserves the existing colgroup width
+            so the table layout doesn't shift. */}
+        <td className="plv-actions-cell" onClick={(e) => e.stopPropagation()}>
+          {!p.is_active && <span className="plv-status-tag blacklist">Inactive</span>}
         </td>
       </tr>
 

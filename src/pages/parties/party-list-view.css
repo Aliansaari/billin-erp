@@ -382,6 +382,13 @@
   padding: 0 28px 14px;
   display: flex; flex-direction: column;
 }
+/* When the page has an ActionStrip docked at the bottom, drop the
+   wrap's side gutter to 12px (matching bill lists) and trim the
+   bottom to a small gap — the strip's own border + padding handle
+   the rest. */
+.plv-page:has(.astrip) .plv-table-wrap {
+  padding: 0 12px 6px;
+}
 .plv-table-card {
   flex: 1; min-height: 0;
   background: var(--bg-panel);
