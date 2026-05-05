@@ -1,11 +1,14 @@
 // Journal Voucher list — paginated table of manual JVs with date,
-// number, narration, total, status. Click → edit. Soft-delete = reverse.
+// number, narration, total, status. Cursor-driven; F1 opens edit;
+// F8 reverses (soft-delete via paired reversing entry).
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, Table, Button, Space, Typography, Tag, message, Modal, Input } from 'antd';
-import { PlusOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { journalAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title, Text } = Typography;
 const fmt = (v) =>
@@ -32,10 +35,18 @@ export default function JournalVoucherList() {
   };
   useEffect(() => { load(); }, [page, pageSize]);
 
-  const handleDelete = (row) => {
+  // Cursor + multi-select on the visible page.
+  const sel = useListSelection({ totalCount: rows.length, rows });
+  const single = sel.activeRow;
+
+  // Reverse — single-row only because the API takes one id at a time
+  // and each reversal posts a paired entry. Bulk would be possible
+  // but rare for accounting workflows; keep it explicit per row.
+  const handleReverseCursor = useCallback(() => {
+    if (!single || single.is_reversed) return;
     let reason = '';
     Modal.confirm({
-      title: `Reverse JV ${row.voucher_number}?`,
+      title: `Reverse JV ${single.voucher_number}?`,
       content: (
         <div>
           <p>This posts a reversing entry. The original is preserved for audit.</p>
@@ -46,7 +57,7 @@ export default function JournalVoucherList() {
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          await journalAPI.remove(row.id, reason);
+          await journalAPI.remove(single.id, reason);
           message.success('Voucher reversed.');
           load();
         } catch (e) {
@@ -54,14 +65,14 @@ export default function JournalVoucherList() {
         }
       },
     });
-  };
+  }, [single]);
 
   const cols = [
     { title: 'Date',    dataIndex: 'voucher_date',   key: 'date',    width: 120 },
     { title: 'Voucher', dataIndex: 'voucher_number', key: 'number',  width: 180,
       render: (v, row) => row.is_reversed
         ? <Text delete>{v}</Text>
-        : <a onClick={() => navigate(`/accounts/journal/edit/${row.id}`)}>{v}</a>,
+        : <span style={{ fontWeight: 600 }}>{v}</span>,
     },
     { title: 'Narration', dataIndex: 'narration', key: 'narration', ellipsis: true },
     { title: 'Total Amount', dataIndex: 'total_amount', key: 'total', align: 'right', width: 160,
@@ -72,35 +83,72 @@ export default function JournalVoucherList() {
         ? <Tag color="default">Reversed</Tag>
         : <Tag color="green">Posted</Tag>,
     },
-    { title: '', key: 'actions', width: 100, align: 'right',
-      render: (_, row) => row.is_reversed ? null : (
-        <Button danger size="small" icon={<DeleteOutlined />} onClick={() => handleDelete(row)} />
-      ),
-    },
   ];
 
   return (
-    <Card>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>Journal Vouchers</Title>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/accounts/journal/new')}>
-            New Voucher
-          </Button>
+    <div className="blist-page" style={{ padding: 16 }}>
+      <Card style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+        bodyStyle={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
+          <Title level={4} style={{ margin: 0 }}>Journal Vouchers</Title>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/accounts/journal/new')}>
+              New Voucher
+            </Button>
+          </Space>
         </Space>
-      </Space>
-      <Table
-        rowKey="id"
-        columns={cols}
-        dataSource={rows}
-        loading={loading}
-        pagination={{
-          current: page, pageSize, total,
-          onChange: (p, ps) => { setPage(p); setSize(ps); },
-        }}
-        size="small"
+        <Table
+          rowKey="id"
+          columns={cols}
+          dataSource={rows}
+          loading={loading}
+          pagination={{
+            current: page, pageSize, total,
+            onChange: (p, ps) => { setPage(p); setSize(ps); },
+          }}
+          size="small"
+          rowClassName={(_record, index) => {
+            if (sel.cursorIdx === index)    return 'vrt-row-active';
+            if (sel.selectedSet.has(index)) return 'vrt-row-multi';
+            return '';
+          }}
+          onRow={(record, index) => ({
+            onClick: (e) => {
+              if (e.shiftKey)               sel.extendTo(index);
+              else if (e.ctrlKey || e.metaKey) sel.toggleRow(index);
+              else                             sel.setCursor(index);
+            },
+            onDoubleClick: () => record?.id && !record.is_reversed && navigate(`/accounts/journal/edit/${record.id}`),
+          })}
+        />
+      </Card>
+
+      {/* ── Bottom action strip — F1 Open / F3 New / F5 Refresh /
+          F8 Reverse (single-row, danger). No F4 (no search input);
+          no F6/F7/F9/F10 (not applicable to journal vouchers). */}
+      <ActionStrip
+        actions={[
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: () => navigate('/accounts/journal/new'),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => load(),
+          },
+          {
+            id: 'reverse', key: 'F8', label: 'Reverse', tone: 'danger',
+            disabled: !single || single.is_reversed,
+            onAction: handleReverseCursor,
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
+            disabled: !single || single.is_reversed,
+            onAction: () => single && navigate(`/accounts/journal/edit/${single.id}`),
+          },
+        ]}
       />
-    </Card>
+    </div>
   );
 }
