@@ -1,0 +1,151 @@
+/* ── Action Strip — Tally-style bottom toolbar ─────────────────────────
+   Lives at the bottom of every list/form. Reads from a single action
+   registry so the on-screen buttons and the keyboard handler are always
+   in sync. Visual treatment matches the existing .sbf-action-bar /
+   .pbf-action-bar pattern so adoption doesn't visually disrupt pages
+   that haven't migrated yet. */
+
+.astrip {
+  background: var(--bg-muted, #fafafa);
+  border-top: 1px solid var(--border, #e5e7eb);
+  padding: 8px 24px;
+  /* Strips that live inside a flex column page sit at the bottom and
+     don't shrink. The page's main content area takes the rest. */
+  flex: 0 0 auto;
+}
+.astrip.dense { padding: 6px 16px; }
+
+.astrip-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 10px;
+  align-items: center;
+}
+.astrip.dense .astrip-inner { gap: 6px; }
+
+.astrip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--bg-panel, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 7px;
+  color: var(--fg-primary, #1f2937);
+  font: inherit;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(45, 31, 21, 0.04);
+  transition: all .18s cubic-bezier(.2,.7,.2,1);
+}
+.astrip.dense .astrip-btn { height: 30px; padding: 0 10px; font-size: 12px; }
+
+.astrip-btn:hover:not(:disabled) {
+  border-color: var(--border-strong, #d1d5db);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(45, 31, 21, 0.08);
+}
+.astrip-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: saturate(0.7);
+}
+
+/* ── Tone variants ─────────────────────────────────────────────── */
+.astrip-btn.tone-primary {
+  background: var(--accent, #4F46E5);
+  border-color: var(--accent, #4F46E5);
+  color: #FDFAF2;
+  font-weight: 600;
+  box-shadow: 0 2px 12px var(--accent-bg, rgba(79,70,229,0.18));
+}
+.astrip-btn.tone-primary:hover:not(:disabled) {
+  background: var(--accent-hover, #4338ca);
+  box-shadow: 0 6px 22px var(--accent-bg, rgba(79,70,229,0.22));
+}
+
+.astrip-btn.tone-warn {
+  background: var(--warning-bg, rgba(245,158,11,0.12));
+  border-color: color-mix(in srgb, var(--warning, #f59e0b) 34%, transparent);
+  color: var(--warning, #b45309);
+}
+.astrip-btn.tone-warn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--warning, #f59e0b) 22%, transparent);
+}
+
+.astrip-btn.tone-danger {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.30);
+  color: #b91c1c;
+}
+.astrip-btn.tone-danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.55);
+}
+
+/* ── Key hint pill (the "[F1]" prefix) ──────────────────────────── */
+.astrip-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  background: var(--bg-muted, #f3f4f6);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--fg-secondary, #6b7280);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.astrip-btn.tone-primary .astrip-kbd {
+  background: rgba(0, 0, 0, 0.22);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #FDFAF2;
+}
+.astrip-btn.tone-warn .astrip-kbd {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);
+  color: var(--warning, #b45309);
+}
+.astrip-btn.tone-danger .astrip-kbd {
+  background: rgba(220, 38, 38, 0.10);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #b91c1c;
+}
+
+.astrip-lbl { white-space: nowrap; }
+
+.astrip-info {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  margin-right: 4px;
+  background: var(--accent-bg, rgba(79,70,229,0.12));
+  border: 1px solid color-mix(in srgb, var(--accent, #4F46E5) 35%, transparent);
+  border-radius: 7px;
+  color: var(--accent, #4F46E5);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.astrip.dense .astrip-info { height: 30px; padding: 0 10px; font-size: 11px; }
+
+.astrip-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 7px;
+  background: var(--accent-primary, #E26A4C);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  min-width: 18px;
+  text-align: center;
+}

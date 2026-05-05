@@ -4,9 +4,9 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
 import { printDocument } from '../../services/printer';
-import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './sales-bill-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -388,6 +388,9 @@ export default function SalesBillForm() {
   const qtyRef       = useRef(null);
   const discRef      = useRef(null);
   const gstRef       = useRef(null);
+  // F6 = Jump to Payment Card. Attached to the Amt Paid InputNumber so
+  // the strip's Pay action can land focus there without a DOM-walk.
+  const paidInputRef = useRef(null);
   // Batch dropdown ref — used by handleProdSel + handleScan to focus
   // and open the picker right after the operator binds a batch-tracked
   // product, so the next keystroke lands on Lot selection rather than
@@ -1234,8 +1237,14 @@ export default function SalesBillForm() {
     }
   },[customerId, roundedTotal, returnAmt, parties]);
 
-  /* ── save ── */
-  const handleSave=useCallback(async(payFull=false)=>{
+  /* ── save ──
+     Second argument lets callers run a post-save callback (e.g. print
+     the freshly-saved bill) before the form navigates away or resets.
+     `payFull=true` is the legacy "Save & Receive" path which auto-filled
+     paid_amount with the bill total. The redesigned strip doesn't use
+     it any more — the operator sets paid_amount themselves in the
+     Payment Card — but the parameter stays for backward compat. */
+  const handleSave=useCallback(async(payFull=false, opts={})=>{
     // Re-entrancy guard — a second Ctrl+Enter / double-click during the API
     // round-trip would create a duplicate bill (duplicate stock outflow, wrong
     // customer balance, wrong GST totals).
@@ -1402,6 +1411,12 @@ export default function SalesBillForm() {
       };
       const{data}=isEdit?await salesAPI.update(id,body):await salesAPI.create(body);
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
+      // Post-save hook fires BEFORE navigate/reset so callers can use
+      // the saved bill id (e.g. for printing) while the form is still
+      // mounted and `id` isn't gone.
+      if (opts.onSaved) {
+        try { opts.onSaved(data); } catch (e) { console.error('[handleSave onSaved]', e); }
+      }
       if(isEdit){
         navigate(backTarget);
       } else {
@@ -1656,17 +1671,70 @@ export default function SalesBillForm() {
     el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [selectedDraftIdx, draftsModalOpen]);
 
-  useCtrlEnterSubmit(()=>handleSave(true));
+  // F1 (Save & Print), F2 (Save), F3 (Toggle Barcode↔Items), F4 (Hold),
+  // F5 (Reset), F6 (Pay), F7 (Return), F9 (Print on edit), Esc (Back),
+  // Ctrl+Enter (alias of F1), Ctrl+L (Drafts) — all bound by the
+  // <ActionStrip> at the bottom of the form. The strip is the single
+  // source of truth for both the visible buttons and the keyboard
+  // bindings, so we no longer keep separate window-level keydown
+  // listeners for these.
 
-  // F4 = Hold draft (only on new bills, not edits).
-  useEffect(() => {
-    if (isEdit) return;
-    const handler = (e) => {
-      if (e.key === 'F4') { e.preventDefault(); handleHold(); }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isEdit, handleHold]);
+  // Save variants — thin wrappers around the existing handleSave
+  // (which preserves all the validation, credit-limit, blacklist, and
+  // inline-return logic). The post-save callback fires before the
+  // form navigates away or resets, so we still know the bill id when
+  // it's time to print.
+  const handleSavePrint = useCallback(() => {
+    return handleSave(false, {
+      onSaved: (data) => {
+        const printId = data?.sales_bill_id || id;
+        if (printId) printDocument({ docType: 'sales', id: printId });
+      },
+    });
+  }, [handleSave, id]);
+  const handleSaveOnly = useCallback(() => handleSave(false), [handleSave]);
+
+  // F3 — toggle focus between the Barcode field and the items table.
+  // The "items table is in focus" check walks up from the active element
+  // to the .sbf-tbl-wrap container. If the user is anywhere inside the
+  // items table (row nav OR an inline-edit input), F3 sends them home
+  // to the Barcode field. Otherwise F3 picks up the most useful cell —
+  // the last row's quantity input (the typical "fix the qty I just
+  // scanned" scenario). Falls back to the first input if no rows yet.
+  const isInItemsTable = (el) => !!(el && el.closest && el.closest('.sbf-tbl-wrap'));
+  const focusBarcode = () => {
+    barcodeRef.current?.focus?.();
+    barcodeRef.current?.select?.();
+  };
+  const focusItemsTable = () => {
+    const wrap = tableWrapRef.current;
+    if (!wrap) return;
+    const inputs = wrap.querySelectorAll('input:not([disabled]):not([readonly]):not([type="hidden"])');
+    if (inputs.length === 0) return;
+    // Last row's quantity cell — try the cell-id pattern first, then
+    // fall back to the very last input (which on Antd small tables is
+    // typically the GST cell of the last row, still close enough for
+    // arrow-nav to drive the rest).
+    const lastRowQty = wrap.querySelector('[id$="-2"] input') || null;
+    const target = lastRowQty || inputs[inputs.length - 1];
+    target.focus();
+    target.select?.();
+  };
+  const toggleBarcodeItems = useCallback(() => {
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    if (isInItemsTable(active)) focusBarcode();
+    else focusItemsTable();
+  }, []);
+
+  // F6 — focus the Amt Paid input. The Antd InputNumber ref exposes a
+  // .focus() method; .select() lights up after a microtask so a typed
+  // value replaces the placeholder cleanly.
+  const jumpToPaymentCard = useCallback(() => {
+    const inst = paidInputRef.current;
+    if (!inst) return;
+    inst.focus?.();
+    setTimeout(() => inst.select?.(), 0);
+  }, []);
 
   /* ─── Table columns ─────────────────────────────────────────────────────── */
   /* Excel-style cells: inputs fill the whole cell (no floating pill).
@@ -2700,7 +2768,7 @@ export default function SalesBillForm() {
                 <div className="sbf-pay-line">
                   <span className="k">Amt Paid</span>
                   <Form.Item name="paid_amount" noStyle>
-                    <InputNumber keyboard={false} min={0} max={maxPaid} placeholder="0.00"
+                    <InputNumber ref={paidInputRef} keyboard={false} min={0} max={maxPaid} placeholder="0.00"
                       style={{width:'100%'}}
                       onChange={()=>{ paidEditedRef.current = true; }}/>
                   </Form.Item>
@@ -2723,48 +2791,54 @@ export default function SalesBillForm() {
           </div>
         </section>
 
-        {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
-        <section className="sbf-action-bar">
-          <div className="sbf-action-bar-inner">
-            <button className="sbf-act" onClick={()=>confirmLeave(()=>navigate(backTarget))}>
-              <span className="sbf-kbd">Esc</span> Back
-            </button>
-            <button className="sbf-act" onClick={handleReset}>
-              <span className="sbf-kbd">F5</span> Reset
-            </button>
-            {!isEdit && (
-              <>
-                <button className="sbf-act" onClick={handleHold} disabled={holdLoading}
-                        title="Save as draft to resume later — does NOT affect ledger, GST, or stock">
-                  <span className="sbf-kbd">F4</span> {recalledDraftId ? 'Update Hold' : 'Hold'}
-                </button>
-                <button className="sbf-act" onClick={() => { loadDrafts(); setDraftsModalOpen(true); }}
-                        title="View held drafts and recall one">
-                  📋 Drafts
-                  {drafts.length > 0 && (
-                    <span style={{
-                      marginLeft: 6, padding: '0 7px',
-                      background: 'var(--accent-primary, #E26A4C)', color: '#fff',
-                      borderRadius: 999, fontSize: 11, fontWeight: 700,
-                      lineHeight: '18px', display: 'inline-block',
-                    }}>{drafts.length}</span>
-                  )}
-                </button>
-              </>
-            )}
-            {isEdit && (
-              <button className="sbf-act" onClick={() => printDocument({ docType: 'sales', id })}>
-                <span className="sbf-kbd">Ctrl+P</span> Print
-              </button>
-            )}
-            <button className="sbf-act credit" onClick={()=>handleSave(false)} disabled={loading}>
-              <span className="sbf-kbd">F8</span> Save Credit
-            </button>
-            <button className="sbf-act primary" onClick={()=>handleSave(true)} disabled={loading}>
-              <span className="sbf-kbd">F1</span> Save &amp; Rcv
-            </button>
-          </div>
-        </section>
+        {/* ═══════════════════════════════ (4) ACTION STRIP ════════════════════
+            Tally-style bottom toolbar. Single source of truth for both
+            the on-screen buttons AND every keyboard binding (F-keys,
+            Esc, Ctrl+Enter alias, Ctrl+L for Drafts). Replaces the old
+            .sbf-action-bar section. Payment status is now driven by
+            whatever the operator types into the Payment Card — F1 just
+            saves and prints; F2 just saves. */}
+        <ActionStrip
+          actions={[
+            { id: 'back', key: 'Esc', label: 'Back',
+              onAction: () => confirmLeave(() => navigate(backTarget)) },
+            { id: 'reset', key: 'F5', label: 'Reset',
+              onAction: handleReset },
+            { id: 'hold', key: 'F4', label: recalledDraftId ? 'Update Hold' : 'Hold',
+              hidden: isEdit, disabled: holdLoading,
+              onAction: handleHold,
+              title: 'Save as draft to resume later — does NOT affect ledger, GST, or stock' },
+            { id: 'drafts', key: 'Ctrl+L', label: 'Drafts',
+              hidden: isEdit,
+              badge: drafts.length > 0 ? drafts.length : null,
+              onAction: () => { loadDrafts(); setDraftsModalOpen(true); },
+              title: 'View held drafts and recall one' },
+            { id: 'jump-items', key: 'F3', label: 'Items',
+              onAction: toggleBarcodeItems,
+              title: 'Toggle focus between Barcode and the items table' },
+            { id: 'jump-pay', key: 'F6', label: 'Pay',
+              onAction: jumpToPaymentCard,
+              title: 'Jump to Amount Paid' },
+            { id: 'add-return', key: 'F7', label: 'Return',
+              hidden: isEdit,
+              onAction: () => setReturnModalOpen(true),
+              title: 'Return items at counter (creates a paired sales return)' },
+            { id: 'print-edit', key: 'F9', label: 'Print',
+              hidden: !isEdit,
+              onAction: () => printDocument({ docType: 'sales', id }) },
+            { id: 'save', key: 'F2', label: 'Save',
+              disabled: loading,
+              onAction: handleSaveOnly },
+            { id: 'save-print', key: 'F1', label: 'Save & Print', tone: 'primary',
+              disabled: loading,
+              onAction: handleSavePrint },
+            // Hidden alias: Ctrl+Enter mirrors F1 for users with the
+            // existing muscle memory from useCtrlEnterSubmit.
+            { id: 'save-print-alt', key: 'Ctrl+Enter', label: '',
+              hidden: true, disabled: loading,
+              onAction: handleSavePrint },
+          ]}
+        />
 
       </div>
 

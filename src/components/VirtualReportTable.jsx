@@ -152,6 +152,20 @@ if (typeof document !== 'undefined' && !document.getElementById('vrt-shimmer-sty
     .ant-table-row.vrt-row-active > .ant-table-cell:first-child,
     tr.vrt-row-active > td:first-child {
       box-shadow: inset 3px 0 0 0 var(--accent, #4F46E5);
+    }
+    /* Multi-selected rows (controlled mode via useListSelection).
+       Cursor row gets the .vrt-row-active treatment above; non-cursor
+       members of the selection get a softer wash so the cursor still
+       reads as the "anchor" row. */
+    .ant-table-tbody > tr.vrt-row-multi > td,
+    .ant-table-row.vrt-row-multi > .ant-table-cell,
+    tr.vrt-row-multi > td {
+      background: color-mix(in srgb, var(--accent, #4F46E5) 6%, transparent) !important;
+    }
+    .ant-table-tbody > tr.vrt-row-multi > td:first-child,
+    .ant-table-row.vrt-row-multi > .ant-table-cell:first-child,
+    tr.vrt-row-multi > td:first-child {
+      box-shadow: inset 3px 0 0 0 color-mix(in srgb, var(--accent, #4F46E5) 50%, transparent);
     }`;
   document.head.appendChild(style);
 }
@@ -190,8 +204,25 @@ export default function VirtualReportTable({
   // came from. Pages that don't pass this prop get the previous in-
   // memory-only behaviour.
   persistKey,
+  // Controlled cursor / multi-select mode. When `controlledCursorIdx`
+  // is not undefined, VRT skips its internal keyboardNav state and
+  // keyboard listener — the parent (typically via useListSelection)
+  // owns both. VRT becomes purely visual:
+  //   • paints `controlledCursorIdx` as the active row
+  //   • paints every index in `controlledSelectedSet` as multi-selected
+  //   • on row click, dispatches to onCursorMove / onShiftClickRow /
+  //     onCtrlClickRow based on the click's modifier keys
+  // Using these props supersedes `keyboardNav` and `onRowEnter`.
+  controlledCursorIdx,
+  controlledSelectedSet,
+  onCursorMove,
+  onShiftClickRow,
+  onCtrlClickRow,
   ...rest
 }) {
+  // Detect controlled mode once. `undefined` means "not provided"; null
+  // is a valid controlled value (no cursor).
+  const isControlled = controlledCursorIdx !== undefined;
   // Pull rowClassName + onRow out so we can wrap them — the inner Antd
   // Table needs a single rowClassName that combines user's + our
   // active-row class, and a single onRow that adds click-to-select on
@@ -235,7 +266,9 @@ export default function VirtualReportTable({
       return Number.isFinite(n) && n >= 0 ? { idx: n, top: null } : null;
     }
   })();
-  const [activeIdx, setActiveIdx] = useState(persistedInitial?.idx ?? null);
+  const [internalActiveIdx, setActiveIdx] = useState(persistedInitial?.idx ?? null);
+  // Effective cursor — controlled prop wins when present.
+  const activeIdx = isControlled ? controlledCursorIdx : internalActiveIdx;
   // One-shot scrollTop to apply once the scroller is available.
   const pendingScrollTopRef = useRef(persistedInitial?.top ?? null);
 
@@ -509,6 +542,9 @@ export default function VirtualReportTable({
 
   useEffect(() => {
     if (!keyboardNav) return;
+    // Controlled mode → parent (via useListSelection) owns the keyboard.
+    // Skip the internal handler entirely so we don't double-fire.
+    if (isControlled) return;
     const onKey = (e) => {
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
@@ -541,7 +577,7 @@ export default function VirtualReportTable({
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [keyboardNav]);
+  }, [keyboardNav, isControlled]);
 
   // ── Active-row paint via imperative DOM mutation ─────────────────
   //
@@ -581,34 +617,56 @@ export default function VirtualReportTable({
   // is what made the cursor "bury" during fast nav.
   const activeIdxRef = useRef(activeIdx);
   useEffect(() => { activeIdxRef.current = activeIdx; });
+  // Multi-select set ref — read by paintActive so we paint every
+  // selected row on each pass. Stays current across renders.
+  const selectedSetRef = useRef(controlledSelectedSet);
+  useEffect(() => { selectedSetRef.current = controlledSelectedSet; });
+
+  // Resolve a row index → its DOM data-row-key value. Handles both real
+  // rows (consumer's rowKey) and chunk-pending placeholders (synthetic
+  // key from wrappedRowKey). Returns null if the row index can't be
+  // resolved to a key.
+  const keyForIdx = (idx) => {
+    const r = rowsRef.current[idx];
+    if (!r || r.__loading) return `__placeholder_${idx}`;
+    if (typeof rowKeyRef.current === 'function') return rowKeyRef.current(r, idx);
+    if (typeof rowKeyRef.current === 'string')   return r[rowKeyRef.current];
+    return null;
+  };
 
   const paintActive = useCallback(() => {
-    if (!keyboardNav) return;
+    // Painting is enabled either by the legacy `keyboardNav` prop or by
+    // the new controlled mode (which a parent uses to drive cursor +
+    // multi-select state).
+    if (!keyboardNav && !isControlled) return;
     const root = panelRef.current;
     if (!root) return;
     if (lastActiveElRef.current) {
       lastActiveElRef.current.classList.remove('vrt-row-active');
       lastActiveElRef.current = null;
     }
-    root.querySelectorAll('.vrt-row-active').forEach((el) => {
+    root.querySelectorAll('.vrt-row-active, .vrt-row-multi').forEach((el) => {
       el.classList.remove('vrt-row-active');
+      el.classList.remove('vrt-row-multi');
     });
-    const idx = activeIdxRef.current;
-    if (idx == null) return;
-    const r = rowsRef.current[idx];
-    // Determine the data-row-key. Real rows use the consumer's rowKey;
-    // placeholder rows (chunk still loading) use the synthetic key
-    // that wrappedRowKey assigns. Both cases map to a real DOM element
-    // — without this, the cursor would be invisible AND unscrollable
-    // until the chunk resolved.
-    let key;
-    if (!r || r.__loading) {
-      key = `__placeholder_${idx}`;
-    } else if (typeof rowKeyRef.current === 'function') {
-      key = rowKeyRef.current(r, idx);
-    } else {
-      key = r[rowKeyRef.current];
+
+    // Multi-select pass — paint every index in the selection set EXCEPT
+    // the cursor (which gets the stronger .vrt-row-active treatment).
+    const selSet = selectedSetRef.current;
+    const cur    = activeIdxRef.current;
+    if (selSet && selSet.size > 0) {
+      for (const i of selSet) {
+        if (i === cur) continue;
+        const k = keyForIdx(i);
+        if (k == null) continue;
+        const safe = (window.CSS && CSS.escape) ? CSS.escape(String(k)) : String(k);
+        const el = root.querySelector(`[data-row-key="${safe}"]`);
+        if (el) el.classList.add('vrt-row-multi');
+      }
     }
+
+    if (cur == null) return;
+    const key = keyForIdx(cur);
     if (key == null) return;
     const safeKey = (window.CSS && CSS.escape) ? CSS.escape(String(key)) : String(key);
     const el = root.querySelector(`[data-row-key="${safeKey}"]`);
@@ -616,7 +674,14 @@ export default function VirtualReportTable({
       el.classList.add('vrt-row-active');
       lastActiveElRef.current = el;
     }
-  }, [keyboardNav, panelRef]);
+  }, [keyboardNav, isControlled, panelRef]);
+
+  // Re-paint when the multi-select set changes (controlled mode). The
+  // cursor-driven scroll/paint effect already covers cursor changes.
+  useEffect(() => {
+    if (!isControlled) return;
+    paintActive();
+  }, [controlledSelectedSet, isControlled, paintActive]);
 
   // Scroll-to-row + chunk fetch when the cursor moves. With virtual
   // mode we can't rely on scrollIntoView (the row may not be in the
@@ -730,8 +795,32 @@ export default function VirtualReportTable({
   // React commits the setActiveIdx state change. Without this sync
   // write, a click on row 64 (after arrow-navigating to row 4) would
   // navigate to product 64 but persist row 4 → Esc-back lands on 4.
+  //
+  // Controlled mode: dispatches based on modifier keys —
+  //   plain click       → onCursorMove(idx)        (single-select)
+  //   shift+click       → onShiftClickRow(idx)     (range extend)
+  //   ctrl/cmd+click    → onCtrlClickRow(idx)      (toggle in/out)
+  // and DOES NOT call the user's onRow.onClick (because in this mode
+  // a click is a selection action, not a row-open). The page wires
+  // open-on-Enter via the action strip's F1.
   const onRow = useCallback((record, index) => {
     const userBound = userOnRow ? userOnRow(record, index) : {};
+    if (isControlled) {
+      return {
+        ...userBound,
+        onClick: (ev) => {
+          const live = rowsRef.current[index] ?? record;
+          if (!live || live.__loading) return;
+          if (ev.shiftKey) {
+            onShiftClickRow?.(index);
+          } else if (ev.ctrlKey || ev.metaKey) {
+            onCtrlClickRow?.(index);
+          } else {
+            onCursorMove?.(index);
+          }
+        },
+      };
+    }
     if (!keyboardNav) return userBound;
     return {
       ...userBound,
@@ -753,7 +842,7 @@ export default function VirtualReportTable({
         freshBound.onClick?.(ev);
       },
     };
-  }, [userOnRow, keyboardNav, persistKey]);
+  }, [userOnRow, keyboardNav, persistKey, isControlled, onCursorMove, onShiftClickRow, onCtrlClickRow]);
 
   // Build the columns for the summary table. Same shape as data
   // columns — Antd applies identical layout — but with `render` and
