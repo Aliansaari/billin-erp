@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Tag, Input, Select, DatePicker, Popconfirm, message, Tooltip } from 'antd';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { Table, Button, Tag, Input, Select, DatePicker, Modal, message, Tooltip } from 'antd';
 import {
-  SwapOutlined, PlusOutlined, EyeOutlined, SendOutlined, CheckCircleOutlined,
-  CloseCircleOutlined, EditOutlined, ReloadOutlined, SearchOutlined,
+  SwapOutlined, PlusOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { stockTransferAPI, godownAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 // Editorial report skin (same .rpt-page-hd / .rpt-kpis / .rpt-filter /
 // .rpt-tbl-wrap classes Sales Report / Day Book / Trial Balance use,
 // living in src/styles/global.css). Pulls in all theme-aware tinted KPI
@@ -108,6 +109,9 @@ export default function StockTransferList() {
   }, []);
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [filters]);
 
+  // Search input ref so the F4 = Find action can focus it from the strip.
+  const searchInputRef = useRef(null);
+
   const setBusyRow = (id, val) => setBusy((b) => ({ ...b, [id]: val }));
 
   const onSubmit = async (row) => {
@@ -140,6 +144,49 @@ export default function StockTransferList() {
       message.error(err?.response?.data?.error || 'Cancel failed');
     } finally { setBusyRow(row.transfer_id, false); }
   };
+
+  // ── Selection model — cursor + multi-select.
+  // Plain Antd Table here (not VRT). Cursor IS selection; the strip
+  // operates on whatever row the cursor is on.
+  const sel = useListSelection({ totalCount: rows.length, rows });
+  const single        = sel.activeRow;
+  const isDraft       = single?.status === 'Draft';
+  const isInTransit   = single?.status === 'In-Transit';
+  const isOpen        = isDraft || isInTransit;
+
+  // Cancel with confirm — single-row only since each cancel restores
+  // stock at the source godown when it was already submitted.
+  const cancelCursor = useCallback(() => {
+    if (!single) return;
+    Modal.confirm({
+      title: `Cancel ${single.transfer_number}?`,
+      content: isInTransit
+        ? 'Stock at the source godown will be restored.'
+        : 'No stock has moved — this just marks the transfer cancelled.',
+      okText: 'Cancel transfer', okButtonProps: { danger: true },
+      cancelText: 'Keep it',
+      onOk: () => onCancel(single),
+    });
+  }, [single, isInTransit]);
+
+  // Scroll-follow the cursor — Antd Table's sticky thead means
+  // browser scrollIntoView won't account for header height. Hand-roll
+  // the math (same approach as PartyListView).
+  useEffect(() => {
+    if (sel.cursorIdx == null || !single) return;
+    const scroller = document.querySelector('.stf-tbl-card .ant-table-body');
+    if (!scroller) return;
+    const row = scroller.querySelector(`[data-row-key="${single.transfer_id}"]`);
+    if (!row) return;
+    const thead = document.querySelector('.stf-tbl-card .ant-table-thead');
+    const headH = thead ? thead.offsetHeight : 0;
+    const rowRect = row.getBoundingClientRect();
+    const scRect  = scroller.getBoundingClientRect();
+    const rowTop = rowRect.top    - scRect.top;
+    const rowBot = rowRect.bottom - scRect.top;
+    if (rowTop < headH) scroller.scrollTop -= (headH - rowTop);
+    else if (rowBot > scRect.height) scroller.scrollTop += (rowBot - scRect.height);
+  }, [sel.cursorIdx, single]);
 
   // KPI rollups — derived from the currently-loaded rows so the cards
   // reflect the active filter (rather than always showing all-time
@@ -216,59 +263,10 @@ export default function StockTransferList() {
         return <Tooltip title={t.desc}><span className={`rpt-pill type-${t.tone}`}>{s}</span></Tooltip>;
       },
     },
-    {
-      title: 'Actions', key: 'actions', width: 200, align: 'right', fixed: 'right',
-      render: (_, r) => {
-        const b = !!busy[r.transfer_id];
-        const isDraft     = r.status === 'Draft';
-        const isInTransit = r.status === 'In-Transit';
-        const isOpen      = isDraft || isInTransit;
-        return (
-          <div className="stf-actions">
-            <Tooltip title={isDraft ? 'Edit transfer' : 'View transfer'}>
-              <button
-                className="abtn"
-                onClick={() => nav(`/stock-transfer/edit/${r.transfer_id}`)}
-                aria-label={isDraft ? 'Edit' : 'View'}
-              >
-                {isDraft ? <EditOutlined /> : <EyeOutlined />}
-              </button>
-            </Tooltip>
-            {isDraft && (
-              <Tooltip title="Submit — deduct from source, move to In-Transit">
-                <button className="abtn primary" disabled={b} onClick={() => onSubmit(r)} aria-label="Submit">
-                  <SendOutlined />
-                </button>
-              </Tooltip>
-            )}
-            {isInTransit && (
-              <Tooltip title="Mark Received — add to destination godown">
-                <button className="abtn primary" disabled={b} onClick={() => onReceive(r)} aria-label="Receive">
-                  <CheckCircleOutlined />
-                </button>
-              </Tooltip>
-            )}
-            {isOpen && (
-              <Popconfirm
-                title={`Cancel ${r.transfer_number}?`}
-                description={isInTransit
-                  ? 'Stock at the source will be restored.'
-                  : 'No stock has moved — this just marks it cancelled.'}
-                okText="Cancel transfer" okButtonProps={{ danger: true }}
-                onConfirm={() => onCancel(r)}
-              >
-                <Tooltip title="Cancel transfer">
-                  <button className="abtn danger" disabled={b} aria-label="Cancel">
-                    <CloseCircleOutlined />
-                  </button>
-                </Tooltip>
-              </Popconfirm>
-            )}
-          </div>
-        );
-      },
-    },
-  ], [busy, nav]); // eslint-disable-line
+    // (Per-row actions column removed — Submit / Receive / Cancel /
+    // Edit / View all moved to the bottom ActionStrip and operate on
+    // the cursored row.)
+  ], []); // eslint-disable-line
 
   // Status-chip filter — same dot-pill UI as Sales Report's Unpaid /
   // Partial / Paid chips, ours map to the four lifecycle states.
@@ -344,6 +342,7 @@ export default function StockTransferList() {
       {/* ─── FILTER BAR — search + status chips + godown selects ─── */}
       <div className="rpt-filter">
         <Input
+          ref={searchInputRef}
           className="rpt-search"
           prefix={<SearchOutlined />}
           placeholder="Search transfer #"
@@ -403,6 +402,19 @@ export default function StockTransferList() {
             size="middle"
             scroll={{ x: 1100 }}
             sticky
+            rowClassName={(_record, index) => {
+              if (sel.cursorIdx === index)        return 'vrt-row-active';
+              if (sel.selectedSet.has(index))     return 'vrt-row-multi';
+              return '';
+            }}
+            onRow={(record, index) => ({
+              onClick: (e) => {
+                if (e.shiftKey)               { sel.extendTo(index); }
+                else if (e.ctrlKey || e.metaKey) { sel.toggleRow(index); }
+                else                             { sel.setCursor(index); }
+              },
+              onDoubleClick: () => record?.transfer_id && nav(`/stock-transfer/edit/${record.transfer_id}`),
+            })}
             locale={{ emptyText: (
               <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--fg-tertiary)' }}>
                 <SwapOutlined style={{ fontSize: 32, opacity: 0.4 }} />
@@ -423,6 +435,55 @@ export default function StockTransferList() {
           )}
         </div>
       </div>
+
+      {/* ── Bottom action strip — F-keys are status-aware:
+          F2 Edit only enabled for Draft (read-only otherwise);
+          F6 Submit only enabled for Draft (promotes to In-Transit);
+          F7 Receive only enabled for In-Transit (promotes to Received);
+          F8 Cancel only enabled while open (Draft or In-Transit). */}
+      <ActionStrip
+        actions={[
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: !single || !isDraft,
+            onAction: () => single && nav(`/stock-transfer/edit/${single.transfer_id}`),
+          },
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: () => nav('/stock-transfer/new'),
+          },
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => load(),
+          },
+          {
+            id: 'submit', key: 'F6', label: 'Submit',
+            disabled: !single || !isDraft || !!busy[single?.transfer_id],
+            onAction: () => single && onSubmit(single),
+            title: 'Submit — deduct from source, move to In-Transit',
+          },
+          {
+            id: 'receive', key: 'F7', label: 'Receive',
+            disabled: !single || !isInTransit || !!busy[single?.transfer_id],
+            onAction: () => single && onReceive(single),
+            title: 'Mark Received — add to destination godown',
+          },
+          {
+            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
+            disabled: !single || !isOpen || !!busy[single?.transfer_id],
+            onAction: cancelCursor,
+          },
+          {
+            id: 'open', key: 'F1', label: isDraft ? 'Edit' : 'Open', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && nav(`/stock-transfer/edit/${single.transfer_id}`),
+          },
+        ]}
+      />
     </div>
   );
 }
