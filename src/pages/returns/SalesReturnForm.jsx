@@ -9,6 +9,8 @@ import {
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { printDocument } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
+import confirmPrint from '../../utils/confirmPrint';
 import './return-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -544,15 +546,31 @@ export default function SalesReturnForm() {
   const confirmLeave = useUnsavedChangesWarning(dirty);
 
   /* ── F-key handlers (driven by ActionStrip below) ───────────────── */
-  const handleSavePrint = useCallback(() => {
+  // F1 Save — saves, then asks "Print credit note?" with Enter / Esc.
+  const handleSaveWithPrintPrompt = useCallback(() => {
     return handleSave(false, {
-      onSaved: (data) => {
+      onSaved: async (data) => {
+        const num = data?.return_number || '';
         const printId = data?.sales_return_id || id;
-        if (printId) printDocument({ docType: 'sales_return', id: printId });
+        if (!printId) return;
+        const wantsPrint = await confirmPrint(
+          num ? `Print credit note ${num}?` : 'Print credit note?',
+        );
+        if (wantsPrint) printDocument({ docType: 'sales_return', id: printId });
       },
     });
   }, [handleSave, id]);
-  const handleSaveOnly = useCallback(() => handleSave(false), [handleSave]);
+
+  // F2 Date popup — Tally-style smart-input popup for the return date.
+  const { openDate } = useDatePopup();
+  const f2DatePopup = useCallback(() => {
+    const current = form.getFieldValue('return_date');
+    openDate({
+      title: 'Return Date',
+      value: current ? dayjs(current) : dayjs(),
+      onConfirm: (d) => form.setFieldsValue({ return_date: dayjs(d) }),
+    });
+  }, [form, openDate]);
 
   // F3 = toggle focus between Barcode and items table. Quantity column
   // is at ciIdx=5 in this form (numCell call sites). When the items
@@ -1021,6 +1039,9 @@ export default function SalesReturnForm() {
           actions={[
             { id: 'back', key: 'Esc', label: 'Back',
               onAction: () => confirmLeave(() => navigate('/sales-returns')) },
+            { id: 'date', key: 'F2', label: 'Date',
+              onAction: f2DatePopup,
+              title: 'Open the smart-input date popup' },
             { id: 'reset', key: 'F5', label: 'Reset',
               onAction: handleReset },
             { id: 'jump-items', key: 'F3', label: 'Items',
@@ -1032,16 +1053,14 @@ export default function SalesReturnForm() {
             { id: 'print-edit', key: 'F9', label: 'Print',
               hidden: !isEdit,
               onAction: () => printDocument({ docType: 'sales_return', id }) },
-            { id: 'save', key: 'F2', label: 'Save',
+            { id: 'save', key: 'F1', label: 'Save', tone: 'primary',
               disabled: loading,
-              onAction: handleSaveOnly },
-            { id: 'save-print', key: 'F1', label: 'Save & Print', tone: 'primary',
-              disabled: loading,
-              onAction: handleSavePrint },
+              onAction: handleSaveWithPrintPrompt,
+              title: 'Save the return — prompts to print credit note after success' },
             // Hidden alias: Ctrl+Enter mirrors F1.
-            { id: 'save-print-alt', key: 'Ctrl+Enter', label: '',
+            { id: 'save-alt', key: 'Ctrl+Enter', label: '',
               hidden: true, disabled: loading,
-              onAction: handleSavePrint },
+              onAction: handleSaveWithPrintPrompt },
           ]}
         />
 

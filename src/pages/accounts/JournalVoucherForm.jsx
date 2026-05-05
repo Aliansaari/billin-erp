@@ -8,6 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { journalAPI, ledgerAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 
 const { Title, Text } = Typography;
 const fmt = (v) =>
@@ -65,6 +66,7 @@ export default function JournalVoucherForm() {
   }, [lines]);
 
   const balanced = Math.abs(totals.diff) < 0.005 && totals.dr > 0;
+  const { openDate } = useDatePopup();
 
   const updateLine = (idx, patch) => {
     setLines((prev) => {
@@ -213,6 +215,15 @@ export default function JournalVoucherForm() {
           {
             id: 'back', key: 'Esc', label: 'Back',
             onAction: () => navigate('/accounts/journal'),
+          },
+          {
+            id: 'date', key: 'F2', label: 'Date',
+            onAction: () => openDate({
+              title: 'Voucher Date',
+              value: voucherDate || dayjs(),
+              onConfirm: (d) => setVoucherDate(d),
+            }),
+            title: 'Open the smart-input date popup',
           },
           {
             id: 'save', key: 'F1', label: isEdit ? 'Save Changes' : 'Post Voucher',

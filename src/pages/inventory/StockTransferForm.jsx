@@ -5,6 +5,7 @@ import { SwapOutlined, DeleteOutlined, SaveOutlined, SendOutlined, CheckCircleOu
 import dayjs from 'dayjs';
 import { stockTransferAPI, godownAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 // Reuse the Sales bill form's entry-ledger CSS verbatim so the entry
 // row visually matches its sibling on the Sales/Purchase forms — same
 // hairlines, same cell padding, same focus state, same dotted column
@@ -140,6 +141,7 @@ export default function StockTransferForm() {
   //   - new form  → 'Draft'
   //   - edit form → loaded transfer's status, or 'Draft' until loaded
   const status = transfer?.status || 'Draft';
+  const { openDate } = useDatePopup();
   const readOnly = isEdit && status !== 'Draft';
 
   /* ── Loaders ──────────────────────────────────────────────────────── */
@@ -1246,9 +1248,22 @@ export default function StockTransferForm() {
               id: 'back', key: 'Esc', label: 'Back',
               onAction: () => nav('/stock-transfers'),
             },
-            // New mode: Save Draft
+            // F2 = Date popup (Tally-style smart input).
             {
-              id: 'save-draft', key: 'F2', label: 'Save Draft',
+              id: 'date', key: 'F2', label: 'Date',
+              onAction: () => {
+                const cur = form.getFieldValue('transfer_date');
+                openDate({
+                  title: 'Transfer Date',
+                  value: cur ? dayjs(cur) : dayjs(),
+                  onConfirm: (d) => form.setFieldsValue({ transfer_date: dayjs(d) }),
+                });
+              },
+              title: 'Open the smart-input date popup',
+            },
+            // F4 (was F2) Save Draft — only on the new-bill path.
+            {
+              id: 'save-draft', key: 'F4', label: 'Save Draft',
               hidden: isEdit,
               disabled: loading,
               onAction: saveDraft,

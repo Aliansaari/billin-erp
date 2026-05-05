@@ -7,6 +7,8 @@ import dayjs from 'dayjs';
 import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
 import { printDocument } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
+import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import ProductFormModal from '../../components/ProductFormModal';
@@ -1238,12 +1240,13 @@ export default function PurchaseBillForm() {
      `payFull=true` is the legacy "Save & Pay" auto-fill path; the
      redesigned strip stops passing it — paid_amount is whatever the
      operator typed in the Payment Card. Param stays for back-compat.
-     `opts.print` defaults true (existing behavior — show the barcode
-     label print modal after save in itemised mode). F2 (Save only)
-     passes false so it skips the modal and returns straight to the
-     purchase list. */
+     `opts.onSaved(data, { openPrintModal })` fires after a successful
+     save and BEFORE the form navigates / resets. If the callback
+     opens the print modal, the form stays mounted (the modal's own
+     onClose handles navigation). Otherwise we navigate / reset
+     normally. This lets F1 ask "Print labels?" and only open the
+     modal if the user agrees. */
   const handleSave=useCallback(async(payFull=false, opts={})=>{
-    const showPrintModal = opts.print !== false;
     // Re-entrancy guard: a second Ctrl+Enter or rapid Save click during the
     // API round-trip would create a duplicate bill + duplicate stock inflow.
     if(submittingRef.current) return;
@@ -1327,23 +1330,32 @@ export default function PurchaseBillForm() {
       const{data}=isEdit?await purchaseAPI.update(id,billData):await purchaseAPI.create(billData);
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
       invalidateFamilyCache(); // newly-created variants are now live in DB — drop cached lookups
-      // Skip the barcode-print modal when:
-      //   - mode is amount-only (no real products to label), OR
-      //   - caller explicitly opted out (F2 Save only).
-      if (billMode === 'amount' || !showPrintModal) {
-        setRecalledDraftId(null);
-        loadDrafts();
-        if (isEdit) navigate('/purchases');
-        else { handleReset(); setBillNumber(''); }
-      } else {
-        const printItems=(data.items||[]).map(it=>({
+      setRecalledDraftId(null);
+      loadDrafts();
+
+      // Track whether the onSaved callback chose to open the print
+      // modal — when it does, the form stays mounted because the
+      // modal's onClose handler does the navigation itself.
+      let modalOpened = false;
+      const openPrintModal = () => {
+        if (billMode === 'amount') return; // amount-mode has no items to label
+        modalOpened = true;
+        const printItems = (data.items||[]).map(it=>({
           barcode:it.barcode,product_name:it.product_name,size:it.size,
           article_number:it.article_number,mrp:it.mrp,sale_rate:it.sale_rate,
           purchase_rate:it.purchase_rate,quantity:it.quantity,quantity_per_box:it.quantity_per_box||1,
         }));
-        setRecalledDraftId(null);
-        loadDrafts();
         setPrintModal({visible:true,bill:{...data,printItems}});
+      };
+
+      if (opts.onSaved) {
+        try { await opts.onSaved(data, { openPrintModal }); }
+        catch (err) { console.error('[handleSave onSaved]', err); }
+      }
+
+      if (!modalOpened) {
+        if (isEdit) navigate('/purchases');
+        else { handleReset(); setBillNumber(''); }
       }
     }catch(e){ message.error(e.response?.data?.error||'Failed to save'); }
     finally{ setLoading(false); submittingRef.current=false; }
@@ -1371,13 +1383,32 @@ export default function PurchaseBillForm() {
   // the form. Single-source-of-truth registry; no parallel keydown
   // listeners needed.
 
-  // F1 = Save & Print: opens the barcode-label print modal after save
-  //      (same as the legacy "Save & Pay" did, since that also
-  //       triggered the print modal).
-  // F2 = Save: skips the print modal, returns straight to /purchases
-  //      (or resets the form for new bills).
-  const handleSavePrint = useCallback(() => handleSave(false, { print: true }),  [handleSave]);
-  const handleSaveOnly  = useCallback(() => handleSave(false, { print: false }), [handleSave]);
+  // F1 Save — saves the bill, then asks once "Print barcode labels?"
+  // (Enter = open the BarcodePrintModal · Esc = skip and return to
+  // the purchase list). One save key replaces the old dual F1 + F2.
+  const handleSaveWithPrintPrompt = useCallback(() => {
+    return handleSave(false, {
+      onSaved: async (data, { openPrintModal }) => {
+        // Amount-mode bills have no items to label → skip the prompt.
+        if (billMode === 'amount') return;
+        const wantsPrint = await confirmPrint(
+          data?.bill_number ? `Print barcode labels for ${data.bill_number}?` : 'Print barcode labels?',
+        );
+        if (wantsPrint) openPrintModal();
+      },
+    });
+  }, [handleSave, billMode]);
+
+  // F2 Date popup — Tally-style smart-input popup for the bill date.
+  const { openDate } = useDatePopup();
+  const f2DatePopup = useCallback(() => {
+    const current = form.getFieldValue('bill_date');
+    openDate({
+      title: 'Bill Date',
+      value: current ? dayjs(current) : dayjs(),
+      onConfirm: (d) => form.setFieldsValue({ bill_date: dayjs(d) }),
+    });
+  }, [form, openDate]);
 
   // F3 — toggle focus between Barcode and the items table. If focus
   // is anywhere inside .pbf-tbl-wrap, jump home to barcode; otherwise
@@ -2328,6 +2359,9 @@ export default function PurchaseBillForm() {
           actions={[
             { id: 'back', key: 'Esc', label: 'Back',
               onAction: () => confirmLeave(() => navigate('/purchases')) },
+            { id: 'date', key: 'F2', label: 'Date',
+              onAction: f2DatePopup,
+              title: 'Open the smart-input date popup' },
             { id: 'reset', key: 'F5', label: 'Reset',
               onAction: handleReset },
             { id: 'hold', key: 'F4', label: recalledDraftId ? 'Update Hold' : 'Hold',
@@ -2348,17 +2382,14 @@ export default function PurchaseBillForm() {
             { id: 'print-edit', key: 'F9', label: 'Print',
               hidden: !isEdit,
               onAction: () => printDocument({ docType: 'purchase', id }) },
-            { id: 'save', key: 'F2', label: 'Save',
+            { id: 'save', key: 'F1', label: 'Save', tone: 'primary',
               disabled: loading,
-              onAction: handleSaveOnly },
-            { id: 'save-print', key: 'F1', label: 'Save & Print', tone: 'primary',
-              disabled: loading,
-              onAction: handleSavePrint },
-            // Hidden alias: Ctrl+Enter mirrors F1 for users with the
-            // legacy useCtrlEnterSubmit muscle memory.
-            { id: 'save-print-alt', key: 'Ctrl+Enter', label: '',
+              onAction: handleSaveWithPrintPrompt,
+              title: 'Save the bill — prompts to print barcode labels after success' },
+            // Hidden alias: Ctrl+Enter mirrors F1.
+            { id: 'save-alt', key: 'Ctrl+Enter', label: '',
               hidden: true, disabled: loading,
-              onAction: handleSavePrint },
+              onAction: handleSaveWithPrintPrompt },
           ]}
         />
 

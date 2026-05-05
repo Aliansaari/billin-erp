@@ -7,6 +7,8 @@ import { printDocument } from '../../services/printer';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
+import confirmPrint from '../../utils/confirmPrint';
 import './sales-bill-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -1671,28 +1673,40 @@ export default function SalesBillForm() {
     el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [selectedDraftIdx, draftsModalOpen]);
 
-  // F1 (Save & Print), F2 (Save), F3 (Toggle Barcode↔Items), F4 (Hold),
-  // F5 (Reset), F6 (Pay), F7 (Return), F9 (Print on edit), Esc (Back),
-  // Ctrl+Enter (alias of F1), Ctrl+L (Drafts) — all bound by the
-  // <ActionStrip> at the bottom of the form. The strip is the single
-  // source of truth for both the visible buttons and the keyboard
-  // bindings, so we no longer keep separate window-level keydown
-  // listeners for these.
+  // F1 Save (with optional post-save print prompt), F2 Date popup,
+  // F3 Toggle Barcode↔Items, F4 Hold, F5 Reset, F6 Pay, F7 Return,
+  // F9 Print (edit-mode), Esc Back, Ctrl+Enter (alias of F1),
+  // Ctrl+L Drafts — all bound by the <ActionStrip> below.
 
-  // Save variants — thin wrappers around the existing handleSave
-  // (which preserves all the validation, credit-limit, blacklist, and
-  // inline-return logic). The post-save callback fires before the
-  // form navigates away or resets, so we still know the bill id when
-  // it's time to print.
-  const handleSavePrint = useCallback(() => {
+  // F1 Save — saves the bill, then asks once "Print this bill?" with
+  // Enter = Print, Esc = Skip. One save key replaces the old dual
+  // F1 Save & Print + F2 Save (only) pair.
+  const handleSaveWithPrintPrompt = useCallback(() => {
     return handleSave(false, {
-      onSaved: (data) => {
+      onSaved: async (data) => {
+        const billNo  = data?.bill_number || '';
         const printId = data?.sales_bill_id || id;
-        if (printId) printDocument({ docType: 'sales', id: printId });
+        if (!printId) return;
+        const wantsPrint = await confirmPrint(
+          billNo ? `Print bill ${billNo}?` : 'Print this bill?',
+        );
+        if (wantsPrint) printDocument({ docType: 'sales', id: printId });
       },
     });
   }, [handleSave, id]);
-  const handleSaveOnly = useCallback(() => handleSave(false), [handleSave]);
+
+  // F2 Date popup — opens the Tally-style smart-input popup, focused
+  // on the form's current bill_date. On confirm, writes back to the
+  // Antd Form's bill_date field.
+  const { openDate } = useDatePopup();
+  const f2DatePopup = useCallback(() => {
+    const current = form.getFieldValue('bill_date');
+    openDate({
+      title: 'Bill Date',
+      value: current ? dayjs(current) : dayjs(),
+      onConfirm: (d) => form.setFieldsValue({ bill_date: dayjs(d) }),
+    });
+  }, [form, openDate]);
 
   // F3 — toggle focus between the Barcode field and the items table.
   // The "items table is in focus" check walks up from the active element
@@ -2803,6 +2817,9 @@ export default function SalesBillForm() {
           actions={[
             { id: 'back', key: 'Esc', label: 'Back',
               onAction: () => confirmLeave(() => navigate(backTarget)) },
+            { id: 'date', key: 'F2', label: 'Date',
+              onAction: f2DatePopup,
+              title: 'Open the smart-input date popup' },
             { id: 'reset', key: 'F5', label: 'Reset',
               onAction: handleReset },
             { id: 'hold', key: 'F4', label: recalledDraftId ? 'Update Hold' : 'Hold',
@@ -2827,17 +2844,15 @@ export default function SalesBillForm() {
             { id: 'print-edit', key: 'F9', label: 'Print',
               hidden: !isEdit,
               onAction: () => printDocument({ docType: 'sales', id }) },
-            { id: 'save', key: 'F2', label: 'Save',
+            { id: 'save', key: 'F1', label: 'Save', tone: 'primary',
               disabled: loading,
-              onAction: handleSaveOnly },
-            { id: 'save-print', key: 'F1', label: 'Save & Print', tone: 'primary',
-              disabled: loading,
-              onAction: handleSavePrint },
+              onAction: handleSaveWithPrintPrompt,
+              title: 'Save the bill — prompts to print after success' },
             // Hidden alias: Ctrl+Enter mirrors F1 for users with the
             // existing muscle memory from useCtrlEnterSubmit.
-            { id: 'save-print-alt', key: 'Ctrl+Enter', label: '',
+            { id: 'save-alt', key: 'Ctrl+Enter', label: '',
               hidden: true, disabled: loading,
-              onAction: handleSavePrint },
+              onAction: handleSaveWithPrintPrompt },
           ]}
         />
 

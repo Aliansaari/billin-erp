@@ -9,6 +9,7 @@ import { paymentAPI, partyAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import '../../styles/bill-entry.css';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -59,6 +60,7 @@ export default function ReceiptEntry() {
 
   const dirty = !!(selectedParty || payAmt);
   const confirmLeave = useUnsavedChangesWarning(dirty);
+  const { openDate } = useDatePopup();
 
   const payAmtRef        = useRef(null);
   const partyRef         = useRef(null);
@@ -533,8 +535,12 @@ export default function ReceiptEntry() {
           { id: 'reset', key: 'F5', label: 'Reset',
             onAction: handleReset },
           { id: 'date', key: 'F2', label: 'Date',
-            onAction: () => dateRef.current?.focus?.(),
-            title: 'Focus the Date field' },
+            onAction: () => openDate({
+              title: 'Receipt Date',
+              value: date,
+              onConfirm: (d) => setDate(d),
+            }),
+            title: 'Open the smart-input date popup' },
           { id: 'find', key: 'F4', label: 'Find',
             onAction: () => partyRef.current?.focus?.(),
             title: 'Focus the customer search' },
