@@ -60,10 +60,13 @@
   border: 1.5px solid var(--border, #e5e7eb);
   border-radius: 7px;
   color: var(--fg-primary, #1f2937);
-  font-family: 'Geist Mono', 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  /* Match the rest of the app — Source Sans 3 inherits from .dp-popup.
+     Tabular-nums keeps date digits aligned without going full mono. */
+  font-family: inherit;
   font-size: 16px;
   font-weight: 500;
-  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
   outline: none;
   transition: border-color .12s, box-shadow .12s;
 }
@@ -98,30 +101,6 @@
   letter-spacing: 0.02em;
 }
 .dp-preview .bad { color: rgba(220, 38, 38, 0.85); font-weight: 500; }
-
-.dp-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-.dp-chip {
-  padding: 4px 10px;
-  background: var(--bg-muted, #f3f4f6);
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 999px;
-  color: var(--fg-secondary, #6b7280);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background .12s, border-color .12s, color .12s;
-}
-.dp-chip:hover {
-  background: var(--accent-bg, rgba(79,70,229,0.10));
-  border-color: color-mix(in srgb, var(--accent, #4F46E5) 35%, transparent);
-  color: var(--accent, #4F46E5);
-}
 
 .dp-foot {
   display: flex;

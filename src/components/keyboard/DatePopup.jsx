@@ -106,23 +106,33 @@ function SingleDatePopup({ value, title, onConfirm, onCancel }) {
   const parsed = useMemo(() => parseSmartDate(text, initial) || null, [text, initial]);
   const valid  = parsed && parsed.isValid();
 
-  const presets = [
-    { k: 'today',  l: 'Today',     d: () => dayjs() },
-    { k: 'yest',   l: 'Yesterday', d: () => dayjs().subtract(1, 'day') },
-    { k: 'tom',    l: 'Tomorrow',  d: () => dayjs().add(1, 'day') },
-    { k: 'som',    l: 'Start of month', d: () => dayjs().date(1) },
-    { k: 'eom',    l: 'End of month',   d: () => dayjs().endOf('month').startOf('day') },
-  ];
-
   const handleConfirm = () => {
     if (!valid) return;
     onConfirm(parsed);
   };
 
-  const handleKey = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); handleConfirm(); }
-    else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
-  };
+  // Capture-phase Esc/Enter handler — runs BEFORE any other window
+  // keydown listener (e.g. the form's ActionStrip Esc → Back). Without
+  // this, pressing Esc while the popup is open would close the form
+  // instead of the popup. stopImmediatePropagation kills any other
+  // capture-phase listeners on the same target too.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        onCancel();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        handleConfirm();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  });
 
   return (
     <div className="dp-backdrop" onMouseDown={onCancel}>
@@ -137,8 +147,7 @@ function SingleDatePopup({ value, title, onConfirm, onCancel }) {
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKey}
-          placeholder="DD-MM-YYYY · today · +1w · 15"
+          placeholder="DD-MM-YYYY"
           autoComplete="off"
           spellCheck={false}
         />
@@ -152,18 +161,6 @@ function SingleDatePopup({ value, title, onConfirm, onCancel }) {
           ) : (
             text ? <span className="bad">Couldn't parse — try DD-MM-YYYY</span> : <span>&nbsp;</span>
           )}
-        </div>
-        <div className="dp-presets">
-          {presets.map(p => (
-            <button key={p.k} type="button" className="dp-chip"
-              onClick={() => {
-                const d = p.d();
-                setText(d.format('DD-MM-YYYY'));
-                onConfirm(d);
-              }}>
-              {p.l}
-            </button>
-          ))}
         </div>
         <div className="dp-foot">
           <button type="button" className="dp-btn" onClick={onCancel}>Cancel <kbd>Esc</kbd></button>
@@ -199,34 +196,30 @@ function RangeDatePopup({ value, title, onConfirm, onCancel }) {
     && parsedFrom.isValid() && parsedTo.isValid()
     && !parsedFrom.isAfter(parsedTo);
 
-  const apply = (f, t) => onConfirm([f, t]);
-  const presets = [
-    { k: 'today',     l: 'Today',       f: () => [dayjs(), dayjs()] },
-    { k: 'thisweek',  l: 'This Week',   f: () => [dayjs().startOf('week'),  dayjs().endOf('week').startOf('day')] },
-    { k: 'thismonth', l: 'This Month',  f: () => [dayjs().startOf('month'), dayjs().endOf('month').startOf('day')] },
-    { k: 'thisq',     l: 'This Quarter',f: () => {
-        const q = Math.floor(dayjs().month() / 3);
-        const start = dayjs().month(q * 3).startOf('month');
-        return [start, start.add(3, 'month').subtract(1, 'day')];
-      } },
-    { k: 'thisfy',    l: 'This FY',     f: () => [fyStart(), fyEnd()] },
-    { k: 'lastfy',    l: 'Last FY',     f: () => {
-        const ls = fyStart().subtract(1, 'year');
-        return [ls, ls.add(1, 'year').subtract(1, 'day')];
-      } },
-    { k: '7d',        l: 'Last 7 days',  f: () => [dayjs().subtract(6, 'day'), dayjs()] },
-    { k: '30d',       l: 'Last 30 days', f: () => [dayjs().subtract(29, 'day'), dayjs()] },
-  ];
-
   const handleConfirm = () => {
     if (!valid) return;
-    apply(parsedFrom, parsedTo);
+    onConfirm([parsedFrom, parsedTo]);
   };
 
-  const handleKey = (e) => {
-    if (e.key === 'Enter')  { e.preventDefault(); handleConfirm(); }
-    else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
-  };
+  // Capture-phase keydown — same logic as the single popup. Stops the
+  // form's strip Esc handler from firing while the popup is open.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        onCancel();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        handleConfirm();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  });
 
   return (
     <div className="dp-backdrop" onMouseDown={onCancel}>
@@ -243,7 +236,6 @@ function RangeDatePopup({ value, title, onConfirm, onCancel }) {
               className={`dp-input${parsedFrom ? '' : ' invalid'}`}
               type="text" value={fromText}
               onChange={(e) => setFromText(e.target.value)}
-              onKeyDown={handleKey}
               placeholder="DD-MM-YYYY"
               autoComplete="off"
               spellCheck={false}
@@ -257,7 +249,6 @@ function RangeDatePopup({ value, title, onConfirm, onCancel }) {
               className={`dp-input${parsedTo ? '' : ' invalid'}`}
               type="text" value={toText}
               onChange={(e) => setToText(e.target.value)}
-              onKeyDown={handleKey}
               placeholder="DD-MM-YYYY"
               autoComplete="off"
               spellCheck={false}
@@ -276,19 +267,6 @@ function RangeDatePopup({ value, title, onConfirm, onCancel }) {
               ? '"From" must be on or before "To"'
               : 'Invalid date'}</span>
           )}
-        </div>
-        <div className="dp-presets">
-          {presets.map(p => (
-            <button key={p.k} type="button" className="dp-chip"
-              onClick={() => {
-                const [f, t] = p.f();
-                setFromText(f.format('DD-MM-YYYY'));
-                setToText(t.format('DD-MM-YYYY'));
-                apply(f, t);
-              }}>
-              {p.l}
-            </button>
-          ))}
         </div>
         <div className="dp-foot">
           <button type="button" className="dp-btn" onClick={onCancel}>Cancel <kbd>Esc</kbd></button>
