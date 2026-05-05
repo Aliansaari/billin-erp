@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Table, Modal, Form, Input, Select, message, Tooltip } from 'antd';
 import {
-  SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
+  SearchOutlined, PlusOutlined,
   TagsOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { categoryAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './category-list.css';
 
 export default function CategoryList() {
@@ -16,6 +18,8 @@ export default function CategoryList() {
   const [editing, setEditing]         = useState(null);
   const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
+
+  const searchInputRef = useRef(null);
 
   useEffect(() => { loadCategories(); }, []);
 
@@ -55,6 +59,10 @@ export default function CategoryList() {
 
   /* ── Top-level categories (for the parent dropdown in the modal) ── */
   const topLevel = useMemo(() => allData.filter(c => !c._parentId), [allData]);
+
+  /* ── Selection model — cursor + multi-select on the filtered list. */
+  const sel = useListSelection({ totalCount: filtered.length, rows: filtered });
+  const single = sel.activeRow;
 
   const openForm = (cat = null) => {
     setEditing(cat);
@@ -143,19 +151,8 @@ export default function CategoryList() {
       sorter: (a, b) => a._subCount - b._subCount,
       render: (v) => v > 0 ? <span className="cl-subcat-tag">{v}</span> : <span className="cl-muted">—</span>,
     },
-    {
-      key: 'actions', title: 'Actions', width: 110, align: 'right',
-      render: (_, c) => (
-        <span className="cl-row-actions">
-          <Tooltip title="Edit">
-            <button className="cl-row-btn" onClick={() => openForm(c)}><EditOutlined /></button>
-          </Tooltip>
-          <Tooltip title="Deactivate">
-            <button className="cl-row-btn danger" onClick={() => handleDelete(c)}><DeleteOutlined /></button>
-          </Tooltip>
-        </span>
-      ),
-    },
+    // (Per-row Edit + Deactivate buttons removed — both moved to the
+    // bottom ActionStrip and operate on the cursored category.)
   ];
 
   return (
@@ -170,6 +167,7 @@ export default function CategoryList() {
           <div className="cl-search">
             <SearchOutlined />
             <input
+              ref={searchInputRef}
               placeholder="Search name, code, or parent…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -191,7 +189,20 @@ export default function CategoryList() {
           columns={columns}
           dataSource={filtered}
           rowKey="category_id"
-          rowClassName={(c) => c._parentId ? 'cl-row-sub' : ''}
+          rowClassName={(c, idx) => {
+            const base = c._parentId ? 'cl-row-sub' : '';
+            const cur  = sel.cursorIdx === idx ? ' vrt-row-active'
+                        : sel.selectedSet.has(idx) ? ' vrt-row-multi' : '';
+            return base + cur;
+          }}
+          onRow={(record, index) => ({
+            onClick: (e) => {
+              if (e.shiftKey)               sel.extendTo(index);
+              else if (e.ctrlKey || e.metaKey) sel.toggleRow(index);
+              else                             sel.setCursor(index);
+            },
+            onDoubleClick: () => record && openForm(record),
+          })}
           loading={loading && allData.length === 0}
           pagination={false}
           scroll={{ y: 'calc(100vh - 180px)' }}
@@ -199,6 +210,42 @@ export default function CategoryList() {
           locale={{ emptyText: search ? 'No categories match the search' : 'No categories yet' }}
         />
       </div>
+
+      {/* ── Action strip — F2 Edit · F3 New · F4 Find · F5 Refresh ·
+          F8 Deactivate (danger). F1 = Edit (since "open" on a master
+          list IS opening the edit form). Categories don't have a
+          detail page distinct from the edit modal. */}
+      <ActionStrip
+        actions={[
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: !single,
+            onAction: () => single && openForm(single),
+          },
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: () => openForm(),
+          },
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => loadCategories(),
+          },
+          {
+            id: 'deactivate', key: 'F8', label: 'Deactivate', tone: 'danger',
+            disabled: !single,
+            onAction: () => single && handleDelete(single),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Edit', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && openForm(single),
+          },
+        ]}
+      />
 
       {/* ── Add / Edit Modal ── */}
       <Modal
