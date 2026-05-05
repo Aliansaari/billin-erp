@@ -173,6 +173,36 @@
   padding: 0 28px 20px;
   display: flex;
 }
+/* When the page has an ActionStrip docked at the bottom, drop both
+   the wrap's side padding (so the table runs edge-to-edge with the
+   page chrome) and trim the bottom to a small gap — the strip's own
+   border + padding handle the rest. Returns lists that haven't been
+   migrated to the strip keep the original 28px / 20px padding. */
+.blist-page:has(.astrip) .blist-wrap {
+  padding: 0 12px 6px;
+}
+
+/* Compact rows on bill lists (Sales / Purchase / Returns).
+   Antd small-table cells default to ~8px vertical padding and the
+   per-cell renders carry 13-14px font, which yields ~42-47px row
+   heights — too tall for a daily-use bills list. Trim padding +
+   slightly drop body cell font so rows hit ~28-32px while keeping
+   amounts readable. Scoped to .blist-page so we don't touch other
+   Antd tables in the app (reports, drafts modal, view modal). */
+.blist-page .ant-table-tbody > tr > td,
+.blist-page .ant-table-row > .ant-table-cell {
+  padding: 6px 8px !important;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.blist-page .ant-table-thead > tr > th {
+  padding: 7px 8px !important;
+  font-size: 12px;
+  line-height: 1.35;
+}
+/* Amount cells stay tabular-nums and a hair larger so they read clean
+   at the tighter padding. */
+.blist-page .amt { font-size: 13px; }
 .blist {
   flex: 1 1 auto;
   min-height: 0;

@@ -8,40 +8,40 @@
 .astrip {
   background: var(--bg-muted, #fafafa);
   border-top: 1px solid var(--border, #e5e7eb);
-  padding: 8px 24px;
+  padding: 5px 12px;
   /* Strips that live inside a flex column page sit at the bottom and
      don't shrink. The page's main content area takes the rest. */
   flex: 0 0 auto;
 }
-.astrip.dense { padding: 6px 16px; }
+.astrip.dense { padding: 4px 10px; }
 
 .astrip-inner {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 6px;
   align-items: center;
 }
-.astrip.dense .astrip-inner { gap: 6px; }
+.astrip.dense .astrip-inner { gap: 4px; }
 
 .astrip-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 14px;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
   background: var(--bg-panel, #fff);
   border: 1px solid var(--border, #e5e7eb);
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--fg-primary, #1f2937);
   font: inherit;
   font-weight: 500;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(45, 31, 21, 0.04);
   transition: all .18s cubic-bezier(.2,.7,.2,1);
 }
-.astrip.dense .astrip-btn { height: 30px; padding: 0 10px; font-size: 12px; }
+.astrip.dense .astrip-btn { height: 26px; padding: 0 8px; font-size: 11.5px; }
 
 .astrip-btn:hover:not(:disabled) {
   border-color: var(--border-strong, #d1d5db);
@@ -122,19 +122,19 @@
 .astrip-info {
   display: inline-flex;
   align-items: center;
-  height: 36px;
-  padding: 0 12px;
+  height: 30px;
+  padding: 0 10px;
   margin-right: 4px;
   background: var(--accent-bg, rgba(79,70,229,0.12));
   border: 1px solid color-mix(in srgb, var(--accent, #4F46E5) 35%, transparent);
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--accent, #4F46E5);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-.astrip.dense .astrip-info { height: 30px; padding: 0 10px; font-size: 11px; }
+.astrip.dense .astrip-info { height: 26px; padding: 0 8px; font-size: 11px; }
 
 .astrip-badge {
   display: inline-block;

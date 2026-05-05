@@ -1,26 +1,28 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Tag, Typography, message, DatePicker, Select, Tooltip,
+  Tag, Typography, message, DatePicker, Select,
   Modal, Descriptions, Divider, Dropdown, Table,
 } from 'antd';
 import {
-  PlusOutlined, SearchOutlined, EyeOutlined, StopOutlined,
-  PrinterOutlined, EditOutlined, MoreOutlined,
-  DollarOutlined, BarcodeOutlined, WarningOutlined, SettingOutlined,
+  PlusOutlined, SearchOutlined,
+  WarningOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, settingsAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
-import { printDocument } from '../../services/printer';
+import { printDocument, exportBillPDF } from '../../services/printer';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-list.css';
 
 // Purchases don't carry a return amount — just items / GST / discount.
 const PURCHASE_OPTIONAL_COLS = [
   { key: 'time',     label: 'Time' },
+  { key: 'godown',   label: 'Godown' },
   { key: 'phone',    label: 'Phone' },
   { key: 'gstin',    label: 'GSTIN' },
   { key: 'supplierBill', label: 'Supplier bill #' },
@@ -34,13 +36,11 @@ const PURCHASE_OPTIONAL_COLS = [
 const PURCHASE_SECTIONS = [
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-// v5 splits the combined "Phone / Supplier bill" column into three
-// pure-purpose columns: `phone`, `gstin`, `supplierBill`. v4 users
-// inherit `phone` and `supplierBill` as default-true so the data
-// they used to see stays visible; `gstin` is opt-in.
-const COLS_STORAGE_KEY = 'purchaseList_cols_v5';
+// v6 promotes the godown badge to its own toggleable column. Existing
+// v5 users inherit `godown: true` via DEFAULT_COLS spread on first read.
+const COLS_STORAGE_KEY = 'purchaseList_cols_v6';
 const DEFAULT_COLS = {
-  time: true, phone: true, gstin: false, supplierBill: true,
+  time: true, godown: true, phone: true, gstin: false, supplierBill: true,
   items: true, pieces: true,
   gst: false, discount: false,
   totalRow: true,
@@ -176,8 +176,10 @@ export default function PurchaseList() {
 
   const [viewBill, setViewBill]     = useState(null);
   const [barcodeModal, setBarcodeModal] = useState({ visible: false, bill: null });
-  const [actionLoading, setActionLoading] = useState({});
   const [companyName, setCompanyName] = useState('');
+
+  // Search input ref so the F4 = Find action can focus it from the strip.
+  const searchInputRef = useRef(null);
 
   // ── Virtualized data layer ────────────────────────────────────────
   const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
@@ -204,48 +206,13 @@ export default function PurchaseList() {
     settingsAPI.getSystem().then(({ data }) => setCompanyName(data?.data?.company_name || '')).catch(() => {});
   }, []);
 
-  const handleCancel = async (id) => {
-    try {
-      await purchaseAPI.cancel(id);
-      message.success('Bill cancelled successfully');
-      refresh();
-    } catch (e) {
-      const reason = e.response?.data?.error || 'Failed to cancel bill';
-      const isPaymentBlock = reason.toLowerCase().includes('payment');
-      const tip = isPaymentBlock
-        ? '💡 Go to Payments, find the listed payment(s) and cancel them. Then come back to cancel this bill.'
-        : '💡 To reverse this purchase, create a Purchase Return instead. This keeps your stock and ledger accurate.';
-      Modal.error({
-        title: (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <WarningOutlined style={{ color: '#ef4444', fontSize: 20 }} />
-            <span style={{ color: '#ef4444', fontWeight: 700 }}>Cannot Cancel Bill</span>
-          </div>
-        ),
-        icon: null, width: 480,
-        content: (
-          <div style={{ marginTop: 8 }}>
-            <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:8, padding:'12px 16px', marginBottom:12 }}>
-              <div style={{ fontSize:13, color:'#7f1d1d', lineHeight:1.6 }}>{reason}</div>
-            </div>
-            <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'10px 14px', fontSize:12, color:'#1e40af', lineHeight:1.6 }}>{tip}</div>
-          </div>
-        ),
-        okText: 'Got it', okButtonProps: { danger: true },
-      });
-    }
-  };
-
   const fetchBill = useCallback(async (id) => {
-    setActionLoading(prev => ({ ...prev, [id]: true }));
     try {
       const { data } = await purchaseAPI.getById(id);
       return data;
     } catch {
       message.error('Failed to load bill');
       return null;
-    } finally {
-      setActionLoading(prev => ({ ...prev, [id]: false }));
     }
   }, []);
 
@@ -265,9 +232,58 @@ export default function PurchaseList() {
     setBarcodeModal({ visible: true, bill: { ...bill, printItems } });
   };
 
+  const handleExportPDF = (bill) => exportBillPDF({ docType: 'purchase', bill });
   const handleRecordPayment = (bill) => {
     navigate('/payment/new', { state: { preselect: { party_id: bill.supplier?.party_id, bill_id: bill.purchase_bill_id } } });
   };
+
+  // ── Selection model — cursor + multi-select.
+  const sel = useListSelection({ totalCount, rows });
+  const activeRow      = sel.activeRow;
+  const selectedRows   = sel.selectedRows;
+  const selectionCount = sel.selectionCount;
+  const isMulti        = selectionCount > 1;
+  const single         = !isMulti ? activeRow : null;
+  const singleCancelled  = single?.is_cancelled;
+  const singleHasBalance = single ? parseFloat(single.balance_amount || 0) > 0.01 : false;
+
+  // Bulk-cancel — confirm once, run cancellations serially, summarize at
+  // the end. Avoids drowning the user in N error popups on a partial fail.
+  const handleBulkCancel = useCallback((rowsToCancel) => {
+    const cancellable = rowsToCancel.filter(r => r && !r.is_cancelled);
+    if (cancellable.length === 0) {
+      message.info('Nothing to cancel — selection is already cancelled.');
+      return;
+    }
+    Modal.confirm({
+      title: cancellable.length === 1
+        ? `Cancel bill ${cancellable[0].bill_number}?`
+        : `Cancel ${cancellable.length} bills?`,
+      content: 'Cancelling is permanent. Stock and ledger entries will be reversed for each bill.',
+      okText: cancellable.length === 1 ? 'Cancel this bill' : `Cancel ${cancellable.length} bills`,
+      okButtonProps: { danger: true },
+      cancelText: 'Keep them',
+      onOk: async () => {
+        let ok = 0, fail = 0;
+        const failures = [];
+        for (const r of cancellable) {
+          try {
+            await purchaseAPI.cancel(r.purchase_bill_id);
+            ok++;
+          } catch (e) {
+            fail++;
+            failures.push(`${r.bill_number}: ${e.response?.data?.error || 'failed'}`);
+          }
+        }
+        refresh();
+        if (fail === 0) message.success(`Cancelled ${ok} bill${ok === 1 ? '' : 's'}.`);
+        else {
+          message.warning(`${ok} cancelled, ${fail} failed.`);
+          if (failures.length <= 3) failures.forEach(f => message.error(f));
+        }
+      },
+    });
+  }, [refresh]);
 
   // KPI values from server-aggregated `summary` so they reflect the
   // full filtered set, not just what's been scrolled into view.
@@ -286,20 +302,25 @@ export default function PurchaseList() {
       render: (_, __, idx) => <span className="sr-n">{String(idx + 1).padStart(2, '0')}</span>,
     },
     {
+      // Bill # cell is now pure — the godown badge moved to its own
+      // toggleable column (key='godown') so it can be shown/hidden
+      // via the Customize popover.
       key: 'bill', title: 'Bill #', dataIndex: 'bill_number', width: 130,
-      render: (v, r) => (
-        <span className="bill-no">
-          {v}
-          {r.godown && (
-            <span title={`Godown: ${r.godown.name}`} style={{
-              marginLeft: 6, padding: '1px 5px', fontSize: 10, fontWeight: 600,
-              border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
-              color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
-              fontFamily: 'var(--font-mono, monospace)', verticalAlign: 'middle',
-            }}>{r.godown.code}</span>
-          )}
-        </span>
-      ),
+      render: (v) => <span className="bill-no">{v}</span>,
+    },
+    cols.godown && {
+      key: 'godown', title: 'Godown', width: 110,
+      render: (_, r) => r.godown
+        ? (
+          <span title={`Godown: ${r.godown.name}`} style={{
+            display: 'inline-block', padding: '1px 6px',
+            fontSize: 11, fontWeight: 600,
+            border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
+            color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
+            fontFamily: 'var(--font-mono, monospace)',
+          }}>{r.godown.code}</span>
+        )
+        : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>,
     },
     {
       key: 'date', title: 'Date', dataIndex: 'bill_date', width: 120,
@@ -427,65 +448,8 @@ export default function PurchaseList() {
         return <span className="amt due"><span className="rs">₹</span>{Math.round(balance).toLocaleString('en-IN')}</span>;
       },
     },
-    {
-      key: 'actions', title: '', width: 130, align: 'center', fixed: 'right',
-      render: (_, r) => {
-        const cancelled = !!r.is_cancelled;
-        const balance = parseFloat(r.balance_amount || 0);
-        const openBill = !cancelled && balance > 0.01;
-        const moreMenu = {
-          items: [
-            ...(openBill ? [{
-              key: 'payment', icon: <DollarOutlined />, label: 'Record payment',
-              onClick: () => handleRecordPayment(r),
-            }, { type: 'divider' }] : []),
-            { key: 'print', icon: <PrinterOutlined />, label: 'Print', onClick: () => handlePrint(r.purchase_bill_id) },
-            { key: 'edit',  icon: <EditOutlined />,    label: 'Edit',  onClick: () => handleEdit(r.purchase_bill_id), disabled: cancelled },
-            { type: 'divider' },
-            {
-              key: 'cancel', icon: <StopOutlined />,
-              label: cancelled ? 'Already cancelled' : 'Cancel bill',
-              danger: true, disabled: cancelled,
-              onClick: () => {
-                Modal.confirm({
-                  title: `Cancel bill ${r.bill_number}?`,
-                  content: 'Cancelling is permanent. Stock and ledger entries will be reversed.',
-                  okText: 'Cancel this bill', okButtonProps: { danger: true },
-                  cancelText: 'Keep it',
-                  onOk: () => handleCancel(r.purchase_bill_id),
-                });
-              },
-            },
-          ],
-        };
-        const isLoading = !!actionLoading[r.purchase_bill_id];
-        // Override the legacy `.act-box .group { opacity:0 }` hover-reveal —
-        // it depended on `.brow.data:hover` which no longer matches inside
-        // an Antd table cell. Actions are always visible in this layout.
-        const groupStyle = { justifyContent: 'center', opacity: 1, transform: 'none', pointerEvents: 'auto' };
-        return (
-          <div className="act-box">
-            <div className="group" style={groupStyle}>
-              <Tooltip title="View">
-                <button className="abtn" onClick={(e) => { e.stopPropagation(); handleView(r.purchase_bill_id); }} disabled={isLoading}>
-                  <EyeOutlined />
-                </button>
-              </Tooltip>
-              <Tooltip title="Print barcodes">
-                <button className="abtn" onClick={(e) => { e.stopPropagation(); handleBarcode(r.purchase_bill_id); }} disabled={isLoading || cancelled}>
-                  <BarcodeOutlined />
-                </button>
-              </Tooltip>
-              <Dropdown menu={moreMenu} trigger={['click']} placement="bottomRight">
-                <button className="abtn" onClick={(e) => e.stopPropagation()} disabled={isLoading}>
-                  <MoreOutlined />
-                </button>
-              </Dropdown>
-            </div>
-          </div>
-        );
-      },
-    },
+    // (Per-row actions column removed — all bill actions live in the
+    // bottom ActionStrip and operate on the cursored / selected rows.)
   ].filter(Boolean);
 
   // Bottom Total strip — driven by server-aggregated `summary`. Same
@@ -532,6 +496,7 @@ export default function PurchaseList() {
           <div className="blist-search">
             <SearchOutlined />
             <input
+              ref={searchInputRef}
               type="text"
               placeholder="Search bill no or supplier"
               value={searchInput}
@@ -647,13 +612,75 @@ export default function PurchaseList() {
           rowClassName={(r) => r && r.is_cancelled ? 'blist-row-cancelled' : ''}
           summaryCells={cols.totalRow ? summaryCells : undefined}
           summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
-          // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens the
-          // purchase-bill edit form for the active row.
-          keyboardNav
-          persistKey="purchase-list"
-          onRowEnter={(row) => row?.purchase_bill_id && navigate(`/purchase/edit/${row.purchase_bill_id}`)}
+          controlledCursorIdx={sel.cursorIdx}
+          controlledSelectedSet={sel.selectedSet}
+          onCursorMove={sel.setCursor}
+          onShiftClickRow={sel.extendTo}
+          onCtrlClickRow={sel.toggleRow}
+          onRow={(record) => ({
+            onDoubleClick: () => record?.purchase_bill_id && handleView(record.purchase_bill_id),
+          })}
         />
       </div>
+
+      {/* ── Bottom action strip — same layout as Sales List with
+          purchase-specific tweaks: F6 = record Payment (money out),
+          F7 = print Barcode labels (purchase-only), no WhatsApp.
+          Strip handlers act on the cursored row (single) or the
+          selected set (multi). */}
+      <ActionStrip
+        info={isMulti ? `${selectionCount} selected` : null}
+        actions={[
+          {
+            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
+            disabled: isMulti || !single,
+            onAction: () => single && handleView(single.purchase_bill_id),
+          },
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: isMulti || !single || singleCancelled,
+            onAction: () => single && handleEdit(single.purchase_bill_id),
+          },
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: () => navigate('/purchase/new'),
+          },
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => refresh(),
+          },
+          {
+            id: 'payment', key: 'F6', label: 'Payment',
+            disabled: isMulti || !single || singleCancelled || !singleHasBalance,
+            onAction: () => single && handleRecordPayment(single),
+          },
+          {
+            id: 'barcodes', key: 'F7', label: 'Barcodes',
+            disabled: isMulti || !single || singleCancelled,
+            onAction: () => single && handleBarcode(single.purchase_bill_id),
+            title: 'Print barcode labels for items in this bill',
+          },
+          {
+            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
+            disabled: !activeRow,
+            onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            disabled: isMulti || !single,
+            onAction: () => single && handlePrint(single.purchase_bill_id),
+          },
+          {
+            id: 'export', key: 'F10', label: 'Export PDF',
+            disabled: isMulti || !single,
+            onAction: () => single && handleExportPDF(single),
+          },
+        ]}
+      />
 
       <ViewModal bill={viewBill} onClose={() => setViewBill(null)} />
 

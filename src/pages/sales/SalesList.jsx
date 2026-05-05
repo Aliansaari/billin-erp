@@ -25,6 +25,7 @@ import './sales-bill-form.css';
 // match the state shape persisted to localStorage.
 const SALES_OPTIONAL_COLS = [
   { key: 'time',     label: 'Time' },
+  { key: 'godown',   label: 'Godown' },
   { key: 'mobile',   label: 'Mobile' },
   { key: 'gstin',    label: 'GSTIN' },
   { key: 'items',    label: 'Items (count)' },
@@ -39,12 +40,14 @@ const SALES_OPTIONAL_COLS = [
 const SALES_SECTIONS = [
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-// v5 splits the combined Mobile/GSTIN column into two pure-purpose
-// columns: `mobile` shows mobile_1 only, `gstin` shows the GSTIN only.
-// Walk-in names no longer appear in the row (still in the View modal).
-const COLS_STORAGE_KEY = 'salesList_cols_v5';
+// v6 promotes the godown badge (previously rendered inline next to the
+// bill number) to its own toggleable column. Existing v5 users inherit
+// `godown: true` via the DEFAULT_COLS spread on first read, so the
+// info they used to see stays visible.
+const COLS_STORAGE_KEY = 'salesList_cols_v6';
 const DEFAULT_COLS = {
-  time: true, mobile: true, gstin: false, items: true, pieces: true,
+  time: true, godown: true, mobile: true, gstin: false,
+  items: true, pieces: true,
   gst: false, discount: false, return: false,
   totalRow: true,
 };
@@ -348,20 +351,25 @@ export default function SalesList() {
       render: (_, __, idx) => <span className="sr-n">{String(idx + 1).padStart(2, '0')}</span>,
     },
     {
+      // Bill # cell is now pure — the godown badge moved to its own
+      // toggleable column (key='godown') so it can be shown/hidden via
+      // the Customize popover without crowding the bill number.
       key: 'bill', title: 'Bill #', dataIndex: 'bill_number', width: 130,
-      render: (v, r) => (
-        <span className="bill-no">
-          {v}
-          {r.godown && (
-            <span title={`Godown: ${r.godown.name}`} style={{
-              marginLeft: 6, padding: '1px 5px', fontSize: 10, fontWeight: 600,
-              border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
-              color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
-              fontFamily: 'var(--font-mono, monospace)', verticalAlign: 'middle',
-            }}>{r.godown.code}</span>
-          )}
-        </span>
-      ),
+      render: (v) => <span className="bill-no">{v}</span>,
+    },
+    cols.godown && {
+      key: 'godown', title: 'Godown', width: 110,
+      render: (_, r) => r.godown
+        ? (
+          <span title={`Godown: ${r.godown.name}`} style={{
+            display: 'inline-block', padding: '1px 6px',
+            fontSize: 11, fontWeight: 600,
+            border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
+            color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
+            fontFamily: 'var(--font-mono, monospace)',
+          }}>{r.godown.code}</span>
+        )
+        : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>,
     },
     {
       key: 'date', title: 'Date', dataIndex: 'bill_date', width: 120,

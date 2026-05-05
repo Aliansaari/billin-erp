@@ -1709,14 +1709,15 @@ export default function SalesBillForm() {
   const focusItemsTable = () => {
     const wrap = tableWrapRef.current;
     if (!wrap) return;
-    const inputs = wrap.querySelectorAll('input:not([disabled]):not([readonly]):not([type="hidden"])');
-    if (inputs.length === 0) return;
-    // Last row's quantity cell — try the cell-id pattern first, then
-    // fall back to the very last input (which on Antd small tables is
-    // typically the GST cell of the last row, still close enough for
-    // arrow-nav to drive the rest).
-    const lastRowQty = wrap.querySelector('[id$="-2"] input') || null;
-    const target = lastRowQty || inputs[inputs.length - 1];
+    // Cell-id pattern is sc-{rowIdx}-{ciIdx}. numCell call sites
+    // hard-code Quantity at ciIdx=5 (see allCols), so we target every
+    // sc-*-5 cell and pick the last one — the daily case is "fix the
+    // qty of the item I just scanned". If no rows exist yet, F3 stays
+    // put rather than chasing some stray input like the verified ✓
+    // header checkbox or one of the entry-row controls.
+    const qtyCells = wrap.querySelectorAll('[id^="sc-"][id$="-5"] input');
+    if (qtyCells.length === 0) return;
+    const target = qtyCells[qtyCells.length - 1];
     target.focus();
     target.select?.();
   };
