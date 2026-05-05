@@ -6,7 +6,7 @@ import {
   SettingOutlined, DollarCircleOutlined, RollbackOutlined, SafetyCertificateOutlined,
   FundOutlined, CreditCardOutlined, ProductOutlined, GoldOutlined, AuditOutlined,
 } from '@ant-design/icons';
-import { partyAPI, productAPI } from '../api';
+import { partyAPI, productAPI, ledgerAPI } from '../api';
 import './globalSearch.css';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -57,6 +57,7 @@ const ACTIONS = [
   { id: 'r-sales',      icon: BarChartOutlined,     label: 'Sales report',              sub: 'Bill-level sales',           group: 'Reports',  route: '/reports/sales',              keywords: 'sales report' },
   { id: 'r-purc',       icon: BarChartOutlined,     label: 'Purchase report',           sub: 'Bill-level purchases',       group: 'Reports',  route: '/reports/purchases',          keywords: 'purchase report' },
   { id: 'r-day',        icon: BookOutlined,         label: 'Day book',                  sub: 'All vouchers by day',        group: 'Reports',  route: '/reports/day-book',           keywords: 'day book daybook journal' },
+  { id: 'r-ledger',     icon: BookOutlined,         label: 'Ledger statement',          sub: 'COA ledger — pick to drill', group: 'Reports',  route: '/reports/ledger',             keywords: 'ledger statement coa chart account' },
   { id: 'r-tb',         icon: BookOutlined,         label: 'Trial balance',             sub: 'Tally-style closing',        group: 'Reports',  route: '/reports/trial-balance',      keywords: 'trial balance tb' },
   { id: 'r-bs',         icon: BookOutlined,         label: 'Balance sheet',             sub: 'Assets & liabilities',       group: 'Reports',  route: '/reports/balance-sheet',      keywords: 'balance sheet bs assets liabilities' },
   { id: 'r-pl',         icon: BookOutlined,         label: 'Profit & Loss',             sub: 'P&L statement',              group: 'Reports',  route: '/reports/profit-loss',        keywords: 'profit loss pl income statement' },
@@ -140,7 +141,7 @@ function groupResults(results) {
     if (!groups[r.group]) groups[r.group] = [];
     groups[r.group].push(r);
   }
-  const tieBreak = ['Create', 'Customers', 'Suppliers', 'Products', 'Browse', 'Reports', 'Banks', 'Settings'];
+  const tieBreak = ['Create', 'Customers', 'Suppliers', 'Ledgers', 'Products', 'Browse', 'Reports', 'Banks', 'Settings'];
   const tieIdx   = (g) => { const i = tieBreak.indexOf(g); return i === -1 ? 99 : i; };
   /* Parties / products don't have a computed score — they're API hits we
    * already trust as relevant — so default them to 1000. Actions carry
@@ -191,32 +192,44 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
   const [query,   setQuery]   = useState('');
   const [parties, setParties] = useState([]);
   const [products, setProds]  = useState([]);
+  const [ledgers, setLedgers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedIdx, setSel] = useState(0);
   const [recent] = useState(() => readRecent());
 
-  /* Live API search — debounced. Two endpoints in parallel: parties +
-   * products. We don't search bills here on purpose (the bill list pages
-   * have their own bill-number search; the global palette navigates to
-   * those entry points instead). */
+  /* Live API search — debounced. Three endpoints in parallel: parties +
+   * products + COA ledgers. We don't search bills here on purpose (the
+   * bill list pages have their own bill-number search; the global
+   * palette navigates to those entry points instead).
+   *
+   * exclude_party_ledgers=1 on the ledger fetch keeps the chart-of-account
+   * results free of party ledgers (Bharat Wholesale's auto-created ledger
+   * etc.) — those are already surfaced under Customers / Suppliers via
+   * the parties endpoint. */
   useEffect(() => {
     if (!query || query.length < 2) {
-      setParties([]); setProds([]);
+      setParties([]); setProds([]); setLedgers([]);
       return;
     }
     let cancelled = false;
     setLoading(true);
     const t = setTimeout(async () => {
       try {
-        const [pRes, prRes] = await Promise.allSettled([
+        const [pRes, prRes, lRes] = await Promise.allSettled([
           partyAPI.getAll({ search: query, limit: 6 }),
           productAPI.search(query, { limit: 6 }),
+          ledgerAPI.listAccounts({ search: query, exclude_party_ledgers: '1' }),
         ]);
         if (cancelled) return;
-        const pData = pRes.status === 'fulfilled' ? (pRes.value.data?.data || pRes.value.data || []) : [];
+        const pData  = pRes.status  === 'fulfilled' ? (pRes.value.data?.data  || pRes.value.data  || []) : [];
         const prData = prRes.status === 'fulfilled' ? (prRes.value.data?.data || prRes.value.data || []) : [];
-        setParties(Array.isArray(pData) ? pData : []);
-        setProds(Array.isArray(prData) ? prData : []);
+        const lData  = lRes.status  === 'fulfilled' ? (lRes.value.data?.data  || lRes.value.data  || []) : [];
+        setParties(Array.isArray(pData)  ? pData  : []);
+        setProds  (Array.isArray(prData) ? prData : []);
+        // Backend doesn't honour a `limit` on /ledger/accounts (it's ordered
+        // by group then name and used by COA pickers that want the full
+        // list). Cap client-side to keep the palette compact.
+        setLedgers(Array.isArray(lData)  ? lData.slice(0, 6) : []);
       } catch { /* swallow — empty results render */ }
       finally { if (!cancelled) setLoading(false); }
     }, 160);
@@ -256,6 +269,28 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       });
     }
 
+    // Ledgers (COA — Sales A/c, Bank, Office Rent, etc.). Party ledgers
+    // are filtered out at the API call (?exclude_party_ledgers=1) so a
+    // customer never appears here in addition to the Customers section.
+    for (const l of ledgers) {
+      const lid = l.ledger_id;
+      const balance = Number(l.current_balance || 0);
+      const balLabel = balance !== 0
+        ? `₹${Math.abs(Math.round(balance)).toLocaleString('en-IN')} ${balance > 0 ? 'Dr' : 'Cr'}`
+        : null;
+      out.push({
+        id: `ledger-${lid}`, kind: 'ledger',
+        icon: BookOutlined,
+        label: l.ledger_name,
+        sub: [l.ledger_group, l.sub_group, balLabel].filter(Boolean).join(' · '),
+        group: 'Ledgers',
+        // Land on the COA Ledger Statement with this ledger preselected.
+        // Same picker / period chips / print path as Customer & Supplier
+        // Statement, just keyed off ledger_id instead of party_id.
+        route: `/reports/ledger?id=${lid}`,
+      });
+    }
+
     // Products
     for (const pr of products) {
       const id = `prod-${pr.product_id || pr.id}`;
@@ -291,7 +326,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
     }
 
     return groupResults(out);
-  }, [query, parties, products]);
+  }, [query, parties, products, ledgers]);
 
   /* Flat list (for keyboard nav) — order matches what's rendered. */
   const flat = useMemo(() => groupedResults.flatMap(g => g.items), [groupedResults]);
