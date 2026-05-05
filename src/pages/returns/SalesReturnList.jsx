@@ -583,11 +583,8 @@ export default function SalesReturnList() {
       <ActionStrip
         info={isMulti ? `${selectionCount} selected` : null}
         actions={[
-          {
-            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
-            disabled: isMulti || !single,
-            onAction: () => single && handleView(single.sales_return_id),
-          },
+          // Visual order: utility on the left, destructive F8 + primary
+          // F1 on the right (matches forms + SalesList convention).
           {
             id: 'edit', key: 'F2', label: 'Edit',
             disabled: isMulti || !single || singleCancelled,
@@ -606,11 +603,6 @@ export default function SalesReturnList() {
             onAction: () => refresh(),
           },
           {
-            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
-            disabled: !activeRow,
-            onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
-          },
-          {
             id: 'print', key: 'F9', label: 'Print',
             disabled: isMulti || !single,
             onAction: () => single && handlePrint(single.sales_return_id),
@@ -619,6 +611,16 @@ export default function SalesReturnList() {
             id: 'export', key: 'F10', label: 'Export PDF',
             disabled: isMulti || !single,
             onAction: () => single && handleExportPDF(single),
+          },
+          {
+            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
+            disabled: !activeRow,
+            onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
+            disabled: isMulti || !single,
+            onAction: () => single && handleView(single.sales_return_id),
           },
         ]}
       />

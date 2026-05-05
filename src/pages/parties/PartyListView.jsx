@@ -747,11 +747,8 @@ export default function PartyListView({ partyType }) {
       <ActionStrip
         info={isMulti ? `${selectionCount} selected` : null}
         actions={[
-          {
-            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
-            disabled: isMulti || !single,
-            onAction: () => single && handleViewReport(single),
-          },
+          // Visual order: utility / nav on the left, destructive F8 +
+          // primary F1 on the right (matches forms + SalesList).
           {
             id: 'edit', key: 'F2', label: 'Edit',
             disabled: isMulti || !single,
@@ -788,6 +785,10 @@ export default function PartyListView({ partyType }) {
             ),
           },
           {
+            id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExport(),
+          },
+          {
             id: 'toggle', key: 'F8',
             label: (single && !single.is_active) ? 'Activate' : 'Deactivate',
             tone: 'danger',
@@ -795,8 +796,9 @@ export default function PartyListView({ partyType }) {
             onAction: () => handleBulkToggleActive(isMulti ? selectedRows : [single]),
           },
           {
-            id: 'export', key: 'F10', label: 'Export',
-            onAction: () => handleExport(),
+            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
+            disabled: isMulti || !single,
+            onAction: () => single && handleViewReport(single),
           },
         ]}
       />

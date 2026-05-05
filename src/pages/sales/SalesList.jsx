@@ -707,11 +707,10 @@ export default function SalesList() {
       <ActionStrip
         info={isMulti ? `${selectionCount} selected` : null}
         actions={[
-          {
-            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
-            disabled: isMulti || !single,
-            onAction: () => single && handleView(single.sales_bill_id),
-          },
+          // Visual order: utility / nav keys on the left, destructive
+          // F8 + primary F1 on the right — matches the convention used
+          // by the bill forms and Tally Prime (Esc on the left, primary
+          // action on the right of the button group).
           {
             id: 'edit', key: 'F2', label: 'Edit',
             disabled: isMulti || !single || singleCancelled,
@@ -740,11 +739,6 @@ export default function SalesList() {
             onAction: () => single && handleWhatsApp(single),
           },
           {
-            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
-            disabled: !activeRow,
-            onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
-          },
-          {
             id: 'print', key: 'F9', label: 'Print',
             disabled: isMulti || !single,
             onAction: () => single && handlePrint(single.sales_bill_id),
@@ -753,6 +747,16 @@ export default function SalesList() {
             id: 'export', key: 'F10', label: 'Export PDF',
             disabled: isMulti || !single,
             onAction: () => single && handleExportPDF(single),
+          },
+          {
+            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
+            disabled: !activeRow,
+            onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
+            disabled: isMulti || !single,
+            onAction: () => single && handleView(single.sales_bill_id),
           },
         ]}
       />

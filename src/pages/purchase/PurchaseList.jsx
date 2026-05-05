@@ -631,11 +631,9 @@ export default function PurchaseList() {
       <ActionStrip
         info={isMulti ? `${selectionCount} selected` : null}
         actions={[
-          {
-            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
-            disabled: isMulti || !single,
-            onAction: () => single && handleView(single.purchase_bill_id),
-          },
+          // Visual order matches the bill forms / SalesList: utility
+          // and content keys on the left, destructive F8 + primary F1
+          // on the right.
           {
             id: 'edit', key: 'F2', label: 'Edit',
             disabled: isMulti || !single || singleCancelled,
@@ -665,11 +663,6 @@ export default function PurchaseList() {
             title: 'Print barcode labels for items in this bill',
           },
           {
-            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
-            disabled: !activeRow,
-            onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
-          },
-          {
             id: 'print', key: 'F9', label: 'Print',
             disabled: isMulti || !single,
             onAction: () => single && handlePrint(single.purchase_bill_id),
@@ -678,6 +671,16 @@ export default function PurchaseList() {
             id: 'export', key: 'F10', label: 'Export PDF',
             disabled: isMulti || !single,
             onAction: () => single && handleExportPDF(single),
+          },
+          {
+            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
+            disabled: !activeRow,
+            onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
+            disabled: isMulti || !single,
+            onAction: () => single && handleView(single.purchase_bill_id),
           },
         ]}
       />

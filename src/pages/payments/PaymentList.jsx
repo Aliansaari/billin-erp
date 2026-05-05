@@ -260,11 +260,8 @@ export default function PaymentList() {
       <ActionStrip
         info={isMulti ? `${selectionCount} selected` : null}
         actions={[
-          {
-            id: 'print', key: 'F1', label: 'Print Voucher', tone: 'primary',
-            disabled: isMulti || !single || singleCancelled,
-            onAction: () => single && handlePrint(single),
-          },
+          // Visual order: nav keys on the left, destructive F8 +
+          // primary F1 on the right (matches forms + other lists).
           {
             id: 'new-payment', key: 'F3', label: 'New Payment',
             onAction: () => navigate('/payment/new'),
@@ -281,6 +278,11 @@ export default function PaymentList() {
             id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
             disabled: !activeRow,
             onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
+          },
+          {
+            id: 'print', key: 'F1', label: 'Print Voucher', tone: 'primary',
+            disabled: isMulti || !single || singleCancelled,
+            onAction: () => single && handlePrint(single),
           },
         ]}
       />
