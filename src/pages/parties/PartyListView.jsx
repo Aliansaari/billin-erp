@@ -456,6 +456,31 @@ export default function PartyListView({ partyType }) {
     return true;  // allow the row to also expand
   }, [sel]);
 
+  // Scroll-follow the cursor — keyboard arrow nav otherwise lets the
+  // cursor walk off-screen. Hand-rolled "minimum scroll" math that
+  // accounts for the sticky <thead> (position: sticky; top: 0) — the
+  // browser's native scrollIntoView doesn't know the thead is eating
+  // the top of the viewport, so it parks the cursor row half-buried
+  // behind the header on upward navigation.
+  useEffect(() => {
+    if (sel.cursorIdx == null) return;
+    const scroller = document.querySelector('.plv-table-scroll');
+    if (!scroller) return;
+    const row = scroller.querySelector(`[data-row-idx="${sel.cursorIdx}"]`);
+    if (!row) return;
+    const thead = scroller.querySelector('thead');
+    const headH = thead ? thead.offsetHeight : 0;
+    const rowRect = row.getBoundingClientRect();
+    const scRect  = scroller.getBoundingClientRect();
+    const rowTop = rowRect.top    - scRect.top;
+    const rowBot = rowRect.bottom - scRect.top;
+    if (rowTop < headH) {
+      scroller.scrollTop -= (headH - rowTop);
+    } else if (rowBot > scRect.height) {
+      scroller.scrollTop += (rowBot - scRect.height);
+    }
+  }, [sel.cursorIdx]);
+
   /* ── Render ────────────────────────────────────────────────────────────── */
   const overdueCount = aging?.overdue_count ?? lensCounts.overdue;
   const totalReceivable = aging?.total ?? parties.reduce((s, p) => s + Math.max(0, owingBalance(p)), 0);
@@ -675,7 +700,6 @@ export default function PartyListView({ partyType }) {
                   {cols.aging       && <col className="c-aging"/>}
                   {cols.credit      && <col className="c-credit"/>}
                   {cols.last        && <col className="c-last"/>}
-                  <col className="c-act"/>
                 </colgroup>
                 <thead>
                   <tr>
@@ -686,7 +710,6 @@ export default function PartyListView({ partyType }) {
                     {cols.aging       && <th>Aging</th>}
                     {cols.credit      && <th>Credit usage</th>}
                     {cols.last        && <th>Last transaction</th>}
-                    <th className="r">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -854,6 +877,7 @@ function PartyRow({ p, idx, cols, isCustomer, expanded, expandData, onExpand, on
   return (
     <>
       <tr
+        data-row-idx={idx}
         className={`row${expanded ? ' expanded' : ''}${cursorClass}`}
         onClick={(e) => {
           // Selection-modifier clicks bypass the expand toggle so a
@@ -942,19 +966,16 @@ function PartyRow({ p, idx, cols, isCustomer, expanded, expandData, onExpand, on
           </td>
         )}
 
-        {/* Per-row actions column removed — actions live in the bottom
-            ActionStrip and operate on the cursored / selected rows.
-            Keeping the <td> empty preserves the existing colgroup width
-            so the table layout doesn't shift. */}
-        <td className="plv-actions-cell" onClick={(e) => e.stopPropagation()}>
-          {!p.is_active && <span className="plv-status-tag blacklist">Inactive</span>}
-        </td>
+        {/* Per-row actions column dropped entirely — actions live in
+            the bottom ActionStrip. The "Inactive" badge that used to
+            sit here is already shown next to the party status above
+            (see cols.status branch). */}
       </tr>
 
       {/* Expanded row */}
       {expanded && (
         <tr className="exp-content">
-          <td colSpan={1 + (cols.status?1:0) + (cols.contact?1:0) + (cols.outstanding?1:0) + (cols.aging?1:0) + (cols.credit?1:0) + (cols.last?1:0) + 1}>
+          <td colSpan={1 + (cols.status?1:0) + (cols.contact?1:0) + (cols.outstanding?1:0) + (cols.aging?1:0) + (cols.credit?1:0) + (cols.last?1:0)}>
             {expandData?.loading ? (
               <div className="plv-exp-loading"><Spin/> Loading transactions…</div>
             ) : expandData?.error ? (

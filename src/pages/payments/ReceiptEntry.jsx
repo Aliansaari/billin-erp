@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Input, DatePicker, Select, Button, InputNumber, message, Checkbox, Modal, Tooltip } from 'antd';
 import {
-  ArrowLeftOutlined, ReloadOutlined, CheckCircleOutlined,
   CheckOutlined, MinusOutlined,
 } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -9,6 +8,7 @@ import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-entry.css';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -62,6 +62,9 @@ export default function ReceiptEntry() {
 
   const payAmtRef        = useRef(null);
   const partyRef         = useRef(null);
+  // F2 = Date, F4 = Find (party). Wires up the previously-decorative
+  // "Date · F2" and "F4 to search" UI hints to the bottom ActionStrip.
+  const dateRef          = useRef(null);
   const handleSaveRef    = useRef(null);
   const submittingRef    = useRef(false);
 
@@ -79,19 +82,9 @@ export default function ReceiptEntry() {
     // Open with the customer search focused. Amount focus is moved later
     // inside handlePartyChange once a party is picked.
     setTimeout(() => partyRef.current?.focus(), 100);
-    const onKey = (e) => {
-      // Ignore F-keys while focus is inside an AntD modal / picker / select
-      // dropdown — otherwise F1 would submit while the user is interacting
-      // with a popup. Also skip during IME composition.
-      if (e.isComposing || e.keyCode === 229) return;
-      const active = document.activeElement;
-      if (active && active.closest(
-        '.ant-modal, .ant-picker-dropdown, .ant-select-dropdown, .ant-popover'
-      )) return;
-      if (e.key === 'F1') { e.preventDefault(); handleSaveRef.current?.(); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // F1 Save · F2 Date · F4 Find · F5 Reset · F6 Amount · Esc Back —
+    // all owned by the bottom <ActionStrip>. The legacy F1 listener
+    // here is replaced by the strip's registry-driven keyboard handler.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -307,9 +300,10 @@ export default function ReceiptEntry() {
       {/* ── COMPACT HEADER ── */}
       <div className="be-vh">
         <div className="be-vh-fld">
-          <span className="be-k">Date <span className="hint">· F2</span></span>
+          <span className="be-k">Date</span>
           <div className="be-vh-date">
             <DatePicker
+              ref={dateRef}
               value={date}
               onChange={(d) => d && setDate(d)}
               format="DD-MM-YYYY"
@@ -341,7 +335,7 @@ export default function ReceiptEntry() {
         <div className="be-left">
 
           <div className="be-fld">
-            <label className="be-lbl">Customer <span className="hint">F4 to search</span></label>
+            <label className="be-lbl">Customer</label>
             <Select
               ref={partyRef}
               showSearch
@@ -512,8 +506,8 @@ export default function ReceiptEntry() {
         </div>
       </div>
 
-      {/* ── BOTTOM ACTION BAR ── */}
-      <div className="be-action-bar">
+      {/* ── TOTALS ROW ── visual-only summary above the strip. */}
+      <div className="be-action-bar be-totals-only">
         <div className="totals">
           {checkedBills.length > 0 ? (
             <>
@@ -527,25 +521,40 @@ export default function ReceiptEntry() {
             <span style={{ color: 'var(--fg-tertiary)' }}>Tick bills to allocate this receipt</span>
           )}
         </div>
-        <div className="buttons">
-          <Button
-            className="be-btn"
-            icon={<ArrowLeftOutlined />}
-            onClick={() => confirmLeave(() => navigate('/payments'))}
-          >
-            Back
-          </Button>
-          <Button className="be-btn" icon={<ReloadOutlined />} onClick={handleReset}>Reset</Button>
-          <Button
-            className="be-btn be-primary"
-            icon={<CheckCircleOutlined />}
-            loading={loading}
-            onClick={handleSave}
-          >
-            Save Receipt<span className="kbd">F1</span>
-          </Button>
-        </div>
       </div>
+
+      {/* ── ACTION STRIP ── F2 Date / F4 Find finally wire the
+          previously-decorative "Date · F2" and "F4 to search" hints
+          to actual handlers via the bottom strip. */}
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => confirmLeave(() => navigate('/payments')) },
+          { id: 'reset', key: 'F5', label: 'Reset',
+            onAction: handleReset },
+          { id: 'date', key: 'F2', label: 'Date',
+            onAction: () => dateRef.current?.focus?.(),
+            title: 'Focus the Date field' },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => partyRef.current?.focus?.(),
+            title: 'Focus the customer search' },
+          { id: 'amount', key: 'F6', label: 'Amount',
+            onAction: () => {
+              const inst = payAmtRef.current;
+              if (!inst) return;
+              inst.focus?.();
+              setTimeout(() => inst.select?.(), 0);
+            },
+            title: 'Jump to Receipt Amount' },
+          { id: 'save', key: 'F1', label: 'Save Receipt', tone: 'primary',
+            disabled: loading,
+            onAction: handleSave },
+          // Hidden alias: Ctrl+Enter mirrors F1.
+          { id: 'save-alt', key: 'Ctrl+Enter', label: '',
+            hidden: true, disabled: loading,
+            onAction: handleSave },
+        ]}
+      />
     </div>
   );
 }
