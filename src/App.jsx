@@ -72,6 +72,7 @@ import LedgerIntegrity from './pages/accounts/LedgerIntegrity';
 import BankList            from './pages/banks/BankList';
 import BankStatement       from './pages/banks/BankStatement';
 import BankReconciliation  from './pages/banks/BankReconciliation';
+import ChequeRegister      from './pages/banks/ChequeRegister';
 import LoanList            from './pages/loans/LoanList';
 import LoanStatement       from './pages/loans/LoanStatement';
 import LoanSchedule        from './pages/loans/LoanSchedule';
@@ -393,9 +394,12 @@ export default function App() {
           <Route path="accounts/journal/edit/:id" element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
           <Route path="accounts/integrity"        element={<RoleRoute perm="accounts.view"><LedgerIntegrity /></RoleRoute>} />
           <Route path="banks"                      element={<RoleRoute perm="accounts.view"><BankList /></RoleRoute>} />
-          {/* /banks/reconciliation must come before /banks/:ledger_id/statement —
-              otherwise React Router would try to use 'reconciliation' as a ledger_id. */}
+          {/* /banks/reconciliation and /banks/cheques must both come
+              before /banks/:ledger_id/statement — otherwise React Router
+              would try to use 'reconciliation' / 'cheques' as a
+              ledger_id. */}
           <Route path="banks/reconciliation"       element={<RoleRoute perm="accounts.view"><BankReconciliation /></RoleRoute>} />
+          <Route path="banks/cheques"              element={<RoleRoute perm="cheques.view"><ChequeRegister /></RoleRoute>} />
           <Route path="banks/:ledger_id/statement" element={<RoleRoute perm="accounts.view"><BankStatement /></RoleRoute>} />
 
           {/* Loans — same shape as banks. /loans/schedule is the cross-loan

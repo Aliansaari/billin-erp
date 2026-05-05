@@ -1,0 +1,509 @@
+/* Cheques — register page + form modal + action modals
+ *
+ * Sits on top of the same .bank-page outer flex shell + .rpt-* chrome
+ * as BankList / BankReconciliation, so the page reads as a sibling of
+ * the rest of the Bank menu and inherits the unified header / KPI
+ * strip styling.
+ *
+ * Specifics in this file:
+ *   • .chq-tabs    — direction + status filter strip (chips)
+ *   • .chq-tbl     — register table (extends .bank-tbl)
+ *   • .chq-status  — colour-coded status pill
+ *   • .chq-dir     — direction badge with arrow glyph
+ *   • .chq-pdc     — PDC marker chip
+ *   • .chq-actions — row-level action menu trigger + chips
+ *   • .chq-form-*  — form modal helpers (live preview banner, etc.)
+ */
+
+.chq-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.chq-page .rpt-kpis { padding-bottom: 14px; }
+
+/* ─── KPI strip — uses .rpt-kpi sub-styles ─────────────────────── */
+.chq-kpi-sub {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  margin-top: 4px;
+}
+.chq-kpi-icon {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  font-size: 18px;
+  color: var(--fg-quaternary);
+  opacity: 0.55;
+}
+
+/* ─── Filter strip ─────────────────────────────────────────────── */
+.chq-filters {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 28px 10px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.chq-filter-group {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-radius: 8px;
+  padding: 2px;
+}
+.chq-filter-chip {
+  border: 0; background: transparent;
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .12s;
+  display: inline-flex; align-items: center; gap: 5px;
+  white-space: nowrap;
+}
+.chq-filter-chip:hover {
+  color: var(--fg-primary);
+  background: var(--bg-muted);
+}
+.chq-filter-chip.on {
+  background: var(--accent-bg, rgba(79,70,229,0.10));
+  color: var(--accent);
+  font-weight: 600;
+}
+.chq-filter-chip .cnt {
+  display: inline-grid; place-items: center;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: var(--bg-muted);
+  color: var(--fg-secondary);
+  font-size: 10.5px; font-weight: 700;
+}
+.chq-filter-chip.on .cnt {
+  background: var(--accent);
+  color: #fff;
+}
+.chq-filters .chq-filter-search {
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.chq-filters .chq-filter-grow { flex: 1; }
+
+/* ─── Register body ────────────────────────────────────────────── */
+.chq-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  margin: 14px 28px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+.chq-tbl {
+  width: 100%;
+  border-collapse: separate; border-spacing: 0;
+  font-size: 13.5px;
+}
+.chq-tbl thead th {
+  text-align: right;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky; top: 0; z-index: 1;
+}
+.chq-tbl thead th:first-child,
+.chq-tbl thead th.l { text-align: left; }
+.chq-tbl thead th.c { text-align: center; }
+
+.chq-tbl tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: right;
+  vertical-align: middle;
+}
+.chq-tbl tbody td:first-child,
+.chq-tbl tbody td.l { text-align: left; }
+.chq-tbl tbody td.c { text-align: center; }
+.chq-tbl tbody tr:hover td { background: var(--bg-muted); }
+.chq-tbl tbody tr.tone-bounced  td { background: rgba(239,68,68,0.045); }
+.chq-tbl tbody tr.tone-cancelled td { color: var(--fg-tertiary); }
+.chq-tbl tbody tr.tone-cancelled td .chq-num,
+.chq-tbl tbody tr.tone-cancelled td .chq-amt-val { text-decoration: line-through; }
+.chq-tbl tbody tr.tone-cleared  td { background: rgba(16,185,129,0.035); }
+
+.chq-num {
+  font-weight: 600;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.chq-num .meta {
+  font-size: 11.5px; color: var(--fg-tertiary);
+  font-weight: 400;
+  margin-top: 2px;
+  display: flex; align-items: center; gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chq-amt-val {
+  font-weight: 700;
+  color: var(--fg-primary);
+}
+
+/* ─── Direction badge ──────────────────────────────────────────── */
+.chq-dir {
+  display: inline-flex; align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+.chq-dir.in {
+  color: #047857;
+  background: rgba(16,185,129,0.10);
+  border-color: rgba(16,185,129,0.20);
+}
+.chq-dir.out {
+  color: #B91C1C;
+  background: rgba(239,68,68,0.10);
+  border-color: rgba(239,68,68,0.20);
+}
+.chq-dir .anticon { font-size: 10px; }
+
+/* ─── Status pill ──────────────────────────────────────────────── */
+.chq-status {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  gap: 5px;
+}
+.chq-status .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.chq-status.s-pending {
+  color: #4F46E5;
+  background: rgba(79,70,229,0.10);
+  border-color: rgba(79,70,229,0.20);
+}
+.chq-status.s-deposited {
+  color: #B45309;
+  background: rgba(245,158,11,0.12);
+  border-color: rgba(245,158,11,0.25);
+}
+.chq-status.s-cleared {
+  color: #047857;
+  background: rgba(16,185,129,0.12);
+  border-color: rgba(16,185,129,0.25);
+}
+.chq-status.s-bounced {
+  color: #B91C1C;
+  background: rgba(239,68,68,0.10);
+  border-color: rgba(239,68,68,0.25);
+}
+.chq-status.s-cancelled {
+  color: #6B7280;
+  background: rgba(107,114,128,0.10);
+  border-color: rgba(107,114,128,0.20);
+}
+
+/* ─── PDC chip ─────────────────────────────────────────────────── */
+.chq-pdc {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(168, 85, 247, 0.12);
+  color: #7E22CE;
+  border: 1px solid rgba(168, 85, 247, 0.20);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* "from PMT-N" chip — marks a cheque that was auto-created by a
+ * payment entry. The styling sits a notch quieter than the PDC chip
+ * because this is informational, not action-relevant: the chip just
+ * tells the operator where the row came from. */
+.chq-from-pay {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.10);
+  color: #1D4ED8;
+  border: 1px solid rgba(59, 130, 246, 0.20);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: help;
+}
+
+.chq-aging {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 36px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.chq-aging.tone-fresh  { background: rgba(16,185,129,0.10); color: #047857; }
+.chq-aging.tone-warm   { background: rgba(59,130,246,0.10); color: #1D4ED8; }
+.chq-aging.tone-warn   { background: rgba(245,158,11,0.12); color: #B45309; font-weight: 800; }
+.chq-aging.tone-danger { background: rgba(239,68,68,0.12);  color: #B91C1C; font-weight: 800; }
+
+/* ─── Row actions ──────────────────────────────────────────────── */
+.chq-actions {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.chq-action-chip {
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+  transition: all .12s;
+  color: var(--fg-secondary);
+}
+.chq-action-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chq-action-chip.primary {
+  background: var(--accent, #4F46E5);
+  border-color: var(--accent, #4F46E5);
+  color: #fff;
+}
+.chq-action-chip.primary:hover {
+  filter: brightness(1.08);
+  color: #fff;
+}
+.chq-action-chip.danger:hover {
+  border-color: var(--danger, #EF4444);
+  color: var(--danger, #EF4444);
+}
+.chq-row-menu {
+  width: 26px; height: 26px;
+  border: 0; background: transparent;
+  border-radius: 6px;
+  color: var(--fg-tertiary);
+  display: grid; place-items: center;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.chq-row-menu:hover {
+  background: var(--bg-muted);
+  color: var(--fg-primary);
+}
+
+/* ─── Empty state ──────────────────────────────────────────────── */
+.chq-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--fg-tertiary);
+  font-size: 14px;
+}
+.chq-empty .ic {
+  font-size: 32px;
+  margin-bottom: 12px;
+  display: block;
+  color: var(--fg-quaternary);
+}
+
+/* ─── Footer summary bar ───────────────────────────────────────── */
+.chq-foot {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 28px;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--fg-secondary);
+}
+.chq-foot b { color: var(--fg-primary); font-weight: 600; }
+
+/* ─── Form modal helpers ───────────────────────────────────────── */
+.chq-form-direction-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.chq-form-dir-btn {
+  border: 1.5px solid var(--border);
+  background: var(--bg-panel);
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  display: flex; align-items: center; gap: 12px;
+  transition: all .12s;
+}
+.chq-form-dir-btn:hover { border-color: var(--accent); }
+.chq-form-dir-btn.on {
+  border-color: var(--accent);
+  background: var(--accent-bg, rgba(79,70,229,0.04));
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.chq-form-dir-btn .ic {
+  width: 38px; height: 38px;
+  border-radius: 9px;
+  display: grid; place-items: center;
+  flex-shrink: 0;
+  font-size: 18px;
+}
+.chq-form-dir-btn.in .ic {
+  background: rgba(16,185,129,0.12);
+  color: #047857;
+}
+.chq-form-dir-btn.out .ic {
+  background: rgba(239,68,68,0.12);
+  color: #B91C1C;
+}
+.chq-form-dir-btn .stack { min-width: 0; }
+.chq-form-dir-btn .name {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.chq-form-dir-btn .hint {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  margin-top: 2px;
+}
+
+.chq-form-preview {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  line-height: 1.55;
+}
+.chq-form-preview b { color: var(--fg-primary); font-weight: 700; }
+.chq-form-preview .leg {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-variant-numeric: tabular-nums;
+  font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  background: var(--bg-panel);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  color: var(--fg-primary);
+  margin-top: 4px;
+}
+.chq-form-preview .leg .dr { color: #047857; font-weight: 700; }
+.chq-form-preview .leg .cr { color: #B91C1C; font-weight: 700; }
+.chq-form-preview-hd {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-bottom: 6px;
+}
+.chq-form-preview-pdc {
+  margin-top: 8px;
+  padding: 6px 9px;
+  background: rgba(168, 85, 247, 0.08);
+  border: 1px solid rgba(168, 85, 247, 0.20);
+  color: #7E22CE;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+
+/* ─── Detail drawer (entries section) ──────────────────────────── */
+.chq-detail-section {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.chq-detail-hd {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-bottom: 8px;
+}
+.chq-detail-tbl {
+  width: 100%;
+  font-size: 12.5px;
+  border-collapse: collapse;
+}
+.chq-detail-tbl th,
+.chq-detail-tbl td {
+  padding: 6px 8px;
+  border-bottom: 1px dashed var(--border-subtle);
+  text-align: left;
+}
+.chq-detail-tbl th {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.chq-detail-tbl td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.chq-detail-tbl td.num.dr { color: #047857; }
+.chq-detail-tbl td.num.cr { color: #B91C1C; }
+.chq-detail-tbl tr.reversed td { opacity: 0.55; text-decoration: line-through; }
+
+.chq-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 16px;
+  font-size: 12.5px;
+}
+.chq-meta-grid .lbl {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-bottom: 2px;
+}
+.chq-meta-grid .val {
+  color: var(--fg-primary);
+  font-weight: 600;
+}

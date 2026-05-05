@@ -34,6 +34,7 @@ const ProductBatch = require('./ProductBatch');
 const ProductBatchStock = require('./ProductBatchStock');
 const UserReportFavorite = require('./UserReportFavorite');
 const LoanAccount = require('./LoanAccount');
+const Cheque = require('./Cheque');
 
 // ── Associations ──
 
@@ -224,6 +225,31 @@ LoanAccount.belongsTo(LedgerAccount,{ foreignKey: 'ledger_id', as: 'ledger' });
 Party.hasMany(LoanAccount,          { foreignKey: 'party_id',  as: 'loans' });
 LoanAccount.belongsTo(Party,        { foreignKey: 'party_id',  as: 'party' });
 
+// Cheque associations.
+//
+// RESTRICT on the party FK because a cheque is part of the audit
+// trail — silently wiping cheque rows when a party is hard-deleted
+// would lose the underlying paper-trail for cleared / bounced
+// instruments. Same rationale that applies to LedgerEntry.party_id.
+//
+// SET NULL on the bank FK so deactivating / removing a bank doesn't
+// orphan-delete the cheque history; the row keeps its lifecycle data
+// even if the bank ledger is gone (the link is informational at that
+// point, since the financial impact already lives in ledger_entries).
+Party.hasMany(Cheque,         { foreignKey: 'party_id', as: 'cheques', onDelete: 'RESTRICT' });
+Cheque.belongsTo(Party,       { foreignKey: 'party_id', as: 'party' });
+LedgerAccount.hasMany(Cheque, { foreignKey: 'bank_ledger_id', as: 'cheques', onDelete: 'SET NULL' });
+Cheque.belongsTo(LedgerAccount, { foreignKey: 'bank_ledger_id', as: 'bank' });
+Cheque.belongsTo(require('./User'), { foreignKey: 'created_by', as: 'creator' });
+Cheque.belongsTo(require('./User'), { foreignKey: 'cleared_by', as: 'closer' });
+
+// Sync link to the originating PaymentReceipt — when the user records
+// a payment via Make/Receive Payment with mode='Cheque', the Cheque
+// register row points back at that payment so the UI can show a
+// "from PMT-N" badge and route lifecycle actions appropriately.
+PaymentReceipt.hasMany(Cheque,   { foreignKey: 'source_payment_id', as: 'cheques' });
+Cheque.belongsTo(PaymentReceipt, { foreignKey: 'source_payment_id', as: 'sourcePayment' });
+
 // ── Batch tracking associations ─────────────────────────────────────
 //
 // ProductBatch is the lot definition; ProductBatchStock is the per-
@@ -303,4 +329,5 @@ module.exports = {
   ProductBatchStock,
   UserReportFavorite,
   LoanAccount,
+  Cheque,
 };

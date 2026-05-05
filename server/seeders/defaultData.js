@@ -114,6 +114,27 @@ async function seedDefaultData() {
     // for unmappable entries during imports.
     { ledger_name: 'Opening Balance Equity', ledger_group: 'Capital', sub_group: 'Capital Account', is_system_ledger: true },
     { ledger_name: 'Suspense Account', ledger_group: 'Liabilities', sub_group: 'Suspense', is_system_ledger: true },
+
+    // Cheque module ledgers — see server/models/Cheque.js for the
+    // posting model. These hold the in-flight balances:
+    //
+    //   Cheques in Hand (Asset, current asset) — INWARD cheques received
+    //   from a customer but not yet deposited at our bank. Drains to
+    //   Bank when we deposit, and back to the customer when a cheque
+    //   bounces / is voided.
+    //
+    //   Cheques Issued (PDC) (Liability, current liability) — OUTWARD
+    //   post-dated cheques we've handed out but the bank hasn't been
+    //   debited for yet. Sits as a "future obligation" until maturity,
+    //   when it transfers to Bank.
+    //
+    //   Cheque Bounce Charges (Expense, indirect expense) — bank fees
+    //   levied when a cheque (in either direction) bounces. Posted as
+    //   a separate voucher so the P&L breaks out the cost of failed
+    //   cheques cleanly.
+    { ledger_name: 'Cheques in Hand',       ledger_group: 'Assets',      sub_group: 'Current Assets',     is_system_ledger: true },
+    { ledger_name: 'Cheques Issued (PDC)',  ledger_group: 'Liabilities', sub_group: 'Current Liabilities', is_system_ledger: true },
+    { ledger_name: 'Cheque Bounce Charges', ledger_group: 'Expenses',    sub_group: 'Indirect Expenses',  is_system_ledger: true },
   ];
 
   for (const ledger of defaultLedgers) {

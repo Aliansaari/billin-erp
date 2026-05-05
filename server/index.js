@@ -46,6 +46,7 @@ app.use('/api/batches', require('./routes/batches'));
 app.use('/api/user/favorites', require('./routes/userFavorites'));
 app.use('/api/banks', require('./routes/banks'));
 app.use('/api/loans', require('./routes/loans'));
+app.use('/api/cheques', require('./routes/cheques'));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -1617,6 +1618,103 @@ async function startServer() {
       }
     } catch (err) {
       console.error('[Cash stub migration] Error:', err.message);
+    }
+
+    // ── Cheque module: add sync columns + backfill from existing
+    //    cheque-mode payment splits. Idempotent — both blocks no-op
+    //    on a fully migrated DB.
+    //
+    //    Why this lives here: sequelize.sync({alter:false}) creates
+    //    new tables but never adds columns to existing ones. The
+    //    cheques table was created on the first boot after the
+    //    Cheque model shipped; any new column the model declares
+    //    (here, source_payment_id and source_payment_split_id) needs
+    //    a manual ALTER. The backfill then converts every existing
+    //    cheque-mode payment_split row into a Cheque register entry
+    //    so the operator's previously-recorded cheques surface in
+    //    the new register without re-keying.
+    try {
+      await sequelize.query(`
+        DO $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cheques') THEN
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'cheques' AND column_name = 'source_payment_id'
+            ) THEN
+              ALTER TABLE cheques ADD COLUMN source_payment_id INTEGER
+                REFERENCES payments_receipts(transaction_id);
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'cheques' AND column_name = 'source_payment_split_id'
+            ) THEN
+              ALTER TABLE cheques ADD COLUMN source_payment_split_id INTEGER
+                REFERENCES payment_splits(split_id);
+            END IF;
+            CREATE UNIQUE INDEX IF NOT EXISTS cheques_source_split_uniq
+              ON cheques(source_payment_split_id)
+              WHERE source_payment_split_id IS NOT NULL;
+          END IF;
+        END $$;
+      `);
+
+      // Backfill: for every cheque-mode payment_split that has a
+      // cheque number AND isn't already linked to a cheques row,
+      // synthesise a Cheque register entry. We DO NOT post a cheque
+      // voucher for these — the originating payment voucher already
+      // moved the money. Status maps from PaymentReceipt.cleared_at:
+      //   INWARD  cleared_at IS NULL → DEPOSITED  (in transit)
+      //   INWARD  cleared_at NOT NULL → CLEARED
+      //   OUTWARD cleared_at IS NULL → PENDING    (issued, awaiting presentation)
+      //   OUTWARD cleared_at NOT NULL → CLEARED
+      // Bounced / cancelled receipts (pr.is_cancelled) get CANCELLED.
+      const [backfilled] = await sequelize.query(`
+        INSERT INTO cheques (
+          direction, cheque_number, cheque_date, amount,
+          party_id, bank_ledger_id, status, is_pdc,
+          instrument_date, deposit_date, clearance_date,
+          source_payment_id, source_payment_split_id,
+          created_by, created_at, updated_at
+        )
+        SELECT
+          (CASE pr.transaction_type WHEN 'Receipt' THEN 'INWARD' ELSE 'OUTWARD' END)::"enum_cheques_direction",
+          ps.cheque_number,
+          COALESCE(ps.cheque_date, pr.transaction_date),
+          ps.amount,
+          pr.party_id,
+          ps.bank_ledger_id,
+          (CASE
+            WHEN pr.is_cancelled THEN 'CANCELLED'
+            WHEN pr.cleared_at IS NOT NULL THEN 'CLEARED'
+            WHEN pr.transaction_type = 'Receipt' THEN 'DEPOSITED'
+            ELSE 'PENDING'
+          END)::"enum_cheques_status",
+          (COALESCE(ps.cheque_date, pr.transaction_date) > pr.transaction_date),
+          pr.transaction_date,
+          CASE WHEN pr.transaction_type = 'Receipt' THEN pr.transaction_date ELSE NULL END,
+          pr.cleared_at::date,
+          pr.transaction_id,
+          ps.split_id,
+          pr.created_by,
+          NOW(), NOW()
+        FROM payment_splits ps
+        JOIN payments_receipts pr ON pr.transaction_id = ps.transaction_id
+        WHERE ps.payment_mode = 'Cheque'
+          AND ps.cheque_number IS NOT NULL
+          AND ps.cheque_number <> ''
+          AND pr.party_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM cheques c WHERE c.source_payment_split_id = ps.split_id
+          )
+        RETURNING cheque_id
+      `);
+      const inserted = (backfilled && backfilled.length) || 0;
+      if (inserted > 0) {
+        console.log(`[Cheque sync] backfilled ${inserted} cheque(s) from existing cheque-mode payments`);
+      }
+    } catch (err) {
+      console.error('[Cheque sync migration] Error:', err.message);
     }
 
     app.listen(PORT, '0.0.0.0', () => {

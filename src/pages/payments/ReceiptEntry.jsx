@@ -47,6 +47,10 @@ export default function ReceiptEntry() {
   // forwards the chosen id into the split payload.
   const [bankLedgerId, setBankLedgerId]   = useState(null);
   const [payNo, setPayNo]                 = useState('');
+  // Cheque date — only meaningful when payMode === 'Cheque'. Defaults
+  // to the receipt date so a same-day cheque doesn't need an extra
+  // click; future-dated cheques (PDCs) override this.
+  const [chequeDate, setChequeDate]       = useState(null);
   const [payAmt, setPayAmt]               = useState(null);
   const [discAmt, setDiscAmt]             = useState(0);
   const [loading, setLoading]             = useState(false);
@@ -214,6 +218,7 @@ export default function ReceiptEntry() {
     // last-used bank when the operator switches mode away from Cash.
     setBankLedgerId(null);
     setPayNo('');
+    setChequeDate(null);
     setPayAmt(null);
     setDiscAmt(0);
   };
@@ -274,6 +279,12 @@ export default function ReceiptEntry() {
           // Same convention as PaymentEntry — only attach the bank FK
           // for non-cash splits.
           ...(payMode !== 'Cash' && bankLedgerId ? { bank_ledger_id: bankLedgerId } : {}),
+          // Cheque-mode receipts persist the cheque number AND date so
+          // the bank reconciliation / cheque register can flag PDCs
+          // and reconcile clearance. Cheque date defaults to today.
+          ...(payMode === 'Cheque' && payNo
+            ? { cheque_number: payNo, cheque_date: (chequeDate || date).format('YYYY-MM-DD') }
+            : {}),
         }],
         bill_allocations,
       });
@@ -286,7 +297,7 @@ export default function ReceiptEntry() {
       setLoading(false);
       submittingRef.current = false;
     }
-  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, checkedBills, selectedInvNos, billsWithAlloc]);
+  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, chequeDate, checkedBills, selectedInvNos, billsWithAlloc]);
 
   handleSaveRef.current = handleSave;
 
@@ -430,10 +441,50 @@ export default function ReceiptEntry() {
               />
             </div>
             <div className="be-fld">
-              <label className="be-lbl">Ref / Pay No.</label>
-              <Input value={payNo} onChange={e => setPayNo(e.target.value)} placeholder="Cheque / UTR / Ref no." />
+              <label className="be-lbl">
+                {payMode === 'Cheque' ? 'Cheque No.' : 'Ref / Pay No.'}
+              </label>
+              <Input
+                value={payNo}
+                onChange={e => setPayNo(e.target.value)}
+                placeholder={payMode === 'Cheque' ? 'Cheque number' : 'UTR / Ref no.'}
+              />
             </div>
           </div>
+
+          {/* Cheque date — appears only when payment mode is Cheque.
+              Persisted on the payment_split row so bank reconciliation
+              + the cheque register show the cheque-face date and can
+              flag PDCs at a glance. Defaults to receipt date so
+              same-day cheques save with one less keystroke. */}
+          {payMode === 'Cheque' && (
+            <div className="be-fld">
+              <label className="be-lbl">
+                Cheque Date
+                {chequeDate && date && chequeDate.isAfter(date, 'day') && (
+                  <span style={{
+                    marginLeft: 8,
+                    padding: '1px 7px',
+                    borderRadius: 4,
+                    background: 'rgba(168, 85, 247, 0.12)',
+                    color: '#7E22CE',
+                    border: '1px solid rgba(168, 85, 247, 0.20)',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.5px',
+                  }}>PDC</span>
+                )}
+              </label>
+              <DatePicker
+                value={chequeDate || date}
+                onChange={(d) => setChequeDate(d)}
+                format="DD-MM-YYYY"
+                allowClear={false}
+                style={{ width: '100%' }}
+                placeholder="d-m-yy or d-m-yyyy"
+              />
+            </div>
+          )}
 
         </div>
 

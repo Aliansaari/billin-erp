@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
-const { PaymentReceipt, PaymentSplit, Party, SalesBill, PurchaseBill } = require('../models');
+const { PaymentReceipt, PaymentSplit, Party, SalesBill, PurchaseBill, Cheque } = require('../models');
 const { generateTransactionNumber, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance, getPartyOutstanding, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
@@ -173,12 +173,63 @@ exports.create = async (req, res) => {
     const payment = await PaymentReceipt.create(data, { transaction: t });
 
     // Create payment splits
+    const createdSplits = [];
     if (splits && splits.length > 0) {
       for (const split of splits) {
-        await PaymentSplit.create({
+        const ps = await PaymentSplit.create({
           transaction_id: payment.transaction_id,
           ...split,
         }, { transaction: t });
+        createdSplits.push(ps);
+      }
+    }
+
+    // ── Auto-sync to the Cheque register ─────────────────────────
+    //
+    // Every cheque-mode split with a cheque number becomes a Cheque
+    // row so the operator has one register for every paper instrument
+    // the business handles. We DO NOT post a cheque-module voucher
+    // here — the payment voucher (built below by
+    // buildPaymentReceiptVouchers) already moves the money. Posting
+    // again would double-count.
+    //
+    // Status mapping mirrors the bank-reconciliation cleared_at flag:
+    //   Receipt (INWARD) created → DEPOSITED  (in transit)
+    //   Payment (OUTWARD) created → PENDING   (awaiting presentation)
+    //
+    // The Cheque row links back to the source payment + split via
+    // source_payment_id / source_payment_split_id, so the register
+    // can show a "from PMT-N" badge and the lifecycle UI can route
+    // bounce / cancel back through the Payments page (where the
+    // bill allocations and voucher reversal live).
+    for (const ps of createdSplits) {
+      if (ps.payment_mode !== 'Cheque' || !ps.cheque_number) continue;
+      const isInward = data.transaction_type === 'Receipt';
+      const chequeDate = ps.cheque_date || data.transaction_date;
+      const isPdc = String(chequeDate) > String(data.transaction_date);
+      try {
+        await Cheque.create({
+          direction:               isInward ? 'INWARD' : 'OUTWARD',
+          cheque_number:           ps.cheque_number,
+          cheque_date:             chequeDate,
+          amount:                  ps.amount,
+          party_id:                payment.party_id,
+          bank_ledger_id:          ps.bank_ledger_id,
+          status:                  isInward ? 'DEPOSITED' : 'PENDING',
+          is_pdc:                  isPdc,
+          instrument_date:         data.transaction_date,
+          deposit_date:            isInward ? data.transaction_date : null,
+          source_payment_id:       payment.transaction_id,
+          source_payment_split_id: ps.split_id,
+          created_by:              req.user?.user_id || null,
+        }, { transaction: t });
+      } catch (chErr) {
+        // Don't block the payment save on a cheque-sync failure.  If
+        // the Cheque insert collides on a unique constraint or hits
+        // some other non-fatal issue, log and continue — the payment
+        // is still valid.  A scheduled re-sync (or the boot
+        // backfill) will pick the row up later.
+        console.warn('[Cheque sync] failed to insert Cheque for split', ps.split_id, chErr.message);
       }
     }
 

@@ -27,7 +27,7 @@ import {
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
   SwapOutlined, ApiOutlined, PrinterOutlined,
   StarFilled, RiseOutlined, PieChartOutlined,
-  CheckCircleOutlined, HomeOutlined,
+  CheckCircleOutlined, HomeOutlined, AuditOutlined,
 } from '@ant-design/icons';
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
 import useFavoritesStore from '../../store/favoritesStore';
@@ -121,6 +121,7 @@ export const menuItems = [
     label: 'Bank',
     children: [
       { key: '/banks',                icon: <WalletOutlined />,      label: 'Accounts',       perm: 'accounts.view' },
+      { key: '/banks/cheques',        icon: <AuditOutlined />,       label: 'Cheques',        perm: 'cheques.view' },
       { key: '/banks/reconciliation', icon: <CheckCircleOutlined />, label: 'Reconciliation', perm: 'accounts.view' },
       { key: '/loans',                icon: <FieldTimeOutlined />,   label: 'Loans',          perm: 'accounts.view' },
       { key: '/loans/schedule',       icon: <FieldTimeOutlined />,   label: 'Loan Schedule',  perm: 'accounts.view' },

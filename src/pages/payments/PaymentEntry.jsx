@@ -42,6 +42,10 @@ export default function PaymentEntry() {
   // first available.  Null = cash leg or no bank chosen yet.
   const [bankLedgerId, setBankLedgerId]   = useState(null);
   const [payNo, setPayNo]                 = useState('');
+  // Cheque date — only meaningful when payMode === 'Cheque'. Defaults
+  // to the payment date so a same-day cheque doesn't need an extra
+  // click; future-dated cheques (PDCs) override this.
+  const [chequeDate, setChequeDate]       = useState(null);
   const [payAmt, setPayAmt]               = useState(null);
   const [discAmt, setDiscAmt]             = useState(0);
   const [loading, setLoading]             = useState(false);
@@ -185,6 +189,7 @@ export default function PaymentEntry() {
     // a stale selection doesn't sneak into the next payload.
     setBankLedgerId(null);
     setPayNo('');
+    setChequeDate(null);
     setPayAmt(null);
     setDiscAmt(0);
   };
@@ -244,6 +249,14 @@ export default function PaymentEntry() {
           // Only attach bank_ledger_id for non-cash modes; cash splits
           // post against the Cash ledger and shouldn't reference a bank.
           ...(payMode !== 'Cash' && bankLedgerId ? { bank_ledger_id: bankLedgerId } : {}),
+          // Cheque-mode payments carry the cheque number AND date so
+          // the bank reconciliation / future cheque clearance can
+          // resolve the right paper trail. UTR / card refs reuse the
+          // same payNo field; only persist cheque_number when the
+          // mode actually is 'Cheque'.
+          ...(payMode === 'Cheque' && payNo
+            ? { cheque_number: payNo, cheque_date: (chequeDate || date).format('YYYY-MM-DD') }
+            : {}),
         }],
         bill_allocations,
       });
@@ -256,7 +269,7 @@ export default function PaymentEntry() {
       setLoading(false);
       submittingRef.current = false;
     }
-  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, checkedBills, selectedInvNos, billsWithAlloc]);
+  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, chequeDate, checkedBills, selectedInvNos, billsWithAlloc]);
 
   handleSaveRef.current = handleSave;
 
@@ -399,10 +412,52 @@ export default function PaymentEntry() {
               />
             </div>
             <div className="be-fld">
-              <label className="be-lbl">Ref / Pay No.</label>
-              <Input value={payNo} onChange={e => setPayNo(e.target.value)} placeholder="Cheque / UTR / Ref no." />
+              <label className="be-lbl">
+                {payMode === 'Cheque' ? 'Cheque No.' : 'Ref / Pay No.'}
+              </label>
+              <Input
+                value={payNo}
+                onChange={e => setPayNo(e.target.value)}
+                placeholder={payMode === 'Cheque' ? 'Cheque number' : 'UTR / Ref no.'}
+              />
             </div>
           </div>
+
+          {/* Cheque date row — appears only when payment mode is
+              Cheque. The date written on the cheque face; goes onto
+              the payment_split row so the bank reconciliation /
+              cheque register can show the cheque-date column and
+              flag a post-dated cheque (PDC) at a glance. Defaults
+              to the payment date so a same-day cheque saves with
+              one less keystroke. */}
+          {payMode === 'Cheque' && (
+            <div className="be-fld">
+              <label className="be-lbl">
+                Cheque Date
+                {chequeDate && date && chequeDate.isAfter(date, 'day') && (
+                  <span style={{
+                    marginLeft: 8,
+                    padding: '1px 7px',
+                    borderRadius: 4,
+                    background: 'rgba(168, 85, 247, 0.12)',
+                    color: '#7E22CE',
+                    border: '1px solid rgba(168, 85, 247, 0.20)',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.5px',
+                  }}>PDC</span>
+                )}
+              </label>
+              <DatePicker
+                value={chequeDate || date}
+                onChange={(d) => setChequeDate(d)}
+                format="DD-MM-YYYY"
+                allowClear={false}
+                style={{ width: '100%' }}
+                placeholder="d-m-yy or d-m-yyyy"
+              />
+            </div>
+          )}
 
         </div>
 

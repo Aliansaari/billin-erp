@@ -389,6 +389,31 @@ export const bankAPI = {
   remove:         (ledgerId)             => api.delete(`/banks/${ledgerId}`),
 };
 
+// Cheques — register + lifecycle (deposit / clear / bounce / cancel /
+// reopen). All financial impact goes through ledgerPostingService on
+// the server, so each lifecycle action commits a real voucher pair
+// and returns the up-to-date cheque row.
+//
+// Filter shape on list():
+//   { direction, status, party_id, bank_id, is_pdc, from_date, to_date,
+//     search, page, limit }
+// Where `status` accepts a comma-separated list ("PENDING,DEPOSITED").
+//
+// The list response also carries a kpis block populated against the
+// FULL filtered set (not just the current page) so the register's KPI
+// strip reads the right population numbers regardless of pagination.
+export const chequeAPI = {
+  list:    (params = {})    => api.get('/cheques', { params }),
+  getById: (id)             => api.get(`/cheques/${id}`),
+  create:  (body)           => api.post('/cheques', body),
+  update:  (id, body)       => api.put(`/cheques/${id}`, body),
+  deposit: (id, body = {})  => api.post(`/cheques/${id}/deposit`, body),
+  clear:   (id, body = {})  => api.post(`/cheques/${id}/clear`,   body),
+  bounce:  (id, body = {})  => api.post(`/cheques/${id}/bounce`,  body),
+  cancel:  (id, body = {})  => api.post(`/cheques/${id}/cancel`,  body),
+  reopen:  (id)             => api.post(`/cheques/${id}/reopen`),
+};
+
 // Loans — same shape as banks, plus per-loan amortization schedule and
 // the cross-loan upcoming EMIs view, plus the recordEMI action that
 // posts the proper double-entry split (Loan Dr + Interest Dr / Bank Cr).

@@ -62,6 +62,12 @@ const ROLES = [
       // adjustment voucher path.
       batches:          { view: true, manage: true },
       batch_tracking:   { settings: true },
+      // Cheque module — full CRUD + lifecycle + cancellation. Lifecycle
+      // edits (deposit, clear, bounce) sit on cheques.edit; only the
+      // destructive .delete (cancel — reverses every voucher posted
+      // for the cheque) is gated separately so a Manager can drive
+      // day-to-day cheque flow without being able to wipe history.
+      cheques:          { view: true, create: true, edit: true, delete: true },
       // NO manage_users / backup / cleanup — reserved for Super Admin.
     },
     can_view_reports: true, can_delete_bills: true, can_edit_rates: true,
@@ -86,6 +92,10 @@ const ROLES = [
       // default in the Commit-5 spec). batch_tracking.settings stays
       // off — flipping the global toggle is an admin-only call.
       batches:          { view: true },
+      // Manager owns day-to-day cheque flow (record, deposit, clear,
+      // bounce) but not the destructive cancel action — same gate
+      // pattern as bills (.delete reserved for Admin / Super Admin).
+      cheques:          { view: true, create: true, edit: true },
     },
     can_view_reports: true, can_delete_bills: false, can_edit_rates: true,
     can_access_accounts: true, can_manage_users: false,
@@ -105,6 +115,10 @@ const ROLES = [
       godowns:          { view: true },
       stock_transfers:  { view: true },
       batches:          { view: true },
+      // Accountant runs the books — full cheque lifecycle including
+      // cancel, since reversing a misposted cheque is a normal
+      // accounting fix.
+      cheques:          { view: true, create: true, edit: true, delete: true },
     },
     can_view_reports: true, can_delete_bills: false, can_edit_rates: false,
     can_access_accounts: true, can_manage_users: false,
@@ -123,6 +137,11 @@ const ROLES = [
       reports:       { view: true },
       settings:      { view: true, theme: true },
       batches:       { view: true },
+      // Salesmen often record cheques received over the counter,
+      // and need to see the register to confirm a bill was paid.
+      // No delete grant — voiding a cheque flows back through the
+      // accountant.
+      cheques:       { view: true, create: true },
     },
     can_view_reports: true, can_delete_bills: false, can_edit_rates: false,
     can_access_accounts: false, can_manage_users: false,
