@@ -27,20 +27,25 @@ import {
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
   SwapOutlined, ApiOutlined, PrinterOutlined,
   StarFilled, RiseOutlined, PieChartOutlined,
-  CheckCircleOutlined,
+  CheckCircleOutlined, HomeOutlined,
 } from '@ant-design/icons';
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
 import useFavoritesStore from '../../store/favoritesStore';
 import { CATEGORY_META, resolveReports } from '../../config/reports';
 
 export const menuItems = [
-  { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
+  // Home (Command Center) — the / route. Distinct from /dashboard, which
+  // is the deeper 9-tile editorial dashboard for end-of-day reading.
+  { key: '/',          icon: <HomeOutlined />,      label: 'Home' },
+  { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
   {
     key: 'sales-menu',
     icon: <ShoppingOutlined />,
     label: 'Sales',
     children: [
-      { key: '/sale/new',         icon: <PlusCircleOutlined />,    label: 'New Sales Bill',   perm: 'sales.create' },
+      // Bare-noun label — operators type "sale" not "new sales bill", and
+      // the sidebar shouldn't fight the global search palette on naming.
+      { key: '/sale/new',         icon: <PlusCircleOutlined />,    label: 'Sale',             perm: 'sales.create' },
       { key: '/sales',            icon: <UnorderedListOutlined />, label: 'Sales List',       perm: 'sales.view' },
       { key: '/sales-return/new', icon: <RollbackOutlined />,      label: 'New Sales Return', perm: 'sales_returns.create' },
       { key: '/sales-returns',    icon: <UnorderedListOutlined />, label: 'Sales Returns',    perm: 'sales_returns.view' },
@@ -51,7 +56,7 @@ export const menuItems = [
     icon: <ShoppingCartOutlined />,
     label: 'Purchase',
     children: [
-      { key: '/purchase/new',        icon: <PlusCircleOutlined />,    label: 'New Purchase Bill',   perm: 'purchase.create' },
+      { key: '/purchase/new',        icon: <PlusCircleOutlined />,    label: 'Purchase',            perm: 'purchase.create' },
       { key: '/purchases',           icon: <UnorderedListOutlined />, label: 'Purchase List',       perm: 'purchase.view' },
       { key: '/purchase-return/new', icon: <RollbackOutlined />,      label: 'New Purchase Return', perm: 'purchase_returns.create' },
       { key: '/purchase-returns',    icon: <UnorderedListOutlined />, label: 'Purchase Returns',    perm: 'purchase_returns.view' },
@@ -158,6 +163,9 @@ export const menuItems = [
       { key: '/settings/tally',          icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally' },
       { key: '/settings/backup',         icon: <CloudServerOutlined />, label: 'Backup & Recovery',perm: 'settings.backup' },
       { key: '/settings/godowns',        icon: <BankOutlined />,        label: 'Godowns',          perm: 'godowns.view' },
+      // Home page customization — every operator can pick what shows on
+      // their own landing page; no role gate.
+      { key: '/settings/home',           icon: <HomeOutlined />,        label: 'Home Page' },
     ],
   },
 ];

@@ -1708,7 +1708,7 @@ export default function PurchaseBillForm() {
             <div className="pbf-top-head pbf-top-head--compact">
               <div className="pbf-top-head-left">
                 <span className="pbf-chip">
-                  {isEdit ? 'Edit Purchase Bill' : 'Purchase Bill'}
+                  {isEdit ? 'Edit Purchase' : 'New Purchase'}
                 </span>
                 {/* Bill number boxed pill — label and value share the SAME
                     font size so the eye reads them as one unit. */}

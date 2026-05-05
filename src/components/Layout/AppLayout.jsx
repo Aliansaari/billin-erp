@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from 'antd';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import useThemeStore from '../../store/themeStore';
 import Sidebar from './Sidebar';
 import TopNav from './TopNav';
@@ -19,6 +19,7 @@ export default function AppLayout() {
     return stored === 'true';
   });
   const location = useLocation();
+  const navigate = useNavigate();
   const menuOrientation = useThemeStore((s) => s.menuOrientation);
   const isHorizontal = menuOrientation === 'horizontal';
 
@@ -43,17 +44,52 @@ export default function AppLayout() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
+
+      // Don't fight TEXT-entry inputs (text/search/email/etc) and
+      // textareas — they own Esc for their own cancel/dismiss/clear
+      // behavior. But non-text inputs (radio/checkbox/range) and
+      // buttons should NOT block Esc-back: AntD's Segmented control,
+      // for example, holds focus on a hidden <input type="radio"> after
+      // a click, which previously absorbed the Esc on pages like
+      // Settings → Theme.
+      const ae  = document.activeElement;
+      const tag = (ae?.tagName || '').toLowerCase();
+      if (ae?.isContentEditable) return;
+      if (tag === 'textarea') return;
+      if (tag === 'input') {
+        const type = (ae.type || 'text').toLowerCase();
+        const TEXT_TYPES = new Set([
+          'text', 'search', 'email', 'password', 'url', 'tel', 'number', 'date', 'datetime-local', 'time', 'month', 'week',
+        ]);
+        if (TEXT_TYPES.has(type)) return;
+      }
+
+      // Search-back: if the operator reached this page via the global
+      // search palette (hero or ⌘K modal), Esc returns them to where
+      // they searched from. The palette stashed the source route in
+      // `search_back_from` before navigating; we consume it here so a
+      // second Esc does nothing instead of looping.
+      const here = location.pathname + location.search;
+      const searchBack = sessionStorage.getItem('search_back_from');
+      if (searchBack && searchBack !== here) {
+        e.preventDefault();
+        sessionStorage.removeItem('search_back_from');
+        navigate(searchBack);
+        return;
+      }
+
+      // Reports-hub back — existing behavior. The hub sets
+      // sessionStorage 'reports_hub_back' = '1' when navigating into a
+      // report; Esc on that report bounces back to the hub.
       const path = location.pathname;
       if (!path.startsWith('/reports/') || path === '/reports/') return;
       if (sessionStorage.getItem('reports_hub_back') !== '1') return;
-      const tag = (document.activeElement?.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) return;
       e.preventDefault();
       window.history.back();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [location.pathname]);
+  }, [location.pathname, location.search, navigate]);
 
   // Full-page views: bill forms, lists, reports. The regex below matches
   // new/edit routes that need the full viewport (height: 100vh, overflow:
@@ -63,6 +99,16 @@ export default function AppLayout() {
   // the padded layout. That made the return forms visibly shrink to content
   // height instead of filling the screen.
   const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|stock-movement|stock-report-pro|stock-transfer|banks|loans|inventory\/batches)\//.test(location.pathname) || [
+    // Home (Command Center) — pinned viewport shell. The KPI ribbon, hero,
+    // and action ribbon need to land flush against the viewport edges and
+    // never scroll, so it joins the full-page list rather than rendering
+    // inside the padded card frame.
+    '/',
+    // Home settings — sticky title + restore-defaults button stay fixed
+    // at the top of the Content while the toggle sections scroll below.
+    // Without /settings/home in the full-page list, the whole app-level
+    // Content scroller engages instead of the page's own.
+    '/settings/home',
     '/products', '/stock-report', '/stock-report-pro', '/stock-movement', '/categories', '/customers', '/suppliers',
     '/sales', '/purchases', '/payments',
     '/sales-returns', '/purchase-returns',

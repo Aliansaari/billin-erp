@@ -325,7 +325,12 @@ export default function PartyListView({ partyType }) {
     setEditingParty(p); setFormOpen(true); setRowMenu(null);
   };
   const handleViewReport = (p) => {
-    navigate(`/parties/${p.party_id}`);
+    // Route to the proper Customer / Supplier Statement page (with the
+    // party pre-selected via ?id=). The legacy /parties/:id detail view
+    // is no longer the destination — it's been retired in favour of the
+    // unified statement pages.
+    const route = isCustomer ? '/reports/customer-statement' : '/reports/supplier-statement';
+    navigate(`${route}?id=${p.party_id}`);
     setRowMenu(null);
   };
   const handleToggleActive = (p) => {
