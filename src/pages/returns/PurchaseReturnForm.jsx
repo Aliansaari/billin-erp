@@ -6,8 +6,9 @@ import dayjs from 'dayjs';
 import {
   purchaseReturnAPI, purchaseAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI,
 } from '../../api';
-import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { printDocument } from '../../services/printer';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './return-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -100,6 +101,8 @@ export default function PurchaseReturnForm() {
   const gstRef          = useRef(null);
   const tableWrapRef    = useRef(null);
   const amountOnlyRef   = useRef(null);
+  // F6 = Jump to Refund ₹ input.
+  const refundInputRef  = useRef(null);
   const [tblHeight, setTblHeight] = useState(300);
   const eRefs = [prodRef, sizeRef, rateRef, qtyRef, discRef, gstRef];
 
@@ -439,7 +442,11 @@ export default function PurchaseReturnForm() {
     }
   }, [supplierId, parties]);
 
-  const handleSave = useCallback(async (markRefunded = false) => {
+  /* `markRefunded=true` is the legacy auto-fill path (refund_amount =
+     total). The redesigned strip stops passing it. `opts.onSaved`
+     fires before navigate/reset so Save & Print can reach the saved
+     bill id while the form is still mounted. */
+  const handleSave = useCallback(async (markRefunded = false, opts = {}) => {
     if (submittingRef.current) return;
     try {
       const vals = await form.validateFields();
@@ -494,6 +501,9 @@ export default function PurchaseReturnForm() {
       };
       const { data } = isEdit ? await purchaseReturnAPI.update(id, body) : await purchaseReturnAPI.create(body);
       message.success(`Return ${data.return_number} ${isEdit ? 'updated' : 'saved'}!`);
+      if (opts.onSaved) {
+        try { opts.onSaved(data); } catch (e) { console.error('[handleSave onSaved]', e); }
+      }
       if (isEdit) navigate('/purchase-returns');
       else { handleReset(); setReturnNo(''); }
     } catch (e) {
@@ -516,7 +526,47 @@ export default function PurchaseReturnForm() {
 
   const dirty = items.length > 0 || amountOnly > 0;
   const confirmLeave = useUnsavedChangesWarning(dirty);
-  useCtrlEnterSubmit(() => handleSave(true));
+
+  /* ── F-key handlers (driven by ActionStrip below) ───────────────── */
+  const handleSavePrint = useCallback(() => {
+    return handleSave(false, {
+      onSaved: (data) => {
+        const printId = data?.purchase_return_id || id;
+        if (printId) printDocument({ docType: 'purchase_return', id: printId });
+      },
+    });
+  }, [handleSave, id]);
+  const handleSaveOnly = useCallback(() => handleSave(false), [handleSave]);
+
+  // F3 = toggle focus between Barcode and items table. Quantity column
+  // is at ciIdx=5 in this form.
+  const isInItemsTable = (el) => !!(el && el.closest && el.closest('.rtn-tbl-wrap'));
+  const focusBarcode = () => {
+    barcodeRef.current?.focus?.();
+    barcodeRef.current?.select?.();
+  };
+  const focusItemsTable = () => {
+    const wrap = tableWrapRef.current;
+    if (!wrap) return;
+    const qtyCells = wrap.querySelectorAll('[id^="sc-"][id$="-5"] input');
+    if (qtyCells.length === 0) return;
+    const target = qtyCells[qtyCells.length - 1];
+    target.focus();
+    target.select?.();
+  };
+  const toggleBarcodeItems = useCallback(() => {
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    if (isInItemsTable(active)) focusBarcode();
+    else focusItemsTable();
+  }, []);
+
+  // F6 — focus the Refund ₹ input via its ref.
+  const jumpToRefund = useCallback(() => {
+    const inst = refundInputRef.current;
+    if (!inst) return;
+    inst.focus?.();
+    setTimeout(() => inst.select?.(), 0);
+  }, []);
 
   const numCell = (ri, ci, val, field, min) => (
     <div id={`sc-${ri}-${ci}`}>
@@ -926,7 +976,7 @@ export default function PurchaseReturnForm() {
                 <div className="rtn-pay-line">
                   <span className="k">Refund ₹</span>
                   <Form.Item name="refund_amount" noStyle>
-                    <InputNumber keyboard={false} min={0} max={maxRefund} placeholder="0.00" style={{ width: '100%' }}/>
+                    <InputNumber ref={refundInputRef} keyboard={false} min={0} max={maxRefund} placeholder="0.00" style={{ width: '100%' }}/>
                   </Form.Item>
                 </div>
                 <div className={`rtn-status ${statusClass}`}>
@@ -939,22 +989,36 @@ export default function PurchaseReturnForm() {
           </div>
         </section>
 
-        <section className="rtn-action-bar">
-          <div className="rtn-action-bar-inner">
-            <button className="rtn-act" onClick={() => confirmLeave(() => navigate('/purchase-returns'))}>
-              <span className="rtn-kbd">Esc</span> Back
-            </button>
-            <button className="rtn-act" onClick={handleReset}>
-              <span className="rtn-kbd">F5</span> Reset
-            </button>
-            <button className="rtn-act neutral" onClick={() => handleSave(false)} disabled={loading}>
-              <span className="rtn-kbd">F8</span> Save as Debit
-            </button>
-            <button className="rtn-act primary" onClick={() => handleSave(true)} disabled={loading}>
-              <span className="rtn-kbd">F1</span> Save &amp; Refund
-            </button>
-          </div>
-        </section>
+        {/* ═══════════════════════════════ (4) ACTION STRIP ════════════════════
+            Same registry-driven strip as Sales Return Form. F1 saves
+            + prints the debit note; F2 saves only. F6 jumps to Refund ₹. */}
+        <ActionStrip
+          actions={[
+            { id: 'back', key: 'Esc', label: 'Back',
+              onAction: () => confirmLeave(() => navigate('/purchase-returns')) },
+            { id: 'reset', key: 'F5', label: 'Reset',
+              onAction: handleReset },
+            { id: 'jump-items', key: 'F3', label: 'Items',
+              onAction: toggleBarcodeItems,
+              title: 'Toggle focus between Barcode and the items table' },
+            { id: 'jump-refund', key: 'F6', label: 'Refund',
+              onAction: jumpToRefund,
+              title: 'Jump to Refund ₹' },
+            { id: 'print-edit', key: 'F9', label: 'Print',
+              hidden: !isEdit,
+              onAction: () => printDocument({ docType: 'purchase_return', id }) },
+            { id: 'save', key: 'F2', label: 'Save',
+              disabled: loading,
+              onAction: handleSaveOnly },
+            { id: 'save-print', key: 'F1', label: 'Save & Print', tone: 'primary',
+              disabled: loading,
+              onAction: handleSavePrint },
+            // Hidden alias: Ctrl+Enter mirrors F1.
+            { id: 'save-print-alt', key: 'Ctrl+Enter', label: '',
+              hidden: true, disabled: loading,
+              onAction: handleSavePrint },
+          ]}
+        />
 
         <Modal open={refPickerOpen} onCancel={() => setRefPickerOpen(false)}
           title="Pick purchase bill to return" footer={null} width={720}>

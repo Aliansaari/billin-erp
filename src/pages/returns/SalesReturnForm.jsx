@@ -6,8 +6,9 @@ import dayjs from 'dayjs';
 import {
   salesReturnAPI, salesAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI,
 } from '../../api';
-import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { printDocument } from '../../services/printer';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './return-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -106,6 +107,8 @@ export default function SalesReturnForm() {
   const gstRef          = useRef(null);
   const tableWrapRef    = useRef(null);
   const amountOnlyRef   = useRef(null);
+  // F6 = Jump to Refund ₹ input — attached to the InputNumber below.
+  const refundInputRef  = useRef(null);
   const [tblHeight, setTblHeight] = useState(300);
   const eRefs = [prodRef, sizeRef, rateRef, qtyRef, discRef, gstRef];
 
@@ -453,7 +456,13 @@ export default function SalesReturnForm() {
   }, [customerId, parties]);
 
   /* ── save ───────────────────────────────────────────────────────────── */
-  const handleSave = useCallback(async (markRefunded = false) => {
+  /* `markRefunded=true` is the legacy "Save & Refund" auto-fill (sets
+     refund_amount to total). The redesigned strip stops passing it —
+     refund_amount is whatever the operator typed. Param stays for
+     back-compat. `opts.onSaved` fires before navigate/reset so the
+     Save & Print path can read the saved data and print the credit
+     note while the form is still mounted. */
+  const handleSave = useCallback(async (markRefunded = false, opts = {}) => {
     if (submittingRef.current) return;
     try {
       const vals = await form.validateFields();
@@ -508,6 +517,9 @@ export default function SalesReturnForm() {
       };
       const { data } = isEdit ? await salesReturnAPI.update(id, body) : await salesReturnAPI.create(body);
       message.success(`Return ${data.return_number} ${isEdit ? 'updated' : 'saved'}!`);
+      if (opts.onSaved) {
+        try { opts.onSaved(data); } catch (e) { console.error('[handleSave onSaved]', e); }
+      }
       if (isEdit) navigate('/sales-returns');
       else { handleReset(); setReturnNo(''); }
     } catch (e) {
@@ -530,7 +542,49 @@ export default function SalesReturnForm() {
 
   const dirty = items.length > 0 || amountOnly > 0;
   const confirmLeave = useUnsavedChangesWarning(dirty);
-  useCtrlEnterSubmit(() => handleSave(true));
+
+  /* ── F-key handlers (driven by ActionStrip below) ───────────────── */
+  const handleSavePrint = useCallback(() => {
+    return handleSave(false, {
+      onSaved: (data) => {
+        const printId = data?.sales_return_id || id;
+        if (printId) printDocument({ docType: 'sales_return', id: printId });
+      },
+    });
+  }, [handleSave, id]);
+  const handleSaveOnly = useCallback(() => handleSave(false), [handleSave]);
+
+  // F3 = toggle focus between Barcode and items table. Quantity column
+  // is at ciIdx=5 in this form (numCell call sites). When the items
+  // table has focus, F3 sends user home; otherwise lands on the last
+  // row's quantity cell.
+  const isInItemsTable = (el) => !!(el && el.closest && el.closest('.rtn-tbl-wrap'));
+  const focusBarcode = () => {
+    barcodeRef.current?.focus?.();
+    barcodeRef.current?.select?.();
+  };
+  const focusItemsTable = () => {
+    const wrap = tableWrapRef.current;
+    if (!wrap) return;
+    const qtyCells = wrap.querySelectorAll('[id^="sc-"][id$="-5"] input');
+    if (qtyCells.length === 0) return;
+    const target = qtyCells[qtyCells.length - 1];
+    target.focus();
+    target.select?.();
+  };
+  const toggleBarcodeItems = useCallback(() => {
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    if (isInItemsTable(active)) focusBarcode();
+    else focusItemsTable();
+  }, []);
+
+  // F6 — focus the Refund ₹ input via its ref.
+  const jumpToRefund = useCallback(() => {
+    const inst = refundInputRef.current;
+    if (!inst) return;
+    inst.focus?.();
+    setTimeout(() => inst.select?.(), 0);
+  }, []);
 
   /* ── table columns ───────────────────────────────────────────────── */
   const numCell = (ri, ci, val, field, min) => (
@@ -945,7 +999,7 @@ export default function SalesReturnForm() {
                 <div className="rtn-pay-line">
                   <span className="k">Refund ₹</span>
                   <Form.Item name="refund_amount" noStyle>
-                    <InputNumber keyboard={false} min={0} max={maxRefund} placeholder="0.00" style={{ width: '100%' }}/>
+                    <InputNumber ref={refundInputRef} keyboard={false} min={0} max={maxRefund} placeholder="0.00" style={{ width: '100%' }}/>
                   </Form.Item>
                 </div>
                 <div className={`rtn-status ${statusClass}`}>
@@ -958,23 +1012,38 @@ export default function SalesReturnForm() {
           </div>
         </section>
 
-        {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
-        <section className="rtn-action-bar">
-          <div className="rtn-action-bar-inner">
-            <button className="rtn-act" onClick={() => confirmLeave(() => navigate('/sales-returns'))}>
-              <span className="rtn-kbd">Esc</span> Back
-            </button>
-            <button className="rtn-act" onClick={handleReset}>
-              <span className="rtn-kbd">F5</span> Reset
-            </button>
-            <button className="rtn-act neutral" onClick={() => handleSave(false)} disabled={loading}>
-              <span className="rtn-kbd">F8</span> Save as Credit
-            </button>
-            <button className="rtn-act primary" onClick={() => handleSave(true)} disabled={loading}>
-              <span className="rtn-kbd">F1</span> Save &amp; Refund
-            </button>
-          </div>
-        </section>
+        {/* ═══════════════════════════════ (4) ACTION STRIP ════════════════════
+            Same registry-driven strip used elsewhere. F1 saves the
+            return + prints the credit note; F2 saves only. Refund
+            status is whatever the operator entered in the Refund ₹
+            field — no auto-fill at the button. F6 jumps to that field. */}
+        <ActionStrip
+          actions={[
+            { id: 'back', key: 'Esc', label: 'Back',
+              onAction: () => confirmLeave(() => navigate('/sales-returns')) },
+            { id: 'reset', key: 'F5', label: 'Reset',
+              onAction: handleReset },
+            { id: 'jump-items', key: 'F3', label: 'Items',
+              onAction: toggleBarcodeItems,
+              title: 'Toggle focus between Barcode and the items table' },
+            { id: 'jump-refund', key: 'F6', label: 'Refund',
+              onAction: jumpToRefund,
+              title: 'Jump to Refund ₹' },
+            { id: 'print-edit', key: 'F9', label: 'Print',
+              hidden: !isEdit,
+              onAction: () => printDocument({ docType: 'sales_return', id }) },
+            { id: 'save', key: 'F2', label: 'Save',
+              disabled: loading,
+              onAction: handleSaveOnly },
+            { id: 'save-print', key: 'F1', label: 'Save & Print', tone: 'primary',
+              disabled: loading,
+              onAction: handleSavePrint },
+            // Hidden alias: Ctrl+Enter mirrors F1.
+            { id: 'save-print-alt', key: 'Ctrl+Enter', label: '',
+              hidden: true, disabled: loading,
+              onAction: handleSavePrint },
+          ]}
+        />
 
         {/* ── Reference bill picker modal ──────────────────────────── */}
         <Modal open={refPickerOpen} onCancel={() => setRefPickerOpen(false)}

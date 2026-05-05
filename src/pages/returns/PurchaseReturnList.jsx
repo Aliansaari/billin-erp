@@ -1,20 +1,21 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Tag, Typography, message, DatePicker, Select, Tooltip,
+  Tag, Typography, message, DatePicker, Select,
   Modal, Descriptions, Divider, Dropdown, Table,
 } from 'antd';
 import {
-  PlusOutlined, SearchOutlined, EyeOutlined, StopOutlined,
-  PrinterOutlined, EditOutlined, MoreOutlined,
-  CopyOutlined, SettingOutlined, FileTextOutlined, LinkOutlined,
+  PlusOutlined, SearchOutlined,
+  SettingOutlined, FileTextOutlined, LinkOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseReturnAPI, settingsAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
-import { printDocument } from '../../services/printer';
+import { printDocument, exportBillPDF } from '../../services/printer';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-list.css';
 import './return-list.css';
 
@@ -30,6 +31,7 @@ import './return-list.css';
 
 const OPTIONAL_COLS = [
   { key: 'time',     label: 'Time' },
+  { key: 'godown',   label: 'Godown' },
   { key: 'phone',    label: 'Phone' },
   { key: 'gstin',    label: 'GSTIN' },
   { key: 'ref',      label: 'Reference bill' },
@@ -41,11 +43,11 @@ const OPTIONAL_COLS = [
 const SECTIONS = [
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-// v4 adds a separate `gstin` column alongside `phone` so the supplier
-// tax ID is its own toggleable column.
-const COLS_STORAGE_KEY = 'purchaseReturnList_cols_v4';
+// v5 promotes the godown badge to its own toggleable column. Existing
+// v4 users inherit `godown: true` via DEFAULT_COLS spread on first read.
+const COLS_STORAGE_KEY = 'purchaseReturnList_cols_v5';
 const DEFAULT_COLS = {
-  time: true, phone: true, gstin: false, ref: true, mode: true,
+  time: true, godown: true, phone: true, gstin: false, ref: true, mode: true,
   reason: false, gst: false, discount: false,
   totalRow: true,
 };
@@ -175,8 +177,10 @@ export default function PurchaseReturnList() {
   }, [searchInput]);
 
   const [viewBill, setViewBill]       = useState(null);
-  const [actionLoading, setActionLoading] = useState({});
   const [companyName, setCompanyName] = useState('');
+
+  // Search input ref so the F4 = Find action can focus it from the strip.
+  const searchInputRef = useRef(null);
 
   const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: (params) => purchaseReturnAPI.getAll(params),
@@ -201,45 +205,66 @@ export default function PurchaseReturnList() {
     settingsAPI.getSystem().then(({ data }) => setCompanyName(data?.data?.company_name || '')).catch(() => {});
   }, []);
 
-  const handleCancel = async (id) => {
-    try {
-      await purchaseReturnAPI.cancel(id);
-      message.success('Return cancelled');
-      refresh();
-    } catch (e) {
-      Modal.error({
-        title: 'Cannot cancel return', icon: null, width: 500,
-        content: (
-          <div style={{ paddingTop: 8 }}>
-            <div style={{ background:'#fef2f2', border:'1px solid #fca5a5', borderRadius:8, padding:'12px 16px', marginBottom:12, color:'#7f1d1d', fontSize:13, lineHeight:1.6 }}>
-              {e.response?.data?.error || 'Failed to cancel'}
-            </div>
-            <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'10px 14px', fontSize:12, color:'#1e40af', lineHeight:1.6 }}>
-              💡 Cancelling restores the returned stock and reverses the supplier debit.
-            </div>
-          </div>
-        ),
-        okText: 'Got it', okButtonProps: { danger: true },
-      });
-    }
-  };
-
   const fetchBill = useCallback(async (id) => {
-    setActionLoading(prev => ({ ...prev, [id]: true }));
     try {
       const { data } = await purchaseReturnAPI.getById(id);
       return data;
     } catch {
       message.error('Failed to load return');
       return null;
-    } finally {
-      setActionLoading(prev => ({ ...prev, [id]: false }));
     }
   }, []);
 
-  const handleView  = async (id) => { const b = await fetchBill(id); if (b) setViewBill(b); };
-  const handlePrint = (id) => printDocument({ docType: 'purchase_return', id });
-  const handleEdit  = (id) => navigate(`/purchase-return/edit/${id}`);
+  const handleView      = async (id) => { const b = await fetchBill(id); if (b) setViewBill(b); };
+  const handlePrint     = (id) => printDocument({ docType: 'purchase_return', id });
+  const handleEdit      = (id) => navigate(`/purchase-return/edit/${id}`);
+  const handleExportPDF = (bill) => exportBillPDF({ docType: 'purchase_return', bill });
+
+  // Selection model — cursor + multi-select.
+  const sel = useListSelection({ totalCount, rows });
+  const activeRow      = sel.activeRow;
+  const selectedRows   = sel.selectedRows;
+  const selectionCount = sel.selectionCount;
+  const isMulti        = selectionCount > 1;
+  const single         = !isMulti ? activeRow : null;
+  const singleCancelled = single?.is_cancelled;
+
+  // Bulk-cancel — confirm once, run cancellations serially, summarize at end.
+  const handleBulkCancel = useCallback((rowsToCancel) => {
+    const cancellable = rowsToCancel.filter(r => r && !r.is_cancelled);
+    if (cancellable.length === 0) {
+      message.info('Nothing to cancel — selection is already cancelled.');
+      return;
+    }
+    Modal.confirm({
+      title: cancellable.length === 1
+        ? `Cancel return ${cancellable[0].return_number}?`
+        : `Cancel ${cancellable.length} returns?`,
+      content: 'Cancelling reverses supplier debit, removes the stock-ledger Purchase Return rows, and pulls the returned stock back into inventory.',
+      okText: cancellable.length === 1 ? 'Cancel this return' : `Cancel ${cancellable.length} returns`,
+      okButtonProps: { danger: true },
+      cancelText: 'Keep them',
+      onOk: async () => {
+        let ok = 0, fail = 0;
+        const failures = [];
+        for (const r of cancellable) {
+          try {
+            await purchaseReturnAPI.cancel(r.purchase_return_id);
+            ok++;
+          } catch (e) {
+            fail++;
+            failures.push(`${r.return_number}: ${e.response?.data?.error || 'failed'}`);
+          }
+        }
+        refresh();
+        if (fail === 0) message.success(`Cancelled ${ok} return${ok === 1 ? '' : 's'}.`);
+        else {
+          message.warning(`${ok} cancelled, ${fail} failed.`);
+          if (failures.length <= 3) failures.forEach(f => message.error(f));
+        }
+      },
+    });
+  }, [refresh]);
 
   const totalAmount = parseFloat(summary?.total_amount || 0);
   const refunded    = parseFloat(summary?.total_refund || 0);
@@ -256,20 +281,23 @@ export default function PurchaseReturnList() {
       render: (_, __, idx) => <span className="sr-n">{String(idx + 1).padStart(2, '0')}</span>,
     },
     {
+      // Return # cell is now pure — godown moved to its own toggleable column.
       key: 'bill', title: 'Return #', dataIndex: 'return_number', width: 130,
-      render: (v, r) => (
-        <span className="bill-no">
-          {v}
-          {r.godown && (
-            <span title={`Godown: ${r.godown.name}`} style={{
-              marginLeft: 6, padding: '1px 5px', fontSize: 10, fontWeight: 600,
-              border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
-              color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
-              fontFamily: 'var(--font-mono, monospace)', verticalAlign: 'middle',
-            }}>{r.godown.code}</span>
-          )}
-        </span>
-      ),
+      render: (v) => <span className="bill-no">{v}</span>,
+    },
+    cols.godown && {
+      key: 'godown', title: 'Godown', width: 110,
+      render: (_, r) => r.godown
+        ? (
+          <span title={`Godown: ${r.godown.name}`} style={{
+            display: 'inline-block', padding: '1px 6px',
+            fontSize: 11, fontWeight: 600,
+            border: '1px solid var(--border, #e5e7eb)', borderRadius: 4,
+            color: 'var(--fg-secondary, #6b7280)', background: 'var(--bg-subtle, #f9fafb)',
+            fontFamily: 'var(--font-mono, monospace)',
+          }}>{r.godown.code}</span>
+        )
+        : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>,
     },
     {
       key: 'date', title: 'Date', dataIndex: 'return_date', width: 120,
@@ -369,56 +397,8 @@ export default function PurchaseReturnList() {
         return <span className="amt due"><span className="rs">₹</span>{Math.round(balance).toLocaleString('en-IN')}</span>;
       },
     },
-    {
-      key: 'actions', title: '', width: 130, align: 'center', fixed: 'right',
-      render: (_, r) => {
-        const cancelled = !!r.is_cancelled;
-        const moreMenu = {
-          items: [
-            { key: 'edit',  icon: <EditOutlined />, label: 'Edit return', onClick: () => handleEdit(r.purchase_return_id), disabled: cancelled },
-            { key: 'dup',   icon: <CopyOutlined />, label: 'Duplicate to new return', onClick: () => handleEdit(r.purchase_return_id), disabled: cancelled },
-            { type: 'divider' },
-            {
-              key: 'cancel', icon: <StopOutlined />,
-              label: cancelled ? 'Already cancelled' : 'Cancel return',
-              danger: true, disabled: cancelled,
-              onClick: () => {
-                Modal.confirm({
-                  title: `Cancel return ${r.return_number}?`,
-                  content: 'Cancelling reverses the supplier debit and pulls the returned stock back into inventory.',
-                  okText: 'Cancel this return', okButtonProps: { danger: true },
-                  cancelText: 'Keep it',
-                  onOk: () => handleCancel(r.purchase_return_id),
-                });
-              },
-            },
-          ],
-        };
-        const isLoading = !!actionLoading[r.purchase_return_id];
-        const groupStyle = { justifyContent: 'center', opacity: 1, transform: 'none', pointerEvents: 'auto' };
-        return (
-          <div className="act-box">
-            <div className="group" style={groupStyle}>
-              <Tooltip title="View">
-                <button className="abtn" onClick={(e) => { e.stopPropagation(); handleView(r.purchase_return_id); }} disabled={isLoading}>
-                  <EyeOutlined />
-                </button>
-              </Tooltip>
-              <Tooltip title="Print">
-                <button className="abtn" onClick={(e) => { e.stopPropagation(); handlePrint(r.purchase_return_id); }} disabled={isLoading}>
-                  <PrinterOutlined />
-                </button>
-              </Tooltip>
-              <Dropdown menu={moreMenu} trigger={['click']} placement="bottomRight">
-                <button className="abtn" onClick={(e) => e.stopPropagation()} disabled={isLoading}>
-                  <MoreOutlined />
-                </button>
-              </Dropdown>
-            </div>
-          </div>
-        );
-      },
-    },
+    // (Per-row actions column removed — all return actions live in the
+    // bottom ActionStrip and operate on the cursored / selected rows.)
   ].filter(Boolean);
 
   // Bottom Total strip — driven by server-aggregated summary.
@@ -463,6 +443,7 @@ export default function PurchaseReturnList() {
           <div className="blist-search">
             <SearchOutlined />
             <input
+              ref={searchInputRef}
               type="text"
               placeholder="Search return no or ref bill"
               value={searchInput}
@@ -575,8 +556,60 @@ export default function PurchaseReturnList() {
           rowClassName={(r) => r && r.is_cancelled ? 'blist-row-cancelled' : ''}
           summaryCells={cols.totalRow ? summaryCells : undefined}
           summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
+          controlledCursorIdx={sel.cursorIdx}
+          controlledSelectedSet={sel.selectedSet}
+          onCursorMove={sel.setCursor}
+          onShiftClickRow={sel.extendTo}
+          onCtrlClickRow={sel.toggleRow}
+          onRow={(record) => ({
+            onDoubleClick: () => record?.purchase_return_id && handleView(record.purchase_return_id),
+          })}
         />
       </div>
+
+      {/* ── Bottom action strip — same as SalesReturnList. */}
+      <ActionStrip
+        info={isMulti ? `${selectionCount} selected` : null}
+        actions={[
+          {
+            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
+            disabled: isMulti || !single,
+            onAction: () => single && handleView(single.purchase_return_id),
+          },
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: isMulti || !single || singleCancelled,
+            onAction: () => single && handleEdit(single.purchase_return_id),
+          },
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: () => navigate('/purchase-return/new'),
+          },
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => refresh(),
+          },
+          {
+            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
+            disabled: !activeRow,
+            onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            disabled: isMulti || !single,
+            onAction: () => single && handlePrint(single.purchase_return_id),
+          },
+          {
+            id: 'export', key: 'F10', label: 'Export PDF',
+            disabled: isMulti || !single,
+            onAction: () => single && handleExportPDF(single),
+          },
+        ]}
+      />
 
       <ViewModal bill={viewBill} onClose={() => setViewBill(null)} />
     </div>
