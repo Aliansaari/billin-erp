@@ -205,6 +205,29 @@
   flex: 1 1 auto;
   min-height: 100%;
 }
+
+/* ── Sticky ActionStrip — universal across the hub ──
+ * Every settings page ends in an ActionStrip (Esc Back / F1 Save).
+ * Pages that wrap content in a flex shell (Features, Defaults,
+ * Theme) already pin the strip via flex layout; for everything else
+ * (Company Profile, Users, Backup, Print, Barcode, Godowns,
+ * Import & Export, Tally, Import-queued) the strip used to scroll
+ * with the page. Make it sticky to the pane's bottom edge so it's
+ * always reachable, regardless of how each page lays itself out.
+ *
+ * The flex-shell pages aren't affected — their .ms-shell wrapper
+ * has overflow:hidden, so sticky doesn't engage inside it; the
+ * strip stays at flex-end naturally.
+ */
+.settings-pane .astrip {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  /* Solid background so content scrolling underneath doesn't bleed
+   * through. Already set on .astrip itself but reasserted here in
+   * case a theme overrides it elsewhere. */
+  background: var(--bg-muted, #fafafa);
+}
 @keyframes pane-enter {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
