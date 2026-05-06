@@ -16,6 +16,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { loanAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import LoanAccountModal from './LoanAccountModal';
 import RecordEMIModal from './RecordEMIModal';
 import './loans.css';
@@ -49,6 +51,11 @@ export default function LoanList() {
 
   const loans  = data?.loans  || [];
   const totals = data?.totals || {};
+
+  // Cursor + multi-select runs over the loan cards. The F-key strip
+  // below acts on the cursored loan.
+  const sel = useListSelection({ totalCount: loans.length, rows: loans });
+  const single = sel.activeRow;
 
   const openAdd = () => { setEditing(null); setModalOpen(true); };
   const openEdit = (loan) => { setEditing(loan); setModalOpen(true); };
@@ -204,10 +211,17 @@ export default function LoanList() {
           </div>
         ) : (
           <div className="bank-grid">
-            {loans.map((l) => (
+            {loans.map((l, idx) => (
               <LoanCard
                 key={l.ledger_id}
                 loan={l}
+                isCursor={sel.cursorIdx === idx}
+                isMultiSelected={sel.selectedSet.has(idx) && sel.cursorIdx !== idx}
+                onClickCard={(e) => {
+                  if (e.shiftKey)              sel.extendTo(idx);
+                  else if (e.ctrlKey || e.metaKey) sel.toggleRow(idx);
+                  else                            sel.setCursor(idx);
+                }}
                 onOpen={() => navigate(`/loans/${l.ledger_id}/statement`)}
                 onEdit={() => openEdit(l)}
                 onRecordEmi={() => openEmi(l)}
@@ -218,6 +232,44 @@ export default function LoanList() {
           </div>
         )}
       </div>
+
+      {/* ── Bottom action strip — cursor moves with arrow keys across
+          loan cards. F1 opens statement; F6 opens the Record EMI
+          modal for the cursored loan. */}
+      <ActionStrip
+        actions={[
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: !single,
+            onAction: () => single && openEdit(single),
+          },
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: openAdd,
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: load,
+          },
+          {
+            id: 'emi', key: 'F6', label: 'Record EMI',
+            disabled: !single || !single.is_active || single.is_closed,
+            onAction: () => single && openEmi(single),
+          },
+          {
+            id: 'deactivate', key: 'F8',
+            label: (single && !single.is_active) ? 'Activate' : 'Deactivate',
+            tone: 'danger',
+            disabled: !single,
+            onAction: () => single && toggleActive(single),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open Statement', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && navigate(`/loans/${single.ledger_id}/statement`),
+          },
+        ]}
+      />
 
       <LoanAccountModal
         open={modalOpen}
@@ -236,7 +288,7 @@ export default function LoanList() {
 }
 
 // ── LoanCard ──────────────────────────────────────────────────────
-function LoanCard({ loan, onOpen, onEdit, onRecordEmi, onToggleActive, onDelete }) {
+function LoanCard({ loan, onOpen, onEdit, onRecordEmi, onToggleActive, onDelete, isCursor, isMultiSelected, onClickCard }) {
   const isInactive = !loan.is_active;
   const isClosed   = loan.is_closed;
   const isTaken    = loan.loan_type === 'taken';
@@ -273,10 +325,17 @@ function LoanCard({ loan, onOpen, onEdit, onRecordEmi, onToggleActive, onDelete 
     if (key === 'delete')     onDelete?.();
   };
 
+  // Cursor / multi-select treatment reuses the .vrt-row-* classes.
+  const cursorClass = isCursor ? ' vrt-row-active' : (isMultiSelected ? ' vrt-row-multi' : '');
+
   return (
     <div
-      className={`bank-card loan-card${isInactive ? ' bank-card-inactive' : ''}${isClosed ? ' loan-card-closed' : ''}`}
-      onClick={onOpen}
+      className={`bank-card loan-card${isInactive ? ' bank-card-inactive' : ''}${isClosed ? ' loan-card-closed' : ''}${cursorClass}`}
+      onClick={(e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) { onClickCard?.(e); return; }
+        onClickCard?.(e);
+      }}
+      onDoubleClick={onOpen}
     >
       <div className="bank-card-hd">
         <div className="bank-card-id">

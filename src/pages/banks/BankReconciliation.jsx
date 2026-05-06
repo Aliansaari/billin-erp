@@ -36,6 +36,8 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { bankAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './banks.css';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -159,6 +161,12 @@ export default function BankReconciliation() {
   const totals  = data?.totals  || {};
   const aging   = data?.aging   || {};
   const perBank = data?.per_bank || [];
+
+  // Cursor over the visible (post-bucket-filter) entries. F1 Open Bank
+  // uses the cursored row's bank_id to drill into the statement page.
+  const sel = useListSelection({ totalCount: visibleEntries.length, rows: visibleEntries });
+  const single = sel.activeRow;
+  const handlePrint = () => window.print();
 
   // Bank options for the dropdown — sorted by uncleared count desc so
   // the "where the action is" banks are at the top.
@@ -361,8 +369,19 @@ export default function BankReconciliation() {
             ) : visibleEntries.map((e, i) => {
               const isCleared = !!e.cleared_at;
               const bk = ageBucket(e.days_outstanding);
+              const cursorClass =
+                sel.cursorIdx === i ? ' vrt-row-active'
+                : sel.selectedSet.has(i) ? ' vrt-row-multi' : '';
               return (
-                <tr key={e.transaction_id || i} className={isCleared ? 'cleared' : ''}>
+                <tr
+                  key={e.transaction_id || i}
+                  className={(isCleared ? 'cleared' : '') + cursorClass}
+                  onClick={(ev) => {
+                    if (ev.shiftKey)               sel.extendTo(i);
+                    else if (ev.ctrlKey || ev.metaKey) sel.toggleRow(i);
+                    else                              sel.setCursor(i);
+                  }}
+                >
                   <td className="l">
                     <span className="bank-num">{fmtDate(e.entry_date)}</span>
                   </td>
@@ -449,6 +468,24 @@ export default function BankReconciliation() {
           ) : null}
         </span>
       </footer>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: load,
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            onAction: handlePrint,
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open Bank', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && navigate(`/banks/${single.bank_id}/statement`),
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -26,8 +26,10 @@ import {
   DownloadOutlined, UploadOutlined, SyncOutlined, CloudUploadOutlined,
   CloudDownloadOutlined, FileTextOutlined, LinkOutlined, InboxOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { tallyAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title, Text, Paragraph } = Typography;
 const { RangePicker } = DatePicker;
@@ -42,6 +44,7 @@ function saveBlob(blob, filename) {
 }
 
 export default function TallySync() {
+  const navigate = useNavigate();
   const [form] = Form.useForm();
   const [config, setConfig]       = useState(null);
   const [loading, setLoading]     = useState(false);
@@ -390,6 +393,20 @@ export default function TallySync() {
                 </div>
               </>
             ),
+          },
+        ]}
+      />
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
+            id: 'sync', key: 'F1', label: 'Sync', tone: 'primary',
+            disabled: pushBusy,
+            onAction: handleLivePush,
           },
         ]}
       />

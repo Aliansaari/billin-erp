@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Table, Button, Modal, Form, Input, Switch, Tag, Space, Popconfirm, message, Tooltip } from 'antd';
 import { BankOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleFilled, StarFilled } from '@ant-design/icons';
 import { godownAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 /*
  * Settings → Godowns.
@@ -82,6 +84,11 @@ export default function GodownList() {
       message.error(err?.response?.data?.error || 'Failed to toggle active');
     }
   };
+
+  // Cursor + multi-select on godown rows. Strip below acts on the cursored
+  // row.
+  const sel = useListSelection({ totalCount: rows.length, rows });
+  const single = sel.activeRow;
 
   const remove = async (g) => {
     try {
@@ -179,6 +186,19 @@ export default function GodownList() {
         pagination={false}
         size="middle"
         style={{ background: 'var(--bg-elevated, white)' }}
+        rowClassName={(_r, idx) => {
+          if (sel.cursorIdx === idx)    return 'vrt-row-active';
+          if (sel.selectedSet.has(idx)) return 'vrt-row-multi';
+          return '';
+        }}
+        onRow={(record, index) => ({
+          onClick: (e) => {
+            if (e.shiftKey)               sel.extendTo(index);
+            else if (e.ctrlKey || e.metaKey) sel.toggleRow(index);
+            else                              sel.setCursor(index);
+          },
+          onDoubleClick: () => record && openEdit(record),
+        })}
       />
 
       <Modal
@@ -225,6 +245,36 @@ export default function GodownList() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: !single,
+            onAction: () => single && openEdit(single),
+          },
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: openCreate,
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: load,
+          },
+          {
+            id: 'deactivate', key: 'F8',
+            label: (single && !single.is_active) ? 'Activate' : 'Deactivate',
+            tone: 'danger',
+            disabled: !single || single.is_default,
+            onAction: () => single && toggleActive(single),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Edit', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && openEdit(single),
+          },
+        ]}
+      />
     </div>
   );
 }

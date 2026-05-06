@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Form, Switch, Select, Button, Input, InputNumber, Typography, Row, Col, Divider, message, Radio, Modal, Checkbox, Alert } from 'antd';
 import { SaveOutlined, SettingOutlined, CloudServerOutlined, CalendarOutlined, NumberOutlined, DeleteOutlined, WarningOutlined, FieldTimeOutlined, TagsOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { settingsAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title, Text } = Typography;
 
@@ -205,6 +207,7 @@ function CleanupModal({ open, onClose }) {
 }
 
 export default function ModuleSettings() {
+  const navigate = useNavigate();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -593,6 +596,20 @@ export default function ModuleSettings() {
       </div>
 
       <CleanupModal open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
+            id: 'save', key: 'F1', label: 'Save', tone: 'primary',
+            disabled: saving || loading,
+            onAction: () => form.submit(),
+          },
+        ]}
+      />
     </div>
   );
 }

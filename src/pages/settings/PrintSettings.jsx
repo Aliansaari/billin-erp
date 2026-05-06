@@ -7,9 +7,11 @@ import {
   PlusOutlined, CopyOutlined, DeleteOutlined, SaveOutlined,
   PrinterOutlined, ReloadOutlined, StarFilled, StarOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { printAPI, settingsAPI } from '../../api';
 import { renderBillHTML } from '../../services/printRenderer';
 import { listPrinters, printRawHTML } from '../../services/printer';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title, Text } = Typography;
 
@@ -150,6 +152,7 @@ const blankProfile = (docType = 'sales') => ({
 });
 
 export default function PrintSettings() {
+  const navigate = useNavigate();
   const [profiles,   setProfiles]   = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [draft,      setDraft]      = useState(blankProfile());
@@ -851,6 +854,20 @@ export default function PrintSettings() {
           </Card>
         </Col>
       </Row>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
+            id: 'save', key: 'F1', label: 'Save', tone: 'primary',
+            disabled: !dirty,
+            onAction: handleSave,
+          },
+        ]}
+      />
     </div>
   );
 }

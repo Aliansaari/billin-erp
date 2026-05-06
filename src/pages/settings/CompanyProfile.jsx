@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Form, Input, Button, DatePicker, Row, Col, Typography, message, Divider } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { settingsAPI } from '../../api';
 import { refreshFinancialYear } from '../../hooks/useFinancialYear';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -12,6 +14,7 @@ export default function CompanyProfile() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -109,6 +112,20 @@ export default function CompanyProfile() {
           </Form.Item>
         </Form>
       </Card>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
+            id: 'save', key: 'F1', label: 'Save', tone: 'primary',
+            disabled: saving || loading,
+            onAction: () => form.submit(),
+          },
+        ]}
+      />
     </div>
   );
 }

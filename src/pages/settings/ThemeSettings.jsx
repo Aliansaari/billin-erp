@@ -4,8 +4,10 @@ import {
   SunOutlined, MoonOutlined, DesktopOutlined,
   LayoutOutlined, BgColorsOutlined, MenuOutlined, AlignLeftOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import useThemeStore from '../../store/themeStore';
 import { resolveMode } from '../../theme/tokens';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title, Text } = Typography;
 
@@ -17,6 +19,7 @@ const { Title, Text } = Typography;
  * controls shows exactly how a panel looks in the chosen combination.
  */
 export default function ThemeSettings() {
+  const navigate = useNavigate();
   const themeStyle    = useThemeStore((s) => s.themeStyle);
   const appearance    = useThemeStore((s) => s.appearance);
   const menuOrientation    = useThemeStore((s) => s.menuOrientation);
@@ -219,6 +222,15 @@ export default function ThemeSettings() {
         phase-by-phase without affecting business logic.
         {isModern && ' You\'re previewing Modern — the frosted panels and muted teal accent apply app-wide.'}
       </div>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+        ]}
+      />
     </div>
   );
 }

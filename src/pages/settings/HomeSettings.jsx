@@ -9,8 +9,10 @@ import {
   RollbackOutlined, AuditOutlined, TeamOutlined, ProductOutlined,
   BarChartOutlined, DashboardOutlined, BookOutlined, BankOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 
 import useHomeSettingsStore, { KNOWN_ACTIONS } from '../../store/homeSettingsStore';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title, Text } = Typography;
 
@@ -54,6 +56,7 @@ const ACTION_META = {
 };
 
 export default function HomeSettings() {
+  const navigate = useNavigate();
   const cfg    = useHomeSettingsStore();
   const update = useHomeSettingsStore((s) => s.update);
   const reset  = useHomeSettingsStore((s) => s.reset);
@@ -204,6 +207,15 @@ export default function HomeSettings() {
           </Card>
         </div>
       </div>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+        ]}
+      />
     </div>
   );
 }

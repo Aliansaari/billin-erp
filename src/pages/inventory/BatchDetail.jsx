@@ -8,6 +8,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { batchAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './stock-transfer-form.css';
 
 /*
@@ -276,6 +277,23 @@ export default function BatchDetail() {
           />
         </div>
       </div>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => nav('/inventory/batches'),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: load,
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print(),
+          },
+        ]}
+      />
     </div>
   );
 }

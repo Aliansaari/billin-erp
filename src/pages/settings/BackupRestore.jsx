@@ -12,9 +12,11 @@ import {
   DownloadOutlined, HistoryOutlined, SettingOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { backupAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 dayjs.extend(relativeTime);
 
@@ -45,6 +47,7 @@ function formatFilename(filename) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function BackupRestore() {
+  const navigate = useNavigate();
   const [backups, setBackups]               = useState([]);
   const [settings, setSettings]             = useState({});
   const [totalSize, setTotalSize]           = useState('—');
@@ -694,6 +697,24 @@ export default function BackupRestore() {
           )}
         </Space>
       </Modal>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: fetchData,
+          },
+          {
+            id: 'backup', key: 'F1', label: 'Backup Now', tone: 'primary',
+            disabled: creatingBackup,
+            onAction: handleCreateBackup,
+          },
+        ]}
+      />
     </div>
   );
 }

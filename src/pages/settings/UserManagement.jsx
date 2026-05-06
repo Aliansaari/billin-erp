@@ -8,6 +8,8 @@ import {
   UndoOutlined, CheckOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import { settingsAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 /*
  * User Management — user list + full permission editor.
@@ -349,6 +351,10 @@ export default function UserManagement() {
   const grantCount = countGrants(perms);
   const roleGrantCount = selectedRole ? countGrants(rolePerms(selectedRoleId)) : 0;
 
+  // Cursor over the user list — arrow nav drives the F-key strip below.
+  const sel = useListSelection({ totalCount: users.length, rows: users });
+  const single = sel.activeRow;
+
   return (
     <div>
       <div className="erp-list-header">
@@ -357,7 +363,26 @@ export default function UserManagement() {
       </div>
 
       <Card>
-        <Table columns={columns} dataSource={users} rowKey="user_id" loading={loading} pagination={{ pageSize: 10 }} />
+        <Table
+          columns={columns}
+          dataSource={users}
+          rowKey="user_id"
+          loading={loading}
+          pagination={{ pageSize: 10 }}
+          rowClassName={(_r, idx) => {
+            if (sel.cursorIdx === idx)    return 'vrt-row-active';
+            if (sel.selectedSet.has(idx)) return 'vrt-row-multi';
+            return '';
+          }}
+          onRow={(record, index) => ({
+            onClick: (e) => {
+              if (e.shiftKey)               sel.extendTo(index);
+              else if (e.ctrlKey || e.metaKey) sel.toggleRow(index);
+              else                              sel.setCursor(index);
+            },
+            onDoubleClick: () => record && handleEdit(record),
+          })}
+        />
       </Card>
 
       <Modal
@@ -571,6 +596,36 @@ export default function UserManagement() {
           )}
         </Form>
       </Modal>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: !single,
+            onAction: () => single && handleEdit(single),
+          },
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: handleAdd,
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: loadData,
+          },
+          {
+            id: 'deactivate', key: 'F8',
+            label: (single && !single.is_active) ? 'Activate' : 'Deactivate',
+            tone: 'danger',
+            disabled: !single,
+            onAction: () => single && handleToggleStatus(single),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Edit', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && handleEdit(single),
+          },
+        ]}
+      />
     </div>
   );
 }

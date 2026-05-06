@@ -7,21 +7,33 @@ import {
   ReloadOutlined, RightOutlined,
 } from '@ant-design/icons';
 import { reportAPI, categoryAPI, dataAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './smart-stock.css';
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
 // Memoised category row — clicking navigates to the detail page.
-const CategoryRow = memo(({ cat, onOpen }) => (
-  <div className="ss-cat-row" onClick={() => onOpen(cat)}>
-    <span className="ss-cat-name">
-      <RightOutlined />
-      {cat.category_name || 'Uncategorised'}
-    </span>
-    <span className="ss-cat-items">{cat.item_count?.toLocaleString() ?? 0} items</span>
-    <span className="ss-cat-value">{fmt(cat.stock_value)}</span>
-  </div>
-));
+const CategoryRow = memo(({ cat, onOpen, isCursor, isMultiSelected, onSetCursor }) => {
+  const cursorClass = isCursor ? ' vrt-row-active' : (isMultiSelected ? ' vrt-row-multi' : '');
+  return (
+    <div
+      className={`ss-cat-row${cursorClass}`}
+      onClick={(e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) { onSetCursor(e); return; }
+        onSetCursor(e);
+      }}
+      onDoubleClick={() => onOpen(cat)}
+    >
+      <span className="ss-cat-name">
+        <RightOutlined />
+        {cat.category_name || 'Uncategorised'}
+      </span>
+      <span className="ss-cat-items">{cat.item_count?.toLocaleString() ?? 0} items</span>
+      <span className="ss-cat-value">{fmt(cat.stock_value)}</span>
+    </div>
+  );
+});
 
 export default function StockReportPro() {
   const navigate = useNavigate();
@@ -46,6 +58,7 @@ export default function StockReportPro() {
   const [importPhase,    setImportPhase]    = useState('');
   const [dlFailed,       setDlFailed]       = useState(false);
   const fileInputRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +95,11 @@ export default function StockReportPro() {
     const id = cat.category_id ?? 'none';
     navigate(`/stock-report-pro/${id}`);
   };
+
+  // Cursor over the category breakdown — F1 Open Category navigates to
+  // the cursored row's detail page.
+  const sel = useListSelection({ totalCount: categoryBreakdown.length, rows: categoryBreakdown });
+  const single = sel.activeRow;
 
   /* ── import / export / template ── */
   const handleExport = async () => {
@@ -152,6 +170,7 @@ export default function StockReportPro() {
           <div className="ss-search">
             <SearchOutlined />
             <input
+              ref={searchInputRef}
               placeholder="Search product, barcode, article…"
               value={searchInput}
               onChange={handleSearchChange}
@@ -208,8 +227,19 @@ export default function StockReportPro() {
         ) : categoryBreakdown.length === 0 ? (
           <Empty description="No categories found" style={{ marginTop: 60 }} />
         ) : (
-          categoryBreakdown.map(cat => (
-            <CategoryRow key={cat.category_id ?? '__none__'} cat={cat} onOpen={openCategory} />
+          categoryBreakdown.map((cat, idx) => (
+            <CategoryRow
+              key={cat.category_id ?? '__none__'}
+              cat={cat}
+              onOpen={openCategory}
+              isCursor={sel.cursorIdx === idx}
+              isMultiSelected={sel.selectedSet.has(idx) && sel.cursorIdx !== idx}
+              onSetCursor={(e) => {
+                if (e.shiftKey)              sel.extendTo(idx);
+                else if (e.ctrlKey || e.metaKey) sel.toggleRow(idx);
+                else                            sel.setCursor(idx);
+              }}
+            />
           ))
         )}
       </div>
@@ -289,6 +319,24 @@ export default function StockReportPro() {
           </div>
         )}
       </Modal>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => setRefreshCount(c => c + 1),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open Category', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && openCategory(single),
+          },
+        ]}
+      />
     </div>
   );
 }

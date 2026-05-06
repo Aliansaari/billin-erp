@@ -16,7 +16,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button, Select, Upload, Space, Typography, Progress, Tag, Table, Modal, Alert, Divider, message, Steps } from 'antd';
 import { UploadOutlined, ReloadOutlined, StopOutlined, DownloadOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { importsAPI, ledgerAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title, Text } = Typography;
 
@@ -40,6 +42,7 @@ const STATUS_STEP = {
 };
 
 export default function ImportV2() {
+  const navigate = useNavigate();
   const [source, setSource]     = useState('excel_customers');
   const [file, setFile]         = useState(null);
   const [job, setJob]           = useState(null);
@@ -102,6 +105,18 @@ export default function ImportV2() {
   const reset = () => {
     stopPolling();
     setJob(null); setFile(null); setResultOpen(false);
+  };
+
+  // F5 = Refresh — re-fetch the current job's status, useful if polling
+  // was stopped (e.g. screen was idle long enough that the timer paused).
+  const handleRefresh = async () => {
+    if (!job) return;
+    try {
+      const res = await importsAPI.getById(job.id);
+      setJob(res.data);
+    } catch (e) {
+      message.error('Failed to refresh job status.');
+    }
   };
 
   // Auth'd blob download. A direct <a href> would skip the Authorization
@@ -228,6 +243,20 @@ export default function ImportV2() {
           <Alert type="warning" showIcon message="Import cancelled" description="Already-committed rows are still in the database." />
         )}
       </Modal>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            disabled: !job,
+            onAction: handleRefresh,
+          },
+        ]}
+      />
     </div>
   );
 }
