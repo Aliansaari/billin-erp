@@ -62,6 +62,7 @@ function CollapsedItem({ item, currentPath, navigate }) {
       onMouseLeave={hidePopup}
       onClick={() => { if (!item.children) { navigate(item.key); } }}
       title={item.children ? '' : item.label}
+      data-shortcut-key={item.key}
     >
       <span className="erp-ci-icon">{item.icon}</span>
 

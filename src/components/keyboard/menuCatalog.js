@@ -13,6 +13,9 @@
 // Routes here are the canonical destinations — keep them in sync
 // with src/App.jsx Routes if a path moves.
 
+// Each menu carries an `anchorKey` matching the data-shortcut-key on
+// the corresponding Sidebar / TopNav menu item, so the popup opens
+// next to it instead of centered.
 export const ALT_MENUS = {
   // Alt+H = Home — single-item "menu", just routes to /. Kept here
   // for symmetry with the others; the global hook short-circuits
@@ -20,12 +23,14 @@ export const ALT_MENUS = {
   // exactly one item.
   KeyH: {
     title: 'Home',
+    anchorKey: '/',
     items: [
       { letter: 'H', label: 'Home',      sub: 'Command Center',     route: '/' },
     ],
   },
   KeyD: {
     title: 'Dashboard',
+    anchorKey: '/dashboard',
     items: [
       { letter: 'D', label: 'Dashboard', sub: '9-tile metrics view', route: '/dashboard' },
     ],
@@ -33,6 +38,7 @@ export const ALT_MENUS = {
 
   KeyS: {
     title: 'Sales',
+    anchorKey: 'sales-menu',
     items: [
       { letter: 'S', label: 'Sale',              sub: 'New customer invoice', route: '/sale/new' },
       { letter: 'L', label: 'Sales List',        sub: 'All customer bills',   route: '/sales' },
@@ -43,6 +49,7 @@ export const ALT_MENUS = {
 
   KeyP: {
     title: 'Purchase',
+    anchorKey: 'purchase-menu',
     items: [
       { letter: 'P', label: 'Purchase',             sub: 'New supplier bill',  route: '/purchase/new' },
       { letter: 'L', label: 'Purchase List',        sub: 'All supplier bills', route: '/purchases' },
@@ -54,6 +61,7 @@ export const ALT_MENUS = {
   // Alt+E for parti**E**s (S is taken by Sales, P by Purchase).
   KeyE: {
     title: 'Parties',
+    anchorKey: 'parties-menu',
     items: [
       { letter: 'C', label: 'Customers', sub: 'Party master',  route: '/customers' },
       { letter: 'S', label: 'Suppliers', sub: 'Vendor master', route: '/suppliers' },
@@ -62,6 +70,7 @@ export const ALT_MENUS = {
 
   KeyI: {
     title: 'Inventory',
+    anchorKey: 'inventory-menu',
     items: [
       { letter: 'P', label: 'Products',         sub: 'Item master',         route: '/products' },
       { letter: 'C', label: 'Categories',       sub: 'Product categories',  route: '/categories' },
@@ -75,6 +84,7 @@ export const ALT_MENUS = {
 
   KeyM: {
     title: 'Payments',
+    anchorKey: 'payments-menu',
     items: [
       { letter: 'P', label: 'Make Payment',     sub: 'Money out',          route: '/payment/new' },
       { letter: 'R', label: 'Receive Payment',  sub: 'Money in',           route: '/receipt/new' },
@@ -84,6 +94,7 @@ export const ALT_MENUS = {
 
   KeyB: {
     title: 'Bank',
+    anchorKey: 'bank-menu',
     items: [
       { letter: 'A', label: 'Accounts',       sub: 'Bank ledgers',        route: '/banks' },
       { letter: 'R', label: 'Reconciliation', sub: 'Uncleared cheques',   route: '/banks/reconciliation' },
@@ -94,6 +105,7 @@ export const ALT_MENUS = {
 
   KeyA: {
     title: 'Accounts',
+    anchorKey: 'accounts-menu',
     items: [
       { letter: 'J', label: 'New Journal',      sub: 'Manual entry',     route: '/accounts/journal/new' },
       { letter: 'V', label: 'Journal Vouchers', sub: 'All vouchers',     route: '/accounts/journal' },
@@ -107,6 +119,7 @@ export const ALT_MENUS = {
   // takes over once the user is there.
   KeyR: {
     title: 'Reports',
+    anchorKey: 'reports-menu',
     items: [
       { letter: 'B', label: 'Browse Reports', sub: 'Reports hub', route: '/reports' },
       { letter: 'D', label: 'Day Book',       sub: 'All vouchers · today', route: '/reports/day-book' },
@@ -120,6 +133,7 @@ export const ALT_MENUS = {
   // Alt+T = se**T**tings (S is taken by Sales).
   KeyT: {
     title: 'Settings',
+    anchorKey: 'settings-menu',
     items: [
       { letter: 'C', label: 'Company Profile', sub: 'GST + company info', route: '/settings/company' },
       { letter: 'U', label: 'Users',           sub: 'Accounts & roles',   route: '/settings/users' },

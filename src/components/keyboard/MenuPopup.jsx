@@ -25,8 +25,68 @@ import './MenuPopup.css';
 //     onPick: (item) => navigate(item.route),
 //   });
 
-function MenuPopupBody({ title, items, onPick, onCancel }) {
+// Resolve the on-screen position for a popup anchored to a top-level
+// nav item (Sidebar collapsed icon, Sidebar expanded Antd Menu, or
+// TopNav pill). Walks the DOM in order of preference:
+//   1. Custom data-shortcut-key attribute we add on Sidebar
+//      CollapsedItem and TopNav pills.
+//   2. Antd Menu's auto-generated data-menu-id="...-sales-menu"
+//      attribute on the inline submenu (expanded sidebar).
+// Returns { left, top } in viewport coordinates, or null if no anchor
+// is found — caller falls back to the centered layout.
+function findAnchorRect(anchorKey) {
+  if (!anchorKey || typeof document === 'undefined') return null;
+  const explicit = document.querySelector(`[data-shortcut-key="${CSS.escape(anchorKey)}"]`);
+  if (explicit) return explicit.getBoundingClientRect();
+  // Antd-generated id ends with "-{key}". CSS attribute substring match.
+  const antd = document.querySelector(`[data-menu-id$="-${CSS.escape(anchorKey)}"]`);
+  if (antd) return antd.getBoundingClientRect();
+  return null;
+}
+
+function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
   const [activeIdx, setActiveIdx] = useState(0);
+  const popupRef = useRef(null);
+
+  // Compute popup position once on mount (and on window resize).
+  // Sidebar items live on the LEFT edge of the viewport, so the popup
+  // unfolds to the RIGHT of them. TopNav pills live in the top bar,
+  // so the popup drops DOWN. Rule: if the anchor's left edge is in
+  // the viewport's left band (<200px), place to the right; otherwise
+  // place below. Clamp so the popup never clips off-screen.
+  const [pos, setPos] = useState(() => null);
+  useEffect(() => {
+    const compute = () => {
+      const anchor = findAnchorRect(anchorKey);
+      if (!anchor) { setPos(null); return; }
+      const popupW = popupRef.current?.offsetWidth || 320;
+      const popupH = popupRef.current?.offsetHeight || 280;
+      const margin = 6;
+      const onLeftEdge = anchor.left < 200;
+      let left, top;
+      if (onLeftEdge) {
+        // Sidebar — unfold to the right, top-aligned with the icon.
+        left = anchor.right + margin;
+        top  = anchor.top;
+      } else {
+        // TopNav — drop below, left-aligned with the pill.
+        left = anchor.left;
+        top  = anchor.bottom + margin;
+      }
+      // Clamp to viewport (8px gutter).
+      left = Math.max(8, Math.min(left, window.innerWidth  - popupW - 8));
+      top  = Math.max(8, Math.min(top,  window.innerHeight - popupH - 8));
+      setPos({ left, top });
+    };
+    compute();
+    // Re-measure after first paint when the popup has actual dimensions.
+    const r = requestAnimationFrame(compute);
+    window.addEventListener('resize', compute);
+    return () => {
+      cancelAnimationFrame(r);
+      window.removeEventListener('resize', compute);
+    };
+  }, [anchorKey]);
 
   // Click-outside / Esc / Enter / letter shortcuts. Capture phase so
   // we run BEFORE any other window keydown listener (e.g. the global
@@ -111,9 +171,14 @@ function MenuPopupBody({ title, items, onPick, onCancel }) {
   // letter shortcuts fire from window. Don't focus into any item; the
   // capture-phase listener handles everything.
 
+  // Anchored mode (positioned next to a sidebar/topnav item) uses
+  // absolute coords; fallback (no anchor found) uses the original
+  // centered overlay positioning via .mp-backdrop's flex layout.
+  const popupStyle = pos ? { position: 'fixed', left: pos.left, top: pos.top } : undefined;
+
   return (
-    <div className="mp-backdrop" onMouseDown={onCancel}>
-      <div className="mp-popup" onMouseDown={(e) => e.stopPropagation()} role="menu" aria-label={title}>
+    <div className={`mp-backdrop${pos ? ' anchored' : ''}`} onMouseDown={onCancel}>
+      <div ref={popupRef} className="mp-popup" style={popupStyle} onMouseDown={(e) => e.stopPropagation()} role="menu" aria-label={title}>
         <div className="mp-head">
           <span className="mp-title">{title}</span>
           <span className="mp-hint">Letter to pick · Esc to close</span>
@@ -185,6 +250,7 @@ export function MenuPopupProvider({ children }) {
     <MenuPopupBody
       title={state.opts?.title}
       items={state.opts?.items || []}
+      anchorKey={state.opts?.anchorKey}
       onPick={handlePick}
       onCancel={handleCancel}
     />,

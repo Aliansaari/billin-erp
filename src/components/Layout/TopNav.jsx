@@ -157,7 +157,7 @@ export default function TopNav() {
           placement="bottom"
           overlayClassName="erp-topnav-dropdown"
         >
-          <button type="button" className={pillClass} aria-label={item.label}>
+          <button type="button" className={pillClass} aria-label={item.label} data-shortcut-key={item.key}>
             <span className="pill-icon">{item.icon}</span>
             <span className="pill-label">{item.label}</span>
           </button>
@@ -172,6 +172,7 @@ export default function TopNav() {
         className={pillClass}
         onClick={() => navigate(item.key)}
         aria-label={item.label}
+        data-shortcut-key={item.key}
       >
         <span className="pill-icon">{item.icon}</span>
         <span className="pill-label">{item.label}</span>

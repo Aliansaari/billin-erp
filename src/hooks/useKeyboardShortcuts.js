@@ -63,6 +63,7 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
             openMenu({
               title: menu.title,
               items: menu.items,
+              anchorKey: menu.anchorKey,
               onPick: (it) => navigate(it.route),
             });
           }
