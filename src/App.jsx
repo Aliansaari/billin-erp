@@ -90,6 +90,7 @@ import ImportExport from './pages/settings/ImportExport';
 import TallySync from './pages/settings/TallySync';
 import PrintSettings from './pages/settings/PrintSettings';
 import HomeSettings from './pages/settings/HomeSettings';
+import DefaultsSettings from './pages/settings/DefaultsSettings';
 import SettingsLayout from './pages/settings/SettingsLayout';
 
 function PrivateRoute({ children }) {
@@ -418,6 +419,7 @@ export default function App() {
             <Route path="users"               element={<RoleRoute perm="settings.manage_users"><UserManagement /></RoleRoute>} />
             <Route path="barcode"             element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
             <Route path="modules"             element={<RoleRoute perm="settings.manage_company"><ModuleSettings /></RoleRoute>} />
+            <Route path="defaults"            element={<RoleRoute perm="settings.manage_company"><DefaultsSettings /></RoleRoute>} />
             <Route path="backup"              element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
             {/* Theme is per-user UX — anyone can pick light/dark. */}
             <Route path="theme"               element={<ThemeSettings />} />

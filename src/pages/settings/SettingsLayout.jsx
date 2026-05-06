@@ -3,7 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BankOutlined, UserOutlined, BgColorsOutlined, TagsOutlined,
   PrinterOutlined, ThunderboltOutlined, SwapOutlined, ApiOutlined,
-  CloudServerOutlined, HomeOutlined,
+  CloudServerOutlined, HomeOutlined, ControlOutlined,
 } from '@ant-design/icons';
 import { hasPermission } from '../../utils/perms';
 import useAuthStore from '../../store/authStore';
@@ -29,9 +29,10 @@ const SETTINGS_GROUPS = [
   {
     label: 'Business',
     items: [
-      { path: 'company',  icon: <BankOutlined />,    label: 'Company Profile', perm: 'settings.manage_company' },
-      { path: 'modules',  icon: <ThunderboltOutlined />, label: 'Modules',     perm: 'settings.manage_company' },
-      { path: 'godowns',  icon: <BankOutlined />,    label: 'Godowns',         perm: 'godowns.view' },
+      { path: 'company',  icon: <BankOutlined />,        label: 'Company Profile', perm: 'settings.manage_company' },
+      { path: 'modules',  icon: <ThunderboltOutlined />, label: 'Features',        perm: 'settings.manage_company' },
+      { path: 'defaults', icon: <ControlOutlined />,     label: 'Defaults',        perm: 'settings.manage_company' },
+      { path: 'godowns',  icon: <BankOutlined />,        label: 'Godowns',         perm: 'godowns.view' },
     ],
   },
   {
