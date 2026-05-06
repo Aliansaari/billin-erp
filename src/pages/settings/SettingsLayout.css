@@ -190,8 +190,16 @@
   background: var(--bg-app);
 }
 .settings-pane > * {
-  flex: 0 0 auto;
-  min-height: 0;
+  /* Stretch every page wrapper so it's at least pane-height. Combined
+   * with `margin-top: auto` on .astrip below, this guarantees the
+   * action strip sits at the pane's bottom edge even on short pages
+   * (Barcode, Users, Godowns, etc.) — sticky alone wasn't enough
+   * because sticky-bottom only engages when the strip would otherwise
+   * be off-screen. */
+  flex: 1 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
   /* Page-enter animation. React Router re-mounts the active route
    * component, which restarts this animation on every navigation —
    * gives the new page a soft "arrives from below" entrance instead
@@ -223,6 +231,12 @@
   position: sticky;
   bottom: 0;
   z-index: 5;
+  /* margin-top:auto pushes the strip to the bottom of its flex-column
+   * wrapper. Wrappers are now stretched to pane-height (rule above),
+   * so this lands the strip at the pane's bottom edge regardless of
+   * how much content is above it. Sticky still kicks in for pages
+   * tall enough to scroll, keeping the strip in view. */
+  margin-top: auto;
   /* Solid background so content scrolling underneath doesn't bleed
    * through. Already set on .astrip itself but reasserted here in
    * case a theme overrides it elsewhere. */
