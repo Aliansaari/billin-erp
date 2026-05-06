@@ -173,7 +173,7 @@ export default function HomeSettings() {
             <ToggleRow label="Show headline"        hint='"What would you like to do?"'                       checked={cfg.showHeadline}   onChange={(v) => update({ showHeadline: v })} />
             <ToggleRow label="Show search bar"      hint="The big global search input in the middle of the page (⌘K still works)." checked={cfg.showSearch} onChange={(v) => update({ showSearch: v })} />
             <ToggleRow disabled={!cfg.showSearch} label="Show keyboard hint" hint="Quiet line below search showing ⌥S, ⌥P, ⌘K." checked={cfg.showSearchHint} onChange={(v) => update({ showSearchHint: v })} />
-            <ToggleRow label="Ambient gradient"     hint="Soft accent wash behind the page (Modern themes)."  checked={cfg.showAmbientGradient} onChange={(v) => update({ showAmbientGradient: v })} />
+            <ToggleRow label="Ambient gradient"     hint="Soft accent wash behind the page (Editorial theme)."  checked={cfg.showAmbientGradient} onChange={(v) => update({ showAmbientGradient: v })} />
           </Card>
 
           {/* ── 3. Action ribbon ────────────────────────────────────────────── */}

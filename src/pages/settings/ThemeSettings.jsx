@@ -53,21 +53,21 @@ export default function ThemeSettings() {
       <section className="theme-section">
         <div className="theme-section-head">
           <h2 className="theme-section-title">Style</h2>
-          <p className="theme-section-help">Crisp opaque vs. frosted glass aesthetic.</p>
+          <p className="theme-section-help">Crisp indigo vs. warm editorial palette.</p>
         </div>
         <div className="theme-grid theme-grid-2">
           <ThemeOption
             active={themeStyle === 'classic'}
             onSelect={() => setThemeStyle('classic')}
             name="Classic"
-            desc="Crisp & opaque"
+            desc="Indigo accent · crisp panels"
             preview={<StyleMock variant="classic" />}
           />
           <ThemeOption
             active={themeStyle === 'modern'}
             onSelect={() => setThemeStyle('modern')}
-            name="Modern"
-            desc="Frosted glass"
+            name="Editorial"
+            desc="Cream + terracotta · magazine feel"
             preview={<StyleMock variant="modern" />}
           />
         </div>
