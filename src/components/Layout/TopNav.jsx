@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Dropdown, Avatar } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -11,13 +11,15 @@ import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
 import { useMenuItems, menuItems as staticMenuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
 import useFavoritesStore from '../../store/favoritesStore';
+import { useMenuPopup } from '../keyboard/MenuPopup';
+import { ALT_MENUS } from '../keyboard/menuCatalog';
 import './top-nav.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
  *  TopNav — horizontal menu layout (vertical alternative lives in Sidebar).
  *
- *  Built from native buttons + AntD Dropdown instead of `<Menu mode="horizontal">`
- *  so every element is a predictable, properly-contained pill. Fighting AntD's
+ *  Built from native buttons instead of `<Menu mode="horizontal">` so every
+ *  element is a predictable, properly-contained pill. Fighting AntD's
  *  horizontal menu defaults (variable line-height, space distribution, icon
  *  vertical-align) caused the earlier layout bugs — the menu stretching to
  *  fill the bar, icons not aligning with text, items appearing with different
@@ -27,8 +29,10 @@ import './top-nav.css';
  *    · icon-to-label alignment (single inline-flex, no line-height drift)
  *    · the overall menu width (hugs its content, right cluster pinned right)
  *
- *  Submenus still use AntD's Dropdown so we inherit the proven popup behaviour
- *  (click/hover, keyboard, portal, viewport clamping) without reinventing it.
+ *  Submenus open the Tally MenuPopup (same one Alt+letter triggers) so mouse
+ *  and keyboard land in identical UI. The user-avatar dropdown still uses
+ *  AntD's Dropdown — no keyboard equivalent, so unifying it would be over-
+ *  reach.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 const roleColors = {
@@ -52,13 +56,19 @@ export default function TopNav() {
   const mode   = resolveMode(themeStyle, appearance);
   const isDark = mode.endsWith('dark');
 
-  // Controlled open state for the submenu dropdowns. Only one top-level
-  // pill's submenu is open at a time (the key of that pill is stored here).
-  // Having this explicit instead of leaving AntD to manage it means we can
-  // force-close the dropdown after navigation (belt-and-braces for flaky
-  // AntD auto-close timing) and also ensure mouse-out from the pill does
-  // not close the dropdown while the cursor is still inside the popup.
-  const [openKey, setOpenKey] = useState(null);
+  const { openMenu } = useMenuPopup();
+
+  // Reverse-lookup: anchorKey ('sales-menu') -> ALT_MENUS entry. Lets a
+  // pill click open the same Tally popup that Alt+S opens, so mouse and
+  // keyboard land in identical UI instead of two different dropdowns.
+  const menusByAnchor = useMemo(() => {
+    const m = {};
+    for (const code in ALT_MENUS) {
+      const menu = ALT_MENUS[code];
+      if (menu.anchorKey) m[menu.anchorKey] = menu;
+    }
+    return m;
+  }, []);
 
   // Guarded navigate — matches Sidebar. confirmLeave takes an onConfirm
   // callback and fires it (clean form) or shows the AntD modal and fires
@@ -121,47 +131,35 @@ export default function TopNav() {
     const pillClass = `erp-topnav-pill${isActive ? ' is-active' : ''}`;
 
     if (item.children && item.children.length > 0) {
-      // Child `key` is the route path. The nav handler is centralised at
-      // the AntD menu level (not per-item) so the dropdown auto-closes on
-      // select. We track our own `open` state for the Dropdown too, so we
-      // can explicitly close on select even if AntD 5's auto-close timing
-      // flakes under fast clicks.
-      const dropdownItems = item.children.map((c) => ({
-        key: c.key,
-        icon: c.icon,
-        label: c.label,
-      }));
+      // Click opens the same Tally popup that Alt+letter opens — single
+      // UI for mouse and keyboard. Falls back to navigating the first
+      // child if the catalog is missing this anchor (shouldn't happen
+      // while menuConfig and menuCatalog stay in sync).
+      const menu = menusByAnchor[item.key];
+      const handleClick = () => {
+        if (menu) {
+          openMenu({
+            title: menu.title,
+            items: menu.items,
+            anchorKey: menu.anchorKey,
+            onPick: (it) => navigate(it.route),
+          });
+        } else {
+          navigate(item.children[0].key);
+        }
+      };
       return (
-        <Dropdown
+        <button
           key={item.key}
-          menu={{
-            items: dropdownItems,
-            selectedKeys: [location.pathname],
-            onClick: ({ key, domEvent }) => {
-              // Stop the click from bubbling to the outer pill button (which
-              // would toggle the dropdown state right after we navigate).
-              domEvent?.stopPropagation?.();
-              // Close the dropdown explicitly in case AntD's auto-close
-              // doesn't fire in time for the navigation render.
-              setOpenKey(null);
-              navigate(key);
-            },
-          }}
-          /* Click-only trigger. The earlier ['click', 'hover'] combination
-             caused a toggle conflict: hover would open the menu, then click
-             (which AntD treats as a toggle) would close it again — making
-             click look broken. */
-          trigger={['click']}
-          open={openKey === item.key}
-          onOpenChange={(next) => setOpenKey(next ? item.key : null)}
-          placement="bottom"
-          overlayClassName="erp-topnav-dropdown"
+          type="button"
+          className={pillClass}
+          onClick={handleClick}
+          aria-label={item.label}
+          data-shortcut-key={item.key}
         >
-          <button type="button" className={pillClass} aria-label={item.label} data-shortcut-key={item.key}>
-            <span className="pill-icon">{item.icon}</span>
-            <span className="pill-label">{item.label}</span>
-          </button>
-        </Dropdown>
+          <span className="pill-icon">{item.icon}</span>
+          <span className="pill-label">{item.label}</span>
+        </button>
       );
     }
 

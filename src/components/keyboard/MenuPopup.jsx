@@ -49,11 +49,12 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
   const popupRef = useRef(null);
 
   // Compute popup position once on mount (and on window resize).
-  // Sidebar items live on the LEFT edge of the viewport, so the popup
-  // unfolds to the RIGHT of them. TopNav pills live in the top bar,
-  // so the popup drops DOWN. Rule: if the anchor's left edge is in
-  // the viewport's left band (<200px), place to the right; otherwise
-  // place below. Clamp so the popup never clips off-screen.
+  // TopNav pills live in the ~55px-tall top bar, so the popup drops
+  // BELOW them; sidebar items hug the LEFT edge, so the popup unfolds
+  // to the RIGHT. Use anchor.top first (topnav check) so left-edge
+  // topnav pills like Home/Dashboard don't get mistaken for sidebar
+  // items just because their x is small. Clamp so the popup never
+  // clips off-screen.
   const [pos, setPos] = useState(() => null);
   useEffect(() => {
     const compute = () => {
@@ -62,14 +63,19 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
       const popupW = popupRef.current?.offsetWidth || 320;
       const popupH = popupRef.current?.offsetHeight || 280;
       const margin = 6;
-      const onLeftEdge = anchor.left < 200;
+      const inTopBar = anchor.top < 80;
+      const onLeftEdge = !inTopBar && anchor.left < 200;
       let left, top;
-      if (onLeftEdge) {
+      if (inTopBar) {
+        // TopNav — drop below, left-aligned with the pill.
+        left = anchor.left;
+        top  = anchor.bottom + margin;
+      } else if (onLeftEdge) {
         // Sidebar — unfold to the right, top-aligned with the icon.
         left = anchor.right + margin;
         top  = anchor.top;
       } else {
-        // TopNav — drop below, left-aligned with the pill.
+        // Anything else — drop below.
         left = anchor.left;
         top  = anchor.bottom + margin;
       }
