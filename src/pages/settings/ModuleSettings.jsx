@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Form, Switch, Select, Button, Input, InputNumber, message, Radio, Modal, Checkbox, Alert } from 'antd';
+import { Form, Switch, Button, Input, InputNumber, message, Radio, Modal, Checkbox, Alert } from 'antd';
 import { DeleteOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { settingsAPI } from '../../api';
@@ -18,22 +18,6 @@ function ToggleRow({ name, label, desc, onChange }) {
       <div className="ms-row-control">
         <Form.Item name={name} valuePropName="checked" noStyle>
           <Switch onChange={onChange} />
-        </Form.Item>
-      </div>
-    </div>
-  );
-}
-
-function SelectRow({ name, label, desc, options, width = 180 }) {
-  return (
-    <div className="ms-row">
-      <div>
-        <div className="ms-row-label">{label}</div>
-        {desc && <div className="ms-row-desc">{desc}</div>}
-      </div>
-      <div className="ms-row-control">
-        <Form.Item name={name} noStyle>
-          <Select options={options} style={{ width }} />
         </Form.Item>
       </div>
     </div>
@@ -290,7 +274,6 @@ export default function ModuleSettings() {
         block_expired_sales:     !!s.block_expired_sales,
         allow_zero_stock_batches: s.allow_zero_stock_batches ?? true,
         default_product_mode:    s.default_product_mode || 'variant',
-        backup_frequency:        s.backup_frequency || 'Daily',
         sale_due_days_mode:      localStorage.getItem('sale_due_days_mode')  || 'bill_date',
         purchase_due_days_mode:  localStorage.getItem('purchase_due_days_mode') || 'bill_date',
         gst_mode:                localStorage.getItem('gst_mode') || 'product',
@@ -539,27 +522,6 @@ export default function ModuleSettings() {
                   </Form.Item>
                 </div>
               </div>
-            </section>
-
-            {/* ── Backup ── */}
-            <section className="ms-section">
-              <div className="ms-section-head">
-                <h2 className="ms-section-title">Backup</h2>
-                <p className="ms-section-desc">
-                  How often the app snapshots the database. Use Backup &amp; Recovery for manual snapshots and restores.
-                </p>
-              </div>
-              <SelectRow
-                name="backup_frequency"
-                label="Frequency"
-                desc="Snapshots run automatically on this cadence."
-                options={[
-                  { value: 'Hourly', label: 'Hourly' },
-                  { value: 'Daily',  label: 'Daily' },
-                  { value: 'Weekly', label: 'Weekly' },
-                  { value: 'Manual', label: 'Manual only' },
-                ]}
-              />
             </section>
 
             {/* ── Danger zone ── */}
