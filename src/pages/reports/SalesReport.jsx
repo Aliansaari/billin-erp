@@ -1,12 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DatePicker, Button, Tag, message, Checkbox, Popover, Input } from 'antd';
-import { DownloadOutlined, SettingOutlined, PrinterOutlined, SearchOutlined, CloseOutlined, WarningOutlined } from '@ant-design/icons';
-import { useSearchParams } from 'react-router-dom';
+import { SettingOutlined, SearchOutlined, CloseOutlined, WarningOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 
 // Non-breaking space between ₹ and the number so narrow cells can never
 // split the glyph onto its own line. Affects every place fmt() is used
@@ -149,12 +152,35 @@ export default function SalesReport() {
   // and meta passthrough (for the reconciliation banner). Filters are
   // a stable object — when any value changes, the cache resets and
   // chunk 0 re-fetches automatically.
-  const { rows, totalCount, summary, meta, ensureChunk, loading } = useVirtualizedReport({
+  const { rows, totalCount, summary, meta, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: (params) => reportAPI.getSalesReport(params),
     filters,
     chunkSize: 200,
   });
   const reconciliation = meta?.reconciliation || null;
+
+  // ── Cursor + multi-select for the bills table. F1 drills into the
+  //    cursored bill (edit page). F4 focuses search. F2 opens the
+  //    Tally-style range date popup; on confirm we flip preset to
+  //    'custom' and write the range into filters.
+  const navigate = useNavigate();
+  const sel = useListSelection({ totalCount, rows });
+  const single = sel.activeRow;
+  const searchInputRef = useRef(null);
+  const { openDate } = useDatePopup();
+  const f2PeriodPopup = () => openDate({
+    mode: 'range',
+    title: 'Period',
+    value: [dayjs(filters.from_date), dayjs(filters.to_date)],
+    onConfirm: ([from, to]) => {
+      setPreset('custom');
+      setFilters((f) => ({
+        ...f,
+        from_date: from.format('YYYY-MM-DD'),
+        to_date:   to.format('YYYY-MM-DD'),
+      }));
+    },
+  });
 
   // Sync filters dates when preset changes (and FY arrives async).
   useEffect(() => {
@@ -415,8 +441,7 @@ export default function SalesReport() {
           <Popover content={customizePopoverContent} title="Customize" trigger="click" placement="bottomRight">
             <Button icon={<SettingOutlined />} className="rpt-btn">Customize</Button>
           </Popover>
-          <Button icon={<DownloadOutlined />} onClick={handleExport} className="rpt-btn">Excel</Button>
-          <Button icon={<PrinterOutlined />} onClick={handlePrint} className="rpt-btn">Print</Button>
+          {/* Excel + Print moved to the bottom strip (F10 / F9). */}
         </div>
       </div>
 
@@ -458,6 +483,7 @@ export default function SalesReport() {
       {/* ─── FILTER BAR — search + status chips ─── */}
       <div className="rpt-filter">
         <Input
+          ref={searchInputRef}
           className="rpt-search"
           prefix={<SearchOutlined />}
           placeholder="Search bill no, customer, or amount…"
@@ -491,8 +517,42 @@ export default function SalesReport() {
           scroll={{ x: 1300 }}
           summaryCells={summaryCells}
           summaryColSpan={summaryColSpan}
+          controlledCursorIdx={sel.cursorIdx}
+          controlledSelectedSet={sel.selectedSet}
+          onCursorMove={sel.setCursor}
+          onShiftClickRow={sel.extendTo}
+          onCtrlClickRow={sel.toggleRow}
+          onRow={(record) => ({
+            onDoubleClick: () => record?.sales_bill_id && navigate(`/sale/edit/${record.sales_bill_id}`),
+          })}
         />
       </div>
+
+      {/* ── ACTION STRIP — canonical "table-of-rows" report pattern.
+          F2 opens the range date popup (smart-input + presets); F4
+          focuses search; F5 reloads; F9 prints; F10 exports the
+          current filtered set to Excel; F1 drills into the cursored
+          bill's edit page. */}
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: f2PeriodPopup,
+            title: 'Open the smart-input period popup' },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.() },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => refresh?.() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => handlePrint() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExport() },
+          { id: 'drill', key: 'F1', label: 'Open Bill', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && navigate(`/sale/edit/${single.sales_bill_id}`) },
+        ]}
+      />
     </div>
   );
 }
