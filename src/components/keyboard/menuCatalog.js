@@ -130,22 +130,14 @@ export const ALT_MENUS = {
     ],
   },
 
-  // Alt+T = se**T**tings (S is taken by Sales).
+  // Alt+T = se**T**tings (S is taken by Sales). Single item — opens
+  // the Settings hub directly. Inside the hub, the rail navigates
+  // between the individual setting pages.
   KeyT: {
     title: 'Settings',
     anchorKey: 'settings-menu',
     items: [
-      { letter: 'C', label: 'Company Profile', sub: 'GST + company info', route: '/settings/company' },
-      { letter: 'U', label: 'Users',           sub: 'Accounts & roles',   route: '/settings/users' },
-      { letter: 'T', label: 'Theme',           sub: 'Light / dark',       route: '/settings/theme' },
-      { letter: 'B', label: 'Barcode',         sub: 'Printer setup',      route: '/settings/barcode' },
-      { letter: 'P', label: 'Print',           sub: 'Invoice template',   route: '/settings/print' },
-      { letter: 'M', label: 'Modules',         sub: 'Feature toggles',    route: '/settings/modules' },
-      { letter: 'I', label: 'Import & Export', sub: 'Bulk CSV',           route: '/settings/import-export' },
-      { letter: 'A', label: 'TallyPrime Sync', sub: 'Push to Tally',      route: '/settings/tally' },
-      { letter: 'R', label: 'Backup',          sub: 'DB snapshots',       route: '/settings/backup' },
-      { letter: 'G', label: 'Godowns',         sub: 'Warehouses',         route: '/settings/godowns' },
-      { letter: 'H', label: 'Home Page',       sub: 'Customize landing',  route: '/settings/home' },
+      { letter: 'S', label: 'Settings', sub: 'All settings', route: '/settings' },
     ],
   },
 };

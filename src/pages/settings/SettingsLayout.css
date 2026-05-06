@@ -1,0 +1,162 @@
+/* ── Settings Layout ──────────────────────────────────────────────
+ *
+ * macOS System Settings-style two-pane layout. Left rail lists every
+ * setting page, grouped by topic; right pane renders the active
+ * page via <Outlet />. Both panes scroll independently inside the
+ * fullpage container so neither the rail nor the page header
+ * disappears as you scroll.
+ *
+ *   ┌─────────────────┬────────────────────────────────┐
+ *   │ Search…         │                                │
+ *   │                 │                                │
+ *   │ BUSINESS        │   [active page renders here]   │
+ *   │  Company        │                                │
+ *   │  Modules        │                                │
+ *   │  Godowns        │                                │
+ *   │ PEOPLE          │                                │
+ *   │  Users          │                                │
+ *   │ ...             │                                │
+ *   └─────────────────┴────────────────────────────────┘
+ */
+
+.settings-layout {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  background: var(--bg-app);
+}
+
+@media (max-width: 720px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Left rail ── */
+.settings-rail {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 0 24px;
+}
+
+.settings-rail-search {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: 1;
+}
+.settings-rail-search-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px 0 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-muted);
+  color: var(--fg-primary);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  transition: border-color .12s ease, background .12s ease;
+}
+.settings-rail-search-input:focus {
+  border-color: var(--accent);
+  background: var(--bg-panel);
+}
+.settings-rail-search-wrap {
+  position: relative;
+}
+.settings-rail-search-wrap::before {
+  content: '⌕';
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-tertiary);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.settings-rail-group {
+  margin-top: 14px;
+}
+.settings-rail-group-label {
+  padding: 4px 16px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.settings-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+}
+.settings-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--fg-primary);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  margin: 1px 0;
+  transition: background .08s ease, color .08s ease;
+}
+.settings-rail-item:hover {
+  background: var(--bg-hover);
+}
+.settings-rail-item.active {
+  background: var(--accent);
+  color: #fff;
+}
+.settings-rail-item.active .settings-rail-item-icon {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.settings-rail-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.settings-rail-item-label {
+  font-weight: 500;
+}
+.settings-rail-empty {
+  padding: 20px 16px;
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  text-align: center;
+}
+
+/* ── Right pane — host for the active settings page ── */
+.settings-pane {
+  height: 100%;
+  overflow: hidden;          /* page itself controls scroll */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;              /* prevent flex children from blowing up width */
+  background: var(--bg-app);
+}
+.settings-pane > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}

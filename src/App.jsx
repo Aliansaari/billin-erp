@@ -90,6 +90,7 @@ import ImportExport from './pages/settings/ImportExport';
 import TallySync from './pages/settings/TallySync';
 import PrintSettings from './pages/settings/PrintSettings';
 import HomeSettings from './pages/settings/HomeSettings';
+import SettingsLayout from './pages/settings/SettingsLayout';
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -407,22 +408,28 @@ export default function App() {
           <Route path="loans/schedule"             element={<RoleRoute perm="accounts.view"><LoanSchedule /></RoleRoute>} />
           <Route path="loans/:ledger_id/statement" element={<RoleRoute perm="accounts.view"><LoanStatement /></RoleRoute>} />
 
-          {/* Settings */}
-          <Route path="settings/company"        element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />
-          <Route path="settings/users"          element={<RoleRoute perm="settings.manage_users"><UserManagement /></RoleRoute>} />
-          <Route path="settings/barcode"        element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
-          <Route path="settings/modules"        element={<RoleRoute perm="settings.manage_company"><ModuleSettings /></RoleRoute>} />
-          <Route path="settings/backup"         element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
-          {/* Theme is per-user UX — anyone can pick light/dark. */}
-          <Route path="settings/theme"          element={<ThemeSettings />} />
-          <Route path="settings/import-export"  element={<RoleRoute perm="settings.import_export"><ImportExport /></RoleRoute>} />
-          <Route path="settings/import"         element={<RoleRoute perm="settings.import_export"><ImportV2 /></RoleRoute>} />
-          <Route path="settings/tally"          element={<RoleRoute perm="settings.tally"><TallySync /></RoleRoute>} />
-          <Route path="settings/print"          element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
-          <Route path="settings/godowns"        element={<RoleRoute perm="godowns.view"><GodownList /></RoleRoute>} />
-          {/* Home page customization — no perm gate; every operator can
-              pick what shows on their own landing page. */}
-          <Route path="settings/home"           element={<HomeSettings />} />
+          {/* Settings hub — macOS-style layout with grouped left rail
+              and the active page rendering in the right pane via
+              <Outlet />. Bare /settings lands on Company so the hub
+              is never empty. */}
+          <Route path="settings" element={<SettingsLayout />}>
+            <Route index                      element={<Navigate to="/settings/company" replace />} />
+            <Route path="company"             element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />
+            <Route path="users"               element={<RoleRoute perm="settings.manage_users"><UserManagement /></RoleRoute>} />
+            <Route path="barcode"             element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
+            <Route path="modules"             element={<RoleRoute perm="settings.manage_company"><ModuleSettings /></RoleRoute>} />
+            <Route path="backup"              element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
+            {/* Theme is per-user UX — anyone can pick light/dark. */}
+            <Route path="theme"               element={<ThemeSettings />} />
+            <Route path="import-export"       element={<RoleRoute perm="settings.import_export"><ImportExport /></RoleRoute>} />
+            <Route path="import"              element={<RoleRoute perm="settings.import_export"><ImportV2 /></RoleRoute>} />
+            <Route path="tally"               element={<RoleRoute perm="settings.tally"><TallySync /></RoleRoute>} />
+            <Route path="print"               element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
+            <Route path="godowns"             element={<RoleRoute perm="godowns.view"><GodownList /></RoleRoute>} />
+            {/* Home page customization — no perm gate; every operator can
+                pick what shows on their own landing page. */}
+            <Route path="home"                element={<HomeSettings />} />
+          </Route>
         </Route>
       </Routes>
     </>
