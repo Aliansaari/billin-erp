@@ -52,6 +52,7 @@ export default function ThemeSettings() {
       </header>
 
       <div className="theme-page-body">
+        <div className="theme-page-body-inner">
 
       {/* ── Theme Style ── */}
       <section className="theme-section">
@@ -156,6 +157,7 @@ export default function ThemeSettings() {
         </div>
         <PreviewFrame layout={menuOrientation} />
       </section>
+        </div>{/* /theme-page-body-inner */}
       </div>{/* /theme-page-body */}
 
       <ActionStrip

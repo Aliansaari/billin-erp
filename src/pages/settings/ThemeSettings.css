@@ -8,27 +8,26 @@
  * software, not a stock antd settings page.
  */
 
-/* Page shell IS the scroll container. The Layout marks
- * /settings/theme as a "fullpage" route, which pins .erp-page-content
- * to viewport height with overflow:hidden — so the shell takes 100%
- * of that and scrolls its OWN body, leaving the sticky header
- * pinned to its top edge. */
+/* Three-zone layout: fixed header on top, scrolling body in the
+ * middle, fixed ActionStrip on the bottom. Shell is a flex column
+ * spanning the full content area (Layout marks /settings/theme as
+ * a fullpage route, pinning .erp-page-content to viewport height
+ * with overflow:hidden). */
 .theme-page-shell {
   position: relative;
   height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding-bottom: 96px;             /* leave room for ActionStrip */
+  display: flex;
+  flex-direction: column;
   background: var(--bg-app);
+  overflow: hidden;                  /* body scrolls; outer never does */
 }
 
 .theme-page-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  flex: 0 0 auto;
   background: var(--bg-app);
   border-bottom: 1px solid var(--border-subtle);
   padding: 16px 0 14px;
+  z-index: 2;
 }
 .theme-page-header-inner {
   max-width: 1080px;
@@ -41,9 +40,15 @@
 }
 
 .theme-page-body {
+  flex: 1 1 auto;
+  min-height: 0;                     /* allow inner overflow to take effect */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.theme-page-body-inner {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 28px clamp(16px, 3vw, 40px) 0;
+  padding: 28px clamp(16px, 3vw, 40px) 32px;
 }
 .theme-page-title {
   font-size: 22px;
