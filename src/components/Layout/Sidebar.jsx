@@ -89,19 +89,27 @@ function CollapsedItem({ item, currentPath, navigate }) {
 
       {item.children && popupPos && ReactDOM.createPortal(
         <>
-          {/* Transparent bridge covers the gap between icon and popup so
-              the cursor can travel across without triggering hide. */}
+          {/* Transparent bridge covers the icon→arrow gap so the cursor
+              can travel across without triggering hide. */}
           <div
             style={{
-              position: 'fixed', left: 64, top: popupPos.top,
-              width: 12, height: 44, zIndex: 1299,
+              position: 'fixed', left: 56, top: popupPos.top,
+              width: 10, height: 44, zIndex: 1299,
             }}
             onMouseEnter={cancelHide}
             onMouseLeave={hidePopup}
           />
           <div
             className="mp-popup"
-            style={{ position: 'fixed', left: 76, top: popupPos.top, zIndex: 1300 }}
+            data-arrow="left"
+            style={{
+              // popup.left = 66 puts the arrow tip (7px left of popup)
+              // exactly on the collapsed-sidebar's right edge (~59px),
+              // so the caret reads as growing out of the icon.
+              position: 'fixed', left: 66, top: popupPos.top, zIndex: 1300,
+              // Icon row is 42px tall; arrow caret (12px) centres at 21-6=15
+              '--arrow-y': '15px',
+            }}
             onMouseEnter={cancelHide}
             onMouseLeave={hidePopup}
             role="menu"

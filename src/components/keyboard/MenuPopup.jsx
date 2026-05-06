@@ -46,6 +46,12 @@ function findAnchorRect(anchorKey) {
   return null;
 }
 
+// Keep the arrow caret away from the rounded corner — corner radius
+// is 6px so we want a 10px buffer at each end of the popup edge.
+function clampArrow(offset, edgeLen) {
+  return Math.max(10, Math.min(offset, edgeLen - 22));
+}
+
 function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
   const { pathname } = useLocation();
 
@@ -69,6 +75,9 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
   // topnav pills like Home/Dashboard don't get mistaken for sidebar
   // items just because their x is small. Clamp so the popup never
   // clips off-screen.
+  //
+  // Also computes the arrow caret offset so the popup visibly points
+  // at the trigger after viewport clamping shifts left/top.
   const [pos, setPos] = useState(() => null);
   useEffect(() => {
     const compute = () => {
@@ -76,27 +85,36 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
       if (!anchor) { setPos(null); return; }
       const popupW = popupRef.current?.offsetWidth || 320;
       const popupH = popupRef.current?.offsetHeight || 280;
-      const margin = 6;
+      const margin = 4;                  // tighter gap so popup hugs the trigger
       const inTopBar = anchor.top < 80;
       const onLeftEdge = !inTopBar && anchor.left < 200;
-      let left, top;
+      let left, top, arrowSide;
       if (inTopBar) {
         // TopNav — drop below, left-aligned with the pill.
         left = anchor.left;
         top  = anchor.bottom + margin;
+        arrowSide = 'top';
       } else if (onLeftEdge) {
         // Sidebar — unfold to the right, top-aligned with the icon.
         left = anchor.right + margin;
         top  = anchor.top;
+        arrowSide = 'left';
       } else {
-        // Anything else — drop below.
         left = anchor.left;
         top  = anchor.bottom + margin;
+        arrowSide = 'top';
       }
       // Clamp to viewport (8px gutter).
       left = Math.max(8, Math.min(left, window.innerWidth  - popupW - 8));
       top  = Math.max(8, Math.min(top,  window.innerHeight - popupH - 8));
-      setPos({ left, top });
+      // Arrow position relative to popup edge so it points at the
+      // anchor's centre even when clamping shifts the popup. The "- 6"
+      // accounts for the 12px arrow width, centring it on the target.
+      const anchorCx = anchor.left + anchor.width / 2;
+      const anchorCy = anchor.top + anchor.height / 2;
+      const arrowX = arrowSide === 'top'  ? clampArrow(anchorCx - left - 6, popupW) : 0;
+      const arrowY = arrowSide === 'left' ? clampArrow(anchorCy - top - 6, popupH) : 0;
+      setPos({ left, top, arrowSide, arrowX, arrowY });
     };
     compute();
     // Re-measure after first paint when the popup has actual dimensions.
@@ -194,11 +212,18 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
   // Anchored mode (positioned next to a sidebar/topnav item) uses
   // absolute coords; fallback (no anchor found) uses the original
   // centered overlay positioning via .mp-backdrop's flex layout.
-  const popupStyle = pos ? { position: 'fixed', left: pos.left, top: pos.top } : undefined;
+  // CSS vars feed the arrow caret's per-edge offset.
+  const popupStyle = pos ? {
+    position: 'fixed',
+    left: pos.left,
+    top: pos.top,
+    '--arrow-x': pos.arrowX + 'px',
+    '--arrow-y': pos.arrowY + 'px',
+  } : undefined;
 
   return (
     <div className={`mp-backdrop${pos ? ' anchored' : ''}`} onMouseDown={onCancel}>
-      <div ref={popupRef} className="mp-popup" style={popupStyle} onMouseDown={(e) => e.stopPropagation()} role="menu" aria-label={title}>
+      <div ref={popupRef} className="mp-popup" data-arrow={pos?.arrowSide} style={popupStyle} onMouseDown={(e) => e.stopPropagation()} role="menu" aria-label={title}>
         <div className="mp-head">
           <span className="mp-title">{title}</span>
           <span className="mp-hint">Esc</span>
