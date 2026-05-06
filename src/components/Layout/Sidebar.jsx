@@ -114,13 +114,16 @@ function CollapsedItem({ item, currentPath, navigate }) {
             </div>
             <ul className="mp-list">
               {popupItems.map(child => {
-                const childActive = currentPath === child.route || currentPath.startsWith(child.route);
+                const isCurrent =
+                  currentPath === child.route ||
+                  (child.route && currentPath.startsWith(child.route + '/'));
                 return (
                   <li
                     key={child.route}
-                    className={`mp-item${childActive ? ' active' : ''}`}
+                    className={`mp-item${isCurrent ? ' is-current' : ''}`}
                     onClick={() => { setPopupPos(null); navigate(child.route); }}
                     role="menuitem"
+                    aria-current={isCurrent ? 'page' : undefined}
                   >
                     <span className="mp-letter">{child.letter || '·'}</span>
                     <span className="mp-label">

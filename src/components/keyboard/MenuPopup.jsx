@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { useLocation } from 'react-router-dom';
 import './MenuPopup.css';
 
 // ── Tally-style Alt-letter menu popup ──────────────────────────────
@@ -45,7 +46,23 @@ function findAnchorRect(anchorKey) {
 }
 
 function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
-  const [activeIdx, setActiveIdx] = useState(0);
+  const location = useLocation();
+  const currentPath = location.pathname;
+
+  // Which item matches the current route — the user's "you are here"
+  // anchor. Exact match wins over prefix match so /sales doesn't get
+  // claimed by /sale/new just because their paths share a stem.
+  const currentIdx = useMemo(() => {
+    const exact = items.findIndex((it) => it.route === currentPath);
+    if (exact >= 0) return exact;
+    const prefix = items.findIndex((it) => it.route && currentPath.startsWith(it.route + '/'));
+    return prefix;
+  }, [items, currentPath]);
+
+  // Cursor lands on the current route's item when the popup opens, so
+  // pressing Enter is a no-op confirmation rather than a surprise jump
+  // to whatever was at index 0.
+  const [activeIdx, setActiveIdx] = useState(currentIdx >= 0 ? currentIdx : 0);
   const popupRef = useRef(null);
 
   // Compute popup position once on mount (and on window resize).
@@ -190,19 +207,25 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
           <span className="mp-hint">Letter to pick · Esc to close</span>
         </div>
         <ul className="mp-list">
-          {items.map((it, i) => (
-            <li
-              key={it.letter + ':' + (it.route || it.label)}
-              className={`mp-item${i === activeIdx ? ' active' : ''}`}
-              onMouseEnter={() => setActiveIdx(i)}
-              onClick={() => onPick(it)}
-              role="menuitem"
-            >
-              <span className="mp-letter">{it.letter}</span>
-              <span className="mp-label">{labelWithUnderline(it.label, it.letter)}</span>
-              {it.sub && <span className="mp-sub">{it.sub}</span>}
-            </li>
-          ))}
+          {items.map((it, i) => {
+            const isCursor  = i === activeIdx;
+            const isCurrent = i === currentIdx;
+            const cls = `mp-item${isCursor ? ' active' : ''}${isCurrent ? ' is-current' : ''}`;
+            return (
+              <li
+                key={it.letter + ':' + (it.route || it.label)}
+                className={cls}
+                onMouseEnter={() => setActiveIdx(i)}
+                onClick={() => onPick(it)}
+                role="menuitem"
+                aria-current={isCurrent ? 'page' : undefined}
+              >
+                <span className="mp-letter">{it.letter}</span>
+                <span className="mp-label">{labelWithUnderline(it.label, it.letter)}</span>
+                {it.sub && <span className="mp-sub">{it.sub}</span>}
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>
