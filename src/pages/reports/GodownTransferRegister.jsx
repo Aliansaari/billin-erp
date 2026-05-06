@@ -17,13 +17,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Table, Button, DatePicker, Select, Tag, Tooltip, message } from 'antd';
 import {
-  PrinterOutlined, ReloadOutlined, SwapOutlined,
-  FileExcelOutlined, FilePdfOutlined,
+  ReloadOutlined, SwapOutlined,
+  FilePdfOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI, godownAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 
 const fmtN = (v) =>
   Number(v || 0).toLocaleString('en-IN', {
@@ -235,6 +237,8 @@ export default function GodownTransferRegister() {
     }
   };
 
+  const { openDate } = useDatePopup();
+
   // Active preset chip — derived, mirrors Sales Report's behavior.
   const activePreset = useMemo(() => {
     const prs = PRESETS(fyStart, fyEnd);
@@ -321,9 +325,8 @@ export default function GodownTransferRegister() {
             }}
           />
           <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
-          <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!transfers.length}>Excel</Button>
           <Button className="rpt-btn" icon={<FilePdfOutlined />}   onClick={onPdf}   disabled={!transfers.length}>PDF</Button>
-          <Button className="rpt-btn" type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
+          {/* Excel + Print moved to the bottom strip (F10 / F9). */}
         </div>
       </div>
 
@@ -403,6 +406,30 @@ export default function GodownTransferRegister() {
           />
         </div>
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => nav('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: from && to ? [dayjs(from), dayjs(to)] : null,
+              onConfirm: ([f, t]) => {
+                setPr('custom');
+                setFrom(f.format('YYYY-MM-DD'));
+                setTo(t.format('YYYY-MM-DD'));
+              },
+            }) },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => load() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => onExcel(),
+            disabled: !transfers.length },
+        ]}
+      />
     </div>
   );
 }

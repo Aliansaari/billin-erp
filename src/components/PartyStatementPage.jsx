@@ -30,7 +30,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, DatePicker, message, Popover, Tooltip } from 'antd';
 import {
-  PrinterOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined,
+  FilePdfOutlined, ReloadOutlined,
   WhatsAppOutlined, ArrowLeftOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -40,6 +40,8 @@ import { useFinancialYear } from '../hooks/useFinancialYear';
 import { downloadStatementPdf } from '../utils/ledgerPdf';
 import PartyPicker from './PartyPicker';
 import LedgerStatement, { ALL_COLUMNS } from './LedgerStatement';
+import ActionStrip from './keyboard/ActionStrip';
+import { useDatePopup } from './keyboard/DatePopup';
 import './ledger-statement.css';
 import './party-picker.css';
 import './party-statement-page.css';
@@ -351,6 +353,9 @@ export default function PartyStatementPage({
     }
   };
 
+  const { openDate } = useDatePopup();
+  const refresh = () => party && setParty({ ...party });
+
   const onDrill = (row) => {
     // Source-type → edit URL mapping. Mirrors the drill behaviour
     // PartyLedger had; centralised here so adding a new voucher type
@@ -412,22 +417,16 @@ export default function PartyStatementPage({
           />
         </div>
         <div className="psp-actions">
-          {/* Icon-only buttons with tooltips. Same compact pattern Day
-              Book uses on the same kind of header — keeps every chrome
-              control on one row at typical desktop widths. Print stays
-              labelled because it's the primary action and gets the
-              accent button styling already. */}
+          {/* Refresh, Customize, PDF, and WhatsApp stay in the header.
+              Print + Excel moved to the bottom strip (F9 / F10). */}
           <Tooltip title="Refresh">
-            <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={() => party && setParty({ ...party })} disabled={!party} />
+            <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={refresh} disabled={!party} />
           </Tooltip>
           <Popover content={customizeContent} title="Show columns" trigger="click" placement="bottomRight">
             <Tooltip title="Customize columns">
               <Button className="rpt-btn" icon={<SettingOutlined />} />
             </Tooltip>
           </Popover>
-          <Tooltip title="Export Excel">
-            <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length} />
-          </Tooltip>
           <Tooltip title="Export PDF">
             <Button className="rpt-btn" icon={<FilePdfOutlined />} onClick={onPdf} disabled={!statement} />
           </Tooltip>
@@ -436,7 +435,6 @@ export default function PartyStatementPage({
               <Button className="rpt-btn" icon={<WhatsAppOutlined />} onClick={onWhatsApp} disabled={!party} />
             </Tooltip>
           )}
-          <Button className="rpt-btn" type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
         </div>
       </div>
 
@@ -501,6 +499,28 @@ export default function PartyStatementPage({
           emptyHint={`Pick a ${partyType.toLowerCase()} above to load the statement. Press / to focus the search.`}
         />
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [from ? dayjs(from) : null, to ? dayjs(to) : null],
+              onConfirm: ([f, t]) => {
+                setFrom(f.format('YYYY-MM-DD'));
+                setTo(t.format('YYYY-MM-DD'));
+              },
+            }) },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: refresh, disabled: !party },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: onPrint, disabled: !statement },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: onExcel, disabled: !statement?.entries?.length },
+        ]}
+      />
     </div>
   );
 }

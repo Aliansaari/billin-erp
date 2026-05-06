@@ -21,7 +21,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Checkbox, DatePicker, Popover, Select, message, Tooltip } from 'antd';
 import {
-  PrinterOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined,
+  FilePdfOutlined, ReloadOutlined,
   ArrowLeftOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -30,6 +30,8 @@ import { ledgerAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { downloadStatementPdf } from '../../utils/ledgerPdf';
 import LedgerStatement, { ALL_COLUMNS } from '../../components/LedgerStatement';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import '../../components/ledger-statement.css';
 import '../../components/party-statement-page.css';
 import './ledger.css';
@@ -237,6 +239,8 @@ export default function Ledger() {
   );
 
   const onPrint = () => window.print();
+  const { openDate } = useDatePopup();
+  const refresh = () => ledgerId && setLedgerId(ledgerId);
 
   const onExcel = () => {
     if (!statement?.entries?.length) { message.info('Nothing to export.'); return; }
@@ -318,23 +322,19 @@ export default function Ledger() {
           />
         </div>
         <div className="psp-actions">
-          {/* Icon-only with tooltips so the title row stays single-line
-              — same chrome shape as the party statement pages. */}
+          {/* Refresh, Customize, and PDF stay in the header.
+              Print + Excel moved to the bottom strip (F9 / F10). */}
           <Tooltip title="Refresh">
-            <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={() => ledgerId && setLedgerId(ledgerId)} disabled={!ledgerId} />
+            <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={refresh} disabled={!ledgerId} />
           </Tooltip>
           <Popover content={customizeContent} title="Show columns" trigger="click" placement="bottomRight">
             <Tooltip title="Customize columns">
               <Button className="rpt-btn" icon={<SettingOutlined />} />
             </Tooltip>
           </Popover>
-          <Tooltip title="Export Excel">
-            <Button className="rpt-btn" icon={<FileExcelOutlined />} onClick={onExcel} disabled={!statement?.entries?.length} />
-          </Tooltip>
           <Tooltip title="Export PDF">
             <Button className="rpt-btn" icon={<FilePdfOutlined />} onClick={onPdf} disabled={!statement} />
           </Tooltip>
-          <Button className="rpt-btn" type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!statement}>Print</Button>
         </div>
       </div>
 
@@ -393,6 +393,28 @@ export default function Ledger() {
           emptyHint="Pick a ledger above to load the statement."
         />
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [from ? dayjs(from) : null, to ? dayjs(to) : null],
+              onConfirm: ([f, t]) => {
+                setFrom(f.format('YYYY-MM-DD'));
+                setTo(t.format('YYYY-MM-DD'));
+              },
+            }) },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: refresh, disabled: !ledgerId },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: onPrint, disabled: !statement },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: onExcel, disabled: !statement?.entries?.length },
+        ]}
+      />
     </div>
   );
 }

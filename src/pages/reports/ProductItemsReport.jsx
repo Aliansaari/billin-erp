@@ -21,14 +21,17 @@ import {
   message, Space,
 } from 'antd';
 import {
-  DownloadOutlined, SettingOutlined, SearchOutlined, ReloadOutlined,
-  PrinterOutlined, FilterOutlined, BarcodeOutlined,
+  SettingOutlined, SearchOutlined, ReloadOutlined,
+  FilterOutlined, BarcodeOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI, partyAPI, productAPI, categoryAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './bills-outstanding.css';
 import './product-items.css';
 
@@ -345,6 +348,13 @@ export default function ProductItemsReport({ side }) {
   }, []);
 
   // ── Drill-down ────────────────────────────────────────────────────
+  // Cursor + multi-select for the rows; F-keys live in the bottom
+  // ActionStrip and operate on the cursored row.
+  const sel = useListSelection({ totalCount, rows });
+  const single = sel.activeRow;
+  const searchInputRef = useRef(null);
+  const { openDate } = useDatePopup();
+
   const drillBill = useCallback((row) => {
     if (!row || row.__loading || !row.bill_id) return;
     navigate(cfg.drillRoute(row.bill_id));
@@ -561,8 +571,7 @@ export default function ProductItemsReport({ side }) {
             <Button className="rpt-btn" icon={<SettingOutlined />}>Customize</Button>
           </Popover>
           <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading}>Refresh</Button>
-          <Button className="rpt-btn" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
-          <Button className="rpt-btn" icon={<DownloadOutlined />} onClick={handleExportCsv} type="primary">Excel</Button>
+          {/* Print + Excel moved to the bottom strip (F9 / F10). */}
         </div>
       </div>
 
@@ -632,6 +641,7 @@ export default function ProductItemsReport({ side }) {
             style={{ width: 110 }}
           />
           <Input size="small" allowClear
+            ref={searchInputRef}
             placeholder="Search bill no / party…"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
@@ -662,13 +672,46 @@ export default function ProductItemsReport({ side }) {
             rowKey={(r) => r?.item_id}
             scroll={{ x: tableColumns.reduce((s, c) => s + (c.width || 100), 0) }}
             summaryCells={summaryCells}
+            controlledCursorIdx={sel.cursorIdx}
+            controlledSelectedSet={sel.selectedSet}
+            onCursorMove={sel.setCursor}
+            onShiftClickRow={sel.extendTo}
+            onCtrlClickRow={sel.toggleRow}
             onRow={(row) => ({
-              onClick: () => row && !row.__loading && drillBill(row),
+              onDoubleClick: () => row && !row.__loading && drillBill(row),
               style: { cursor: row && !row.__loading ? 'pointer' : 'default' },
             })}
           />
         )}
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [fromDate ? dayjs(fromDate) : null, toDate ? dayjs(toDate) : null],
+              onConfirm: ([from, to]) => {
+                setPresetKey('custom');
+                setFromDate(from.format('YYYY-MM-DD'));
+                setToDate(to.format('YYYY-MM-DD'));
+              },
+            }) },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.() },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => handleRefresh() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExportCsv() },
+          { id: 'drill', key: 'F1', label: 'Open Bill', tone: 'primary',
+            disabled: !single || single.__loading,
+            onAction: () => single && !single.__loading && drillBill(single) },
+        ]}
+      />
     </div>
   );
 }

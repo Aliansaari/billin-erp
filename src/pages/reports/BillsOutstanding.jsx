@@ -33,12 +33,12 @@
 //   Record Receipt     → /receipt/new with state.preselect
 //   Record Payment     → /payment/new with state.preselect
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Tag, Button, Input, DatePicker, Segmented, Select, Tooltip, Popover, Checkbox, message, Dropdown, Space } from 'antd';
 import {
-  DownloadOutlined, SettingOutlined, SearchOutlined, ReloadOutlined,
+  SettingOutlined, SearchOutlined, ReloadOutlined,
   CloseOutlined, WarningOutlined, CheckCircleOutlined, EllipsisOutlined,
-  PrinterOutlined, WhatsAppOutlined, FilterOutlined, GroupOutlined,
+  WhatsAppOutlined, FilterOutlined, GroupOutlined,
   FilePdfOutlined, UnorderedListOutlined, TeamOutlined,
   ExpandAltOutlined, ShrinkOutlined,
 } from '@ant-design/icons';
@@ -48,7 +48,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI, partyAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './bills-outstanding.css';
 
 // ─── Format helpers ──────────────────────────────────────────────────
@@ -285,12 +288,21 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
     search:    search || undefined,
   }), [asOf, partyIds, buckets, cities, credit, minAmount, maxAmount, showZero, groupBy, sort, dir, search]);
 
+  const searchInputRef = useRef(null);
+  const { openDate } = useDatePopup();
+
   // ── Virtualized data layer ───────────────────────────────────────
   const { rows, totalCount, summary, meta, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: cfg.fetcher,
     filters,
     chunkSize: 200,
   });
+
+  // Cursor + multi-select for the rows; F-keys live in the bottom
+  // ActionStrip and operate on the cursored row.
+  const sel = useListSelection({ totalCount, rows, enabled: viewMode === 'bill' });
+  const single = sel.activeRow;
+
   const reconciliation     = meta?.reconciliation || null;
   // After R8, allocation completeness is a runtime count (0 → no
   // banner). The legacy boolean is still emitted by the API but we
@@ -733,10 +745,9 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
             <Button size="small" icon={<SettingOutlined />}>Customize</Button>
           </Popover>
           <Button size="small" icon={<ReloadOutlined />} onClick={refresh}>Refresh</Button>
-          <Button size="small" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
           <Button size="small" icon={<WhatsAppOutlined />} onClick={handleWhatsApp}>WhatsApp</Button>
           <Button size="small" icon={<FilePdfOutlined />} onClick={handleExportPDF}>PDF</Button>
-          <Button size="small" icon={<DownloadOutlined />} onClick={handleExportExcel} type="primary">Excel</Button>
+          {/* Excel + Print moved to the bottom strip (F10 / F9). */}
         </div>
       </div>
 
@@ -873,6 +884,7 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
             style={{ width: 100 }}
           />
           <Input
+            ref={searchInputRef}
             size="small"
             allowClear
             prefix={<SearchOutlined />}
@@ -967,6 +979,11 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
               keyboardNav={viewMode === 'bill'}
               persistKey={`bills-${side}`}
               onRowEnter={(row) => row?.bill_id && drillBill(row)}
+              controlledCursorIdx={sel.cursorIdx}
+              controlledSelectedSet={sel.selectedSet}
+              onCursorMove={sel.setCursor}
+              onShiftClickRow={sel.extendTo}
+              onCtrlClickRow={sel.toggleRow}
             />
           )}
         </div>
@@ -987,6 +1004,30 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
           />
         </div>
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'As On',
+            onAction: () => openDate({
+              mode: 'single', title: 'As On',
+              value: asOf ? dayjs(asOf) : null,
+              onConfirm: (d) => setAsOf(d.format('YYYY-MM-DD')),
+            }) },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.() },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => refresh?.() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExportExcel() },
+          { id: 'drill', key: 'F1', label: 'Open Bill', tone: 'primary',
+            disabled: viewMode !== 'bill' || !single,
+            onAction: () => single && drillBill(single) },
+        ]}
+      />
     </div>
   );
 }

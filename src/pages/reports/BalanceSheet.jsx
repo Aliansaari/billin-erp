@@ -16,13 +16,15 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { message, Spin, DatePicker } from 'antd';
 import {
-  PrinterOutlined, FileExcelOutlined, ReloadOutlined,
+  ReloadOutlined,
   CalendarOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './balance-sheet.css';
 
 const fmtINR = (v) =>
@@ -456,12 +458,7 @@ export default function BalanceSheet() {
           <button className="bs-btn bs-btn-icon" onClick={loadData} title="Refresh">
             <ReloadOutlined />
           </button>
-          <button className="bs-btn bs-btn-icon" onClick={() => window.print()} title="Print">
-            <PrinterOutlined />
-          </button>
-          <button className="bs-btn bs-btn-icon" onClick={() => exportExcel(data, asOf)} title="Excel">
-            <FileExcelOutlined />
-          </button>
+          {/* Print + Excel moved to the bottom strip (F9 / F10). */}
           <div className="bs-dp">
             <span className="lbl">As on</span>
             <DatePicker
@@ -560,15 +557,60 @@ export default function BalanceSheet() {
         </div>
       )}
 
-      {/* F-bar */}
-      <div className="bs-fbar">
-        <span className="fkey"><kbd>F5</kbd> Collapse / Expand all</span>
-        <span className="fkey"><kbd>↑</kbd> <kbd>↓</kbd> Navigate</span>
-        <span className="fkey"><kbd>Enter</kbd> Drill into group</span>
-        <span className="fkey"><kbd>Esc</kbd> Back</span>
-        <span className="grow"></span>
-      </div>
+      <BalanceSheetStrip
+        navigate={navigate}
+        asOf={asOf}
+        setAsOf={setAsOf}
+        setUserPicked={setUserPicked}
+        loadData={loadData}
+        data={data}
+        expandAllDefault={expandAllDefault}
+        setExpandAllDefault={setExpandAllDefault}
+        activeSide={activeSide}
+        navL={navL}
+        navR={navR}
+        activeIdx={activeIdx}
+      />
     </div>
+  );
+}
+
+function BalanceSheetStrip({ navigate, asOf, setAsOf, setUserPicked, loadData, data, expandAllDefault, setExpandAllDefault, activeSide, navL, navR, activeIdx }) {
+  const { openDate } = useDatePopup();
+  const list = activeSide === 'L' ? navL : navR;
+  const cursored = list[activeIdx];
+  return (
+    <ActionStrip
+      actions={[
+        { id: 'back', key: 'Esc', label: 'Back',
+          onAction: () => navigate('/reports') },
+        { id: 'period', key: 'F2', label: 'As On',
+          onAction: () => openDate({
+            mode: 'single', title: 'As On',
+            value: asOf ? dayjs(asOf) : null,
+            onConfirm: (d) => {
+              setAsOf(d.format('YYYY-MM-DD'));
+              setUserPicked(true);
+            },
+          }) },
+        { id: 'view', key: 'F5', label: expandAllDefault ? 'Collapsed' : 'Expanded',
+          onAction: () => {
+            const next = !expandAllDefault;
+            setExpandAllDefault(next);
+            saveExpandPref(next);
+          },
+          title: 'Toggle Collapsed / Expanded' },
+        { id: 'refresh', key: 'F4', label: 'Refresh',
+          onAction: () => loadData() },
+        { id: 'print', key: 'F9', label: 'Print',
+          onAction: () => window.print() },
+        { id: 'export', key: 'F10', label: 'Export',
+          onAction: () => exportExcel(data, asOf) },
+        { id: 'drill', key: 'F1', label: 'Drill', tone: 'primary',
+          disabled: !cursored,
+          onAction: () => cursored?.action?.() },
+      ]}
+    />
   );
 }
 

@@ -11,7 +11,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { message, Spin, Checkbox } from 'antd';
 import {
-  SearchOutlined, FileExcelOutlined, ReloadOutlined,
+  SearchOutlined, ReloadOutlined,
   RightOutlined, SettingOutlined, PhoneOutlined,
   WhatsAppOutlined, CheckOutlined, EyeOutlined,
   FileTextOutlined, AppstoreOutlined,
@@ -19,6 +19,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './aging-report.css';
 
 /* ──────────────────────────── formatting ───────────────────────────── */
@@ -271,6 +272,11 @@ export default function AgingReport({ partyType = 'Customer' }) {
   const title = isCustomer ? 'Receivables Aging' : 'Payables Aging';
   const asOfLabel = data?.as_of_date ? dayjs(data.as_of_date).format('DD MMM YYYY') : dayjs().format('DD MMM YYYY');
 
+  // ActionStrip needs a ref to focus the search input on F4. The search
+  // input is rendered as a plain native <input> in this report (not antd)
+  // so ref attaches directly.
+  const searchInputRef = useRef(null);
+
   /* ────── keyboard navigation ──────
    *
    * Same shape as PartyOutstandingView: build a flat list of currently-
@@ -506,9 +512,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
           <button className="ar-btn" onClick={loadReport} title="Refresh">
             <ReloadOutlined /> Refresh
           </button>
-          <button className="ar-btn primary" onClick={handleExport} title="Download Excel">
-            <FileExcelOutlined /> Excel
-          </button>
+          {/* Excel + Print moved to the bottom strip (F10 / F9). */}
         </div>
       </div>
 
@@ -600,6 +604,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
         <div className="ar-search">
           <SearchOutlined style={{ color: 'var(--fg-tertiary)' }} />
           <input
+            ref={searchInputRef}
             placeholder={`Search ${partyCol.toLowerCase()}, mobile, city…`}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -837,6 +842,27 @@ export default function AgingReport({ partyType = 'Customer' }) {
           )
         )}
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.() },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => loadReport() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExport() },
+          { id: 'drill', key: 'F1', label: 'Open Bill', tone: 'primary',
+            disabled: !navRows[activeIdx] || navRows[activeIdx].kind !== 'bill',
+            onAction: () => {
+              const row = navRows[activeIdx];
+              if (row?.kind === 'bill') drillBill(row.bill);
+            } },
+        ]}
+      />
     </div>
   );
 }

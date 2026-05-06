@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Table, Button, Tag, Input, Select, Tooltip, message, Empty } from 'antd';
 import {
   ClockCircleOutlined, ReloadOutlined, SearchOutlined, EyeOutlined,
@@ -7,6 +7,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { batchAPI, productAPI, godownAPI, settingsAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 // Same editorial-report skin (.report-editorial / .rpt-page-hd /
 // .rpt-kpis / .rpt-filter / .rpt-tbl) the Sales Report and Batches list
 // use. Bucket chips below mirror the Bills Receivable bucket-chip
@@ -200,6 +201,8 @@ export default function ExpiryReport() {
   const totalExpiryTracked = (summary.expired || 0) + (summary['0_30'] || 0) + (summary['31_60'] || 0)
     + (summary['61_90'] || 0) + (summary['91_plus'] || 0);
 
+  const searchInputRef = useRef(null);
+
   return (
     <div className="report-editorial stf-list" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* ─── HEADER ─── */}
@@ -245,6 +248,7 @@ export default function ExpiryReport() {
       {/* ─── FILTER BAR ─── */}
       <div className="rpt-filter">
         <Input
+          ref={searchInputRef}
           className="rpt-search"
           prefix={<SearchOutlined />}
           placeholder="Search batch # or product name"
@@ -320,6 +324,19 @@ export default function ExpiryReport() {
           )}
         </div>
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => nav('/reports') },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.() },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => load() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+        ]}
+      />
     </div>
   );
 }
