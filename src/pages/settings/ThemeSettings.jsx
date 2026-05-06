@@ -55,7 +55,11 @@ export default function ThemeSettings() {
   const setMenuOrientation = useThemeStore((s) => s.setMenuOrientation);
   const resetTheme       = useThemeStore((s) => s.resetTheme);
 
+  // Internal mode keys keep "modern" so 80+ CSS selectors and stored
+  // preferences stay valid; for the user-facing badge, swap it to
+  // "editorial" so the label matches the card name.
   const resolved = resolveMode(themeStyle, appearance);
+  const resolvedDisplay = resolved.replace(/^modern/, 'editorial');
 
   return (
     <div className="theme-page-shell">
@@ -68,7 +72,7 @@ export default function ThemeSettings() {
             </p>
           </div>
           <span className="theme-page-current" title="Active theme mode">
-            {resolved}
+            {resolvedDisplay}
           </span>
         </div>
       </header>
