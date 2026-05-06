@@ -211,8 +211,10 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
 
 // Render the label with the first occurrence of the chosen letter
 // underlined (case-insensitive). Falls back to plain text if the
-// letter doesn't appear in the label.
-function labelWithUnderline(label, letter) {
+// letter doesn't appear in the label. Exported so the sidebar hover
+// popup can reuse the same Tally-style underline rendering without
+// rebuilding the helper.
+export function labelWithUnderline(label, letter) {
   if (!letter) return label;
   const lower = label.toLowerCase();
   const idx = lower.indexOf(letter.toLowerCase());

@@ -315,54 +315,11 @@ body {
   font-size: 18px;
 }
 
-/* Popup that appears on hover — inherits sidebar palette so it never looks
- * orphaned from its parent. */
-.erp-ci-popup {
-  position: fixed;
-  left: 72px;
-  background: var(--bg-panel);
-  color: var(--fg-primary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  min-width: 200px;
-  z-index: 99999;
-  padding: 6px;
-  box-shadow: var(--shadow-lg);
-  pointer-events: all;
-}
-[data-theme^="modern"] .erp-ci-popup {
-  backdrop-filter: blur(var(--blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(140%);
-}
-.erp-ci-popup-title {
-  font-size: 10px;
-  color: var(--fg-tertiary);
-  font-weight: 700;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  padding: 6px 10px 4px;
-}
-.erp-ci-popup-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-radius: 7px;
-  color: var(--fg-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.erp-ci-popup-item:hover {
-  background: var(--bg-hover);
-  color: var(--fg-primary);
-}
-.erp-ci-popup-item.active {
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-weight: 600;
-}
+/* The collapsed-sidebar hover popup now reuses the Tally MenuPopup
+ * styling (.mp-popup / .mp-head / .mp-item / etc. — see
+ * components/keyboard/MenuPopup.css), so the bespoke .erp-ci-popup
+ * rules that used to live here have been removed. The .erp-ci icon
+ * styles above stay — they're for the icon row itself, not the popup. */
 
 /* Sidebar column layout: logo / scrollable menu / sticky bottom */
 .erp-sidebar-inner {

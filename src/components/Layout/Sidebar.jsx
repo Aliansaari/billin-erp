@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { Layout, Menu, Dropdown, Avatar } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -8,6 +8,8 @@ import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
 import { useMenuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
 import useFavoritesStore from '../../store/favoritesStore';
+import { labelWithUnderline } from '../keyboard/MenuPopup';
+import { ALT_MENUS } from '../keyboard/menuCatalog';
 import {
   SettingOutlined,
   UserOutlined,
@@ -36,10 +38,30 @@ const roleColors = {
   'Inventory Staff': '#F59E0B',
 };
 
-/* ── Collapsed sidebar item with hover popup ── */
+/* ── Collapsed sidebar item with hover popup ──
+ * Renders the same Tally-style popup that Alt+letter opens (matching
+ * .mp-popup classes from MenuPopup.css), so mouse-hover and keyboard
+ * shortcuts share one visual UI. Letters / sub-text come from
+ * ALT_MENUS, keyed by anchorKey === item.key. Falls back to plain
+ * children if the catalog has no entry. */
 function CollapsedItem({ item, currentPath, navigate }) {
   const [popupPos, setPopupPos] = useState(null);
   const hideTimer = useRef(null);
+
+  // Look up the Tally menu definition for this sidebar item. Items
+  // without a catalog entry (favorites, ad-hoc) render their plain
+  // children with a bullet placeholder where the letter would be.
+  const tallyMenu = useMemo(() => {
+    for (const code in ALT_MENUS) {
+      if (ALT_MENUS[code].anchorKey === item.key) return ALT_MENUS[code];
+    }
+    return null;
+  }, [item.key]);
+
+  const popupItems = useMemo(() => {
+    if (tallyMenu) return tallyMenu.items;
+    return (item.children || []).map(c => ({ letter: '', label: c.label, sub: '', route: c.key }));
+  }, [tallyMenu, item.children]);
 
   const isActive = item.children
     ? item.children.some(c => currentPath === c.key || currentPath.startsWith(c.key))
@@ -66,38 +88,49 @@ function CollapsedItem({ item, currentPath, navigate }) {
     >
       <span className="erp-ci-icon">{item.icon}</span>
 
-      {/* Popup — portal to document.body so it's always on top */}
       {item.children && popupPos && ReactDOM.createPortal(
         <>
-          {/* Transparent bridge covers the gap between icon and popup */}
+          {/* Transparent bridge covers the gap between icon and popup so
+              the cursor can travel across without triggering hide. */}
           <div
             style={{
-              position:'fixed', left:64, top:popupPos.top,
-              width:12, height:44, zIndex:99998,
+              position: 'fixed', left: 64, top: popupPos.top,
+              width: 12, height: 44, zIndex: 1299,
             }}
             onMouseEnter={cancelHide}
             onMouseLeave={hidePopup}
           />
           <div
-            className="erp-ci-popup"
-            style={{ top: popupPos.top }}
+            className="mp-popup"
+            style={{ position: 'fixed', left: 76, top: popupPos.top, zIndex: 1300 }}
             onMouseEnter={cancelHide}
             onMouseLeave={hidePopup}
+            role="menu"
+            aria-label={item.label}
           >
-            <div className="erp-ci-popup-title">{item.label}</div>
-            {item.children.map(child => {
-              const childActive = currentPath === child.key || currentPath.startsWith(child.key);
-              return (
-                <div
-                  key={child.key}
-                  className={`erp-ci-popup-item${childActive ? ' active' : ''}`}
-                  onClick={() => { setPopupPos(null); navigate(child.key); }}
-                >
-                  <span style={{ fontSize: 14 }}>{child.icon}</span>
-                  <span>{child.label}</span>
-                </div>
-              );
-            })}
+            <div className="mp-head">
+              <span className="mp-title">{item.label}</span>
+              <span className="mp-hint">Alt+{tallyMenu?.items?.[0]?.letter || ''} for keyboard</span>
+            </div>
+            <ul className="mp-list">
+              {popupItems.map(child => {
+                const childActive = currentPath === child.route || currentPath.startsWith(child.route);
+                return (
+                  <li
+                    key={child.route}
+                    className={`mp-item${childActive ? ' active' : ''}`}
+                    onClick={() => { setPopupPos(null); navigate(child.route); }}
+                    role="menuitem"
+                  >
+                    <span className="mp-letter">{child.letter || '·'}</span>
+                    <span className="mp-label">
+                      {child.letter ? labelWithUnderline(child.label, child.letter) : child.label}
+                    </span>
+                    {child.sub && <span className="mp-sub">{child.sub}</span>}
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         </>,
         document.body
