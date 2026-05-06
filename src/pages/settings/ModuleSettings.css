@@ -20,6 +20,11 @@
   padding: 18px clamp(16px, 3vw, 32px) 14px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-app);
+  animation: ms-header-in .35s cubic-bezier(.2, .7, .2, 1);
+}
+@keyframes ms-header-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .ms-page-title {
   font-size: 22px;
@@ -45,7 +50,12 @@
   max-width: 880px;
 }
 
-/* ── Section card ── */
+/* ── Section card ──
+ *
+ * Sections fade-up in a quick stagger when the page mounts so the
+ * eye lands on the page progressively instead of being hit with a
+ * wall of cards. `backwards` keeps each section invisible until
+ * its delay fires. */
 .ms-section {
   margin-bottom: 20px;
   padding: 18px 20px;
@@ -53,6 +63,17 @@
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  animation: ms-section-in .42s cubic-bezier(.2, .7, .2, 1) backwards;
+}
+.ms-section:nth-of-type(1) { animation-delay: .04s; }
+.ms-section:nth-of-type(2) { animation-delay: .10s; }
+.ms-section:nth-of-type(3) { animation-delay: .16s; }
+.ms-section:nth-of-type(4) { animation-delay: .22s; }
+.ms-section:nth-of-type(5) { animation-delay: .28s; }
+.ms-section:nth-of-type(6) { animation-delay: .34s; }
+@keyframes ms-section-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .ms-section-head {
   margin-bottom: 8px;
@@ -80,12 +101,18 @@
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 24px;
-  padding: 12px 0;
+  padding: 12px 14px;
+  margin: 0 -14px;                       /* extend hover bg to section edges */
   border-bottom: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  transition: background .15s ease;
+}
+.ms-row:hover {
+  background: var(--bg-hover);
 }
 .ms-row:last-child {
   border-bottom: none;
-  padding-bottom: 2px;
+  padding-bottom: 14px;
 }
 .ms-row-label {
   font-weight: 500;
@@ -111,12 +138,18 @@
  * groups with long labels, multi-line inputs, etc.). */
 .ms-row-stacked {
   display: block;
-  padding: 14px 0;
+  padding: 14px;
+  margin: 0 -14px;
   border-bottom: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  transition: background .15s ease;
+}
+.ms-row-stacked:hover {
+  background: var(--bg-hover);
 }
 .ms-row-stacked:last-child {
   border-bottom: none;
-  padding-bottom: 4px;
+  padding-bottom: 18px;
 }
 .ms-row-stacked .ms-row-label,
 .ms-row-stacked .ms-row-desc {
@@ -182,3 +215,17 @@
 }
 .ms-aging-grid .ant-form-item { margin-bottom: 0; }
 .ms-aging-grid .ant-input-number { width: 100%; }
+
+/* ── Reduced motion — disable transforms / keyframes for users who
+ *    opt out at the OS level. Keep colour transitions; they don't
+ *    move things around. */
+@media (prefers-reduced-motion: reduce) {
+  .ms-section,
+  .ms-page-header,
+  .ms-row,
+  .ms-row-stacked {
+    animation: none !important;
+    transition: background .12s ease;
+    transform: none !important;
+  }
+}
