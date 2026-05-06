@@ -1,11 +1,60 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Switch, Select, Button, Input, InputNumber, Typography, Row, Col, Divider, message, Radio, Modal, Checkbox, Alert } from 'antd';
-import { SaveOutlined, SettingOutlined, CloudServerOutlined, CalendarOutlined, NumberOutlined, DeleteOutlined, WarningOutlined, FieldTimeOutlined, TagsOutlined } from '@ant-design/icons';
+import { Form, Switch, Select, Button, Input, InputNumber, message, Radio, Modal, Checkbox, Alert } from 'antd';
+import { DeleteOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { settingsAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import './ModuleSettings.css';
 
-const { Title, Text } = Typography;
+/* ── Reusable row primitives — keep the visual rhythm uniform ── */
+
+function ToggleRow({ name, label, desc, onChange }) {
+  return (
+    <div className="ms-row">
+      <div>
+        <div className="ms-row-label">{label}</div>
+        {desc && <div className="ms-row-desc">{desc}</div>}
+      </div>
+      <div className="ms-row-control">
+        <Form.Item name={name} valuePropName="checked" noStyle>
+          <Switch onChange={onChange} />
+        </Form.Item>
+      </div>
+    </div>
+  );
+}
+
+function SelectRow({ name, label, desc, options, width = 180 }) {
+  return (
+    <div className="ms-row">
+      <div>
+        <div className="ms-row-label">{label}</div>
+        {desc && <div className="ms-row-desc">{desc}</div>}
+      </div>
+      <div className="ms-row-control">
+        <Form.Item name={name} noStyle>
+          <Select options={options} style={{ width }} />
+        </Form.Item>
+      </div>
+    </div>
+  );
+}
+
+function NumberRow({ name, label, desc, min = 0, suffix }) {
+  return (
+    <div className="ms-row">
+      <div>
+        <div className="ms-row-label">{label}</div>
+        {desc && <div className="ms-row-desc">{desc}</div>}
+      </div>
+      <div className="ms-row-control">
+        <Form.Item name={name} noStyle>
+          <InputNumber min={min} addonAfter={suffix} style={{ width: 140 }} />
+        </Form.Item>
+      </div>
+    </div>
+  );
+}
 
 const CLEANUP_ITEMS = [
   {
@@ -291,307 +340,254 @@ export default function ModuleSettings() {
   };
 
   return (
-    <div>
-      <Title level={3}>Module Settings</Title>
-      <Form form={form} layout="vertical" onFinish={handleSave}>
-        <Row gutter={16}>
-          <Col xs={24} lg={12}>
-            <Card loading={loading} title={<><SettingOutlined /> Module Toggles</>}>
-              <Form.Item name="gst_enabled" label="Enable GST" valuePropName="checked">
-                <Switch checkedChildren="ON" unCheckedChildren="OFF" />
-              </Form.Item>
-              <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
-                Enable GST calculations on invoices and reports
-              </Text>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <h1 className="ms-page-title">Modules</h1>
+        <p className="ms-page-sub">
+          Toggle features, set defaults, and manage data lifecycle. Changes save together via {''}
+          <kbd>F1</kbd>.
+        </p>
+      </header>
 
-              <Form.Item name="low_stock_alert_enabled" label="Enable Stock Alerts" valuePropName="checked">
-                <Switch checkedChildren="ON" unCheckedChildren="OFF" />
-              </Form.Item>
-              <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
-                Get notified when stock falls below minimum level
-              </Text>
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
+          <Form form={form} onFinish={handleSave} disabled={loading}>
 
-              <Form.Item name="allow_negative_stock" label="Allow Negative Stock" valuePropName="checked">
-                <Switch checkedChildren="ON" unCheckedChildren="OFF" />
-              </Form.Item>
-              <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
-                When ON — sales can proceed even if stock goes below zero (stock shown in red). When OFF — sales are blocked if quantity would go negative.
-              </Text>
+            {/* ── Features ── */}
+            <section className="ms-section">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">Features</h2>
+                <p className="ms-section-desc">
+                  Master toggles for modules and capabilities. Off here = hidden across the app.
+                </p>
+              </div>
+              <ToggleRow name="gst_enabled" label="GST"
+                         desc="Run GST calculations on invoices and reports." />
+              <ToggleRow name="low_stock_alert_enabled" label="Stock alerts"
+                         desc="Notify when stock falls below the per-product minimum." />
+              <ToggleRow name="allow_negative_stock" label="Allow negative stock"
+                         desc="ON — sales pass even if quantity goes below zero (shown in red). OFF — block the sale." />
+              <ToggleRow name="enable_amount_only_billing" label="Amount-only billing"
+                         desc="Adds an Itemised / Amount-only mode toggle on the Sales Bill form for service or on-account bills." />
+              <ToggleRow name="multi_warehouse_enabled" label="Multi-warehouse"
+                         desc="Track stock across multiple godowns." />
+              <ToggleRow name="audit_trail_enabled" label="Audit trail"
+                         desc="Record every change to bills and master records." />
+              <ToggleRow name="batch_tracking_enabled" label="Batch tracking"
+                         desc="Group identical units into batches with their own dates, quantities, and optional expiry. Per-product opt-in on the Product form."
+                         onChange={setBatchTrackingOn} />
 
-              <Form.Item name="enable_amount_only_billing" label="Enable Amount-only Billing" valuePropName="checked">
-                <Switch checkedChildren="ON" unCheckedChildren="OFF" />
-              </Form.Item>
-              <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
-                When ON — the Sales Bill form shows a Mode toggle (Itemised / Amount only) so operators can record service or on-account bills without itemising. When OFF — only itemised bills are creatable.
-              </Text>
+              {batchTrackingOn && (
+                <div className="ms-nested">
+                  <NumberRow name="batch_expiry_alert_days" label="Default expiry alert"
+                             desc="Batches within this many days of expiry get flagged on the picker and Expiry Report."
+                             min={1} suffix="days" />
+                  <ToggleRow name="block_expired_sales" label="Block sales of expired batches"
+                             desc="ON — refuse to save a sale line drawing from an expired batch. OFF — allow (typical wholesale)." />
+                  <ToggleRow name="allow_zero_stock_batches" label="Allow zero-stock batches"
+                             desc="ON — pre-register a batch before stock arrives. OFF — batches only via purchase bill." />
+                </div>
+              )}
+            </section>
 
-              <Form.Item name="multi_warehouse_enabled" label="Enable Multi-Warehouse" valuePropName="checked">
-                <Switch checkedChildren="ON" unCheckedChildren="OFF" />
-              </Form.Item>
-              <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
-                Manage stock across multiple warehouse locations
-              </Text>
+            {/* ── Defaults ── */}
+            <section className="ms-section">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">Defaults</h2>
+                <p className="ms-section-desc">
+                  Behaviour the app uses unless an individual record overrides it.
+                </p>
+              </div>
 
-              <Form.Item name="audit_trail_enabled" label="Enable Audit Trail" valuePropName="checked">
-                <Switch checkedChildren="ON" unCheckedChildren="OFF" />
-              </Form.Item>
-              <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
-                Track all changes made to bills and records
-              </Text>
+              <div className="ms-row-stacked">
+                <div className="ms-row-label">Default product mode (new products only)</div>
+                <div className="ms-row-desc">
+                  Existing products keep their mode permanently — flipping this won't reshape your catalog.
+                </div>
+                <div className="ms-row-stacked-control" style={{ marginTop: 10 }}>
+                  <Form.Item name="default_product_mode" noStyle>
+                    <Radio.Group>
+                      <Radio value="variant">
+                        <span style={{ fontWeight: 500 }}>Variant</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>
+                          A purchase at a different MRP / rate / size auto-creates a new variant. Best for textiles, garments — each combination is its own SKU.
+                        </div>
+                      </Radio>
+                      <Radio value="single">
+                        <span style={{ fontWeight: 500 }}>Single Product (Tally-style)</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>
+                          One product, many purchase prices over time. Cost tracked as weighted average. Best for FMCG, hardware, pharma. Required for batch tracking.
+                        </div>
+                      </Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </div>
+              </div>
 
-              <Form.Item name="batch_tracking_enabled" label="Enable Batch Tracking" valuePropName="checked">
-                <Switch
-                  checkedChildren="ON"
-                  unCheckedChildren="OFF"
-                  onChange={setBatchTrackingOn}
-                />
-              </Form.Item>
-              <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 0 }}>
-                Group identical units into batches with their own dates, quantities, and optional expiry. Toggle individual products into batch mode from the Product form. Existing data is preserved if turned OFF later.
-              </Text>
-            </Card>
-          </Col>
+              <div className="ms-row-stacked">
+                <div className="ms-row-label">GST calculation mode</div>
+                <div className="ms-row-desc">How GST is applied on sales bills.</div>
+                <div className="ms-row-stacked-control" style={{ marginTop: 10 }}>
+                  <Form.Item name="gst_mode" noStyle>
+                    <Radio.Group>
+                      <Radio value="product">
+                        <span style={{ fontWeight: 500 }}>Product-wise</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>
+                          Each product carries its own GST rate; CGST/SGST/IGST auto-calculated from line items.
+                        </div>
+                      </Radio>
+                      <Radio value="bill">
+                        <span style={{ fontWeight: 500 }}>Bill-wise</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>
+                          Enter CGST%, SGST%, IGST% manually on the whole bill total.
+                        </div>
+                      </Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </div>
+              </div>
+            </section>
 
-          <Col xs={24} lg={12}>
-            <Card loading={loading} title={<><CloudServerOutlined /> Backup Settings</>}>
-              <Form.Item name="backup_frequency" label="Backup Frequency">
-                <Select placeholder="Select frequency">
-                  <Select.Option value="Hourly">Hourly</Select.Option>
-                  <Select.Option value="Daily">Daily</Select.Option>
-                  <Select.Option value="Weekly">Weekly</Select.Option>
-                  <Select.Option value="Manual">Manual</Select.Option>
-                </Select>
-              </Form.Item>
-            </Card>
-          </Col>
-        </Row>
-
-        <Row gutter={16} style={{ marginTop: 16 }}>
-          <Col xs={24} lg={12}>
-            <Card loading={loading} title={<><CalendarOutlined /> Due Days Display</>}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                Choose how "Due Days" is calculated in the Payment &amp; Receipt windows.
-              </Text>
-
-              <Form.Item name="sale_due_days_mode" label="Sales Bills (Receipt Entry)">
-                <Radio.Group>
-                  <Radio value="bill_date" style={{ display: 'block', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 500 }}>From Bill Date</span>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                      Shows age of bill — how many days since the bill was created
-                    </div>
-                  </Radio>
-                  <Radio value="due_date" style={{ display: 'block' }}>
-                    <span style={{ fontWeight: 500 }}>From Due Date</span>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                      Shows "Overdue X days" if past due date, or "Due in X days" if upcoming
-                    </div>
-                  </Radio>
-                </Radio.Group>
-              </Form.Item>
-
-              <Divider style={{ margin: '12px 0' }} />
-
-              <Form.Item name="purchase_due_days_mode" label="Purchase Bills (Payment Entry)">
-                <Radio.Group>
-                  <Radio value="bill_date" style={{ display: 'block', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 500 }}>From Bill Date</span>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                      Shows age of bill — how many days since the bill was created
-                    </div>
-                  </Radio>
-                  <Radio value="due_date" style={{ display: 'block' }}>
-                    <span style={{ fontWeight: 500 }}>From Due Date</span>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                      Shows "Overdue X days" if past due date, or "Due in X days" if upcoming
-                    </div>
-                  </Radio>
-                </Radio.Group>
-              </Form.Item>
-            </Card>
-          </Col>
-
-          <Col xs={24} lg={12}>
-            <Card loading={loading} title={<><FieldTimeOutlined /> Aging Buckets</>}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                Set how many days past a bill's due date (bill date + party's credit days) moves it into each bucket on the Customers / Suppliers page. Defaults mirror the classic 30 / 60 / 90 split.
-              </Text>
-
-              <Form.Item
-                name="aging_bucket_1_days"
-                label="Not yet due — up to"
-                extra={<span style={{ fontSize: 12, color: '#6b7280' }}>Bills aged 0 – <b>N</b> days past due</span>}
-              >
-                <InputNumber min={1} max={365} style={{ width: 160 }} addonAfter="days" />
-              </Form.Item>
-
-              <Form.Item
-                name="aging_bucket_2_days"
-                label="Watchful — up to"
-                extra={<span style={{ fontSize: 12, color: '#6b7280' }}>Between the first and second threshold</span>}
-              >
-                <InputNumber min={2} max={365} style={{ width: 160 }} addonAfter="days" />
-              </Form.Item>
-
-              <Form.Item
-                name="aging_bucket_3_days"
-                label="Chase — up to"
-                style={{ marginBottom: 0 }}
-                extra={<span style={{ fontSize: 12, color: '#6b7280' }}>Bills aged beyond this threshold are marked <b>Critical</b></span>}
-              >
-                <InputNumber min={3} max={720} style={{ width: 160 }} addonAfter="days" />
-              </Form.Item>
-            </Card>
-          </Col>
-        </Row>
-
-        {batchTrackingOn && (
-          <Row gutter={16} style={{ marginTop: 16 }}>
-            <Col xs={24} lg={12}>
-              <Card loading={loading} title={<><TagsOutlined /> Batch Tracking</>}>
-                <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                  Active when individual products are flipped to batch mode on the Product form. The settings below tune expiry alerts and sale-of-expired behaviour.
-                </Text>
-
-                <Form.Item
-                  name="batch_expiry_alert_days"
-                  label="Default expiry alert"
-                  extra={<span style={{ fontSize: 12, color: '#6b7280' }}>Batches within this many days of expiry are flagged with an amber chip on the picker and Expiry Report</span>}
-                >
-                  <InputNumber min={1} max={365} style={{ width: 160 }} addonAfter="days" />
+            {/* ── Bill numbering ── */}
+            <section className="ms-section">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">Bill numbering</h2>
+                <p className="ms-section-desc">
+                  Prefix prepended to auto-generated bill numbers. Leave blank for plain numbers like 0001, 0002…
+                </p>
+              </div>
+              <div className="ms-prefix-grid">
+                <Form.Item name="sales_bill_prefix" label="Sales prefix"
+                           extra={<span className="ms-row-desc">e.g. <b>INV</b> → <b>INV-0001</b></span>}
+                           style={{ marginBottom: 0 }}>
+                  <Input placeholder="INV" maxLength={10}
+                         style={{ textTransform: 'uppercase' }}
+                         onChange={(e) => (e.target.value = e.target.value.toUpperCase())} />
                 </Form.Item>
-
-                <Form.Item name="block_expired_sales" label="Block sales of expired batches" valuePropName="checked">
-                  <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+                <Form.Item name="purchase_bill_prefix" label="Purchase prefix"
+                           extra={<span className="ms-row-desc">e.g. <b>PUR</b> → <b>PUR-0001</b></span>}
+                           style={{ marginBottom: 0 }}>
+                  <Input placeholder="PUR" maxLength={10}
+                         style={{ textTransform: 'uppercase' }}
+                         onChange={(e) => (e.target.value = e.target.value.toUpperCase())} />
                 </Form.Item>
-                <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 16 }}>
-                  When ON — the sales bill refuses to save a line that draws from an expired batch. When OFF — operators can deliberately sell aged stock at a discount (typical wholesale behaviour).
-                </Text>
+              </div>
+            </section>
 
-                <Form.Item name="allow_zero_stock_batches" label="Allow zero-stock batches" valuePropName="checked" style={{ marginBottom: 0 }}>
-                  <Switch checkedChildren="ON" unCheckedChildren="OFF" />
-                </Form.Item>
-                <Text type="secondary" style={{ display: 'block', marginTop: -16, marginBottom: 0 }}>
-                  When ON — operators can pre-register a batch (e.g. an upcoming shipment) before any stock arrives. When OFF — batches can only be created via a purchase bill.
-                </Text>
-              </Card>
-            </Col>
-          </Row>
-        )}
+            {/* ── Aging & due dates ── */}
+            <section className="ms-section">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">Aging &amp; due dates</h2>
+                <p className="ms-section-desc">
+                  Defines how "Due Days" is shown on Payment / Receipt windows and how unpaid bills bucket on the Customers / Suppliers page.
+                </p>
+              </div>
 
-        <Row gutter={16} style={{ marginTop: 16 }}>
-          <Col xs={24} lg={12}>
-            <Card loading={loading} title={<><SettingOutlined /> Default Product Mode</>}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                Applies to <strong>new products only</strong>. Existing products keep their mode permanently — flipping this won't reshape your catalog.
-              </Text>
-              <Form.Item name="default_product_mode" label="Mode for new products" style={{ marginBottom: 0 }}>
-                <Radio.Group>
-                  <Radio value="variant" style={{ display: 'block', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 500 }}>Variant</span>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                      A purchase at a different MRP / rate / size automatically creates a new product variant. Best for textiles, sarees, garments — each combination is its own SKU with its own barcode.
-                    </div>
-                  </Radio>
-                  <Radio value="single" style={{ display: 'block' }}>
-                    <span style={{ fontWeight: 500 }}>Single Product (Tally-style)</span>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                      One product, many purchase prices over time. Cost is tracked as a weighted average. Best for FMCG, hardware, pharma, food — same SKU bought repeatedly at varying prices. Required for batch tracking.
-                    </div>
-                  </Radio>
-                </Radio.Group>
-              </Form.Item>
-            </Card>
-          </Col>
-        </Row>
+              <div className="ms-row-stacked">
+                <div className="ms-row-label">Sales bills (Receipt entry)</div>
+                <div className="ms-row-stacked-control">
+                  <Form.Item name="sale_due_days_mode" noStyle>
+                    <Radio.Group>
+                      <Radio value="bill_date">
+                        <span style={{ fontWeight: 500 }}>From bill date</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>Age of bill — days since creation.</div>
+                      </Radio>
+                      <Radio value="due_date">
+                        <span style={{ fontWeight: 500 }}>From due date</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>"Overdue X days" past due, or "Due in X days" upcoming.</div>
+                      </Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </div>
+              </div>
 
-        <Row gutter={16} style={{ marginTop: 16 }}>
-          <Col xs={24} lg={12}>
-            <Card loading={loading} title={<><SettingOutlined /> GST Calculation Mode</>}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                Choose how GST is applied on sales bills.
-              </Text>
-              <Form.Item name="gst_mode" label="GST Mode">
-                <Radio.Group>
-                  <Radio value="product" style={{ display: 'block', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 500 }}>Product-wise GST</span>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                      Each product carries its own GST rate — CGST/SGST/IGST % are auto-calculated from items
-                    </div>
-                  </Radio>
-                  <Radio value="bill" style={{ display: 'block' }}>
-                    <span style={{ fontWeight: 500 }}>Bill-wise GST</span>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                      Enter CGST%, SGST%, IGST% manually on the whole bill total
-                    </div>
-                  </Radio>
-                </Radio.Group>
-              </Form.Item>
-            </Card>
-          </Col>
-          <Col xs={24} lg={12}>
-            <Card loading={loading} title={<><NumberOutlined /> Bill Number Prefix</>}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                Set a prefix for auto-generated bill numbers. Leave blank for plain numbers like <code>0001</code>, <code>0002</code>…
-              </Text>
+              <div className="ms-row-stacked">
+                <div className="ms-row-label">Purchase bills (Payment entry)</div>
+                <div className="ms-row-stacked-control">
+                  <Form.Item name="purchase_due_days_mode" noStyle>
+                    <Radio.Group>
+                      <Radio value="bill_date">
+                        <span style={{ fontWeight: 500 }}>From bill date</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>Age of bill — days since creation.</div>
+                      </Radio>
+                      <Radio value="due_date">
+                        <span style={{ fontWeight: 500 }}>From due date</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>"Overdue X days" past due, or "Due in X days" upcoming.</div>
+                      </Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </div>
+              </div>
 
-              <Form.Item
-                name="sales_bill_prefix"
-                label="Sales Bill Prefix"
-                extra={<span style={{ fontSize: 12, color: '#6b7280' }}>e.g. <b>INV</b> → <b>INV-0001</b> &nbsp;|&nbsp; blank → <b>0001</b></span>}
-              >
-                <Input
-                  placeholder="e.g. INV or SAL (leave blank for 0001)"
-                  maxLength={10}
-                  style={{ textTransform: 'uppercase', width: 220 }}
-                  onChange={e => e.target.value = e.target.value.toUpperCase()}
-                />
-              </Form.Item>
+              <div className="ms-row-stacked">
+                <div className="ms-row-label">Aging buckets</div>
+                <div className="ms-row-desc">
+                  Days past a bill's due date for each bucket. Default 30 / 60 / 90.
+                </div>
+                <div className="ms-aging-grid">
+                  <Form.Item name="aging_bucket_1_days" label="Not yet due"
+                             extra={<span className="ms-row-desc">0 – N days past due</span>}>
+                    <InputNumber min={1} max={365} addonAfter="days" />
+                  </Form.Item>
+                  <Form.Item name="aging_bucket_2_days" label="Watchful"
+                             extra={<span className="ms-row-desc">First → second threshold</span>}>
+                    <InputNumber min={2} max={365} addonAfter="days" />
+                  </Form.Item>
+                  <Form.Item name="aging_bucket_3_days" label="Chase"
+                             extra={<span className="ms-row-desc">Beyond is Critical</span>}>
+                    <InputNumber min={3} max={720} addonAfter="days" />
+                  </Form.Item>
+                </div>
+              </div>
+            </section>
 
-              <Form.Item
-                name="purchase_bill_prefix"
-                label="Purchase Bill Prefix"
-                style={{ marginBottom: 0 }}
-                extra={<span style={{ fontSize: 12, color: '#6b7280' }}>e.g. <b>PUR</b> → <b>PUR-0001</b> &nbsp;|&nbsp; blank → <b>0001</b></span>}
-              >
-                <Input
-                  placeholder="e.g. PUR or GRN (leave blank for 0001)"
-                  maxLength={10}
-                  style={{ textTransform: 'uppercase', width: 220 }}
-                  onChange={e => e.target.value = e.target.value.toUpperCase()}
-                />
-              </Form.Item>
-            </Card>
-          </Col>
-        </Row>
+            {/* ── Backup ── */}
+            <section className="ms-section">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">Backup</h2>
+                <p className="ms-section-desc">
+                  How often the app snapshots the database. Use Backup &amp; Recovery for manual snapshots and restores.
+                </p>
+              </div>
+              <SelectRow
+                name="backup_frequency"
+                label="Frequency"
+                desc="Snapshots run automatically on this cadence."
+                options={[
+                  { value: 'Hourly', label: 'Hourly' },
+                  { value: 'Daily',  label: 'Daily' },
+                  { value: 'Weekly', label: 'Weekly' },
+                  { value: 'Manual', label: 'Manual only' },
+                ]}
+              />
+            </section>
 
-        <div style={{ marginTop: 16 }}>
-          <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>
-            Save Changes
-          </Button>
-        </div>
-      </Form>
+            {/* ── Danger zone ── */}
+            <section className="ms-section ms-danger">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">
+                  <WarningOutlined /> Danger zone
+                </h2>
+                <p className="ms-section-desc">
+                  Permanent destructive actions. Take a backup before proceeding.
+                </p>
+              </div>
+              <div className="ms-row">
+                <div>
+                  <div className="ms-row-label">Clean / reset data</div>
+                  <div className="ms-row-desc">
+                    Delete sales, purchases, payments, products, parties, and more — by category, with admin password confirmation.
+                  </div>
+                </div>
+                <div className="ms-row-control">
+                  <Button danger icon={<DeleteOutlined />} onClick={() => setCleanupOpen(true)}>
+                    Clean / reset…
+                  </Button>
+                </div>
+              </div>
+            </section>
 
-      {/* Danger Zone */}
-      <div style={{ marginTop: 32, border: '1.5px solid #fecaca', borderRadius: 10, padding: '20px 24px', background: '#fff5f5' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <WarningOutlined style={{ color: '#ef4444', fontSize: 18 }} />
-              <span style={{ fontWeight: 700, fontSize: 15, color: '#b91c1c' }}>Danger Zone</span>
-            </div>
-            <div style={{ fontSize: 13, color: '#6b7280' }}>
-              Permanently delete selected data from the software. This cannot be undone.
-            </div>
-          </div>
-          <Button
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => setCleanupOpen(true)}
-            style={{ fontWeight: 600 }}
-          >
-            Clean / Reset Data
-          </Button>
+          </Form>
         </div>
       </div>
 
@@ -599,15 +595,9 @@ export default function ModuleSettings() {
 
       <ActionStrip
         actions={[
-          {
-            id: 'back', key: 'Esc', label: 'Back',
-            onAction: () => navigate('/'),
-          },
-          {
-            id: 'save', key: 'F1', label: 'Save', tone: 'primary',
-            disabled: saving || loading,
-            onAction: () => form.submit(),
-          },
+          { id: 'back', key: 'Esc', label: 'Back', onAction: () => navigate('/settings') },
+          { id: 'save', key: 'F1', label: 'Save', tone: 'primary',
+            disabled: saving || loading, onAction: () => form.submit() },
         ]}
       />
     </div>

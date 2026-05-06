@@ -1,0 +1,184 @@
+/* ── Module Settings ─────────────────────────────────────────────────
+ *
+ * Three-zone shell (header / body / footer) inside the SettingsLayout
+ * pane. Body content is grouped into clean sections with a uniform
+ * row pattern (label + description on the left, control on the
+ * right). No Antd Card chrome, no per-section bordered boxes — just
+ * one card per topic with subtle dividers between rows.
+ */
+
+.ms-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.ms-page-header {
+  flex: 0 0 auto;
+  padding: 18px clamp(16px, 3vw, 32px) 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+}
+.ms-page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+}
+.ms-page-sub {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+
+.ms-page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.ms-page-body-inner {
+  padding: 24px clamp(16px, 3vw, 32px) 32px;
+  max-width: 880px;
+}
+
+/* ── Section card ── */
+.ms-section {
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+.ms-section-head {
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ms-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  margin: 0 0 4px;
+}
+.ms-section-desc {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  margin: 0;
+  line-height: 1.45;
+}
+
+/* ── Two-column row: label/desc on left, control on right ── */
+.ms-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ms-row:last-child {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+.ms-row-label {
+  font-weight: 500;
+  color: var(--fg-primary);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.ms-row-desc {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  line-height: 1.45;
+}
+.ms-row-control {
+  flex-shrink: 0;
+  /* AntD Switch / Select / InputNumber sit naturally here. */
+}
+.ms-row-control .ant-form-item {
+  margin-bottom: 0;
+}
+
+/* Stacked row — when the control needs more horizontal space (radio
+ * groups with long labels, multi-line inputs, etc.). */
+.ms-row-stacked {
+  display: block;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ms-row-stacked:last-child {
+  border-bottom: none;
+  padding-bottom: 4px;
+}
+.ms-row-stacked .ms-row-label,
+.ms-row-stacked .ms-row-desc {
+  margin: 0 0 8px;
+}
+.ms-row-stacked-control .ant-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Nested options panel — used for batch-tracking sub-options when
+ * the parent toggle is on. Sits inside an ms-row-stacked block,
+ * indented and tinted so it reads as "inside" the parent. */
+.ms-nested {
+  margin-top: 10px;
+  padding: 12px 16px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.ms-nested .ms-row { padding: 10px 0; }
+.ms-nested .ms-row:first-child { padding-top: 0; }
+.ms-nested .ms-row:last-child  { padding-bottom: 0; border-bottom: none; }
+
+/* ── Danger Zone — destructive actions visually flagged ── */
+.ms-section.ms-danger {
+  border-color: rgba(239, 68, 68, 0.30);
+  background: linear-gradient(0deg, rgba(239, 68, 68, 0.03), rgba(239, 68, 68, 0.03)), var(--bg-panel);
+}
+.ms-section.ms-danger .ms-section-title {
+  color: #b91c1c;
+}
+.ms-section.ms-danger .ms-row {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+/* Compact prefix-pair row (sales + purchase invoice prefixes) — two
+ * inputs side by side with shared label-region above. */
+.ms-prefix-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 6px;
+}
+@media (max-width: 540px) {
+  .ms-prefix-grid { grid-template-columns: 1fr; }
+}
+.ms-prefix-grid .ant-form-item {
+  margin-bottom: 0;
+}
+
+/* Aging buckets — three small number inputs in a row. */
+.ms-aging-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+@media (max-width: 540px) {
+  .ms-aging-grid { grid-template-columns: 1fr; }
+}
+.ms-aging-grid .ant-form-item { margin-bottom: 0; }
+.ms-aging-grid .ant-input-number { width: 100%; }
