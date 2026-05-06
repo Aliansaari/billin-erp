@@ -36,18 +36,22 @@ export default function ThemeSettings() {
   const resolved = resolveMode(themeStyle, appearance);
 
   return (
-    <div className="theme-page">
-      <div className="theme-page-header">
-        <div>
-          <h1 className="theme-page-title">Theme</h1>
-          <p className="theme-page-sub">
-            Customize how Billing ERP looks. Changes apply instantly — no restart needed.
-          </p>
+    <div className="theme-page-shell">
+      <header className="theme-page-header">
+        <div className="theme-page-header-inner">
+          <div>
+            <h1 className="theme-page-title">Theme</h1>
+            <p className="theme-page-sub">
+              Customize how Billing ERP looks. Changes apply instantly — no restart needed.
+            </p>
+          </div>
+          <span className="theme-page-current" title="Active theme mode">
+            {resolved}
+          </span>
         </div>
-        <span className="theme-page-current" title="Active theme mode">
-          {resolved}
-        </span>
-      </div>
+      </header>
+
+      <div className="theme-page-body">
 
       {/* ── Theme Style ── */}
       <section className="theme-section">
@@ -152,6 +156,7 @@ export default function ThemeSettings() {
         </div>
         <PreviewFrame layout={menuOrientation} />
       </section>
+      </div>{/* /theme-page-body */}
 
       <ActionStrip
         actions={[

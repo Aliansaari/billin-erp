@@ -8,21 +8,42 @@
  * software, not a stock antd settings page.
  */
 
-.theme-page {
-  padding: 28px clamp(16px, 3vw, 40px);
-  max-width: 1080px;
-  margin: 0 auto;
+/* Page shell IS the scroll container. The Layout marks
+ * /settings/theme as a "fullpage" route, which pins .erp-page-content
+ * to viewport height with overflow:hidden — so the shell takes 100%
+ * of that and scrolls its OWN body, leaving the sticky header
+ * pinned to its top edge. */
+.theme-page-shell {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-bottom: 96px;             /* leave room for ActionStrip */
+  background: var(--bg-app);
 }
 
 .theme-page-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 16px 0 14px;
+}
+.theme-page-header-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 3vw, 40px);
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 28px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border-subtle);
+}
+
+.theme-page-body {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px clamp(16px, 3vw, 40px) 0;
 }
 .theme-page-title {
   font-size: 22px;

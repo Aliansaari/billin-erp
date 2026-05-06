@@ -168,6 +168,10 @@ export default function AppLayout() {
     // page reverts to padded auto-scroll where the title slides
     // off-screen on long category lists.
     '/reports',
+    // Theme settings — sticky page header (title + active-mode badge)
+    // with the option cards + live preview scrolling beneath. Inner
+    // .theme-page-shell becomes the scroll container.
+    '/settings/theme',
   ].includes(location.pathname);
 
   // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.
