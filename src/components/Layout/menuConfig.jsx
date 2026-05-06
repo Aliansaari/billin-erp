@@ -183,6 +183,26 @@ const CATEGORY_ICON = {
 };
 
 /**
+ * Look up the icon for a given route by walking the static menuItems
+ * tree (parents first, then their children). Returns null if no entry
+ * exists for that route. Used by the menu popup and the sidebar's
+ * collapsed-icon hover popup so each row in those popups carries the
+ * same icon the user already sees in the main nav — no need to keep
+ * a parallel icon mapping in menuCatalog.
+ */
+export function getRouteIcon(route) {
+  for (const item of menuItems) {
+    if (item.key === route) return item.icon;
+    if (item.children) {
+      for (const c of item.children) {
+        if (c.key === route) return c.icon;
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Hook variant of menuItems. Reads the favorites store and inflates
  * the Reports parent's children with the user's pinned reports +
  * a "View all reports →" link. With zero pins, children collapse to

@@ -6,9 +6,8 @@ import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
-import { useMenuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
+import { useMenuItems, getOpenKeys, filterMenuByPermissions, getRouteIcon } from './menuConfig';
 import useFavoritesStore from '../../store/favoritesStore';
-import { labelWithUnderline } from '../keyboard/MenuPopup';
 import { ALT_MENUS } from '../keyboard/menuCatalog';
 import {
   SettingOutlined,
@@ -125,10 +124,8 @@ function CollapsedItem({ item, currentPath, navigate }) {
                     role="menuitem"
                     aria-current={isCurrent ? 'page' : undefined}
                   >
-                    <span className="mp-letter">{child.letter || '·'}</span>
-                    <span className="mp-label">
-                      {child.letter ? labelWithUnderline(child.label, child.letter) : child.label}
-                    </span>
+                    <span className="mp-icon">{getRouteIcon(child.route)}</span>
+                    <span className="mp-label">{child.label}</span>
                     {child.sub && <span className="mp-sub">{child.sub}</span>}
                   </li>
                 );

@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { getRouteIcon } from '../Layout/menuConfig';
 import './MenuPopup.css';
 
 // ── Tally-style Alt-letter menu popup ──────────────────────────────
@@ -198,33 +199,14 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
               onClick={() => onPick(it)}
               role="menuitem"
             >
-              <span className="mp-letter">{it.letter}</span>
-              <span className="mp-label">{labelWithUnderline(it.label, it.letter)}</span>
+              <span className="mp-icon">{getRouteIcon(it.route)}</span>
+              <span className="mp-label">{it.label}</span>
               {it.sub && <span className="mp-sub">{it.sub}</span>}
             </li>
           ))}
         </ul>
       </div>
     </div>
-  );
-}
-
-// Render the label with the first occurrence of the chosen letter
-// underlined (case-insensitive). Falls back to plain text if the
-// letter doesn't appear in the label. Exported so the sidebar hover
-// popup can reuse the same Tally-style underline rendering without
-// rebuilding the helper.
-export function labelWithUnderline(label, letter) {
-  if (!letter) return label;
-  const lower = label.toLowerCase();
-  const idx = lower.indexOf(letter.toLowerCase());
-  if (idx < 0) return label;
-  return (
-    <>
-      {label.slice(0, idx)}
-      <u>{label[idx]}</u>
-      {label.slice(idx + 1)}
-    </>
   );
 }
 
