@@ -11,6 +11,8 @@ export const SHORTCUTS_LIST = [
   { keys: 'Alt + C', description: 'Customers' },
   { keys: 'Alt + I', description: 'Inventory / Products' },
   { keys: 'Alt + R', description: 'Reports' },
+  { keys: 'F6', description: 'Receipt (money in)' },
+  { keys: 'F7', description: 'Payment (money out)' },
   { keys: 'Ctrl + Shift + ?', description: 'Show Shortcuts Help' },
   { keys: 'Escape', description: 'Close dialog / Cancel' },
   { keys: 'F5', description: 'Refresh data' },
@@ -47,7 +49,9 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
           case 'm': e.preventDefault(); navigate('/payments'); break;
           case 'c': e.preventDefault(); navigate('/customers'); break;
           case 'i': e.preventDefault(); navigate('/products'); break;
-          case 'r': e.preventDefault(); navigate('/reports/sales'); break;
+          // Alt+R lands on the Reports hub (catalog), not the legacy
+          // /reports/sales register — matches the Home card.
+          case 'r': e.preventDefault(); navigate('/reports'); break;
         }
         return;
       }
@@ -66,6 +70,23 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       if (e.key === 'F5') {
         e.preventDefault();
         onRefresh?.();
+        return;
+      }
+
+      // F6 / F7 — Receipt / Payment quick-create. These are GLOBAL
+      // navigation shortcuts that match the Home Command Center cards.
+      // On pages that bind F6 / F7 in their own ActionStrip (e.g.
+      // bill lists where F6 = "Receipt against this cursored bill"),
+      // the strip's stopImmediatePropagation suppresses this listener
+      // so the page-level handler wins.
+      if (e.key === 'F6' && !isInput && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        navigate('/receipt/new');
+        return;
+      }
+      if (e.key === 'F7' && !isInput && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        navigate('/payment/new');
         return;
       }
     };

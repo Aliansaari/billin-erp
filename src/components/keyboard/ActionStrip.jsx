@@ -107,7 +107,12 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
         if (!parsed) continue;
         if (eventMatches(e, parsed)) {
           e.preventDefault();
-          e.stopPropagation();
+          // stopImmediatePropagation suppresses ANY other window-level
+          // keydown listener (e.g. useGlobalShortcuts F6 → /receipt/new)
+          // on the same key, so a page-level binding in this strip
+          // always wins over a global. stopPropagation alone wouldn't
+          // do this because both handlers attach at the same target.
+          e.stopImmediatePropagation();
           try { a.onAction?.(e); }
           catch (err) { console.error('[ActionStrip]', a.id, err); }
           return;
