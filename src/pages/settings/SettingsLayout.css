@@ -147,16 +147,31 @@
   text-align: center;
 }
 
-/* ── Right pane — host for the active settings page ── */
+/* ── Right pane — host for the active settings page ──
+ *
+ * The pane scrolls by default. Pages that bring their own internal
+ * scroll layout (e.g. ThemeSettings's .theme-page-shell with sticky
+ * header + sticky footer) still work — their height:100% fits
+ * within the pane's box, so the pane's own scroll never engages.
+ * Pages that just emit content (Modules, Print, etc.) get a normal
+ * vertical scroll without each one having to wire its own. */
 .settings-pane {
   height: 100%;
-  overflow: hidden;          /* page itself controls scroll */
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   min-width: 0;              /* prevent flex children from blowing up width */
   background: var(--bg-app);
 }
 .settings-pane > * {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
+}
+/* Pages that DO bring an internally-scrolled layout (ThemeSettings)
+ * mark their root with this class so it expands to fill the pane
+ * and the pane's own scroll never engages. */
+.settings-pane > .settings-pane-fill {
+  flex: 1 1 auto;
+  min-height: 100%;
 }

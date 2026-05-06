@@ -80,7 +80,7 @@ export default function ThemeSettings() {
   const resolvedDisplay = resolved.replace(/^modern/, 'editorial');
 
   return (
-    <div className="theme-page-shell">
+    <div className="theme-page-shell settings-pane-fill">
       <header className="theme-page-header">
         <div className="theme-page-header-inner">
           <div>
