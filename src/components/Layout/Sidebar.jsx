@@ -120,7 +120,7 @@ function CollapsedItem({ item, currentPath, navigate }) {
                 return (
                   <li
                     key={child.route}
-                    className={`mp-item${isCurrent ? ' is-current' : ''}`}
+                    className="mp-item"
                     onClick={() => { setPopupPos(null); navigate(child.route); }}
                     role="menuitem"
                     aria-current={isCurrent ? 'page' : undefined}

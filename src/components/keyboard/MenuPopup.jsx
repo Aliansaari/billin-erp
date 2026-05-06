@@ -208,13 +208,11 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
         </div>
         <ul className="mp-list">
           {items.map((it, i) => {
-            const isCursor  = i === activeIdx;
             const isCurrent = i === currentIdx;
-            const cls = `mp-item${isCursor ? ' active' : ''}${isCurrent ? ' is-current' : ''}`;
             return (
               <li
                 key={it.letter + ':' + (it.route || it.label)}
-                className={cls}
+                className={`mp-item${i === activeIdx ? ' active' : ''}`}
                 onMouseEnter={() => setActiveIdx(i)}
                 onClick={() => onPick(it)}
                 role="menuitem"
