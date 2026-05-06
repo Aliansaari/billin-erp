@@ -53,6 +53,7 @@ const SETTINGS_GROUPS = [
     label: 'Data',
     items: [
       { path: 'import-export', icon: <SwapOutlined />,        label: 'Import & Export',  perm: 'settings.import_export' },
+      { path: 'import',        icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export' },
       { path: 'tally',         icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally' },
       { path: 'backup',        icon: <CloudServerOutlined />, label: 'Backup & Recovery', perm: 'settings.backup' },
     ],
