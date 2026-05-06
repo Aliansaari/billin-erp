@@ -9,6 +9,22 @@ import { resolveMode, themeTokens } from '../../theme/tokens';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './ThemeSettings.css';
 
+// Curated accent palette. Eight colours covering the colour wheel
+// without overlap — distinct enough that swatches read at a glance,
+// muted enough to stay professional in a financial app. Each is
+// chosen to remain legible on both light cream and dark slate
+// backgrounds (no neon yellows, no near-white).
+const ACCENT_PRESETS = [
+  { name: 'Indigo',     hex: '#4F46E5' },  // Classic default
+  { name: 'Sky',        hex: '#0EA5E9' },
+  { name: 'Emerald',    hex: '#10B981' },
+  { name: 'Amber',      hex: '#F59E0B' },
+  { name: 'Rose',       hex: '#F43F5E' },
+  { name: 'Violet',     hex: '#8B5CF6' },
+  { name: 'Terracotta', hex: '#B1472F' },  // Editorial default
+  { name: 'Slate',      hex: '#475569' },
+];
+
 /**
  * Pull the live palette for a (style × appearance) combo straight
  * from themeTokens. The mock renders with these CSS vars so what
@@ -50,9 +66,11 @@ export default function ThemeSettings() {
   const themeStyle       = useThemeStore((s) => s.themeStyle);
   const appearance       = useThemeStore((s) => s.appearance);
   const menuOrientation  = useThemeStore((s) => s.menuOrientation);
+  const accent           = useThemeStore((s) => s.accent);
   const setThemeStyle    = useThemeStore((s) => s.setThemeStyle);
   const setAppearance    = useThemeStore((s) => s.setAppearance);
   const setMenuOrientation = useThemeStore((s) => s.setMenuOrientation);
+  const setAccent        = useThemeStore((s) => s.setAccent);
   const resetTheme       = useThemeStore((s) => s.resetTheme);
 
   // Internal mode keys keep "modern" so 80+ CSS selectors and stored
@@ -146,6 +164,40 @@ export default function ThemeSettings() {
               </div>
             }
           />
+        </div>
+      </section>
+
+      {/* ── Accent ── */}
+      <section className="theme-section">
+        <div className="theme-section-head">
+          <h2 className="theme-section-title">Accent</h2>
+          <p className="theme-section-help">
+            Override the theme's primary colour. Pick the dot to use the theme's natural accent.
+          </p>
+        </div>
+        <div className="theme-accent-row">
+          <button
+            type="button"
+            className={`theme-accent-swatch theme-accent-default${accent === null ? ' active' : ''}`}
+            onClick={() => setAccent(null)}
+            title="Theme default"
+            aria-label="Theme default"
+            aria-pressed={accent === null}
+          >
+            <span aria-hidden="true">·</span>
+          </button>
+          {ACCENT_PRESETS.map((c) => (
+            <button
+              key={c.hex}
+              type="button"
+              className={`theme-accent-swatch${accent === c.hex ? ' active' : ''}`}
+              style={{ '--swatch': c.hex }}
+              onClick={() => setAccent(c.hex)}
+              title={c.name}
+              aria-label={c.name}
+              aria-pressed={accent === c.hex}
+            />
+          ))}
         </div>
       </section>
 

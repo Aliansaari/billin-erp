@@ -223,6 +223,68 @@
   border: 1px solid var(--mock-border);
 }
 
+/* ── Accent picker — circular colour swatches ── */
+.theme-accent-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 2px;
+}
+.theme-accent-swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--swatch, var(--bg-muted));
+  cursor: pointer;
+  position: relative;
+  padding: 0;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.theme-accent-swatch:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.10);
+}
+.theme-accent-swatch:focus-visible {
+  outline: none;
+  border-color: var(--fg-primary);
+}
+.theme-accent-swatch.active {
+  border-color: var(--fg-primary);
+}
+.theme-accent-swatch.active::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-panel);
+  pointer-events: none;
+}
+
+/* "Theme default" swatch — neutral with a faint dot, signals "no
+ * override; use whatever the active theme picked". */
+.theme-accent-default {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      var(--bg-muted) 0 4px,
+      var(--bg-app)   4px 8px
+    );
+  color: var(--fg-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+}
+.theme-accent-default.active {
+  border-color: var(--accent);
+}
+.theme-accent-default.active::after {
+  border-color: var(--bg-panel);
+}
+
 /* ── Appearance swatches ── */
 .theme-swatch {
   width: 100%;

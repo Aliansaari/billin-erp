@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { ConfigProvider, App as AntApp } from 'antd';
 import useThemeStore from '../store/themeStore';
 import { themeTokens, resolveMode } from './tokens';
@@ -6,6 +6,26 @@ import { themeTokens, resolveMode } from './tokens';
 import './themes.css';
 import './glass.css';
 import './print.css';
+
+// Convert "#4F46E5" → "rgba(79, 70, 229, alpha)" so theme tokens that
+// expect rgba() bg/border tints can be derived from the user's pick.
+function hexToRgba(hex, alpha) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Darken a hex by `amt` (0..1). Used for hover state.
+function darken(hex, amt) {
+  const h = hex.replace('#', '');
+  const adj = (n) => Math.max(0, Math.round(n - 255 * amt));
+  const r = adj(parseInt(h.slice(0, 2), 16));
+  const g = adj(parseInt(h.slice(2, 4), 16));
+  const b = adj(parseInt(h.slice(4, 6), 16));
+  return '#' + [r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('');
+}
 
 /**
  * ThemeProvider
@@ -25,14 +45,44 @@ import './print.css';
 export default function ThemeProvider({ children }) {
   const themeStyle = useThemeStore((s) => s.themeStyle);
   const appearance = useThemeStore((s) => s.appearance);
+  const accent     = useThemeStore((s) => s.accent);
 
   const mode = resolveMode(themeStyle, appearance);
-  const antdConfig = themeTokens[mode] || themeTokens['classic-light'];
+  const baseConfig = themeTokens[mode] || themeTokens['classic-light'];
+
+  // When the user picks an accent override, splice it into BOTH the
+  // Antd ConfigProvider tokens AND the document's CSS vars. Antd
+  // components honour colorPrimary; everything else in the app reads
+  // var(--accent) / var(--accent-bg) / etc. so both layers must
+  // stay in sync.
+  const antdConfig = useMemo(() => {
+    if (!accent) return baseConfig;
+    return {
+      ...baseConfig,
+      token: { ...baseConfig.token, colorPrimary: accent },
+    };
+  }, [baseConfig, accent]);
 
   // Apply data-theme on <html> so CSS vars update instantly.
   useEffect(() => {
     document.documentElement.dataset.theme = mode;
   }, [mode]);
+
+  // Override accent CSS vars on <html> (or clear them so the theme's
+  // natural values take over again).
+  useEffect(() => {
+    const root = document.documentElement;
+    const props = ['--accent', '--accent-text', '--accent-hover', '--accent-bg', '--accent-border'];
+    if (accent) {
+      root.style.setProperty('--accent', accent);
+      root.style.setProperty('--accent-text', accent);
+      root.style.setProperty('--accent-hover', darken(accent, 0.1));
+      root.style.setProperty('--accent-bg', hexToRgba(accent, 0.08));
+      root.style.setProperty('--accent-border', hexToRgba(accent, 0.20));
+    } else {
+      props.forEach((p) => root.style.removeProperty(p));
+    }
+  }, [accent]);
 
   // When Appearance = 'system', re-render on OS change so the resolved mode
   // picks up light↔dark flips without a reload.
