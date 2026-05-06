@@ -7,7 +7,9 @@ import { useGlobalShortcuts, SHORTCUTS_LIST } from './hooks/useKeyboardShortcuts
 import AppLayout from './components/Layout/AppLayout';
 import RoleRoute from './components/RoleRoute';
 import { GlobalSearchModal } from './components/GlobalSearch';
-import { DatePopupProvider } from './components/keyboard/DatePopup';
+// DatePopup + MenuPopup providers are mounted in main.jsx (above this
+// component) so that useGlobalShortcuts called from App's body can
+// reach them via useContext.
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import Home from './pages/Home';
@@ -255,7 +257,7 @@ export default function App() {
   }, [isAuthenticated]);
 
   return (
-    <DatePopupProvider>
+    <>
       <ShortcutsOverlay visible={showShortcuts} onClose={() => setShowShortcuts(false)} />
       {/* Global ⌘K palette — mounted once for all authenticated routes; opens
           via the `global-search:open` window event dispatched by callers
@@ -423,6 +425,6 @@ export default function App() {
           <Route path="settings/home"           element={<HomeSettings />} />
         </Route>
       </Routes>
-    </DatePopupProvider>
+    </>
   );
 }
