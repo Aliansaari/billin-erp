@@ -39,19 +39,24 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       }
 
       if (e.altKey) {
-        switch (e.key.toLowerCase()) {
-          case 'h': e.preventDefault(); navigate('/'); break;
-          case 's': e.preventDefault(); navigate('/sale/new'); break;
-          case 'p': e.preventDefault(); navigate('/purchase/new'); break;
+        // Use e.code (the PHYSICAL key) instead of e.key — on macOS,
+        // Option+S generates "ß", Option+P generates "π", etc.
+        // e.code is "KeyS" / "KeyP" / "KeyD" regardless of the OS's
+        // dead-key transformation, so it works the same on Mac and
+        // Windows/Linux.
+        switch (e.code) {
+          case 'KeyH': e.preventDefault(); navigate('/'); break;
+          case 'KeyS': e.preventDefault(); navigate('/sale/new'); break;
+          case 'KeyP': e.preventDefault(); navigate('/purchase/new'); break;
           // Alt+D is Dashboard — / is now the Command Center (Home), so
           // the deep 9-tile dashboard moved to /dashboard.
-          case 'd': e.preventDefault(); navigate('/dashboard'); break;
-          case 'm': e.preventDefault(); navigate('/payments'); break;
-          case 'c': e.preventDefault(); navigate('/customers'); break;
-          case 'i': e.preventDefault(); navigate('/products'); break;
+          case 'KeyD': e.preventDefault(); navigate('/dashboard'); break;
+          case 'KeyM': e.preventDefault(); navigate('/payments'); break;
+          case 'KeyC': e.preventDefault(); navigate('/customers'); break;
+          case 'KeyI': e.preventDefault(); navigate('/products'); break;
           // Alt+R lands on the Reports hub (catalog), not the legacy
           // /reports/sales register — matches the Home card.
-          case 'r': e.preventDefault(); navigate('/reports'); break;
+          case 'KeyR': e.preventDefault(); navigate('/reports'); break;
         }
         return;
       }
@@ -75,16 +80,19 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
 
       // F6 / F7 — Receipt / Payment quick-create. These are GLOBAL
       // navigation shortcuts that match the Home Command Center cards.
-      // On pages that bind F6 / F7 in their own ActionStrip (e.g.
-      // bill lists where F6 = "Receipt against this cursored bill"),
-      // the strip's stopImmediatePropagation suppresses this listener
-      // so the page-level handler wins.
-      if (e.key === 'F6' && !isInput && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      // F-keys fire even when focus is in an input (search box, party
+      // picker, etc.) so the operator can press F6 from anywhere on
+      // the page — no need to click out first. On pages that bind
+      // F6 / F7 in their own ActionStrip (e.g. bill lists where F6
+      // means "Receipt against this cursored bill"), the strip's
+      // stopImmediatePropagation suppresses this listener so the
+      // page-level handler wins.
+      if (e.key === 'F6' && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault();
         navigate('/receipt/new');
         return;
       }
-      if (e.key === 'F7' && !isInput && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === 'F7' && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault();
         navigate('/payment/new');
         return;
