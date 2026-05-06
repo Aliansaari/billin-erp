@@ -169,32 +169,48 @@
   flex-shrink: 0;
 }
 
-/* ── Mini mock — Theme style cards (Classic / Modern) ── */
+/* ── Mini mock — Theme style cards (Classic / Editorial) ──
+ * Driven by the ACTUAL theme palette (CSS vars set inline by the
+ * caller via paletteFor()), not hardcoded colours. So switching
+ * appearance from light to dark instantly reflects in both cards
+ * with their real bg/panel/border/accent values. */
 .theme-mock {
   width: 100%;
   height: 80px;
   border-radius: 6px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--mock-border, var(--border-subtle));
   display: grid;
   grid-template-columns: 18px 1fr;
   overflow: hidden;
+  background: var(--mock-bg, var(--bg-panel));
 }
 .theme-mock-sidebar {
+  /* Sidebar is dark in both light/dark modes (Layout convention),
+   * so use a fixed dark gradient that adjusts subtly per variant. */
   background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+}
+.theme-mock.modern .theme-mock-sidebar {
+  background: linear-gradient(180deg, #1D1814 0%, #14110D 100%);
 }
 .theme-mock-main {
   display: flex;
   flex-direction: column;
   gap: 5px;
   padding: 7px 8px;
-  background: var(--bg-panel);
+  background: var(--mock-bg);
 }
 .theme-mock-bar {
   height: 4px;
   border-radius: 2px;
-  background: var(--bg-muted);
+  background: var(--mock-panel);
+  opacity: 0.7;
 }
-.theme-mock-bar.lg { width: 70%; height: 6px; background: var(--accent-bg); }
+.theme-mock-bar.lg {
+  width: 70%;
+  height: 6px;
+  background: var(--mock-accent);
+  opacity: 0.25;
+}
 .theme-mock-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -202,24 +218,9 @@
   flex: 1;
 }
 .theme-mock-card {
-  background: var(--bg-muted);
+  background: var(--mock-panel);
   border-radius: 3px;
-  border: 1px solid var(--border-subtle);
-}
-
-/* Editorial variant — warm cream + terracotta palette, magazine feel. */
-.theme-mock.modern .theme-mock-main {
-  background: #F5EFE3;
-}
-.theme-mock.modern .theme-mock-card {
-  background: #FDFAF2;
-  border-color: #E3D9C5;
-}
-.theme-mock.modern .theme-mock-bar.lg {
-  background: rgba(177, 71, 47, 0.18);
-}
-.theme-mock.modern .theme-mock-sidebar {
-  background: linear-gradient(180deg, #1D1814 0%, #14110D 100%);
+  border: 1px solid var(--mock-border);
 }
 
 /* ── Appearance swatches ── */

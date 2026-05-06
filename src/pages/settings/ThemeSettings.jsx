@@ -5,9 +5,31 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import useThemeStore from '../../store/themeStore';
-import { resolveMode } from '../../theme/tokens';
+import { resolveMode, themeTokens } from '../../theme/tokens';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './ThemeSettings.css';
+
+/**
+ * Pull the live palette for a (style × appearance) combo straight
+ * from themeTokens. The mock renders with these CSS vars so what
+ * the user sees on the card is the actual colour set they'd get
+ * if they picked it — bg, panel, border, accent all driven by the
+ * real source of truth, not duplicated in CSS.
+ */
+function paletteFor(themeStyle, appearance) {
+  const realAppearance = appearance === 'system'
+    ? (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : appearance;
+  const key = `${themeStyle}-${realAppearance}`;
+  const t = themeTokens[key]?.token || themeTokens['classic-light'].token;
+  return {
+    '--mock-bg':     t.colorBgLayout,
+    '--mock-panel':  t.colorBgContainer,
+    '--mock-border': t.colorBorder,
+    '--mock-accent': t.colorPrimary,
+    '--mock-text':   t.colorText,
+  };
+}
 
 /**
  * Theme Settings — visual picker for theme style × appearance ×
@@ -66,14 +88,14 @@ export default function ThemeSettings() {
             onSelect={() => setThemeStyle('classic')}
             name="Classic"
             desc="Indigo accent · crisp panels"
-            preview={<StyleMock variant="classic" />}
+            preview={<StyleMock variant="classic" appearance={appearance} />}
           />
           <ThemeOption
             active={themeStyle === 'modern'}
             onSelect={() => setThemeStyle('modern')}
             name="Editorial"
             desc="Cream + terracotta · magazine feel"
-            preview={<StyleMock variant="modern" />}
+            preview={<StyleMock variant="modern" appearance={appearance} />}
           />
         </div>
       </section>
@@ -203,9 +225,10 @@ function ThemeOption({ active, onSelect, name, desc, preview }) {
   );
 }
 
-function StyleMock({ variant }) {
+function StyleMock({ variant, appearance }) {
+  const palette = paletteFor(variant, appearance);
   return (
-    <div className={`theme-mock ${variant}`}>
+    <div className={`theme-mock ${variant}`} style={palette}>
       <div className="theme-mock-sidebar" />
       <div className="theme-mock-main">
         <div className="theme-mock-bar lg" />
