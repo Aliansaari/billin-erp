@@ -109,7 +109,7 @@ function CollapsedItem({ item, currentPath, navigate }) {
           >
             <div className="mp-head">
               <span className="mp-title">{item.label}</span>
-              <span className="mp-hint">Alt+{tallyMenu?.items?.[0]?.letter || ''} for keyboard</span>
+              <span className="mp-hint">Alt+{tallyMenu?.items?.[0]?.letter || ''}</span>
             </div>
             <ul className="mp-list">
               {popupItems.map(child => {
@@ -119,14 +119,14 @@ function CollapsedItem({ item, currentPath, navigate }) {
                 return (
                   <li
                     key={child.route}
-                    className="mp-item"
+                    className={`mp-item${isCurrent ? ' is-current' : ''}`}
                     onClick={() => { setPopupPos(null); navigate(child.route); }}
                     role="menuitem"
                     aria-current={isCurrent ? 'page' : undefined}
                   >
                     <span className="mp-icon">{getRouteIcon(child.route)}</span>
                     <span className="mp-label">{child.label}</span>
-                    {child.sub && <span className="mp-sub">{child.sub}</span>}
+                    {child.letter && <span className="mp-shortcut">{child.letter}</span>}
                   </li>
                 );
               })}

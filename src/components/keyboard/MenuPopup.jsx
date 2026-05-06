@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { useLocation } from 'react-router-dom';
 import { getRouteIcon } from '../Layout/menuConfig';
 import './MenuPopup.css';
 
@@ -46,7 +47,19 @@ function findAnchorRect(anchorKey) {
 }
 
 function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
-  const [activeIdx, setActiveIdx] = useState(0);
+  const { pathname } = useLocation();
+
+  // Which item matches the current route — used both for the bold
+  // "you are here" label and to pre-position the cursor so opening
+  // the menu while on /sales lands on Sales List, ready to confirm
+  // with Enter or move with arrow keys.
+  const currentIdx = useMemo(() => {
+    const exact = items.findIndex((it) => it.route === pathname);
+    if (exact >= 0) return exact;
+    return items.findIndex((it) => it.route && pathname.startsWith(it.route + '/'));
+  }, [items, pathname]);
+
+  const [activeIdx, setActiveIdx] = useState(currentIdx >= 0 ? currentIdx : 0);
   const popupRef = useRef(null);
 
   // Compute popup position once on mount (and on window resize).
@@ -188,22 +201,26 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
       <div ref={popupRef} className="mp-popup" style={popupStyle} onMouseDown={(e) => e.stopPropagation()} role="menu" aria-label={title}>
         <div className="mp-head">
           <span className="mp-title">{title}</span>
-          <span className="mp-hint">Letter to pick · Esc to close</span>
+          <span className="mp-hint">Esc</span>
         </div>
         <ul className="mp-list">
-          {items.map((it, i) => (
-            <li
-              key={it.letter + ':' + (it.route || it.label)}
-              className={`mp-item${i === activeIdx ? ' active' : ''}`}
-              onMouseEnter={() => setActiveIdx(i)}
-              onClick={() => onPick(it)}
-              role="menuitem"
-            >
-              <span className="mp-icon">{getRouteIcon(it.route)}</span>
-              <span className="mp-label">{it.label}</span>
-              {it.sub && <span className="mp-sub">{it.sub}</span>}
-            </li>
-          ))}
+          {items.map((it, i) => {
+            const isCurrent = i === currentIdx;
+            return (
+              <li
+                key={it.letter + ':' + (it.route || it.label)}
+                className={`mp-item${i === activeIdx ? ' active' : ''}${isCurrent ? ' is-current' : ''}`}
+                onMouseEnter={() => setActiveIdx(i)}
+                onClick={() => onPick(it)}
+                role="menuitem"
+                aria-current={isCurrent ? 'page' : undefined}
+              >
+                <span className="mp-icon">{getRouteIcon(it.route)}</span>
+                <span className="mp-label">{it.label}</span>
+                {it.letter && <span className="mp-shortcut">{it.letter}</span>}
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>
