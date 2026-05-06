@@ -1,227 +1,157 @@
 import React from 'react';
-import { Card, Typography, Segmented, Space, Row, Col, Tag } from 'antd';
 import {
   SunOutlined, MoonOutlined, DesktopOutlined,
-  LayoutOutlined, BgColorsOutlined, MenuOutlined, AlignLeftOutlined,
+  CheckOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import useThemeStore from '../../store/themeStore';
 import { resolveMode } from '../../theme/tokens';
 import ActionStrip from '../../components/keyboard/ActionStrip';
-
-const { Title, Text } = Typography;
+import './ThemeSettings.css';
 
 /**
- * Theme Settings — user-facing control for Theme Style × Appearance.
+ * Theme Settings — visual picker for theme style × appearance ×
+ * menu layout, plus a live mini-app preview that updates as the
+ * operator changes options.
  *
- * Choices persist via the themeStore (localStorage) and propagate instantly
- * through ThemeProvider — no reload needed. A live preview card below the
- * controls shows exactly how a panel looks in the chosen combination.
+ * Each option renders as a CARD with a real preview (mini mockup,
+ * colour swatch, layout diagram) so the user can see what they're
+ * picking before they commit. Beats stock Segmented/radio controls
+ * for a setting that's all about how the software LOOKS.
+ *
+ * Choices persist via the themeStore (localStorage) and propagate
+ * instantly through ThemeProvider — no reload needed.
  */
 export default function ThemeSettings() {
   const navigate = useNavigate();
-  const themeStyle    = useThemeStore((s) => s.themeStyle);
-  const appearance    = useThemeStore((s) => s.appearance);
-  const menuOrientation    = useThemeStore((s) => s.menuOrientation);
-  const setThemeStyle      = useThemeStore((s) => s.setThemeStyle);
-  const setAppearance      = useThemeStore((s) => s.setAppearance);
+
+  const themeStyle       = useThemeStore((s) => s.themeStyle);
+  const appearance       = useThemeStore((s) => s.appearance);
+  const menuOrientation  = useThemeStore((s) => s.menuOrientation);
+  const setThemeStyle    = useThemeStore((s) => s.setThemeStyle);
+  const setAppearance    = useThemeStore((s) => s.setAppearance);
   const setMenuOrientation = useThemeStore((s) => s.setMenuOrientation);
+  const resetTheme       = useThemeStore((s) => s.resetTheme);
 
   const resolved = resolveMode(themeStyle, appearance);
-  const isModern = themeStyle === 'modern';
 
   return (
-    <div style={{ padding: '24px clamp(12px, 2vw, 32px)', maxWidth: 960, margin: '0 auto' }}>
-      <div style={{ marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0, color: 'var(--fg-primary)' }}>
-          Theme
-        </Title>
-        <Text style={{ color: 'var(--fg-secondary)' }}>
-          Pick how the software looks. Changes apply instantly — no restart needed.
-        </Text>
+    <div className="theme-page">
+      <div className="theme-page-header">
+        <div>
+          <h1 className="theme-page-title">Theme</h1>
+          <p className="theme-page-sub">
+            Customize how Billing ERP looks. Changes apply instantly — no restart needed.
+          </p>
+        </div>
+        <span className="theme-page-current" title="Active theme mode">
+          {resolved}
+        </span>
       </div>
 
       {/* ── Theme Style ── */}
-      <Card
-        className="erp-glass"
-        bodyStyle={{ padding: 24 }}
-        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 20 }}
-      >
-        <Space align="start" size={16} style={{ display: 'flex', marginBottom: 16 }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 12,
-            background: 'var(--accent-bg)', color: 'var(--accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
-          }}>
-            <LayoutOutlined />
-          </div>
-          <div>
-            <Title level={5} style={{ margin: 0, color: 'var(--fg-primary)' }}>Theme Style</Title>
-            <Text style={{ color: 'var(--fg-secondary)', fontSize: 13 }}>
-              Classic keeps the current familiar UI. Modern uses a calm, glassy aesthetic.
-            </Text>
-          </div>
-        </Space>
-        <Segmented
-          size="large"
-          value={themeStyle}
-          onChange={(v) => setThemeStyle(v)}
-          options={[
-            { label: (<SegmentLabel title="Classic"  subtitle="Current UI, crisp & opaque" />), value: 'classic' },
-            { label: (<SegmentLabel title="Modern"   subtitle="Frosted glass, calm teal accent" />), value: 'modern'  },
-          ]}
-          block
-        />
-      </Card>
+      <section className="theme-section">
+        <div className="theme-section-head">
+          <h2 className="theme-section-title">Style</h2>
+          <p className="theme-section-help">Crisp opaque vs. frosted glass aesthetic.</p>
+        </div>
+        <div className="theme-grid theme-grid-2">
+          <ThemeOption
+            active={themeStyle === 'classic'}
+            onSelect={() => setThemeStyle('classic')}
+            name="Classic"
+            desc="Crisp & opaque"
+            preview={<StyleMock variant="classic" />}
+          />
+          <ThemeOption
+            active={themeStyle === 'modern'}
+            onSelect={() => setThemeStyle('modern')}
+            name="Modern"
+            desc="Frosted glass"
+            preview={<StyleMock variant="modern" />}
+          />
+        </div>
+      </section>
 
       {/* ── Appearance ── */}
-      <Card
-        className="erp-glass"
-        bodyStyle={{ padding: 24 }}
-        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 24 }}
-      >
-        <Space align="start" size={16} style={{ display: 'flex', marginBottom: 16 }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 12,
-            background: 'var(--accent-bg)', color: 'var(--accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
-          }}>
-            <BgColorsOutlined />
-          </div>
-          <div>
-            <Title level={5} style={{ margin: 0, color: 'var(--fg-primary)' }}>Appearance</Title>
-            <Text style={{ color: 'var(--fg-secondary)', fontSize: 13 }}>
-              Light is soft off-white. Dark uses muted slate (not pure black). System follows your OS.
-            </Text>
-          </div>
-        </Space>
-        <Segmented
-          size="large"
-          value={appearance}
-          onChange={(v) => setAppearance(v)}
-          options={[
-            { label: (<SegmentLabel icon={<SunOutlined />}     title="Light"   subtitle="Soft off-white" />), value: 'light'  },
-            { label: (<SegmentLabel icon={<MoonOutlined />}    title="Dark"    subtitle="Muted slate" />),     value: 'dark'   },
-            { label: (<SegmentLabel icon={<DesktopOutlined />} title="System"  subtitle="Follows OS" />),      value: 'system' },
-          ]}
-          block
-        />
-      </Card>
+      <section className="theme-section">
+        <div className="theme-section-head">
+          <h2 className="theme-section-title">Appearance</h2>
+          <p className="theme-section-help">
+            Light is soft off-white. Dark uses muted slate. System follows your OS.
+          </p>
+        </div>
+        <div className="theme-grid theme-grid-3">
+          <ThemeOption
+            active={appearance === 'light'}
+            onSelect={() => setAppearance('light')}
+            name="Light"
+            desc="Soft off-white"
+            preview={
+              <div className="theme-swatch light">
+                <SunOutlined className="theme-swatch-icon" />
+              </div>
+            }
+          />
+          <ThemeOption
+            active={appearance === 'dark'}
+            onSelect={() => setAppearance('dark')}
+            name="Dark"
+            desc="Muted slate"
+            preview={
+              <div className="theme-swatch dark">
+                <MoonOutlined className="theme-swatch-icon" />
+              </div>
+            }
+          />
+          <ThemeOption
+            active={appearance === 'system'}
+            onSelect={() => setAppearance('system')}
+            name="System"
+            desc="Follows OS"
+            preview={
+              <div className="theme-swatch system">
+                <DesktopOutlined className="theme-swatch-icon" />
+              </div>
+            }
+          />
+        </div>
+      </section>
 
       {/* ── Menu Layout ── */}
-      <Card
-        className="erp-glass"
-        bodyStyle={{ padding: 24 }}
-        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 24 }}
-      >
-        <Space align="start" size={16} style={{ display: 'flex', marginBottom: 16 }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 12,
-            background: 'var(--accent-bg)', color: 'var(--accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
-          }}>
-            <MenuOutlined />
-          </div>
-          <div>
-            <Title level={5} style={{ margin: 0, color: 'var(--fg-primary)' }}>Menu Layout</Title>
-            <Text style={{ color: 'var(--fg-secondary)', fontSize: 13 }}>
-              Vertical keeps the left sidebar (default). Horizontal moves the menu to a top bar,
-              giving the content column the full width of the screen.
-            </Text>
-          </div>
-        </Space>
-        <Segmented
-          size="large"
-          value={menuOrientation}
-          onChange={(v) => setMenuOrientation(v)}
-          options={[
-            { label: (<SegmentLabel icon={<AlignLeftOutlined />} title="Vertical"   subtitle="Left sidebar" />),    value: 'vertical'   },
-            { label: (<SegmentLabel icon={<MenuOutlined />}      title="Horizontal" subtitle="Top nav bar" />),     value: 'horizontal' },
-          ]}
-          block
-        />
-      </Card>
+      <section className="theme-section">
+        <div className="theme-section-head">
+          <h2 className="theme-section-title">Menu Layout</h2>
+          <p className="theme-section-help">
+            Sidebar runs down the left. Top nav frees the full content width.
+          </p>
+        </div>
+        <div className="theme-grid theme-grid-2">
+          <ThemeOption
+            active={menuOrientation === 'vertical'}
+            onSelect={() => setMenuOrientation('vertical')}
+            name="Sidebar"
+            desc="Left rail (default)"
+            preview={<LayoutDiagram variant="vertical" />}
+          />
+          <ThemeOption
+            active={menuOrientation === 'horizontal'}
+            onSelect={() => setMenuOrientation('horizontal')}
+            name="Top bar"
+            desc="Horizontal nav"
+            preview={<LayoutDiagram variant="horizontal" />}
+          />
+        </div>
+      </section>
 
-      {/* ── Live Preview ── */}
-      <div style={{ marginBottom: 12 }}>
-        <Text strong style={{ color: 'var(--fg-primary)', fontSize: 14 }}>Preview</Text>
-        <Tag
-          style={{
-            marginLeft: 10, background: 'var(--accent-bg)', color: 'var(--accent)',
-            border: '1px solid var(--accent-border)', borderRadius: 999, fontWeight: 600,
-          }}
-        >
-          {resolved}
-        </Tag>
-      </div>
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} md={12}>
-          <div
-            className="erp-glass"
-            style={{
-              padding: 20, background: 'var(--bg-panel)',
-              border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
-              minHeight: 180,
-            }}
-          >
-            <Text style={{ color: 'var(--fg-tertiary)', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Today's Sales
-            </Text>
-            <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--fg-primary)', margin: '6px 0' }}>
-              ₹ 2,48,350
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <span style={{
-                fontSize: 12, fontWeight: 600,
-                background: 'var(--success-bg)', color: 'var(--success)',
-                padding: '3px 10px', borderRadius: 999,
-              }}>
-                ↑ 12.4%
-              </span>
-              <Text style={{ color: 'var(--fg-secondary)', fontSize: 12 }}>vs. yesterday</Text>
-            </div>
-          </div>
-        </Col>
-        <Col xs={24} md={12}>
-          <div
-            className="erp-glass"
-            style={{
-              padding: 20, background: 'var(--bg-panel)',
-              border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
-              minHeight: 180,
-            }}
-          >
-            <Text style={{ color: 'var(--fg-tertiary)', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Outstanding
-            </Text>
-            <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--fg-primary)', margin: '6px 0' }}>
-              ₹ 1,96,800
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <span style={{
-                fontSize: 12, fontWeight: 600,
-                background: 'var(--warning-bg)', color: 'var(--warning)',
-                padding: '3px 10px', borderRadius: 999,
-              }}>
-                14 bills pending
-              </span>
-            </div>
-          </div>
-        </Col>
-      </Row>
-
-      <div style={{ marginTop: 24, padding: 16,
-                    background: 'var(--bg-muted)', borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-subtle)', fontSize: 13,
-                    color: 'var(--fg-secondary)' }}>
-        <Text strong style={{ color: 'var(--fg-primary)', fontSize: 13 }}>Tip:</Text>{' '}
-        The full UI overhaul rolls out module by module. Modern theme looks best on
-        the shells (Header/Sidebar/Login) and this Settings screen right now;
-        remaining pages still render in Classic styling and will be converted
-        phase-by-phase without affecting business logic.
-        {isModern && ' You\'re previewing Modern — the frosted panels and muted teal accent apply app-wide.'}
-      </div>
+      {/* ── Live preview ── */}
+      <section className="theme-section">
+        <div className="theme-section-head">
+          <h2 className="theme-section-title">Live preview</h2>
+          <p className="theme-section-help">A mini-render of the current settings.</p>
+        </div>
+        <PreviewFrame layout={menuOrientation} />
+      </section>
 
       <ActionStrip
         actions={[
@@ -229,20 +159,111 @@ export default function ThemeSettings() {
             id: 'back', key: 'Esc', label: 'Back',
             onAction: () => navigate('/'),
           },
+          {
+            id: 'reset', key: 'F2', label: 'Reset', icon: <ReloadOutlined />,
+            danger: true,
+            onAction: () => {
+              if (window.confirm('Reset theme, appearance and menu layout to defaults?')) {
+                resetTheme();
+              }
+            },
+          },
         ]}
       />
     </div>
   );
 }
 
-function SegmentLabel({ icon, title, subtitle }) {
+/* ── Pieces ── */
+
+function ThemeOption({ active, onSelect, name, desc, preview }) {
   return (
-    <div style={{ padding: '6px 4px', textAlign: 'center' }}>
-      <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.2 }}>
-        {icon && <span style={{ marginRight: 6 }}>{icon}</span>}
-        {title}
+    <button
+      type="button"
+      className={`theme-opt${active ? ' active' : ''}`}
+      onClick={onSelect}
+      aria-pressed={active}
+    >
+      {preview}
+      <div className="theme-opt-label">
+        <div>
+          <div className="theme-opt-name">{name}</div>
+          <div className="theme-opt-desc">{desc}</div>
+        </div>
+        {active && <span className="theme-opt-check"><CheckOutlined /></span>}
       </div>
-      <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>{subtitle}</div>
+    </button>
+  );
+}
+
+function StyleMock({ variant }) {
+  return (
+    <div className={`theme-mock ${variant}`}>
+      <div className="theme-mock-sidebar" />
+      <div className="theme-mock-main">
+        <div className="theme-mock-bar lg" />
+        <div className="theme-mock-cards">
+          <div className="theme-mock-card" />
+          <div className="theme-mock-card" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LayoutDiagram({ variant }) {
+  return (
+    <div className={`theme-layout ${variant}`}>
+      <div className="theme-layout-content">
+        <div className="theme-layout-row" />
+        <div className="theme-layout-row short" />
+        <div className="theme-layout-row" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * PreviewFrame — a real-looking mini app render so the operator sees
+ * the full effect of theme/appearance/layout choices in one place,
+ * not just an abstract pair of KPI cards.
+ */
+function PreviewFrame({ layout }) {
+  return (
+    <div className="theme-preview">
+      <div className="theme-preview-frame">
+        <div className="theme-preview-topnav">
+          <span className="theme-preview-topnav-brand">B</span>
+          <span className="theme-preview-topnav-title">Billing ERP</span>
+          <span className="theme-preview-topnav-pill">Home</span>
+          <span className="theme-preview-topnav-pill active">Sales</span>
+          <span className="theme-preview-topnav-pill">Purchase</span>
+          <span className="theme-preview-topnav-pill">Reports</span>
+          <span style={{ flex: 1 }} />
+          <span className="theme-preview-topnav-pill" style={{ fontFamily: 'ui-monospace, monospace' }}>
+            ⌘K
+          </span>
+        </div>
+        <div className="theme-preview-body">
+          <div className="theme-preview-card">
+            <span className="theme-preview-card-label">Sales today</span>
+            <span className="theme-preview-card-value">₹ 2,48,350</span>
+            <span className="theme-preview-card-tag">↑ 12.4%</span>
+          </div>
+          <div className="theme-preview-card">
+            <span className="theme-preview-card-label">Outstanding</span>
+            <span className="theme-preview-card-value">₹ 1,96,800</span>
+            <span className="theme-preview-card-tag warn">14 bills pending</span>
+          </div>
+          <div className="theme-preview-card">
+            <span className="theme-preview-card-label">Layout</span>
+            <span className="theme-preview-card-value" style={{ fontSize: 15 }}>
+              {layout === 'horizontal' ? 'Top bar' : 'Sidebar'}
+            </span>
+            <span className="theme-preview-card-tag muted">switched live</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
