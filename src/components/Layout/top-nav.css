@@ -96,21 +96,15 @@
   background: rgba(255, 255, 255, 0.06);
   color: #FFF8F4;
 }
+/* Active pill — full accent background, matching the sidebar's
+   active item. Previously this used a 2px underline + transparent
+   white tint, which read way subtler than the sidebar selection
+   for the same logical state. Same affordance, same visual now. */
 .erp-topnav-pill.is-active {
-  background: rgba(255, 255, 255, 0.08);
-  color: #FFF8F4;
-  border-color: rgba(255, 255, 255, 0.12);
-}
-/* Accent underline on the active pill for extra affordance without the
-   pill itself feeling heavy. 2px from baseline, matches sidebar active. */
-.erp-topnav-pill.is-active::after {
-  content: '';
-  position: absolute;
-  /* We don't actually position-absolute here — keep the bar's overflow
-     clean. A box-shadow inset draws the underline instead. */
-}
-.erp-topnav-pill.is-active {
-  box-shadow: inset 0 -2px 0 var(--accent, #B1472F);
+  background: var(--sidebar-active, var(--accent, #4F46E5));
+  color: #fff;
+  border-color: var(--sidebar-active, var(--accent, #4F46E5));
+  box-shadow: 0 2px 8px var(--accent-bg, rgba(79, 70, 229, 0.16));
 }
 
 .erp-topnav-pill .pill-icon {
