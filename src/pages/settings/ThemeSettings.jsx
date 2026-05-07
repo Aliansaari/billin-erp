@@ -9,20 +9,21 @@ import { resolveMode, themeTokens } from '../../theme/tokens';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './ThemeSettings.css';
 
-// Curated accent palette. Eight colours covering the colour wheel
-// without overlap — distinct enough that swatches read at a glance,
-// muted enough to stay professional in a financial app. Each is
-// chosen to remain legible on both light cream and dark slate
-// backgrounds (no neon yellows, no near-white).
+// Curated accent palette — finance-appropriate, not consumer-app.
+// Each colour is the kind a CFO or shopkeeper might pick for their
+// invoices and reports: corporate blues, accounting green, warm
+// heritage tones, formal reds, neutral slates. Saturation is dialled
+// down so the colour reads as professional, not playful, and stays
+// legible against both light cream and dark slate backgrounds.
 const ACCENT_PRESETS = [
-  { name: 'Indigo',     hex: '#4F46E5' },  // Classic default
-  { name: 'Sky',        hex: '#0EA5E9' },
-  { name: 'Emerald',    hex: '#10B981' },
-  { name: 'Amber',      hex: '#F59E0B' },
-  { name: 'Rose',       hex: '#F43F5E' },
-  { name: 'Violet',     hex: '#8B5CF6' },
+  { name: 'Indigo',     hex: '#4F46E5' },  // Classic default — modern professional
+  { name: 'Navy',       hex: '#1E40AF' },  // Corporate / banking blue
+  { name: 'Forest',     hex: '#15803D' },  // Accounting money green
+  { name: 'Teal',       hex: '#0F766E' },  // Distinctive but business-appropriate
+  { name: 'Bronze',     hex: '#92400E' },  // Heritage warm
+  { name: 'Burgundy',   hex: '#9F1239' },  // Formal red
   { name: 'Terracotta', hex: '#B1472F' },  // Editorial default
-  { name: 'Slate',      hex: '#475569' },
+  { name: 'Slate',      hex: '#334155' },  // Neutral sophisticated
 ];
 
 /**
