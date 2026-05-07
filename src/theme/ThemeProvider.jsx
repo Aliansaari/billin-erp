@@ -70,15 +70,25 @@ export default function ThemeProvider({ children }) {
 
   // Override accent CSS vars on <html> (or clear them so the theme's
   // natural values take over again).
+  //
+  // Includes --sidebar-active because the Sidebar's selected-item
+  // background and the matching TopNav active pill both read from
+  // it, NOT from --accent — so without this line the side menus
+  // would keep showing the theme's native primary while everything
+  // else had switched to the user's pick.
   useEffect(() => {
     const root = document.documentElement;
-    const props = ['--accent', '--accent-text', '--accent-hover', '--accent-bg', '--accent-border'];
+    const props = [
+      '--accent', '--accent-text', '--accent-hover',
+      '--accent-bg', '--accent-border', '--sidebar-active',
+    ];
     if (accent) {
       root.style.setProperty('--accent', accent);
       root.style.setProperty('--accent-text', accent);
       root.style.setProperty('--accent-hover', darken(accent, 0.1));
       root.style.setProperty('--accent-bg', hexToRgba(accent, 0.08));
       root.style.setProperty('--accent-border', hexToRgba(accent, 0.20));
+      root.style.setProperty('--sidebar-active', accent);
     } else {
       props.forEach((p) => root.style.removeProperty(p));
     }
