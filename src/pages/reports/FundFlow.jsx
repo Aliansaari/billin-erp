@@ -32,12 +32,14 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Button, DatePicker, message } from 'antd';
 import {
-  ReloadOutlined, PrinterOutlined, DownloadOutlined,
+  ReloadOutlined,
   ArrowLeftOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './cash-flow.css';
 import './fund-flow.css';
 
@@ -247,8 +249,7 @@ function FundFlowRegisterView() {
             format="MMM YYYY" allowClear={false}
           />
           <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={fetcher} loading={loading}>Refresh</Button>
-          <Button className="rpt-btn" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
-          <Button className="rpt-btn" icon={<DownloadOutlined />} onClick={handleExportCsv} type="primary">Excel</Button>
+          {/* Print + Excel moved to the bottom strip (F9 / F10). */}
         </div>
       </div>
 
@@ -262,13 +263,53 @@ function FundFlowRegisterView() {
           />
         : <div className="cf-skel">{loading ? 'Loading…' : 'Pick a period.'}</div>}
 
-      <div className="cf-fbar">
-        <span className="fkey"><kbd>↑</kbd> <kbd>↓</kbd> Navigate</span>
-        <span className="fkey"><kbd>Enter</kbd> Drill into month</span>
-        <span className="fkey"><kbd>Esc</kbd> Back</span>
-        <span className="grow"></span>
-      </div>
+      <FundFlowRegisterStrip
+        navigate={navigate}
+        fromDate={fromDate}
+        toDate={toDate}
+        setFromDate={setFromDate}
+        setToDate={setToDate}
+        setPresetKey={setPresetKey}
+        fetcher={fetcher}
+        handleExportCsv={handleExportCsv}
+        onDrill={() => {
+          const row = data?.rows?.[activeIdx];
+          if (row) drillMonth(row.month_iso);
+        }}
+        canDrill={!!(data?.rows?.[activeIdx])}
+      />
     </div>
+  );
+}
+
+function FundFlowRegisterStrip({ navigate, fromDate, toDate, setFromDate, setToDate, setPresetKey, fetcher, handleExportCsv, onDrill, canDrill }) {
+  const { openDate } = useDatePopup();
+  return (
+    <ActionStrip
+      actions={[
+        { id: 'back', key: 'Esc', label: 'Back',
+          onAction: () => navigate('/reports') },
+        { id: 'period', key: 'F2', label: 'Period',
+          onAction: () => openDate({
+            mode: 'range', title: 'Period',
+            value: [fromDate ? dayjs(fromDate) : null, toDate ? dayjs(toDate) : null],
+            onConfirm: ([from, to]) => {
+              setPresetKey('custom');
+              setFromDate(from.format('YYYY-MM-DD'));
+              setToDate(to.format('YYYY-MM-DD'));
+            },
+          }) },
+        { id: 'refresh', key: 'F5', label: 'Refresh',
+          onAction: () => fetcher() },
+        { id: 'print', key: 'F9', label: 'Print',
+          onAction: () => window.print() },
+        { id: 'export', key: 'F10', label: 'Export',
+          onAction: handleExportCsv },
+        { id: 'drill', key: 'F1', label: 'Open Month', tone: 'primary',
+          disabled: !canDrill,
+          onAction: onDrill },
+      ]}
+    />
   );
 }
 
@@ -491,7 +532,7 @@ function FundFlowMonthView() {
           </div>
         </div>
         <div className="cf-actions">
-          <button className="cf-btn" onClick={() => window.print()}><PrinterOutlined /> Print</button>
+          {/* Print moved to the bottom strip (F9). */}
         </div>
       </div>
 
@@ -506,13 +547,16 @@ function FundFlowMonthView() {
         />
       )}
 
-      <div className="cf-fbar">
-        <span className="fkey"><kbd>←</kbd> <kbd>→</kbd> Switch column</span>
-        <span className="fkey"><kbd>↑</kbd> <kbd>↓</kbd> Navigate</span>
-        <span className="fkey"><kbd>Enter</kbd> Drill into P&amp;L</span>
-        <span className="fkey"><kbd>Esc</kbd> Back to Register</span>
-        <span className="grow"></span>
-      </div>
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: goBack },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'drill', key: 'F1', label: 'Drill P&L', tone: 'primary',
+            onAction: drillToPl },
+        ]}
+      />
     </div>
   );
 }

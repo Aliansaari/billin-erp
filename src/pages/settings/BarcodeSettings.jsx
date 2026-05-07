@@ -8,8 +8,10 @@ import {
   EyeInvisibleOutlined, BoldOutlined, PlusOutlined, ReloadOutlined,
   PrinterOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import JsBarcode from 'jsbarcode';
 import { settingsAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 // ── Print helpers (shared with test print) ────────────────────────────────────
 const ptMm = (pt) => +((pt / 72) * 25.4).toFixed(3);
@@ -333,10 +335,12 @@ function PropertiesPanel({ element, labelSize, onUpdate }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BarcodeSettings() {
+  const navigate = useNavigate();
   const [form] = Form.useForm();
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [preview, setPreview] = useState('');
+  const [activeTab, setActiveTab] = useState('designer');
 
   // Designer state — all lazily initialized from localStorage so auto-save never races
   const [labelSize, setLabelSize] = useState(() => {
@@ -518,7 +522,7 @@ export default function BarcodeSettings() {
     <div>
       <Title level={3} style={{ marginBottom: 20 }}>Barcode Settings</Title>
 
-      <Tabs defaultActiveKey="designer" items={[
+      <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
         {
           key: 'designer',
           label: <span><BarcodeOutlined /> Label Designer</span>,
@@ -711,6 +715,25 @@ export default function BarcodeSettings() {
           ),
         },
       ]} />
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
+            id: 'save', key: 'F1', label: 'Save', tone: 'primary',
+            disabled: savingSettings || loadingSettings,
+            onAction: () => {
+              // Tab-aware save: designer tab persists the layout to
+              // localStorage; numbering tab posts the form to the API.
+              if (activeTab === 'designer') handleSaveDesign();
+              else form.submit();
+            },
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -12,9 +12,12 @@ import {
   DownloadOutlined, HistoryOutlined, SettingOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { backupAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import CleanupModal from './CleanupModal';
 
 dayjs.extend(relativeTime);
 
@@ -45,6 +48,7 @@ function formatFilename(filename) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function BackupRestore() {
+  const navigate = useNavigate();
   const [backups, setBackups]               = useState([]);
   const [settings, setSettings]             = useState({});
   const [totalSize, setTotalSize]           = useState('—');
@@ -57,6 +61,7 @@ export default function BackupRestore() {
   const [restoreTarget, setRestoreTarget]   = useState(null); // { filename } or { file }
   const [uploadFile, setUploadFile]         = useState(null);
   const [activeTab, setActiveTab]           = useState('backups');
+  const [cleanupOpen, setCleanupOpen]       = useState(false);
   const [form]                              = Form.useForm();
 
   // ── Data fetching ─────────────────────────────────────────────────────────
@@ -623,6 +628,36 @@ export default function BackupRestore() {
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
       </Card>
 
+      {/* ── Danger zone — destructive, password-gated bulk cleanup ── */}
+      <div
+        style={{
+          marginTop: 24,
+          padding: '20px 24px',
+          background: 'linear-gradient(0deg, rgba(239, 68, 68, 0.04), rgba(239, 68, 68, 0.04)), var(--bg-panel)',
+          border: '1px solid rgba(239, 68, 68, 0.30)',
+          borderRadius: 12,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <ExclamationCircleOutlined style={{ color: '#b91c1c', fontSize: 16 }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: '#b91c1c', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                Danger zone
+              </span>
+            </div>
+            <Text style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>
+              Permanently delete sales, purchases, payments, products, parties, and more — by category, with admin password confirmation.
+            </Text>
+          </div>
+          <Button danger icon={<DeleteOutlined />} onClick={() => setCleanupOpen(true)}>
+            Clean / reset…
+          </Button>
+        </div>
+      </div>
+
+      <CleanupModal open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
+
       {/* ── Delete confirmation modal ── */}
       <Modal
         title={<><DeleteOutlined style={{ color: '#ff4d4f' }} /> Delete Backup</>}
@@ -694,6 +729,24 @@ export default function BackupRestore() {
           )}
         </Space>
       </Modal>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: fetchData,
+          },
+          {
+            id: 'backup', key: 'F1', label: 'Backup Now', tone: 'primary',
+            disabled: creatingBackup,
+            onAction: handleCreateBackup,
+          },
+        ]}
+      />
     </div>
   );
 }

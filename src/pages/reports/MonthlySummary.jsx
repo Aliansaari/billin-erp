@@ -19,12 +19,14 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Button, Select, Space, message, DatePicker, Tag, Tooltip } from 'antd';
 import {
-  ReloadOutlined, PrinterOutlined, DownloadOutlined,
+  ReloadOutlined,
   SwapOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 
 const fmtAmt = (v) => {
   const n = Number(v) || 0;
@@ -81,6 +83,7 @@ export default function MonthlyRegister({ mode }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const cfg = MODE_META[mode];
+  const { openDate } = useDatePopup();
 
   const [overlay, setOverlay]   = useState(() => searchParams.get('overlay') || '');
   const [fromDate, setFromDate] = useState(() => searchParams.get('from_date') || '');
@@ -327,8 +330,7 @@ export default function MonthlyRegister({ mode }) {
             </Tooltip>
           )}
           <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={fetcher} loading={loading}>Refresh</Button>
-          <Button className="rpt-btn" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
-          <Button className="rpt-btn" icon={<DownloadOutlined />} onClick={handleExportCsv} type="primary">Excel</Button>
+          {/* Print + Excel moved to the bottom strip (F9 / F10). */}
         </div>
       </div>
 
@@ -346,6 +348,29 @@ export default function MonthlyRegister({ mode }) {
             overlayMode={overlay}
           />
         : <div className="mr-skel">Loading…</div>}
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [fromDate ? dayjs(fromDate) : null, toDate ? dayjs(toDate) : null],
+              onConfirm: ([from, to]) => {
+                setPresetKey('custom');
+                setFromDate(from.format('YYYY-MM-01'));
+                setToDate(to.endOf('month').format('YYYY-MM-DD'));
+              },
+            }) },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => fetcher() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExportCsv() },
+        ]}
+      />
     </div>
   );
 }

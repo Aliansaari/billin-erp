@@ -11,14 +11,16 @@
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { useSearchParams, useLocation, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import { message, Spin, DatePicker } from 'antd';
 import {
-  ReloadOutlined, FileExcelOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './gstr1-report.css';   // reuse styles
 
 const { RangePicker } = DatePicker;
@@ -31,9 +33,11 @@ const fmtInt = (v) => Math.round(parseFloat(v || 0)).toLocaleString('en-IN');
 const fmtDate = (d) => (d ? dayjs(d).format('DD-MM-YYYY') : '—');
 
 export default function GSTR3BReport() {
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const { fyStart, fyEnd } = useFinancialYear();
+  const { openDate } = useDatePopup();
   const fromState = { from: location.pathname + location.search };
 
   // Default: company FY. URL params win if present.
@@ -129,7 +133,7 @@ export default function GSTR3BReport() {
             style={{ height: 34 }}
           />
           <button className="g1-btn" onClick={load}><ReloadOutlined /> Refresh</button>
-          <button className="g1-btn primary" onClick={handleExport}><FileExcelOutlined /> Excel</button>
+          {/* Excel + Print moved to the bottom strip (F10 / F9). */}
         </div>
       </div>
 
@@ -403,6 +407,25 @@ export default function GSTR3BReport() {
           )}
         </div>
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: range,
+              onConfirm: ([f, t]) => setRange([f, t]),
+            }) },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => load() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExport() },
+        ]}
+      />
     </div>
   );
 }

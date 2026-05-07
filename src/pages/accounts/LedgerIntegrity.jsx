@@ -32,6 +32,7 @@ import {
   SafetyCertificateOutlined, DatabaseOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import { ledgerAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title, Text } = Typography;
 const fmt = (v) =>
@@ -983,6 +984,19 @@ export default function LedgerIntegrity() {
       })()}
 
       </div>{/* /scrollable body */}
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => { load(); loadAutoReceipt(); },
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print(),
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -1,12 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DatePicker, Button, Tag, message, Checkbox, Popover, Input } from 'antd';
-import { DownloadOutlined, SettingOutlined, PrinterOutlined, SearchOutlined, CloseOutlined, WarningOutlined } from '@ant-design/icons';
-import { useSearchParams } from 'react-router-dom';
+import { SettingOutlined, SearchOutlined, CloseOutlined, WarningOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
@@ -127,12 +130,20 @@ export default function PurchaseReport() {
   // ── Virtualized data layer ────────────────────────────────────────
   // The hook owns chunked fetching, in-flight dedupe, sparse rows,
   // and meta passthrough (for the reconciliation banner).
-  const { rows, totalCount, summary, meta, ensureChunk, loading } = useVirtualizedReport({
+  const { rows, totalCount, summary, meta, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: (params) => reportAPI.getPurchaseReport(params),
     filters,
     chunkSize: 200,
   });
   const reconciliation = meta?.reconciliation || null;
+
+  // Cursor + multi-select for the bills table; F-keys live in the
+  // bottom ActionStrip and operate on the cursored row.
+  const navigate = useNavigate();
+  const sel = useListSelection({ totalCount, rows });
+  const single = sel.activeRow;
+  const searchInputRef = useRef(null);
+  const { openDate } = useDatePopup();
 
   useEffect(() => {
     if (preset === 'custom') return;
@@ -350,8 +361,7 @@ export default function PurchaseReport() {
           <Popover content={customizePopoverContent} title="Customize" trigger="click" placement="bottomRight">
             <Button icon={<SettingOutlined />} className="rpt-btn">Customize</Button>
           </Popover>
-          <Button icon={<DownloadOutlined />} onClick={handleExport} className="rpt-btn">Excel</Button>
-          <Button icon={<PrinterOutlined />} onClick={handlePrint} className="rpt-btn">Print</Button>
+          {/* Excel + Print moved to the bottom strip (F10 / F9). */}
         </div>
       </div>
 
@@ -389,6 +399,7 @@ export default function PurchaseReport() {
 
       <div className="rpt-filter">
         <Input
+          ref={searchInputRef}
           className="rpt-search"
           prefix={<SearchOutlined />}
           placeholder="Search bill no, supplier, GSTIN, or supplier-bill…"
@@ -421,8 +432,47 @@ export default function PurchaseReport() {
           scroll={{ x: 1300 }}
           summaryCells={summaryCells}
           summaryColSpan={summaryColSpan}
+          controlledCursorIdx={sel.cursorIdx}
+          controlledSelectedSet={sel.selectedSet}
+          onCursorMove={sel.setCursor}
+          onShiftClickRow={sel.extendTo}
+          onCtrlClickRow={sel.toggleRow}
+          onRow={(record) => ({
+            onDoubleClick: () => record?.purchase_bill_id && navigate(`/purchase/edit/${record.purchase_bill_id}`),
+          })}
         />
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [dayjs(filters.from_date), dayjs(filters.to_date)],
+              onConfirm: ([from, to]) => {
+                setPreset('custom');
+                setFilters((f) => ({
+                  ...f,
+                  from_date: from.format('YYYY-MM-DD'),
+                  to_date:   to.format('YYYY-MM-DD'),
+                }));
+              },
+            }) },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.() },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => refresh?.() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => handlePrint() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExport() },
+          { id: 'drill', key: 'F1', label: 'Open Bill', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && navigate(`/purchase/edit/${single.purchase_bill_id}`) },
+        ]}
+      />
     </div>
   );
 }

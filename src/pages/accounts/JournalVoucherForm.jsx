@@ -3,10 +3,12 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Form, DatePicker, Input, Select, Button, Space, Typography, Table, message, InputNumber, Tag } from 'antd';
-import { PlusOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { journalAPI, ledgerAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 
 const { Title, Text } = Typography;
 const fmt = (v) =>
@@ -64,6 +66,7 @@ export default function JournalVoucherForm() {
   }, [lines]);
 
   const balanced = Math.abs(totals.diff) < 0.005 && totals.dr > 0;
+  const { openDate } = useDatePopup();
 
   const updateLine = (idx, patch) => {
     setLines((prev) => {
@@ -158,16 +161,9 @@ export default function JournalVoucherForm() {
   ];
 
   return (
-    <Card loading={loading}>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>{isEdit ? 'Edit Journal Voucher' : 'New Journal Voucher'}</Title>
-        <Space>
-          <Button onClick={() => navigate('/accounts/journal')}>Cancel</Button>
-          <Button type="primary" icon={<SaveOutlined />} loading={saving} disabled={!balanced} onClick={handleSave}>
-            {isEdit ? 'Save Changes' : 'Post Voucher'}
-          </Button>
-        </Space>
-      </Space>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <Card loading={loading} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+      <Title level={4} style={{ margin: '0 0 16px' }}>{isEdit ? 'Edit Journal Voucher' : 'New Journal Voucher'}</Title>
 
       <Form layout="vertical">
         <Space size="large" style={{ marginBottom: 16 }}>
@@ -209,6 +205,40 @@ export default function JournalVoucherForm() {
           Debits must equal credits before this voucher can be posted.
         </Text>
       )}
-    </Card>
+      </Card>
+
+      {/* ── Action strip — Esc Back, F1 Post / Save (primary, disabled
+          until debits = credits). No drafts on JVs; either it's
+          balanced or it stays in the form. */}
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/accounts/journal'),
+          },
+          {
+            id: 'date', key: 'F2', label: 'Date',
+            onAction: () => openDate({
+              title: 'Voucher Date',
+              value: voucherDate || dayjs(),
+              onConfirm: (d) => setVoucherDate(d),
+            }),
+            title: 'Open the smart-input date popup',
+          },
+          {
+            id: 'save', key: 'F1', label: isEdit ? 'Save Changes' : 'Post Voucher',
+            tone: 'primary',
+            disabled: saving || !balanced,
+            onAction: handleSave,
+          },
+          // Hidden Ctrl+Enter alias for the muscle-memory user.
+          {
+            id: 'save-alt', key: 'Ctrl+Enter', label: '',
+            hidden: true, disabled: saving || !balanced,
+            onAction: handleSave,
+          },
+        ]}
+      />
+    </div>
   );
 }

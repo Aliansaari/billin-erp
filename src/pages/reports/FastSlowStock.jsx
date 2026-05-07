@@ -43,15 +43,17 @@
 //   slow    — cover_days ≥ 90  OR  (qty_sold == 0 AND last sale ≤ 180d)
 //   dead    — qty_sold == 0 AND (no sale ever, OR last sale > 180d)
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Button, DatePicker, Popover, Checkbox, message, Tooltip } from 'antd';
 import {
-  ReloadOutlined, DownloadOutlined, SearchOutlined, SettingOutlined,
+  ReloadOutlined, SearchOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './fast-slow-stock.css';
 
 // ── Number / date formatters ─────────────────────────────────────────
@@ -432,6 +434,9 @@ export default function FastSlowStock() {
   }, [data, fromDate, toDate]);
 
   const totals = data?.totals;
+  const searchInputRef = useRef(null);
+  const { openDate } = useDatePopup();
+
   const periodLabel = useMemo(() => {
     if (!fromDate || !toDate) return '';
     const f = dayjs(fromDate), t = dayjs(toDate);
@@ -579,9 +584,7 @@ export default function FastSlowStock() {
           <Button className="rpt-btn" icon={<ReloadOutlined />} loading={loading} onClick={fetcher}>
             Refresh
           </Button>
-          <Button className="rpt-btn" type="primary" icon={<DownloadOutlined />} onClick={handleExport}>
-            Export
-          </Button>
+          {/* Export + Print moved to the bottom strip (F10 / F9). */}
         </div>
       </header>
 
@@ -634,6 +637,7 @@ export default function FastSlowStock() {
         <div className="mv-search">
           <SearchOutlined style={{ color: 'var(--fg-tertiary)' }} />
           <input
+            ref={searchInputRef}
             placeholder="Search by name or barcode…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -703,12 +707,38 @@ export default function FastSlowStock() {
           )}
           {' '}SKUs
         </span>
-        <span className="mv-foot-keys">
-          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
-          <span><kbd>Enter</kbd> Open product</span>
-          <span><kbd>Esc</kbd> Back</span>
-        </span>
       </footer>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [fromDate ? dayjs(fromDate) : null, toDate ? dayjs(toDate) : null],
+              onConfirm: ([from, to]) => {
+                setPresetKey('custom');
+                setFromDate(from.format('YYYY-MM-DD'));
+                setToDate(to.format('YYYY-MM-DD'));
+              },
+            }) },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.() },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => fetcher() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExport() },
+          { id: 'drill', key: 'F1', label: 'Open Product', tone: 'primary',
+            disabled: !data?.rows?.[activeIdx],
+            onAction: () => {
+              const row = data?.rows?.[activeIdx];
+              if (row) navigate(`/stock-movement/${row.product_id}`);
+            } },
+        ]}
+      />
     </div>
   );
 }

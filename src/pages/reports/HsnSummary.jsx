@@ -6,10 +6,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { Card, Table, Typography, Space, Button, DatePicker, Select, message, Statistic, Row, Col, Tag } from 'antd';
-import { PrinterOutlined, FileExcelOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 
 const { Title } = Typography;
 const fmt = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -24,6 +27,7 @@ function presetRange(key, fyStart, fyEnd) {
 }
 
 export default function HsnSummary() {
+  const navigate = useNavigate();
   const [data, setData]  = useState(null);
   const [loading, setLd] = useState(true);
   const [direction, setDir] = useState('sales');
@@ -31,6 +35,13 @@ export default function HsnSummary() {
   const [from, setFrom]  = useState(null);
   const [to, setTo]      = useState(null);
   const { fyStart, fyEnd } = useFinancialYear();
+  const { openDate } = useDatePopup();
+  const refresh = () => {
+    if (!from || !to) return;
+    setLd(true);
+    reportAPI.hsnSummary({ from_date: from, to_date: to, direction })
+      .then((r) => setData(r.data)).finally(() => setLd(false));
+  };
   useEffect(() => {
     if (!fyStart || !fyEnd || preset === 'custom') return;
     const r = presetRange(preset, fyStart, fyEnd);
@@ -88,14 +99,8 @@ export default function HsnSummary() {
                 value={from && to ? [dayjs(from), dayjs(to)] : null}
                 onChange={(r) => { if (r) { setFrom(r[0].format('YYYY-MM-DD')); setTo(r[1].format('YYYY-MM-DD')); } }} />
             )}
-            <Button icon={<ReloadOutlined />} onClick={() => {
-              if (!from || !to) return;
-              setLd(true);
-              reportAPI.hsnSummary({ from_date: from, to_date: to, direction })
-                .then((r) => setData(r.data)).finally(() => setLd(false));
-            }}>Refresh</Button>
-            <Button icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
-            <Button icon={<FileExcelOutlined />} onClick={() => exportXls(data, direction)}>Excel</Button>
+            <Button icon={<ReloadOutlined />} onClick={refresh}>Refresh</Button>
+            {/* Print + Excel moved to the bottom strip (F9 / F10). */}
           </Space>
         </Space>
 
@@ -123,6 +128,29 @@ export default function HsnSummary() {
           )}
         />
       </Card>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: from && to ? [dayjs(from), dayjs(to)] : null,
+              onConfirm: ([f, t]) => {
+                setPr('custom');
+                setFrom(f.format('YYYY-MM-DD'));
+                setTo(t.format('YYYY-MM-DD'));
+              },
+            }) },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => refresh() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => exportXls(data, direction) },
+        ]}
+      />
     </div>
   );
 }

@@ -20,6 +20,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { loanAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import RecordEMIModal from './RecordEMIModal';
 import './loans.css';
 
@@ -78,6 +80,22 @@ export default function LoanSchedule() {
     if (!bucket) return upcoming;
     return upcoming.filter((r) => bucketOf(r.days_until, r.overdue) === bucket);
   }, [upcoming, bucket]);
+
+  // Cursor across the visible (post-bucket-filter) rows. F1 Open Loan
+  // drills into the cursored row's loan statement; F6 opens RecordEMI
+  // pre-filled for that loan.
+  const sel = useListSelection({ totalCount: visibleRows.length, rows: visibleRows });
+  const single = sel.activeRow;
+  const openEmiFor = (r) => {
+    setEmiLoan({
+      ledger_id:  r.ledger_id,
+      name:       r.loan_name,
+      loan_type:  r.loan_type,
+      emi_total:  r.total_count,
+      emi_count:  r.paid_count,
+    });
+    setEmiOpen(true);
+  };
 
   return (
     <div className="bank-page loan-page">
@@ -177,10 +195,18 @@ export default function LoanSchedule() {
               </td></tr>
             ) : visibleRows.map((r, i) => {
               const isTaken = r.loan_type === 'taken';
+              const cursorClass =
+                sel.cursorIdx === i ? ' vrt-row-active'
+                : sel.selectedSet.has(i) ? ' vrt-row-multi' : '';
               return (
                 <tr
                   key={`${r.ledger_id}-${r.emi_no}`}
-                  className={r.overdue ? 'loan-row-overdue' : ''}
+                  className={(r.overdue ? 'loan-row-overdue' : '') + cursorClass}
+                  onClick={(ev) => {
+                    if (ev.shiftKey)               sel.extendTo(i);
+                    else if (ev.ctrlKey || ev.metaKey) sel.toggleRow(i);
+                    else                              sel.setCursor(i);
+                  }}
                 >
                   <td className="l">
                     <span className="bank-num">{fmtDate(r.due_date)}</span>
@@ -218,16 +244,7 @@ export default function LoanSchedule() {
                   <td className="c">
                     <Button
                       size="small" icon={<DollarOutlined />}
-                      onClick={() => {
-                        setEmiLoan({
-                          ledger_id:  r.ledger_id,
-                          name:       r.loan_name,
-                          loan_type:  r.loan_type,
-                          emi_total:  r.total_count,
-                          emi_count:  r.paid_count,
-                        });
-                        setEmiOpen(true);
-                      }}
+                      onClick={(ev) => { ev.stopPropagation(); openEmiFor(r); }}
                     >Pay</Button>
                   </td>
                 </tr>
@@ -240,6 +257,25 @@ export default function LoanSchedule() {
       <footer className="bank-foot">
         <span>Showing <b>{visibleRows.length}</b> of <b>{upcoming.length}</b> upcoming EMIs</span>
       </footer>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: load,
+          },
+          {
+            id: 'emi', key: 'F6', label: 'Record EMI',
+            disabled: !single,
+            onAction: () => single && openEmiFor(single),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open Loan', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && navigate(`/loans/${single.ledger_id}/statement`),
+          },
+        ]}
+      />
 
       <RecordEMIModal
         open={emiOpen}

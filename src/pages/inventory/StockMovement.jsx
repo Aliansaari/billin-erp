@@ -5,6 +5,7 @@ import { SearchOutlined, AppstoreOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { productAPI, dataAPI, settingsAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/editorial-product-list.css';
 
 dayjs.extend(relativeTime);
@@ -70,27 +71,15 @@ export default function StockMovement() {
   const productId = params['*'] || undefined;
   const navigate = useNavigate();
 
-  // Esc → navigate back. The previous list page (Product List or Stock
-  // Report) restores its keyboard cursor from sessionStorage on mount,
-  // so the user lands back on the row they came from. We listen on the
-  // capture phase and fire even when an input has focus — typing-in-
-  // search-then-pressing-Esc is a natural "exit this page" gesture and
-  // matches the keyboard nav round-trip we built around it.
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      navigate(-1);
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [navigate]);
+  // Esc handling is now owned by the ActionStrip below — keeps a single
+  // source of truth for window keybindings on this page.
 
   /* ── product picker ── */
   const [products, setProducts] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
   const [search, setSearch] = useState('');
   const listBoxRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   /* ── selected product + transactions ── */
   const [selected, setSelected] = useState(null);
@@ -334,6 +323,7 @@ export default function StockMovement() {
         </div>
         <div className="sm-pick-search">
           <Input
+            ref={searchInputRef}
             placeholder="Search name, barcode, HSN, article"
             prefix={<SearchOutlined />}
             value={search}
@@ -614,6 +604,35 @@ export default function StockMovement() {
           </>
         )}
       </section>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate(-1),
+          },
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => {
+              loadProducts();
+              if (selected) setSelected({ ...selected });
+            },
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print(),
+          },
+          {
+            id: 'export', key: 'F10', label: 'Export',
+            disabled: !selected,
+            onAction: handleExport,
+          },
+        ]}
+      />
     </div>
   );
 }

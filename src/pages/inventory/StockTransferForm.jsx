@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Form, DatePicker, Select, Input, InputNumber, Button, Table, Tag, Space, message, Popconfirm, Spin, Tooltip } from 'antd';
+import { Form, DatePicker, Select, Input, InputNumber, Button, Table, Tag, Space, message, Modal, Spin, Tooltip } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { SwapOutlined, DeleteOutlined, SaveOutlined, SendOutlined, CheckCircleOutlined, CloseCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { stockTransferAPI, godownAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 // Reuse the Sales bill form's entry-ledger CSS verbatim so the entry
 // row visually matches its sibling on the Sales/Purchase forms — same
 // hairlines, same cell padding, same focus state, same dotted column
@@ -139,6 +141,7 @@ export default function StockTransferForm() {
   //   - new form  → 'Draft'
   //   - edit form → loaded transfer's status, or 'Draft' until loaded
   const status = transfer?.status || 'Draft';
+  const { openDate } = useDatePopup();
   const readOnly = isEdit && status !== 'Draft';
 
   /* ── Loaders ──────────────────────────────────────────────────────── */
@@ -1232,54 +1235,80 @@ export default function StockTransferForm() {
               <span className="stf-summary-val">{items.length}</span>
             </div>
           </div>
-          <div className="stf-actions">
-            {/* Create mode buttons */}
-            {!isEdit && (
-              <>
-                <Button icon={<SaveOutlined />} loading={loading} onClick={saveDraft} size="large">
-                  Save Draft
-                </Button>
-                <Tooltip title="Saves and immediately deducts stock from the source godown">
-                  <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={saveAndSubmit} size="large">
-                    Submit (In-Transit)
-                  </Button>
-                </Tooltip>
-              </>
-            )}
-            {/* Edit mode — Draft */}
-            {isEdit && status === 'Draft' && (
-              <>
-                <Popconfirm title={`Cancel ${transferNo}?`} okText="Cancel transfer" okButtonProps={{ danger: true }} onConfirm={onCancel}>
-                  <Button danger icon={<CloseCircleOutlined />} loading={loading} size="large">Cancel</Button>
-                </Popconfirm>
-                <Tooltip title="Deduct from source godown — moves to In-Transit">
-                  <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={onSubmitDraft} size="large">
-                    Submit
-                  </Button>
-                </Tooltip>
-              </>
-            )}
-            {/* Edit mode — In-Transit */}
-            {isEdit && status === 'In-Transit' && (
-              <>
-                <Popconfirm
-                  title={`Cancel ${transferNo}?`}
-                  description="Stock at the source will be restored."
-                  okText="Cancel transfer" okButtonProps={{ danger: true }}
-                  onConfirm={onCancel}
-                >
-                  <Button danger icon={<CloseCircleOutlined />} loading={loading} size="large">Cancel</Button>
-                </Popconfirm>
-                <Tooltip title="Add to destination godown — moves to Received">
-                  <Button type="primary" icon={<CheckCircleOutlined />} loading={loading} onClick={onReceive} size="large">
-                    Mark Received
-                  </Button>
-                </Tooltip>
-              </>
-            )}
-            {/* Terminal states (Received / Cancelled) — read-only, no actions. */}
-          </div>
         </div>
+
+        {/* ── ACTION STRIP — registry-driven; handles every status path.
+            New mode  → F2 Save Draft + F1 Submit (saveAndSubmit) primary
+            Edit Draft → F1 Submit (onSubmitDraft) primary + F8 Cancel
+            Edit In-Transit → F1 Mark Received primary + F8 Cancel
+            Edit terminal → just Esc Back. */}
+        <ActionStrip
+          actions={[
+            {
+              id: 'back', key: 'Esc', label: 'Back',
+              onAction: () => nav('/stock-transfers'),
+            },
+            // F2 = Date popup (Tally-style smart input).
+            {
+              id: 'date', key: 'F2', label: 'Date',
+              onAction: () => {
+                const cur = form.getFieldValue('transfer_date');
+                openDate({
+                  title: 'Transfer Date',
+                  value: cur ? dayjs(cur) : dayjs(),
+                  onConfirm: (d) => form.setFieldsValue({ transfer_date: dayjs(d) }),
+                });
+              },
+              title: 'Open the smart-input date popup',
+            },
+            // F4 (was F2) Save Draft — only on the new-bill path.
+            {
+              id: 'save-draft', key: 'F4', label: 'Save Draft',
+              hidden: isEdit,
+              disabled: loading,
+              onAction: saveDraft,
+              title: 'Save without deducting stock',
+            },
+            // Cancel — appears for editable statuses
+            {
+              id: 'cancel', key: 'F8', label: 'Cancel Transfer', tone: 'danger',
+              hidden: !isEdit || (status !== 'Draft' && status !== 'In-Transit'),
+              disabled: loading,
+              onAction: () => Modal.confirm({
+                title: `Cancel ${transferNo}?`,
+                content: status === 'In-Transit'
+                  ? 'Stock at the source godown will be restored.'
+                  : 'No stock has moved — this just marks the transfer cancelled.',
+                okText: 'Cancel transfer', okButtonProps: { danger: true },
+                cancelText: 'Keep it',
+                onOk: onCancel,
+              }),
+            },
+            // Primary action — label and handler vary by mode/status.
+            {
+              id: 'primary',
+              key: 'F1',
+              label: !isEdit
+                ? 'Submit (In-Transit)'
+                : (status === 'Draft' ? 'Submit'
+                    : status === 'In-Transit' ? 'Mark Received'
+                    : 'Open'),
+              tone: 'primary',
+              hidden: isEdit && status !== 'Draft' && status !== 'In-Transit',
+              disabled: loading,
+              onAction: !isEdit
+                ? saveAndSubmit
+                : (status === 'Draft' ? onSubmitDraft
+                    : status === 'In-Transit' ? onReceive
+                    : () => {}),
+              title: !isEdit
+                ? 'Saves and immediately deducts stock from the source godown'
+                : (status === 'Draft' ? 'Deduct from source godown — moves to In-Transit'
+                    : status === 'In-Transit' ? 'Add to destination godown — moves to Received'
+                    : ''),
+            },
+          ]}
+        />
       </div>
     </Spin>
   );

@@ -29,8 +29,10 @@ import {
   UserOutlined, BankOutlined, AppstoreOutlined, CheckCircleOutlined,
   WarningOutlined, BarcodeOutlined, FileZipOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { dataAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -95,6 +97,7 @@ function saveBlob(blob, filename) {
 }
 
 export default function ImportExport() {
+  const navigate = useNavigate();
   const [entity, setEntity]             = useState(ENTITIES[0]);
   const [uploading, setUploading]       = useState(false);
   const [progress, setProgress]         = useState(0);
@@ -350,6 +353,15 @@ export default function ImportExport() {
           }
         />
       </Modal>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+        ]}
+      />
     </div>
   );
 }

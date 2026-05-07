@@ -98,7 +98,7 @@ export default function AppLayout() {
   // partial-match `sale` and then fail the trailing \/, falling through to
   // the padded layout. That made the return forms visibly shrink to content
   // height instead of filling the screen.
-  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|stock-movement|stock-report-pro|stock-transfer|banks|loans|inventory\/batches)\//.test(location.pathname) || [
+  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|stock-movement|stock-report-pro|stock-transfer|banks|loans|inventory\/batches|settings)(\/|$)/.test(location.pathname) || [
     // Home (Command Center) — pinned viewport shell. The KPI ribbon, hero,
     // and action ribbon need to land flush against the viewport edges and
     // never scroll, so it joins the full-page list rather than rendering
@@ -168,6 +168,8 @@ export default function AppLayout() {
     // page reverts to padded auto-scroll where the title slides
     // off-screen on long category lists.
     '/reports',
+    // (/settings and any child route are matched by the regex above
+    // so the SettingsLayout's two-pane shell fills the viewport.)
   ].includes(location.pathname);
 
   // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.

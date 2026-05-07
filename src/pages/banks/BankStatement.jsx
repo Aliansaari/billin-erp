@@ -27,6 +27,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { bankAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './banks.css';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -129,6 +131,36 @@ export default function BankStatement() {
   }, [data, filter]);
 
   const recon = data?.reconciliation;
+  const { openDate } = useDatePopup();
+
+  // CSV export of the visible entries — minimal header row + data row
+  // per visibleEntry. Same shape as the Excel export on PartyStatement,
+  // simpler since this page doesn't carry a full LedgerStatement model.
+  const handleExport = () => {
+    if (!data?.entries?.length) { message.info('Nothing to export.'); return; }
+    const headers = ['Date', 'Particulars', 'Cheque/UTR', 'Withdrawal', 'Deposit', 'Balance', 'Cleared'];
+    const rows = visibleEntries.map((e) => [
+      e.date,
+      e.party || e.narration || e.voucher_type || '',
+      e.cheque || '',
+      e.withdrawal || '',
+      e.deposit || '',
+      e.balance,
+      e.cleared_at ? 'Yes' : '',
+    ]);
+    const escape = (v) => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [headers, ...rows].map(r => r.map(escape).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bank-statement-${data?.account?.ledger_name || 'bank'}-${(fromDate || 'all')}-to-${(toDate || 'today')}.csv`.replace(/\s+/g, '-').toLowerCase();
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="bank-page">
@@ -357,6 +389,39 @@ export default function BankStatement() {
           <span>Click the <b>○</b> in the Cleared column to mark a row as cleared on the bank.</span>
         </span>
       </footer>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/banks'),
+          },
+          {
+            id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [fromDate ? dayjs(fromDate) : null, toDate ? dayjs(toDate) : null],
+              onConfirm: ([f, t]) => {
+                setFromDate(f.format('YYYY-MM-DD'));
+                setToDate(t.format('YYYY-MM-DD'));
+              },
+            }),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: load,
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print(),
+          },
+          {
+            id: 'export', key: 'F10', label: 'Export',
+            disabled: !data?.entries?.length,
+            onAction: handleExport,
+          },
+        ]}
+      />
     </div>
   );
 }

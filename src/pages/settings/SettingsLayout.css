@@ -1,0 +1,266 @@
+/* ── Settings Layout ──────────────────────────────────────────────
+ *
+ * macOS System Settings-style two-pane layout. Left rail lists every
+ * setting page, grouped by topic; right pane renders the active
+ * page via <Outlet />. Both panes scroll independently inside the
+ * fullpage container so neither the rail nor the page header
+ * disappears as you scroll.
+ *
+ *   ┌─────────────────┬────────────────────────────────┐
+ *   │ Search…         │                                │
+ *   │                 │                                │
+ *   │ BUSINESS        │   [active page renders here]   │
+ *   │  Company        │                                │
+ *   │  Modules        │                                │
+ *   │  Godowns        │                                │
+ *   │ PEOPLE          │                                │
+ *   │  Users          │                                │
+ *   │ ...             │                                │
+ *   └─────────────────┴────────────────────────────────┘
+ */
+
+.settings-layout {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  background: var(--bg-app);
+}
+
+@media (max-width: 720px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Left rail ── */
+.settings-rail {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 0 24px;
+}
+
+.settings-rail-search {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: 1;
+}
+.settings-rail-search-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px 0 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-muted);
+  color: var(--fg-primary);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  transition: border-color .12s ease, background .12s ease;
+}
+.settings-rail-search-input:focus {
+  border-color: var(--accent);
+  background: var(--bg-panel);
+}
+.settings-rail-search-wrap {
+  position: relative;
+}
+.settings-rail-search-wrap::before {
+  content: '⌕';
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-tertiary);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.settings-rail-group {
+  margin-top: 14px;
+}
+.settings-rail-group-label {
+  padding: 4px 16px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.settings-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+}
+.settings-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--fg-primary);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  margin: 1px 0;
+  /* Slightly longer transition than default — long enough to feel
+   * intentional, short enough to stay snappy. */
+  transition:
+    background .15s ease,
+    color .15s ease,
+    transform .15s cubic-bezier(.2, .7, .2, 1);
+}
+.settings-rail-item:hover {
+  background: var(--bg-hover);
+  transform: translateX(2px);            /* tiny nudge — invites click */
+}
+.settings-rail-item:active {
+  transform: translateX(2px) scale(0.98); /* press feedback */
+}
+.settings-rail-item.active {
+  background: var(--accent);
+  color: #fff;
+  /* Pop on activation so the eye registers the new selection. */
+  animation: rail-pop .28s cubic-bezier(.2, .7, .2, 1);
+}
+.settings-rail-item.active:hover {
+  transform: translateX(2px);            /* keep hover nudge */
+}
+.settings-rail-item.active .settings-rail-item-icon {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+}
+@keyframes rail-pop {
+  0%   { transform: scale(0.96); }
+  55%  { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+.settings-rail-item-icon {
+  /* Inherit the smooth transition from the parent so accent
+   * background and text colour change together. */
+  transition: background .15s ease, color .15s ease;
+}
+
+.settings-rail-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.settings-rail-item-label {
+  font-weight: 500;
+}
+.settings-rail-empty {
+  padding: 20px 16px;
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  text-align: center;
+}
+
+/* ── Right pane — host for the active settings page ──
+ *
+ * The pane scrolls by default. Pages that bring their own internal
+ * scroll layout (e.g. ThemeSettings's .theme-page-shell with sticky
+ * header + sticky footer) still work — their height:100% fits
+ * within the pane's box, so the pane's own scroll never engages.
+ * Pages that just emit content (Modules, Print, etc.) get a normal
+ * vertical scroll without each one having to wire its own. */
+.settings-pane {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;              /* prevent flex children from blowing up width */
+  background: var(--bg-app);
+}
+.settings-pane > * {
+  /* Stretch every page wrapper so it's at least pane-height. Combined
+   * with `margin-top: auto` on .astrip below, this guarantees the
+   * action strip sits at the pane's bottom edge even on short pages
+   * (Barcode, Users, Godowns, etc.) — sticky alone wasn't enough
+   * because sticky-bottom only engages when the strip would otherwise
+   * be off-screen. */
+  flex: 1 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* Page-enter animation. React Router re-mounts the active route
+   * component, which restarts this animation on every navigation —
+   * gives the new page a soft "arrives from below" entrance instead
+   * of the abrupt swap. */
+  animation: pane-enter .32s cubic-bezier(.2, .7, .2, 1);
+}
+/* Pages that DO bring an internally-scrolled layout (ThemeSettings)
+ * mark their root with this class so it expands to fill the pane
+ * and the pane's own scroll never engages. */
+.settings-pane > .settings-pane-fill {
+  flex: 1 1 auto;
+  min-height: 100%;
+}
+
+/* ── Sticky ActionStrip — universal across the hub ──
+ * Every settings page ends in an ActionStrip (Esc Back / F1 Save).
+ * Pages that wrap content in a flex shell (Features, Defaults,
+ * Theme) already pin the strip via flex layout; for everything else
+ * (Company Profile, Users, Backup, Print, Barcode, Godowns,
+ * Import & Export, Tally, Import-queued) the strip used to scroll
+ * with the page. Make it sticky to the pane's bottom edge so it's
+ * always reachable, regardless of how each page lays itself out.
+ *
+ * The flex-shell pages aren't affected — their .ms-shell wrapper
+ * has overflow:hidden, so sticky doesn't engage inside it; the
+ * strip stays at flex-end naturally.
+ */
+.settings-pane .astrip {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  /* margin-top:auto pushes the strip to the bottom of its flex-column
+   * wrapper. Wrappers are now stretched to pane-height (rule above),
+   * so this lands the strip at the pane's bottom edge regardless of
+   * how much content is above it. Sticky still kicks in for pages
+   * tall enough to scroll, keeping the strip in view. */
+  margin-top: auto;
+  /* Solid background so content scrolling underneath doesn't bleed
+   * through. Already set on .astrip itself but reasserted here in
+   * case a theme overrides it elsewhere. */
+  background: var(--bg-muted, #fafafa);
+}
+@keyframes pane-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Respect operating-system "reduce motion" — disable transforms and
+ * keyframe animations across the layout, keeping only colour/opacity
+ * fades that don't induce motion sickness. */
+@media (prefers-reduced-motion: reduce) {
+  .settings-rail-item,
+  .settings-rail-item-icon,
+  .settings-pane > * {
+    transition: background .15s ease, color .15s ease;
+    animation: none !important;
+    transform: none !important;
+  }
+  .settings-rail-item:hover,
+  .settings-rail-item:active,
+  .settings-rail-item.active:hover {
+    transform: none !important;
+  }
+}

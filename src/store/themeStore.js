@@ -21,6 +21,10 @@ const defaults = {
   // Persisted like theme/appearance so the operator's layout choice survives
   // reloads and cross-tab navigation.
   menuOrientation: 'vertical',
+  // accent: null (use theme's natural primary) or hex string ('#0EA5E9') to
+  // override colorPrimary across the app. Applied in ThemeProvider via CSS
+  // vars and Antd ConfigProvider, so a single setter re-skins everything.
+  accent: null,
 
   // Legacy fields — kept for transitional compat. New code should not read these.
   colorPrimary: '#4F46E5',
@@ -52,6 +56,10 @@ const useThemeStore = create(
         set({ menuOrientation: orientation === 'horizontal' ? 'horizontal' : 'vertical' }),
       toggleMenuOrientation: () =>
         set((s) => ({ menuOrientation: s.menuOrientation === 'horizontal' ? 'vertical' : 'horizontal' })),
+
+      /** Override the theme's natural primary colour. Pass null to clear. */
+      setAccent: (hex) =>
+        set({ accent: typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : null }),
 
       /** Resolve current effective mode key (e.g. 'modern-dark'). */
       resolveMode: () => {
@@ -94,8 +102,11 @@ const useThemeStore = create(
         // v3: menuOrientation added. Older stores default to 'vertical'
         // so the switch is opt-in and nobody gets surprised by a new layout.
         menuOrientation: persisted?.menuOrientation === 'horizontal' ? 'horizontal' : 'vertical',
+        // v4: accent override (null = theme default).
+        accent: typeof persisted?.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(persisted.accent)
+          ? persisted.accent : null,
       }),
-      version: 3,
+      version: 4,
     },
   ),
 );

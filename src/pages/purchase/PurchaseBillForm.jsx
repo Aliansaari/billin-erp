@@ -6,7 +6,9 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
 import { printDocument } from '../../services/printer';
-import { useCtrlEnterSubmit } from '../../hooks/useKeyboardShortcuts';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
+import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import ProductFormModal from '../../components/ProductFormModal';
@@ -319,6 +321,8 @@ export default function PurchaseBillForm() {
   const draftCardRefs = useRef([]);
 
   const tableWrapRef = useRef(null);
+  // F6 = Jump to Amt Paid input — attached to the Antd InputNumber.
+  const paidInputRef = useRef(null);
   const [tblHeight, setTblHeight] = useState(300);
   const barcodeRef  = useRef(null);
   // Purchase flow is "category → product → details" (wholesale-buy style)
@@ -1232,7 +1236,17 @@ export default function PurchaseBillForm() {
     return ()=>document.removeEventListener('mousedown', handler);
   },[showVariantPicker]);
 
-  const handleSave=useCallback(async(payFull=false)=>{
+  /* ── save ──
+     `payFull=true` is the legacy "Save & Pay" auto-fill path; the
+     redesigned strip stops passing it — paid_amount is whatever the
+     operator typed in the Payment Card. Param stays for back-compat.
+     `opts.onSaved(data, { openPrintModal })` fires after a successful
+     save and BEFORE the form navigates / resets. If the callback
+     opens the print modal, the form stays mounted (the modal's own
+     onClose handles navigation). Otherwise we navigate / reset
+     normally. This lets F1 ask "Print labels?" and only open the
+     modal if the user agrees. */
+  const handleSave=useCallback(async(payFull=false, opts={})=>{
     // Re-entrancy guard: a second Ctrl+Enter or rapid Save click during the
     // API round-trip would create a duplicate bill + duplicate stock inflow.
     if(submittingRef.current) return;
@@ -1316,21 +1330,32 @@ export default function PurchaseBillForm() {
       const{data}=isEdit?await purchaseAPI.update(id,billData):await purchaseAPI.create(billData);
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
       invalidateFamilyCache(); // newly-created variants are now live in DB — drop cached lookups
-      // Skip barcode-print modal for amount-mode (no real products to label).
-      if (billMode === 'amount') {
-        setRecalledDraftId(null);
-        loadDrafts();
-        if (isEdit) navigate('/purchases');
-        else { handleReset(); setBillNumber(''); }
-      } else {
-        const printItems=(data.items||[]).map(it=>({
+      setRecalledDraftId(null);
+      loadDrafts();
+
+      // Track whether the onSaved callback chose to open the print
+      // modal — when it does, the form stays mounted because the
+      // modal's onClose handler does the navigation itself.
+      let modalOpened = false;
+      const openPrintModal = () => {
+        if (billMode === 'amount') return; // amount-mode has no items to label
+        modalOpened = true;
+        const printItems = (data.items||[]).map(it=>({
           barcode:it.barcode,product_name:it.product_name,size:it.size,
           article_number:it.article_number,mrp:it.mrp,sale_rate:it.sale_rate,
           purchase_rate:it.purchase_rate,quantity:it.quantity,quantity_per_box:it.quantity_per_box||1,
         }));
-        setRecalledDraftId(null);
-        loadDrafts();
         setPrintModal({visible:true,bill:{...data,printItems}});
+      };
+
+      if (opts.onSaved) {
+        try { await opts.onSaved(data, { openPrintModal }); }
+        catch (err) { console.error('[handleSave onSaved]', err); }
+      }
+
+      if (!modalOpened) {
+        if (isEdit) navigate('/purchases');
+        else { handleReset(); setBillNumber(''); }
       }
     }catch(e){ message.error(e.response?.data?.error||'Failed to save'); }
     finally{ setLoading(false); submittingRef.current=false; }
@@ -1353,7 +1378,70 @@ export default function PurchaseBillForm() {
   const dirty = items.length > 0 || (billMode === 'amount' && parseFloat(amountVal) > 0);
   const confirmLeave = useUnsavedChangesWarning(dirty);
 
-  useCtrlEnterSubmit(()=>handleSave(true));
+  // F1 / F2 / F3 / F4 / F5 / F6 / F9 / Esc / Ctrl+Enter (alias of F1) /
+  // Ctrl+L (Drafts) — all bound by the <ActionStrip> at the bottom of
+  // the form. Single-source-of-truth registry; no parallel keydown
+  // listeners needed.
+
+  // F1 Save — saves the bill, then asks once "Print barcode labels?"
+  // (Enter = open the BarcodePrintModal · Esc = skip and return to
+  // the purchase list). One save key replaces the old dual F1 + F2.
+  const handleSaveWithPrintPrompt = useCallback(() => {
+    return handleSave(false, {
+      onSaved: async (data, { openPrintModal }) => {
+        // Amount-mode bills have no items to label → skip the prompt.
+        if (billMode === 'amount') return;
+        const wantsPrint = await confirmPrint(
+          data?.bill_number ? `Print barcode labels for ${data.bill_number}?` : 'Print barcode labels?',
+        );
+        if (wantsPrint) openPrintModal();
+      },
+    });
+  }, [handleSave, billMode]);
+
+  // F2 Date popup — Tally-style smart-input popup for the bill date.
+  const { openDate } = useDatePopup();
+  const f2DatePopup = useCallback(() => {
+    const current = form.getFieldValue('bill_date');
+    openDate({
+      title: 'Bill Date',
+      value: current ? dayjs(current) : dayjs(),
+      onConfirm: (d) => form.setFieldsValue({ bill_date: dayjs(d) }),
+    });
+  }, [form, openDate]);
+
+  // F3 — toggle focus between Barcode and the items table. If focus
+  // is anywhere inside .pbf-tbl-wrap, jump home to barcode; otherwise
+  // land on the LAST row's quantity cell (the typical "fix the qty I
+  // just scanned" use). Quantity column is at ciIdx=4 in this form
+  // (see numCell call sites in allCols below).
+  const isInItemsTable = (el) => !!(el && el.closest && el.closest('.pbf-tbl-wrap'));
+  const focusBarcode = () => {
+    barcodeRef.current?.focus?.();
+    barcodeRef.current?.select?.();
+  };
+  const focusItemsTable = () => {
+    const wrap = tableWrapRef.current;
+    if (!wrap) return;
+    const qtyCells = wrap.querySelectorAll('[id^="sc-"][id$="-4"] input');
+    if (qtyCells.length === 0) return;
+    const target = qtyCells[qtyCells.length - 1];
+    target.focus();
+    target.select?.();
+  };
+  const toggleBarcodeItems = useCallback(() => {
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    if (isInItemsTable(active)) focusBarcode();
+    else focusItemsTable();
+  }, []);
+
+  // F6 — focus the Amt Paid input via its ref.
+  const jumpToPaymentCard = useCallback(() => {
+    const inst = paidInputRef.current;
+    if (!inst) return;
+    inst.focus?.();
+    setTimeout(() => inst.select?.(), 0);
+  }, []);
 
   /* ── Hold (save as draft) ──
      Mirrors SalesBillForm.handleHold. Persists the entire form payload to
@@ -1535,16 +1623,6 @@ export default function PurchaseBillForm() {
     const el = draftCardRefs.current[selectedDraftIdx];
     el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [selectedDraftIdx, draftsModalOpen]);
-
-  // F4 = Hold draft (only on new bills, not edits).
-  useEffect(() => {
-    if (isEdit) return;
-    const handler = (e) => {
-      if (e.key === 'F4') { e.preventDefault(); handleHold(); }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isEdit, handleHold]);
 
   /* ── Table columns — Excel-style cells ──
      Inputs fill the whole cell (no floating pill). numCell/txtCell no
@@ -2255,7 +2333,7 @@ export default function PurchaseBillForm() {
                 <div className="pbf-pay-line">
                   <span className="k">Amt paid</span>
                   <Form.Item name="paid_amount" noStyle>
-                    <InputNumber keyboard={false} min={0} max={roundedTotal} placeholder="0.00"
+                    <InputNumber ref={paidInputRef} keyboard={false} min={0} max={roundedTotal} placeholder="0.00"
                       style={{width:'100%'}}/>
                   </Form.Item>
                 </div>
@@ -2270,48 +2348,50 @@ export default function PurchaseBillForm() {
           </div>
         </section>
 
-        {/* ═══════════════════════════════ (4) ACTION BAR ══════════════════════ */}
-        <section className="pbf-action-bar">
-          <div className="pbf-action-bar-inner">
-            <button className="pbf-act" onClick={()=>confirmLeave(()=>navigate('/purchases'))}>
-              <span className="pbf-kbd">Esc</span> Back
-            </button>
-            <button className="pbf-act" onClick={handleReset}>
-              <span className="pbf-kbd">F5</span> Reset
-            </button>
-            {!isEdit && (
-              <button className="pbf-act" onClick={handleHold} disabled={holdLoading}>
-                <span className="pbf-kbd">F4</span> Hold
-              </button>
-            )}
-            {!isEdit && (
-              <button
-                className="pbf-act"
-                onClick={() => { loadDrafts(); setDraftsModalOpen(true); }}
-                title="View held purchase drafts"
-              >
-                📋 Drafts
-                {drafts.length > 0 && (
-                  <span style={{
-                    background: 'var(--accent)', color: '#fff', borderRadius: 999,
-                    padding: '0 7px', fontSize: 10, fontWeight: 700, marginLeft: 6,
-                  }}>{drafts.length}</span>
-                )}
-              </button>
-            )}
-            {isEdit && (
-              <button className="pbf-act" onClick={() => printDocument({ docType: 'purchase', id })}>
-                <span className="pbf-kbd">Ctrl+P</span> Print
-              </button>
-            )}
-            <button className="pbf-act credit" onClick={()=>handleSave(false)} disabled={loading}>
-              <span className="pbf-kbd">F8</span> Save Credit
-            </button>
-            <button className="pbf-act primary" onClick={()=>handleSave(true)} disabled={loading}>
-              <span className="pbf-kbd">F1</span> Save &amp; Pay
-            </button>
-          </div>
-        </section>
+        {/* ═══════════════════════════════ (4) ACTION STRIP ════════════════════
+            Same Tally-style strip as the Sales Bill Form. Single
+            registry drives both the visible buttons and the keyboard
+            bindings. F1 Save & Print opens the barcode-label modal
+            after save (matches the legacy "Save & Pay" behavior).
+            F2 Save skips the modal. Payment status is driven by what
+            the operator types in the Payment Card. */}
+        <ActionStrip
+          actions={[
+            { id: 'back', key: 'Esc', label: 'Back',
+              onAction: () => confirmLeave(() => navigate('/purchases')) },
+            { id: 'date', key: 'F2', label: 'Date',
+              onAction: f2DatePopup,
+              title: 'Open the smart-input date popup' },
+            { id: 'reset', key: 'F5', label: 'Reset',
+              onAction: handleReset },
+            { id: 'hold', key: 'F4', label: recalledDraftId ? 'Update Hold' : 'Hold',
+              hidden: isEdit, disabled: holdLoading,
+              onAction: handleHold,
+              title: 'Save as draft to resume later' },
+            { id: 'drafts', key: 'Ctrl+L', label: 'Drafts',
+              hidden: isEdit,
+              badge: drafts.length > 0 ? drafts.length : null,
+              onAction: () => { loadDrafts(); setDraftsModalOpen(true); },
+              title: 'View held purchase drafts' },
+            { id: 'jump-items', key: 'F3', label: 'Items',
+              onAction: toggleBarcodeItems,
+              title: 'Toggle focus between Barcode and the items table' },
+            { id: 'jump-pay', key: 'F6', label: 'Pay',
+              onAction: jumpToPaymentCard,
+              title: 'Jump to Amount Paid' },
+            { id: 'print-edit', key: 'F9', label: 'Print',
+              hidden: !isEdit,
+              onAction: () => printDocument({ docType: 'purchase', id }) },
+            { id: 'save', key: 'F1', label: 'Save', tone: 'primary',
+              disabled: loading,
+              onAction: handleSaveWithPrintPrompt,
+              title: 'Save the bill — prompts to print barcode labels after success' },
+            // Hidden alias: Ctrl+Enter mirrors F1.
+            { id: 'save-alt', key: 'Ctrl+Enter', label: '',
+              hidden: true, disabled: loading,
+              onAction: handleSaveWithPrintPrompt },
+          ]}
+        />
 
       </div>
 

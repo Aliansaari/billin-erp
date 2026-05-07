@@ -32,13 +32,15 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { message, Spin, DatePicker, Dropdown } from 'antd';
 import {
-  PrinterOutlined, FileExcelOutlined, ReloadOutlined,
+  ReloadOutlined,
   CalendarOutlined, DownOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './balance-sheet.css';
 import './profit-loss.css';
 
@@ -647,15 +649,10 @@ export default function ProfitLoss() {
           <button className="bs-btn bs-btn-icon" onClick={loadData} title="Refresh">
             <ReloadOutlined />
           </button>
-          <button className="bs-btn bs-btn-icon" onClick={() => window.print()} title="Print / Save as PDF">
-            <PrinterOutlined />
-          </button>
           <button className="bs-btn bs-btn-icon" onClick={() => shareWhatsApp(data, from, to)} title="Share summary via WhatsApp">
             <WhatsAppOutlined />
           </button>
-          <button className="bs-btn bs-btn-icon" onClick={() => exportExcel(data, from, to, showComparative)} title="Excel">
-            <FileExcelOutlined />
-          </button>
+          {/* Print + Excel moved to the bottom strip (F9 / F10). */}
         </div>
       </div>
 
@@ -786,22 +783,66 @@ export default function ProfitLoss() {
         </div>
       )}
 
-      {/* F-bar */}
-      <div className="bs-fbar">
-        <span className="fkey"><kbd>F5</kbd> Collapse / Expand all</span>
-        <span className="fkey"><kbd>↑</kbd> <kbd>↓</kbd> Navigate</span>
-        <span className="fkey"><kbd>Enter</kbd> Drill into ledger</span>
-        <span className="fkey"><kbd>Esc</kbd> Back</span>
-        <span className="grow"></span>
-        {data?.current?.summary && (
-          <span className="pl-summary">
-            GP: <b>{fmtINR(data.current.summary.gross_profit)}</b>
-            &nbsp;·&nbsp;
-            NP: <b>{fmtINR(data.current.summary.net_profit)}</b>
-          </span>
-        )}
-      </div>
+      <ProfitLossStrip
+        navigate={navigate}
+        from={from}
+        to={to}
+        setFrom={setFrom}
+        setTo={setTo}
+        setPresetKey={setPresetKey}
+        setUserPicked={setUserPicked}
+        loadData={loadData}
+        data={data}
+        showComparative={showComparative}
+        expandAllDefault={expandAllDefault}
+        setExpandAllDefault={setExpandAllDefault}
+        activeSide={activeSide}
+        navD={navD}
+        navC={navC}
+        activeIdx={activeIdx}
+      />
     </div>
+  );
+}
+
+function ProfitLossStrip({ navigate, from, to, setFrom, setTo, setPresetKey, setUserPicked, loadData, data, showComparative, expandAllDefault, setExpandAllDefault, activeSide, navD, navC, activeIdx }) {
+  const { openDate } = useDatePopup();
+  const list = activeSide === 'D' ? navD : navC;
+  const cursored = list[activeIdx];
+  return (
+    <ActionStrip
+      actions={[
+        { id: 'back', key: 'Esc', label: 'Back',
+          onAction: () => navigate('/reports') },
+        { id: 'period', key: 'F2', label: 'Period',
+          onAction: () => openDate({
+            mode: 'range', title: 'Period',
+            value: [from ? dayjs(from) : null, to ? dayjs(to) : null],
+            onConfirm: ([f, t]) => {
+              setFrom(f.format('YYYY-MM-DD'));
+              setTo(t.format('YYYY-MM-DD'));
+              setPresetKey('custom');
+              setUserPicked(true);
+            },
+          }) },
+        { id: 'view', key: 'F5', label: expandAllDefault ? 'Collapsed' : 'Expanded',
+          onAction: () => {
+            const next = !expandAllDefault;
+            setExpandAllDefault(next);
+            saveExpandPref(next);
+          },
+          title: 'Toggle Collapsed / Expanded' },
+        { id: 'refresh', key: 'F4', label: 'Refresh',
+          onAction: () => loadData() },
+        { id: 'print', key: 'F9', label: 'Print',
+          onAction: () => window.print() },
+        { id: 'export', key: 'F10', label: 'Export',
+          onAction: () => exportExcel(data, from, to, showComparative) },
+        { id: 'drill', key: 'F1', label: 'Drill', tone: 'primary',
+          disabled: !cursored?.drill,
+          onAction: () => cursored?.drill?.() },
+      ]}
+    />
   );
 }
 

@@ -28,6 +28,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { bankAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import BankAccountModal from './BankAccountModal';
 import './banks.css';
 
@@ -62,6 +64,11 @@ export default function BankList() {
 
   const banks  = data?.banks  || [];
   const totals = data?.totals || {};
+
+  // Cursor + multi-select runs over the bank cards. Cursor is used by
+  // the F-key strip below to know which bank to act on.
+  const sel = useListSelection({ totalCount: banks.length, rows: banks });
+  const single = sel.activeRow;
 
   const openAdd = () => { setEditing(null); setModalOpen(true); };
   const openEdit = (bank) => { setEditing(bank); setModalOpen(true); };
@@ -241,10 +248,17 @@ export default function BankList() {
           </div>
         ) : (
           <div className="bank-grid">
-            {banks.map((b) => (
+            {banks.map((b, idx) => (
               <BankCard
                 key={b.ledger_id}
                 bank={b}
+                isCursor={sel.cursorIdx === idx}
+                isMultiSelected={sel.selectedSet.has(idx) && sel.cursorIdx !== idx}
+                onClickCard={(e) => {
+                  if (e.shiftKey)              sel.extendTo(idx);
+                  else if (e.ctrlKey || e.metaKey) sel.toggleRow(idx);
+                  else                            sel.setCursor(idx);
+                }}
                 onOpen={() => navigate(`/banks/${b.ledger_id}/statement`)}
                 onEdit={() => openEdit(b)}
                 onToggleActive={() => toggleActive(b)}
@@ -254,6 +268,39 @@ export default function BankList() {
           </div>
         )}
       </div>
+
+      {/* ── Bottom action strip — cursor moves with arrow keys across
+          cards. F1 opens the per-bank statement; F2 edits via modal;
+          F3 adds a new bank; F5 refreshes; F8 deactivates. */}
+      <ActionStrip
+        actions={[
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: !single,
+            onAction: () => single && openEdit(single),
+          },
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: openAdd,
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: load,
+          },
+          {
+            id: 'deactivate', key: 'F8',
+            label: (single && !single.is_active) ? 'Activate' : 'Deactivate',
+            tone: 'danger',
+            disabled: !single,
+            onAction: () => single && toggleActive(single),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open Statement', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && navigate(`/banks/${single.ledger_id}/statement`),
+          },
+        ]}
+      />
 
       <BankAccountModal
         open={modalOpen}
@@ -275,7 +322,7 @@ export default function BankList() {
 // still clickable to view statement (history is intentionally still
 // visible), but a 3-dot menu offers Activate / Delete (Edit too, for
 // renames). Active banks show Edit / Deactivate / Delete.
-function BankCard({ bank, onOpen, onEdit, onToggleActive, onDelete }) {
+function BankCard({ bank, onOpen, onEdit, onToggleActive, onDelete, isCursor, isMultiSelected, onClickCard }) {
   const balanceColor = bank.balance >= 0 ? 'pos' : 'neg';
   const lastTxn = bank.last_txn_date
     ? dayjs(bank.last_txn_date).format('DD MMM YYYY')
@@ -311,10 +358,20 @@ function BankCard({ bank, onOpen, onEdit, onToggleActive, onDelete }) {
     if (key === 'delete')      onDelete?.();
   };
 
+  // Cursor / multi-select treatment reuses the .vrt-row-* classes from
+  // VirtualReportTable's stylesheet so the visual lines up with list pages.
+  const cursorClass = isCursor ? ' vrt-row-active' : (isMultiSelected ? ' vrt-row-multi' : '');
+
   return (
     <div
-      className={`bank-card${isInactive ? ' bank-card-inactive' : ''}`}
-      onClick={onOpen}
+      className={`bank-card${isInactive ? ' bank-card-inactive' : ''}${cursorClass}`}
+      onClick={(e) => {
+        // Modifier-clicks set selection without drilling. Plain double-click
+        // also opens; single-click moves the cursor.
+        if (e.shiftKey || e.ctrlKey || e.metaKey) { onClickCard?.(e); return; }
+        onClickCard?.(e);
+      }}
+      onDoubleClick={onOpen}
     >
 
       <div className="bank-card-hd">

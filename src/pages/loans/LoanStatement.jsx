@@ -24,6 +24,8 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { loanAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import RecordEMIModal from './RecordEMIModal';
 import './loans.css';
 
@@ -45,19 +47,55 @@ export default function LoanStatement() {
   const [loading, setLd]        = useState(true);
   const [tab, setTab]           = useState('statement');  // 'statement' | 'schedule'
   const [emiOpen, setEmiOpen]   = useState(false);
+  // Period state — drives the F2 Period popup. Empty = full history.
+  const [fromDate, setFromDate] = useState('');
+  const [toDate,   setToDate]   = useState('');
 
   const load = useCallback(() => {
     if (!ledger_id) return;
     setLd(true);
     Promise.all([
-      loanAPI.statement(ledger_id),
+      loanAPI.statement(ledger_id, {
+        ...(fromDate ? { from_date: fromDate } : {}),
+        ...(toDate   ? { to_date:   toDate   } : {}),
+      }),
       loanAPI.schedule(ledger_id),
     ])
       .then(([s, sc]) => { setStmt(s.data); setSched(sc.data); })
       .catch((e) => message.error(e.response?.data?.error || 'Failed to load loan'))
       .finally(() => setLd(false));
-  }, [ledger_id]);
+  }, [ledger_id, fromDate, toDate]);
   useEffect(load, [load]);
+
+  const { openDate } = useDatePopup();
+
+  // CSV export of the visible statement entries — same shape as
+  // BankStatement's export so the formats are consistent.
+  const handleExport = () => {
+    if (!stmt?.entries?.length) { message.info('Nothing to export.'); return; }
+    const headers = ['Date', 'Particulars', 'Voucher', 'Principal', 'Interest', 'EMI', 'Outstanding'];
+    const rows = stmt.entries.map((e) => [
+      e.date,
+      e.narration || '',
+      e.voucher_no ? `${e.voucher_type} ${e.voucher_no}` : '',
+      e.disbursement_part > 0 ? -e.disbursement_part : (e.principal_part || ''),
+      e.interest_part || '',
+      e.emi_total || (e.disbursement_part > 0 ? -e.disbursement_part : ''),
+      e.balance,
+    ]);
+    const escape = (v) => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [headers, ...rows].map(r => r.map(escape).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `loan-statement-${stmt?.account?.ledger_name || 'loan'}.csv`.replace(/\s+/g, '-').toLowerCase();
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Build a "loan-shaped" object for the RecordEMIModal so it doesn't
   // need to refetch separately. The modal reads loan.ledger_id +
@@ -208,6 +246,44 @@ export default function LoanStatement() {
         loan={loanForModal}
         onClose={() => setEmiOpen(false)}
         onSaved={load}
+      />
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/loans'),
+          },
+          {
+            id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [fromDate ? dayjs(fromDate) : null, toDate ? dayjs(toDate) : null],
+              onConfirm: ([f, t]) => {
+                setFromDate(f.format('YYYY-MM-DD'));
+                setToDate(t.format('YYYY-MM-DD'));
+              },
+            }),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: load,
+          },
+          {
+            id: 'emi', key: 'F6', label: 'Record EMI',
+            disabled: !loanForModal || (sched && sched.paid_count >= sched.total_count),
+            onAction: () => setEmiOpen(true),
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print(),
+          },
+          {
+            id: 'export', key: 'F10', label: 'Export',
+            disabled: !stmt?.entries?.length,
+            onAction: handleExport,
+          },
+        ]}
       />
     </div>
   );

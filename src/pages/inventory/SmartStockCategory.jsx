@@ -6,6 +6,7 @@ import {
   ArrowLeftOutlined, AppstoreOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { reportAPI, categoryAPI, productAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './smart-stock.css';
 
 const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -143,6 +144,30 @@ export default function SmartStockCategory() {
 
   const cellInputRefs = useRef({});
   const bodyRef       = useRef(null);
+  const searchInputRef = useRef(null);
+
+  // Refresh trigger — re-runs the products fetch effect by bumping a
+  // counter included in its dep list, mirroring the StockReportPro
+  // pattern.
+  const [refreshCount, setRefreshCount] = useState(0);
+
+  // Excel export of the current category — mirrors StockReport.handleExport
+  // (calls reportAPI.exportStockReport with the same filter shape).
+  const handleExport = async () => {
+    try {
+      const params = {};
+      if (search)         params.search      = search;
+      if (catIdParam)     params.category_id = catIdParam;
+      const { data } = await reportAPI.exportStockReport(params);
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const stamp = new Date().toISOString().slice(0, 10);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `stock_${(category?.category_name || 'category').replace(/\s+/g, '-').toLowerCase()}_${stamp}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch { message.error('Export failed'); }
+  };
 
   // ─── fetch products in this category ─────────────────────────────
   useEffect(() => {
@@ -170,7 +195,7 @@ export default function SmartStockCategory() {
     };
     doFetch();
     return () => { cancelled = true; };
-  }, [catIdParam]);
+  }, [catIdParam, refreshCount]);
 
   // ─── fetch category metadata for the title ─────────────────────────
   useEffect(() => {
@@ -665,6 +690,7 @@ export default function SmartStockCategory() {
           <div className="ss-search">
             <SearchOutlined />
             <input
+              ref={searchInputRef}
               placeholder="Search product, barcode, article…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -798,6 +824,30 @@ export default function SmartStockCategory() {
         )}
       </div>
 
+      <ActionStrip
+        actions={[
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/stock-report-pro'),
+          },
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => setRefreshCount(c => c + 1),
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print(),
+          },
+          {
+            id: 'export', key: 'F10', label: 'Export',
+            onAction: handleExport,
+          },
+        ]}
+      />
     </div>
   );
 }

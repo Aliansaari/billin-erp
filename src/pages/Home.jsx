@@ -87,28 +87,40 @@ function greetingFor(hour) {
 }
 
 /* Canonical action catalog. Each id is referenced by homeSettingsStore.
- * Order here is the default; the user-chosen `actions` array overrides. */
+ * Order here is the default; the user-chosen `actions` array overrides.
+ *
+ * Shortcut conventions (locked with the user 2026-05-06):
+ *   ctrlKey = direct jump  → 1 keystroke (Ctrl+S → /sale/new)
+ *   altKey  = menu opener  → 2 keystrokes (Alt+S opens Sales menu;
+ *                            press the underlined letter inside)
+ *   fKey    = function key (F6 / F7) — direct, fires from any focus
+ *
+ * Cards advertise the FASTEST keystroke for their target. Customers /
+ * Products / Reports show altKey because there's no direct Ctrl jump
+ * for them — the operator opens the menu, picks the item.
+ */
 const ACTION_CATALOG = {
   // Bare-noun labels match what operators type — see the global search
   // ACTIONS comment for the full rationale. Sub-line carries the verb.
-  'sale-new':       { icon: ShoppingCartOutlined, label: 'Sale',           sub: 'New customer invoice',  route: '/sale/new',              altKey: 'S' },
-  'purchase-new':   { icon: InboxOutlined,        label: 'Purchase',       sub: 'New supplier bill',     route: '/purchase/new',          altKey: 'P' },
-  'receipt-new':    { icon: DollarCircleOutlined, label: 'Receipt',        sub: 'Money in',              route: '/receipt/new',           fKey:  'F6' },
-  'payment-new':    { icon: CreditCardOutlined,   label: 'Payment',        sub: 'Money out',             route: '/payment/new',           fKey:  'F7' },
-  'sales-return':   { icon: RollbackOutlined,     label: 'Sales return',   sub: 'Credit note',           route: '/sales-return/new'                  },
-  'purchase-return':{ icon: RollbackOutlined,     label: 'Purchase return',sub: 'Debit note',            route: '/purchase-return/new'               },
-  'journal-new':    { icon: AuditOutlined,        label: 'Journal',        sub: 'Manual entry',          route: '/accounts/journal/new'              },
-  'customers':      { icon: TeamOutlined,         label: 'Customers',      sub: 'Party master',          route: '/customers',             altKey: 'C' },
-  'suppliers':      { icon: TeamOutlined,         label: 'Suppliers',      sub: 'Vendor master',         route: '/suppliers'                         },
-  'products':       { icon: ProductOutlined,      label: 'Products',       sub: 'Item master',           route: '/products',              altKey: 'I' },
-  'reports':        { icon: BarChartOutlined,     label: 'Reports',        sub: 'All reports',           route: '/reports',               altKey: 'R' },
-  'dashboard':      { icon: DashboardOutlined,    label: 'Dashboard',      sub: 'Every metric',          route: '/dashboard',             altKey: 'D' },
-  'day-book':       { icon: BookOutlined,         label: 'Day book',       sub: 'All vouchers · today',  route: '/reports/day-book'                  },
-  'banks':          { icon: BankOutlined,         label: 'Banks',          sub: 'Reconciliation',        route: '/banks'                             },
+  'sale-new':       { icon: ShoppingCartOutlined, label: 'Sale',           sub: 'New customer invoice',  route: '/sale/new',              ctrlKey: 'S' },
+  'purchase-new':   { icon: InboxOutlined,        label: 'Purchase',       sub: 'New supplier bill',     route: '/purchase/new',          ctrlKey: 'P' },
+  'receipt-new':    { icon: DollarCircleOutlined, label: 'Receipt',        sub: 'Money in',              route: '/receipt/new',           fKey:  'F6'  },
+  'payment-new':    { icon: CreditCardOutlined,   label: 'Payment',        sub: 'Money out',             route: '/payment/new',           fKey:  'F7'  },
+  'sales-return':   { icon: RollbackOutlined,     label: 'Sales return',   sub: 'Credit note',           route: '/sales-return/new'                    },
+  'purchase-return':{ icon: RollbackOutlined,     label: 'Purchase return',sub: 'Debit note',            route: '/purchase-return/new'                 },
+  'journal-new':    { icon: AuditOutlined,        label: 'Journal',        sub: 'Manual entry',          route: '/accounts/journal/new'                },
+  'customers':      { icon: TeamOutlined,         label: 'Customers',      sub: 'Party master',          route: '/customers',             altKey: 'E'  },
+  'suppliers':      { icon: TeamOutlined,         label: 'Suppliers',      sub: 'Vendor master',         route: '/suppliers',             altKey: 'E'  },
+  'products':       { icon: ProductOutlined,      label: 'Products',       sub: 'Item master',           route: '/products',              altKey: 'I'  },
+  'reports':        { icon: BarChartOutlined,     label: 'Reports',        sub: 'All reports',           route: '/reports',               altKey: 'R'  },
+  'dashboard':      { icon: DashboardOutlined,    label: 'Dashboard',      sub: 'Every metric',          route: '/dashboard',             ctrlKey: 'D' },
+  'day-book':       { icon: BookOutlined,         label: 'Day book',       sub: 'All vouchers · today',  route: '/reports/day-book'                    },
+  'banks':          { icon: BankOutlined,         label: 'Banks',          sub: 'Reconciliation',        route: '/banks',                 altKey: 'B'  },
 };
 
-const IS_MAC   = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-const altLabel = (k) => (IS_MAC ? `⌥${k}` : `Alt+${k}`);
+const IS_MAC    = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+const altLabel  = (k) => (IS_MAC ? `⌥${k}` : `Alt+${k}`);
+const ctrlLabel = (k) => (IS_MAC ? `⌃${k}` : `Ctrl+${k}`);
 
 export default function Home() {
   const navigate = useNavigate();
@@ -373,8 +385,9 @@ export default function Home() {
                   <span className="cc-action-label">{a.label}</span>
                   <span className="cc-action-sub">{a.sub}</span>
                 </span>
-                {(a.altKey || a.fKey) && (
+                {(a.ctrlKey || a.altKey || a.fKey) && (
                   <span className="cc-action-kbd">
+                    {a.ctrlKey && <kbd className="gs-kbd">{ctrlLabel(a.ctrlKey)}</kbd>}
                     {a.altKey && <kbd className="gs-kbd">{altLabel(a.altKey)}</kbd>}
                     {a.fKey && <kbd className="gs-kbd">{a.fKey}</kbd>}
                   </span>

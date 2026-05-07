@@ -12,6 +12,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { reportAPI, categoryAPI, godownAPI, dataAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './stock-report.css';
 
 const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -135,6 +137,8 @@ export default function StockReport() {
   // Hidden file input drives the Import menu item (Antd Upload's wrapper
   // would close the dropdown before the file chooser opens).
   const fileInputRef = useRef(null);
+  // F4 = Find target — focused by the action strip.
+  const searchInputRef = useRef(null);
 
   // ── Virtualized data layer (unchanged) ───────────────────────────
   const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
@@ -142,6 +146,11 @@ export default function StockReport() {
     filters,
     chunkSize: 200,
   });
+
+  // Cursor + multi-select runs alongside the VRT — the strip's F1 Open
+  // Product / F9 Print / F10 Export operate on the cursored row.
+  const sel = useListSelection({ totalCount, rows });
+  const single = sel.activeRow;
 
   useEffect(() => { loadRefs(); }, []);
   const loadRefs = async () => {
@@ -494,6 +503,7 @@ export default function StockReport() {
           <div className="sr-search">
             <SearchOutlined />
             <input
+              ref={searchInputRef}
               placeholder="Search product, barcode, article, category…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
@@ -725,11 +735,16 @@ export default function StockReport() {
           rowClassName={rowClassName}
           summaryCells={cols.totalRow ? summaryCells : undefined}
           summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
-          // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens Stock
-          // Movement for the active product; Esc clears the cursor.
-          keyboardNav
-          persistKey="stock-report"
-          onRowEnter={(row) => row?.product_id && navigate(`/stock-movement/${row.product_id}`)}
+          // Controlled cursor + selection — drives the F-key strip below
+          // so F1 Open Product knows which row to drill into.
+          controlledCursorIdx={sel.cursorIdx}
+          controlledSelectedSet={sel.selectedSet}
+          onCursorMove={sel.setCursor}
+          onShiftClickRow={sel.extendTo}
+          onCtrlClickRow={sel.toggleRow}
+          onRow={(record) => ({
+            onDoubleClick: () => record?.product_id && navigate(`/stock-movement/${record.product_id}`),
+          })}
         />
       </div>
 
@@ -808,6 +823,32 @@ export default function StockReport() {
           </div>
         )}
       </Modal>
+
+      <ActionStrip
+        actions={[
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => refresh(),
+          },
+          {
+            id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print(),
+          },
+          {
+            id: 'export', key: 'F10', label: 'Export',
+            onAction: handleExport,
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open Product', tone: 'primary',
+            disabled: !single,
+            onAction: () => single?.product_id && navigate(`/stock-movement/${single.product_id}`),
+          },
+        ]}
+      />
     </div>
   );
 }

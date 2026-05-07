@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { Button, Tag, Typography, message, Card, Space, DatePicker, Select, Popconfirm, Tooltip } from 'antd';
-import { PlusOutlined, DeleteOutlined, PrinterOutlined, LinkOutlined } from '@ant-design/icons';
+import React, { useCallback, useState } from 'react';
+import { Button, Tag, Typography, message, Card, Space, DatePicker, Select, Modal, Tooltip } from 'antd';
+import { PlusOutlined, LinkOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument } from '../../services/printer';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 const { Title } = Typography;
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -51,7 +53,6 @@ function ModeChip({ method, splits }) {
 
 export default function PaymentList() {
   const { fyStart, fyEnd } = useFinancialYear();
-  const [deletingId, setDeletingId] = useState(null);
   const navigate = useNavigate();
   // URL-driven initial filters — lets other pages (e.g. Cash Flow
   // Summary's Sundry Debtors / Creditors drill) deep-link into a
@@ -90,16 +91,47 @@ export default function PaymentList() {
     chunkSize: 200,
   });
 
-  const handleDelete = async (id) => {
-    setDeletingId(id);
-    try {
-      await paymentAPI.cancel(id);
-      message.success('Transaction cancelled successfully');
-      refresh();
-    } catch (e) {
-      message.error(e.response?.data?.error || 'Failed to cancel');
-    } finally { setDeletingId(null); }
-  };
+  // ── Selection model ─────────────────────────────────────────────
+  const sel = useListSelection({ totalCount, rows });
+  const activeRow      = sel.activeRow;
+  const selectedRows   = sel.selectedRows;
+  const selectionCount = sel.selectionCount;
+  const isMulti        = selectionCount > 1;
+  const single         = !isMulti ? activeRow : null;
+  const singleCancelled = single?.is_cancelled;
+
+  const handlePrint = (record) => printDocument({
+    docType: record.transaction_type === 'Receipt' ? 'receipt' : 'payment',
+    id: record.transaction_id,
+  });
+
+  // Bulk-cancel — confirm once, run cancels serially, summary at end.
+  const handleBulkCancel = useCallback((rowsToCancel) => {
+    const cancellable = rowsToCancel.filter(r => r && !r.is_cancelled);
+    if (cancellable.length === 0) {
+      message.info('Nothing to cancel — selection is already cancelled.');
+      return;
+    }
+    Modal.confirm({
+      title: cancellable.length === 1
+        ? `Cancel ${cancellable[0].transaction_type.toLowerCase()} ${cancellable[0].transaction_number}?`
+        : `Cancel ${cancellable.length} transactions?`,
+      content: 'This reverses the payment and updates each party balance.',
+      okText: cancellable.length === 1 ? 'Yes, Cancel' : `Cancel ${cancellable.length}`,
+      okButtonProps: { danger: true },
+      cancelText: 'No',
+      onOk: async () => {
+        let ok = 0, fail = 0;
+        for (const r of cancellable) {
+          try { await paymentAPI.cancel(r.transaction_id); ok++; }
+          catch { fail++; }
+        }
+        refresh();
+        if (fail === 0) message.success(`Cancelled ${ok} transaction${ok === 1 ? '' : 's'}.`);
+        else message.warning(`${ok} cancelled, ${fail} failed.`);
+      },
+    });
+  }, [refresh]);
 
   const columns = [
     { title: 'Txn No', dataIndex: 'transaction_number', width: 180, key: 'txn_no',
@@ -148,43 +180,13 @@ export default function PaymentList() {
       )},
     { title: 'Remarks', dataIndex: 'remarks', width: 180, ellipsis: true, key: 'remarks',
       render: (v) => <span style={{ fontSize: 12, color: '#6b7280' }}>{v || '—'}</span> },
+    // Cancelled chip stays inline; the row's actions move to the
+    // bottom ActionStrip and operate on the cursored row.
     {
-      title: '', width: 110, align: 'center', fixed: 'right', key: 'actions',
-      render: (_, record) => (
-        <Space size={4}>
-          <Tooltip title="Print voucher / receipt">
-            <Button
-              size="small"
-              icon={<PrinterOutlined />}
-              onClick={() => printDocument({
-                docType: record.transaction_type === 'Receipt' ? 'receipt' : 'payment',
-                id: record.transaction_id,
-              })}
-            />
-          </Tooltip>
-          {record.is_cancelled ? (
-            <Tag color="default" style={{ fontSize: 10 }}>Cancelled</Tag>
-          ) : (
-            <Popconfirm
-              title="Cancel this transaction?"
-              description="This will reverse the payment and update party balance."
-              okText="Yes, Cancel"
-              okButtonProps={{ danger: true }}
-              cancelText="No"
-              onConfirm={() => handleDelete(record.transaction_id)}
-            >
-              <Tooltip title="Cancel transaction">
-                <Button
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                  loading={deletingId === record.transaction_id}
-                />
-              </Tooltip>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+      title: '', width: 90, align: 'center', fixed: 'right', key: 'state',
+      render: (_, record) => record.is_cancelled
+        ? <Tag color="default" style={{ fontSize: 10, margin: 0 }}>Cancelled</Tag>
+        : null,
     },
   ];
 
@@ -238,18 +240,52 @@ export default function PaymentList() {
             rowKey="transaction_id"
             scroll={{ x: 1000 }}
             rowClassName={(r) => r && r.is_cancelled ? 'erp-row-cancelled' : ''}
-            // ↑/↓ Home/End/PageUp/PageDown to move; Enter prints the
-            // voucher / receipt for the active row (the row's primary
-            // action — there is no "edit payment" page).
-            keyboardNav
-            persistKey="payments-list"
-            onRowEnter={(row) => row?.transaction_id && !row.is_cancelled && printDocument({
-              docType: row.transaction_type === 'Receipt' ? 'receipt' : 'payment',
-              id: row.transaction_id,
+            controlledCursorIdx={sel.cursorIdx}
+            controlledSelectedSet={sel.selectedSet}
+            onCursorMove={sel.setCursor}
+            onShiftClickRow={sel.extendTo}
+            onCtrlClickRow={sel.toggleRow}
+            onRow={(record) => ({
+              onDoubleClick: () => record?.transaction_id && !record.is_cancelled && handlePrint(record),
             })}
           />
         </div>
       </Card>
+
+      {/* ── Bottom action strip — F1 Print is the primary action
+          (this list has no view modal; the voucher-print IS the
+          "view"). F3 = New Payment, F6 = New Receipt (F6 is the
+          universal "money-in" key across the app). F8 cancels with
+          multi-bulk confirm. */}
+      <ActionStrip
+        info={isMulti ? `${selectionCount} selected` : null}
+        actions={[
+          // Visual order: nav keys on the left, destructive F8 +
+          // primary F1 on the right (matches forms + other lists).
+          {
+            id: 'new-payment', key: 'F3', label: 'New Payment',
+            onAction: () => navigate('/payment/new'),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => refresh(),
+          },
+          {
+            id: 'new-receipt', key: 'F6', label: 'New Receipt',
+            onAction: () => navigate('/receipt/new'),
+          },
+          {
+            id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
+            disabled: !activeRow,
+            onAction: () => handleBulkCancel(isMulti ? selectedRows : [single]),
+          },
+          {
+            id: 'print', key: 'F1', label: 'Print Voucher', tone: 'primary',
+            disabled: isMulti || !single || singleCancelled,
+            onAction: () => single && handlePrint(single),
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -1,0 +1,472 @@
+/* ── Theme Settings ────────────────────────────────────────────────
+ *
+ * Visual picker for theme style, appearance, and menu layout. Each
+ * choice renders as a CARD with a mini-mockup preview rather than a
+ * generic Segmented control, so the operator can see what they're
+ * picking before they commit. Cards use the same accent + border
+ * tokens as the rest of the app so the page looks designed-for-this-
+ * software, not a stock antd settings page.
+ */
+
+/* Three-zone layout: fixed header on top, scrolling body in the
+ * middle, fixed ActionStrip on the bottom. Shell is a flex column
+ * spanning the full content area (Layout marks /settings/theme as
+ * a fullpage route, pinning .erp-page-content to viewport height
+ * with overflow:hidden). */
+.theme-page-shell {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;                  /* body scrolls; outer never does */
+}
+
+.theme-page-header {
+  flex: 0 0 auto;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 16px 0 14px;
+  z-index: 2;
+}
+.theme-page-header-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 3vw, 40px);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.theme-page-body {
+  flex: 1 1 auto;
+  min-height: 0;                     /* allow inner overflow to take effect */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.theme-page-body-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px clamp(16px, 3vw, 40px) 32px;
+}
+.theme-page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+}
+.theme-page-sub {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+.theme-page-current {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.theme-section {
+  margin-bottom: 28px;
+}
+.theme-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.theme-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+.theme-section-help {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  margin: 0;
+}
+
+/* ── Card grid ── */
+.theme-grid {
+  display: grid;
+  gap: 14px;
+}
+.theme-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.theme-grid-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 720px) {
+  .theme-grid-2, .theme-grid-3 { grid-template-columns: 1fr; }
+}
+
+.theme-opt {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--bg-panel);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+  user-select: none;
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+}
+.theme-opt:hover {
+  border-color: var(--border-strong);
+}
+.theme-opt:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.theme-opt.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.theme-opt-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.theme-opt-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.theme-opt-desc {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+}
+.theme-opt-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ── Mini mock — Theme style cards (Classic / Editorial) ──
+ * Driven by the ACTUAL theme palette (CSS vars set inline by the
+ * caller via paletteFor()), not hardcoded colours. So switching
+ * appearance from light to dark instantly reflects in both cards
+ * with their real bg/panel/border/accent values. */
+.theme-mock {
+  width: 100%;
+  height: 80px;
+  border-radius: 6px;
+  border: 1px solid var(--mock-border, var(--border-subtle));
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  overflow: hidden;
+  background: var(--mock-bg, var(--bg-panel));
+}
+.theme-mock-sidebar {
+  /* Sidebar is dark in both light/dark modes (Layout convention),
+   * so use a fixed dark gradient that adjusts subtly per variant. */
+  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+}
+.theme-mock.modern .theme-mock-sidebar {
+  background: linear-gradient(180deg, #1D1814 0%, #14110D 100%);
+}
+.theme-mock-main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 8px;
+  background: var(--mock-bg);
+}
+.theme-mock-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--mock-panel);
+  opacity: 0.7;
+}
+.theme-mock-bar.lg {
+  width: 70%;
+  height: 6px;
+  background: var(--mock-accent);
+  opacity: 0.25;
+}
+.theme-mock-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  flex: 1;
+}
+.theme-mock-card {
+  background: var(--mock-panel);
+  border-radius: 3px;
+  border: 1px solid var(--mock-border);
+}
+
+/* ── Accent picker — circular colour swatches ── */
+.theme-accent-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 2px;
+}
+.theme-accent-swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--swatch, var(--bg-muted));
+  cursor: pointer;
+  position: relative;
+  padding: 0;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.theme-accent-swatch:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.10);
+}
+.theme-accent-swatch:focus-visible {
+  outline: none;
+  border-color: var(--fg-primary);
+}
+.theme-accent-swatch.active {
+  border-color: var(--fg-primary);
+}
+.theme-accent-swatch.active::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-panel);
+  pointer-events: none;
+}
+
+/* "Theme default" swatch — neutral with a faint dot, signals "no
+ * override; use whatever the active theme picked". */
+.theme-accent-default {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      var(--bg-muted) 0 4px,
+      var(--bg-app)   4px 8px
+    );
+  color: var(--fg-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+}
+.theme-accent-default.active {
+  border-color: var(--accent);
+}
+.theme-accent-default.active::after {
+  border-color: var(--bg-panel);
+}
+
+/* ── Appearance swatches ── */
+.theme-swatch {
+  width: 100%;
+  height: 70px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  position: relative;
+  overflow: hidden;
+}
+.theme-swatch.light {
+  background: linear-gradient(180deg, #ffffff 0%, #f5f7fa 100%);
+}
+.theme-swatch.dark {
+  background: linear-gradient(180deg, #151e2e 0%, #0b1220 100%);
+}
+.theme-swatch.system {
+  background: linear-gradient(135deg, #ffffff 0%, #f5f7fa 49%, #151e2e 51%, #0b1220 100%);
+}
+.theme-swatch-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 22px;
+  color: var(--fg-secondary);
+}
+.theme-swatch.dark .theme-swatch-icon { color: #cbd5e1; }
+.theme-swatch.system .theme-swatch-icon {
+  color: var(--fg-secondary);
+  /* split icon between light/dark — let CSS handle it via mix-blend-mode for contrast */
+  mix-blend-mode: difference;
+  color: #888;
+}
+
+/* ── Menu layout diagrams ── */
+.theme-layout {
+  width: 100%;
+  height: 80px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+  position: relative;
+  overflow: hidden;
+}
+.theme-layout::before {
+  content: '';
+  position: absolute;
+  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+}
+.theme-layout.vertical::before {
+  top: 0; bottom: 0; left: 0;
+  width: 22px;
+}
+.theme-layout.horizontal::before {
+  top: 0; left: 0; right: 0;
+  height: 18px;
+}
+.theme-layout-content {
+  position: absolute;
+  background: var(--bg-panel);
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+}
+.theme-layout.vertical .theme-layout-content {
+  top: 8px; bottom: 8px; left: 30px; right: 8px;
+}
+.theme-layout.horizontal .theme-layout-content {
+  top: 26px; bottom: 8px; left: 8px; right: 8px;
+}
+.theme-layout-row {
+  height: 3px;
+  background: var(--bg-muted);
+  border-radius: 2px;
+}
+.theme-layout-row.short { width: 50%; }
+
+/* ── Live preview ── */
+.theme-preview {
+  margin-top: 8px;
+  padding: 18px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.theme-preview-frame {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.04);
+}
+.theme-preview-topnav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+  color: #cbd5e1;
+}
+.theme-preview-topnav-brand {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 11px;
+}
+.theme-preview-topnav-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+.theme-preview-topnav-pill {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  font-weight: 500;
+}
+.theme-preview-topnav-pill.active {
+  background: var(--accent);
+  color: #fff;
+}
+.theme-preview-body {
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  background: var(--bg-app);
+}
+.theme-preview-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.theme-preview-card-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.theme-preview-card-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: -0.01em;
+}
+.theme-preview-card-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--success-bg);
+  color: var(--success);
+}
+.theme-preview-card-tag.warn {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.theme-preview-card-tag.muted {
+  background: var(--bg-muted);
+  color: var(--fg-secondary);
+}
+
+@media (max-width: 720px) {
+  .theme-preview-body {
+    grid-template-columns: 1fr;
+  }
+}

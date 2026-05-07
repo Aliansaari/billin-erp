@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Input, Button, Modal, Form, InputNumber, Select, Switch,
@@ -9,7 +9,9 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { productAPI, categoryAPI, dataAPI, settingsAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 
 dayjs.extend(relativeTime);
 import '../../styles/editorial-product-list.css';
@@ -132,6 +134,17 @@ export default function ProductList() {
     chunkSize: 200,
   });
 
+  /* ── Selection model — cursor + multi-select.
+     Cursor is the "active" SKU for F-key actions in the bottom strip.
+     Plain click moves cursor; double-click opens Stock Movement
+     (the page's primary row action). Shift / Ctrl click extend or
+     toggle the selection without navigating. */
+  const sel = useListSelection({ totalCount, rows });
+  const activeRow      = sel.activeRow;
+  const selectionCount = sel.selectionCount;
+  const isMulti        = selectionCount > 1;
+  const single         = !isMulti ? activeRow : null;
+
   /* ── columns / sections ── */
   const [cols, setCols] = useState(() => loadPrefs(LS_COLS, DEFAULT_COLS));
   useEffect(() => {
@@ -144,6 +157,9 @@ export default function ProductList() {
   const [editing, setEditing] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
+
+  // F4 = Find target — focused by the strip.
+  const searchInputRef = useRef(null);
 
   useEffect(() => { loadCategories(); loadBatchSetting(); }, []);
 
@@ -377,26 +393,8 @@ export default function ProductList() {
           : <span className="mon-m zero">—</span>;
       },
     },
-    {
-      key: 'act', title: '', width: 110, align: 'center', fixed: 'right',
-      render: (_, p) => {
-        const groupStyle = { display: 'inline-flex', gap: 4, opacity: 1, pointerEvents: 'auto' };
-        return (
-          <div style={groupStyle}>
-            <Tooltip title="Stock movement">
-              <button className="abtn primary" onClick={(e) => { e.stopPropagation(); navigate(`/stock-movement/${p.product_id}`); }}>
-                <ArrowRightOutlined />
-              </button>
-            </Tooltip>
-            <Tooltip title="Edit">
-              <button className="abtn" onClick={(e) => { e.stopPropagation(); openForm(p); }}>
-                <EditOutlined />
-              </button>
-            </Tooltip>
-          </div>
-        );
-      },
-    },
+    // (Per-row actions column removed — Stock Movement + Edit moved
+    // to the bottom ActionStrip and operate on the cursored row.)
   ].filter(Boolean);
 
   /* ── Total strip ── */
@@ -469,6 +467,7 @@ export default function ProductList() {
           <div className="ed-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             <input
+              ref={searchInputRef}
               type="text"
               placeholder="Search name, barcode, HSN"
               value={searchInput}
@@ -566,7 +565,11 @@ export default function ProductList() {
         />
       </div>
 
-      {/* ── Table ── */}
+      {/* ── Table ──
+          Cursor + multi-select live in useListSelection (above) so
+          the bottom strip operates on the cursored / selected rows.
+          Single click only moves the cursor; double-click opens
+          Stock Movement (the page's "Open" / F1 action). */}
       <div className="ed-list-wrap">
         <VirtualReportTable
           columns={columns}
@@ -576,20 +579,57 @@ export default function ProductList() {
           loading={loading}
           rowKey="product_id"
           scroll={{ x: 1400 }}
-          onRow={(record) => ({
-            onClick: () => { if (record && record.product_id) navigate(`/stock-movement/${record.product_id}`); },
-            style: record && record.product_id ? { cursor: 'pointer' } : undefined,
-          })}
           summaryCells={cols.totalRow ? summaryCells : undefined}
           summaryColSpan={cols.totalRow ? summaryColSpan : undefined}
-          // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens Stock
-          // Movement for the active product (matches click behaviour);
-          // Esc clears the cursor.
-          keyboardNav
-          persistKey="products"
-          onRowEnter={(row) => row?.product_id && navigate(`/stock-movement/${row.product_id}`)}
+          controlledCursorIdx={sel.cursorIdx}
+          controlledSelectedSet={sel.selectedSet}
+          onCursorMove={sel.setCursor}
+          onShiftClickRow={sel.extendTo}
+          onCtrlClickRow={sel.toggleRow}
+          onRow={(record) => ({
+            onDoubleClick: () => record?.product_id && navigate(`/stock-movement/${record.product_id}`),
+            style: record && record.product_id ? { cursor: 'pointer' } : undefined,
+          })}
         />
       </div>
+
+      {/* ── Bottom action strip — F1 Stock Movement is the primary
+          row action (replaces the per-row arrow icon). F2 Edit opens
+          the form modal. F3 New opens an empty form modal. F4 Find
+          focuses search. F10 Export pulls the current filtered set
+          to Excel. No F8 — products don't have a destructive action
+          on this list (deactivation isn't exposed here). */}
+      <ActionStrip
+        info={isMulti ? `${selectionCount} selected` : null}
+        actions={[
+          {
+            id: 'edit', key: 'F2', label: 'Edit',
+            disabled: isMulti || !single,
+            onAction: () => single && openForm(single),
+          },
+          {
+            id: 'new', key: 'F3', label: 'New',
+            onAction: () => openForm(),
+          },
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => refresh?.(),
+          },
+          {
+            id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExport(),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Stock Movement', tone: 'primary',
+            disabled: isMulti || !single,
+            onAction: () => single && navigate(`/stock-movement/${single.product_id}`),
+          },
+        ]}
+      />
 
       {/* ── Add / Edit modal — unchanged from the editorial version ── */}
       <Modal

@@ -24,13 +24,16 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Button, DatePicker, Checkbox, Popover, Input, message } from 'antd';
 import {
-  ReloadOutlined, PrinterOutlined, DownloadOutlined,
+  ReloadOutlined,
   ArrowLeftOutlined, CalendarOutlined, SettingOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './cash-flow.css';
 
 // ── Number formatting ────────────────────────────────────────────────
@@ -245,8 +248,7 @@ function CashFlowRegisterView() {
             format="MMM YYYY" allowClear={false}
           />
           <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={fetcher} loading={loading}>Refresh</Button>
-          <Button className="rpt-btn" icon={<PrinterOutlined />} onClick={() => window.print()}>Print</Button>
-          <Button className="rpt-btn" icon={<DownloadOutlined />} onClick={handleExportCsv} type="primary">Excel</Button>
+          {/* Print + Excel moved to the bottom strip (F9 / F10). */}
         </div>
       </div>
 
@@ -260,13 +262,53 @@ function CashFlowRegisterView() {
           />
         : <div className="cf-skel">{loading ? 'Loading…' : 'Pick a period.'}</div>}
 
-      <div className="cf-fbar">
-        <span className="fkey"><kbd>↑</kbd> <kbd>↓</kbd> Navigate</span>
-        <span className="fkey"><kbd>Enter</kbd> Drill into month</span>
-        <span className="fkey"><kbd>Esc</kbd> Back</span>
-        <span className="grow"></span>
-      </div>
+      <CashFlowRegisterStrip
+        navigate={navigate}
+        fromDate={fromDate}
+        toDate={toDate}
+        setFromDate={setFromDate}
+        setToDate={setToDate}
+        setPresetKey={setPresetKey}
+        fetcher={fetcher}
+        handleExportCsv={handleExportCsv}
+        onDrill={() => {
+          const row = data?.rows?.[activeIdx];
+          if (row) drillMonth(row.month_iso);
+        }}
+        canDrill={!!(data?.rows?.[activeIdx])}
+      />
     </div>
+  );
+}
+
+function CashFlowRegisterStrip({ navigate, fromDate, toDate, setFromDate, setToDate, setPresetKey, fetcher, handleExportCsv, onDrill, canDrill }) {
+  const { openDate } = useDatePopup();
+  return (
+    <ActionStrip
+      actions={[
+        { id: 'back', key: 'Esc', label: 'Back',
+          onAction: () => navigate('/reports') },
+        { id: 'period', key: 'F2', label: 'Period',
+          onAction: () => openDate({
+            mode: 'range', title: 'Period',
+            value: [fromDate ? dayjs(fromDate) : null, toDate ? dayjs(toDate) : null],
+            onConfirm: ([from, to]) => {
+              setPresetKey('custom');
+              setFromDate(from.format('YYYY-MM-DD'));
+              setToDate(to.format('YYYY-MM-DD'));
+            },
+          }) },
+        { id: 'refresh', key: 'F5', label: 'Refresh',
+          onAction: () => fetcher() },
+        { id: 'print', key: 'F9', label: 'Print',
+          onAction: () => window.print() },
+        { id: 'export', key: 'F10', label: 'Export',
+          onAction: handleExportCsv },
+        { id: 'drill', key: 'F1', label: 'Open Month', tone: 'primary',
+          disabled: !canDrill,
+          onAction: onDrill },
+      ]}
+    />
   );
 }
 
@@ -573,9 +615,7 @@ function CashFlowMonthView() {
               variant="borderless"
             />
           </div>
-          <button className="cf-btn cf-btn-icon" onClick={() => window.print()} title="Print">
-            <PrinterOutlined />
-          </button>
+          {/* Print moved to the bottom strip (F9). */}
         </div>
       </div>
 
@@ -687,14 +727,41 @@ function CashFlowMonthView() {
         </>
       )}
 
-      <div className="cf-fbar">
-        <span className="fkey"><kbd>↑</kbd> <kbd>↓</kbd> Navigate</span>
-        <span className="fkey"><kbd>←</kbd> <kbd>→</kbd> Switch side</span>
-        <span className="fkey"><kbd>Enter</kbd> Drill into group</span>
-        <span className="fkey"><kbd>Esc</kbd> Back</span>
-        <span className="grow"></span>
-      </div>
+      <CashFlowMonthStrip
+        goBack={goBack}
+        month={month}
+        onPickMonth={onPickMonth}
+        onDrill={() => {
+          const list = activeSide === 'in' ? inflowGroups : outflowGroups;
+          const row = list[activeIdx];
+          if (row) drillGroup(row.sub_group, activeSide);
+        }}
+        canDrill={!!((activeSide === 'in' ? inflowGroups : outflowGroups)[activeIdx])}
+      />
     </div>
+  );
+}
+
+function CashFlowMonthStrip({ goBack, month, onPickMonth, onDrill, canDrill }) {
+  const { openDate } = useDatePopup();
+  return (
+    <ActionStrip
+      actions={[
+        { id: 'back', key: 'Esc', label: 'Back',
+          onAction: goBack },
+        { id: 'period', key: 'F2', label: 'Month',
+          onAction: () => openDate({
+            mode: 'single', title: 'Month',
+            value: month ? dayjs(`${month}-01`) : null,
+            onConfirm: (m) => onPickMonth(m),
+          }) },
+        { id: 'print', key: 'F9', label: 'Print',
+          onAction: () => window.print() },
+        { id: 'drill', key: 'F1', label: 'Open Group', tone: 'primary',
+          disabled: !canDrill,
+          onAction: onDrill },
+      ]}
+    />
   );
 }
 
@@ -880,6 +947,12 @@ function CashFlowGroupView() {
     return filteredRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   }, [filteredRows]);
 
+  // Cursor + multi-select for the rows; F-keys live in the bottom
+  // ActionStrip and operate on the cursored row.
+  const sel = useListSelection({ totalCount: filteredRows.length, rows: filteredRows });
+  const searchInputRef = useRef(null);
+  const { openDate } = useDatePopup();
+
   // Direction-aware amount colour: green for inflow, danger for
   // outflow — matches the colour vocabulary used elsewhere on the
   // cash-flow pages (Nett Inflow / Outflow line + register's nett).
@@ -1027,13 +1100,13 @@ function CashFlowGroupView() {
           <Popover content={customizePopoverContent} title="Customize" trigger="click" placement="bottomRight">
             <Button icon={<SettingOutlined />} className="rpt-btn">Customize</Button>
           </Popover>
-          <Button icon={<DownloadOutlined />} onClick={handleExport} className="rpt-btn">Excel</Button>
-          <Button icon={<PrinterOutlined />}  onClick={() => window.print()} className="rpt-btn">Print</Button>
+          {/* Excel + Print moved to the bottom strip (F10 / F9). */}
         </div>
       </div>
 
       <div className="rpt-filter">
         <Input
+          ref={searchInputRef}
           className="rpt-search"
           prefix={<SearchOutlined />}
           placeholder="Search voucher no, contra ledger, date, or amount…"
@@ -1053,8 +1126,32 @@ function CashFlowGroupView() {
           scroll={{ x: 900 }}
           summaryCells={summaryCells}
           summaryColSpan={summaryColSpan}
+          controlledCursorIdx={sel.cursorIdx}
+          controlledSelectedSet={sel.selectedSet}
+          onCursorMove={sel.setCursor}
+          onShiftClickRow={sel.extendTo}
+          onCtrlClickRow={sel.toggleRow}
         />
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: goBack },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [gFrom ? dayjs(gFrom) : null, gTo ? dayjs(gTo) : null],
+              onConfirm: ([f, t]) => onPickRange([f, t]),
+            }) },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: handleExport },
+        ]}
+      />
     </div>
   );
 }

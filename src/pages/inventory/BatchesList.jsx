@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Table, Button, Tag, Input, Select, Tooltip, message, Empty } from 'antd';
 import {
   AppstoreOutlined, ReloadOutlined, SearchOutlined, EyeOutlined,
@@ -7,6 +7,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { batchAPI, productAPI, godownAPI, settingsAPI } from '../../api';
+import useListSelection from '../../hooks/useListSelection';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 // Same editorial-report skin Stock Transfers list / Sales Report use —
 // .report-editorial wrapper, .rpt-page-hd / .rpt-kpis / .rpt-filter /
 // .rpt-tbl primitives. Plus the .stf-list scoped paint (action buttons,
@@ -57,6 +59,13 @@ export default function BatchesList() {
     statuses:   [],     // multi-select chips: expired / expiring_soon / active / out_of_stock
     q:          '',
   });
+
+  // F4 = Find target — focused by the strip.
+  const searchInputRef = useRef(null);
+
+  // Cursor + multi-select on the visible page.
+  const sel = useListSelection({ totalCount: rows.length, rows });
+  const single = sel.activeRow;
 
   const load = async () => {
     if (!batchTrackingOn) return;
@@ -158,17 +167,9 @@ export default function BatchesList() {
         return <Tooltip title={t.desc}><span className={`rpt-pill type-${t.tone}`}>{t.label}</span></Tooltip>;
       },
     },
-    {
-      title: '', key: 'go', width: 56, align: 'right', fixed: 'right',
-      render: (_, r) => (
-        <Tooltip title="View detail">
-          <button className="abtn" onClick={() => nav(`/inventory/batches/${r.batch_id}`)} aria-label="View">
-            <EyeOutlined />
-          </button>
-        </Tooltip>
-      ),
-    },
-  ], [alertDays, nav]);
+    // (Per-row View button removed — F1 in the bottom strip opens
+    // the cursored batch's detail page; double-click also opens.)
+  ], [alertDays]);
 
   // Status-chip filter — multi-select, mirrors the Bills Receivable
   // bucket-chip pattern. Clicking a chip toggles its membership in
@@ -253,6 +254,7 @@ export default function BatchesList() {
       {/* ─── FILTER BAR ─── */}
       <div className="rpt-filter">
         <Input
+          ref={searchInputRef}
           className="rpt-search"
           prefix={<SearchOutlined />}
           placeholder="Search batch # or product name"
@@ -310,7 +312,20 @@ export default function BatchesList() {
             size="middle"
             scroll={{ x: 1100 }}
             sticky
-            onRow={(r) => ({ onClick: () => nav(`/inventory/batches/${r.batch_id}`), style: { cursor: 'pointer' } })}
+            rowClassName={(_record, index) => {
+              if (sel.cursorIdx === index)    return 'vrt-row-active';
+              if (sel.selectedSet.has(index)) return 'vrt-row-multi';
+              return '';
+            }}
+            onRow={(record, index) => ({
+              onClick: (e) => {
+                if (e.shiftKey)               sel.extendTo(index);
+                else if (e.ctrlKey || e.metaKey) sel.toggleRow(index);
+                else                             sel.setCursor(index);
+              },
+              onDoubleClick: () => record?.batch_id && nav(`/inventory/batches/${record.batch_id}`),
+              style: { cursor: 'pointer' },
+            })}
             locale={{ emptyText: (
               <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--fg-tertiary)' }}>
                 <AppstoreOutlined style={{ fontSize: 32, opacity: 0.4 }} />
@@ -331,6 +346,28 @@ export default function BatchesList() {
           )}
         </div>
       </div>
+
+      {/* ── Action strip — batches are mostly read-only. F1 opens the
+          cursored batch detail; F4 focuses search; F5 reloads. No
+          F3 New (batches come from purchase bills, not created here);
+          no F8 destructive (cancel happens upstream on the bill). */}
+      <ActionStrip
+        actions={[
+          {
+            id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.(),
+          },
+          {
+            id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => load(),
+          },
+          {
+            id: 'open', key: 'F1', label: 'Open', tone: 'primary',
+            disabled: !single,
+            onAction: () => single && nav(`/inventory/batches/${single.batch_id}`),
+          },
+        ]}
+      />
     </div>
   );
 }

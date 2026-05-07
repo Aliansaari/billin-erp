@@ -1,11 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { DatePicker, Button, message, Checkbox, Popover, Input } from 'antd';
-import { SettingOutlined, PrinterOutlined, DownloadOutlined, SearchOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
+import { SettingOutlined, SearchOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
+import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 
 /*
  * Day Book — Tally-style chronological voucher list.
@@ -204,6 +207,13 @@ export default function DayBook() {
     return rows;
   }, [data, filters.voucher_types, filters.search]);
 
+  // Cursor + multi-select for the rows; F-keys live in the bottom
+  // ActionStrip and operate on the cursored row.
+  const sel = useListSelection({ totalCount: filteredData.length, rows: filteredData });
+  const single = sel.activeRow;
+  const searchInputRef = useRef(null);
+  const { openDate } = useDatePopup();
+
   const typeCounts = summary.counts_by_type || {};
 
   const COL_SPECS = useMemo(() => ({
@@ -341,8 +351,7 @@ export default function DayBook() {
           <Popover content={customizePopoverContent} title="Customize" trigger="click" placement="bottomRight">
             <Button icon={<SettingOutlined />} className="rpt-btn">Customize</Button>
           </Popover>
-          <Button icon={<DownloadOutlined />} onClick={handleExport} className="rpt-btn">Excel</Button>
-          <Button icon={<PrinterOutlined />}  onClick={handlePrint}  className="rpt-btn">Print</Button>
+          {/* Excel + Print moved to the bottom strip (F10 / F9). */}
         </div>
       </div>
 
@@ -359,6 +368,7 @@ export default function DayBook() {
 
       <div className="rpt-filter">
         <Input
+          ref={searchInputRef}
           className="rpt-search"
           prefix={<SearchOutlined />}
           placeholder="Search voucher no, party, narration, or amount…"
@@ -396,12 +406,47 @@ export default function DayBook() {
           scroll={{ x: 1100 }}
           summaryCells={summaryCells}
           summaryColSpan={summaryColSpan}
+          controlledCursorIdx={sel.cursorIdx}
+          controlledSelectedSet={sel.selectedSet}
+          onCursorMove={sel.setCursor}
+          onShiftClickRow={sel.extendTo}
+          onCtrlClickRow={sel.toggleRow}
           onRow={(record) => ({
-            onClick: () => { if (record && record.drill_route) navigate(record.drill_route); },
+            onDoubleClick: () => { if (record && record.drill_route) navigate(record.drill_route); },
             style: record && record.drill_route ? { cursor: 'pointer' } : undefined,
           })}
         />
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'period', key: 'F2', label: 'Period',
+            onAction: () => openDate({
+              mode: 'range', title: 'Period',
+              value: [dayjs(filters.from_date), dayjs(filters.to_date)],
+              onConfirm: ([from, to]) => {
+                setFilters((f) => ({
+                  ...f,
+                  from_date: from.format('YYYY-MM-DD'),
+                  to_date:   to.format('YYYY-MM-DD'),
+                }));
+              },
+            }) },
+          { id: 'find', key: 'F4', label: 'Find',
+            onAction: () => searchInputRef.current?.focus?.() },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => load() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => handlePrint() },
+          { id: 'export', key: 'F10', label: 'Export',
+            onAction: () => handleExport() },
+          { id: 'drill', key: 'F1', label: 'Open Voucher', tone: 'primary',
+            disabled: !single || !single.drill_route,
+            onAction: () => single?.drill_route && navigate(single.drill_route) },
+        ]}
+      />
     </div>
   );
 }

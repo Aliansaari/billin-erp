@@ -22,9 +22,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { Table, Button, message } from 'antd';
-import { PrinterOutlined, ReloadOutlined, StarFilled } from '@ant-design/icons';
+import { ReloadOutlined, StarFilled } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { reportAPI } from '../../api';
+import ActionStrip from '../../components/keyboard/ActionStrip';
 import './godown-valuation.css';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -121,9 +122,7 @@ export default function GodownValuation() {
           <Button className="rpt-btn" icon={<ReloadOutlined />} loading={loading} onClick={load}>
             Refresh
           </Button>
-          <Button className="rpt-btn" type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
-            Print
-          </Button>
+          {/* Print moved to the bottom strip (F9). */}
         </div>
       </header>
 
@@ -167,6 +166,17 @@ export default function GodownValuation() {
           />
         </div>
       </div>
+
+      <ActionStrip
+        actions={[
+          { id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/reports') },
+          { id: 'refresh', key: 'F5', label: 'Refresh',
+            onAction: () => load() },
+          { id: 'print', key: 'F9', label: 'Print',
+            onAction: () => window.print() },
+        ]}
+      />
     </div>
   );
 }

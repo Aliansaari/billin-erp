@@ -19,10 +19,11 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { message, Spin, DatePicker } from 'antd';
 import {
-  PrinterOutlined, FileExcelOutlined, ReloadOutlined,
   SearchOutlined, ArrowLeftOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import ActionStrip from '../../components/keyboard/ActionStrip';
+import { useDatePopup } from '../../components/keyboard/DatePopup';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
@@ -457,17 +458,16 @@ export default function TrialBalance() {
     rows[activeIdx]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [activeIdx, page]);
 
-  // ── Keyboard ──
-  // Note: Esc is intentionally NOT handled here. AppLayout owns Esc →
-  // history.back(), which combined with our URL-driven page state gives
-  // the right back-stack behavior automatically.
+  // ── Keyboard nav for the group rows ──
+  // F5 (toggle view), F1 (drill), Esc (back) are owned by the bottom
+  // ActionStrip. This listener only handles the up/down / home/end
+  // navigation through navRows + Enter for the inline drill (Enter
+  // is more convenient than F1 here because both rows the operator
+  // is reading and the keyboard hand are already on the keyboard).
   useEffect(() => {
     const onKey = (e) => {
-      // Don't intercept while typing in the search box / inputs
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       const inField = tag === 'input' || tag === 'textarea' || tag === 'select';
-
-      if (e.key === 'F5')      { e.preventDefault(); setView(v => v === 'closing' ? 'tally' : 'closing'); return; }
       if (inField) return;
 
       if (e.key === 'ArrowDown') {
@@ -492,6 +492,10 @@ export default function TrialBalance() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [page, navRows, activeIdx]);
+
+  // F2 = Date popup (range). Opens the Tally-style smart-input popup
+  // wired to the from / to state.
+  const { openDate } = useDatePopup();
 
   const t = data?.totals || {};
   const reco = data?.reconciliation;
@@ -527,18 +531,10 @@ export default function TrialBalance() {
                     title="Show all sub-groups expanded">
               Expanded
             </button>
-            <button className={'tb-btn ' + (view === 'closing' ? 'on' : '')} onClick={() => setView('closing')}>
-              <span className="fk">F5</span> Condensed
-            </button>
-            <button className={'tb-btn ' + (view === 'tally' ? 'on' : '')} onClick={() => setView('tally')}>
-              <span className="fk">F5</span> Detailed
-            </button>
-            <button className="tb-btn tb-btn-icon" onClick={loadData} title="Refresh"><ReloadOutlined /></button>
-            <button className="tb-btn tb-btn-icon" onClick={() => window.print()} title="Print"><PrinterOutlined /></button>
-            <button className="tb-btn tb-btn-icon" onClick={() => exportExcel(data)} title="Excel"><FileExcelOutlined /></button>
             {/* Period picker — Trial Balance is "as on" a date, so this
                 drives both the closing snapshot and the opening/tx range
-                used in Detailed view. */}
+                used in Detailed view. F2 from the bottom strip opens
+                the smart-input range popup over this. */}
             <DatePicker.RangePicker
               size="small"
               format="DD-MMM-YY"
@@ -721,6 +717,38 @@ export default function TrialBalance() {
           <span className="fkey"><kbd>Enter</kbd> Drill into group</span>
           <span className="fkey"><kbd>Esc</kbd> Back</span>
         </div>
+
+        {/* ── ACTION STRIP — canonical "balance-style" report pattern.
+            F2 opens the smart-input range popup; F5 toggles the
+            Condensed / Detailed view (replaces the existing window
+            keydown listener — strip is single source of truth);
+            F9 prints; F10 exports to Excel; F1 drills into the
+            cursored group. */}
+        <ActionStrip
+          actions={[
+            { id: 'back', key: 'Esc', label: 'Back',
+              onAction: () => nav('/reports') },
+            { id: 'period', key: 'F2', label: 'Period',
+              onAction: () => openDate({
+                mode: 'range',
+                title: 'Trial Balance Period',
+                value: from && to ? [dayjs(from), dayjs(to)] : null,
+                onConfirm: ([f, t]) => { setFrom(f.format('YYYY-MM-DD')); setTo(t.format('YYYY-MM-DD')); },
+              }) },
+            { id: 'view', key: 'F5', label: view === 'closing' ? 'Detailed' : 'Condensed',
+              onAction: () => setView(v => v === 'closing' ? 'tally' : 'closing'),
+              title: 'Toggle Condensed / Detailed view' },
+            { id: 'refresh', key: 'F4', label: 'Refresh',
+              onAction: () => loadData() },
+            { id: 'print', key: 'F9', label: 'Print',
+              onAction: () => window.print() },
+            { id: 'export', key: 'F10', label: 'Export',
+              onAction: () => exportExcel(data) },
+            { id: 'drill', key: 'F1', label: 'Drill', tone: 'primary',
+              disabled: activeIdx < 0 || !navRows[activeIdx],
+              onAction: () => navRows[activeIdx]?.action?.() },
+          ]}
+        />
       </>}
 
       {/* ════════════ PAGE 2: Group Summary ════════════ */}
