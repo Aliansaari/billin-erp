@@ -69,35 +69,41 @@ export const themeTokens = {
     },
   },
 
+  /* ─── Classic-Dark "Onyx" — long-session-friendly warm charcoal ──
+   * Three deliberate shifts away from the previous generic cool-slate
+   * (see themes.css for full design notes): warm-charcoal backgrounds
+   * instead of navy-blue (less melatonin disruption), warm-tinted
+   * text instead of pure cool white (less glare), lighter accent for
+   * better dark-mode visibility. */
   'classic-dark': {
     algorithm: antdTheme.darkAlgorithm,
     token: {
       ...scale,
-      colorPrimary:      '#818cf8',
-      colorSuccess:      '#34d399',
-      colorWarning:      '#fbbf24',
-      colorError:        '#f87171',
-      colorInfo:         '#60a5fa',
-      colorBgLayout:     '#0b1220',
-      colorBgContainer:  '#151e2e',
-      colorBgElevated:   '#1c2638',
-      colorText:         '#f1f5f9',
-      colorTextSecondary:'#cbd5e1',
-      colorBorder:       '#273549',
-      colorBorderSecondary:'#1c2638',
+      colorPrimary:      '#A5B4FC',
+      colorSuccess:      '#4ADE80',
+      colorWarning:      '#FBBF24',
+      colorError:        '#FB7185',
+      colorInfo:         '#7DD3FC',
+      colorBgLayout:     '#0F1217',
+      colorBgContainer:  '#1A1F2A',
+      colorBgElevated:   '#232936',
+      colorText:         '#E8ECF1',
+      colorTextSecondary:'#A6AEBC',
+      colorBorder:       '#2A2F3B',
+      colorBorderSecondary:'#1F242F',
       motion: true,
     },
     components: {
       ...commonComponents,
       Table: {
         ...commonComponents.Table,
-        headerBg:          '#1c2638',
-        headerColor:       '#f1f5f9',
-        rowHoverBg:        'rgba(129,140,248,0.06)',
-        headerSortActiveBg:'rgba(129,140,248,0.12)',
+        headerBg:          '#141821',
+        headerColor:       '#E8ECF1',
+        rowHoverBg:        'rgba(165, 180, 252, 0.06)',
+        headerSortActiveBg:'rgba(165, 180, 252, 0.12)',
       },
-      Card: { ...commonComponents.Card, colorBgContainer: '#151e2e' },
-      Menu: { ...commonComponents.Menu, darkItemBg: '#030712', darkSubMenuItemBg: '#030712' },
+      Card: { ...commonComponents.Card, colorBgContainer: '#1A1F2A' },
+      Menu: { ...commonComponents.Menu, darkItemBg: '#0A0D12', darkSubMenuItemBg: '#0A0D12' },
     },
   },
 
