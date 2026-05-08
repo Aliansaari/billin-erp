@@ -2217,7 +2217,29 @@ export default function SalesBillForm() {
                       const val=e.target.value.trim();
                       if(val){ e.target.value=''; handleScan(val); }
                     }}
-                    onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();prodRef.current?.focus();}}}
+                    onKeyDown={e=>{
+                      if(e.key==='ArrowDown'){e.preventDefault();prodRef.current?.focus();return;}
+                      // Hijack Cmd/Ctrl+Enter while focus is in the
+                      // barcode input. The ActionStrip binds Ctrl+Enter
+                      // as an alias for F1 Save (and parseBinding treats
+                      // metaKey as "ctrl" on macOS). After Cmd+V paste
+                      // operators commonly hit Enter while still holding
+                      // Cmd → save fires unintentionally. Catch it here,
+                      // route to scan, and stop propagation so the
+                      // ActionStrip handler never sees the event.
+                      if(e.key==='Enter' && (e.metaKey || e.ctrlKey)){
+                        e.preventDefault();
+                        // stopImmediatePropagation on the NATIVE event so
+                        // the window-level keydown listener inside
+                        // ActionStrip never sees it. React's synthetic
+                        // stopPropagation alone wouldn't reach the native
+                        // listener attached on `window`.
+                        e.nativeEvent?.stopImmediatePropagation?.();
+                        e.stopPropagation();
+                        const val=(e.target.value||'').trim();
+                        if(val){ e.target.value=''; handleScan(val); }
+                      }
+                    }}
                   />
                 </div>
                 <div className="sbf-cell has-arrow">
