@@ -6,7 +6,7 @@
 // one report.
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, message } from 'antd';
+import { Table, Button, message } from 'antd';
 import {
   ArrowLeftOutlined, ReloadOutlined, EditOutlined,
 } from '@ant-design/icons';
@@ -137,13 +137,14 @@ export default function StockByColorDetail() {
       <header className="rpt-page-hd">
         <div className="rpt-title">
           <h1 style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button
-              className="rpt-btn ant-btn"
+            <Button
+              className="rpt-btn"
+              icon={<ArrowLeftOutlined />}
               onClick={() => navigate('/reports/stock-by-color')}
-              style={{ height: 32, padding: '0 12px' }}
+              size="small"
             >
-              <ArrowLeftOutlined /> Back
-            </button>
+              Back
+            </Button>
             <span>{product?.product_name || (loading ? 'Loading…' : 'Product')}</span>
           </h1>
           {product && (
@@ -163,15 +164,16 @@ export default function StockByColorDetail() {
         </div>
 
         <div className="rpt-hd-ctrl">
-          <button className="rpt-btn ant-btn" onClick={refresh}>
-            <ReloadOutlined /> Refresh
-          </button>
-          <button
-            className="rpt-btn ant-btn"
+          <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={refresh}>
+            Refresh
+          </Button>
+          <Button
+            className="rpt-btn"
+            icon={<EditOutlined />}
             onClick={() => navigate(`/inventory/products?edit=${productId}`)}
           >
-            <EditOutlined /> Edit Product
-          </button>
+            Edit Product
+          </Button>
         </div>
       </header>
 

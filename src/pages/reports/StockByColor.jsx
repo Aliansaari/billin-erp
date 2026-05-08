@@ -12,7 +12,7 @@
 // of Cash Flow, Fund Flow, Bills Outstanding, etc.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Select, Input, Modal, Checkbox } from 'antd';
+import { Select, Input, Modal, Checkbox, Button } from 'antd';
 import {
   SearchOutlined, ReloadOutlined, SettingOutlined,
 } from '@ant-design/icons';
@@ -289,16 +289,22 @@ export default function StockByColor() {
             style={{ width: 180, height: 34 }}
             options={categories.map((c) => ({ value: c.category_id, label: c.category_name }))}
           />
-          <button className="rpt-btn ant-btn" onClick={() => refresh()}>
-            <ReloadOutlined /> Refresh
-          </button>
-          <button
-            className="rpt-btn ant-btn"
+          {/* Match Fast & Slow Stock — Antd Button + .rpt-btn class so
+           *  the icon spacing, height, and hover state line up with the
+           *  rest of the rpt-* design system. The earlier raw <button
+           *  className="rpt-btn ant-btn"> didn't pick up Antd's Button
+           *  internals, leaving the buttons looking pale and inert. */}
+          <Button className="rpt-btn" icon={<ReloadOutlined />} onClick={() => refresh()}>
+            Refresh
+          </Button>
+          <Button
+            className="rpt-btn"
+            icon={<SettingOutlined />}
             onClick={() => setColsModalOpen(true)}
             title="Customize the report columns"
           >
-            <SettingOutlined /> Customize
-          </button>
+            Customize
+          </Button>
         </div>
       </header>
 
