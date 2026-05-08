@@ -564,6 +564,18 @@ export default function PurchaseBillForm() {
           manufacture_date: it.batch?.manufacture_date || null,
           expiry_date: it.batch?.expiry_date || null,
           batch_notes: it.batch?.notes || '',
+          // Restore color dimension. color_mode comes from the product;
+          // color_id + color_name come from the saved bill item; colors
+          // is the full active palette of the product so the matrix
+          // popup can re-open and show every option (not just the
+          // saved pick). Without these fields the items-table Color
+          // cell falls through to "—" and the Pick colors button never
+          // appears on edit.
+          color_mode: it.product?.color_mode || 'none',
+          color_id: it.color_id || null,
+          color_name: it.color?.color_name || '',
+          colors: (it.product?.color_mode === 'multi' && Array.isArray(it.product?.colors))
+                  ? it.product.colors : [],
         }));
         // Advance monotonic key counter above any loaded row so newly-added
         // items in edit mode can't collide with existing keys.

@@ -376,8 +376,19 @@ exports.getById = async (req, res) => {
             // Pull product so edit-mode can re-detect is_batch_tracked
             // without re-fetching products one-by-one. Lazy required so
             // restoring a recalled draft / opening an old bill renders
-            // the batch column correctly on first paint.
-            { model: Product, as: 'product', attributes: ['product_id', 'is_batch_tracked', 'color_mode'] },
+            // the batch column correctly on first paint. Active colors
+            // come along too so the matrix popup can re-open with the
+            // full per-product palette (existing pick + others) when
+            // the operator clicks the Color cell on edit.
+            { model: Product, as: 'product',
+              attributes: ['product_id', 'is_batch_tracked', 'color_mode'],
+              include: [{
+                model: ProductColor, as: 'colors',
+                where: { is_active: true },
+                required: false,
+                attributes: ['color_id', 'color_name', 'current_stock'],
+              }],
+            },
             { model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date', 'notes'] },
             // Color row tied to this line — populated for multi-color
             // products. Edit-mode rehydrates the items table dropdown
