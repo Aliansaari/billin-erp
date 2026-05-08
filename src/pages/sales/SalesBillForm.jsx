@@ -706,43 +706,9 @@ export default function SalesBillForm() {
         return;
       }
       const lt=+(qty*rate).toFixed(2);
-      // Merge-repeat-scans: when the system toggle is ON and the same
-      // SKU is scanned again, increment the existing line's qty instead
-      // of creating a new line. Match by product_id (one barcode = one
-      // product). Skip merge for batch-tracked products — the operator
-      // needs to pick a batch per scan, so each scan must be its own
-      // line (the batch picker can land on a different batch).
-      if (mergeScansRef.current && !data.is_batch_tracked) {
-        let merged = false;
-        setItems(prev => {
-          const idx = prev.findIndex(it =>
-            it.product_id === data.product_id &&
-            !it.is_batch_tracked &&
-            // Don't merge into a manually-overridden line — same rate
-            // is required so a price change on the existing line isn't
-            // silently applied to the second scan.
-            +(it.rate || 0) === +(rate || 0),
-          );
-          if (idx < 0) return prev;
-          merged = true;
-          const next = prev.slice();
-          const cur = next[idx];
-          const newQty = +(parseFloat(cur.quantity || 0) + qty).toFixed(2);
-          const newTotal = +(newQty * cur.rate).toFixed(2);
-          next[idx] = {
-            ...cur,
-            quantity: newQty,
-            total_amount: +(newTotal - (parseFloat(cur.discount_amount) || 0)).toFixed(2),
-          };
-          return next;
-        });
-        if (merged) {
-          message.success(`${data.product_name} qty + ${qty}`, 1);
-          barcodeRef.current?.focus();
-          return;
-        }
-      }
-      setItems(prev=>[...prev,{
+      // Build the new-line payload once so the single decision below
+      // can fall back to it without duplicating fields.
+      const newLine = {
         key:nextKeyRef.current++,
         product_id:data.product_id, barcode:data.barcode,
         category_id:data.category_id, category_name:data.Category?.category_name||'',
@@ -755,8 +721,48 @@ export default function SalesBillForm() {
         available_stock:parseFloat(data.current_stock)||0,
         is_batch_tracked: !!data.is_batch_tracked,
         batch_id: null,
-      }]);
-      message.success(`${data.product_name} added`,1);
+      };
+
+      // Merge-repeat-scans — the merge-OR-append decision MUST live
+      // inside ONE setItems callback. Earlier versions split this into
+      // a "try-merge setItems" + "if not merged, append setItems" pair
+      // with a flag in between. That broke under rapid scanning because
+      // setItems with a callback isn't synchronous from an async
+      // handler — both setItems calls were queued, the flag was still
+      // false at the if-check, and BOTH callbacks fired (row 1 got its
+      // qty incremented AND a new row was pushed). Putting the entire
+      // decision in a single callback guarantees exactly one outcome.
+      const canMerge = mergeScansRef.current && !data.is_batch_tracked;
+      let didMerge = false;
+      setItems(prev => {
+        if (canMerge) {
+          const idx = prev.findIndex(it =>
+            it.product_id === data.product_id &&
+            !it.is_batch_tracked &&
+            // Same rate required — a manually-overridden first line
+            // shouldn't silently absorb a fresh scan at catalog rate.
+            +(it.rate || 0) === +(rate || 0),
+          );
+          if (idx >= 0) {
+            didMerge = true;
+            const next = prev.slice();
+            const cur = next[idx];
+            const newQty = +(parseFloat(cur.quantity || 0) + qty).toFixed(2);
+            const newTotal = +(newQty * cur.rate).toFixed(2);
+            next[idx] = {
+              ...cur,
+              quantity: newQty,
+              total_amount: +(newTotal - (parseFloat(cur.discount_amount) || 0)).toFixed(2),
+            };
+            return next;
+          }
+        }
+        return [...prev, newLine];
+      });
+      message.success(
+        didMerge ? `${data.product_name} qty + ${qty}` : `${data.product_name} added`,
+        1,
+      );
       // Re-focus barcode for the next scan (non-batch fast path).
       barcodeRef.current?.focus();
     }catch{
