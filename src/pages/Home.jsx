@@ -346,7 +346,7 @@ export default function Home() {
 
         {cfg.showSearch && cfg.showSearchHint && (
           <div className="cc-hint">
-            Type to find anything &middot; <kbd className="gs-kbd">{altLabel('S')}</kbd> sale &middot; <kbd className="gs-kbd">{altLabel('P')}</kbd> purchase &middot; <kbd className="gs-kbd">⌘</kbd><kbd className="gs-kbd">K</kbd> palette
+            Type to find anything &middot; <kbd className="gs-kbd">{altLabel('S')}</kbd> sale &middot; <kbd className="gs-kbd">{altLabel('P')}</kbd> purchase &middot; <kbd className="gs-kbd">{altLabel('G')}</kbd> palette
           </div>
         )}
 

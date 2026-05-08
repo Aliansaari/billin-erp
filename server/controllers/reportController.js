@@ -22,6 +22,32 @@ exports.dashboardStats = async (req, res) => {
     const today = localDateString();
     const monthStart = today.substring(0, 8) + '01';
 
+    // Prior-period bounds for the comparison deltas the dashboard tiles
+    // render. "Today vs yesterday" + "MTD vs same window of last month" —
+    // i.e. if today is the 7th, prior MTD = 1st through 7th of last month.
+    // Computed in JS (not SQL) so we can pass plain date strings to the
+    // existing Sequelize calls.
+    const todayDateObj      = new Date(today + 'T00:00:00');
+    const yesterdayDateObj  = new Date(todayDateObj);
+    yesterdayDateObj.setDate(yesterdayDateObj.getDate() - 1);
+    const yesterday         = localDateString(yesterdayDateObj);
+    const priorMonthStartObj = new Date(todayDateObj);
+    priorMonthStartObj.setMonth(priorMonthStartObj.getMonth() - 1);
+    priorMonthStartObj.setDate(1);
+    const priorMonthStart   = localDateString(priorMonthStartObj);
+    // Same-day cap on prior month — clamps Mar-31 vs Feb-28 to "1st-28th"
+    // by relying on JS Date overflow: setting day-of-month to today's day
+    // beyond the month's last day rolls into the next month, which we
+    // then back off via the day-overflow check below.
+    const priorMonthEndObj  = new Date(priorMonthStartObj);
+    priorMonthEndObj.setDate(todayDateObj.getDate());
+    if (priorMonthEndObj.getMonth() !== priorMonthStartObj.getMonth()) {
+      // Day-of-month overflowed (e.g. trying to set Feb 30 → Mar 2).
+      // Walk back to the last valid day of the prior month.
+      priorMonthEndObj.setDate(0);
+    }
+    const priorMonthEnd     = localDateString(priorMonthEndObj);
+
     // Today's sales
     const todaySales = await SalesBill.findAll({
       where: { bill_date: today, is_cancelled: false },
@@ -249,6 +275,63 @@ exports.dashboardStats = async (req, res) => {
     const monthlyAdj    = parseFloat(cogsRow.adjustments) || 0;
     const monthlyProfit = +(monthlySalesExGST - monthlyCOGS - monthlyAdj).toFixed(2);
 
+    // ── Prior-period aggregates for delta chips ────────────────────────
+    // Yesterday's sales/purchases (for the "today" tiles' delta) plus
+    // last-month-MTD sales / purchases / cogs / adjustments (for the
+    // monthly tiles). One statement each — the indices on (bill_date,
+    // is_cancelled) keep them cheap.
+    const [yPriorSales] = await sequelize.query(
+      `SELECT COUNT(*)::int AS count,
+              COALESCE(SUM(total_amount), 0)::float AS total
+         FROM sales_bills
+        WHERE bill_date = :yesterday AND is_cancelled = false`,
+      { replacements: { yesterday }, type: sequelize.QueryTypes.SELECT },
+    );
+    const [yPriorPurchases] = await sequelize.query(
+      `SELECT COUNT(*)::int AS count,
+              COALESCE(SUM(total_amount), 0)::float AS total
+         FROM purchase_bills
+        WHERE bill_date = :yesterday AND is_cancelled = false`,
+      { replacements: { yesterday }, type: sequelize.QueryTypes.SELECT },
+    );
+
+    const [priorMonthSales] = await sequelize.query(
+      `SELECT COALESCE(SUM(total_amount), 0)::float AS total,
+              COALESCE(SUM(cgst_amount + sgst_amount + igst_amount + cess_amount), 0)::float AS gst,
+              COALESCE(SUM(special_discount + return_amount), 0)::float AS adjustments
+         FROM sales_bills
+        WHERE is_cancelled = false
+          AND bill_date BETWEEN :from AND :to`,
+      { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
+    );
+    const [priorMonthPurchases] = await sequelize.query(
+      `SELECT COALESCE(SUM(total_amount), 0)::float AS total,
+              COALESCE(SUM(cgst_amount + sgst_amount + igst_amount + cess_amount), 0)::float AS gst
+         FROM purchase_bills
+        WHERE is_cancelled = false
+          AND bill_date BETWEEN :from AND :to`,
+      { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
+    );
+    const [priorCogsRow] = await sequelize.query(
+      `SELECT COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float AS cogs
+         FROM sales_bill_items sbi
+         JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+        WHERE sb.is_cancelled = false
+          AND sb.bill_date BETWEEN :from AND :to`,
+      { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
+    );
+
+    const priorSalesGross   = parseFloat(priorMonthSales.total)    || 0;
+    const priorSalesGST     = parseFloat(priorMonthSales.gst)      || 0;
+    const priorAdj          = parseFloat(priorMonthSales.adjustments) || 0;
+    const priorPurchGross   = parseFloat(priorMonthPurchases.total) || 0;
+    const priorPurchGST     = parseFloat(priorMonthPurchases.gst)   || 0;
+    const priorSalesExGST   = +(priorSalesGross  - priorSalesGST).toFixed(2);
+    const priorPurchExGST   = +(priorPurchGross  - priorPurchGST).toFixed(2);
+    const priorCOGS         = parseFloat(priorCogsRow.cogs) || 0;
+    const priorProfit       = +(priorSalesExGST - priorCOGS - priorAdj).toFixed(2);
+    const priorGSTLiability = +(priorSalesGST - priorPurchGST).toFixed(2);
+
     res.json({
       today_sales: { count: parseInt(todaySales[0].count), total: parseFloat(todaySales[0].total) },
       today_purchases: { count: parseInt(todayPurchases[0].count), total: parseFloat(todayPurchases[0].total) },
@@ -269,11 +352,272 @@ exports.dashboardStats = async (req, res) => {
         purchase: +(parseFloat(stockValue[0].partial_purchase_value || 0) + dashBatchPurchaseValue).toFixed(2),
         sale: parseFloat(stockValue[0].sale_value),
       },
+      // Comparison snapshot — the tiles render a "vs <label>" delta chip
+      // based on these. `prior.window` is the date range used for the
+      // monthly comparison so the UI can label the chip honestly
+      // (e.g. "vs 1-7 Apr").
+      prior: {
+        yesterday_date: yesterday,
+        today_sales:     { count: yPriorSales.count,     total: yPriorSales.total },
+        today_purchases: { count: yPriorPurchases.count, total: yPriorPurchases.total },
+        window: { from: priorMonthStart, to: priorMonthEnd },
+        monthly_sales:           priorSalesGross,
+        monthly_purchases:       priorPurchGross,
+        monthly_sales_excl_gst:  priorSalesExGST,
+        monthly_purchases_excl_gst: priorPurchExGST,
+        monthly_gst_collected:   +priorSalesGST.toFixed(2),
+        monthly_gst_paid:        +priorPurchGST.toFixed(2),
+        monthly_gst_liability:   priorGSTLiability,
+        monthly_profit:          priorProfit,
+      },
       recent_sales: recentSales,
       recent_purchases: recentPurchases,
     });
   } catch (error) {
     console.error('Dashboard stats error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Rich actionable insights for the dashboard tiles — top overdue
+// customers / suppliers, bills due this week, top-selling products this
+// week, dead-stock value, cheques pending. One endpoint, six parallel
+// queries; the response stays small (each list capped at 5-10 items)
+// so the dashboard fetch stays under 100ms.
+//
+// "Overdue" is bills past their due_date with a non-zero balance. "Due
+// soon" is bills with due_date in the next 7 days, balance still owed.
+// "Dead stock" is active products with on-hand stock and no sales in
+// the last 60 days. "Cheques pending" counts cheques in PENDING status.
+exports.dashboardInsights = async (req, res) => {
+  try {
+    const top5OverdueCustomers = await sequelize.query(
+      `SELECT p.party_id, p.party_name,
+              COALESCE(SUM(sb.balance_amount), 0)::float AS balance,
+              MAX((CURRENT_DATE - sb.due_date)::int) AS oldest_days
+         FROM sales_bills sb
+         JOIN parties p ON p.party_id = sb.customer_id
+        WHERE sb.is_cancelled = false
+          AND sb.balance_amount > 0
+          AND sb.due_date IS NOT NULL
+          AND sb.due_date < CURRENT_DATE
+        GROUP BY p.party_id, p.party_name
+        ORDER BY balance DESC
+        LIMIT 5`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
+    const top5OverdueSuppliers = await sequelize.query(
+      `SELECT p.party_id, p.party_name,
+              COALESCE(SUM(pb.balance_amount), 0)::float AS balance,
+              MAX((CURRENT_DATE - pb.due_date)::int) AS oldest_days
+         FROM purchase_bills pb
+         JOIN parties p ON p.party_id = pb.supplier_id
+        WHERE pb.is_cancelled = false
+          AND pb.balance_amount > 0
+          AND pb.due_date IS NOT NULL
+          AND pb.due_date < CURRENT_DATE
+        GROUP BY p.party_id, p.party_name
+        ORDER BY balance DESC
+        LIMIT 5`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
+    const [billsDueSales] = await sequelize.query(
+      `SELECT COUNT(*)::int AS count,
+              COALESCE(SUM(balance_amount), 0)::float AS total
+         FROM sales_bills
+        WHERE is_cancelled = false
+          AND balance_amount > 0
+          AND due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
+    const [billsDuePurchase] = await sequelize.query(
+      `SELECT COUNT(*)::int AS count,
+              COALESCE(SUM(balance_amount), 0)::float AS total
+         FROM purchase_bills
+        WHERE is_cancelled = false
+          AND balance_amount > 0
+          AND due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
+    const top5SellingProducts = await sequelize.query(
+      `SELECT p.product_id, p.product_name,
+              COALESCE(SUM(sbi.quantity), 0)::float       AS qty,
+              COALESCE(SUM(sbi.total_amount), 0)::float   AS value
+         FROM sales_bill_items sbi
+         JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+         JOIN products p ON p.product_id = sbi.product_id
+        WHERE sb.is_cancelled = false
+          AND sb.bill_date >= CURRENT_DATE - INTERVAL '7 days'
+        GROUP BY p.product_id, p.product_name
+        ORDER BY value DESC
+        LIMIT 5`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
+    // Dead stock — count of active SKUs with on-hand qty and zero sales
+    // in the last 60 days, plus the cost-basis value of that idle stock.
+    // Capital that's frozen on shelves; the actionable signal is the
+    // total value, the count is the secondary detail.
+    const [deadStock] = await sequelize.query(
+      `SELECT COUNT(*)::int AS count,
+              COALESCE(SUM(p.current_stock * p.purchase_rate), 0)::float AS total_value
+         FROM products p
+        WHERE p.is_active = true
+          AND p.current_stock > 0
+          AND NOT EXISTS (
+            SELECT 1
+              FROM sales_bill_items sbi
+              JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+             WHERE sbi.product_id = p.product_id
+               AND sb.is_cancelled = false
+               AND sb.bill_date >= CURRENT_DATE - INTERVAL '60 days'
+          )`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
+    // Cheques pending — issued or received but not yet cleared/bounced.
+    // PENDING status covers both directions; the UI splits by `direction`
+    // (OUTWARD = we issued; INWARD = we received) when it cares.
+    const [chequesPending] = await sequelize.query(
+      `SELECT COUNT(*)::int AS count,
+              COALESCE(SUM(amount), 0)::float AS total
+         FROM cheques
+        WHERE status = 'PENDING'`,
+      { type: sequelize.QueryTypes.SELECT },
+    ).catch(() => [{ count: 0, total: 0 }]);  // table may not exist on older installs
+
+    res.json({
+      overdue_receivables: top5OverdueCustomers,
+      overdue_payables:    top5OverdueSuppliers,
+      bills_due_soon: {
+        sales:    billsDueSales,
+        purchase: billsDuePurchase,
+      },
+      top_selling_products: top5SellingProducts,
+      dead_stock: deadStock,
+      cheques_pending: chequesPending,
+    });
+  } catch (error) {
+    console.error('Dashboard insights error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Aggregates for the dashboard sparklines + chart tiles. One row per
+// bucket — the bucket size is controlled by `interval`:
+//
+//   interval=day    (default) — one row per calendar day
+//   interval=week   — one row per ISO week (Monday-anchored)
+//   interval=month  — one row per calendar month
+//
+// `periods` controls how many trailing buckets to return. The cap varies
+// by interval so the response stays bounded:
+//
+//   day:    7..90        (default 30)
+//   week:   4..52        (default 13)
+//   month:  3..36        (default 12)
+//
+// Each row carries the same fields as the daily series — sales,
+// purchases, receipts, payments, and gross profit — so the catalog
+// builders can switch interval without rewriting their projection
+// logic. Gaps are filled via generate_series so a quiet bucket still
+// shows up as a 0 instead of being missing.
+exports.dashboardSeries = async (req, res) => {
+  try {
+    // Whitelist the interval — it's interpolated into the SQL string
+    // (PostgreSQL doesn't allow parameter binding for INTERVAL strings
+    // or date_trunc field names) so we have to vet it here.
+    const VALID = { day: { def: 30, min: 7,  max: 90 },
+                    week:{ def: 13, min: 4,  max: 52 },
+                    month:{def: 12, min: 3,  max: 36 } };
+    const interval = VALID[req.query.interval] ? req.query.interval : 'day';
+    const cfg = VALID[interval];
+    const periods = Math.min(cfg.max, Math.max(cfg.min, parseInt(req.query.periods, 10) || cfg.def));
+
+    // Buckets all live on the truncated start-of-period for clean joins.
+    // For weeks PostgreSQL anchors at Monday by default — fine here, the
+    // dashboard never displays the underlying date.
+    const sql = `
+      WITH buckets AS (
+        SELECT generate_series(
+          date_trunc('${interval}', CURRENT_DATE - (:periods - 1) * INTERVAL '1 ${interval}'),
+          date_trunc('${interval}', CURRENT_DATE),
+          INTERVAL '1 ${interval}'
+        )::date AS d
+      ),
+      s AS (
+        SELECT date_trunc('${interval}', bill_date)::date AS d,
+               COALESCE(SUM(total_amount), 0)::float AS sales,
+               COALESCE(SUM(total_amount - cgst_amount - sgst_amount - igst_amount - cess_amount), 0)::float AS sales_ex_gst,
+               COALESCE(SUM(special_discount + return_amount), 0)::float AS adjustments,
+               COUNT(*)::int AS sales_count
+          FROM sales_bills
+         WHERE is_cancelled = false
+           AND bill_date >= date_trunc('${interval}', CURRENT_DATE - (:periods - 1) * INTERVAL '1 ${interval}')
+         GROUP BY date_trunc('${interval}', bill_date)
+      ),
+      p AS (
+        SELECT date_trunc('${interval}', bill_date)::date AS d,
+               COALESCE(SUM(total_amount), 0)::float AS purchases,
+               COUNT(*)::int AS purchases_count
+          FROM purchase_bills
+         WHERE is_cancelled = false
+           AND bill_date >= date_trunc('${interval}', CURRENT_DATE - (:periods - 1) * INTERVAL '1 ${interval}')
+         GROUP BY date_trunc('${interval}', bill_date)
+      ),
+      cogs AS (
+        SELECT date_trunc('${interval}', sb.bill_date)::date AS d,
+               COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float AS cogs
+          FROM sales_bills sb
+          JOIN sales_bill_items sbi ON sbi.sales_bill_id = sb.sales_bill_id
+         WHERE sb.is_cancelled = false
+           AND sb.bill_date >= date_trunc('${interval}', CURRENT_DATE - (:periods - 1) * INTERVAL '1 ${interval}')
+         GROUP BY date_trunc('${interval}', sb.bill_date)
+      ),
+      r AS (
+        SELECT date_trunc('${interval}', transaction_date)::date AS d,
+               COALESCE(SUM(total_amount), 0)::float AS receipts
+          FROM payments_receipts
+         WHERE is_cancelled = false AND transaction_type = 'Receipt'
+           AND transaction_date >= date_trunc('${interval}', CURRENT_DATE - (:periods - 1) * INTERVAL '1 ${interval}')
+         GROUP BY date_trunc('${interval}', transaction_date)
+      ),
+      pm AS (
+        SELECT date_trunc('${interval}', transaction_date)::date AS d,
+               COALESCE(SUM(total_amount), 0)::float AS payments
+          FROM payments_receipts
+         WHERE is_cancelled = false AND transaction_type = 'Payment'
+           AND transaction_date >= date_trunc('${interval}', CURRENT_DATE - (:periods - 1) * INTERVAL '1 ${interval}')
+         GROUP BY date_trunc('${interval}', transaction_date)
+      )
+      SELECT to_char(buckets.d, 'YYYY-MM-DD') AS date,
+             COALESCE(s.sales, 0)              AS sales,
+             COALESCE(s.sales_count, 0)        AS sales_count,
+             COALESCE(p.purchases, 0)          AS purchases,
+             COALESCE(p.purchases_count, 0)    AS purchases_count,
+             COALESCE(r.receipts, 0)           AS receipts,
+             COALESCE(pm.payments, 0)          AS payments,
+             COALESCE(s.sales_ex_gst, 0) - COALESCE(cogs.cogs, 0) - COALESCE(s.adjustments, 0) AS profit
+        FROM buckets
+        LEFT JOIN s    ON s.d    = buckets.d
+        LEFT JOIN p    ON p.d    = buckets.d
+        LEFT JOIN cogs ON cogs.d = buckets.d
+        LEFT JOIN r    ON r.d    = buckets.d
+        LEFT JOIN pm   ON pm.d   = buckets.d
+       ORDER BY buckets.d
+    `;
+
+    const rows = await sequelize.query(sql, {
+      replacements: { periods },
+      type: sequelize.QueryTypes.SELECT,
+    });
+    res.json({ interval, periods, series: rows });
+  } catch (error) {
+    console.error('Dashboard series error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };

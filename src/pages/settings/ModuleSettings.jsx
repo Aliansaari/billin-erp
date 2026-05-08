@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Form, Switch, InputNumber, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { settingsAPI } from '../../api';
+import { refreshSystemSettings } from '../../hooks/useSystemSettings';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './ModuleSettings.css';
 
@@ -86,6 +87,10 @@ export default function ModuleSettings() {
     setSaving(true);
     try {
       await settingsAPI.updateSystem(values);
+      // Invalidate the shared system-settings cache so consumers
+      // (sidebar, settings rail, every bill form) re-render with the
+      // new flag values immediately, no reload required.
+      await refreshSystemSettings().catch(() => {});
       message.success('Features saved');
     } catch (error) {
       console.error('FeaturesSettings save error:', error);

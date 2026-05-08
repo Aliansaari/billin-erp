@@ -5,6 +5,7 @@ import { ALT_MENUS, CTRL_DIRECT } from '../components/keyboard/menuCatalog';
 
 export const SHORTCUTS_LIST = [
   { keys: 'Cmd/Ctrl + K', description: 'Open global search' },
+  { keys: 'Alt + G', description: 'Open global search' },
   { keys: 'Alt + H', description: 'Home menu' },
   { keys: 'Alt + S', description: 'Sales menu' },
   { keys: 'Alt + P', description: 'Purchase menu' },
@@ -41,6 +42,17 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       // verb on the page, so it lives at the top of the handler before
       // the Alt / Ctrl letter blocks to avoid conflicting.
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        window.dispatchEvent(new Event('global-search:open'));
+        return;
+      }
+
+      // Alt + G — alternate trigger for the global search palette.
+      // Pinned to G for "Global" so it's discoverable via the help
+      // overlay alongside Cmd/Ctrl+K. Handled before the ALT_MENUS
+      // lookup so it can't be accidentally swallowed by a future
+      // section that starts with G.
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyG') {
         e.preventDefault();
         window.dispatchEvent(new Event('global-search:open'));
         return;

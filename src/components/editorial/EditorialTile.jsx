@@ -34,8 +34,6 @@ const tierAccent = (tier) => {
   }
 };
 
-const tierClass = (tier) => `e-tier e-tier-${(tier || 's').toLowerCase()}`;
-
 export default function EditorialTile({
   category,
   tier = 'S',
@@ -101,7 +99,6 @@ export default function EditorialTile({
     >
       <div className="e-tile-top">
         <span className="e-tile-cat">{category}</span>
-        <span className={tierClass(tier)}>Tier {tier}</span>
       </div>
       <div className="e-tile-title">{title}</div>
 

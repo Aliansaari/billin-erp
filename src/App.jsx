@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-do
 import useAuthStore from './store/authStore';
 import { partyAPI } from './api';
 import { refreshFinancialYear } from './hooks/useFinancialYear';
+import { useMultiWarehouseEnabled } from './hooks/useSystemSettings';
 import { useGlobalShortcuts, SHORTCUTS_LIST } from './hooks/useKeyboardShortcuts';
 import AppLayout from './components/Layout/AppLayout';
 import RoleRoute from './components/RoleRoute';
@@ -94,8 +95,23 @@ import ImportExport from './pages/settings/ImportExport';
 import TallySync from './pages/settings/TallySync';
 import PrintSettings from './pages/settings/PrintSettings';
 import HomeSettings from './pages/settings/HomeSettings';
+import DashboardSettings from './pages/settings/DashboardSettings';
 import DefaultsSettings from './pages/settings/DefaultsSettings';
 import SettingsLayout from './pages/settings/SettingsLayout';
+
+/**
+ * Gate a route on the global Multi-warehouse toggle. When the flag is
+ * OFF every godown surface (Stock Transfers, Settings → Godowns, the
+ * two godown reports) should be inaccessible — even by direct URL or
+ * stale bookmark. Renders nothing while the system-settings cache is
+ * still loading to avoid a flicker-redirect on cold load.
+ */
+function MultiWarehouseRoute({ children }) {
+  const enabled = useMultiWarehouseEnabled();
+  if (enabled === null) return null;
+  if (!enabled) return <Navigate to="/" replace />;
+  return children;
+}
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -305,9 +321,9 @@ export default function App() {
                clicking a product doesn't remount the whole page (which
                previously re-ran loadProducts and caused a visible blink). */}
           <Route path="stock-movement/*"               element={<RoleRoute perm="inventory.view"><StockMovement /></RoleRoute>} />
-          <Route path="stock-transfers"                element={<RoleRoute perm="stock_transfers.view"><StockTransferList /></RoleRoute>} />
-          <Route path="stock-transfer/new"             element={<RoleRoute perm="stock_transfers.create"><StockTransferForm /></RoleRoute>} />
-          <Route path="stock-transfer/edit/:id"        element={<RoleRoute perm="stock_transfers.view"><StockTransferForm /></RoleRoute>} />
+          <Route path="stock-transfers"                element={<MultiWarehouseRoute><RoleRoute perm="stock_transfers.view"><StockTransferList /></RoleRoute></MultiWarehouseRoute>} />
+          <Route path="stock-transfer/new"             element={<MultiWarehouseRoute><RoleRoute perm="stock_transfers.create"><StockTransferForm /></RoleRoute></MultiWarehouseRoute>} />
+          <Route path="stock-transfer/edit/:id"        element={<MultiWarehouseRoute><RoleRoute perm="stock_transfers.view"><StockTransferForm /></RoleRoute></MultiWarehouseRoute>} />
 
           {/* Batches (Commit 5) — list + per-batch detail. Same
               .report-editorial shell as Stock Transfers list / Sales
@@ -401,8 +417,8 @@ export default function App() {
               cached favourite resolves to the new path.  Replace=true
               so the redirect doesn't pollute history. */}
           <Route path="reports/movers"             element={<Navigate to="/reports/fast-slow-stock" replace />} />
-          <Route path="reports/transfer-register"  element={<RoleRoute perm="reports.view"><GodownTransferRegister /></RoleRoute>} />
-          <Route path="reports/godown-valuation"   element={<RoleRoute perm="reports.view"><GodownValuation /></RoleRoute>} />
+          <Route path="reports/transfer-register"  element={<MultiWarehouseRoute><RoleRoute perm="reports.view"><GodownTransferRegister /></RoleRoute></MultiWarehouseRoute>} />
+          <Route path="reports/godown-valuation"   element={<MultiWarehouseRoute><RoleRoute perm="reports.view"><GodownValuation /></RoleRoute></MultiWarehouseRoute>} />
 
           {/* Accounts (double-entry) */}
           <Route path="accounts/journal"          element={<RoleRoute perm="accounts.view"><JournalVoucherList /></RoleRoute>} />
@@ -442,10 +458,14 @@ export default function App() {
             <Route path="import"              element={<RoleRoute perm="settings.import_export"><ImportV2 /></RoleRoute>} />
             <Route path="tally"               element={<RoleRoute perm="settings.tally"><TallySync /></RoleRoute>} />
             <Route path="print"               element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
-            <Route path="godowns"             element={<RoleRoute perm="godowns.view"><GodownList /></RoleRoute>} />
+            <Route path="godowns"             element={<MultiWarehouseRoute><RoleRoute perm="godowns.view"><GodownList /></RoleRoute></MultiWarehouseRoute>} />
             {/* Home page customization — no perm gate; every operator can
                 pick what shows on their own landing page. */}
             <Route path="home"                element={<HomeSettings />} />
+            {/* Dashboard customization — same per-user UX gate (none); the
+                /dashboard route renders whatever tiles the operator has
+                pinned in their localStorage settings. */}
+            <Route path="dashboard"           element={<DashboardSettings />} />
           </Route>
         </Route>
       </Routes>

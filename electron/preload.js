@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Doing the fs.writeFile in main (with the raw Buffer) sidesteps that.
   savePDF: (payload) => ipcRenderer.invoke('pdf:save', payload),
 
+  // Renderer-built PDF blob (jsPDF) → write to Downloads. Bytes go over
+  // IPC as a Uint8Array so the structured-clone path stays type-stable;
+  // main wraps in Buffer and writes. Used by the bill / list PDF
+  // exports — sidesteps the printToPDF round-trip entirely.
+  saveBlobToDownloads: (payload) => ipcRenderer.invoke('pdf:save-blob', payload),
+
   // Shell helpers so the renderer can open a file in the system default app
   // or pop a File Explorer window with the file already selected — used by
   // the WhatsApp flow so the operator can drag the fresh PDF into the chat.

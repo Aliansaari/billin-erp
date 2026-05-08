@@ -1,75 +1,68 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Spin, Typography } from 'antd';
+import { Spin } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { SunOutlined, MoonOutlined } from '@ant-design/icons';
+import { SettingOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
-import { reportAPI, salesAPI, purchaseAPI, paymentAPI } from '../api';
-import useThemeStore from '../store/themeStore';
-import { resolveMode } from '../theme/tokens';
-
+import { reportAPI } from '../api';
 import EditorialTile from '../components/editorial/EditorialTile';
-import GlassSwitch from '../components/editorial/GlassSwitch';
+import EditorialListTile from '../components/editorial/EditorialListTile';
+import EditorialChartTile from '../components/editorial/EditorialChartTile';
 import '../components/editorial/editorial.css';
+import { TILES, getTileById } from '../config/dashboardTiles';
+import useDashboardSettingsStore from '../store/dashboardSettingsStore';
 
-const { Text } = Typography;
-
-/* ── utilities ───────────────────────────────────────────────────────── */
-
-const fmtMoney = (v) => '₹' + Math.round(Number(v) || 0).toLocaleString('en-IN');
-const fmtInt   = (v) => Math.round(Number(v) || 0).toLocaleString('en-IN');
-
-/** Fabricate a small sparkline series from a current value.
- *  We don't have 6-month history endpoints yet — this smooths a mild
- *  upward or downward curve to the current value so the tiles render
- *  plausibly. Swap for real timeseries once the backend exposes them. */
-function fakeSeries(current, bias = 1) {
-  const v = Math.max(1, Number(current) || 1);
-  const pts = [];
-  for (let i = 0; i < 10; i++) {
-    const x = i / 9;
-    const k = 0.55 + 0.45 * Math.pow(x, bias);
-    const noise = 1 + (Math.sin(i * 1.37) * 0.06);
-    pts.push(v * k * noise);
-  }
-  return pts;
-}
-
-/** Compute tier from a positive metric and a "watch threshold".
- *    - S: strong / top of range
- *    - A: healthy
- *    - B: watch
- *    - C: attention */
-function tierFor(value, { strong, healthy, watch } = {}) {
-  const v = Number(value) || 0;
-  if (strong != null && v >= strong)  return 'S';
-  if (healthy != null && v >= healthy) return 'A';
-  if (watch != null && v >= watch)    return 'B';
-  return 'C';
-}
-
-/* ── page ─────────────────────────────────────────────────────────────── */
-
+/**
+ * Dashboard — customizable tile grid driven by the catalog in
+ * `src/config/dashboardTiles.js`. Three tile shapes:
+ *
+ *   metric — single big number with optional sparkline + delta chip
+ *   list   — top-N list of parties / products with values
+ *   chart  — multi-line trend (sales vs purchase, etc.)
+ *
+ * Data sources fetched in parallel on mount:
+ *   /api/reports/dashboard          — point-in-time totals + prior-period
+ *   /api/reports/dashboard/series   — 30-day daily aggregates
+ *   /api/reports/dashboard/insights — top overdue parties, top sellers, dead stock, …
+ *
+ * Selected tile ids + display order live in dashboardSettingsStore
+ * (zustand+persist). The Customize button takes the operator to
+ * Settings → Dashboard.
+ */
 export default function Dashboard() {
-  const navigate = useNavigate();
-  const [stats, setStats]   = useState(null);
-  const [loading, setLoad]  = useState(true);
-  const [period, setPeriod] = useState('month');  // 'today' | 'month' | 'quarter' | 'year'
+  const navigate  = useNavigate();
+  const tileIds   = useDashboardSettingsStore((s) => s.tiles);
+  const tileCfg   = useDashboardSettingsStore((s) => s.config);
+  const getConfig = useDashboardSettingsStore((s) => s.getConfig);
+  const [stats,    setStats]    = useState(null);
+  const [seriesMap, setSeriesMap] = useState({ day: [], week: [], month: [] });
+  const [insights, setInsights] = useState(null);
+  const [loading,  setLoad]     = useState(true);
 
-  // Theme controls (glassy header toggle mirrors the Settings → Theme page).
-  const appearance      = useThemeStore((s) => s.appearance);
-  const themeStyle      = useThemeStore((s) => s.themeStyle);
-  const setAppearance   = useThemeStore((s) => s.setAppearance);
-  const mode            = resolveMode(themeStyle, appearance);
-  const isDark          = mode.endsWith('dark');
+  useEffect(() => { load(); }, []);
 
-  useEffect(() => { loadStats(); }, []);
-
-  const loadStats = async () => {
+  const load = async () => {
     setLoad(true);
     try {
-      const { data } = await reportAPI.getDashboard();
-      setStats(data);
+      // Fetch all three intervals up front — three small round-trips,
+      // total payload is tiny (each row is ~50 bytes, ~90+52+36 rows
+      // max). Caching the full per-interval datasets means the operator
+      // can flip a tile's interval / periods in the settings popover
+      // without triggering a network round-trip.
+      const [statsRes, dayRes, weekRes, monthRes, insightsRes] = await Promise.allSettled([
+        reportAPI.getDashboard(),
+        reportAPI.getDashboardSeries({ interval: 'day',   periods: 90 }),
+        reportAPI.getDashboardSeries({ interval: 'week',  periods: 52 }),
+        reportAPI.getDashboardSeries({ interval: 'month', periods: 36 }),
+        reportAPI.getDashboardInsights(),
+      ]);
+      if (statsRes.status    === 'fulfilled') setStats(statsRes.value.data || null);
+      if (insightsRes.status === 'fulfilled') setInsights(insightsRes.value.data || null);
+      setSeriesMap({
+        day:   dayRes.status   === 'fulfilled' ? (dayRes.value.data?.series   || []) : [],
+        week:  weekRes.status  === 'fulfilled' ? (weekRes.value.data?.series  || []) : [],
+        month: monthRes.status === 'fulfilled' ? (monthRes.value.data?.series || []) : [],
+      });
     } catch (err) {
       console.error('Dashboard load failed:', err);
     } finally {
@@ -77,194 +70,49 @@ export default function Dashboard() {
     }
   };
 
-  /* ── derive tile data ───────────────────────────────────────────── */
-
-  const tiles = useMemo(() => {
-    if (!stats) return [];
-
-    const todaySales    = Number(stats.today_sales?.total) || 0;
-    const todayPurch    = Number(stats.today_purchases?.total) || 0;
-    const mtdSales      = Number(stats.monthly_sales) || 0;
-    const mtdPurch      = Number(stats.monthly_purchases) || 0;
-    const mtdProfit     = Number(stats.monthly_profit) || 0;
-    const recv          = Number(stats.receivables?.total) || 0;
-    const recvCount     = Number(stats.receivables?.count) || 0;
-    const pay           = Number(stats.payables?.total) || 0;
-    const payCount      = Number(stats.payables?.count) || 0;
-    const lowStock      = Number(stats.low_stock_count) || 0;
-
-    // Quick tier heuristics — swap for real computations when we have
-    // month-over-month data on the server.
-    const salesTier    = tierFor(mtdSales,  { strong: 200000, healthy: 50000, watch: 1000 });
-    const purchTier    = tierFor(mtdPurch,  { strong: 200000, healthy: 50000, watch: 1000 });
-    const profitTier   = mtdProfit > 0 ? 'S' : mtdProfit === 0 ? 'B' : 'C';
-    const recvTier     = recv === 0 ? 'S' : recv < 100000 ? 'B' : 'C';
-    const payTier      = pay === 0 ? 'S' : pay < 100000 ? 'B' : 'C';
-    const lowTier      = lowStock === 0 ? 'S' : lowStock <= 3 ? 'B' : 'C';
-
-    return [
-      {
-        category: 'Today · Sales',
-        tier: salesTier,
-        title: "Today's sales",
-        valueCount: todaySales,
-        valueFormat: fmtMoney,
-        valueLabel: `${stats.today_sales?.count || 0} bills`,
-        ringPct: Math.min(100, (todaySales / Math.max(1, mtdSales / 20)) * 100),
-        ringLabel: `${stats.today_sales?.count || 0}`,
-        trendData: fakeSeries(todaySales || 10, 1.1),
-        trendRight: <span className="e-tile-trend-pct up">today</span>,
-        verdict: todaySales > 0
-          ? 'A bill-by-bill morning — keep it moving.'
-          : 'Quiet open. First bill of the day still to come.',
-      },
-      {
-        category: 'Today · Purchases',
-        tier: purchTier,
-        title: "Today's purchases",
-        valueCount: todayPurch,
-        valueFormat: fmtMoney,
-        valueLabel: `${stats.today_purchases?.count || 0} bills`,
-        ringPct: Math.min(100, (todayPurch / Math.max(1, mtdPurch / 20)) * 100),
-        ringLabel: `${stats.today_purchases?.count || 0}`,
-        trendData: fakeSeries(todayPurch || 10, 0.9),
-        trendRight: <span className="e-tile-trend-pct flat">today</span>,
-        verdict: 'Routine restocking — no surges, no shortfalls.',
-      },
-      {
-        category: 'Month · Profit',
-        tier: profitTier,
-        title: 'Month-to-date profit',
-        valueCount: Math.abs(mtdProfit),
-        valueFormat: (n) => (mtdProfit < 0 ? '−' : '') + fmtMoney(n).replace('₹', '₹'),
-        valueLabel: mtdProfit >= 0 ? 'Net gain' : 'Net loss',
-        ringPct: mtdSales > 0 ? Math.min(100, Math.abs(mtdProfit) / mtdSales * 100) : 0,
-        ringLabel: mtdSales > 0 ? `${Math.round(Math.abs(mtdProfit) / mtdSales * 100)}%` : '—',
-        trendData: fakeSeries(Math.abs(mtdProfit) || 10, 1.2),
-        trendRight: (
-          <span className={'e-tile-trend-pct ' + (mtdProfit >= 0 ? 'up' : 'down')}>
-            {mtdProfit >= 0 ? '▲' : '▼'} margin
-          </span>
-        ),
-        verdict: mtdProfit > 0
-          ? 'Healthy margin carried through the month.'
-          : 'Margin under pressure — revisit pricing on top-movers.',
-      },
-      {
-        category: 'Outstanding · Customers',
-        tier: recvTier,
-        title: 'Outstanding from customers',
-        valueCount: recv,
-        valueFormat: fmtMoney,
-        valueLabel: `${recvCount} parties`,
-        ringPct: Math.min(100, recv > 0 ? 80 : 0),
-        trendData: fakeSeries(recv || 10, 1.05),
-        trendRight: <span className="e-tile-trend-pct up">receivable</span>,
-        verdict: recvCount === 0
-          ? 'All bills paid in full — no receivables.'
-          : `${recvCount} parties with outstanding balances. Review aging this week.`,
-      },
-      {
-        category: 'Outstanding · Suppliers',
-        tier: payTier,
-        title: 'Outstanding to suppliers',
-        valueCount: pay,
-        valueFormat: fmtMoney,
-        valueLabel: `${payCount} parties`,
-        ringPct: Math.min(100, pay > 0 ? 55 : 0),
-        trendData: fakeSeries(pay || 10, 0.8),
-        trendRight: <span className="e-tile-trend-pct down">payable</span>,
-        verdict: payCount === 0
-          ? 'Suppliers square. Nothing owed.'
-          : `${payCount} suppliers awaiting payment.`,
-      },
-      {
-        category: 'Month · Sales',
-        tier: salesTier,
-        title: 'Month-to-date sales',
-        valueCount: mtdSales,
-        valueFormat: fmtMoney,
-        valueLabel: 'Gross value',
-        ringPct: 72,
-        trendData: fakeSeries(mtdSales || 10, 1.15),
-        trendRight: <span className="e-tile-trend-pct up">month-to-date</span>,
-        verdict: mtdSales > 0
-          ? 'Month tracks above break-even — pace holds.'
-          : 'First week of the month — momentum building.',
-      },
-      {
-        category: 'Month · Purchases',
-        tier: purchTier,
-        title: 'Month-to-date purchases',
-        valueCount: mtdPurch,
-        valueFormat: fmtMoney,
-        valueLabel: 'Gross value',
-        ringPct: 42,
-        trendData: fakeSeries(mtdPurch || 10, 0.95),
-        trendRight: <span className="e-tile-trend-pct flat">month-to-date</span>,
-        verdict: 'Steady procurement rhythm against sales volume.',
-      },
-      {
-        category: 'Inventory · Low stock',
-        tier: lowTier,
-        title: 'Items below reorder level',
-        valueCount: lowStock,
-        valueFormat: fmtInt,
-        valueLabel: lowStock === 1 ? 'item' : 'items',
-        ringPct: Math.min(100, lowStock * 12),
-        ringLabel: `${lowStock}`,
-        trendData: fakeSeries(lowStock || 1, 1.0),
-        trendRight: <span className="e-tile-trend-pct flat">watch</span>,
-        verdict: lowStock === 0
-          ? 'All lines stocked — no reorder action needed.'
-          : `${lowStock} product${lowStock === 1 ? '' : 's'} need reorder attention.`,
-      },
-      {
-        category: 'Recent · Bills today',
-        tier: 'A',
-        title: 'Total bills recorded today',
-        valueCount: (stats.today_sales?.count || 0) + (stats.today_purchases?.count || 0),
-        valueFormat: fmtInt,
-        valueLabel: 'sales + purchase combined',
-        ringPct: Math.min(100, ((stats.today_sales?.count || 0) + (stats.today_purchases?.count || 0)) * 5),
-        trendData: fakeSeries((stats.today_sales?.count || 0) + (stats.today_purchases?.count || 0) || 1, 1.1),
-        trendRight: <span className="e-tile-trend-pct up">today</span>,
-        verdict: 'Every bill accounted for.',
-      },
-    ];
-  }, [stats]);
-
-  /* Recent activity ribbon — merge sales + purchases, sorted by date.
-   * Must be declared BEFORE any early return so React's hook order stays stable. */
-  const recent = useMemo(() => {
-    if (!stats) return [];
-    const s = (stats.recent_sales || []).map(b => ({
-      type: 'sale',
-      ref: b.bill_number,
-      who: (b.customer?.is_system_cash || !b.customer?.party_name)
-        ? `Cash${b.walk_in_name ? ` — ${String(b.walk_in_name).trim()}` : ''}`
-        : b.customer.party_name,
-      detail: null,
-      amt: Number(b.total_amount) || 0,
-      status: b.payment_status,
-      date: b.bill_date,
-      onClick: () => navigate(`/sale/edit/${b.sales_bill_id}`),
-    }));
-    const p = (stats.recent_purchases || []).map(b => ({
-      type: 'purc',
-      ref: b.bill_number,
-      who: b.supplier?.party_name || '—',
-      detail: null,
-      amt: Number(b.total_amount) || 0,
-      status: b.payment_status,
-      date: b.bill_date,
-      onClick: () => navigate(`/purchase/edit/${b.purchase_bill_id}`),
-    }));
-    const merged = [...s, ...p].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-    return merged.slice(0, 8);
-  }, [stats, navigate]);
-
-  /* ── loading ────────────────────────────────────────────────────── */
+  // Resolve user-selected ids → catalog entry + built props. Stale ids
+  // (tile removed from catalog) are filtered out silently. Each builder
+  // receives the FULL per-interval series map plus its merged config so
+  // it can pick the right bucket size + count without us pre-slicing.
+  const builtTiles = useMemo(() => {
+    const haveAnyData = stats || insights || Object.values(seriesMap).some((arr) => arr && arr.length);
+    if (!haveAnyData) return [];
+    return tileIds
+      .map((id) => {
+        const def = getTileById(id);
+        if (!def) return null;
+        const config = getConfig(id);
+        // Pick the active interval's full dataset; the builder slices
+        // down to config.periods. Fallback to daily if an unknown
+        // interval slips through (defensive — shouldn't happen).
+        const intervalSeries = seriesMap[config.interval] || seriesMap.day || [];
+        try {
+          const props = def.build({
+            stats, insights, navigate, config,
+            // Existing builders expect `series`; pass the active interval
+            // there. Builders that need cross-interval data (e.g. metric
+            // tiles using a fixed daily sparkline) read `seriesMap.day`
+            // directly.
+            series: intervalSeries,
+            seriesMap,
+          });
+          return {
+            id,
+            type: def.type || 'metric',
+            size: config.size,
+            ...props,
+          };
+        } catch (err) {
+          console.error(`[dashboard] tile "${id}" build failed:`, err);
+          return null;
+        }
+      })
+      .filter(Boolean);
+    // tileCfg in deps so the builder re-runs when the operator tweaks a
+    // tile from the settings popover (without it, getConfig closes over
+    // the previous config map).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tileIds, tileCfg, stats, seriesMap, insights, navigate]);
 
   if (loading) {
     return (
@@ -282,12 +130,10 @@ export default function Dashboard() {
     );
   }
 
-  /* ── render ─────────────────────────────────────────────────────── */
+  const hasTiles = builtTiles.length > 0;
 
   return (
     <div style={{ padding: '0 2px', paddingBottom: 24 }}>
-
-      {/* Header: title on the left, glassy controls on the right */}
       <header style={{
         padding: '4px 8px 20px',
         display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
@@ -304,25 +150,27 @@ export default function Dashboard() {
           <div style={{ fontSize: 14, color: 'var(--fg-secondary)' }}>
             {dayjs().format('dddd, DD MMMM YYYY')}{' '}
             <span style={{ color: 'var(--fg-tertiary)' }}>·</span>{' '}
-            all figures month-to-date
+            {builtTiles.length} {builtTiles.length === 1 ? 'tile' : 'tiles'} active
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <GlassSwitch
-            value={period}
-            onChange={setPeriod}
-            options={[
-              { value: 'today',   label: 'Today' },
-              { value: 'month',   label: 'This month' },
-              { value: 'quarter', label: 'Quarter' },
-              { value: 'year',    label: 'Year' },
-            ]}
-          />
-        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/settings/dashboard')}
+          className="erp-customize-btn"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '8px 14px', borderRadius: 999,
+            border: '1px solid var(--border-strong)',
+            background: 'var(--bg-elev)',
+            color: 'var(--fg-primary)',
+            fontSize: 13, fontWeight: 500, cursor: 'pointer',
+          }}
+        >
+          <SettingOutlined /> Customize
+        </button>
       </header>
 
-      {/* Section heading (quiet) */}
       <div style={{
         padding: '4px 8px 14px',
         display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
@@ -333,95 +181,149 @@ export default function Dashboard() {
           textTransform: 'uppercase', letterSpacing: 1,
           color: 'var(--fg-secondary)',
         }}>
-          Every metric at a glance
+          Live data · trends, action items, and metrics
         </div>
         <div style={{ fontSize: 13, color: 'var(--fg-tertiary)', fontStyle: 'italic' }}>
-          nine figures · {dayjs().format('DD MMM YYYY')}
+          {dayjs().format('DD MMM YYYY')}
         </div>
       </div>
 
-      {/* 3×3 tile grid */}
-      <section style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: 16,
-        paddingBottom: 28,
-      }} className="erp-tiles-grid">
-        {tiles.map((t, i) => (
-          <EditorialTile
-            key={i}
-            {...t}
-            delayMs={40 + i * 60}
-          />
-        ))}
-      </section>
+      {hasTiles ? (
+        <section
+          className="erp-tiles-grid"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            // dense flow back-fills holes left by 2/3-wide chart tiles
+            // with following 1-cell tiles, so the grid never has empty
+            // slots. The reordering it implies is a worthwhile trade for
+            // the visual coherence — a chart in row 1 col 1-2 and a
+            // metric in col 3 reads cleaner than a metric in col 1 with
+            // dead space to its right.
+            gridAutoFlow: 'dense',
+            gap: 16,
+            paddingBottom: 28,
+          }}
+        >
+          {builtTiles.map((t, i) => {
+            const span = Math.max(1, Math.min(3, t.size || 1));
+            const cellStyle = span > 1 ? { gridColumn: `span ${span}` } : undefined;
+            const delayMs = 40 + i * 50;
 
-      {/* Recent activity ribbon */}
-      <section style={{ paddingTop: 8 }}>
+            if (t.type === 'chart') {
+              return (
+                <div key={t.id} style={cellStyle}>
+                  <EditorialChartTile
+                    category={t.category}
+                    title={t.title}
+                    summary={t.summary}
+                    summaryRight={t.summaryRight}
+                    series={t.series}
+                    xLabels={t.xLabels}
+                    delayMs={delayMs}
+                  />
+                </div>
+              );
+            }
+
+            if (t.type === 'list') {
+              return (
+                <div key={t.id} style={cellStyle}>
+                  <EditorialListTile
+                    category={t.category}
+                    title={t.title}
+                    summary={t.summary}
+                    summaryRight={t.summaryRight}
+                    items={t.items}
+                    emptyText={t.emptyText}
+                    footer={t.footer && (
+                      <span
+                        role={t.onFooter ? 'button' : undefined}
+                        tabIndex={t.onFooter ? 0 : undefined}
+                        onClick={t.onFooter}
+                        onKeyDown={(e) => { if (t.onFooter && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); t.onFooter(); } }}
+                        style={t.onFooter ? { cursor: 'pointer' } : undefined}
+                      >
+                        {t.footer}
+                      </span>
+                    )}
+                    delayMs={delayMs}
+                  />
+                </div>
+              );
+            }
+
+            // metric (default)
+            return (
+              <div key={t.id} style={cellStyle}>
+                <EditorialTile
+                  category={t.category}
+                  tier={t.tier}
+                  title={t.title}
+                  valueCount={t.valueCount}
+                  valueFormat={t.valueFormat}
+                  valueLabel={t.valueLabel}
+                  ringPct={t.ringPct}
+                  ringLabel={t.ringLabel}
+                  trendData={t.trendData}
+                  trendLabel={t.trendLabel}
+                  trendRight={
+                    t.trendChip
+                      ? <span className={`e-tile-trend-pct ${t.trendChip.tone}`}>{t.trendChip.text}</span>
+                      : null
+                  }
+                  verdict={t.verdict}
+                  delayMs={delayMs}
+                />
+              </div>
+            );
+          })}
+        </section>
+      ) : (
         <div style={{
-          display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-          padding: '0 8px 14px',
+          padding: 60, textAlign: 'center',
+          border: '1px dashed var(--border-strong)', borderRadius: 12,
+          color: 'var(--fg-secondary)',
         }}>
-          <div style={{
-            fontSize: 16, fontWeight: 700,
-            color: 'var(--fg-primary)', letterSpacing: '-0.01em',
-          }}>
-            Recent activity
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--fg-primary)', marginBottom: 8 }}>
+            No tiles pinned
           </div>
-          <a
-            onClick={() => navigate('/sales')}
+          <div style={{ fontSize: 14, marginBottom: 18 }}>
+            Pick the metrics you want to see on this dashboard.
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/settings/dashboard')}
             style={{
-              color: 'var(--accent)', textDecoration: 'none',
-              fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              padding: '10px 20px', borderRadius: 8,
+              border: '1px solid var(--accent)', background: 'var(--accent)',
+              color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
             }}
           >
-            view full journal →
-          </a>
+            <SettingOutlined /> Customize tiles
+          </button>
         </div>
+      )}
 
-        <div className="e-ribbon">
-          {recent.length === 0 ? (
-            <div style={{
-              padding: 40, textAlign: 'center',
-              color: 'var(--fg-tertiary)', fontStyle: 'italic',
-            }}>
-              No bills recorded yet today.
-            </div>
-          ) : recent.map((r, i) => (
-            <div key={i} className="e-ribbon-row" onClick={r.onClick} style={{ cursor: r.onClick ? 'pointer' : 'default' }}>
-              <div className="e-ribbon-time">
-                {r.date ? dayjs(r.date).format('DD MMM') : '—'}
-              </div>
-              <div>
-                <div className={'e-ribbon-type ' + r.type}>
-                  {r.type === 'sale' ? `Sale · ${r.ref || '—'}` : `Purchase · ${r.ref || '—'}`}
-                </div>
-              </div>
-              <div className="e-ribbon-who">{r.who}</div>
-              <div className="e-ribbon-detail">{r.detail || ''}</div>
-              <div className="e-ribbon-amt">{fmtMoney(r.amt)}</div>
-              <div className={'e-status ' + (r.status === 'Paid' ? 'paid' : r.status === 'Partial' ? 'part' : 'due')}>
-                {r.status || '—'}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Tiny footer */}
       <div style={{
         marginTop: 24, padding: '18px 8px',
         borderTop: '1px solid var(--border-subtle)',
         fontSize: 12, color: 'var(--fg-tertiary)',
         textAlign: 'center',
       }}>
-        Billing ERP · v1.0.0 · every bill, accounted for.
+        {TILES.length} tiles available · trends, action items, and metrics
       </div>
 
-      {/* Responsive grid collapse */}
       <style>{`
-        @media (max-width: 1200px) { .erp-tiles-grid { grid-template-columns: repeat(2, 1fr) !important; } }
-        @media (max-width: 720px)  { .erp-tiles-grid { grid-template-columns: 1fr !important; } }
+        @media (max-width: 1200px) {
+          .erp-tiles-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .erp-tiles-grid > div[style*="span 3"] { grid-column: span 2 !important; }
+        }
+        @media (max-width: 720px) {
+          .erp-tiles-grid { grid-template-columns: 1fr !important; }
+          .erp-tiles-grid > div { grid-column: span 1 !important; }
+        }
+        .erp-customize-btn:hover { background: var(--bg-hover); }
       `}</style>
     </div>
   );

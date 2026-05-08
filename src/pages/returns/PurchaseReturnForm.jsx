@@ -7,6 +7,7 @@ import {
   purchaseReturnAPI, purchaseAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI,
 } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
 import { printDocument } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
@@ -44,6 +45,8 @@ export default function PurchaseReturnForm() {
   const [form]                    = Form.useForm();
   const [items, setItems]         = useState([]);
   const [parties, setParties]     = useState([]);
+  // Multi-warehouse master toggle — see PurchaseBillForm for the rationale.
+  const multiWarehouseOn          = useMultiWarehouseEnabled();
   const [godowns, setGodowns]     = useState([]);  // godowns the operator can return from
   const [cats, setCats]           = useState([]);
   const [loading, setLoading]     = useState(false);
@@ -733,16 +736,20 @@ export default function PurchaseReturnForm() {
 
             <div className="rtn-top-row">
               {/* Source godown — where the returned goods leave from.
-                  Defaults to the referenced bill's godown when one is loaded. */}
-              <div className="rtn-field" style={{ flex: '0 0 180px' }}>
-                <Form.Item name="godown_id" noStyle rules={[{ required: true, message: ' ' }]}>
-                  <Select
-                    placeholder="Godown *"
-                    disabled={isEdit}
-                    options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
-                  />
-                </Form.Item>
-              </div>
+                  Defaults to the referenced bill's godown when one is
+                  loaded. Hidden when the Multi-warehouse master toggle
+                  is OFF — default godown pre-fill keeps submission honest. */}
+              {multiWarehouseOn && (
+                <div className="rtn-field" style={{ flex: '0 0 180px' }}>
+                  <Form.Item name="godown_id" noStyle rules={[{ required: true, message: ' ' }]}>
+                    <Select
+                      placeholder="Godown *"
+                      disabled={isEdit}
+                      options={godowns.map((g) => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+                    />
+                  </Form.Item>
+                </div>
+              )}
               <div className="rtn-field">
                 <Form.Item name="supplier_id" noStyle rules={[{ required: true, message: ' ' }]}>
                   <Select showSearch placeholder="Supplier *" allowClear optionFilterProp="label"

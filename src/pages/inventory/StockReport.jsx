@@ -10,6 +10,7 @@ import {
 import dayjs from 'dayjs';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { reportAPI, categoryAPI, godownAPI, dataAPI } from '../../api';
+import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import useListSelection from '../../hooks/useListSelection';
@@ -123,6 +124,10 @@ export default function StockReport() {
 
   const [categories, setCategories] = useState([]);
   const [godowns,    setGodowns]    = useState([]);
+  // Multi-warehouse master toggle. When OFF the godown picker hides and
+  // the per-godown KPI sub-line drops out — totals are unfiltered and
+  // the "All Godowns" caption would just be noise.
+  const multiWarehouseOn            = useMultiWarehouseEnabled();
   const [prefs, setPrefs] = useState(loadPrefs);
   useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch {} }, [prefs]);
   const cols = prefs;
@@ -518,20 +523,22 @@ export default function StockReport() {
             onChange={(v) => setFilters(f => ({ ...f, category_id: v ?? null }))}
             options={categories.map(c => ({ value: c.category_id, label: c.category_name }))}
           />
-          <Select
-            placeholder="All Godowns"
-            style={{ width: 200 }}
-            allowClear
-            value={filters.godown_id}
-            onChange={(v) => setFilters(f => ({ ...f, godown_id: v ?? null }))}
-            optionFilterProp="label"
-            options={godowns.map(g => ({
-              value: g.godown_id,
-              // Godown.name is the human label; .code is the short tag
-              // (e.g. MAIN). Both shown so the picker is searchable by either.
-              label: `${g.name || g.code || `Godown #${g.godown_id}`}${g.code ? ` · ${g.code}` : ''}${g.is_default ? ' · Default' : ''}`,
-            }))}
-          />
+          {multiWarehouseOn && (
+            <Select
+              placeholder="All Godowns"
+              style={{ width: 200 }}
+              allowClear
+              value={filters.godown_id}
+              onChange={(v) => setFilters(f => ({ ...f, godown_id: v ?? null }))}
+              optionFilterProp="label"
+              options={godowns.map(g => ({
+                value: g.godown_id,
+                // Godown.name is the human label; .code is the short tag
+                // (e.g. MAIN). Both shown so the picker is searchable by either.
+                label: `${g.name || g.code || `Godown #${g.godown_id}`}${g.code ? ` · ${g.code}` : ''}${g.is_default ? ' · Default' : ''}`,
+              }))}
+            />
+          )}
           <button className="sr-btn" onClick={() => refresh()} title="Refresh">
             <ReloadOutlined /> Refresh
           </button>
@@ -574,7 +581,9 @@ export default function StockReport() {
           >
             <div className="sr-kpi-k">Total Items</div>
             <div className="sr-kpi-v">{summary?.total_items ?? totalCount}</div>
-            <div className="sr-kpi-sub">{selectedGodownLabel}</div>
+            {multiWarehouseOn && (
+              <div className="sr-kpi-sub">{selectedGodownLabel}</div>
+            )}
           </div>
           <div className="sr-kpi value-tone">
             <div className="sr-kpi-k">Stock Value (Pur)</div>

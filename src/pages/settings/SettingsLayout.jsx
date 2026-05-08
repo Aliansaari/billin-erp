@@ -3,10 +3,11 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BankOutlined, UserOutlined, BgColorsOutlined, TagsOutlined,
   PrinterOutlined, ThunderboltOutlined, SwapOutlined, ApiOutlined,
-  CloudServerOutlined, HomeOutlined, ControlOutlined,
+  CloudServerOutlined, HomeOutlined, ControlOutlined, DashboardOutlined,
 } from '@ant-design/icons';
 import { hasPermission } from '../../utils/perms';
 import useAuthStore from '../../store/authStore';
+import { useSystemSettings } from '../../hooks/useSystemSettings';
 import './SettingsLayout.css';
 
 /**
@@ -32,7 +33,7 @@ const SETTINGS_GROUPS = [
       { path: 'company',  icon: <BankOutlined />,        label: 'Company Profile', perm: 'settings.manage_company' },
       { path: 'modules',  icon: <ThunderboltOutlined />, label: 'Features',        perm: 'settings.manage_company' },
       { path: 'defaults', icon: <ControlOutlined />,     label: 'Defaults',        perm: 'settings.manage_company' },
-      { path: 'godowns',  icon: <BankOutlined />,        label: 'Godowns',         perm: 'godowns.view' },
+      { path: 'godowns',  icon: <BankOutlined />,        label: 'Godowns',         perm: 'godowns.view', flag: 'multi_warehouse_enabled' },
     ],
   },
   {
@@ -44,10 +45,11 @@ const SETTINGS_GROUPS = [
   {
     label: 'Look & feel',
     items: [
-      { path: 'theme',   icon: <BgColorsOutlined />, label: 'Theme',         perm: null },
-      { path: 'home',    icon: <HomeOutlined />,    label: 'Home Page',      perm: null },
-      { path: 'print',   icon: <PrinterOutlined />, label: 'Print',          perm: 'settings.print' },
-      { path: 'barcode', icon: <TagsOutlined />,    label: 'Barcode',        perm: 'settings.barcode' },
+      { path: 'theme',     icon: <BgColorsOutlined />,   label: 'Theme',         perm: null },
+      { path: 'home',      icon: <HomeOutlined />,       label: 'Home Page',     perm: null },
+      { path: 'dashboard', icon: <DashboardOutlined />,  label: 'Dashboard',     perm: null },
+      { path: 'print',     icon: <PrinterOutlined />,    label: 'Print',         perm: 'settings.print' },
+      { path: 'barcode',   icon: <TagsOutlined />,       label: 'Barcode',       perm: 'settings.barcode' },
     ],
   },
   {
@@ -65,11 +67,14 @@ export default function SettingsLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const settings = useSystemSettings();
   const [query, setQuery] = useState('');
 
   // Filter groups to ones the current user can reach. Drop groups that
   // end up with no visible items so the rail doesn't show empty
-  // headers.
+  // headers. Items with a `flag` field are also gated on the matching
+  // system-settings boolean — null while the cache loads (treated as
+  // off, so flagged entries hide until we know they should appear).
   const visibleGroups = useMemo(() => {
     const q = query.trim().toLowerCase();
     return SETTINGS_GROUPS
@@ -77,11 +82,12 @@ export default function SettingsLayout() {
         ...g,
         items: g.items.filter((it) =>
           (it.perm === null || hasPermission(user, it.perm)) &&
+          (!it.flag || !!settings?.[it.flag]) &&
           (!q || it.label.toLowerCase().includes(q))
         ),
       }))
       .filter((g) => g.items.length > 0);
-  }, [user, query]);
+  }, [user, settings, query]);
 
   const totalVisible = visibleGroups.reduce((n, g) => n + g.items.length, 0);
 

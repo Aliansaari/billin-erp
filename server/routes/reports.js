@@ -50,6 +50,8 @@ router.get('/godown-valuation',   requirePermission('reports.view'),  operationa
 // doesn't expose bill-level data, just the stats already derivable from
 // their module perms. Gate the specific reports themselves.
 router.get('/dashboard', reportController.dashboardStats);
+router.get('/dashboard/series', reportController.dashboardSeries);
+router.get('/dashboard/insights', reportController.dashboardInsights);
 
 router.get('/sales',             requirePermission('reports.view'),  reportController.salesReport);
 router.get('/purchases',         requirePermission('reports.view'),  reportController.purchaseReport);

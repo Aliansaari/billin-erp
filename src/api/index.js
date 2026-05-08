@@ -177,6 +177,15 @@ export const paymentAPI = {
 // Reports
 export const reportAPI = {
   getDashboard: () => api.get('/reports/dashboard'),
+  // Aggregates for sparklines + chart tiles. Pass `interval=day|week|month`
+  // and `periods=N` to control bucket size and how many trailing buckets
+  // come back. Same response shape regardless of interval — each row has
+  // sales/purchases/receipts/payments/profit fields.
+  getDashboardSeries: (params) => api.get('/reports/dashboard/series', { params }),
+  // Actionable insights for the dashboard — top overdue parties, bills due soon,
+  // top sellers this week, dead stock, cheques pending. Lightweight JSON,
+  // each list capped at 5-10 items.
+  getDashboardInsights: () => api.get('/reports/dashboard/insights'),
   getSalesReport: (params) => api.get('/reports/sales', { params }),
   getPurchaseReport: (params) => api.get('/reports/purchases', { params }),
   getStockReport: (params) => api.get('/reports/stock', { params }),

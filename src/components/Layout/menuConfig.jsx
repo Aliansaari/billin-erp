@@ -32,6 +32,7 @@ import {
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
 import useFavoritesStore from '../../store/favoritesStore';
 import { CATEGORY_META, resolveReports } from '../../config/reports';
+import { useSystemSettings } from '../../hooks/useSystemSettings';
 
 export const menuItems = [
   // Home (Command Center) — the / route. Distinct from /dashboard, which
@@ -81,7 +82,7 @@ export const menuItems = [
       { key: '/stock-movement',   icon: <SwapOutlined />,     label: 'Stock Movement',  perm: 'inventory.view' },
       { key: '/stock-report',     icon: <StockOutlined />,    label: 'Stock Report',    perm: 'inventory.view' },
       { key: '/stock-report-pro', icon: <TableOutlined />,    label: 'Smart Stock',     perm: 'inventory.view' },
-      { key: '/stock-transfers',  icon: <SwapOutlined />,     label: 'Stock Transfers', perm: 'stock_transfers.view' },
+      { key: '/stock-transfers',  icon: <SwapOutlined />,     label: 'Stock Transfers', perm: 'stock_transfers.view', flag: 'multi_warehouse_enabled' },
       // Batches (Commit 5) — gated on batches.view. The page itself
       // shows an "Enable batch tracking" placeholder when the global
       // toggle is OFF, so adding the entry here doesn't surface a
@@ -177,10 +178,12 @@ export const menuItems = [
       { key: '/settings/import',         icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export' },
       { key: '/settings/tally',          icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally' },
       { key: '/settings/backup',         icon: <CloudServerOutlined />, label: 'Backup & Recovery',perm: 'settings.backup' },
-      { key: '/settings/godowns',        icon: <BankOutlined />,        label: 'Godowns',          perm: 'godowns.view' },
+      { key: '/settings/godowns',        icon: <BankOutlined />,        label: 'Godowns',          perm: 'godowns.view', flag: 'multi_warehouse_enabled' },
       // Home page customization — every operator can pick what shows on
       // their own landing page; no role gate.
       { key: '/settings/home',           icon: <HomeOutlined />,        label: 'Home Page' },
+      // Dashboard tile picker — same per-user UX gate (none).
+      { key: '/settings/dashboard',      icon: <DashboardOutlined />,   label: 'Dashboard' },
     ],
   },
 ];
@@ -233,8 +236,15 @@ export function getRouteIcon(route) {
 export function useMenuItems() {
   const favIds = useFavoritesStore((s) => s.ids);
   const favs = resolveReports(favIds);
+  // System settings drive feature-flag filtering. While the cache is
+  // still loading we treat every flag as off (safer default — hides
+  // gated entries until we know they should appear), which means a
+  // brief moment after first paint the gated items are absent. They
+  // pop in once the fetch resolves; consumers re-render via the
+  // useSystemSettings subscription.
+  const settings = useSystemSettings();
 
-  return menuItems.map((item) => {
+  const inflated = menuItems.map((item) => {
     if (item.__dynamic !== 'reports') return item;
     // Build the favorites children list. Each pinned report becomes a
     // menu item with its category icon (matches the hub) + the report
@@ -256,6 +266,11 @@ export function useMenuItems() {
           icon: CATEGORY_ICON[meta?.icon] || <FileTextOutlined />,
           label: r.name,
           perm: r.perm,
+          // Carry the report's `flag` onto the menu node so
+          // filterMenuByFeatureFlags below drops Transfer Register /
+          // Godown Valuation when Multi-warehouse is OFF, even for users
+          // who pinned them while it was on.
+          flag: r.flag,
         });
       }
       // Visual divider isn't supported by AntD Menu items spec without
@@ -269,6 +284,32 @@ export function useMenuItems() {
     }
     return { ...item, children };
   });
+
+  return filterMenuByFeatureFlags(inflated, settings);
+}
+
+/**
+ * Drop entries whose `flag` field names a system-settings boolean that is
+ * currently OFF. Mirrors the recursion shape of filterMenuByPermissions:
+ * a parent whose children all get filtered out is itself dropped, so the
+ * sidebar never shows an empty heading.
+ *
+ * `settings` is the shared cache from useSystemSettings — pass null while
+ * loading and every flagged entry hides (safer than a flicker where a
+ * gated module appears for half a second).
+ */
+export function filterMenuByFeatureFlags(items, settings) {
+  return items
+    .map((item) => {
+      if (item.flag && !settings?.[item.flag]) return null;
+      if (item.children) {
+        const children = filterMenuByFeatureFlags(item.children, settings);
+        if (children.length === 0) return null;
+        return { ...item, children };
+      }
+      return item;
+    })
+    .filter(Boolean);
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   FundOutlined, CreditCardOutlined, ProductOutlined, GoldOutlined, AuditOutlined,
 } from '@ant-design/icons';
 import { partyAPI, productAPI, ledgerAPI } from '../api';
+import { useSystemSettings } from '../hooks/useSystemSettings';
 import './globalSearch.css';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -32,7 +33,7 @@ const ACTIONS = [
   { id: 'sret-new',     icon: RollbackOutlined,     label: 'Sales return / credit note', sub: 'Reverse a customer bill',  group: 'Create',   route: '/sales-return/new',                 keywords: 'credit note sales return' },
   { id: 'pret-new',     icon: RollbackOutlined,     label: 'Purchase return / debit note', sub: 'Reverse a supplier bill', group: 'Create',  route: '/purchase-return/new',              keywords: 'debit note purchase return' },
   { id: 'jv-new',       icon: AuditOutlined,        label: 'New journal voucher',       sub: 'Manual accounting entry',   group: 'Create',   route: '/accounts/journal/new', keywords: 'journal voucher entry contra' },
-  { id: 'transfer-new', icon: GoldOutlined,         label: 'New stock transfer',        sub: 'Move stock between godowns', group: 'Create',  route: '/stock-transfer/new', keywords: 'stock transfer godown move' },
+  { id: 'transfer-new', icon: GoldOutlined,         label: 'New stock transfer',        sub: 'Move stock between godowns', group: 'Create',  route: '/stock-transfer/new', keywords: 'stock transfer godown move', flag: 'multi_warehouse_enabled' },
 
   // Browse
   { id: 'home',         icon: AppstoreOutlined,     label: 'Home',                      sub: 'Command center',             group: 'Browse',   route: '/',             kbd: 'Alt+H', keywords: 'home command center landing search' },
@@ -48,7 +49,7 @@ const ACTIONS = [
   { id: 'pay-list',     icon: DollarCircleOutlined, label: 'Payments & receipts',       sub: 'All money movements',        group: 'Browse',   route: '/payments',     kbd: 'Alt+M', keywords: 'payments receipts list ledger' },
   { id: 'stock-report', icon: AppstoreOutlined,     label: 'Stock report',              sub: 'On-hand by godown',          group: 'Browse',   route: '/stock-report',               keywords: 'stock report on hand inventory godown' },
   { id: 'stock-pro',    icon: AppstoreOutlined,     label: 'Stock report — categories', sub: 'Category-wise drilldown',    group: 'Browse',   route: '/stock-report-pro',           keywords: 'stock category report' },
-  { id: 'transfers',    icon: GoldOutlined,         label: 'Stock transfers',           sub: 'Inter-godown movement',      group: 'Browse',   route: '/stock-transfers',            keywords: 'stock transfer godown' },
+  { id: 'transfers',    icon: GoldOutlined,         label: 'Stock transfers',           sub: 'Inter-godown movement',      group: 'Browse',   route: '/stock-transfers',            keywords: 'stock transfer godown', flag: 'multi_warehouse_enabled' },
   { id: 'batches',      icon: AppstoreOutlined,     label: 'Batches',                   sub: 'Batch / expiry tracking',    group: 'Browse',   route: '/inventory/batches',          keywords: 'batch expiry mfg manufacturing lot' },
   { id: 'jv-list',      icon: AuditOutlined,        label: 'Journal vouchers',          sub: 'Manual entries',             group: 'Browse',   route: '/accounts/journal',           keywords: 'journal voucher manual entry' },
 
@@ -86,9 +87,10 @@ const ACTIONS = [
 
   // Settings
   { id: 's-home',       icon: SettingOutlined,      label: 'Home page',                 sub: 'Settings → Home',            group: 'Settings', route: '/settings/home',              keywords: 'home page settings landing layout customize hide show kpi clock action ribbon greeting' },
+  { id: 's-dashboard',  icon: SettingOutlined,      label: 'Dashboard tiles',           sub: 'Settings → Dashboard',       group: 'Settings', route: '/settings/dashboard',         keywords: 'dashboard tile customize add remove pin metric' },
   { id: 's-company',    icon: SettingOutlined,      label: 'Company profile',           sub: 'Settings → Company',         group: 'Settings', route: '/settings/company',           keywords: 'company profile gstin pan address settings' },
   { id: 's-users',      icon: SettingOutlined,      label: 'Users & roles',             sub: 'Settings → Users',           group: 'Settings', route: '/settings/users',             keywords: 'users roles permission settings' },
-  { id: 's-godowns',    icon: SettingOutlined,      label: 'Godowns',                   sub: 'Settings → Godowns',         group: 'Settings', route: '/settings/godowns',           keywords: 'godown warehouse location' },
+  { id: 's-godowns',    icon: SettingOutlined,      label: 'Godowns',                   sub: 'Settings → Godowns',         group: 'Settings', route: '/settings/godowns',           keywords: 'godown warehouse location', flag: 'multi_warehouse_enabled' },
   { id: 's-theme',      icon: SettingOutlined,      label: 'Theme',                     sub: 'Settings → Theme',           group: 'Settings', route: '/settings/theme',             keywords: 'theme dark light appearance' },
   { id: 's-modules',    icon: SettingOutlined,      label: 'Module settings',           sub: 'Toggle features on / off',   group: 'Settings', route: '/settings/modules',           keywords: 'module feature toggle settings' },
   { id: 's-import',     icon: SettingOutlined,      label: 'Import / export',           sub: 'Bulk data in / out',         group: 'Settings', route: '/settings/import-export',     keywords: 'import export bulk csv excel' },
@@ -196,6 +198,11 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
   const [loading, setLoading] = useState(false);
   const [selectedIdx, setSel] = useState(0);
   const [recent] = useState(() => readRecent());
+  // System settings drive the action-flag filter — actions tagged with
+  // `flag: '<key>'` only appear when that key is truthy in /settings/system.
+  // Today this hides the Stock Transfer / Godown entries when the
+  // Multi-warehouse master toggle is OFF.
+  const settings = useSystemSettings();
 
   /* Live API search — debounced. Three endpoints in parallel: parties +
    * products + COA ledgers. We don't search bills here on purpose (the
@@ -309,6 +316,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
     // Quick actions / pages
     if (q) {
       const matches = ACTIONS
+        .filter(a => !a.flag || !!settings?.[a.flag])
         .map(a => ({ a, s: scoreAction(a, q) }))
         .filter(x => x.s != null)
         .sort((x, y) => y.s - x.s)
@@ -326,10 +334,51 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
     }
 
     return groupResults(out);
-  }, [query, parties, products, ledgers]);
+  }, [query, parties, products, ledgers, settings]);
 
-  /* Flat list (for keyboard nav) — order matches what's rendered. */
-  const flat = useMemo(() => groupedResults.flatMap(g => g.items), [groupedResults]);
+  /* What renders when the input is empty:
+   *   - Modal (⌘K / Alt+G): a "recent + try this" panel so the palette
+   *     is never just an empty box — the user just opened it
+   *     deliberately, they want suggestions.
+   *   - Hero (home page): nothing. The bar lives alone above the fold;
+   *     pre-loaded suggestions felt like clutter on a landing page.
+   *     Once the user types one character, results render normally. */
+  const emptyState = !query.trim();
+  const showSuggestions = emptyState && variant !== 'hero';
+  const showRecent = showSuggestions && recent.length > 0;
+  const recentItems = useMemo(
+    () => recent.map((r) => ({ ...r, icon: ACTIONS.find((a) => a.id === r.id)?.icon || FileTextOutlined })),
+    [recent],
+  );
+  const trySuggestions = useMemo(() => {
+    if (!showSuggestions) return [];
+    return [
+      ACTIONS.find((a) => a.id === 'sale-new'),
+      ACTIONS.find((a) => a.id === 'purchase-new'),
+      ACTIONS.find((a) => a.id === 'reports'),
+      ACTIONS.find((a) => a.id === 'r-day'),
+      ACTIONS.find((a) => a.id === 'customers'),
+      ACTIONS.find((a) => a.id === 'r-tb'),
+    ].filter(Boolean).map((a) => ({
+      id: a.id, kind: 'action', icon: a.icon, label: a.label, sub: a.sub,
+      group: a.group, route: a.route, kbd: a.kbd,
+    }));
+  }, [showSuggestions]);
+
+  /* Flat list (for keyboard nav) — order matches what's rendered. In the
+   * empty state we still want Enter to do something useful, so the idle
+   * Recent + Try rows participate in selection too. Without this, opening
+   * the palette and hitting Enter on the visibly highlighted row was a
+   * no-op (Enter looked dead until the user typed). */
+  const flat = useMemo(() => {
+    if (emptyState) {
+      const base = [];
+      if (showRecent) base.push(...recentItems);
+      if (showSuggestions) base.push(...trySuggestions);
+      return base;
+    }
+    return groupedResults.flatMap((g) => g.items);
+  }, [emptyState, showRecent, showSuggestions, recentItems, trySuggestions, groupedResults]);
 
   /* Keep the highlighted row in view as the user arrows through. */
   useEffect(() => {
@@ -377,33 +426,20 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       e.preventDefault();
       choose(flat[selectedIdx]);
     } else if (e.key === 'Escape') {
+      // The underlying page (bill forms, lists) usually has its own
+      // window-level Escape handler — typically "Back" via ActionStrip.
+      // Without stopping propagation here, closing the palette also
+      // navigates the page behind it. stopImmediatePropagation kills
+      // every later window-level listener for this keystroke.
       e.preventDefault();
+      e.stopPropagation();
+      if (e.nativeEvent && e.nativeEvent.stopImmediatePropagation) {
+        e.nativeEvent.stopImmediatePropagation();
+      }
       if (query) setQuery('');
       else onClose?.();
     }
   };
-
-  /* What renders when the input is empty:
-   *   - Modal (⌘K): a "recent + try this" panel so the palette is never
-   *     just an empty box — the user just opened it deliberately, they
-   *     want suggestions.
-   *   - Hero (home page): nothing. The bar lives alone above the fold;
-   *     pre-loaded suggestions felt like clutter on a landing page.
-   *     Once the user types one character, results render normally. */
-  const emptyState = !query.trim();
-  const showSuggestions = emptyState && variant !== 'hero';
-  const showRecent = showSuggestions && recent.length > 0;
-  const trySuggestions = showSuggestions ? [
-    ACTIONS.find(a => a.id === 'sale-new'),
-    ACTIONS.find(a => a.id === 'purchase-new'),
-    ACTIONS.find(a => a.id === 'reports'),
-    ACTIONS.find(a => a.id === 'r-day'),
-    ACTIONS.find(a => a.id === 'customers'),
-    ACTIONS.find(a => a.id === 'r-tb'),
-  ].filter(Boolean).map(a => ({
-    id: a.id, kind: 'action', icon: a.icon, label: a.label, sub: a.sub,
-    group: a.group, route: a.route, kbd: a.kbd,
-  })) : [];
 
   const hasAnything = !emptyState && flat.length > 0;
   const noMatch = !emptyState && flat.length === 0 && !loading;
@@ -423,7 +459,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
         />
         {variant === 'hero' ? (
           <span className="gs-input-hint">
-            <kbd className="gs-kbd">⌘</kbd><kbd className="gs-kbd">K</kbd>
+            <kbd className="gs-kbd">Alt</kbd><kbd className="gs-kbd">G</kbd>
           </span>
         ) : (
           <span className="gs-input-hint">
@@ -457,22 +493,22 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
         {showRecent && (
           <GsGroup
             name="Recent"
-            items={recent.map(r => ({ ...r, icon: ACTIONS.find(a => a.id === r.id)?.icon || FileTextOutlined }))}
+            items={recentItems}
             startIdx={0}
-            selectedIdx={-1}
+            selectedIdx={selectedIdx}
             onPick={choose}
-            onHover={() => {}}
+            onHover={setSel}
           />
         )}
 
         {showSuggestions && (
           <GsGroup
-            name={recent.length ? 'Try' : 'Quick start'}
+            name={recentItems.length ? 'Try' : 'Quick start'}
             items={trySuggestions}
-            startIdx={recent.length}
-            selectedIdx={-1}
+            startIdx={recentItems.length}
+            selectedIdx={selectedIdx}
             onPick={choose}
-            onHover={() => {}}
+            onHover={setSel}
           />
         )}
 

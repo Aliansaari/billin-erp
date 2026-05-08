@@ -10,6 +10,7 @@ import { REPORTS, CATEGORY_META, CATEGORY_ORDER, matchReport, resolveReports } f
 import useFavoritesStore from '../../store/favoritesStore';
 import useAuthStore from '../../store/authStore';
 import { hasPermission } from '../../utils/perms';
+import { useSystemSettings } from '../../hooks/useSystemSettings';
 import FavoriteStar from '../../components/FavoriteStar';
 
 const { Title, Text } = Typography;
@@ -139,9 +140,18 @@ export default function ReportsHub() {
     }
   }, []);
 
+  // Feature-flag gating — reports tagged `flag: 'multi_warehouse_enabled'`
+  // (Transfer Register, Godown Valuation) drop out of the hub when the
+  // flag is OFF, so they vanish from search, the category grid, and the
+  // pinned strip together. Treats null (cache loading) as off — same
+  // safer-default approach the menu config takes.
+  const settings = useSystemSettings();
   const visibleReports = useMemo(
-    () => REPORTS.filter((r) => !r.perm || hasPermission(user, r.perm)),
-    [user],
+    () => REPORTS.filter((r) =>
+      (!r.perm || hasPermission(user, r.perm)) &&
+      (!r.flag || !!settings?.[r.flag])
+    ),
+    [user, settings],
   );
   const matcher = matchReport(query);
   const filtered = visibleReports.filter(matcher);

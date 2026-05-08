@@ -10,6 +10,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import ProductFormModal from '../../components/ProductFormModal';
 import './purchase-bill-form.css';
@@ -199,6 +200,10 @@ export default function PurchaseBillForm() {
   const [items, setItems] = useState([]);
   const [parties, setParties]       = useState([]);
   const [categories, setCategories] = useState([]);
+  // Multi-warehouse master toggle. When OFF the picker hides and every
+  // bill posts against the seeded default godown — the loadGodowns
+  // pre-fill below already sets that, so submission still works.
+  const multiWarehouseOn = useMultiWarehouseEnabled();
   // Active godowns the operator can receive purchases into (filtered to
   // user.allowed_godowns when set; server enforces independently).
   const [godowns, setGodowns]       = useState([]);
@@ -1825,16 +1830,20 @@ export default function PurchaseBillForm() {
                     dates. Same height (size="small"); doesn't disturb the
                     company-name chip in the centre. Disabled on edit because
                     moving inventory between godowns is the Stock Transfer
-                    flow rather than rewriting an existing bill. */}
-                <Form.Item name="godown_id" noStyle rules={[{ required: true, message: ' ' }]}>
-                  <Select
-                    size="small"
-                    style={{ width: 180 }}
-                    placeholder="Godown *"
-                    disabled={isEdit}
-                    options={godowns.map(g => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
-                  />
-                </Form.Item>
+                    flow rather than rewriting an existing bill. Hidden when
+                    the Multi-warehouse master toggle is OFF — every bill
+                    then posts against the default godown silently. */}
+                {multiWarehouseOn && (
+                  <Form.Item name="godown_id" noStyle rules={[{ required: true, message: ' ' }]}>
+                    <Select
+                      size="small"
+                      style={{ width: 180 }}
+                      placeholder="Godown *"
+                      disabled={isEdit}
+                      options={godowns.map(g => ({ value: g.godown_id, label: `${g.code} — ${g.name}` }))}
+                    />
+                  </Form.Item>
+                )}
                 {/* No labels — placeholders communicate the field's purpose. */}
                 <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
                   <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Bill date *" size="small"/>

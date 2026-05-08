@@ -246,6 +246,7 @@ export const REPORTS = [
     category: 'inventory',
     route: '/reports/transfer-register',
     perm: 'reports.view',
+    flag: 'multi_warehouse_enabled',
     isNew: true,
   },
   {
@@ -255,6 +256,7 @@ export const REPORTS = [
     category: 'inventory',
     route: '/reports/godown-valuation',
     perm: 'reports.view',
+    flag: 'multi_warehouse_enabled',
     isNew: true,
   },
   // Expiry Report (Commit 5) — bucketed view of every batch with an

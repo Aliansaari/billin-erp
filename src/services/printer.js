@@ -17,6 +17,7 @@
 
 import { salesAPI, purchaseAPI, salesReturnAPI, purchaseReturnAPI, paymentAPI, settingsAPI, printAPI } from '../api';
 import { renderBillHTML } from './printRenderer';
+import { buildBillPdf } from '../utils/billPdf';
 import { message } from 'antd';
 
 let _companyCache = null;
@@ -210,41 +211,55 @@ function waNormalize(phone) {
  */
 export async function exportBillPDF({ docType, id, bill: presetBill, profileId, openAfterSave = true }) {
   try {
-    const bill = presetBill || (LOADERS[docType] ? await LOADERS[docType](id) : null);
+    // List rows pass a SUMMARY bill (no items[], no breakdown numbers) —
+    // good enough for the action-strip dropdown but not for rendering a
+    // full invoice. If items[] is missing, fetch the full bill by id so
+    // the PDF has line items, GST splits, and bank details.
+    let bill = presetBill;
+    if (!bill || !Array.isArray(bill.items) || bill.items.length === 0) {
+      const billId = id
+        || presetBill?.sales_bill_id
+        || presetBill?.purchase_bill_id
+        || presetBill?.return_bill_id
+        || presetBill?.transaction_id;
+      if (billId && LOADERS[docType]) {
+        try { bill = await LOADERS[docType](billId); } catch { /* fall through to presetBill */ }
+      }
+    }
     if (!bill) { message.error('Could not load document'); return null; }
 
     const profile = (await resolveProfile(docType, profileId)) || fallbackProfile(docType);
     const company = await loadCompany();
-    const html    = renderBillHTML({ bill, profile, company, docType });
     const fileName = pdfFileName(bill);
 
-    if (window.electronAPI?.savePDF) {
-      const res = await window.electronAPI.savePDF({
-        html,
-        fileName,
-        paperWidthMm:  profile.paper_width_mm,
-        paperHeightMm: profile.paper_height_mm,
-        marginsMm: {
-          top:    profile.margin_top_mm,
-          right:  profile.margin_right_mm,
-          bottom: profile.margin_bottom_mm,
-          left:   profile.margin_left_mm,
-        },
-      });
+    // Build the PDF in the renderer with jsPDF — same engine that powers
+    // the working Customer / Supplier Statement exports. The Electron
+    // printToPDF route was producing PDFs that some viewers refused to
+    // render (page object valid but content stream malformed); jsPDF
+    // sidesteps that entirely.
+    const blob = await buildBillPdf({ docType, bill, profile, company, fileName });
+
+    if (window.electronAPI?.saveBlobToDownloads) {
+      // Electron preferred path — main process writes the bytes to
+      // Downloads and offers to open them.
+      const ab = await blob.arrayBuffer();
+      const res = await window.electronAPI.saveBlobToDownloads({ fileName, bytes: new Uint8Array(ab) });
       if (res?.error) { message.error('PDF export failed: ' + res.error); return null; }
-      const filePath = res.filePath;
-      if (openAfterSave) {
-        // Fire-and-forget: opening shouldn't block the caller. Errors here
-        // are non-fatal — the file is saved regardless.
-        window.electronAPI.openPath?.(filePath).catch(() => {});
-      }
+      if (openAfterSave) window.electronAPI.openPath?.(res.filePath).catch(() => {});
       message.success('Saved to Downloads: ' + fileName);
-      return { filePath, fileName };
+      return { filePath: res.filePath, fileName };
     }
 
-    // Web-only fallback — browser print dialog with Save-as-PDF destination.
-    message.info('Use Save as PDF in the print dialog (suggested: ' + fileName + ')');
-    printViaIframe(html);
+    // Browser / Electron-without-helper fallback — anchor download.
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    message.success('Downloaded: ' + fileName);
     return { fileName };
   } catch (e) {
     console.error('exportBillPDF error', e);
