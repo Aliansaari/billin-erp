@@ -99,6 +99,20 @@ export const menuItems = [
       { key: '/payments',    icon: <UnorderedListOutlined />, label: 'All Transactions', perm: 'payments.view' },
     ],
   },
+  // Expenses — separate from Payments because the workflow is
+  // different: a Payment settles an outstanding party balance,
+  // an Expense books a P&L hit (rent / fuel / supplies). Same
+  // double-entry plumbing under the hood, distinct UX.
+  {
+    key: 'expenses-menu',
+    icon: <FundOutlined />,
+    label: 'Expenses',
+    children: [
+      { key: '/expenses/new',    icon: <PlusCircleOutlined />,    label: 'New Expense',     perm: 'expenses.create' },
+      { key: '/expenses',        icon: <UnorderedListOutlined />, label: 'Expense List',    perm: 'expenses.view' },
+      { key: '/expenses/report', icon: <BarChartOutlined />,      label: 'Expense Report',  perm: 'expenses.view' },
+    ],
+  },
   // Bank — top-level dropdown covering bank accounts AND loans.
   //
   // Loans were originally a separate top-level entry, but operators
@@ -293,6 +307,7 @@ export function getOpenKeys(pathname) {
   if (pathname.startsWith('/customer') || pathname.startsWith('/supplier')) return ['parties-menu'];
   if (pathname.startsWith('/product') || pathname.startsWith('/categor') || pathname.startsWith('/stock-movement') || pathname.startsWith('/stock-transfer') || pathname.startsWith('/inventory/batches') || pathname === '/stock-report' || pathname === '/stock-report-pro') return ['inventory-menu'];
   if (pathname.startsWith('/payment') || pathname.startsWith('/receipt')) return ['payments-menu'];
+  if (pathname.startsWith('/expenses')) return ['expenses-menu'];
   // Both /banks/* and /loans/* highlight the Bank dropdown — loans
   // are nested under Bank in the sidebar (see menuItems above).
   if (pathname.startsWith('/banks') || pathname.startsWith('/loans')) return ['bank-menu'];

@@ -47,6 +47,7 @@ app.use('/api/user/favorites', require('./routes/userFavorites'));
 app.use('/api/banks', require('./routes/banks'));
 app.use('/api/loans', require('./routes/loans'));
 app.use('/api/cheques', require('./routes/cheques'));
+app.use('/api/expenses', require('./routes/expenses'));
 
 // Health check
 app.get('/api/health', (req, res) => {

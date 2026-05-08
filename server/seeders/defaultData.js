@@ -135,6 +135,33 @@ async function seedDefaultData() {
     { ledger_name: 'Cheques in Hand',       ledger_group: 'Assets',      sub_group: 'Current Assets',     is_system_ledger: true },
     { ledger_name: 'Cheques Issued (PDC)',  ledger_group: 'Liabilities', sub_group: 'Current Liabilities', is_system_ledger: true },
     { ledger_name: 'Cheque Bounce Charges', ledger_group: 'Expenses',    sub_group: 'Indirect Expenses',  is_system_ledger: true },
+
+    // ── Common expense heads for the Expense Tracker ─────────────────
+    //
+    // Pre-seed the most common Indirect Expense ledgers so a fresh
+    // install can record an expense voucher on day one without first
+    // creating chart-of-accounts rows. is_system_ledger=false on these
+    // so admins are free to rename / disable them; nothing in the
+    // builder hard-codes their names. The form picks ANY ledger in
+    // ledger_group='Expenses' as a valid expense head — direct vs
+    // indirect lives in sub_group ('Direct Expenses' for operational
+    // direct items like Freight Inward, 'Indirect Expenses' for
+    // everything else).
+    { ledger_name: 'Salaries & Wages',          ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Office Rent',               ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Electricity Charges',       ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Internet & Telephone',      ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Office Supplies',           ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Printing & Stationery',     ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Travel & Conveyance',       ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Repairs & Maintenance',     ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Bank Charges',              ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Professional Fees',         ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Insurance',                 ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Advertisement & Marketing', ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Freight Outward',           ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
+    { ledger_name: 'Freight Inward',            ledger_group: 'Expenses', sub_group: 'Direct Expenses',   is_system_ledger: false },
+    { ledger_name: 'Miscellaneous Expenses',    ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: false },
   ];
 
   for (const ledger of defaultLedgers) {
