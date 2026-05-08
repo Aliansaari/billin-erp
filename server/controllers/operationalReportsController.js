@@ -894,3 +894,129 @@ exports.godownValuation = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
+
+// ── Stock by Color ────────────────────────────────────────────────────
+//
+// One row per (multi-color product, color). Drives the "Stock by Color"
+// page and the optional drill-down inside the main Stock Report. The
+// operator uses this to spot which colors are short before placing a
+// purchase — a Lyra Leggings family stocking 50 Red, 0 Blue, 30 Green
+// is a Blue purchase decision the aggregate "80 in stock" hides.
+//
+// Filters:
+//   • category_id  — single id
+//   • search       — case-insensitive substring on product_name OR
+//                    color_name (so "red" matches both the color row
+//                    and any product with "red" in its name)
+//   • low_only     — true → only colors AT or BELOW their low_stock_alert
+//                          (and where alert > 0 — no alert set means
+//                           the row never counts as low; mirror of the
+//                           Stock Report's "low" filter)
+//
+// Stock value uses the product-mode aware display cost (variant →
+// purchase_rate; single-no-batch → weighted_avg_cost; single+batch
+// stays 0 since per-color rates aren't tracked separately for batches).
+exports.stockByColor = async (req, res) => {
+  try {
+    const categoryFilter = req.query.category_id ? ' AND p.category_id = :cid ' : '';
+    const lowOnlyFilter  = req.query.low_only === 'true'
+      ? ' AND pc.low_stock_alert > 0 AND pc.current_stock <= pc.low_stock_alert '
+      : '';
+    const searchFilter   = req.query.search
+      ? ` AND (p.product_name ILIKE :search OR pc.color_name ILIKE :search) `
+      : '';
+
+    const replacements = {};
+    if (req.query.category_id) replacements.cid = req.query.category_id;
+    if (req.query.search)      replacements.search = `%${String(req.query.search).trim()}%`;
+
+    const sql = `
+      SELECT pc.color_id,
+             pc.color_name,
+             pc.current_stock::float        AS current_stock,
+             pc.low_stock_alert::float      AS low_stock_alert,
+             pc.opening_stock::float        AS opening_stock,
+             p.product_id,
+             p.product_name,
+             p.barcode,
+             p.size_value,
+             p.article_number,
+             p.product_mode,
+             p.is_batch_tracked,
+             p.purchase_rate,
+             p.weighted_avg_cost,
+             p.unit_of_measurement,
+             p.category_id,
+             c.category_name
+        FROM product_colors pc
+        JOIN products p   ON p.product_id   = pc.product_id
+                          AND p.is_active = true
+                          AND p.color_mode = 'multi'
+        LEFT JOIN categories c ON c.category_id = p.category_id
+       WHERE pc.is_active = true
+         ${categoryFilter}
+         ${searchFilter}
+         ${lowOnlyFilter}
+       ORDER BY p.product_name ASC,
+                p.size_value ASC NULLS LAST,
+                pc.color_name ASC`;
+
+    const rows = await sequelize.query(sql, {
+      replacements,
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    // Per-row stock value via the same display-cost helper the rest of
+    // the inventory reports use. Single+batch rows fall back to 0 — per-
+    // color batch rates aren't tracked, so we don't fabricate a number.
+    const enriched = rows.map((r) => {
+      const stock = num(r.current_stock);
+      let rate = 0;
+      if (r.product_mode === 'single' && r.is_batch_tracked) {
+        rate = 0;
+      } else {
+        rate = computeDisplayCost(r);
+      }
+      const value = stock * rate;
+      const isLow = num(r.low_stock_alert) > 0
+                    && stock <= num(r.low_stock_alert);
+      const isOut = stock <= 0;
+      return {
+        color_id:        r.color_id,
+        color_name:      r.color_name,
+        current_stock:   r2(stock),
+        low_stock_alert: r2(num(r.low_stock_alert)),
+        opening_stock:   r2(num(r.opening_stock)),
+        product_id:      r.product_id,
+        product_name:    r.product_name,
+        barcode:         r.barcode,
+        size_value:      r.size_value,
+        article_number:  r.article_number,
+        unit_of_measurement: r.unit_of_measurement,
+        category_id:     r.category_id,
+        category_name:   r.category_name,
+        purchase_rate:   r2(rate),
+        stock_value:     r2(value),
+        is_low:          isLow,
+        is_out:          isOut,
+      };
+    });
+
+    // Page-level totals + status counts so the report header can show
+    // "X colors · Y short · ₹Z value" without each row contributing.
+    const summary = enriched.reduce((acc, r) => {
+      acc.total_qty   += r.current_stock;
+      acc.total_value += r.stock_value;
+      if (r.is_low) acc.low_count   += 1;
+      if (r.is_out) acc.out_count   += 1;
+      return acc;
+    }, { total_qty: 0, total_value: 0, low_count: 0, out_count: 0, total_count: enriched.length });
+    summary.total_qty   = r2(summary.total_qty);
+    summary.total_value = r2(summary.total_value);
+
+    res.json({ data: enriched, summary });
+  } catch (err) {
+    console.error('stockByColor error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};

@@ -45,6 +45,7 @@ router.get('/movers',             requirePermission('reports.view'),  operationa
 router.get('/stock-velocity',     requirePermission('reports.view'),  operationalReports.stockVelocity);
 router.get('/transfer-register',  requirePermission('reports.view'),  operationalReports.transferRegister);
 router.get('/godown-valuation',   requirePermission('reports.view'),  operationalReports.godownValuation);
+router.get('/stock-by-color',     requirePermission('reports.view'),  operationalReports.stockByColor);
 
 // Dashboard is informational and visible to anyone who can log in — it
 // doesn't expose bill-level data, just the stats already derivable from

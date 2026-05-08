@@ -72,6 +72,7 @@ import HsnSummary from './pages/reports/HsnSummary';
 import FastSlowStock from './pages/reports/FastSlowStock';
 import GodownTransferRegister from './pages/reports/GodownTransferRegister';
 import GodownValuation from './pages/reports/GodownValuation';
+import StockByColor from './pages/reports/StockByColor';
 import ReportsHub from './pages/reports/ReportsHub';
 import JournalVoucherList from './pages/accounts/JournalVoucherList';
 import JournalVoucherForm from './pages/accounts/JournalVoucherForm';
@@ -412,6 +413,7 @@ export default function App() {
               now live on the inventory Stock Report via the movement-
               period range picker. Drill-down from ProfitLoss rewired. */}
           <Route path="reports/fast-slow-stock"    element={<RoleRoute perm="reports.view"><FastSlowStock /></RoleRoute>} />
+          <Route path="reports/stock-by-color"     element={<RoleRoute perm="reports.view"><StockByColor /></RoleRoute>} />
           {/* Redirect — keep the legacy /reports/movers slug alive
               forever so any user-saved bookmark, copy-pasted URL, or
               cached favourite resolves to the new path.  Replace=true

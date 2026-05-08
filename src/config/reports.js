@@ -240,6 +240,15 @@ export const REPORTS = [
     ],
   },
   {
+    id: 'stock_by_color',
+    name: 'Stock by Color',
+    subtitle: 'Per-color inventory · purchase-decision view',
+    category: 'inventory',
+    route: '/reports/stock-by-color',
+    perm: 'reports.view',
+    aliases: ['color', 'colors', 'multi-color', 'stock', 'shades', 'palette'],
+  },
+  {
     id: 'transfer_register',
     name: 'Transfer Register',
     subtitle: 'Godown-to-godown movement log',
