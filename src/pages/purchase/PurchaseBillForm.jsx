@@ -1212,10 +1212,24 @@ export default function PurchaseBillForm() {
     }));
     const initialValues = {};
     entries.forEach((e) => { initialValues[e.key] = 0; });
-    // Pre-fill the row's own color/qty if already set so re-opening
-    // the matrix lets you edit instead of starting from zero.
-    if (row.color_id && Number(row.quantity) > 0) {
-      initialValues[String(row.color_id)] = Number(row.quantity);
+    let nextTempIdx = 0;
+    // Pre-fill the row's own pick if already set so re-opening lets the
+    // operator edit instead of starting from zero. Three flavours:
+    //  - Existing color (color_id set) → bump that entry's qty.
+    //  - Inline-new color (color_name set, color_id null) → that entry
+    //    isn't in row.colors yet (still pending creation on save), so
+    //    re-add it as an editable is_new row pre-filled with the qty.
+    const rowQty = Number(row.quantity) || 0;
+    const rowName = (row.color_name || '').trim();
+    if (row.color_id && rowQty > 0) {
+      initialValues[String(row.color_id)] = rowQty;
+    } else if (!row.color_id && rowName && rowQty > 0) {
+      const tempKey = `new:${nextTempIdx++}`;
+      entries.push({
+        key: tempKey, color_id: null, color_name: rowName,
+        current_stock: 0, is_new: true,
+      });
+      initialValues[tempKey] = rowQty;
     }
     setColorMatrix({
       rowKey,
@@ -1224,7 +1238,7 @@ export default function PurchaseBillForm() {
       sizeValue: row.size || '',
       entries,
       values: initialValues,
-      nextTempIdx: 0,
+      nextTempIdx,
     });
   };
 
@@ -1938,7 +1952,14 @@ export default function PurchaseBillForm() {
     { key:'color', title:'Color', dataIndex:'color_id', width:140,
       render:(v,r)=>{
         if (r.color_mode !== 'multi') return <span style={{color:'var(--fg-tertiary)'}}>—</span>;
-        const hasPick = !!r.color_id && Number(r.quantity) > 0;
+        // A line counts as "picked" when it has either a color_id
+        // (existing color) OR a color_name (operator typed a new color
+        // inline; the backend will create it on save). Without the
+        // color_name branch, inline-added colors render as red "Pick
+        // colors" placeholders even after Apply, making the operator
+        // think nothing happened.
+        const hasName = !!(r.color_name || '').trim();
+        const hasPick = (!!r.color_id || hasName) && Number(r.quantity) > 0;
         const label = hasPick ? `${r.color_name || '?'} · ${r.quantity}` : 'Pick colors';
         return (
           <button
