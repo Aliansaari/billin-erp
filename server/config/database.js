@@ -1,6 +1,30 @@
 require('dotenv').config();
 const { Sequelize } = require('sequelize');
 
+/* Connection pool sizing for LAN deployments
+ * ──────────────────────────────────────────
+ *
+ * Default max=10 was fine for a single-machine Electron install but
+ * starves 10–20 concurrent LAN clients: each in-flight request holds
+ * one connection, so once 10 dashboards refresh in parallel everyone
+ * else queues for up to `acquire`ms (=30 s by default — feels like a
+ * frozen app).
+ *
+ * Sizing rule of thumb for Postgres on commodity Indian retail PCs:
+ *   - default Postgres max_connections = 100
+ *   - reserve ~10 for psql / superuser
+ *   - we get ~90, but we only need a few per user
+ *   - 30 covers 20 active LAN clients with headroom for backup +
+ *     import-worker + dashboard refreshes
+ *
+ * Both values are env-tuneable so a small shop (5 PCs) can lower it
+ * and a big one (40 PCs) can raise it without a code change.
+ *
+ * acquire 10 s   — fail fast instead of feeling frozen for 30 s
+ * idle    10 s   — close idle conns quickly so we don't keep dozens
+ *                  open during quiet periods
+ * evict    1 s   — sweep dead/stale conns every second
+ */
 const sequelize = new Sequelize(
   process.env.DB_NAME || 'billing_erp',
   process.env.DB_USER || 'postgres',
@@ -11,12 +35,31 @@ const sequelize = new Sequelize(
     dialect: 'postgres',
     logging: false,
     pool: {
-      max: 10,
-      min: 0,
-      acquire: 30000,
-      idle: 10000,
+      max: Number(process.env.DB_POOL_MAX || 30),
+      min: Number(process.env.DB_POOL_MIN || 2),
+      acquire: Number(process.env.DB_POOL_ACQUIRE || 10000),
+      idle: Number(process.env.DB_POOL_IDLE || 10000),
+      evict: Number(process.env.DB_POOL_EVICT || 1000),
     },
-  }
+    // Lift TCP-level keepalive on the pg socket so a Wi-Fi AP
+    // disconnect (common on laptops returning from sleep) is detected
+    // within ~30 s instead of after the next query times out.
+    dialectOptions: {
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 30_000,
+      // 30s statement timeout protects against a runaway report query
+      // pinning a connection forever while every other LAN client waits.
+      // Long-running operations (backup, import) run outside Sequelize
+      // (raw pg_dump / streaming ingest) so this cap doesn't affect them.
+      statement_timeout: Number(process.env.DB_STATEMENT_TIMEOUT_MS || 30_000),
+    },
+    retry: {
+      // Transient network glitches on the LAN — auto-retry connection
+      // errors but NOT statement errors (those usually mean a bug).
+      max: 3,
+      match: [/ETIMEDOUT/i, /ECONNRESET/i, /ECONNREFUSED/i, /ENETUNREACH/i, /SequelizeConnectionError/],
+    },
+  },
 );
 
 module.exports = sequelize;

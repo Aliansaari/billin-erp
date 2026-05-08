@@ -27,7 +27,13 @@ const PrintProfile = sequelize.define('PrintProfile', {
   format:       { type: DataTypes.ENUM('a4', 'a5', 'thermal'), allowNull: false, defaultValue: 'a4' },
   // Visual theme applied on top of the format's structural layout. Does NOT
   // change which fields print — only fonts, borders, spacing, colors.
-  theme:        { type: DataTypes.ENUM('classic', 'modern', 'minimal', 'elegant', 'boxed'), defaultValue: 'classic' },
+  // String (not ENUM) so adding a new theme is a code change only — no
+  // ALTER TYPE dance in PostgreSQL. Valid values are kept in sync with the
+  // THEMES list in src/pages/settings/PrintSettings.jsx and the keys of
+  // THEME_PRESETS in src/utils/billPdf.js.
+  // Currently: classic | modern | minimal | elegant | boxed | studio |
+  //            wholesale | cashmemo
+  theme:        { type: DataTypes.STRING(20), defaultValue: 'classic' },
   accent_color: { type: DataTypes.STRING(9), defaultValue: '#111111' },
   // Thermal-only visual style. Applies when format='thermal' and supersedes
   // `theme` for the receipt render. String (not ENUM) so adding a new option
@@ -58,6 +64,13 @@ const PrintProfile = sequelize.define('PrintProfile', {
   header_title:   { type: DataTypes.STRING(200), defaultValue: '' },  // overrides company name if set
   header_html:    { type: DataTypes.TEXT, defaultValue: '' },
   header_align:   { type: DataTypes.ENUM('left', 'center', 'right'), defaultValue: 'center' },
+  // Document subtitle override (e.g. "TAX INVOICE", "ESTIMATE", "BILL OF
+  // SUPPLY"). Blank falls back to the per-doc-type default in the renderer
+  // (sales -> "TAX INVOICE", purchase -> "PURCHASE BILL", etc.). Lets a
+  // composition-scheme dealer rename "TAX INVOICE" to "BILL OF SUPPLY",
+  // a tailor swap "RECEIPT" for "STITCHING ORDER", etc., without code
+  // changes.
+  doc_label:      { type: DataTypes.STRING(60), defaultValue: '' },
 
   // Columns to render for item rows (bit-field style; each toggle independent).
   show_hsn:            { type: DataTypes.BOOLEAN, defaultValue: true },

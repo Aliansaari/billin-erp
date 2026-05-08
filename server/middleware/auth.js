@@ -23,7 +23,18 @@ const authenticateToken = async (req, res, next) => {
     req.user = user;
     next();
   } catch (err) {
-    return res.status(403).json({ error: 'Invalid or expired token' });
+    // Auth-level failures must surface as 401, NOT 403 — the frontend
+    // axios interceptor only auto-redirects to /login on 401. Earlier
+    // this was returning 403 on expired tokens, so the operator got
+    // stuck on a working-looking page where every API call quietly
+    // 403'd (favorites, settings/system, …) until they manually
+    // reloaded or cleared localStorage. 403 is reserved for
+    // requirePermission — i.e. authenticated but missing a capability.
+    const expired = err && err.name === 'TokenExpiredError';
+    return res.status(401).json({
+      error: expired ? 'Session expired — please sign in again' : 'Invalid token',
+      expired: !!expired,
+    });
   }
 };
 

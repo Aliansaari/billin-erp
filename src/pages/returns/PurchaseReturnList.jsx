@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseReturnAPI, settingsAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
-import { printDocument, exportBillPDF } from '../../services/printer';
+import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
@@ -219,6 +219,7 @@ export default function PurchaseReturnList() {
   const handlePrint     = (id) => printDocument({ docType: 'purchase_return', id });
   const handleEdit      = (id) => navigate(`/purchase-return/edit/${id}`);
   const handleExportPDF = (bill) => exportBillPDF({ docType: 'purchase_return', bill });
+  const handleWhatsApp  = (bill) => shareBillViaWhatsApp({ docType: 'purchase_return', bill });
 
   // Selection model — cursor + multi-select.
   const sel = useListSelection({ totalCount, rows });
@@ -228,6 +229,12 @@ export default function PurchaseReturnList() {
   const isMulti        = selectionCount > 1;
   const single         = !isMulti ? activeRow : null;
   const singleCancelled = single?.is_cancelled;
+  // Phone derived from supplier mobile_1.
+  const singlePhone = (() => {
+    if (!single) return null;
+    const m = single.supplier?.mobile_1;
+    return m && !/^TLY/i.test(m) ? m : null;
+  })();
 
   // Bulk-cancel — confirm once, run cancellations serially, summarize at end.
   const handleBulkCancel = useCallback((rowsToCancel) => {
@@ -599,6 +606,12 @@ export default function PurchaseReturnList() {
             id: 'export', key: 'F10', label: 'Export PDF',
             disabled: isMulti || !single,
             onAction: () => single && handleExportPDF(single),
+          },
+          {
+            id: 'whatsapp', key: 'F11', label: 'WhatsApp',
+            disabled: isMulti || !single || singleCancelled || !singlePhone,
+            onAction: () => single && handleWhatsApp(single),
+            title: 'Share this debit note PDF with the supplier',
           },
           {
             id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
