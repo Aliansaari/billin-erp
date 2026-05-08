@@ -162,3 +162,55 @@ exports.changePassword = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
+
+/* ── Developer-mode unlock ───────────────────────────────────────────────
+ *
+ * Developer mode is a hidden tier above Admin that gates power-tools the
+ * shop owner shouldn't normally have access to (Ledger Integrity, Data
+ * Cleanup, Restore, Tally live-sync, Server settings, LAN client cap).
+ *
+ * Unlocking is a per-device one-time password check — no DB user record
+ * is involved. The password is read from DEVELOPER_PASSWORD env, with a
+ * default that ships in source so the integrator can unlock on a fresh
+ * deployment without env config (ship-time guidance: change before
+ * handing the build to the customer).
+ *
+ * The endpoint deliberately doesn't issue a separate JWT — once the
+ * client confirms the password is correct, the React app sets a
+ * localStorage flag (`billing_erp_dev_mode = unlocked`) and exposes the
+ * gated UI. Server-side, the gates that MATTER (data cleanup, restore,
+ * etc.) are still admin-role-protected; developer mode is a UI gate
+ * to prevent accidental clicks, not an auth boundary.
+ *
+ * Rate-limited via loginRateLimit (same key family as login) so a
+ * brute-force on the dev password locks out for 15 minutes after 5
+ * misses.
+ */
+const DEFAULT_DEV_PASSWORD = 'dev@billing2025';
+
+exports.verifyDeveloperPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (typeof password !== 'string' || !password.length) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+    const expected = process.env.DEVELOPER_PASSWORD || DEFAULT_DEV_PASSWORD;
+    if (password !== expected) {
+      // Same shape as a failed login so the rate-limit middleware can
+      // throttle this surface too without special-casing.
+      try { recordFailure(req); } catch { /* best effort */ }
+      return res.status(401).json({ error: 'Incorrect developer password' });
+    }
+    try { recordSuccess(req); } catch { /* best effort */ }
+    return res.json({
+      ok: true,
+      // Surface the source of the password so a fresh deployment can
+      // tell at a glance whether the integrator ever overrode the
+      // ship-default.
+      using_default_password: !process.env.DEVELOPER_PASSWORD,
+    });
+  } catch (error) {
+    console.error('Verify developer password error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};

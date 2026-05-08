@@ -173,6 +173,62 @@ const SystemSettings = sequelize.define('SystemSettings', {
   tally_last_sync: {
     type: DataTypes.DATE,
   },
+
+  /* ── Developer-tier feature gates ─────────────────────────────────
+   *
+   * Each `dev_show_*` column controls whether the corresponding feature
+   * is visible to NORMAL users (operators, cashiers, accountants).
+   * Developer-mode unlocks see EVERY feature regardless of these flags.
+   *
+   * Defaults are conservative: power-tools that can corrupt accounting
+   * data (Ledger Integrity, Cleanup, Restore, Tally live-sync) ship
+   * hidden. Routine surfaces (Import / Export, Backup create) ship
+   * visible — most shops need them daily.
+   *
+   * The flags persist in the DB so a developer's choice ("yes, my
+   * accountant can use Tally Sync") is shared with every machine on
+   * the LAN automatically — no per-PC reconfiguration needed.
+   * ─────────────────────────────────────────────────────────────── */
+
+  // Heavy DB-diagnostic page. Runs full-table integrity scans;
+  // a non-developer running it on a busy office server creates lock
+  // contention. Default OFF.
+  dev_show_ledger_integrity: { type: DataTypes.BOOLEAN, defaultValue: false },
+
+  // Bulk row-deletion under "Settings → Data Cleanup". Wipes tables
+  // category-by-category. Default OFF.
+  dev_show_data_cleanup:     { type: DataTypes.BOOLEAN, defaultValue: false },
+
+  // Restore from backup file → overwrites every table. Default OFF.
+  // (Backup CREATION and DOWNLOAD stay visible — those are read-only.)
+  dev_show_backup_restore:   { type: DataTypes.BOOLEAN, defaultValue: false },
+
+  // Tally live push/pull. The XML export/import is fine for normal
+  // users; only the live HTTP sync is dev-gated because a wrong
+  // company name corrupts the destination Tally book. Default OFF.
+  dev_show_tally_sync:       { type: DataTypes.BOOLEAN, defaultValue: false },
+
+  // Routine bulk import / export of masters and transactions. Most
+  // shops use this every closing day. Default ON.
+  dev_show_import_export:    { type: DataTypes.BOOLEAN, defaultValue: true  },
+
+  // Visible Server-Setup screen (lets a user re-point the app at a
+  // different LAN host). Default OFF — once configured, regular staff
+  // shouldn't be able to break the connection.
+  dev_show_server_settings:  { type: DataTypes.BOOLEAN, defaultValue: false },
+
+  /* ── LAN deployment knobs (developer-controlled) ─────────────── */
+
+  // Master switch for accepting LAN clients at all. Default ON. When
+  // OFF, the server still runs but rejects any non-loopback origin in
+  // the CORS layer.
+  dev_lan_enabled:           { type: DataTypes.BOOLEAN, defaultValue: true },
+
+  // Cap concurrent active LAN clients. 0 = unlimited (default). When
+  // > 0, the server tracks unique JWTs that hit /api/* in the last
+  // 10 minutes; the (n+1)th client gets a 503 with a "license cap
+  // reached" message until an existing one goes idle.
+  dev_lan_max_clients:       { type: DataTypes.INTEGER, defaultValue: 0 },
 }, {
   tableName: 'system_settings',
   timestamps: false,

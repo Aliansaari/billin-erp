@@ -8,7 +8,7 @@ import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
 import { useMenuItems, getOpenKeys, filterMenuByPermissions, getRouteIcon } from './menuConfig';
 import useFavoritesStore from '../../store/favoritesStore';
-import { ALT_MENUS } from '../keyboard/menuCatalog';
+import useFilteredAltMenus from '../../hooks/useFilteredAltMenus';
 import {
   SettingOutlined,
   UserOutlined,
@@ -19,7 +19,11 @@ import {
   LockOutlined,
   SunOutlined,
   MoonOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
+import DeveloperGate from '../DeveloperGate';
+import useDevModeStore from '../../store/devModeStore';
+import CompanySwitcher from '../CompanySwitcher';
 
 const { Sider } = Layout;
 
@@ -50,12 +54,15 @@ function CollapsedItem({ item, currentPath, navigate }) {
   // Look up the Tally menu definition for this sidebar item. Items
   // without a catalog entry (favorites, ad-hoc) render their plain
   // children with a bullet placeholder where the letter would be.
+  // Uses the filtered version so dev-gated entries (Ledger Integrity
+  // when its flag is off) don't appear in the hover popup either.
+  const altMenus = useFilteredAltMenus();
   const tallyMenu = useMemo(() => {
-    for (const code in ALT_MENUS) {
-      if (ALT_MENUS[code].anchorKey === item.key) return ALT_MENUS[code];
+    for (const code in altMenus) {
+      if (altMenus[code].anchorKey === item.key) return altMenus[code];
     }
     return null;
-  }, [item.key]);
+  }, [item.key, altMenus]);
 
   const popupItems = useMemo(() => {
     if (tallyMenu) return tallyMenu.items;
@@ -195,6 +202,31 @@ export default function Sidebar({ collapsed, setCollapsed }) {
     navigate('/login');
   };
 
+  // Developer-mode unlock UI — opened by a hidden trigger (the
+  // global-search palette intercepts the magic string "/__dev" and
+  // dispatches a `dev-gate:open` event; we listen for it here). The
+  // dropdown entry for "Developer Access" was deliberately removed —
+  // the locked-state user menu shows only normal items, so a regular
+  // user clicking the avatar finds nothing developer-flavoured.
+  const [devGateOpen, setDevGateOpen] = useState(false);
+  const devUnlocked   = useDevModeStore((s) => s.unlocked);
+  const previewAsUser = useDevModeStore((s) => s.previewAsUser);
+  const lockDevMode   = useDevModeStore((s) => s.lock);
+  // "effective" dev = unlocked AND not previewing as a regular user.
+  // When previewing, every dev affordance hides from the dropdown so
+  // the developer sees the dropdown a normal user sees.
+  const effectiveDev  = devUnlocked && !previewAsUser;
+
+  // Listen for the magic-string trigger from GlobalSearch. The palette
+  // intercepts "/__dev" + Enter and fires this window event; we open
+  // the modal in response. Single, decoupled entry point — nothing
+  // else in the UI advertises developer mode.
+  React.useEffect(() => {
+    const onOpen = () => setDevGateOpen(true);
+    window.addEventListener('dev-gate:open', onOpen);
+    return () => window.removeEventListener('dev-gate:open', onOpen);
+  }, []);
+
   const userMenuItems = [
     {
       key: 'user-info',
@@ -202,6 +234,16 @@ export default function Sidebar({ collapsed, setCollapsed }) {
         <div style={{ padding: '4px 0', borderBottom: '1px solid var(--border-subtle)', marginBottom: 4, pointerEvents: 'none' }}>
           <div style={{ fontWeight: 600, color: 'var(--fg-primary)' }}>{user?.full_name || 'User'}</div>
           <div style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>{user?.role || 'Admin'}</div>
+          {effectiveDev && (
+            <div style={{ fontSize: 11, color: '#9333ea', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <CodeOutlined style={{ fontSize: 11 }} /> Developer mode active
+            </div>
+          )}
+          {devUnlocked && previewAsUser && (
+            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+              👁 Previewing as regular user
+            </div>
+          )}
         </div>
       ),
       disabled: true,
@@ -209,6 +251,15 @@ export default function Sidebar({ collapsed, setCollapsed }) {
     { key: 'profile', icon: <UserOutlined />, label: 'My Profile' },
     { key: 'change-password', icon: <LockOutlined />, label: 'Change Password', onClick: () => navigate('/change-password') },
     { key: 'settings', icon: <SettingOutlined />, label: 'Settings', onClick: () => navigate('/settings/company') },
+    // Developer affordances appear ONLY when developer mode is unlocked
+    // AND not previewing as a regular user. The locked-state dropdown
+    // is intentionally identical to a normal admin's — no clue that
+    // developer mode exists. To unlock, type "/__dev" in global search.
+    ...(effectiveDev ? [
+      { type: 'divider' },
+      { key: 'dev-settings', icon: <CodeOutlined style={{ color: '#9333ea' }} />, label: 'Developer Settings', onClick: () => navigate('/settings/developer') },
+      { key: 'dev-lock',     icon: <LockOutlined />, label: 'Lock developer mode', onClick: lockDevMode },
+    ] : []),
     { type: 'divider' },
     { key: 'logout', icon: <LogoutOutlined />, label: 'Sign Out', danger: true, onClick: handleLogout },
   ];
@@ -244,6 +295,13 @@ export default function Sidebar({ collapsed, setCollapsed }) {
           >
             {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           </button>
+        </div>
+
+        {/* Company switcher — auto-hidden when only one company exists,
+            so single-company installs see no extra UI clutter. Tally-style
+            pill that opens a dropdown of every company + Manage link. */}
+        <div style={{ padding: collapsed ? '4px 8px 8px' : '0 12px 10px' }}>
+          <CompanySwitcher collapsed={collapsed} />
         </div>
 
         {/* ── Scrollable menu region ── */}
@@ -321,6 +379,14 @@ export default function Sidebar({ collapsed, setCollapsed }) {
           </Dropdown>
         </div>
       </div>
+      {/* Developer-mode password modal — opened from the user dropdown's
+          "Developer Access" item. After a successful unlock, devModeStore
+          flips and the dropdown re-renders with "Developer Settings" + a
+          lock action available. */}
+      <DeveloperGate
+        open={devGateOpen}
+        onClose={() => setDevGateOpen(false)}
+      />
     </Sider>
   );
 }

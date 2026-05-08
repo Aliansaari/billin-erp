@@ -246,13 +246,20 @@ exports.getById = async (req, res) => {
 async function createInlineReturn({ customer_id, billDate, items, reason, isInterState, godown_id, req, t }) {
   if (!Array.isArray(items) || items.length === 0) return null;
 
-  // Allocate next return number under a row lock (mirrors salesController
-  // pattern). Uses sales_return_prefix from settings, default 'SR'.
+  // Allocate next return number with a Postgres advisory lock so concurrent
+  // creators serialise. The row-level FOR UPDATE on the latest row is NOT
+  // enough — two transactions can both lock row N, both compute number N+1,
+  // and the second INSERT then fails the unique index. The advisory lock
+  // (key 904 = sales_returns) blocks any other sales-return creator until
+  // this transaction commits, so the lookup below always sees the freshly
+  // inserted row from a competitor. Auto-released on commit/rollback.
+  await sequelize.query('SELECT pg_advisory_xact_lock(:key)', {
+    replacements: { key: 904 }, transaction: t,
+  });
   const settings = await SystemSettings.findByPk(1, { transaction: t });
   const prefix = settings?.sales_return_prefix?.trim() || 'SR';
   const lastReturn = await SalesReturnBill.findOne({
     order: [['sales_return_id', 'DESC']],
-    lock: t.LOCK.UPDATE,
     transaction: t,
   });
   const lastNum = lastReturn ? parseInt((lastReturn.return_number.split('-').pop() || '0')) || 0 : 0;
@@ -449,15 +456,23 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: 'At least one item is required.' });
     }
 
-    // Generate bill number using prefix from settings — inside transaction to prevent race condition
+    // ── Bill number race (Fix #17) ─────────────────────────────────────
+    // The earlier row-level FOR UPDATE lock on the latest sales_bills row
+    // was not enough: two concurrent inserts could both lock row N, both
+    // compute N+1, and the second INSERT then fails the unique index — a
+    // 75% failure rate under 20-client concurrency. Switching to a
+    // Postgres advisory lock keyed per doc-type (903 = sales bills)
+    // serialises ALL sales-bill creators for the brief number-allocation
+    // window. Sales-return / purchase / payment creators use different
+    // keys so they don't needlessly block each other. Auto-released on
+    // commit/rollback.
+    await sequelize.query('SELECT pg_advisory_xact_lock(:key)', {
+      replacements: { key: 903 }, transaction: t,
+    });
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.sales_bill_prefix?.trim() || '';
-    // Bill number race fix: lock by primary key so concurrent creates serialise.
-    // Without the lock two requests could both read the same lastBill and issue
-    // duplicate bill numbers, which the unique index would then reject.
     const lastBill = await SalesBill.findOne({
       order: [['sales_bill_id', 'DESC']],
-      lock: t.LOCK.UPDATE,
       transaction: t,
     });
     const lastNum = lastBill ? parseInt(lastBill.bill_number.split('-').pop()) : 0;

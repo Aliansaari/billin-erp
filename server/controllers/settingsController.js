@@ -44,6 +44,10 @@ exports.updateSystemSettings = async (req, res) => {
     } else {
       await settings.update(req.body);
     }
+    // Bust the LAN gate's settings cache so dev_lan_enabled /
+    // dev_lan_max_clients flips take effect on the very next request,
+    // not on the next minute boundary.
+    try { require('../middleware/lanGate').invalidateLanGateCache(); } catch {}
     res.json({ data: settings });
   } catch (error) {
     console.error('Settings update error:', error);

@@ -118,6 +118,14 @@ const fs = require('fs');
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 
+// LAN gate — enforces dev_lan_enabled + dev_lan_max_clients from
+// system_settings. Mounted before the API routes so a denied client
+// gets a 503 instead of (e.g.) a successful login. Health and
+// server-info endpoints are exempt inside the middleware itself so
+// the Server Setup screen can still probe.
+const { lanGate } = require('./middleware/lanGate');
+app.use('/api', lanGate);
+
 // API Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/parties', require('./routes/parties'));
@@ -148,6 +156,7 @@ app.use('/api/banks', require('./routes/banks'));
 app.use('/api/loans', require('./routes/loans'));
 app.use('/api/cheques', require('./routes/cheques'));
 app.use('/api/expenses', require('./routes/expenses'));
+app.use('/api/companies', require('./routes/companies'));
 
 // Enumerate every IPv4 the host advertises so client setup screens can
 // show the user "your office machines should connect to ANY of these
@@ -203,6 +212,9 @@ app.get('/api/health', async (req, res) => {
 
 app.get('/api/server-info', (req, res) => {
   const addrs = getLanAddresses();
+  // Surface live concurrency state so the Developer Settings page can
+  // render "3 of 10 clients active" without polling a separate endpoint.
+  const { getActiveClients } = require('./middleware/lanGate');
   res.json({
     name: 'Billing ERP',
     version: SERVER_VERSION,
@@ -212,6 +224,7 @@ app.get('/api/server-info', (req, res) => {
     addresses: addrs,
     // Convenience: pre-built URLs the user can copy-paste
     urls: addrs.map(a => `http://${a.address}:${PORT}`),
+    active_clients: getActiveClients(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -236,6 +249,31 @@ app.get('/api/server-info', (req, res) => {
 const distDir = path.join(__dirname, '..', 'dist');
 const distExists = fs.existsSync(path.join(distDir, 'index.html'));
 if (distExists) {
+  /* The Vite build emits relative asset paths (./assets/*.js) so the
+   * same dist/ also works under file:// inside Electron. But that means
+   * a browser landing on a deep-link route like /sale/new would resolve
+   * ./assets/x.js to /sale/assets/x.js — 404. To handle both cases from
+   * one build, we inject `<base href="/">` into the HTML we serve over
+   * HTTP. Relative URLs then resolve from the document root regardless
+   * of how deep the deep-link is.
+   *
+   * Electron's loadFile() reads the on-disk file directly and doesn't
+   * pass through this transformer, so the file:// case keeps the
+   * original (untouched) index.html. There ./assets/x.js resolves
+   * relative to the file location — which IS the dist directory — so
+   * everything works.
+   */
+  let indexHtml;
+  try {
+    const raw = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
+    indexHtml = raw.includes('<base ')
+      ? raw
+      : raw.replace(/<head([^>]*)>/i, '<head$1>\n    <base href="/" />');
+  } catch (e) {
+    console.error('[SPA serve] failed to read dist/index.html:', e.message);
+    indexHtml = null;
+  }
+
   // Hashed assets — 1 year, immutable.
   app.use('/assets', express.static(path.join(distDir, 'assets'), {
     maxAge: '365d',
@@ -243,6 +281,8 @@ if (distExists) {
     index: false,
   }));
   // Everything else (favicon, manifest, root-level files) — 1 day.
+  // Skip serving index.html through the static handler so our
+  // transformed copy below wins for both root and deep-link routes.
   app.use(express.static(distDir, {
     maxAge: '1d',
     index: false,
@@ -252,12 +292,24 @@ if (distExists) {
       }
     },
   }));
-  // SPA fallback — every non-/api route returns index.html so React Router
-  // can take over. Excludes /api/* explicitly so an unknown API path 404s
-  // properly instead of silently returning the SPA shell.
-  app.get(/^\/(?!api(\/|$)).*/, (req, res) => {
+  // SPA fallback — non-/api, non-/assets, non-extension routes return
+  // the transformed index.html so React Router can take over. The two
+  // exclusions matter because:
+  //   - /api/* — should 404 if a route is missing (caller bug), not
+  //     silently render the SPA shell.
+  //   - /assets/* and /*.{ext} — a missing/stale-hash asset returning
+  //     index.html (Content-Type: text/html) makes the BROWSER refuse
+  //     to use it as JS/CSS, and the page renders blank with a
+  //     "Refused to apply style/script" error in the console. Letting
+  //     it 404 lets a stale-cache reload recover instead of silently
+  //     painting white.
+  app.get(/^\/(?!api(\/|$)|assets\/|.*\.[a-z0-9]+$).*/, (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(distDir, 'index.html'));
+    if (indexHtml) {
+      res.type('html').send(indexHtml);
+    } else {
+      res.sendFile(path.join(distDir, 'index.html'));
+    }
   });
 } else {
   // No build yet: hint the admin instead of returning a blank 404.
@@ -279,6 +331,16 @@ if (distExists) {
 // Database sync and start server
 async function startServer() {
   try {
+    // ── Multi-company bootstrap ───────────────────────────────────────
+    // Runs FIRST: ensures the master DB exists, syncs the companies
+    // table, and registers the existing single-DB install as the
+    // "primary company" if it hasn't been registered yet. Idempotent —
+    // safe on every boot. Throws if the master DB can't be reached, in
+    // which case startup aborts so we don't run half-initialised.
+    const { runCompanyBootstrap } = require('./services/companyBootstrap');
+    await runCompanyBootstrap();
+    console.log('Multi-company bootstrap complete');
+
     await sequelize.authenticate();
     console.log('Database connected successfully');
 
@@ -514,6 +576,36 @@ async function startServer() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_last_sync') THEN
           ALTER TABLE system_settings ADD COLUMN tally_last_sync TIMESTAMP;
         END IF;
+
+        -- ── Developer-tier feature gates ───────────────────────────
+        -- See SystemSettings.js for rationale per column. Each flag
+        -- controls whether the corresponding feature is visible to
+        -- non-developer users; developers see everything regardless.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_ledger_integrity') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_ledger_integrity BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_data_cleanup') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_data_cleanup BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_backup_restore') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_backup_restore BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_tally_sync') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_tally_sync BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_import_export') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_import_export BOOLEAN DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_server_settings') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_server_settings BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_lan_enabled') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_lan_enabled BOOLEAN DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_lan_max_clients') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_lan_max_clients INTEGER DEFAULT 0;
+        END IF;
+
         -- Return bill prefixes. Defaults match the seeder; existing DBs that
         -- ran the seeder before this column shipped still need a value so the
         -- controller trim() call does not throw on NULL.

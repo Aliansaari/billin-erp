@@ -1205,20 +1205,166 @@ body {
   font-weight: 700 !important;
 }
 
-/* ===== RESPONSIVE ===== */
-@media (max-width: 768px) {
-  .erp-header-shortcuts {
-    display: none !important;
-  }
-  .erp-header {
-    padding: 0 12px !important;
-  }
+/* ════════════════════════════════════════════════════════════════════════
+ * RESPONSIVE / FIT-ANY-SCREEN
+ *
+ * The app must render usably from a 320 px window up to 4K monitors. This
+ * block handles every shrink case below the comfortable laptop default
+ * (1280-ish), in three tiers:
+ *
+ *   • <= 1100 px — Sidebar auto-collapses (handled in JS by AppLayout).
+ *                  Inner page padding tightens. Dashboard/KPI grids reflow.
+ *   • <=  900 px — Multi-column page layouts (Settings, Print Preview,
+ *                  master/detail) stack vertically. Tables and forms
+ *                  squeeze further.
+ *   • <=  700 px — Sidebar leaves the layout flow entirely; a hamburger
+ *                  in the top-left toggles it as an overlay.
+ *
+ * Everywhere: AntD tables get horizontal scroll instead of overflowing
+ * into the next column, and form/card grids use auto-fit so they wrap
+ * naturally. min-width: 0 is enforced on flex children so percentages
+ * don't expand past the parent.
+ *
+ * The breakpoints intentionally don't try to imitate phone viewports
+ * pixel-perfectly — this is a desktop ERP. The goal is "doesn't break"
+ * in any window size, not "polished iPhone UI".
+ * ──────────────────────────────────────────────────────────────────── */
+
+/* ── Universal shrink-safety ─────────────────────────────────────── */
+
+/* Targeted (NOT universal-selector) min-width: 0. Applying this to
+ * every descendant of the layout wrapper made some pages render
+ * blank because antd internals (Sider's children, Table's rowspan
+ * cells, Cascader popups) can't tolerate min-width: 0 in spots.
+ * Restricting to direct flex children of our own page wrappers. */
+.erp-page-content,
+.erp-page-content > *,
+.app-layout-horizontal > .ant-layout,
+.erp-app-layout > .ant-layout,
+.erp-app-layout > .ant-layout > * {
+  min-width: 0;
 }
 
-@media (max-width: 480px) {
-  .erp-quick-action-btn .erp-kbd {
-    display: none !important;
+/* AntD: tables become horizontally scrollable instead of stretching
+ * the page when the column total exceeds the viewport. */
+.erp-page-content .ant-table-wrapper { max-width: 100%; }
+.erp-page-content .ant-table-content { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* Page wrappers — long content scrolls vertically inside the flex
+ * column instead of stretching the viewport. */
+.erp-page-content {
+  max-width: 100%;
+}
+
+/* ── Tier 1: <= 1100 px (compact desktop / small laptop) ─────────── */
+@media (max-width: 1100px) {
+  /* The sidebar auto-collapses (controlled by AppLayout JS). The
+   * collapsed-sidebar popup menu becomes the way to access nested
+   * routes. */
+  .erp-page-content { padding: clamp(6px, 1.5vw, 16px); }
+  /* AntD descriptions get denser — labels above values rather than
+   * label-left-value-right. Saves ~150 px of horizontal real estate
+   * on detail pages. */
+  .ant-descriptions-item-label,
+  .ant-descriptions-item-content { padding: 6px 10px !important; }
+}
+
+/* ── Tier 2: <= 900 px (tablet portrait / split-screen) ──────────── */
+@media (max-width: 900px) {
+  /* Header strip shrinks padding and hides keyboard-shortcut chips. */
+  .erp-header { padding: 0 12px !important; }
+  .erp-header-shortcuts { display: none !important; }
+  /* Primary buttons keep label, secondary go to icon-only via the
+   * .erp-icon-only-sm helper class (used opt-in by pages with crowded
+   * action bars). */
+  .erp-icon-only-sm .anticon + span,
+  .erp-icon-only-sm > span:not(.anticon) { display: none; }
+  /* Two-pane settings layouts collapse to a single stack: the left
+   * navigation rail becomes a horizontal segmented list at the top,
+   * and the right pane occupies the full width below. The Settings
+   * pages already use .erp-settings-layout flex; this just changes
+   * the direction. */
+  .erp-settings-layout { flex-direction: column !important; }
+  .erp-settings-layout > aside,
+  .erp-settings-nav    { width: 100% !important; max-height: none !important; }
+  /* Print Settings preview pane stacks below the editor. */
+  .ant-row > .ant-col[class*="span-"] { flex: 1 1 100% !important; max-width: 100% !important; }
+}
+
+/* ── Tier 3: <= 700 px (phone-ish) ───────────────────────────────── */
+@media (max-width: 700px) {
+  .erp-quick-action-btn .erp-kbd { display: none !important; }
+  /* Sidebar slides off-screen and is shown only when .nav-open. The
+   * Layout component sets that class on the .erp-app-layout wrapper
+   * when the user taps the hamburger. */
+  .erp-app-layout.is-mobile .erp-sidebar {
+    position: fixed !important;
+    top: 0; left: 0; bottom: 0;
+    z-index: 1100;
+    transform: translateX(-100%);
+    transition: transform 220ms ease;
+    box-shadow: 0 0 28px rgba(0, 0, 0, 0.25);
   }
+  .erp-app-layout.is-mobile.nav-open .erp-sidebar {
+    transform: translateX(0);
+  }
+  /* Hamburger floats above content; only visible when is-mobile. */
+  .erp-mobile-nav-toggle {
+    position: fixed;
+    top: 10px; left: 10px;
+    z-index: 1101;
+    width: 40px; height: 40px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    gap: 4px; padding: 0;
+    border: 1px solid var(--border-subtle, #e5e7eb);
+    border-radius: 8px;
+    background: var(--bg-elevated, #fff);
+    color: var(--fg-primary, #111);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  }
+  .erp-mobile-nav-toggle span {
+    display: block;
+    width: 18px; height: 2px;
+    background: currentColor;
+    border-radius: 1px;
+  }
+  /* Scrim behind the open sidebar — taps dismiss. */
+  .erp-mobile-nav-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1099;
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(2px);
+    animation: fadeIn 180ms ease;
+  }
+  /* Content shifts to the absolute left edge once the sidebar leaves
+   * the layout flow — otherwise we'd inherit the now-stale flex column
+   * width. */
+  .erp-app-layout.is-mobile .ant-layout {
+    margin-left: 0 !important;
+  }
+  /* Make space at the top for the hamburger button. */
+  .erp-app-layout.is-mobile .erp-page-content { padding-top: 56px; }
+  /* AntD Modal full-bleed at this size — a dialog with 32 px side
+   * margins reads as a tiny rectangle on a 360 px screen. */
+  .ant-modal {
+    max-width: calc(100vw - 16px) !important;
+    margin: 8px !important;
+  }
+  .ant-modal-body { padding: 14px !important; }
+  /* DatePicker / RangePicker dropdown popups also need the cap. */
+  .ant-picker-dropdown { max-width: calc(100vw - 16px) !important; }
+}
+
+/* ── Legacy carry-overs ──────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Keep the historical breakpoint for any consumers that targeted it. */
+  .erp-header-shortcuts { display: none !important; }
+  .erp-header { padding: 0 12px !important; }
+}
+@media (max-width: 480px) {
+  .erp-quick-action-btn .erp-kbd { display: none !important; }
 }
 
 /* ===== PRINT STYLES ===== */

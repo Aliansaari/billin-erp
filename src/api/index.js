@@ -143,7 +143,15 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem('must_change_password');
-      window.location.href = '/login';
+      // Don't redirect if we're already on /login — otherwise a
+      // login-page API probe (e.g. companies/list-public on some
+      // setups) that 401s would force a hard reload, the new mount
+      // would 401 again, and we'd be stuck in a redirect loop that
+      // shows as a blank/blinking screen. Single-shot redirect from
+      // anywhere else.
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
       return Promise.reject(error);
     }
     if (status === 403) {
@@ -166,6 +174,10 @@ export const authAPI = {
   getProfile: () => api.get('/auth/profile'),
   changePassword: (data) => api.post('/auth/change-password', data),
   verifyPassword: (password) => api.post('/auth/verify-password', { password }),
+  // Developer-mode unlock — verifies the env-tunable DEVELOPER_PASSWORD.
+  // Returns { ok: true, using_default_password: bool } on success.
+  // 401 on wrong password; 429 if rate-limited (5+ failures in 15 min).
+  verifyDeveloperPassword: (password) => api.post('/auth/dev-verify', { password }),
 };
 
 // Parties
@@ -623,6 +635,25 @@ export const batchAPI = {
 // summary() returns by-head, by-month, by-party rollups for the
 // Expense Report page. cancel() is the soft-delete (posts a reversing
 // entry); update() is reverse + repost.
+// ── Multi-company directory ─────────────────────────────────────────
+//
+// listPublic() is fired by the login screen BEFORE any token exists,
+// so the picker can show available companies. It returns minimal
+// metadata (id, name, logo, accent) — no GSTIN/address.
+// All other endpoints require auth.
+export const companyAPI = {
+  // Public — used pre-login to populate the picker.
+  listPublic: () => api.get('/companies/list-public'),
+  // Authenticated — full metadata for the topbar + Manage page.
+  list:    (params = {}) => api.get('/companies', { params }),
+  create:  (data) => api.post('/companies', data),
+  update:  (id, data) => api.patch(`/companies/${id}`, data),
+  archive: (id) => api.delete(`/companies/${id}`),
+  // Master cap — Developer Settings reads/writes via these.
+  getMaxCap: () => api.get('/companies/settings/max-cap'),
+  setMaxCap: (n) => api.put('/companies/settings/max-cap', { dev_max_companies: n }),
+};
+
 export const expenseAPI = {
   list:       (params = {}) => api.get('/expenses', { params }),
   getById:    (id)          => api.get(`/expenses/${id}`),

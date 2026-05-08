@@ -109,7 +109,14 @@ export const ALT_MENUS = {
     items: [
       { letter: 'J', label: 'New Journal',      sub: 'Manual entry',     route: '/accounts/journal/new' },
       { letter: 'V', label: 'Journal Vouchers', sub: 'All vouchers',     route: '/accounts/journal' },
-      { letter: 'I', label: 'Ledger Integrity', sub: 'Audit + drift',    route: '/accounts/integrity' },
+      // `flag` mirrors the sidebar's menuConfig — when the named system
+      // setting is OFF (and dev mode isn't bypassing) the item is
+      // filtered out of the Alt-letter popup, the collapsed-sidebar
+      // hover popup, and the top-nav dropdown via filterAltMenuItems
+      // below. Without this filter, a regular user could still reach
+      // Ledger Integrity by pressing Alt+A then I, even though the
+      // sidebar didn't show the entry.
+      { letter: 'I', label: 'Ledger Integrity', sub: 'Audit + drift',    route: '/accounts/integrity', flag: 'dev_show_ledger_integrity' },
     ],
   },
 
@@ -166,3 +173,28 @@ export const CTRL_DIRECT = {
   KeyH: '/',
   KeyD: '/dashboard',
 };
+
+/**
+ * Drop items whose `flag` field names a system_settings boolean that's
+ * currently OFF. Mirrors the sidebar's filterMenuByFeatureFlags but
+ * for the flat ALT_MENUS shape. When `effectiveDev` is true (developer
+ * mode unlocked AND not previewing), every flagged item is allowed
+ * through — same override the sidebar uses.
+ *
+ * Returns a NEW ALT_MENUS-shaped object; the original is never mutated
+ * so consumers that import it directly stay safe.
+ */
+export function filterAltMenus(altMenus, settings, effectiveDev) {
+  const out = {};
+  for (const code of Object.keys(altMenus)) {
+    const menu = altMenus[code];
+    const items = (menu.items || []).filter((it) => {
+      if (!it.flag) return true;
+      if (effectiveDev) return true;
+      return !!settings?.[it.flag];
+    });
+    if (items.length === 0) continue;     // drop a menu that's been emptied
+    out[code] = { ...menu, items };
+  }
+  return out;
+}

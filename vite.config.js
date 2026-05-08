@@ -4,6 +4,16 @@ import react from '@vitejs/plugin-react';
 const API_PORT = process.env.VITE_API_PORT || '3001';
 
 export default defineConfig({
+  // Use relative asset URLs so the same `dist/` works in BOTH paths:
+  //   - Electron prod loads dist/index.html via `file://`. Absolute
+  //     paths like `/assets/x.js` resolve to `file:///assets/x.js`
+  //     (the C: drive root) and 404 with a blank window. Relative
+  //     paths `./assets/x.js` resolve correctly next to index.html.
+  //   - The Express server serves dist/ from /. SPA deep-links (e.g.
+  //     /sale/new) all rewrite to /index.html, and the browser resolves
+  //     relative module URLs against the document URL — same outcome.
+  // Without this, Electron prod renders blank.
+  base: './',
   plugins: [react()],
   server: {
     // Bind 0.0.0.0 so the dev server is reachable from other LAN machines
