@@ -920,6 +920,17 @@ export default function SalesBillForm() {
       // when the new product is batch-tracked.
       batch_id:null, batch_number:'', manufacture_date:null, expiry_date:null,
       batch_stock:0,
+      // Color dimension — propagate from the picked product so the
+      // line carries color_mode='multi' and the active colors list.
+      // Sales-form colors are filtered to current_stock > 0 (you can
+      // only sell what's on hand). Without this the items-table Color
+      // cell falls through to "—" even for multi-color products picked
+      // via the dropdown (versus the scan path which already sets it).
+      color_mode: p.color_mode || 'none',
+      color_id: null, color_name: '',
+      colors: (p.color_mode === 'multi' && Array.isArray(p.colors))
+        ? p.colors.filter((c) => Number(c.current_stock) > 0)
+        : [],
     }));
     // For batch-tracked products with the global toggle on, jump to
     // the Lot dropdown and open it instead of qty — the operator's
@@ -991,6 +1002,13 @@ export default function SalesBillForm() {
       // re-fetches and auto-picks the FEFO/FIFO winner if applicable.
       batch_id: null, batch_number: '',
       manufacture_date: null, expiry_date: null, batch_stock: 0,
+      // Color dimension — same treatment as handleProdSel. Multi-color
+      // is a per-variant flag, so the picked sibling's color_mode wins.
+      color_mode: sib.color_mode || 'none',
+      color_id: null, color_name: '',
+      colors: (sib.color_mode === 'multi' && Array.isArray(sib.colors))
+        ? sib.colors.filter((c) => Number(c.current_stock) > 0)
+        : [],
     }));
     setSizeOpen(false);
     if (batchTrackingOn && sib.is_batch_tracked) {

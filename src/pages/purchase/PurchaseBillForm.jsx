@@ -720,6 +720,14 @@ export default function PurchaseBillForm() {
         is_batch_tracked: !!p.is_batch_tracked,
         product_mode: 'single',
         batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
+        // Color dimension — propagate from the picked product. Purchase
+        // shows ALL active colors (no stock filter — receiving more of
+        // any color is always valid). Without this, picking a multi-
+        // color product via the dropdown leaves the row's Color cell as
+        // "—" because color_mode stays 'none' on the entry.
+        color_mode: p.color_mode || 'none',
+        color_id: null, color_name: '',
+        colors: (p.color_mode === 'multi' && Array.isArray(p.colors)) ? p.colors : [],
       }));
       setBarcodeError('');
       // Single mode has no Size / Art# entry — focus Qty directly.
@@ -842,6 +850,13 @@ export default function PurchaseBillForm() {
           quantity_per_box:qpbEntered?prev.quantity_per_box:parseFloat(fullMatch.quantity_per_box)||1,
           is_batch_tracked:!!fullMatch.is_batch_tracked,
           product_mode:fullMatch.product_mode||'variant',
+          // Color dimension — bind to the matched variant so the line
+          // can render the per-line color matrix. Without this, a
+          // multi-color product picked via variant lookup falls through
+          // to the items-table "—" cell.
+          color_mode: fullMatch.color_mode || 'none',
+          colors: (fullMatch.color_mode === 'multi' && Array.isArray(fullMatch.colors))
+                  ? fullMatch.colors : [],
         }));
       } else {
         // Identity matched but no variant has this exact pricing → new barcode variant
@@ -867,6 +882,13 @@ export default function PurchaseBillForm() {
       gst_rate:parseFloat(variant.gst_rate)||0,
       is_batch_tracked:!!variant.is_batch_tracked,
       product_mode:variant.product_mode||'variant',
+      // Color dimension — propagate from the picked variant. Same as
+      // the other entry-fill paths; without this the items-table Color
+      // cell renders "—" for multi-color products picked through the
+      // inline variant picker.
+      color_mode: variant.color_mode || 'none',
+      color_id: null, color_name: '',
+      colors: (variant.color_mode === 'multi' && Array.isArray(variant.colors)) ? variant.colors : [],
     }));
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setTimeout(()=>{ qtyRef.current?.focus(); qtyRef.current?.select?.(); },50);
