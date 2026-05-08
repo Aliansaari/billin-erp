@@ -4,13 +4,15 @@
 // operator's purchase-decision view: scan a list of products, see which
 // have at least one short color, drill in to see exactly which colors.
 //
-// Mirror of /inventory/stock-report's structure (sr-* CSS classes +
-// VirtualReportTable + KPI strip + chip filter row) so this page feels
-// native alongside the other inventory reports rather than being a
-// stylistic outlier.
+// Layout discipline mirrors Fast & Slow Stock (and the other rpt-*
+// reports): an outer .sbc-page flex column, sticky .rpt-page-hd at the
+// top, .rpt-kpis strip, tabs-style filter row, and a flex:1 table band
+// holding the virtualized list. All chrome is inherited from
+// src/styles/global.css's .rpt-* family so the page reads as a sibling
+// of Cash Flow, Fund Flow, Bills Outstanding, etc.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Select } from 'antd';
+import { Select, Input } from 'antd';
 import {
   SearchOutlined, ReloadOutlined,
 } from '@ant-design/icons';
@@ -19,27 +21,19 @@ import { reportAPI, categoryAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
-import '../inventory/stock-report.css';
 
-const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-const fmtN = (v) =>    parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const fmtL = (v) => {
-  const n = parseFloat(v || 0);
-  if (Math.abs(n) >= 10000000) return `₹ ${(n / 10000000).toFixed(2)} Cr`;
-  if (Math.abs(n) >= 100000)   return `₹ ${(n / 100000).toFixed(2)} L`;
-  return fmt(n);
-};
+const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const fmtR = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function StockByColor() {
   const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');                  // debounced
+  const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState(null);
-  const [status, setStatus] = useState(null);                // null | 'short' | 'ok'
+  const [status, setStatus] = useState(null);            // null | 'short' | 'ok'
   const [categories, setCategories] = useState([]);
-  const searchInputRef = useRef(null);
 
-  // Debounce the search input — same pattern as Stock Report.
+  // Debounced search.
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput.trim()), 250);
     return () => clearTimeout(t);
@@ -51,8 +45,6 @@ export default function StockByColor() {
       .catch(() => setCategories([]));
   }, []);
 
-  // Filters → server query. Stays JSON-stable so the virtualizer doesn't
-  // re-cache on every render.
   const filters = useMemo(() => ({
     ...(search ? { search } : {}),
     ...(categoryId ? { category_id: categoryId } : {}),
@@ -65,39 +57,73 @@ export default function StockByColor() {
     chunkSize: 200,
   });
 
-  // ── Columns — mirror Stock Report's render style ─────────────────
+  // Cell helpers — share styles with the rpt-* family via inline style
+  // tokens (CSS vars resolve to whatever the active theme defines).
+  const numCell = (v, opts = {}) => (
+    <span style={{
+      fontVariantNumeric: 'tabular-nums',
+      fontWeight: opts.bold ? 700 : 600,
+      color: opts.color || 'var(--fg-primary)',
+    }}>{fmtN(v)}</span>
+  );
+
   const columns = useMemo(() => [
     {
       key: 'sr', title: '#', width: 56, align: 'center', fixed: 'left',
-      render: (_, __, idx) => <span className="sr-sr-num">{idx + 1}</span>,
+      render: (_, __, idx) => (
+        <span style={{ fontSize: 11, color: 'var(--fg-tertiary)', fontWeight: 600 }}>{idx + 1}</span>
+      ),
     },
     {
-      key: 'bc', title: 'Barcode', dataIndex: 'barcode', width: 130,
-      render: (v) => v ? <span className="sr-bc">{v}</span> : <span className="sr-amt muted">—</span>,
+      key: 'bc', title: 'Barcode', dataIndex: 'barcode', width: 140,
+      render: (v) => v ? (
+        <span style={{
+          fontFamily: 'Geist Mono, monospace',
+          fontSize: 11, fontWeight: 600,
+          color: 'var(--fg-secondary)',
+          background: 'var(--bg-muted)',
+          padding: '2px 8px', borderRadius: 4,
+        }}>{v}</span>
+      ) : <span style={{ color: 'var(--fg-tertiary)' }}>—</span>,
     },
     {
       key: 'cat', title: 'Category', dataIndex: 'category_name', width: 160,
-      render: (v) => <span className="sr-cat">{v || '—'}</span>,
+      render: (v) => v
+        ? <span style={{ fontSize: 12.5, color: 'var(--fg-secondary)' }}>{v}</span>
+        : <span style={{ color: 'var(--fg-tertiary)' }}>—</span>,
     },
     {
-      key: 'prod', title: 'Product', dataIndex: 'product_name', width: 240, fixed: 'left',
-      render: (v) => <span className="sr-prod-name">{v}</span>,
+      key: 'prod', title: 'Product', dataIndex: 'product_name', width: 260, fixed: 'left',
+      render: (v) => (
+        <span style={{
+          fontWeight: 600, fontSize: 13, color: 'var(--fg-primary)',
+        }}>{v}</span>
+      ),
     },
     {
       key: 'size', title: 'Size', dataIndex: 'size_value', width: 80, align: 'center',
-      render: (v) => v ? <span className="sr-size-pill">{v}</span> : <span className="sr-amt muted">—</span>,
+      render: (v) => v ? (
+        <span style={{
+          fontSize: 11, fontWeight: 600,
+          color: 'var(--fg-secondary)', background: 'var(--bg-muted)',
+          padding: '2px 8px', borderRadius: 4,
+        }}>{v}</span>
+      ) : <span style={{ color: 'var(--fg-tertiary)' }}>—</span>,
     },
     {
       key: 'art', title: 'Article', dataIndex: 'article_number', width: 110,
-      render: (v) => v ? <span className="sr-art">{v}</span> : <span className="sr-amt muted">—</span>,
+      render: (v) => v
+        ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>{v}</span>
+        : <span style={{ color: 'var(--fg-tertiary)' }}>—</span>,
     },
     {
-      key: 'colors', title: 'Colors', dataIndex: 'color_count', width: 90, align: 'center',
-      render: (v, r) => (
-        <span
-          className="sbc-colors-pill"
-          title={r.is_short ? 'Some colors short — click to drill in' : 'Click to see colors'}
-        >
+      key: 'colors', title: 'Colors', dataIndex: 'color_count', width: 110, align: 'center',
+      render: (v) => (
+        <span style={{
+          display: 'inline-block', padding: '3px 12px',
+          borderRadius: 999, background: 'var(--accent-bg, rgba(99,102,241,.12))',
+          color: 'var(--accent)', fontSize: 11, fontWeight: 700,
+        }}>
           {v} {v === 1 ? 'color' : 'colors'}
         </span>
       ),
@@ -105,123 +131,171 @@ export default function StockByColor() {
     {
       key: 'stk', title: 'Total Stock', dataIndex: 'total_stock', width: 110, align: 'right',
       render: (v, r) => {
-        const cls = r.out_count > 0 ? 'out' : (r.low_count > 0 ? 'low' : 'ok');
-        return <span className={`sr-stk ${cls}`}>{fmtN(v)}</span>;
+        const color = r.out_count > 0
+          ? 'var(--danger)'
+          : (r.low_count > 0 ? 'var(--warning)' : 'var(--success)');
+        return numCell(v, { color, bold: true });
       },
     },
     {
-      key: 'short', title: 'Short', width: 110, align: 'center',
+      key: 'short', title: 'Short', width: 130, align: 'center',
       render: (_, r) => {
         if (r.out_count === 0 && r.low_count === 0) {
-          return <span className="sr-amt muted">—</span>;
+          return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
         }
-        const parts = [];
-        if (r.out_count > 0) parts.push(<span key="o" className="sbc-tag sbc-tag-out">{r.out_count} out</span>);
-        if (r.low_count > 0) parts.push(<span key="l" className="sbc-tag sbc-tag-low">{r.low_count} low</span>);
-        return <span style={{ display: 'inline-flex', gap: 4 }}>{parts}</span>;
+        return (
+          <span style={{ display: 'inline-flex', gap: 4 }}>
+            {r.out_count > 0 && (
+              <span style={{
+                padding: '2px 8px', borderRadius: 4,
+                background: 'rgba(220,38,38,.12)', color: 'var(--danger)',
+                fontSize: 10, fontWeight: 700, letterSpacing: '.02em',
+              }}>{r.out_count} out</span>
+            )}
+            {r.low_count > 0 && (
+              <span style={{
+                padding: '2px 8px', borderRadius: 4,
+                background: 'rgba(217,119,6,.14)', color: 'var(--warning)',
+                fontSize: 10, fontWeight: 700, letterSpacing: '.02em',
+              }}>{r.low_count} low</span>
+            )}
+          </span>
+        );
       },
     },
     {
-      key: 'pur', title: 'Pur. Rate', dataIndex: 'purchase_rate', width: 110, align: 'right',
-      render: (v) => <span className="sr-amt"><span className="rs">₹</span>{fmtN(v)}</span>,
+      key: 'pur', title: 'Pur. Rate', dataIndex: 'purchase_rate', width: 120, align: 'right',
+      render: (v) => (
+        <span style={{
+          fontVariantNumeric: 'tabular-nums', color: 'var(--fg-secondary)', fontWeight: 500,
+        }}>
+          <span style={{ color: 'var(--fg-tertiary)', marginRight: 1 }}>₹</span>{fmtN(v)}
+        </span>
+      ),
     },
     {
-      key: 'val', title: 'Stock Value', dataIndex: 'stock_value', width: 130, align: 'right',
-      render: (v) => <span className="sr-amt"><span className="rs">₹</span>{fmtN(v)}</span>,
+      key: 'val', title: 'Stock Value', dataIndex: 'stock_value', width: 140, align: 'right',
+      render: (v) => (
+        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+          <span style={{ color: 'var(--fg-tertiary)', marginRight: 1, fontWeight: 500 }}>₹</span>{fmtN(v)}
+        </span>
+      ),
     },
   ], []);
 
   const rowClassName = (r) => {
     if (!r || r.__loading) return '';
-    if (r.out_count > 0) return 'sr-row-out';
+    if (r.out_count > 0) return 'sbc-row-out';
+    if (r.low_count > 0) return 'sbc-row-low';
     return '';
   };
 
+  const totalShort = (summary?.short_out_count ?? 0) + (summary?.short_low_count ?? 0);
+
   return (
-    <div className="sr-page">
-      {/* ── HEADER ─────────────────────────────────────────────── */}
-      <div className="sr-hd">
-        <div className="sr-title">
+    <div className="sbc-page">
+
+      {/* ── Title strip — shared rpt-* design system ──────────── */}
+      <header className="rpt-page-hd">
+        <div className="rpt-title">
           <h1>Stock by Color</h1>
-        </div>
-        <div className="sr-ctrls">
-          <div className="sr-search">
-            <SearchOutlined />
-            <input
-              ref={searchInputRef}
-              placeholder="Search product, barcode, article…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              autoComplete="off"
-            />
+          <div className="rpt-sub">
+            <b>{summary?.total_count ?? totalCount ?? 0}</b> multi-color products
+            {summary && (
+              <>
+                <span className="sep">·</span>
+                <b>{fmtN(summary.total_qty)}</b> total qty
+                <span className="sep">·</span>
+                {totalShort > 0 ? (
+                  <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
+                    {summary.short_out_count} out · {summary.short_low_count} low
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--success)', fontWeight: 600 }}>all OK</span>
+                )}
+              </>
+            )}
           </div>
+        </div>
+
+        <div className="rpt-hd-ctrl">
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="Search product, barcode, article…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            style={{ width: 240, height: 34, borderRadius: 7 }}
+          />
           <Select
             placeholder="All Categories"
-            style={{ width: 180 }}
             allowClear
-            value={categoryId}
+            showSearch
+            optionFilterProp="label"
+            value={categoryId ?? undefined}
             onChange={(v) => setCategoryId(v ?? null)}
-            options={categories.map(c => ({ value: c.category_id, label: c.category_name }))}
+            style={{ width: 180, height: 34 }}
+            options={categories.map((c) => ({ value: c.category_id, label: c.category_name }))}
           />
-          <button className="sr-btn" onClick={() => refresh()} title="Refresh">
+          <button className="rpt-btn ant-btn" onClick={() => refresh()}>
             <ReloadOutlined /> Refresh
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* ── KPI STRIP ─────────────────────────────────────────── */}
-      <div className="sr-kpis">
+      {/* ── KPI strip — rpt-kpis with tone classes ──────────── */}
+      <div className="rpt-kpis">
         <div
-          className={`sr-kpi tot${status === null ? ' active' : ''}`}
+          className={`rpt-kpi tone-info${status === null ? ' active' : ''}`}
           onClick={() => setStatus(null)}
+          style={{ cursor: 'pointer' }}
         >
-          <div className="sr-kpi-k">Total Products</div>
-          <div className="sr-kpi-v">{summary?.total_count ?? totalCount ?? 0}</div>
-          <div className="sr-kpi-sub">multi-color tracked</div>
+          <div className="rpt-kpi-k">Total Products</div>
+          <div className="rpt-kpi-v">{summary?.total_count ?? totalCount ?? 0}</div>
+          <div className="rpt-kpi-sub">multi-color tracked</div>
         </div>
-        <div className="sr-kpi value-tone">
-          <div className="sr-kpi-k">Total Qty</div>
-          <div className="sr-kpi-v">{fmtN(summary?.total_qty ?? 0)}</div>
-          <div className="sr-kpi-sub">all colors combined</div>
+        <div className="rpt-kpi tone-accent">
+          <div className="rpt-kpi-k">Total Qty</div>
+          <div className="rpt-kpi-v">{fmtN(summary?.total_qty ?? 0)}</div>
+          <div className="rpt-kpi-sub">across all colors</div>
         </div>
         <div
-          className={`sr-kpi low-tone${status === 'short' ? ' active' : ''}`}
+          className={`rpt-kpi tone-warning${status === 'short' ? ' active' : ''}`}
           onClick={() => setStatus(status === 'short' ? null : 'short')}
+          style={{ cursor: 'pointer' }}
         >
-          <div className="sr-kpi-k">Short Items</div>
-          <div className="sr-kpi-v">{(summary?.short_out_count ?? 0) + (summary?.short_low_count ?? 0)}</div>
-          <div className="sr-kpi-sub">
+          <div className="rpt-kpi-k">Short Items</div>
+          <div className="rpt-kpi-v">{totalShort}</div>
+          <div className="rpt-kpi-sub">
             {summary?.short_out_count ?? 0} out · {summary?.short_low_count ?? 0} low
           </div>
         </div>
         <div
-          className={`sr-kpi sale-tone${status === 'ok' ? ' active' : ''}`}
+          className={`rpt-kpi tone-success${status === 'ok' ? ' active' : ''}`}
           onClick={() => setStatus(status === 'ok' ? null : 'ok')}
+          style={{ cursor: 'pointer' }}
         >
-          <div className="sr-kpi-k">All Colors OK</div>
-          <div className="sr-kpi-v">{summary?.ok_count ?? 0}</div>
-          <div className="sr-kpi-sub">no shortages</div>
+          <div className="rpt-kpi-k">All Colors OK</div>
+          <div className="rpt-kpi-v">{summary?.ok_count ?? 0}</div>
+          <div className="rpt-kpi-sub">no shortages</div>
         </div>
       </div>
 
-      {/* ── FILTER CHIPS ──────────────────────────────────────── */}
-      <div className="sr-filters">
-        <span
-          className={`sr-chip${status === null ? ' on' : ''}`}
-          onClick={() => setStatus(null)}
-        ><span className="dot"></span>All</span>
-        <span
-          className={`sr-chip${status === 'short' ? ' on' : ''}`}
-          onClick={() => setStatus(status === 'short' ? null : 'short')}
-        ><span className="dot out"></span>Short</span>
-        <span
-          className={`sr-chip${status === 'ok' ? ' on' : ''}`}
-          onClick={() => setStatus(status === 'ok' ? null : 'ok')}
-        ><span className="dot ok"></span>OK</span>
+      {/* ── Tabs strip — same shape as Fast & Slow Stock's mv-tabs */}
+      <div className="sbc-tabs">
+        <button className={status === null ? 'on' : ''} onClick={() => setStatus(null)}>
+          All <span className="count">{summary?.total_count ?? 0}</span>
+        </button>
+        <button className={status === 'short' ? 'on' : ''} onClick={() => setStatus(status === 'short' ? null : 'short')}>
+          Short <span className="count">{totalShort}</span>
+        </button>
+        <button className={status === 'ok' ? 'on' : ''} onClick={() => setStatus(status === 'ok' ? null : 'ok')}>
+          OK <span className="count">{summary?.ok_count ?? 0}</span>
+        </button>
       </div>
 
-      {/* ── TABLE ─────────────────────────────────────────────── */}
-      <div className="sr-tbl-wrap">
+      {/* ── Table band ─────────────────────────────────────── */}
+      <div className="sbc-tbl-wrap">
         <VirtualReportTable
           columns={columns}
           rows={rows}
@@ -229,7 +303,7 @@ export default function StockByColor() {
           ensureChunk={ensureChunk}
           loading={loading}
           rowKey="product_id"
-          scroll={{ x: 1280 }}
+          scroll={{ x: 1320 }}
           rowClassName={rowClassName}
           onRow={(record) => ({
             onClick: () => record?.product_id && navigate(`/reports/stock-by-color/${record.product_id}`),
@@ -240,37 +314,89 @@ export default function StockByColor() {
 
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back',
-            onAction: () => navigate('/reports') },
-          { id: 'refresh', key: 'F5', label: 'Refresh',
-            onAction: () => refresh() },
+          { id: 'back', key: 'Esc', label: 'Back', onAction: () => navigate('/reports') },
+          { id: 'refresh', key: 'F5', label: 'Refresh', onAction: () => refresh() },
         ]}
       />
 
-      {/* Page-local styles so we don't pollute the global stock-report.css.
-          The colors-pill / short-tag visual matches the existing chip
-          + size-pill aesthetic so the new column reads native. */}
+      {/* Page-level layout — mirrors mv-page in fast-slow-stock.css.
+          Outer flex column, only the table band is flex:1, header /
+          KPI / tabs / footer all flex-shrink:0. */}
       <style>{`
-        .sbc-colors-pill {
-          display: inline-block;
-          padding: 2px 10px;
-          border-radius: 999px;
-          background: var(--bg-muted, #f1f5f9);
-          color: var(--fg-primary);
-          font-size: 11px;
+        .sbc-page {
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          background: var(--bg-app);
+          overflow: hidden;
+          font-variant-numeric: tabular-nums;
+        }
+        .sbc-page .rpt-page-hd { flex-shrink: 0; }
+        .sbc-page .rpt-kpis { flex-shrink: 0; padding-bottom: 14px; }
+
+        .sbc-tabs {
+          flex-shrink: 0;
+          display: flex;
+          gap: 4px;
+          align-items: center;
+          padding: 0 24px;
+          border-bottom: 1px solid var(--border);
+          background: var(--bg-panel);
+        }
+        .sbc-tabs button {
+          border: 0;
+          background: transparent;
+          padding: 12px 16px;
+          font: inherit;
+          font-size: 12.5px;
+          font-weight: 500;
+          color: var(--fg-secondary);
+          cursor: pointer;
+          position: relative;
+          transition: color .12s;
+        }
+        .sbc-tabs button:hover { color: var(--fg-primary); }
+        .sbc-tabs button.on {
+          color: var(--accent);
           font-weight: 600;
-          letter-spacing: 0.01em;
         }
-        .sbc-tag {
-          display: inline-block;
-          padding: 1px 6px;
-          border-radius: 4px;
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: 0.02em;
+        .sbc-tabs button.on::after {
+          content: '';
+          position: absolute;
+          left: 16px; right: 16px; bottom: -1px;
+          height: 2px;
+          background: var(--accent);
+          border-radius: 2px 2px 0 0;
         }
-        .sbc-tag-out { background: rgba(220, 38, 38, 0.12); color: var(--danger); }
-        .sbc-tag-low { background: rgba(217, 119, 6, 0.14);  color: var(--warning); }
+        .sbc-tabs button .count {
+          margin-left: 4px;
+          color: var(--fg-tertiary);
+          font-weight: 500;
+          font-size: 11.5px;
+        }
+        .sbc-tabs button.on .count { color: var(--accent); }
+
+        .sbc-tbl-wrap {
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+        .sbc-tbl-wrap > * { flex: 1; min-height: 0; }
+
+        .sbc-tbl-wrap .ant-table-tbody > tr.sbc-row-out > td {
+          background: rgba(220, 38, 38, 0.04);
+        }
+        .sbc-tbl-wrap .ant-table-tbody > tr.sbc-row-out:hover > td {
+          background: rgba(220, 38, 38, 0.07) !important;
+        }
+        .sbc-tbl-wrap .ant-table-tbody > tr.sbc-row-low > td {
+          background: rgba(217, 119, 6, 0.04);
+        }
+        .sbc-tbl-wrap .ant-table-tbody > tr.sbc-row-low:hover > td {
+          background: rgba(217, 119, 6, 0.07) !important;
+        }
       `}</style>
     </div>
   );
