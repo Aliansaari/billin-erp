@@ -1534,18 +1534,25 @@ export default function PurchaseBillForm() {
           manufacture_date:i.manufacture_date||undefined,
           expiry_date:i.expiry_date||undefined,
           batch_notes:i.batch_notes||undefined,
-          // Forward color_id only for multi-color products. Backend
-          // validator throws if a non-multi line carries one (stale
-          // state from a UI bug).
-          color_id: i.color_mode === 'multi' ? (i.color_id || null) : null,
+          // Forward color identity only for multi-color products. The
+          // line carries either color_id (existing color) or color_name
+          // (operator added a new color via the matrix popup's "+ Add
+          // color" — backend find-or-creates it on the resolved variant
+          // via resolveColorForProduct's color_name path). Non-multi
+          // lines must carry NEITHER, or the validator rejects.
+          color_id:   i.color_mode === 'multi' ? (i.color_id || null) : null,
+          color_name: i.color_mode === 'multi' ? ((i.color_name || '').trim() || null) : null,
         })),
       };
-      // Block save while any multi-color line is missing its pick.
-      // Server validates the same rule, but catching it here saves a
-      // round-trip and keeps the operator's focus on the bad line.
+      // Block save while any multi-color line has no color identity at
+      // all. A line is OK if it carries color_id (existing color) OR a
+      // non-empty color_name (inline new color the backend will create
+      // on save). Server validates the same rule.
       if (billMode !== 'amount') {
         const missing = items.findIndex(
-          (it) => it.color_mode === 'multi' && !it.color_id,
+          (it) => it.color_mode === 'multi'
+                  && !it.color_id
+                  && !((it.color_name || '').trim()),
         );
         if (missing >= 0) {
           message.warning(
