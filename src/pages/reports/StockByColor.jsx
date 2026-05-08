@@ -1,198 +1,242 @@
-// ── Stock by Color ─────────────────────────────────────────────────
+// ── Stock by Color (master) ────────────────────────────────────────────
 //
-// One row per (multi-color product, color). The operator's purchase-
-// decision view: which colors are short, where the value is sitting,
-// which are out. Aggregate "80 in stock" hides the fact that 50 of
-// those are Red and 0 are Blue — this report surfaces it.
+// One row per multi-color product with aggregate per-color counts. The
+// operator's purchase-decision view: scan a list of products, see which
+// have at least one short color, drill in to see exactly which colors.
 //
-// Filters:
-//   • Search   — substring on product name OR color name
-//   • Category — single category dropdown
-//   • Status tabs — All / Out / Low / In stock
-//
-// Server endpoint: GET /api/reports/stock-by-color
-//   ?category_id=...   single id
-//   ?search=...        substring (server-side ILIKE)
-//   ?low_only=true     only colors at/below their alert threshold
-//
-// Data model: server returns { data: [...], summary: {...} }.
-// Status filtering on client (cheap; the data set fits comfortably).
+// Mirror of /inventory/stock-report's structure (sr-* CSS classes +
+// VirtualReportTable + KPI strip + chip filter row) so this page feels
+// native alongside the other inventory reports rather than being a
+// stylistic outlier.
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Table, Typography, Space, Button, Select, Input, Tag, message, Statistic, Row, Col } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Select } from 'antd';
+import {
+  SearchOutlined, ReloadOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { reportAPI, categoryAPI } from '../../api';
+import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
+import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import '../inventory/stock-report.css';
 
-const { Title } = Typography;
-
-const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const fmtR = (v) => `₹ ${Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const TABS = [
-  { v: 'all', l: 'All' },
-  { v: 'out', l: 'Out' },
-  { v: 'low', l: 'Low' },
-  { v: 'in',  l: 'In stock' },
-];
+const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+const fmtN = (v) =>    parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const fmtL = (v) => {
+  const n = parseFloat(v || 0);
+  if (Math.abs(n) >= 10000000) return `₹ ${(n / 10000000).toFixed(2)} Cr`;
+  if (Math.abs(n) >= 100000)   return `₹ ${(n / 100000).toFixed(2)} L`;
+  return fmt(n);
+};
 
 export default function StockByColor() {
   const navigate = useNavigate();
-  const [rows, setRows]       = useState([]);
-  const [summary, setSummary] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch]   = useState('');
-  const [categoryId, setCategoryId] = useState(undefined);
-  const [tab, setTab]         = useState('all');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');                  // debounced
+  const [categoryId, setCategoryId] = useState(null);
+  const [status, setStatus] = useState(null);                // null | 'short' | 'ok'
   const [categories, setCategories] = useState([]);
+  const searchInputRef = useRef(null);
 
-  // Categories for the filter — fetched once.
+  // Debounce the search input — same pattern as Stock Report.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   useEffect(() => {
     categoryAPI.getAll({ limit: 500 })
       .then((r) => setCategories(r.data?.data || r.data || []))
       .catch(() => setCategories([]));
   }, []);
 
-  const refresh = () => {
-    setLoading(true);
-    reportAPI.stockByColor({
-      ...(categoryId ? { category_id: categoryId } : {}),
-      ...(search ? { search } : {}),
-    })
-      .then((r) => {
-        setRows(r.data?.data || []);
-        setSummary(r.data?.summary || {});
-      })
-      .catch((e) => message.error(e.response?.data?.error || 'Failed to load Stock by Color'))
-      .finally(() => setLoading(false));
-  };
+  // Filters → server query. Stays JSON-stable so the virtualizer doesn't
+  // re-cache on every render.
+  const filters = useMemo(() => ({
+    ...(search ? { search } : {}),
+    ...(categoryId ? { category_id: categoryId } : {}),
+    ...(status ? { status } : {}),
+  }), [search, categoryId, status]);
 
-  // Initial load + when filters change. Search is debounced via the
-  // input's onPressEnter / blur — we don't fire on every keystroke.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { refresh(); }, [categoryId]);
+  const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
+    fetcher: ({ page, limit, ...f }) => reportAPI.stockByColor({ page, limit, ...f }),
+    filters,
+    chunkSize: 200,
+  });
 
-  // Client-side tab filter. Preserves server-side counts in the summary
-  // strip so the user always sees the totals across the WHOLE dataset
-  // even when looking at one tab.
-  const visibleRows = useMemo(() => {
-    if (tab === 'all') return rows;
-    if (tab === 'out') return rows.filter((r) => r.is_out);
-    if (tab === 'low') return rows.filter((r) => r.is_low && !r.is_out);
-    if (tab === 'in')  return rows.filter((r) => !r.is_low && !r.is_out);
-    return rows;
-  }, [rows, tab]);
-
-  const tabCount = (key) => {
-    if (key === 'all') return rows.length;
-    if (key === 'out') return rows.filter((r) => r.is_out).length;
-    if (key === 'low') return rows.filter((r) => r.is_low && !r.is_out).length;
-    if (key === 'in')  return rows.filter((r) => !r.is_low && !r.is_out).length;
-    return 0;
-  };
-
-  const cols = [
-    { title: 'Product', dataIndex: 'product_name', key: 'product', width: 220,
+  // ── Columns — mirror Stock Report's render style ─────────────────
+  const columns = useMemo(() => [
+    {
+      key: 'sr', title: '#', width: 56, align: 'center', fixed: 'left',
+      render: (_, __, idx) => <span className="sr-sr-num">{idx + 1}</span>,
+    },
+    {
+      key: 'bc', title: 'Barcode', dataIndex: 'barcode', width: 130,
+      render: (v) => v ? <span className="sr-bc">{v}</span> : <span className="sr-amt muted">—</span>,
+    },
+    {
+      key: 'cat', title: 'Category', dataIndex: 'category_name', width: 160,
+      render: (v) => <span className="sr-cat">{v || '—'}</span>,
+    },
+    {
+      key: 'prod', title: 'Product', dataIndex: 'product_name', width: 240, fixed: 'left',
+      render: (v) => <span className="sr-prod-name">{v}</span>,
+    },
+    {
+      key: 'size', title: 'Size', dataIndex: 'size_value', width: 80, align: 'center',
+      render: (v) => v ? <span className="sr-size-pill">{v}</span> : <span className="sr-amt muted">—</span>,
+    },
+    {
+      key: 'art', title: 'Article', dataIndex: 'article_number', width: 110,
+      render: (v) => v ? <span className="sr-art">{v}</span> : <span className="sr-amt muted">—</span>,
+    },
+    {
+      key: 'colors', title: 'Colors', dataIndex: 'color_count', width: 90, align: 'center',
       render: (v, r) => (
-        <div>
-          <div style={{ fontWeight: 600, color: 'var(--fg-primary)' }}>{v}</div>
-          <div style={{ fontSize: 11, color: 'var(--fg-tertiary)' }}>
-            {r.barcode}
-            {r.size_value ? ` · ${r.size_value}` : ''}
-            {r.article_number ? ` · ${r.article_number}` : ''}
-          </div>
-        </div>
+        <span
+          className="sbc-colors-pill"
+          title={r.is_short ? 'Some colors short — click to drill in' : 'Click to see colors'}
+        >
+          {v} {v === 1 ? 'color' : 'colors'}
+        </span>
       ),
     },
-    { title: 'Category', dataIndex: 'category_name', key: 'cat', width: 140,
-      render: (v) => v || <span style={{ color: 'var(--fg-tertiary)' }}>—</span>,
+    {
+      key: 'stk', title: 'Total Stock', dataIndex: 'total_stock', width: 110, align: 'right',
+      render: (v, r) => {
+        const cls = r.out_count > 0 ? 'out' : (r.low_count > 0 ? 'low' : 'ok');
+        return <span className={`sr-stk ${cls}`}>{fmtN(v)}</span>;
+      },
     },
-    { title: 'Color', dataIndex: 'color_name', key: 'color', width: 130,
-      render: (v) => <span style={{ fontWeight: 600 }}>{v}</span>,
+    {
+      key: 'short', title: 'Short', width: 110, align: 'center',
+      render: (_, r) => {
+        if (r.out_count === 0 && r.low_count === 0) {
+          return <span className="sr-amt muted">—</span>;
+        }
+        const parts = [];
+        if (r.out_count > 0) parts.push(<span key="o" className="sbc-tag sbc-tag-out">{r.out_count} out</span>);
+        if (r.low_count > 0) parts.push(<span key="l" className="sbc-tag sbc-tag-low">{r.low_count} low</span>);
+        return <span style={{ display: 'inline-flex', gap: 4 }}>{parts}</span>;
+      },
     },
-    { title: 'Stock', dataIndex: 'current_stock', key: 'stock', width: 100, align: 'right',
-      render: (v, r) => (
-        <span style={{
-          fontFamily: 'Geist Mono, monospace', fontWeight: 600,
-          color: r.is_out ? 'var(--danger)' : (r.is_low ? '#f59e0b' : 'var(--fg-primary)'),
-        }}>{fmtN(v)}</span>
-      ),
+    {
+      key: 'pur', title: 'Pur. Rate', dataIndex: 'purchase_rate', width: 110, align: 'right',
+      render: (v) => <span className="sr-amt"><span className="rs">₹</span>{fmtN(v)}</span>,
     },
-    { title: 'Alert at', dataIndex: 'low_stock_alert', key: 'alert', width: 90, align: 'right',
-      render: (v) => v > 0 ? (
-        <span style={{ color: 'var(--fg-tertiary)', fontFamily: 'Geist Mono, monospace' }}>{fmtN(v)}</span>
-      ) : <span style={{ color: 'var(--fg-tertiary)' }}>—</span>,
+    {
+      key: 'val', title: 'Stock Value', dataIndex: 'stock_value', width: 130, align: 'right',
+      render: (v) => <span className="sr-amt"><span className="rs">₹</span>{fmtN(v)}</span>,
     },
-    { title: 'Rate', dataIndex: 'purchase_rate', key: 'rate', width: 110, align: 'right',
-      render: (v) => <span style={{ fontFamily: 'Geist Mono, monospace', color: 'var(--fg-secondary)' }}>{fmtR(v)}</span>,
-    },
-    { title: 'Value', dataIndex: 'stock_value', key: 'value', width: 130, align: 'right',
-      render: (v) => <span style={{ fontFamily: 'Geist Mono, monospace', fontWeight: 600 }}>{fmtR(v)}</span>,
-    },
-    { title: 'Status', key: 'status', width: 90, align: 'center',
-      render: (_, r) => r.is_out
-        ? <Tag color="red">Out</Tag>
-        : r.is_low ? <Tag color="orange">Low</Tag>
-        : <Tag color="green">OK</Tag>,
-    },
-  ];
+  ], []);
+
+  const rowClassName = (r) => {
+    if (!r || r.__loading) return '';
+    if (r.out_count > 0) return 'sr-row-out';
+    return '';
+  };
 
   return (
-    <div>
-      <Card>
-        <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap' }}>
-          <Title level={4} style={{ margin: 0 }}>Stock by Color</Title>
-          <Space wrap>
-            <Input
-              placeholder="Search product or color"
-              prefix={<SearchOutlined />}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onPressEnter={refresh}
-              onBlur={refresh}
-              allowClear
-              style={{ width: 240 }}
+    <div className="sr-page">
+      {/* ── HEADER ─────────────────────────────────────────────── */}
+      <div className="sr-hd">
+        <div className="sr-title">
+          <h1>Stock by Color</h1>
+        </div>
+        <div className="sr-ctrls">
+          <div className="sr-search">
+            <SearchOutlined />
+            <input
+              ref={searchInputRef}
+              placeholder="Search product, barcode, article…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              autoComplete="off"
             />
-            <Select
-              placeholder="All categories"
-              value={categoryId}
-              onChange={setCategoryId}
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              style={{ width: 200 }}
-              options={categories.map((c) => ({ value: c.category_id, label: c.category_name }))}
-            />
-            <Button icon={<ReloadOutlined />} onClick={refresh}>Refresh</Button>
-          </Space>
-        </Space>
+          </div>
+          <Select
+            placeholder="All Categories"
+            style={{ width: 180 }}
+            allowClear
+            value={categoryId}
+            onChange={(v) => setCategoryId(v ?? null)}
+            options={categories.map(c => ({ value: c.category_id, label: c.category_name }))}
+          />
+          <button className="sr-btn" onClick={() => refresh()} title="Refresh">
+            <ReloadOutlined /> Refresh
+          </button>
+        </div>
+      </div>
 
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={6}><Card size="small"><Statistic title="Color rows" value={summary.total_count || 0} /></Card></Col>
-          <Col span={6}><Card size="small"><Statistic title="Total qty" value={fmtN(summary.total_qty)} valueStyle={{ fontFamily: 'Geist Mono, monospace' }} /></Card></Col>
-          <Col span={6}><Card size="small"><Statistic title="Stock value" value={fmtR(summary.total_value)} valueStyle={{ fontFamily: 'Geist Mono, monospace' }} /></Card></Col>
-          <Col span={6}><Card size="small"><Statistic title="Out / Low" value={`${summary.out_count || 0} / ${summary.low_count || 0}`} valueStyle={{ color: 'var(--danger)' }} /></Card></Col>
-        </Row>
+      {/* ── KPI STRIP ─────────────────────────────────────────── */}
+      <div className="sr-kpis">
+        <div
+          className={`sr-kpi tot${status === null ? ' active' : ''}`}
+          onClick={() => setStatus(null)}
+        >
+          <div className="sr-kpi-k">Total Products</div>
+          <div className="sr-kpi-v">{summary?.total_count ?? totalCount ?? 0}</div>
+          <div className="sr-kpi-sub">multi-color tracked</div>
+        </div>
+        <div className="sr-kpi value-tone">
+          <div className="sr-kpi-k">Total Qty</div>
+          <div className="sr-kpi-v">{fmtN(summary?.total_qty ?? 0)}</div>
+          <div className="sr-kpi-sub">all colors combined</div>
+        </div>
+        <div
+          className={`sr-kpi low-tone${status === 'short' ? ' active' : ''}`}
+          onClick={() => setStatus(status === 'short' ? null : 'short')}
+        >
+          <div className="sr-kpi-k">Short Items</div>
+          <div className="sr-kpi-v">{(summary?.short_out_count ?? 0) + (summary?.short_low_count ?? 0)}</div>
+          <div className="sr-kpi-sub">
+            {summary?.short_out_count ?? 0} out · {summary?.short_low_count ?? 0} low
+          </div>
+        </div>
+        <div
+          className={`sr-kpi sale-tone${status === 'ok' ? ' active' : ''}`}
+          onClick={() => setStatus(status === 'ok' ? null : 'ok')}
+        >
+          <div className="sr-kpi-k">All Colors OK</div>
+          <div className="sr-kpi-v">{summary?.ok_count ?? 0}</div>
+          <div className="sr-kpi-sub">no shortages</div>
+        </div>
+      </div>
 
-        <Space style={{ marginBottom: 12 }} wrap>
-          {TABS.map((t) => (
-            <Button key={t.v} type={tab === t.v ? 'primary' : 'default'} size="small"
-              onClick={() => setTab(t.v)}>
-              {t.l} <span style={{ opacity: 0.7, marginLeft: 4 }}>({tabCount(t.v)})</span>
-            </Button>
-          ))}
-        </Space>
+      {/* ── FILTER CHIPS ──────────────────────────────────────── */}
+      <div className="sr-filters">
+        <span
+          className={`sr-chip${status === null ? ' on' : ''}`}
+          onClick={() => setStatus(null)}
+        ><span className="dot"></span>All</span>
+        <span
+          className={`sr-chip${status === 'short' ? ' on' : ''}`}
+          onClick={() => setStatus(status === 'short' ? null : 'short')}
+        ><span className="dot out"></span>Short</span>
+        <span
+          className={`sr-chip${status === 'ok' ? ' on' : ''}`}
+          onClick={() => setStatus(status === 'ok' ? null : 'ok')}
+        ><span className="dot ok"></span>OK</span>
+      </div>
 
-        <Table size="small"
-          pagination={{ pageSize: 100, showSizeChanger: false }}
-          columns={cols}
-          rowKey={(r) => `${r.product_id}:${r.color_id}`}
-          dataSource={visibleRows}
+      {/* ── TABLE ─────────────────────────────────────────────── */}
+      <div className="sr-tbl-wrap">
+        <VirtualReportTable
+          columns={columns}
+          rows={rows}
+          totalCount={totalCount}
+          ensureChunk={ensureChunk}
           loading={loading}
-          locale={{ emptyText: rows.length === 0 ? 'No multi-color products found. Enable Multi-color stock in Settings, then mark products as multi-color in the Products page.' : 'No rows match the current filter.' }}
+          rowKey="product_id"
+          scroll={{ x: 1280 }}
+          rowClassName={rowClassName}
+          onRow={(record) => ({
+            onClick: () => record?.product_id && navigate(`/reports/stock-by-color/${record.product_id}`),
+            style: record?.product_id ? { cursor: 'pointer' } : {},
+          })}
         />
-      </Card>
+      </div>
 
       <ActionStrip
         actions={[
@@ -200,60 +244,34 @@ export default function StockByColor() {
             onAction: () => navigate('/reports') },
           { id: 'refresh', key: 'F5', label: 'Refresh',
             onAction: () => refresh() },
-          { id: 'export', key: 'F10', label: 'Export',
-            onAction: () => exportXls(rows, summary) },
         ]}
       />
+
+      {/* Page-local styles so we don't pollute the global stock-report.css.
+          The colors-pill / short-tag visual matches the existing chip
+          + size-pill aesthetic so the new column reads native. */}
+      <style>{`
+        .sbc-colors-pill {
+          display: inline-block;
+          padding: 2px 10px;
+          border-radius: 999px;
+          background: var(--bg-muted, #f1f5f9);
+          color: var(--fg-primary);
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.01em;
+        }
+        .sbc-tag {
+          display: inline-block;
+          padding: 1px 6px;
+          border-radius: 4px;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+        }
+        .sbc-tag-out { background: rgba(220, 38, 38, 0.12); color: var(--danger); }
+        .sbc-tag-low { background: rgba(217, 119, 6, 0.14);  color: var(--warning); }
+      `}</style>
     </div>
   );
-}
-
-async function exportXls(rows, summary) {
-  if (!rows.length) {
-    message.warning('Nothing to export');
-    return;
-  }
-  const ExcelJS = (await import('exceljs')).default;
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Stock by Color');
-  ws.columns = [
-    { header: 'Product',  key: 'product',  width: 32 },
-    { header: 'Barcode',  key: 'barcode',  width: 16 },
-    { header: 'Size',     key: 'size',     width: 10 },
-    { header: 'Article',  key: 'article',  width: 14 },
-    { header: 'Category', key: 'category', width: 18 },
-    { header: 'Color',    key: 'color',    width: 14 },
-    { header: 'Stock',    key: 'stock',    width: 10 },
-    { header: 'Alert at', key: 'alert',    width: 10 },
-    { header: 'Rate',     key: 'rate',     width: 12 },
-    { header: 'Value',    key: 'value',    width: 14 },
-    { header: 'Status',   key: 'status',   width: 10 },
-  ];
-  for (const r of rows) {
-    ws.addRow({
-      product: r.product_name,
-      barcode: r.barcode,
-      size: r.size_value,
-      article: r.article_number,
-      category: r.category_name,
-      color: r.color_name,
-      stock: r.current_stock,
-      alert: r.low_stock_alert || '',
-      rate: r.purchase_rate,
-      value: r.stock_value,
-      status: r.is_out ? 'Out' : (r.is_low ? 'Low' : 'OK'),
-    });
-  }
-  ws.addRow({});
-  ws.addRow({
-    product: 'TOTAL',
-    stock: summary.total_qty,
-    value: summary.total_value,
-  });
-  const buf = await wb.xlsx.writeBuffer();
-  const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-  const a = document.createElement('a'); a.href = url;
-  a.download = `stock-by-color-${new Date().toISOString().slice(0, 10)}.xlsx`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
