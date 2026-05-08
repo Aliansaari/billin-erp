@@ -4,7 +4,7 @@ import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Po
 import { SettingOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
+import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, productColorAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
 import { printDocument } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
@@ -1196,50 +1196,123 @@ export default function PurchaseBillForm() {
   // per color, and Apply — the row explodes into one row per non-zero
   // color so the existing per-color stock pipeline (validateBill /
   // applyColorStockDelta) sees N independent items as it expects.
+  //
+  // Each entry in colorMatrix.entries has a `key` (string) used as the
+  // values map key. Existing colors use String(color_id); inline-added
+  // colors use a `new:N` placeholder until the bill saves.
   const openColorMatrix = (rowKey) => {
     const row = items.find((it) => it.key === rowKey);
     if (!row || row.color_mode !== 'multi') return;
+    const entries = (row.colors || []).map((c) => ({
+      key: String(c.color_id),
+      color_id: c.color_id,
+      color_name: c.color_name,
+      current_stock: Number(c.current_stock) || 0,
+      is_new: false,
+    }));
     const initialValues = {};
-    (row.colors || []).forEach((c) => { initialValues[c.color_id] = 0; });
+    entries.forEach((e) => { initialValues[e.key] = 0; });
     // Pre-fill the row's own color/qty if already set so re-opening
     // the matrix lets you edit instead of starting from zero.
     if (row.color_id && Number(row.quantity) > 0) {
-      initialValues[row.color_id] = Number(row.quantity);
+      initialValues[String(row.color_id)] = Number(row.quantity);
     }
     setColorMatrix({
       rowKey,
+      productId: row.product_id || null,
       productName: row.product_name || '',
       sizeValue: row.size || '',
-      colors: row.colors || [],
+      entries,
       values: initialValues,
+      nextTempIdx: 0,
     });
+  };
+
+  // Add a blank color row. Operator types the name + qty; on Apply it
+  // gets resolved on the backend (POST /products/:id/colors when the
+  // variant exists, else find-or-create at bill save via
+  // resolveColorForProduct's color_name path).
+  const addNewColorRow = () => {
+    setColorMatrix((cm) => {
+      if (!cm) return cm;
+      const tempKey = `new:${cm.nextTempIdx}`;
+      return {
+        ...cm,
+        entries: [...cm.entries, { key: tempKey, color_id: null, color_name: '', current_stock: 0, is_new: true }],
+        values: { ...cm.values, [tempKey]: 0 },
+        nextTempIdx: cm.nextTempIdx + 1,
+      };
+    });
+  };
+
+  // Delete a color row from the matrix. For unsaved (new) rows this is
+  // a pure local splice. For existing colors with a productId, soft-
+  // delete them on the server too — the column stays out of the bill
+  // AND future scans don't see it. The backend's RESTRICT FK guards
+  // against deleting colors that previous bill items reference (the
+  // controller surfaces a friendly message in that case).
+  const deleteColorRow = async (key) => {
+    const cm = colorMatrix;
+    if (!cm) return;
+    const entry = cm.entries.find((e) => e.key === key);
+    if (!entry) return;
+    if (!entry.is_new && entry.color_id && cm.productId) {
+      try {
+        await productColorAPI.remove(cm.productId, entry.color_id);
+      } catch (err) {
+        const msg = err?.response?.data?.error || 'Failed to delete color';
+        message.error(msg);
+        return;
+      }
+    }
+    setColorMatrix((prev) => {
+      if (!prev) return prev;
+      const nextEntries = prev.entries.filter((e) => e.key !== key);
+      const nextValues = { ...prev.values };
+      delete nextValues[key];
+      return { ...prev, entries: nextEntries, values: nextValues };
+    });
+  };
+
+  const updateNewColorName = (key, name) => {
+    setColorMatrix((cm) => cm ? ({
+      ...cm,
+      entries: cm.entries.map((e) => e.key === key ? { ...e, color_name: name } : e),
+    }) : cm);
   };
 
   const applyColorMatrix = () => {
     if (!colorMatrix) return;
-    const { rowKey, values, colors } = colorMatrix;
-    const entries = colors
-      .map((c) => ({
-        color_id: c.color_id,
-        color_name: c.color_name,
-        qty: Number(values[c.color_id]) || 0,
-      }))
+    const { rowKey, values, entries } = colorMatrix;
+    const picked = entries
+      .map((e) => ({ ...e, qty: Number(values[e.key]) || 0 }))
       .filter((e) => e.qty > 0);
-    if (entries.length === 0) {
+    if (picked.length === 0) {
       message.warning('Enter quantity for at least one color');
+      return;
+    }
+    // Reject incomplete new rows — a non-zero qty without a name would
+    // hit the backend without a color identity and either save weird
+    // ('') or fail validation. Surface it here so the operator notices.
+    const blankNew = picked.find((e) => e.is_new && !(e.color_name || '').trim());
+    if (blankNew) {
+      message.warning('Type a name for the new color before applying');
       return;
     }
     setItems((prev) => {
       const idx = prev.findIndex((it) => it.key === rowKey);
       if (idx === -1) return prev;
       const original = prev[idx];
-      const newRows = entries.map((e, i) => ({
+      const newRows = picked.map((e, i) => ({
         ...original,
         // First entry reuses the original key so cursor focus / row
         // selection (if any) doesn't jump; later entries get fresh keys.
         key: i === 0 ? original.key : nextKeyRef.current++,
-        color_id: e.color_id,
-        color_name: e.color_name,
+        // For inline-added colors, color_id stays null and the bill
+        // save's resolveColorForProduct does the find-or-create using
+        // color_name. For existing colors we send the id straight.
+        color_id: e.is_new ? null : e.color_id,
+        color_name: (e.color_name || '').trim(),
         quantity: e.qty,
         total_amount: +(e.qty * (Number(original.purchase_rate) || 0)).toFixed(2),
       }));
@@ -2803,33 +2876,60 @@ export default function PurchaseBillForm() {
           <Table
             size="small"
             pagination={false}
-            rowKey={(r) => r.color_id}
-            dataSource={colorMatrix.colors}
+            rowKey={(r) => r.key}
+            dataSource={colorMatrix.entries}
             scroll={{ y: 360 }}
             columns={[
               { title: 'Color', dataIndex: 'color_name', key: 'color_name',
-                render: (v) => <span style={{ fontWeight:600 }}>{v}</span>,
+                render: (v, r) => r.is_new ? (
+                  <Input
+                    size="small"
+                    autoFocus
+                    placeholder="Color name"
+                    value={r.color_name}
+                    onChange={(e) => updateNewColorName(r.key, e.target.value)}
+                    style={{ width: '100%' }}
+                  />
+                ) : (
+                  <span style={{ fontWeight:600 }}>{v}</span>
+                ),
               },
               { title: 'In stock', dataIndex: 'current_stock', key: 'current_stock',
                 width: 100, align: 'right',
-                render: (v) => (
+                render: (v, r) => r.is_new ? (
+                  <span style={{ color:'var(--fg-tertiary)' }}>—</span>
+                ) : (
                   <span style={{ fontVariantNumeric:'tabular-nums', color:'var(--fg-tertiary)' }}>
                     {Number(v) || 0}
                   </span>
                 ),
               },
-              { title: 'Receiving qty', key: 'qty', width: 140, align: 'right',
-                render: (_, c) => (
+              { title: 'Receiving qty', key: 'qty', width: 130, align: 'right',
+                render: (_, r) => (
                   <InputNumber
                     min={0}
                     size="small"
-                    value={colorMatrix.values[c.color_id] || 0}
+                    value={colorMatrix.values[r.key] || 0}
                     onChange={(val) => setColorMatrix((cm) => cm ? ({
                       ...cm,
-                      values: { ...cm.values, [c.color_id]: val == null ? 0 : Number(val) },
+                      values: { ...cm.values, [r.key]: val == null ? 0 : Number(val) },
                     }) : cm)}
                     style={{ width: '100%' }}
                   />
+                ),
+              },
+              { key: 'remove', title: '', width: 36, align: 'center',
+                render: (_, r) => (
+                  <button
+                    type="button"
+                    onClick={() => deleteColorRow(r.key)}
+                    title={r.is_new ? 'Discard this row' : 'Delete this color from the product'}
+                    style={{
+                      background:'none', border:'none', cursor:'pointer',
+                      color:'var(--danger, #dc2626)', fontSize:16, padding:'4px 6px',
+                      lineHeight:1,
+                    }}
+                  >×</button>
                 ),
               },
             ]}
@@ -2838,11 +2938,22 @@ export default function PurchaseBillForm() {
                 (s, v) => s + (Number(v) || 0), 0
               );
               return (
-                <div style={{ display:'flex', justifyContent:'flex-end', gap:8, fontSize:13 }}>
-                  <span style={{ color:'var(--fg-tertiary)' }}>Total receiving qty:</span>
-                  <span style={{ fontWeight:700, color:'var(--fg-primary)', fontVariantNumeric:'tabular-nums' }}>
-                    {total}
-                  </span>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, fontSize:13 }}>
+                  <button
+                    type="button"
+                    onClick={addNewColorRow}
+                    style={{
+                      background:'transparent', border:'1px dashed var(--border, #cbd5e1)',
+                      borderRadius:4, padding:'4px 12px', fontSize:12, fontWeight:600,
+                      color:'var(--fg-secondary, #475569)', cursor:'pointer',
+                    }}
+                  >+ Add color</button>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <span style={{ color:'var(--fg-tertiary)' }}>Total receiving qty:</span>
+                    <span style={{ fontWeight:700, color:'var(--fg-primary)', fontVariantNumeric:'tabular-nums' }}>
+                      {total}
+                    </span>
+                  </div>
                 </div>
               );
             }}

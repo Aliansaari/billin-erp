@@ -200,46 +200,72 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
 }
 
 /**
- * Remap a bill line's color_id to one belonging to the resolved product.
+ * Resolve (or create) the color row that a bill line's color_id +
+ * color_name should map to on the resolved product.
  *
- * Why this exists: the bill form's color picker shows the family's
- * union of colors (so a brand-new size variant of a multi-color family
- * still has colors to pick from). The picked color_id may belong to a
- * SIBLING product, not the variant the line is about to resolve to.
- * If we wrote that color_id straight to purchase_bill_items, the FK to
- * product_colors would be valid but semantically wrong (and
- * validateBillColorRequirements would reject it because color.product_id
- * doesn't match the line's product_id).
+ * Two scenarios this exists for:
  *
- * This helper find-or-creates a same-named color on the resolved
- * product and returns the id to use. Idempotent across siblings — the
- * uniqueness key is (product_id, color_name).
+ *  (a) Cross-variant remap — the bill form's family-color picker shows
+ *      the union of colors across all siblings, so the picked color_id
+ *      may belong to a SIBLING product, not the resolved variant. If
+ *      we wrote it straight to purchase_bill_items, the FK would be
+ *      valid but semantically wrong, and validateBillColorRequirements
+ *      would reject it.
  *
- * Returns null when there's nothing to remap (no color_id on the line,
- * or the picked color is already on the resolved product).
+ *  (b) Inline-created colors — the matrix popup's "+ Add color" path
+ *      lets the operator type a brand-new color name on the line.
+ *      It arrives here as color_name without color_id; we find-or-
+ *      create on the resolved product.
+ *
+ * Idempotent on (product_id, color_name) — repeated saves with the
+ * same name don't create duplicates. Returns null when the line has
+ * no color info at all (validation will catch that for multi-color
+ * products elsewhere).
  */
-async function resolveColorForProduct(itemColorId, resolvedProductId, t) {
-  if (!itemColorId || !resolvedProductId) return null;
-  const picked = await ProductColor.findByPk(itemColorId, { transaction: t });
-  if (!picked) return null;
-  if (picked.product_id === resolvedProductId) return picked.color_id;
-  // Cross-variant pick — find or create the same-named color on the
-  // resolved product so the FK + validation both line up.
-  const existing = await ProductColor.findOne({
-    where: {
+async function resolveColorForProduct(itemColorId, itemColorName, resolvedProductId, t) {
+  if (!resolvedProductId) return null;
+
+  // Path (a): color_id is set — remap if cross-variant, else passthrough.
+  if (itemColorId) {
+    const picked = await ProductColor.findByPk(itemColorId, { transaction: t });
+    if (picked) {
+      if (picked.product_id === resolvedProductId) return picked.color_id;
+      const existing = await ProductColor.findOne({
+        where: { product_id: resolvedProductId, color_name: picked.color_name, is_active: true },
+        transaction: t,
+      });
+      if (existing) return existing.color_id;
+      const created = await ProductColor.create({
+        product_id: resolvedProductId,
+        color_name: picked.color_name,
+        is_active: true,
+      }, { transaction: t });
+      return created.color_id;
+    }
+    // Fall through to color_name path if the id is stale.
+  }
+
+  // Path (b): only a name (operator typed a new color in the matrix popup).
+  const name = (itemColorName || '').trim();
+  if (name) {
+    const existing = await ProductColor.findOne({
+      where: {
+        product_id: resolvedProductId,
+        color_name: { [Op.iLike]: name },
+        is_active: true,
+      },
+      transaction: t,
+    });
+    if (existing) return existing.color_id;
+    const created = await ProductColor.create({
       product_id: resolvedProductId,
-      color_name: picked.color_name,
+      color_name: name,
       is_active: true,
-    },
-    transaction: t,
-  });
-  if (existing) return existing.color_id;
-  const created = await ProductColor.create({
-    product_id: resolvedProductId,
-    color_name: picked.color_name,
-    is_active: true,
-  }, { transaction: t });
-  return created.color_id;
+    }, { transaction: t });
+    return created.color_id;
+  }
+
+  return null;
 }
 
 exports.getAll = async (req, res) => {
@@ -490,7 +516,7 @@ exports.create = async (req, res) => {
       // Remap color_id when the line's pick belongs to a sibling
       // (family-color picker case). For an existing variant where the
       // operator picked one of its own colors, this is a no-op.
-      const finalColorId = await resolveColorForProduct(item.color_id, product_id, t);
+      const finalColorId = await resolveColorForProduct(item.color_id, item.color_name, product_id, t);
 
       processedItems.push({
         ...item,
@@ -1044,7 +1070,7 @@ exports.update = async (req, res) => {
       const barcode    = resolved.barcode;
 
       // Same color remap as create() — see comment in resolveColorForProduct.
-      const finalColorId = await resolveColorForProduct(item.color_id, product_id, t);
+      const finalColorId = await resolveColorForProduct(item.color_id, item.color_name, product_id, t);
 
       processedItems.push({
         ...item, product_id, barcode,
