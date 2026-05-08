@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Input, Select, message, Spin, Upload, Modal, Progress, Dropdown, DatePicker,
+  Input, Select, message, Spin, Upload, Modal, Progress, Dropdown, DatePicker, Checkbox,
 } from 'antd';
 import {
   SearchOutlined, FileExcelOutlined,
@@ -139,6 +139,10 @@ export default function StockReport() {
   const [importProgress, setImportProgress] = useState(0);
   const [importPhase, setImportPhase] = useState('');
   const [downloadingFailed, setDownloadingFailed] = useState(false);
+  // Customize-columns modal — matches SalesBillForm's centered modal
+  // (instead of the popover dropdown) so the operator gets a denser
+  // list with proper Reset / Done footer and internal scrolling.
+  const [colsModalOpen, setColsModalOpen] = useState(false);
 
   // Hidden file input drives the Import menu item (Antd Upload's wrapper
   // would close the dropdown before the file chooser opens).
@@ -722,15 +726,20 @@ export default function StockReport() {
               View by batch →
             </button>
           )}
-          <Dropdown
-            trigger={['click']}
-            placement="bottomRight"
-            dropdownRender={() => customizePopoverContent}
+          {/* Customize columns — opens a centered Modal (matches the
+           *  SalesBillForm pattern). Earlier this was an Antd Dropdown
+           *  with dropdownRender, which (a) ran out of vertical room
+           *  on the long column list and (b) bled into the table when
+           *  the popup container was stripped. The Modal route is a
+           *  cleaner UX: dim overlay, dense rows, internal scroll,
+           *  Reset + Done footer. */}
+          <button
+            className="sr-btn"
+            onClick={() => setColsModalOpen(true)}
+            title="Customize the report columns"
           >
-            <button className="sr-btn">
-              <SettingOutlined /> Customize
-            </button>
-          </Dropdown>
+            <SettingOutlined /> Customize
+          </button>
         </div>
       </div>
 
@@ -834,6 +843,92 @@ export default function StockReport() {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* Customize columns modal — same UX vocabulary as the Sales Bill
+       *  form's column picker. Width 340px, dense rows, accent rail on
+       *  the active state, internal scroll for the long column list. */}
+      <Modal
+        open={colsModalOpen}
+        onCancel={() => setColsModalOpen(false)}
+        title="Customize columns"
+        footer={
+          <div className="sbf-cols-footer">
+            <button
+              type="button"
+              className="sbf-cols-reset"
+              onClick={() => {
+                setPrefs(DEFAULT_PREFS);
+                try { localStorage.removeItem(LS_KEY); } catch {}
+              }}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="sbf-cols-done"
+              onClick={() => setColsModalOpen(false)}
+            >
+              Done
+            </button>
+          </div>
+        }
+        width={340}
+        styles={{ body: { padding: 0 } }}
+        className="sbf-cust-modal"
+      >
+        <div className="sbf-cust-list">
+          {[
+            { label: 'Identifiers', keys: COL_DEFS.filter(c => c.group === 'id').map(c => c.key) },
+            { label: 'Quantity',    keys: COL_DEFS.filter(c => c.group === 'qty').map(c => c.key) },
+            { label: 'Pricing & Value', keys: COL_DEFS.filter(c => c.group === 'price').map(c => c.key) },
+          ].map(group => {
+            const rows = group.keys
+              .map(k => COL_DEFS.find(c => c.key === k))
+              .filter(Boolean);
+            if (!rows.length) return null;
+            return (
+              <div key={group.label} className="sbf-cust-group">
+                <div className="sbf-cust-group-lbl">{group.label}</div>
+                {rows.map(c => {
+                  const isOn = !!cols[c.key] || !!c.fixed;
+                  return (
+                    <label
+                      key={c.key}
+                      className={`sbf-cust-row${isOn ? ' on' : ''}`}
+                    >
+                      <Checkbox
+                        checked={isOn}
+                        disabled={!!c.fixed}
+                        onChange={(e) => setPrefs(p => ({ ...p, [c.key]: e.target.checked }))}
+                      />
+                      <span className="sbf-cust-row-lbl">{c.label}</span>
+                      {c.fixed && <span className="sbf-cust-row-pin">Fixed</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+          <div className="sbf-cust-group">
+            <div className="sbf-cust-group-lbl">Page Sections</div>
+            {SEC_DEFS.map(s => {
+              const isOn = !!cols[s.key];
+              return (
+                <label
+                  key={s.key}
+                  className={`sbf-cust-row${isOn ? ' on' : ''}`}
+                >
+                  <Checkbox
+                    checked={isOn}
+                    onChange={(e) => setPrefs(p => ({ ...p, [s.key]: e.target.checked }))}
+                  />
+                  <span className="sbf-cust-row-lbl">{s.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
       </Modal>
 
       <ActionStrip
