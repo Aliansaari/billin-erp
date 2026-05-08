@@ -5,7 +5,7 @@ import dayjs from 'dayjs';
 import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
 import { printDocument } from '../../services/printer';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
-import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
+import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled } from '../../hooks/useSystemSettings';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
@@ -87,6 +87,14 @@ export default function SalesBillForm() {
   // bill posts against the seeded default godown — loadGodowns below
   // pre-fills that, so submission still works.
   const multiWarehouseOn = useMultiWarehouseEnabled();
+  // When ON, scanning the same barcode merges into the existing line by
+  // incrementing qty instead of creating a new line. Auto-locked OFF
+  // when multi-color stock is on (the hook handles that). Read inside
+  // a ref so the scan handler always sees the latest value without
+  // recomputing the whole closure each render.
+  const mergeScansOn = useMergeRepeatScansEnabled();
+  const mergeScansRef = useRef(false);
+  useEffect(() => { mergeScansRef.current = !!mergeScansOn; }, [mergeScansOn]);
   // Active godowns the operator can issue from. Filtered to user's
   // allowed_godowns when the JWT carries that allowlist (the server
   // also enforces — this is just to keep the dropdown honest).
@@ -698,6 +706,42 @@ export default function SalesBillForm() {
         return;
       }
       const lt=+(qty*rate).toFixed(2);
+      // Merge-repeat-scans: when the system toggle is ON and the same
+      // SKU is scanned again, increment the existing line's qty instead
+      // of creating a new line. Match by product_id (one barcode = one
+      // product). Skip merge for batch-tracked products — the operator
+      // needs to pick a batch per scan, so each scan must be its own
+      // line (the batch picker can land on a different batch).
+      if (mergeScansRef.current && !data.is_batch_tracked) {
+        let merged = false;
+        setItems(prev => {
+          const idx = prev.findIndex(it =>
+            it.product_id === data.product_id &&
+            !it.is_batch_tracked &&
+            // Don't merge into a manually-overridden line — same rate
+            // is required so a price change on the existing line isn't
+            // silently applied to the second scan.
+            +(it.rate || 0) === +(rate || 0),
+          );
+          if (idx < 0) return prev;
+          merged = true;
+          const next = prev.slice();
+          const cur = next[idx];
+          const newQty = +(parseFloat(cur.quantity || 0) + qty).toFixed(2);
+          const newTotal = +(newQty * cur.rate).toFixed(2);
+          next[idx] = {
+            ...cur,
+            quantity: newQty,
+            total_amount: +(newTotal - (parseFloat(cur.discount_amount) || 0)).toFixed(2),
+          };
+          return next;
+        });
+        if (merged) {
+          message.success(`${data.product_name} qty + ${qty}`, 1);
+          barcodeRef.current?.focus();
+          return;
+        }
+      }
       setItems(prev=>[...prev,{
         key:nextKeyRef.current++,
         product_id:data.product_id, barcode:data.barcode,
