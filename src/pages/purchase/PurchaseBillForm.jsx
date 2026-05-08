@@ -322,6 +322,15 @@ export default function PurchaseBillForm() {
   // other; we don't auto-select on the entry row.
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
 
+  // Color matrix popup — opens when the operator clicks the Color cell on a
+  // multi-color line. Lets them enter receiving qty per color in one shot;
+  // Apply explodes the line into one row per color with qty>0 (each row
+  // carries its own color_id + quantity for the existing per-color stock
+  // pipeline). null = closed.
+  // shape: { rowKey, productName, sizeValue, colors: ProductColor[],
+  //          values: { [color_id]: number } }
+  const [colorMatrix, setColorMatrix] = useState(null);
+
   // ── Hold / Recall / Drafts state ──
   // Tracks which draft (if any) the form was recalled from so handleSave
   // can pass the draft_id to the backend for same-txn deletion.
@@ -1131,6 +1140,66 @@ export default function PurchaseBillForm() {
   },[entry,barcodeError,invalidateFamilyCache,batchTrackingEnabled]);
   const removeItem=(key)=>setItems(prev=>prev.filter(i=>i.key!==key));
 
+  // ── Color matrix popup ───────────────────────────────────────────
+  // Multi-color products commonly arrive in mixed colors per receipt
+  // (e.g. 5 Red, 3 Blue, 2 Green of "Lyra Leggings XL"). Scanning the
+  // same barcode three times and hand-picking each color is tedious.
+  // The matrix lets the operator click the Color cell once, enter qty
+  // per color, and Apply — the row explodes into one row per non-zero
+  // color so the existing per-color stock pipeline (validateBill /
+  // applyColorStockDelta) sees N independent items as it expects.
+  const openColorMatrix = (rowKey) => {
+    const row = items.find((it) => it.key === rowKey);
+    if (!row || row.color_mode !== 'multi') return;
+    const initialValues = {};
+    (row.colors || []).forEach((c) => { initialValues[c.color_id] = 0; });
+    // Pre-fill the row's own color/qty if already set so re-opening
+    // the matrix lets you edit instead of starting from zero.
+    if (row.color_id && Number(row.quantity) > 0) {
+      initialValues[row.color_id] = Number(row.quantity);
+    }
+    setColorMatrix({
+      rowKey,
+      productName: row.product_name || '',
+      sizeValue: row.size || '',
+      colors: row.colors || [],
+      values: initialValues,
+    });
+  };
+
+  const applyColorMatrix = () => {
+    if (!colorMatrix) return;
+    const { rowKey, values, colors } = colorMatrix;
+    const entries = colors
+      .map((c) => ({
+        color_id: c.color_id,
+        color_name: c.color_name,
+        qty: Number(values[c.color_id]) || 0,
+      }))
+      .filter((e) => e.qty > 0);
+    if (entries.length === 0) {
+      message.warning('Enter quantity for at least one color');
+      return;
+    }
+    setItems((prev) => {
+      const idx = prev.findIndex((it) => it.key === rowKey);
+      if (idx === -1) return prev;
+      const original = prev[idx];
+      const newRows = entries.map((e, i) => ({
+        ...original,
+        // First entry reuses the original key so cursor focus / row
+        // selection (if any) doesn't jump; later entries get fresh keys.
+        key: i === 0 ? original.key : nextKeyRef.current++,
+        color_id: e.color_id,
+        color_name: e.color_name,
+        quantity: e.qty,
+        total_amount: +(e.qty * (Number(original.purchase_rate) || 0)).toFixed(2),
+      }));
+      return [...prev.slice(0, idx), ...newRows, ...prev.slice(idx + 1)];
+    });
+    setColorMatrix(null);
+  };
+
   /* totals */
   const discountPct  = Form.useWatch('discount_percentage',form)||0;
   const paidAmt      = Form.useWatch('paid_amount',form)||0;
@@ -1731,29 +1800,42 @@ export default function PurchaseBillForm() {
       ),
     },
     { key:'size',     title:'Size',  dataIndex:'size',             width:70,  render:(v,r,ri)=>txtCell(ri,2,v,'size') },
-    // Color column — same posture as the sales form: shown only for
-    // multi-color tracked products, hidden cell ("—") for non-multi
-    // lines so a mixed bill reads cleanly. The column itself drops
-    // out of the table when no line is multi-color (see filter below).
-    { key:'color', title:'Color', dataIndex:'color_id', width:130,
+    // Color column — multi-color lines render a clickable button that
+    // opens a color/qty matrix popup; non-multi lines render "—". One
+    // click → operator enters qty per color → Apply explodes the row
+    // into one item per color (much faster than scanning the barcode
+    // N times to enter N colors). The button shows the current pick
+    // ("Red · 5") or a red "Pick colors" placeholder while empty so
+    // the operator can't miss it on save validation.
+    { key:'color', title:'Color', dataIndex:'color_id', width:140,
       render:(v,r)=>{
         if (r.color_mode !== 'multi') return <span style={{color:'var(--fg-tertiary)'}}>—</span>;
-        const opts = (r.colors || []).map((c) => ({ value: c.color_id, label: c.color_name }));
+        const hasPick = !!r.color_id && Number(r.quantity) > 0;
+        const label = hasPick ? `${r.color_name || '?'} · ${r.quantity}` : 'Pick colors';
         return (
-          <Select
-            size="small"
-            value={v || undefined}
-            placeholder="Pick color"
-            onChange={(val) => {
-              const picked = (r.colors || []).find((c) => c.color_id === val);
-              updateItem(r.key, 'color_id', val);
-              updateItem(r.key, 'color_name', picked?.color_name || '');
+          <button
+            type="button"
+            onClick={() => openColorMatrix(r.key)}
+            title="Click to enter quantity per color"
+            style={{
+              width:'100%', height:30, padding:'0 8px',
+              background: hasPick ? 'var(--bg-secondary, #f8fafc)' : 'transparent',
+              color: hasPick ? 'var(--fg-primary)' : 'var(--danger, #dc2626)',
+              border: '1px solid',
+              borderColor: hasPick ? 'var(--border, #e2e8f0)' : 'var(--danger, #dc2626)',
+              borderRadius: 4,
+              fontSize: 12,
+              fontWeight: 600,
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              textAlign: 'left',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
-            style={{ width: '100%' }}
-            status={!v ? 'error' : ''}
-            options={opts}
-            dropdownStyle={{ minWidth: 160 }}
-          />
+          >
+            {label}
+          </button>
         );
       },
     },
@@ -2646,6 +2728,79 @@ export default function PurchaseBillForm() {
         }}
         defaultName={entry.product_name || ''}
       />
+
+      {/* Color matrix popup — opens from the Color cell on a multi-color
+          line. Operator types receiving qty per color; Apply explodes
+          the row into one item per non-zero color. */}
+      <Modal
+        open={!!colorMatrix}
+        onCancel={() => setColorMatrix(null)}
+        onOk={applyColorMatrix}
+        title={colorMatrix ? (
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+            <span style={{ fontWeight:700, color:'var(--fg-primary)' }}>Pick colors</span>
+            <span style={{ fontSize:13, color:'var(--fg-tertiary)' }}>·</span>
+            <span style={{ fontSize:14, fontWeight:600, color:'var(--fg-secondary, #475569)' }}>
+              {colorMatrix.productName}{colorMatrix.sizeValue ? ` (${colorMatrix.sizeValue})` : ''}
+            </span>
+          </div>
+        ) : null}
+        okText="Apply"
+        cancelText="Cancel"
+        width={520}
+        zIndex={1100}
+        destroyOnClose
+      >
+        {colorMatrix && (
+          <Table
+            size="small"
+            pagination={false}
+            rowKey={(r) => r.color_id}
+            dataSource={colorMatrix.colors}
+            scroll={{ y: 360 }}
+            columns={[
+              { title: 'Color', dataIndex: 'color_name', key: 'color_name',
+                render: (v) => <span style={{ fontWeight:600 }}>{v}</span>,
+              },
+              { title: 'In stock', dataIndex: 'current_stock', key: 'current_stock',
+                width: 100, align: 'right',
+                render: (v) => (
+                  <span style={{ fontVariantNumeric:'tabular-nums', color:'var(--fg-tertiary)' }}>
+                    {Number(v) || 0}
+                  </span>
+                ),
+              },
+              { title: 'Receiving qty', key: 'qty', width: 140, align: 'right',
+                render: (_, c) => (
+                  <InputNumber
+                    min={0}
+                    size="small"
+                    value={colorMatrix.values[c.color_id] || 0}
+                    onChange={(val) => setColorMatrix((cm) => cm ? ({
+                      ...cm,
+                      values: { ...cm.values, [c.color_id]: val == null ? 0 : Number(val) },
+                    }) : cm)}
+                    style={{ width: '100%' }}
+                  />
+                ),
+              },
+            ]}
+            footer={() => {
+              const total = Object.values(colorMatrix.values).reduce(
+                (s, v) => s + (Number(v) || 0), 0
+              );
+              return (
+                <div style={{ display:'flex', justifyContent:'flex-end', gap:8, fontSize:13 }}>
+                  <span style={{ color:'var(--fg-tertiary)' }}>Total receiving qty:</span>
+                  <span style={{ fontWeight:700, color:'var(--fg-primary)', fontVariantNumeric:'tabular-nums' }}>
+                    {total}
+                  </span>
+                </div>
+              );
+            }}
+          />
+        )}
+      </Modal>
     </Form>
   );
 }
