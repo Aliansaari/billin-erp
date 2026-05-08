@@ -5,7 +5,7 @@ import dayjs from 'dayjs';
 import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
 import { printDocument } from '../../services/printer';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
-import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled } from '../../hooks/useSystemSettings';
+import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
@@ -30,6 +30,12 @@ const EMPTY = {
   // sales don't carry stale batch metadata.
   is_batch_tracked:false, batch_id:null, batch_number:'',
   manufacture_date:null, expiry_date:null, batch_stock:0,
+  // Color dimension — only meaningful when the resolved product's
+  // color_mode is 'multi'. Sales-form scan flow attaches `colors[]`
+  // (active-and-in-stock list from getByBarcode) and the line shows
+  // a Color dropdown until the operator picks one. Server validates
+  // color_id is present + belongs to the product on save.
+  color_mode:'none', color_id:null, color_name:'', colors:[],
 };
 
 // Style helper for the bill-mode toggle pills (Itemised / Amount-only).
@@ -93,6 +99,10 @@ export default function SalesBillForm() {
   // a ref so the scan handler always sees the latest value without
   // recomputing the whole closure each render.
   const mergeScansOn = useMergeRepeatScansEnabled();
+  // When ON globally, the Color column appears in the items table for
+  // multi-color tracked products. For non-multi lines or non-multi
+  // installs, the column is hidden entirely (filtered out of `cols`).
+  const multiColorOn = useMultiColorEnabled();
   const mergeScansRef = useRef(false);
   useEffect(() => { mergeScansRef.current = !!mergeScansOn; }, [mergeScansOn]);
   // Active godowns the operator can issue from. Filtered to user's
@@ -605,6 +615,16 @@ export default function SalesBillForm() {
         batch_number: it.batch?.batch_number || '',
         manufacture_date: it.batch?.manufacture_date || null,
         expiry_date: it.batch?.expiry_date || null,
+        // Color round-trip on edit-load. The dropdown options need
+        // a refreshed colors list anyway (current_stock might've
+        // changed since the bill was first saved), so we leave
+        // `colors` empty here; the items-table cell renders the
+        // current saved color_id+color_name as a single "locked"
+        // option. Operator can change it via a re-scan if needed.
+        color_mode: it.product?.color_mode || (it.color_id ? 'multi' : 'none'),
+        color_id: it.color_id || null,
+        color_name: it.color?.color_name || '',
+        colors: it.color ? [{ color_id: it.color_id, color_name: it.color.color_name, current_stock: 0 }] : [],
       }));
       // Advance monotonic key counter above any loaded row so new items
       // added in edit mode can't collide with existing keys.
@@ -708,6 +728,13 @@ export default function SalesBillForm() {
       const lt=+(qty*rate).toFixed(2);
       // Build the new-line payload once so the single decision below
       // can fall back to it without duplicating fields.
+      // Color list comes back from getByBarcode for multi-color products
+      // (only colors with stock > 0). Non-multi products get an empty
+      // array and the items-table column renders "—" instead of a
+      // dropdown.
+      const colors = (data.color_mode === 'multi' && Array.isArray(data.colors))
+        ? data.colors.filter((c) => Number(c.current_stock) > 0)
+        : [];
       const newLine = {
         key:nextKeyRef.current++,
         product_id:data.product_id, barcode:data.barcode,
@@ -721,6 +748,13 @@ export default function SalesBillForm() {
         available_stock:parseFloat(data.current_stock)||0,
         is_batch_tracked: !!data.is_batch_tracked,
         batch_id: null,
+        // Multi-color tracking — the operator must pick from `colors`
+        // before save. Validation in handleSave blocks submit while
+        // any multi-color line still has color_id=null.
+        color_mode: data.color_mode || 'none',
+        color_id: null,
+        color_name: '',
+        colors,
       };
 
       // Merge-repeat-scans — the merge-OR-append decision MUST live
@@ -732,7 +766,12 @@ export default function SalesBillForm() {
       // false at the if-check, and BOTH callbacks fired (row 1 got its
       // qty incremented AND a new row was pushed). Putting the entire
       // decision in a single callback guarantees exactly one outcome.
-      const canMerge = mergeScansRef.current && !data.is_batch_tracked;
+      // Skip merge for multi-color products too — the line-level color
+      // pick is per-scan, so a "merged" line would have to either
+      // conflate two different color choices into one, or refuse the
+      // pick on the second scan. Cleaner to keep each scan as its own
+      // line so the operator picks the color once per line and moves on.
+      const canMerge = mergeScansRef.current && !data.is_batch_tracked && data.color_mode !== 'multi';
       let didMerge = false;
       setItems(prev => {
         if (canMerge) {
@@ -1316,6 +1355,19 @@ export default function SalesBillForm() {
         if (!isFinite(r) || r < 0 || r > 100) { message.warning('Enter a valid GST rate (0-100)'); return; }
       } else {
         if(items.length===0){message.warning('Add at least one item');return;}
+        // Block save while any multi-color line is missing its color
+        // pick. Server validates the same rule, but catching it here
+        // avoids a round-trip and keeps the operator's focus on the
+        // exact line that needs attention.
+        const missingColor = items.findIndex(
+          (it) => it.color_mode === 'multi' && !it.color_id,
+        );
+        if (missingColor >= 0) {
+          message.warning(
+            `Pick a color on line ${missingColor + 1} (${items[missingColor].product_name || 'item'}) before saving.`,
+          );
+          return;
+        }
       }
       // Block save if credit not allowed and effective payment (paid + return) is less than total
       if(selectedParty && !selectedParty.credit_allowed){
@@ -1464,6 +1516,11 @@ export default function SalesBillForm() {
           discount_percentage:i.discount_percentage,gst_rate:i.gst_rate,
           quantity_per_box:parseFloat(i.quantity_per_box)||1,
           batch_id: i.batch_id || null,
+          // Only forward color_id for multi-color products; the backend
+          // validator throws if a non-multi line carries one (stale
+          // state from a UI bug). null on non-multi keeps the field
+          // honest in the bill_items table.
+          color_id: i.color_mode === 'multi' ? (i.color_id || null) : null,
         })),
       };
       const{data}=isEdit?await salesAPI.update(id,body):await salesAPI.create(body);
@@ -1860,6 +1917,36 @@ export default function SalesBillForm() {
       );
     }},
     {key:'size',title:'Size',dataIndex:'size',width:70,render:(v)=>readCell(v)},
+    // Color column — shown when the line's product is multi-color
+    // tracked. Renders an inline Select with the colors that have
+    // current_stock > 0. For non-multi-color lines it shows "—" so
+    // the column reads cleanly when only some products track colors.
+    // The column is conditional on system_settings.multi_color_enabled
+    // (see `cols` filter below) so installs that haven't enabled the
+    // feature don't see it at all.
+    {key:'color',title:'Color',dataIndex:'color_id',width:130,render:(v,r)=>{
+      if (r.color_mode !== 'multi') return readCell('—', { color: 'var(--fg-tertiary)' });
+      const opts = (r.colors || []).map((c) => ({
+        value: c.color_id,
+        label: c.color_name,
+      }));
+      return (
+        <Select
+          size="small"
+          value={v || undefined}
+          placeholder="Pick color"
+          onChange={(val) => {
+            const picked = (r.colors || []).find((c) => c.color_id === val);
+            updateItem(r.key, 'color_id', val);
+            updateItem(r.key, 'color_name', picked?.color_name || '');
+          }}
+          style={{ width: '100%' }}
+          status={!v ? 'error' : ''}
+          options={opts}
+          dropdownStyle={{ minWidth: 160 }}
+        />
+      );
+    }},
     {key:'unit',title:'Unit',dataIndex:'unit_type',width:70,align:'center',render:(v)=>(
       <span style={{fontSize:13,fontWeight:700,color:'var(--fg-primary)',fontFamily:'inherit',textAlign:'center'}}>{v||'Pcs'}</span>
     )},
@@ -1940,7 +2027,19 @@ export default function SalesBillForm() {
   // regardless of `visibleCols`. `option:true` entries are display
   // toggles surfaced in the Customize modal but never rendered as
   // table columns — skip those here.
-  const cols = allCols.filter(c => !c.option && (c.required || visibleCols.has(c.key)));
+  // Column filter:
+  //   • drop display-only `option:true` rows (Customize-modal toggles)
+  //   • include `required:true` always (index, product, qty, rate, …)
+  //   • include `visibleCols`-checked rows
+  //   • include `color` only when the global Multi-color toggle is ON
+  //     AND at least one line is a multi-color product. Lets non-multi
+  //     installs continue to look identical to before.
+  const anyMultiColor = items.some((it) => it.color_mode === 'multi');
+  const cols = allCols.filter(c => {
+    if (c.option) return false;
+    if (c.key === 'color') return !!multiColorOn && anyMultiColor;
+    return c.required || visibleCols.has(c.key);
+  });
   // Sum of widths so the table's horizontal scroll-x stays correct as
   // optional columns toggle in/out.
   const colsTotalWidth = cols.reduce((s, c) => s + (c.width || 0), 0);

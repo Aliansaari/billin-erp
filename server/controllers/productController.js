@@ -1,6 +1,6 @@
 const { Op, col, fn, literal } = require('sequelize');
 const sequelize = require('../config/database');
-const { Product, Category, StockLedger, ProductBatch } = require('../models');
+const { Product, Category, StockLedger, ProductBatch, ProductColor } = require('../models');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { sanitizePagination } = require('../utils/helpers');
 const { attachDisplayCost, fetchBatchAggregate } = require('../utils/displayCost');
@@ -359,7 +359,21 @@ exports.getByBarcode = async (req, res) => {
   try {
     const product = await Product.findOne({
       where: { barcode: req.params.barcode },
-      include: [{ model: Category, attributes: ['category_name'] }],
+      // Include the active color list when the product is multi-color
+      // tracked. The sales / purchase forms read this to populate the
+      // line's Color dropdown without a second round-trip per scan.
+      // Always include the assoc — it's empty for non-multi products
+      // and the form gates its column visibility on color_mode anyway.
+      include: [
+        { model: Category, attributes: ['category_name'] },
+        {
+          model: ProductColor,
+          as: 'colors',
+          where: { is_active: true },
+          required: false,
+          attributes: ['color_id', 'color_name', 'current_stock', 'low_stock_alert'],
+        },
+      ],
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
     // Mirror getById — attach display_cost so callers like
