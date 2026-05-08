@@ -221,8 +221,13 @@ export default function StockByColorDetail() {
           }}
           summary={(rows) => {
             if (rows.length === 0) return null;
+            // fixed="bottom" pins the row to the table's scroll
+            // bottom — so it stays visible even when the data list
+            // is taller than the viewport and the operator scrolls
+            // through colors.
             return (
-              <Table.Summary.Row style={{ background: 'var(--bg-muted)' }}>
+              <Table.Summary fixed="bottom">
+                <Table.Summary.Row style={{ background: 'var(--bg-muted)' }}>
                 <Table.Summary.Cell index={0} colSpan={2}>
                   <b style={{ fontSize: 12, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--fg-secondary)' }}>TOTAL</b>
                 </Table.Summary.Cell>
@@ -241,6 +246,7 @@ export default function StockByColorDetail() {
                 </Table.Summary.Cell>
                 <Table.Summary.Cell index={7} />
               </Table.Summary.Row>
+              </Table.Summary>
             );
           }}
         />

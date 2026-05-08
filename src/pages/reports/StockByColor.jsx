@@ -244,6 +244,55 @@ export default function StockByColor() {
 
   const totalShort = (summary?.short_out_count ?? 0) + (summary?.short_low_count ?? 0);
 
+  // Total strip renderers — VirtualReportTable consumes summaryCells +
+  // summaryColSpan to paint a sticky bottom row that always stays in
+  // view while the data rows scroll. Mirrors the pattern Stock Report
+  // uses; SUMMABLE_RENDERERS lists the columns that aggregate
+  // meaningfully (color count + stock + value), the rest get blank
+  // cells. Total qty + count come from server `summary` so the strip
+  // reflects the FULL filtered set, not just the loaded chunk.
+  const SUMMABLE_RENDERERS = useMemo(() => ({
+    colors: () => (
+      <span style={{
+        display: 'inline-block', padding: '3px 12px', borderRadius: 999,
+        background: 'var(--accent-bg, rgba(99,102,241,.12))',
+        color: 'var(--accent)', fontSize: 11, fontWeight: 700,
+      }}>
+        {summary?.total_count ?? 0} products
+      </span>
+    ),
+    stk: () => (
+      <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--success)' }}>
+        {fmtN(summary?.total_qty ?? 0)}
+      </span>
+    ),
+    val: () => (
+      <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+        <span style={{ color: 'var(--fg-tertiary)', marginRight: 1, fontWeight: 500 }}>₹</span>
+        {fmtN(summary?.page_value ?? 0)}
+      </span>
+    ),
+  }), [summary]);
+
+  const firstAggIdx = useMemo(() => {
+    const idx = visibleColumns.findIndex((c) => SUMMABLE_RENDERERS[c.key]);
+    return idx === -1 ? visibleColumns.length : idx;
+  }, [visibleColumns, SUMMABLE_RENDERERS]);
+
+  const summaryCells = (col, idx) => {
+    if (idx === 0) return totalCount > 0
+      ? `Total · ${totalCount} ${totalCount === 1 ? 'product' : 'products'}`
+      : null;
+    if (idx > 0 && idx < firstAggIdx) return null;
+    const renderer = SUMMABLE_RENDERERS[col.key];
+    return renderer ? renderer() : null;
+  };
+  const summaryColSpan = (col, idx) => {
+    if (idx === 0) return Math.max(1, firstAggIdx);
+    if (idx > 0 && idx < firstAggIdx) return 0;
+    return 1;
+  };
+
   return (
     <div className="sbc-page">
 
@@ -363,6 +412,8 @@ export default function StockByColor() {
       <div className="sbc-tbl-wrap">
         <VirtualReportTable
           columns={visibleColumns}
+          summaryCells={summaryCells}
+          summaryColSpan={summaryColSpan}
           rows={rows}
           totalCount={totalCount}
           ensureChunk={ensureChunk}
