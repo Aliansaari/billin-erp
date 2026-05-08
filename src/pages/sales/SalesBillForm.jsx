@@ -862,6 +862,26 @@ export default function SalesBillForm() {
           const sibs = data.data || [];
           setSiblings(sibs);
           setSiblingsLoading(false);
+          // Family-level color hint — colors are per-variant in the schema,
+          // but color_mode is a family decision (you don't track colors
+          // for size S and skip them for size M). If ANY sibling carries
+          // color_mode='multi', the family is multi-color. Union the
+          // sibling colors as a starting palette so even a brand-new
+          // size variant (no sibling row exists yet) renders the picker
+          // with the colors the operator already defined elsewhere.
+          // Sales filters to in-stock colors at the items-table render.
+          const familyMulti = sibs.some((s) => s.color_mode === 'multi');
+          const familyColorsMap = new Map();
+          if (familyMulti) {
+            sibs.forEach((s) => {
+              (s.colors || []).forEach((c) => {
+                if (!familyColorsMap.has(c.color_name)) {
+                  familyColorsMap.set(c.color_name, c);
+                }
+              });
+            });
+          }
+          const familyColors = Array.from(familyColorsMap.values());
           // Stage just the family name on entry. Wipe any stale variant
           // fields from a previous unconfirmed family pick so the cells
           // visibly clear until the operator confirms via Size.
@@ -877,6 +897,9 @@ export default function SalesBillForm() {
             is_batch_tracked: false,
             batch_id: null, batch_number: '',
             manufacture_date: null, expiry_date: null, batch_stock: 0,
+            color_mode: familyMulti ? 'multi' : 'none',
+            color_id: null, color_name: '',
+            colors: familyMulti ? familyColors.filter((c) => Number(c.current_stock) > 0) : [],
           }));
           // Hand focus to Size and open the Select so Enter on the
           // highlighted top sibling commits fast.

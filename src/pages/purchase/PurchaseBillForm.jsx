@@ -737,9 +737,32 @@ export default function PurchaseBillForm() {
       return;
     }
 
-    // VARIANT mode (existing behaviour, unchanged) — only set name +
-    // category. Match lookup (by category+name+size+article) runs after
-    // article# is entered to resolve which specific variant the user means.
+    // VARIANT mode — only set name + category. Match lookup (by
+    // category+name+size+article) runs after article# is entered to
+    // resolve which specific variant the user means.
+    //
+    // Family-level color hint — `prodRawList` is the search result for
+    // this name in this category (i.e. all variants of the family). If
+    // ANY sibling has color_mode='multi', the family is multi-color
+    // and any new variant typed under it should render the picker.
+    // Union the sibling colors as the starting palette so the operator
+    // can pick from existing colors even before the new variant exists
+    // in the DB. (Backend resolveOrCreateProduct + bill save will
+    // inherit color_mode + create any new colors when the line saves.)
+    const variantSiblings = (prodRawList || []).filter(
+      (s) => (s.product_name || '').trim().toLowerCase() === (p.product_name || '').trim().toLowerCase()
+              && (!p.category_id || s.category_id === p.category_id)
+    );
+    const familyMulti = variantSiblings.some((s) => s.color_mode === 'multi');
+    const familyColorsMap = new Map();
+    if (familyMulti) {
+      variantSiblings.forEach((s) => {
+        (s.colors || []).forEach((c) => {
+          if (!familyColorsMap.has(c.color_name)) familyColorsMap.set(c.color_name, c);
+        });
+      });
+    }
+    const familyColors = Array.from(familyColorsMap.values());
     setEntry(prev=>({...prev,
       product_name:p.product_name,
       category_id:p.category_id||prev.category_id,
@@ -751,6 +774,9 @@ export default function PurchaseBillForm() {
       is_batch_tracked:!!p.is_batch_tracked,
       product_mode: p.product_mode || 'variant',
       batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
+      color_mode: familyMulti ? 'multi' : 'none',
+      color_id: null, color_name: '',
+      colors: familyMulti ? familyColors : [],
     }));
     setBarcodeError('');
     justSelectedRef.current=true;

@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
-const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, StockLedger, Category, SystemSettings, Godown } = require('../models');
+const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, ProductColor, StockLedger, Category, SystemSettings, Godown } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
@@ -153,6 +153,26 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
   // Otherwise, generate one under the current transaction so the counter lock
   // is released atomically with the purchase bill commit/rollback.
   const newBarcode = item.barcode || await generateBarcode(t);
+
+  // Family-level color inheritance — if any sibling under the same
+  // product name carries color_mode='multi', the family is multi-color
+  // and a brand-new variant born here should inherit that flag.
+  // (Sizes can have different colors; the actual product_colors rows
+  // get created lazily in resolveColorForProduct when a bill line
+  // picks a color the new variant doesn't carry yet.)
+  let inheritedColorMode = 'none';
+  if (defaultProductMode !== 'single' && item.product_name) {
+    const familySibling = await Product.findOne({
+      where: {
+        product_name: { [Op.iLike]: String(item.product_name).trim() },
+        color_mode: 'multi',
+        is_active: true,
+      },
+      transaction: t,
+    });
+    if (familySibling) inheritedColorMode = 'multi';
+  }
+
   // Newly created products inherit the current default mode. Mode is
   // permanent once a product exists (mirrors the is_batch_tracked lock
   // pattern). For single-mode new products, weighted_avg_cost gets set
@@ -173,9 +193,53 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
     quantity_per_box: item.quantity_per_box || 1,
     current_stock:    0,
     product_mode:     defaultProductMode,
+    color_mode:       inheritedColorMode,
   }, { transaction: t });
 
   return { product_id: newProduct.product_id, barcode: newBarcode, isNew: true, product: newProduct };
+}
+
+/**
+ * Remap a bill line's color_id to one belonging to the resolved product.
+ *
+ * Why this exists: the bill form's color picker shows the family's
+ * union of colors (so a brand-new size variant of a multi-color family
+ * still has colors to pick from). The picked color_id may belong to a
+ * SIBLING product, not the variant the line is about to resolve to.
+ * If we wrote that color_id straight to purchase_bill_items, the FK to
+ * product_colors would be valid but semantically wrong (and
+ * validateBillColorRequirements would reject it because color.product_id
+ * doesn't match the line's product_id).
+ *
+ * This helper find-or-creates a same-named color on the resolved
+ * product and returns the id to use. Idempotent across siblings — the
+ * uniqueness key is (product_id, color_name).
+ *
+ * Returns null when there's nothing to remap (no color_id on the line,
+ * or the picked color is already on the resolved product).
+ */
+async function resolveColorForProduct(itemColorId, resolvedProductId, t) {
+  if (!itemColorId || !resolvedProductId) return null;
+  const picked = await ProductColor.findByPk(itemColorId, { transaction: t });
+  if (!picked) return null;
+  if (picked.product_id === resolvedProductId) return picked.color_id;
+  // Cross-variant pick — find or create the same-named color on the
+  // resolved product so the FK + validation both line up.
+  const existing = await ProductColor.findOne({
+    where: {
+      product_id: resolvedProductId,
+      color_name: picked.color_name,
+      is_active: true,
+    },
+    transaction: t,
+  });
+  if (existing) return existing.color_id;
+  const created = await ProductColor.create({
+    product_id: resolvedProductId,
+    color_name: picked.color_name,
+    is_active: true,
+  }, { transaction: t });
+  return created.color_id;
 }
 
 exports.getAll = async (req, res) => {
@@ -423,10 +487,16 @@ exports.create = async (req, res) => {
       const product_id = resolved.product_id;
       const barcode    = resolved.barcode;
 
+      // Remap color_id when the line's pick belongs to a sibling
+      // (family-color picker case). For an existing variant where the
+      // operator picked one of its own colors, this is a no-op.
+      const finalColorId = await resolveColorForProduct(item.color_id, product_id, t);
+
       processedItems.push({
         ...item,
         product_id,
         barcode,
+        color_id: finalColorId,
         _postItemTaxable: postItemTaxable,
         taxable_amount: postItemTaxable,
         discount_amount: discountAmt,
@@ -973,8 +1043,12 @@ exports.update = async (req, res) => {
       const product_id = resolved.product_id;
       const barcode    = resolved.barcode;
 
+      // Same color remap as create() — see comment in resolveColorForProduct.
+      const finalColorId = await resolveColorForProduct(item.color_id, product_id, t);
+
       processedItems.push({
         ...item, product_id, barcode,
+        color_id: finalColorId,
         _postItemTaxable: postItemTaxable,
         taxable_amount: postItemTaxable,
         discount_amount: discountAmt,
