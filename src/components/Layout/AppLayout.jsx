@@ -98,7 +98,7 @@ export default function AppLayout() {
   // partial-match `sale` and then fail the trailing \/, falling through to
   // the padded layout. That made the return forms visibly shrink to content
   // height instead of filling the screen.
-  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|expenses|stock-movement|stock-report-pro|stock-transfer|banks|loans|inventory\/batches|settings)(\/|$)/.test(location.pathname) || [
+  const isFullPage = /^\/(sales-return|purchase-return|sale|purchase|payment|receipt|expenses|stock-movement|stock-report-pro|stock-transfer|banks|loans|inventory\/batches|settings|reports\/stock-by-color)(\/|$)/.test(location.pathname) || [
     // Home (Command Center) — pinned viewport shell. The KPI ribbon, hero,
     // and action ribbon need to land flush against the viewport edges and
     // never scroll, so it joins the full-page list rather than rendering
@@ -133,6 +133,13 @@ export default function AppLayout() {
     // in App.jsx) but only the canonical path needs to be in
     // isFullPage — the redirect renders before this check runs.
     '/reports/fast-slow-stock',
+    // Stock by Color — same shell as Stock Report (sr-page CSS):
+    // sticky header + KPI strip + filter chips + virtualized table.
+    // Detail page (/stock-by-color/:productId) is caught by the
+    // regex via the leading ^/reports — wait, it's not. Both paths
+    // need to be listed explicitly here so the drill-in shares the
+    // full-page treatment.
+    '/reports/stock-by-color',
     // Editorial financial reports — full-page shells with sticky
     // total bar + F-bar pinned to viewport bottom. Without these
     // listed, the wrapper paints them as a padded card and the
