@@ -1773,12 +1773,14 @@ export default function PurchaseBillForm() {
     },
   ];
   // Filter to operator-chosen columns. Required ones always pass.
-  // The Color column appears only when the global Multi-color toggle
-  // is ON AND at least one line is multi-color tracked — installs
-  // without the feature continue to look identical to before.
-  const pbfAnyMultiColor = items.some((it) => it.color_mode === 'multi');
+  // The Color column shows whenever the global Multi-color toggle is
+  // ON. Non-multi-color lines render "—" in the cell. Showing the
+  // column always (rather than only after a multi-color scan) avoids
+  // the chicken-and-egg of "column hidden until I scan a multi-color
+  // product" — the operator can SEE colors are tracked and pick the
+  // right product accordingly.
   const itemColumns = allItemColumns.filter(c => {
-    if (c.key === 'color') return !!multiColorOn && pbfAnyMultiColor;
+    if (c.key === 'color') return !!multiColorOn;
     return c.required || pbfVisibleCols.has(c.key);
   });
 

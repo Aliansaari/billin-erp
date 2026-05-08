@@ -2031,13 +2031,16 @@ export default function SalesBillForm() {
   //   • drop display-only `option:true` rows (Customize-modal toggles)
   //   • include `required:true` always (index, product, qty, rate, …)
   //   • include `visibleCols`-checked rows
-  //   • include `color` only when the global Multi-color toggle is ON
-  //     AND at least one line is a multi-color product. Lets non-multi
-  //     installs continue to look identical to before.
-  const anyMultiColor = items.some((it) => it.color_mode === 'multi');
+  //   • include `color` whenever the global Multi-color toggle is ON.
+  //     Non-multi-color lines render "—" in the cell so the column
+  //     reads cleanly when only some products track colors. Showing
+  //     the column always (rather than only after a multi-color scan)
+  //     avoids the chicken-and-egg of "column hidden until I scan a
+  //     multi-color product" — the operator can SEE colors are tracked
+  //     and pick the right product accordingly.
   const cols = allCols.filter(c => {
     if (c.option) return false;
-    if (c.key === 'color') return !!multiColorOn && anyMultiColor;
+    if (c.key === 'color') return !!multiColorOn;
     return c.required || visibleCols.has(c.key);
   });
   // Sum of widths so the table's horizontal scroll-x stays correct as
