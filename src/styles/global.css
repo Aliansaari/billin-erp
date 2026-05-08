@@ -1367,6 +1367,16 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  /* Cap to viewport so long column lists (Stock Report has 18+
+   * options across 4 groups) scroll INSIDE the menu instead of
+   * pushing the whole app body — Antd portals the popover to
+   * document.body, so without a height cap the parent page becomes
+   * the scroll target. overscroll-behavior: contain stops the wheel
+   * event from bubbling up to that page once the menu hits its
+   * end. */
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .cols-menu .grp { padding: 4px 0 6px; }
