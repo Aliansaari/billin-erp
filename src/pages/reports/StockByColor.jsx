@@ -12,18 +12,49 @@
 // of Cash Flow, Fund Flow, Bills Outstanding, etc.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Select, Input } from 'antd';
+import { Select, Input, Modal, Checkbox } from 'antd';
 import {
-  SearchOutlined, ReloadOutlined,
+  SearchOutlined, ReloadOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { reportAPI, categoryAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import '../inventory/stock-report.css';      // reuse .sbf-cust-* + .sbf-cols-* classes
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const fmtR = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Column registry — `required` flags pin the four anchors (#, Product,
+// Colors, Total Stock) so the operator can't toggle them off and end up
+// with a useless table. Order in this array drives render order. The
+// `group` field drives the section breakdown in the Customize modal.
+const COL_DEFS = [
+  { key: 'sr',     label: 'Sr No',         required: true,  group: 'Identifiers' },
+  { key: 'bc',     label: 'Barcode',                         group: 'Identifiers' },
+  { key: 'cat',    label: 'Category',                        group: 'Identifiers' },
+  { key: 'prod',   label: 'Product',       required: true,  group: 'Identifiers' },
+  { key: 'size',   label: 'Size',                            group: 'Identifiers' },
+  { key: 'art',    label: 'Article',                         group: 'Identifiers' },
+  { key: 'colors', label: 'Colors',        required: true,  group: 'Quantity' },
+  { key: 'stk',    label: 'Total Stock',   required: true,  group: 'Quantity' },
+  { key: 'short',  label: 'Short',                           group: 'Quantity' },
+  { key: 'pur',    label: 'Pur. Rate',                       group: 'Pricing & Value' },
+  { key: 'val',    label: 'Stock Value',                     group: 'Pricing & Value' },
+];
+const DEFAULT_PREFS = Object.fromEntries(COL_DEFS.map(c => [c.key, true]));
+const LS_KEY = 'sbc-visible-cols-v1';
+const loadPrefs = () => {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return DEFAULT_PREFS;
+    const saved = JSON.parse(raw);
+    return { ...DEFAULT_PREFS, ...saved };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+};
 
 export default function StockByColor() {
   const navigate = useNavigate();
@@ -32,6 +63,15 @@ export default function StockByColor() {
   const [categoryId, setCategoryId] = useState(null);
   const [status, setStatus] = useState(null);            // null | 'short' | 'ok'
   const [categories, setCategories] = useState([]);
+  // Column visibility — same shape as StockReport's prefs. Persists per
+  // browser via localStorage so the operator's column choices stick.
+  const [prefs, setPrefs] = useState(loadPrefs);
+  useEffect(() => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch {}
+  }, [prefs]);
+  // Customize-columns modal state — same vocabulary as Stock Report
+  // (centered Modal with Reset / Done footer).
+  const [colsModalOpen, setColsModalOpen] = useState(false);
 
   // Debounced search.
   useEffect(() => {
@@ -183,6 +223,18 @@ export default function StockByColor() {
     },
   ], []);
 
+  // Visibility filter — required columns always pass; optional ones gate
+  // on `prefs[key]`. This sits between the column registry above and the
+  // VirtualReportTable below so the customize modal's checkboxes drive
+  // the actual rendered set.
+  const visibleColumns = useMemo(
+    () => columns.filter((c) => {
+      const def = COL_DEFS.find((d) => d.key === c.key);
+      return !def ? true : (def.required || !!prefs[c.key]);
+    }),
+    [columns, prefs],
+  );
+
   const rowClassName = (r) => {
     if (!r || r.__loading) return '';
     if (r.out_count > 0) return 'sbc-row-out';
@@ -239,6 +291,13 @@ export default function StockByColor() {
           />
           <button className="rpt-btn ant-btn" onClick={() => refresh()}>
             <ReloadOutlined /> Refresh
+          </button>
+          <button
+            className="rpt-btn ant-btn"
+            onClick={() => setColsModalOpen(true)}
+            title="Customize the report columns"
+          >
+            <SettingOutlined /> Customize
           </button>
         </div>
       </header>
@@ -297,7 +356,7 @@ export default function StockByColor() {
       {/* ── Table band ─────────────────────────────────────── */}
       <div className="sbc-tbl-wrap">
         <VirtualReportTable
-          columns={columns}
+          columns={visibleColumns}
           rows={rows}
           totalCount={totalCount}
           ensureChunk={ensureChunk}
@@ -318,6 +377,70 @@ export default function StockByColor() {
           { id: 'refresh', key: 'F5', label: 'Refresh', onAction: () => refresh() },
         ]}
       />
+
+      {/* Customize columns modal — same UX as Stock Report and the
+       *  Sales Bill form: centered Modal, dense rows with a 3px accent
+       *  rail on the active state, internal scroll, Reset / Done
+       *  footer. Required columns surface with a "Fixed" pin and a
+       *  disabled checkbox so the operator can't break the table. */}
+      <Modal
+        open={colsModalOpen}
+        onCancel={() => setColsModalOpen(false)}
+        title="Customize columns"
+        footer={
+          <div className="sbf-cols-footer">
+            <button
+              type="button"
+              className="sbf-cols-reset"
+              onClick={() => {
+                setPrefs(DEFAULT_PREFS);
+                try { localStorage.removeItem(LS_KEY); } catch {}
+              }}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="sbf-cols-done"
+              onClick={() => setColsModalOpen(false)}
+            >
+              Done
+            </button>
+          </div>
+        }
+        width={340}
+        styles={{ body: { padding: 0 } }}
+        className="sbf-cust-modal"
+      >
+        <div className="sbf-cust-list">
+          {['Identifiers', 'Quantity', 'Pricing & Value'].map((groupLabel) => {
+            const rows = COL_DEFS.filter((c) => c.group === groupLabel);
+            if (!rows.length) return null;
+            return (
+              <div key={groupLabel} className="sbf-cust-group">
+                <div className="sbf-cust-group-lbl">{groupLabel}</div>
+                {rows.map((c) => {
+                  const isOn = !!prefs[c.key] || !!c.required;
+                  return (
+                    <label
+                      key={c.key}
+                      className={`sbf-cust-row${isOn ? ' on' : ''}`}
+                    >
+                      <Checkbox
+                        checked={isOn}
+                        disabled={!!c.required}
+                        onChange={(e) => setPrefs((p) => ({ ...p, [c.key]: e.target.checked }))}
+                      />
+                      <span className="sbf-cust-row-lbl">{c.label}</span>
+                      {c.required && <span className="sbf-cust-row-pin">Fixed</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
 
       {/* Page-level layout — mirrors mv-page in fast-slow-stock.css.
           Outer flex column, only the table band is flex:1, header /
