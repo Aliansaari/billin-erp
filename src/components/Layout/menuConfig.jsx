@@ -83,11 +83,12 @@ export const menuItems = [
       { key: '/stock-report',     icon: <StockOutlined />,    label: 'Stock Report',    perm: 'inventory.view' },
       { key: '/stock-report-pro', icon: <TableOutlined />,    label: 'Smart Stock',     perm: 'inventory.view' },
       { key: '/stock-transfers',  icon: <SwapOutlined />,     label: 'Stock Transfers', perm: 'stock_transfers.view', flag: 'multi_warehouse_enabled' },
-      // Batches (Commit 5) — gated on batches.view. The page itself
-      // shows an "Enable batch tracking" placeholder when the global
-      // toggle is OFF, so adding the entry here doesn't surface a
-      // broken page; it surfaces the onboarding nudge.
-      { key: '/inventory/batches', icon: <AppstoreOutlined />, label: 'Batches',         perm: 'batches.view' },
+      // Batches (Commit 5) — gated on batches.view AND the global
+      // batch_tracking_enabled toggle. The page itself still has an
+      // "Enable batch tracking" placeholder for direct-URL hits, but
+      // the sidebar entry hides when the toggle is off so operators
+      // don't land there by accident.
+      { key: '/inventory/batches', icon: <AppstoreOutlined />, label: 'Batches',         perm: 'batches.view', flag: 'batch_tracking_enabled' },
     ],
   },
   {

@@ -62,6 +62,11 @@ export default function ExpiryReport() {
     buckets:    BUCKETS.map((b) => b.key),  // all on by default
     q:          '',
   });
+  // useRef MUST live above the `if (!batchOn) return` guard below —
+  // calling it after a conditional return changes the hook count
+  // between renders (true initial → false after settings load) and
+  // crashes the entire route with "Rendered fewer hooks than expected".
+  const searchInputRef = useRef(null);
 
   const load = async () => {
     if (!batchOn) return;
@@ -200,8 +205,6 @@ export default function ExpiryReport() {
   const tileNoExp  = tile('no_expiry');
   const totalExpiryTracked = (summary.expired || 0) + (summary['0_30'] || 0) + (summary['31_60'] || 0)
     + (summary['61_90'] || 0) + (summary['91_plus'] || 0);
-
-  const searchInputRef = useRef(null);
 
   return (
     <div className="report-editorial stf-list" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

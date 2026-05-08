@@ -270,8 +270,10 @@ export const REPORTS = [
   },
   // Expiry Report (Commit 5) — bucketed view of every batch with an
   // expiry date, plus a "no expiry" group. Same editorial-report skin
-  // as Sales Report. perm: 'batches.view' so it hides when the global
-  // batch toggle is OFF / role lacks the perm.
+  // as Sales Report. The `flag` removes the card from the Reports Hub
+  // entirely when the global Batch Tracking toggle is OFF, mirroring
+  // how the Multi-warehouse reports drop out when that toggle is off.
+  // The perm gate still applies on top for role-based access.
   {
     id: 'expiry_report',
     name: 'Expiry Report',
@@ -279,6 +281,7 @@ export const REPORTS = [
     category: 'inventory',
     route: '/reports/expiry',
     perm: 'batches.view',
+    flag: 'batch_tracking_enabled',
     aliases: ['expiry', 'batch expiry', 'shelf life', 'stock expiry', 'expired'],
     isNew: true,
   },

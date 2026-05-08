@@ -10,7 +10,7 @@ import {
 import dayjs from 'dayjs';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { reportAPI, categoryAPI, godownAPI, dataAPI } from '../../api';
-import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
+import { useMultiWarehouseEnabled, useBatchTrackingEnabled } from '../../hooks/useSystemSettings';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import useListSelection from '../../hooks/useListSelection';
@@ -128,6 +128,7 @@ export default function StockReport() {
   // the per-godown KPI sub-line drops out — totals are unfiltered and
   // the "All Godowns" caption would just be noise.
   const multiWarehouseOn            = useMultiWarehouseEnabled();
+  const batchTrackingOn             = useBatchTrackingEnabled();
   const [prefs, setPrefs] = useState(loadPrefs);
   useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch {} }, [prefs]);
   const cols = prefs;
@@ -705,20 +706,22 @@ export default function StockReport() {
         ><span className="dot neg"></span>Negative</span>
 
         <div className="ml-auto" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-          {/* Group-by-batch link (Commit 5 — Part D). The Stock Summary
-           *  table virtualizes a flat per-product dataset, so per-batch
-           *  in-row expansion lives on its own page (/inventory/batches)
-           *  rather than re-flowing the virtual rows here. The link is
-           *  always visible so operators discover the per-batch view;
-           *  the Batches page renders an "Enable batch tracking"
-           *  placeholder when the global toggle is off. */}
-          <button
-            className="sr-btn"
-            onClick={() => navigate('/inventory/batches')}
-            title="View stock grouped by batch / lot"
-          >
-            View by batch →
-          </button>
+          {/* Group-by-batch link (Commit 5 — Part D). Per-batch view
+           *  lives on its own page at /inventory/batches. The button
+           *  hides when the global Batch Tracking toggle is OFF — no
+           *  point sending operators to a placeholder when they have
+           *  no way to act on it from this report. Hooks resolve to
+           *  null while settings are loading; render nothing in that
+           *  brief window too. */}
+          {batchTrackingOn === true && (
+            <button
+              className="sr-btn"
+              onClick={() => navigate('/inventory/batches')}
+              title="View stock grouped by batch / lot"
+            >
+              View by batch →
+            </button>
+          )}
           <Dropdown
             trigger={['click']}
             placement="bottomRight"
