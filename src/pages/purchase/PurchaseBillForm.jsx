@@ -1960,7 +1960,28 @@ export default function PurchaseBillForm() {
         // think nothing happened.
         const hasName = !!(r.color_name || '').trim();
         const hasPick = (!!r.color_id || hasName) && Number(r.quantity) > 0;
-        const label = hasPick ? `${r.color_name || '?'} · ${r.quantity}` : 'Pick colors';
+        if (hasPick) {
+          // Picked → plain clickable text, matches the rest of the row
+          // (no input-box framing). Click re-opens the matrix to edit.
+          return (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={() => openColorMatrix(r.key)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openColorMatrix(r.key); }}
+              title="Click to edit colors"
+              style={{
+                display:'inline-block', width:'100%', cursor:'pointer',
+                color:'var(--fg-primary)', fontSize:13, fontWeight:600,
+                fontFamily:'inherit',
+                overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+              }}
+            >
+              {`${r.color_name || '?'} · ${r.quantity}`}
+            </span>
+          );
+        }
+        // Empty → red placeholder button so the operator can't miss it.
         return (
           <button
             type="button"
@@ -1968,10 +1989,9 @@ export default function PurchaseBillForm() {
             title="Click to enter quantity per color"
             style={{
               width:'100%', height:30, padding:'0 8px',
-              background: hasPick ? 'var(--bg-secondary, #f8fafc)' : 'transparent',
-              color: hasPick ? 'var(--fg-primary)' : 'var(--danger, #dc2626)',
-              border: '1px solid',
-              borderColor: hasPick ? 'var(--border, #e2e8f0)' : 'var(--danger, #dc2626)',
+              background:'transparent',
+              color:'var(--danger, #dc2626)',
+              border:'1px solid var(--danger, #dc2626)',
               borderRadius: 4,
               fontSize: 12,
               fontWeight: 600,
@@ -1983,7 +2003,7 @@ export default function PurchaseBillForm() {
               whiteSpace: 'nowrap',
             }}
           >
-            {label}
+            Pick colors
           </button>
         );
       },

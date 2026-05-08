@@ -160,13 +160,23 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
   // (Sizes can have different colors; the actual product_colors rows
   // get created lazily in resolveColorForProduct when a bill line
   // picks a color the new variant doesn't carry yet.)
+  //
+  // Compare with TRIM + LOWER on both sides — product_name in the DB
+  // can have trailing whitespace from earlier UI bugs (e.g. "color
+  // test ") that a plain iLike-without-wildcards won't match.
   let inheritedColorMode = 'none';
-  if (defaultProductMode !== 'single' && item.product_name) {
+  const familyName = String(item.product_name || '').trim().toLowerCase();
+  if (defaultProductMode !== 'single' && familyName) {
     const familySibling = await Product.findOne({
       where: {
-        product_name: { [Op.iLike]: String(item.product_name).trim() },
-        color_mode: 'multi',
-        is_active: true,
+        [Op.and]: [
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.fn('TRIM', sequelize.col('product_name'))),
+            familyName,
+          ),
+          { color_mode: 'multi' },
+          { is_active: true },
+        ],
       },
       transaction: t,
     });
