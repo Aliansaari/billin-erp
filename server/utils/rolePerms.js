@@ -51,6 +51,11 @@ const ROLES = [
       parties:          { view: true, create: true, edit: true, delete: true },
       inventory:        { view: true, create: true, edit: true, delete: true },
       payments:         { view: true, create: true, edit: true, delete: true },
+      // Expenses module — same shape as payments (Admin gets full
+      // CRUD + cancel; .delete is the cancel/reversal gate). All of
+      // expenses, payments, accounts feed the same double-entry
+      // ledger, so the perm shape is consistent across them.
+      expenses:         { view: true, create: true, edit: true, delete: true },
       reports:          { view: true },
       accounts:         { view: true },
       settings:         { view: true, manage_company: true, import_export: true, tally: true, print: true, theme: true, barcode: true },
@@ -83,6 +88,10 @@ const ROLES = [
       parties:          { view: true, create: true, edit: true },
       inventory:        { view: true, create: true, edit: true },
       payments:         { view: true, create: true, edit: true },
+      // Manager owns day-to-day expense entry like payments (record,
+      // edit) but not the destructive cancel — same gate split as
+      // bills. .delete reserved for Admin / Super Admin / Accountant.
+      expenses:         { view: true, create: true, edit: true },
       reports:          { view: true },
       accounts:         { view: true },
       settings:         { view: true, theme: true, print: true },
@@ -109,6 +118,10 @@ const ROLES = [
       purchase_returns: { view: true },
       parties:          { view: true },
       payments:         { view: true, create: true, edit: true },
+      // Accountant owns the books — full expense lifecycle including
+      // cancel, since reversing a misposted expense is a normal
+      // accounting fix.
+      expenses:         { view: true, create: true, edit: true, delete: true },
       reports:          { view: true },
       accounts:         { view: true },
       settings:         { view: true, theme: true, print: true },

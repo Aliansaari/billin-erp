@@ -38,6 +38,9 @@ import PurchaseReturnList from './pages/returns/PurchaseReturnList';
 import PaymentEntry from './pages/payments/PaymentEntry';
 import ReceiptEntry from './pages/payments/ReceiptEntry';
 import PaymentList from './pages/payments/PaymentList';
+import ExpenseEntry  from './pages/expenses/ExpenseEntry';
+import ExpenseList   from './pages/expenses/ExpenseList';
+import ExpenseReport from './pages/expenses/ExpenseReport';
 import SalesReport from './pages/reports/SalesReport';
 import PurchaseReport from './pages/reports/PurchaseReport';
 import DayBook from './pages/reports/DayBook';
@@ -335,6 +338,14 @@ export default function App() {
           <Route path="payment/new" element={<RoleRoute perm="payments.create"><PaymentEntry /></RoleRoute>} />
           <Route path="receipt/new" element={<RoleRoute perm="payments.create"><ReceiptEntry /></RoleRoute>} />
           <Route path="payments"    element={<RoleRoute perm="payments.view"><PaymentList /></RoleRoute>} />
+
+          {/* Expenses — Indirect / Direct expense bookings with full
+              double-entry. List + entry + report all hang off the
+              Expenses dropdown in the sidebar. */}
+          <Route path="expenses"            element={<RoleRoute perm="expenses.view"><ExpenseList /></RoleRoute>} />
+          <Route path="expenses/new"        element={<RoleRoute perm="expenses.create"><ExpenseEntry /></RoleRoute>} />
+          <Route path="expenses/edit/:id"   element={<RoleRoute perm="expenses.view"><ExpenseEntry /></RoleRoute>} />
+          <Route path="expenses/report"     element={<RoleRoute perm="expenses.view"><ExpenseReport /></RoleRoute>} />
 
           {/* Reports */}
           {/* Reports hub — landing for all reports. Cluttered flat dropdown

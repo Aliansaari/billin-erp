@@ -35,6 +35,8 @@ const ProductBatchStock = require('./ProductBatchStock');
 const UserReportFavorite = require('./UserReportFavorite');
 const LoanAccount = require('./LoanAccount');
 const Cheque = require('./Cheque');
+const ExpenseVoucher = require('./ExpenseVoucher');
+const ExpenseVoucherItem = require('./ExpenseVoucherItem');
 
 // ── Associations ──
 
@@ -292,6 +294,40 @@ PurchaseReturnBillItem.belongsTo(ProductBatch,  { foreignKey: 'batch_id', as: 'b
 ProductBatch.hasMany(StockTransferItem,    { foreignKey: 'batch_id' });
 StockTransferItem.belongsTo(ProductBatch,  { foreignKey: 'batch_id', as: 'batch' });
 
+// ── Expense Voucher associations ──────────────────────────────────────
+//
+// Header → items: cascade on delete because the line breakdown is
+// purely descriptive (the financial truth lives in ledger_entries)
+// and cancelling/deleting the header makes lines orphan rows that
+// only confuse reports.
+//
+// Header → vendor party: SET NULL on the FK at DB level so a party
+// hard-delete (vanishingly rare; usually soft-deleted) doesn't cascade
+// through the audit trail. Sequelize-level RESTRICT would have served
+// equally well; we mirror the JV-side `Party.hasMany(LedgerEntry)`
+// RESTRICT semantics by guarding party.delete on the controller.
+//
+// Header → bank ledger: SET NULL on FK; same rationale as Cheque ↔
+// LedgerAccount — a bank ledger going inactive shouldn't orphan-delete
+// expense history.
+ExpenseVoucher.hasMany(ExpenseVoucherItem, {
+  foreignKey: 'expense_id', as: 'items', onDelete: 'CASCADE',
+});
+ExpenseVoucherItem.belongsTo(ExpenseVoucher, { foreignKey: 'expense_id' });
+
+ExpenseVoucherItem.belongsTo(LedgerAccount, {
+  foreignKey: 'expense_ledger_id', as: 'expenseLedger',
+});
+
+Party.hasMany(ExpenseVoucher, { foreignKey: 'party_id', as: 'expenses' });
+ExpenseVoucher.belongsTo(Party, { foreignKey: 'party_id', as: 'party' });
+
+LedgerAccount.hasMany(ExpenseVoucher, { foreignKey: 'bank_ledger_id', as: 'expensesPaidFromBank' });
+ExpenseVoucher.belongsTo(LedgerAccount, { foreignKey: 'bank_ledger_id', as: 'bank' });
+
+ExpenseVoucher.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
+ExpenseVoucher.belongsTo(User, { foreignKey: 'cancelled_by', as: 'canceller' });
+
 module.exports = {
   sequelize,
   Role,
@@ -330,4 +366,6 @@ module.exports = {
   UserReportFavorite,
   LoanAccount,
   Cheque,
+  ExpenseVoucher,
+  ExpenseVoucherItem,
 };

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Form, Input, Button, message, Alert } from 'antd';
-import { LockOutlined, SafetyOutlined, LogoutOutlined } from '@ant-design/icons';
+import { Form, Input, Button, message } from 'antd';
+import {
+  LockOutlined, SafetyOutlined, LogoutOutlined, ExclamationCircleFilled,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../api';
 import useAuthStore from '../store/authStore';
@@ -89,18 +91,24 @@ export default function ChangePassword() {
           </div>
 
           {mustChangePassword && (
-            <Alert
-              type="warning"
-              showIcon
-              message="Default password detected"
-              description="You are signed in with the factory-default admin password. Please set a new one to secure your account."
-              style={{
-                marginBottom: 20,
-                background: 'rgba(212, 165, 116, 0.12)',
-                border: '1px solid rgba(212, 165, 116, 0.28)',
-                color: '#F5EEE2',
-              }}
-            />
+            // Custom callout — Ant Design's Alert paints message/description
+            // with its own light-theme warning palette that washes out on
+            // the dark login canvas (the original orange-on-dark was almost
+            // unreadable). Bespoke markup keeps every text colour under our
+            // direct control and matches the warm-amber accent the rest of
+            // the login page uses.
+            <div className="erp-login-callout">
+              <span className="erp-login-callout-icon" aria-hidden="true">
+                <ExclamationCircleFilled />
+              </span>
+              <div className="erp-login-callout-body">
+                <div className="erp-login-callout-title">Default password detected</div>
+                <div className="erp-login-callout-text">
+                  You are signed in with the factory-default admin password.
+                  Please set a new one to secure your account.
+                </div>
+              </div>
+            </div>
           )}
 
           <Form form={form} layout="vertical" requiredMark={false} onFinish={onFinish}>
@@ -282,25 +290,63 @@ const chgCss = `
   font-size: 11px !important; letter-spacing: 1.5px !important; text-transform: uppercase !important;
   color: #8F8372 !important; font-weight: 500 !important;
 }
-.erp-login-input.ant-input-affix-wrapper,
-.erp-login-input .ant-input {
+/* ── Input.Password / Input.affix-wrapper — single source of border.
+ *
+ * Background + border + radius live on the OUTER affix-wrapper only.
+ * Earlier the same rule applied to both wrapper and inner .ant-input,
+ * which gave the password fields a double border (wrapper-border around
+ * an inner-bordered input) — visually broken on the password-change
+ * page where every field is a Password input. Inner input is now
+ * transparent with no border so prefix lock + suffix eye-icon sit
+ * cleanly inside one rounded shell. */
+.erp-login-input.ant-input-affix-wrapper {
   background: rgba(11, 8, 7, 0.55) !important;
   border: 1px solid rgba(245, 238, 226, 0.12) !important;
   border-radius: 9px !important;
   height: 46px !important;
+  padding: 0 14px !important;
+  color: #F5EEE2 !important;
+  box-shadow: none !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+.erp-login-input.ant-input-affix-wrapper .ant-input {
+  background: transparent !important;
+  border: none !important;
+  height: auto !important;
+  padding: 0 !important;
   color: #F5EEE2 !important;
   font-size: 14px !important;
   box-shadow: none !important;
 }
-.erp-login-input.ant-input-affix-wrapper:hover { border-color: rgba(245, 238, 226, 0.22) !important; }
+.erp-login-input.ant-input-affix-wrapper .ant-input-prefix,
+.erp-login-input.ant-input-affix-wrapper .ant-input-suffix {
+  margin: 0 !important;
+  display: inline-flex;
+  align-items: center;
+}
+/* AntD wraps the eye-toggle in a span.ant-input-suffix > .anticon. Keep
+   the icon legible against the dark canvas. */
+.erp-login-input.ant-input-affix-wrapper .ant-input-suffix .anticon {
+  color: #8F8372 !important;
+}
+.erp-login-input.ant-input-affix-wrapper .ant-input-suffix .anticon:hover {
+  color: #C8B89F !important;
+}
+.erp-login-input.ant-input-affix-wrapper:hover {
+  border-color: rgba(245, 238, 226, 0.22) !important;
+}
 .erp-login-input.ant-input-affix-wrapper-focused,
 .erp-login-input.ant-input-affix-wrapper:focus-within {
   border-color: rgba(226, 106, 76, 0.6) !important;
   box-shadow: 0 0 0 3px rgba(226, 106, 76, 0.14) !important;
   background: rgba(11, 8, 7, 0.75) !important;
 }
-.erp-login-input input::placeholder,
-.erp-login-input .ant-input::placeholder { color: #6D6355 !important; }
+.erp-login-input.ant-input-affix-wrapper input::placeholder,
+.erp-login-input.ant-input-affix-wrapper .ant-input::placeholder {
+  color: #6D6355 !important;
+}
 .erp-login-btn.ant-btn {
   height: 48px !important;
   background: linear-gradient(135deg, #E26A4C, #B1472F) !important;
@@ -321,5 +367,43 @@ const chgCss = `
   color: #8F8372 !important;
   font-size: 11px !important; letter-spacing: 1.5px !important;
   text-transform: uppercase !important; font-weight: 500 !important;
+}
+
+/* ── Default-password callout ──────────────────────────────────
+ * Warm-amber tinted card so the warning reads at a glance against
+ * the dark login canvas without fighting the page's primary orange
+ * accent. Title sits at the page's main text colour (#F5EEE2) so
+ * it's the most legible thing in the box; description drops one
+ * step in luminance so the title holds focus.
+ */
+.erp-login-callout {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  background: rgba(212, 165, 116, 0.10);
+  border: 1px solid rgba(212, 165, 116, 0.28);
+  border-radius: 12px;
+}
+.erp-login-callout-icon {
+  flex-shrink: 0;
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  color: #E8A45F;
+  font-size: 18px;
+  line-height: 1;
+  margin-top: 1px;
+}
+.erp-login-callout-body { flex: 1; min-width: 0; }
+.erp-login-callout-title {
+  color: #F5EEE2;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 3px;
+}
+.erp-login-callout-text {
+  color: #C8B89F;
+  font-size: 13px;
+  line-height: 1.5;
 }
 `;

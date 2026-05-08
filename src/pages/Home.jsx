@@ -4,7 +4,7 @@ import dayjs from 'dayjs';
 import {
   ShoppingCartOutlined, InboxOutlined, DollarCircleOutlined, CreditCardOutlined,
   BarChartOutlined, DashboardOutlined, RollbackOutlined, AuditOutlined,
-  TeamOutlined, ProductOutlined, BookOutlined, BankOutlined,
+  TeamOutlined, ProductOutlined, BookOutlined, BankOutlined, FundOutlined,
 } from '@ant-design/icons';
 
 import { reportAPI } from '../api';
@@ -109,6 +109,8 @@ const ACTION_CATALOG = {
   'sales-return':   { icon: RollbackOutlined,     label: 'Sales return',   sub: 'Credit note',           route: '/sales-return/new'                    },
   'purchase-return':{ icon: RollbackOutlined,     label: 'Purchase return',sub: 'Debit note',            route: '/purchase-return/new'                 },
   'journal-new':    { icon: AuditOutlined,        label: 'Journal',        sub: 'Manual entry',          route: '/accounts/journal/new'                },
+  'expense-new':    { icon: FundOutlined,         label: 'Expense',        sub: 'Book a P&L expense',    route: '/expenses/new'                        },
+  'expenses':       { icon: FundOutlined,         label: 'Expenses',       sub: 'List + report',         route: '/expenses'                            },
   'customers':      { icon: TeamOutlined,         label: 'Customers',      sub: 'Party master',          route: '/customers',             altKey: 'E'  },
   'suppliers':      { icon: TeamOutlined,         label: 'Suppliers',      sub: 'Vendor master',         route: '/suppliers',             altKey: 'E'  },
   'products':       { icon: ProductOutlined,      label: 'Products',       sub: 'Item master',           route: '/products',              altKey: 'I'  },

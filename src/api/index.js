@@ -492,4 +492,25 @@ export const batchAPI = {
   expiryReport: (params) => api.get('/batches/expiry-report', { params }),
 };
 
+// Expenses — Indirect-Expense voucher entry. Header lives in
+// expense_vouchers, lines in expense_voucher_items; every Dr/Cr leg is
+// posted by ledgerPostingService just like every other voucher type.
+//
+// list() accepts { from_date, to_date, party_id, expense_ledger_id,
+// payment_mode, search, include_cancelled, page, limit } and returns
+// { total, page, limit, sum_total, data }.
+//
+// summary() returns by-head, by-month, by-party rollups for the
+// Expense Report page. cancel() is the soft-delete (posts a reversing
+// entry); update() is reverse + repost.
+export const expenseAPI = {
+  list:       (params = {}) => api.get('/expenses', { params }),
+  getById:    (id)          => api.get(`/expenses/${id}`),
+  create:     (data)        => api.post('/expenses', data),
+  update:     (id, data)    => api.put(`/expenses/${id}`, data),
+  cancel:     (id, reason)  => api.post(`/expenses/${id}/cancel`, { reason }),
+  nextNumber: (date)        => api.get('/expenses/next-number', { params: date ? { date } : {} }),
+  summary:    (params = {}) => api.get('/expenses/summary', { params }),
+};
+
 export default api;
