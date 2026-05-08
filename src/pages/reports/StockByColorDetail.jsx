@@ -202,49 +202,55 @@ export default function StockByColorDetail() {
       </div>
 
       {/* ── Table band ─────────────────────────────────────────
-       *   Wrap is a flex column; the Table fills the top region (data
-       *   scrolls inside) and the totals strip below is flex-pinned to
-       *   the bottom edge so it stays put even when there's only one
-       *   data row. Antd's `Table.Summary fixed="bottom"` only anchors
-       *   to the scroll-body bottom (not the wrap), so for short lists
-       *   it floated mid-page; rendering the strip as a sibling fixes
-       *   that. */}
-      <div className="sbc-tbl-wrap">
-        <div className="sbc-tbl-data">
-          <Table
-            size="small"
-            columns={cols}
-            dataSource={enriched}
-            rowKey="color_id"
-            loading={loading}
-            rowClassName={rowClassName}
-            pagination={false}
-            scroll={{ y: '100%' }}
-            locale={{
-              emptyText: loading
-                ? 'Loading colors…'
-                : product?.color_mode === 'multi'
-                  ? 'No active colors yet — add some in Inventory → Edit product.'
-                  : 'This product is not multi-color tracked.',
-            }}
-          />
-        </div>
-        {!loading && enriched.length > 0 && (
-          <div className="sbc-totals-strip">
-            <span className="sbc-totals-label">Total · {enriched.length} {enriched.length === 1 ? 'color' : 'colors'}</span>
-            <span className="sbc-totals-spacer" />
-            <span className="sbc-totals-cell sbc-totals-cell--qty">
-              <span className="sbc-totals-key">Total qty</span>
-              <span className="sbc-totals-val sbc-totals-val--qty">{fmtN(totals.qty)}</span>
-            </span>
-            <span className="sbc-totals-cell">
-              <span className="sbc-totals-key">Stock value</span>
-              <span className="sbc-totals-val">
-                <span className="sbc-totals-rs">₹</span>{fmtN(totals.value)}
-              </span>
-            </span>
-          </div>
-        )}
+       *   Single Antd Table with an inline summary row — same visual
+       *   rhythm as the master page (which uses VirtualReportTable's
+       *   summary band). The summary row aligns with the data columns
+       *   so TOTAL / qty / value all live in their proper cells.
+       *
+       *   For LONG color lists (taller than the wrap) Antd's scroll-y
+       *   kicks in and the summary stays at the end of the scroll
+       *   body. For SHORT lists the summary sits right after the last
+       *   data row, exactly like the master report does. */}
+      <div className="sbc-tbl-wrap" tabIndex={0}>
+        <Table
+          size="small"
+          columns={cols}
+          dataSource={enriched}
+          rowKey="color_id"
+          loading={loading}
+          rowClassName={rowClassName}
+          pagination={false}
+          scroll={{ y: 'calc(100vh - 360px)' }}
+          locale={{
+            emptyText: loading
+              ? 'Loading colors…'
+              : product?.color_mode === 'multi'
+                ? 'No active colors yet — add some in Inventory → Edit product.'
+                : 'This product is not multi-color tracked.',
+          }}
+          summary={(rows) => {
+            if (rows.length === 0) return null;
+            return (
+              <Table.Summary.Row className="sbc-summary-row">
+                <Table.Summary.Cell index={0} colSpan={2}>
+                  <span className="sbc-summary-label">Total · {rows.length} {rows.length === 1 ? 'color' : 'colors'}</span>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={2} align="right">
+                  <span className="sbc-summary-num sbc-summary-num--ok">{fmtN(totals.qty)}</span>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={3} />
+                <Table.Summary.Cell index={4} />
+                <Table.Summary.Cell index={5} />
+                <Table.Summary.Cell index={6} align="right">
+                  <span className="sbc-summary-num">
+                    <span className="sbc-summary-rs">₹</span>{fmtN(totals.value)}
+                  </span>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={7} />
+              </Table.Summary.Row>
+            );
+          }}
+        />
       </div>
 
       <ActionStrip
@@ -275,61 +281,44 @@ export default function StockByColorDetail() {
           padding: 0 24px 24px;
           display: flex;
           flex-direction: column;
+          outline: none;
         }
-        /* Data area fills the available space above the totals strip;
-         * Antd's scroll body sits inside this and gets a real height
-         * to compute scroll.y='100%' against. */
-        .sbc-tbl-data {
+        .sbc-tbl-wrap .ant-table-wrapper,
+        .sbc-tbl-wrap .ant-spin-nested-loading,
+        .sbc-tbl-wrap .ant-spin-container,
+        .sbc-tbl-wrap .ant-table {
           flex: 1;
           min-height: 0;
           display: flex;
           flex-direction: column;
         }
-        .sbc-tbl-data > * { flex: 1; min-height: 0; }
+        .sbc-tbl-wrap .ant-table-container { flex: 1; min-height: 0; }
 
-        /* Sibling totals strip — pinned to the bottom of the wrap by
-         * the flex layout above. Mirrors the Stock Report VirtualReport-
-         * Table's summary band visually so the page reads consistent. */
-        .sbc-totals-strip {
-          flex-shrink: 0;
-          display: flex;
-          align-items: center;
-          gap: 24px;
-          padding: 14px 16px;
-          margin-top: 8px;
-          background: var(--bg-panel);
-          border: 1px solid var(--border);
-          border-radius: 8px;
+        /* Summary row — match the visual style of the master page's
+         * VirtualReportTable summary band. Top hairline border separates
+         * it from data rows; muted background + bold cells mark it as
+         * a totals row, not just another data row. */
+        .sbc-tbl-wrap .ant-table-summary > tr.sbc-summary-row > td {
+          background: var(--bg-muted);
+          border-top: 2px solid var(--border);
+          padding: 12px 16px;
         }
-        .sbc-totals-label {
+        .sbc-summary-label {
           font-size: 12px;
           font-weight: 700;
           letter-spacing: 0.04em;
           text-transform: uppercase;
           color: var(--fg-secondary);
         }
-        .sbc-totals-spacer { flex: 1; }
-        .sbc-totals-cell {
-          display: inline-flex;
-          align-items: baseline;
-          gap: 8px;
-        }
-        .sbc-totals-key {
-          font-size: 11px;
-          color: var(--fg-tertiary);
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        }
-        .sbc-totals-val {
-          font-size: 16px;
+        .sbc-summary-num {
+          font-size: 14px;
           font-weight: 700;
           color: var(--fg-primary);
           font-variant-numeric: tabular-nums;
           letter-spacing: -0.01em;
         }
-        .sbc-totals-val--qty { color: var(--success); }
-        .sbc-totals-rs {
+        .sbc-summary-num--ok { color: var(--success); }
+        .sbc-summary-rs {
           color: var(--fg-tertiary);
           font-weight: 500;
           margin-right: 1px;

@@ -20,6 +20,7 @@ import { useNavigate } from 'react-router-dom';
 import { reportAPI, categoryAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
+import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../inventory/stock-report.css';      // reuse .sbf-cust-* + .sbf-cols-* classes
 
@@ -96,6 +97,11 @@ export default function StockByColor() {
     filters,
     chunkSize: 200,
   });
+
+  // Row cursor + multi-select — drives the F-key strip below so the
+  // operator can arrow through the list and press F1 (or Enter) to
+  // drill into the selected product without using the mouse.
+  const sel = useListSelection({ totalCount, rows });
 
   // Cell helpers — share styles with the rpt-* family via inline style
   // tokens (CSS vars resolve to whatever the active theme defines).
@@ -421,6 +427,14 @@ export default function StockByColor() {
           rowKey="product_id"
           scroll={{ x: 1320 }}
           rowClassName={rowClassName}
+          // Cursor + multi-select wired to useListSelection so arrow
+          // keys move the highlight, Shift/Ctrl+click extends, and the
+          // F-key strip below knows which row is "active" for F1 Open.
+          controlledCursorIdx={sel.cursorIdx}
+          controlledSelectedSet={sel.selectedSet}
+          onCursorMove={sel.setCursor}
+          onShiftClickRow={sel.extendTo}
+          onCtrlClickRow={sel.toggleRow}
           onRow={(record) => ({
             onClick: () => record?.product_id && navigate(`/reports/stock-by-color/${record.product_id}`),
             style: record?.product_id ? { cursor: 'pointer' } : {},
@@ -432,6 +446,18 @@ export default function StockByColor() {
         actions={[
           { id: 'back', key: 'Esc', label: 'Back', onAction: () => navigate('/reports') },
           { id: 'refresh', key: 'F5', label: 'Refresh', onAction: () => refresh() },
+          {
+            id: 'open', key: 'F1', label: 'Open',
+            disabled: !sel.activeRow?.product_id,
+            onAction: () => sel.activeRow?.product_id
+              && navigate(`/reports/stock-by-color/${sel.activeRow.product_id}`),
+          },
+          {
+            id: 'open-enter', key: 'Enter', label: 'Open', hidden: true,
+            disabled: !sel.activeRow?.product_id,
+            onAction: () => sel.activeRow?.product_id
+              && navigate(`/reports/stock-by-color/${sel.activeRow.product_id}`),
+          },
         ]}
       />
 
