@@ -81,7 +81,14 @@
   flex-shrink: 0;
   padding: 14px 24px 0;
   background: transparent;
-  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  /* Responsive grid — 6 cards live happily on a wide viewport, but on
+   * a narrow window (electron at <1500px) the fixed `repeat(6, 1fr)`
+   * crushed each card into a 150px column so the labels wrapped onto
+   * 3 lines and the values ("₹ 12.61 L") stacked vertically. auto-fit
+   * + minmax(180px, 1fr) keeps a readable floor — cards wrap onto a
+   * second row instead of getting squished. */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
 .sr-kpi {
