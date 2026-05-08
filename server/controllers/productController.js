@@ -51,6 +51,11 @@ const PRODUCT_UPDATABLE_FIELDS = [
   'purchase_rate', 'margin_percentage', 'sale_rate', 'mrp',
   'is_active',
   'is_batch_tracked',
+  // Color mode picker — 'none' / 'single' / 'multi'. The product form
+  // is the source of truth; bill controllers branch on this value.
+  // 'single' uses color_label (free text on this row); 'multi' uses
+  // child rows in product_colors.
+  'color_mode', 'color_label',
 ];
 
 exports.getAll = async (req, res) => {

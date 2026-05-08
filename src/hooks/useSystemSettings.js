@@ -66,3 +66,23 @@ export function useMultiWarehouseEnabled() {
   const s = useSystemSettings();
   return s == null ? null : !!s.multi_warehouse_enabled;
 }
+
+export function useSingleColorEnabled() {
+  const s = useSystemSettings();
+  return s == null ? null : !!s.single_color_enabled;
+}
+
+export function useMultiColorEnabled() {
+  const s = useSystemSettings();
+  return s == null ? null : !!s.multi_color_enabled;
+}
+
+export function useMergeRepeatScansEnabled() {
+  // FORCED OFF when multi-color is on — merging would conflate
+  // different-color picks across scans into one line. Mirrors the
+  // rule the backend enforces on save.
+  const s = useSystemSettings();
+  if (s == null) return null;
+  if (s.multi_color_enabled) return false;
+  return !!s.merge_repeat_scans_enabled;
+}

@@ -8,16 +8,16 @@ import './ModuleSettings.css';
 
 /* ── Reusable row primitives — keep the visual rhythm uniform ── */
 
-function ToggleRow({ name, label, desc, onChange }) {
+function ToggleRow({ name, label, desc, onChange, disabled }) {
   return (
-    <div className="ms-row">
+    <div className="ms-row" data-disabled={disabled || undefined}>
       <div>
         <div className="ms-row-label">{label}</div>
         {desc && <div className="ms-row-desc">{desc}</div>}
       </div>
       <div className="ms-row-control">
         <Form.Item name={name} valuePropName="checked" noStyle>
-          <Switch onChange={onChange} />
+          <Switch onChange={onChange} disabled={disabled} />
         </Form.Item>
       </div>
     </div>
@@ -50,6 +50,11 @@ export default function ModuleSettings() {
   // for a save round-trip. Ant Form.useWatch could do this, but a piece of
   // local state keeps the render cheap and the wiring obvious.
   const [batchTrackingOn, setBatchTrackingOn] = useState(false);
+  // Live mirror of the multi-color toggle so the "Merge repeat scans"
+  // switch disables/locks-off the moment the user flicks multi-color
+  // ON, without waiting for a save round-trip. Mirrors the batch
+  // tracking pattern below.
+  const [multiColorOn, setMultiColorOn] = useState(false);
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -69,12 +74,18 @@ export default function ModuleSettings() {
         enable_amount_only_billing: s.enable_amount_only_billing ?? true,
         multi_warehouse_enabled: !!s.multi_warehouse_enabled,
         audit_trail_enabled:     !!s.audit_trail_enabled,
+        // Color tracking — three independent module toggles. See the
+        // ToggleRow descriptions below for the per-toggle semantics.
+        single_color_enabled:        !!s.single_color_enabled,
+        multi_color_enabled:         !!s.multi_color_enabled,
+        merge_repeat_scans_enabled:  !!s.merge_repeat_scans_enabled,
         batch_tracking_enabled:  !!s.batch_tracking_enabled,
         batch_expiry_alert_days: s.batch_expiry_alert_days ?? 30,
         block_expired_sales:     !!s.block_expired_sales,
         allow_zero_stock_batches: s.allow_zero_stock_batches ?? true,
       });
       setBatchTrackingOn(!!s.batch_tracking_enabled);
+      setMultiColorOn(!!s.multi_color_enabled);
     } catch (error) {
       console.error('ModuleSettings load error:', error);
       message.error('Failed to load settings');
@@ -137,6 +148,16 @@ export default function ModuleSettings() {
               <ToggleRow name="batch_tracking_enabled" label="Batch tracking"
                          desc="Group identical units into batches with their own dates, quantities, and optional expiry. Per-product opt-in on the Product form."
                          onChange={setBatchTrackingOn} />
+              <ToggleRow name="single_color_enabled" label="Single color label"
+                         desc="Adds an optional Color text field on the product master. Pure metadata for filtering and reports. Mutually exclusive per-product with multi-color tracking." />
+              <ToggleRow name="multi_color_enabled" label="Multi-color stock"
+                         desc="Track per-color stock for products that come in multiple colors. Color box on purchase, color dropdown on sale. Per-product opt-in via the product form."
+                         onChange={setMultiColorOn} />
+              <ToggleRow name="merge_repeat_scans_enabled" label="Merge repeat scans"
+                         disabled={multiColorOn}
+                         desc={multiColorOn
+                           ? 'Locked off while Multi-color stock is on — merging different-color picks across scans would break per-color tracking.'
+                           : 'Sales form: same barcode scanned multiple times merges into one line with combined quantity. OFF = each scan is a separate line.'} />
 
               {batchTrackingOn && (
                 <div className="ms-nested">
