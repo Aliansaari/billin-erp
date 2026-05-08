@@ -108,6 +108,15 @@ const PurchaseBillItem = sequelize.define('PurchaseBillItem', {
     allowNull: true,
     references: { model: 'product_batches', key: 'batch_id' },
   },
+  // Color this line received. NULL when parent product is not multi-
+  // color tracked. For multi-color products, the purchase form expands
+  // a single line into one row per color (each row carries its own
+  // color_id and qty). Increments product_colors.current_stock.
+  color_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'product_colors', key: 'color_id' },
+  },
 }, {
   tableName: 'purchase_bill_items',
   timestamps: false,

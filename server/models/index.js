@@ -28,6 +28,7 @@ const SystemSettings = require('./SystemSettings');
 const PrintProfile = require('./PrintProfile');
 const Godown = require('./Godown');
 const ProductGodownStock = require('./ProductGodownStock');
+const ProductColor = require('./ProductColor');
 const StockTransfer = require('./StockTransfer');
 const StockTransferItem = require('./StockTransferItem');
 const ProductBatch = require('./ProductBatch');
@@ -328,6 +329,27 @@ ExpenseVoucher.belongsTo(LedgerAccount, { foreignKey: 'bank_ledger_id', as: 'ban
 ExpenseVoucher.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 ExpenseVoucher.belongsTo(User, { foreignKey: 'cancelled_by', as: 'canceller' });
 
+// ── ProductColor associations ────────────────────────────────────
+//
+// Product → its color list. RESTRICT on delete because a color row
+// is referenced by historical bill-item rows (color_id FK); deleting
+// the parent product would leave dangling bill-item references.
+// Products with billing history can't be hard-deleted anyway (existing
+// controller guard); this just enforces the same rule at the DB level
+// for the color table.
+Product.hasMany(ProductColor, { foreignKey: 'product_id', as: 'colors', onDelete: 'RESTRICT' });
+ProductColor.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
+
+// Bill-item rows carry color_id (FK at DB level via the migration
+// block). We declare belongsTo here so include-able color drilldowns
+// work in the controllers (e.g. "include color name on the sales
+// list"). RESTRICT mirrors the LedgerEntry pattern — a color with
+// billing history can't be hard-deleted, only soft-deleted.
+ProductColor.hasMany(SalesBillItem,    { foreignKey: 'color_id', onDelete: 'RESTRICT' });
+SalesBillItem.belongsTo(ProductColor,  { foreignKey: 'color_id', as: 'color' });
+ProductColor.hasMany(PurchaseBillItem, { foreignKey: 'color_id', onDelete: 'RESTRICT' });
+PurchaseBillItem.belongsTo(ProductColor, { foreignKey: 'color_id', as: 'color' });
+
 module.exports = {
   sequelize,
   Role,
@@ -359,6 +381,7 @@ module.exports = {
   PrintProfile,
   Godown,
   ProductGodownStock,
+  ProductColor,
   StockTransfer,
   StockTransferItem,
   ProductBatch,

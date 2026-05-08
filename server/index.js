@@ -1875,6 +1875,139 @@ async function startServer() {
       console.error('[Single mode migration] cleanup error:', err.message);
     }
 
+    // ── Multi-Color stock module migration ──────────────────────
+    //
+    // Adds the schema needed by the per-color stock feature. Idempotent
+    // (IF NOT EXISTS guards everywhere), so a re-run is a no-op.
+    //
+    //   • product_colors table — one row per (product, color) pair,
+    //     with current_stock + opening_stock + per-color low-stock
+    //     threshold + soft-delete flag.
+    //   • UNIQUE(product_id, color_name) — prevents accidental dupes
+    //     ('Red' added twice to Lyra-S).
+    //   • color_id FK on sales_bill_items + purchase_bill_items —
+    //     NULL when the line's product isn't multi-color tracked.
+    //   • color_mode + color_label columns on products — the
+    //     mutually-exclusive mode picker ('none' / 'single' / 'multi')
+    //     and the free-text label for single-color products.
+    //   • single_color_enabled / multi_color_enabled / merge_repeat_
+    //     scans_enabled toggles on system_settings — defaults OFF so
+    //     existing installs see no UI change until admin opts in.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.tables
+           WHERE table_schema = 'public' AND table_name = 'product_colors'
+        ) THEN
+          CREATE TABLE product_colors (
+            color_id        SERIAL PRIMARY KEY,
+            product_id      INTEGER NOT NULL REFERENCES products(product_id),
+            color_name      VARCHAR(50) NOT NULL,
+            current_stock   DECIMAL(10,2) DEFAULT 0,
+            opening_stock   DECIMAL(10,2) DEFAULT 0,
+            low_stock_alert DECIMAL(10,2),
+            is_active       BOOLEAN DEFAULT true,
+            created_date    TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            modified_date   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            CONSTRAINT product_colors_unique_per_product
+              UNIQUE (product_id, color_name)
+          );
+          CREATE INDEX idx_product_colors_product ON product_colors(product_id);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Multi-color schema migration] Error:', err.message);
+    });
+
+    // color_id columns on bill-item tables — NULLable so existing rows
+    // continue to validate. References product_colors(color_id) so
+    // RESTRICT-on-delete keeps history intact (mirrors the pattern on
+    // batch_id and ledger_id elsewhere).
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'sales_bill_items' AND column_name = 'color_id'
+        ) THEN
+          ALTER TABLE sales_bill_items
+            ADD COLUMN color_id INTEGER REFERENCES product_colors(color_id);
+          CREATE INDEX idx_sales_bill_items_color ON sales_bill_items(color_id);
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'purchase_bill_items' AND column_name = 'color_id'
+        ) THEN
+          ALTER TABLE purchase_bill_items
+            ADD COLUMN color_id INTEGER REFERENCES product_colors(color_id);
+          CREATE INDEX idx_purchase_bill_items_color ON purchase_bill_items(color_id);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Multi-color color_id migration] Error:', err.message);
+    });
+
+    // products.color_mode + products.color_label
+    //
+    // Both the column and the underlying enum type need IF NOT EXISTS
+    // guards: Sequelize sync may have created the type already from
+    // the model definition (without the ALTER TABLE the model expects),
+    // so we check both layers independently and skip whichever exists.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_type WHERE typname = 'enum_products_color_mode'
+        ) THEN
+          CREATE TYPE enum_products_color_mode AS ENUM ('none','single','multi');
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'products' AND column_name = 'color_mode'
+        ) THEN
+          ALTER TABLE products
+            ADD COLUMN color_mode enum_products_color_mode NOT NULL DEFAULT 'none';
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'products' AND column_name = 'color_label'
+        ) THEN
+          ALTER TABLE products ADD COLUMN color_label VARCHAR(50);
+          CREATE INDEX idx_products_color_label ON products(color_label) WHERE color_label IS NOT NULL;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Multi-color products migration] Error:', err.message);
+    });
+
+    // system_settings: 3 new boolean toggles, defaulting to FALSE so
+    // existing installs surface no new UI until admin flicks them on.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'system_settings' AND column_name = 'single_color_enabled'
+        ) THEN
+          ALTER TABLE system_settings
+            ADD COLUMN single_color_enabled BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'system_settings' AND column_name = 'multi_color_enabled'
+        ) THEN
+          ALTER TABLE system_settings
+            ADD COLUMN multi_color_enabled BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'system_settings' AND column_name = 'merge_repeat_scans_enabled'
+        ) THEN
+          ALTER TABLE system_settings
+            ADD COLUMN merge_repeat_scans_enabled BOOLEAN DEFAULT false;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Multi-color settings migration] Error:', err.message);
+    });
+
     // Seed default data
     await seedDefaultData();
 

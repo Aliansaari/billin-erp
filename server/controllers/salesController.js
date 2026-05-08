@@ -8,8 +8,13 @@ const { postVoucher, reverseVoucher } = require('../services/ledgerPostingServic
 const { buildSalesBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const {
+  validateBillColorRequirements,
+  applyColorStockDelta,
+  reverseBillColorStock,
+} = require('../services/productColorStockService');
 const { applyBatchStockDelta, getBatchStock } = require('../utils/batchStock');
-const { ProductBatch } = require('../models');
+const { ProductBatch, ProductColor } = require('../models');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
 const { computeCostRateForSale } = require('../utils/displayCost');
@@ -211,8 +216,13 @@ exports.getById = async (req, res) => {
             // each line. Pull the batch row so the form can prefill
             // batch_number / manufacture_date / expiry_date when a saved
             // line already has a batch_id, mirroring the purchase form.
-            { model: Product, as: 'product', attributes: ['product_id', 'is_batch_tracked', 'product_mode'] },
+            { model: Product, as: 'product', attributes: ['product_id', 'is_batch_tracked', 'product_mode', 'color_mode'] },
             { model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date'] },
+            // Color row tied to this line — populated for multi-color
+            // products. Edit-mode rehydrates the items table using
+            // it.color.color_name and it.color_id so the dropdown
+            // shows the saved pick.
+            { model: ProductColor, as: 'color', attributes: ['color_id', 'color_name'] },
           ],
         },
       ],
@@ -708,6 +718,23 @@ exports.create = async (req, res) => {
     const blockExpiredSales  = !!sysSettings?.block_expired_sales;
     const batchTrackingOn    = !!sysSettings?.batch_tracking_enabled;
 
+    // ── Pre-flight color validation ──────────────────────────────
+    // Walks every line whose product is multi-color tracked, ensures
+    // a valid color_id is present, and that aggregated qty across
+    // lines doesn't exceed the color's current stock. Throws 400-
+    // shaped errors loudly rather than rolling back mid-create.
+    try {
+      await validateBillColorRequirements({
+        items: processedItems,
+        direction: 'sale',
+        allowNegativeStock,
+        transaction: t,
+      });
+    } catch (err) {
+      await t.rollback();
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+
     for (const item of processedItems) {
       // Fetch the product once to (a) snapshot per-mode COGS for this
       // line via the shared helper, and (b) reuse for the stock
@@ -804,6 +831,18 @@ exports.create = async (req, res) => {
             product_id: item.product_id, batch_id: batchId,
             godown_id: billData.godown_id,
             delta: -parseFloat(item.quantity), t,
+          });
+        }
+
+        // Per-color stock decrement for multi-color products. Rides
+        // alongside the godown / batch deltas in the same transaction
+        // so a rollback restores everything together. validation
+        // already passed above.
+        if (item.color_id) {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: -parseFloat(item.quantity),
+            transaction: t,
           });
         }
 
@@ -1021,6 +1060,14 @@ exports.update = async (req, res) => {
         }
       }
     }
+    // Reverse the per-color stock from the OLD lines. Re-apply happens
+    // inside the new-items loop below using the updated color_id, so
+    // an edit that changes color X→Y correctly restores X and depletes Y.
+    await reverseBillColorStock({
+      items: existingBill.items,
+      direction: 'sale',
+      transaction: t,
+    });
 
     // Step 2: Delete old stock ledger rows for this bill (keeps statement clean)
     await StockLedger.destroy({
@@ -1218,6 +1265,22 @@ exports.update = async (req, res) => {
     const blockExpiredU  = !!sysSettingsU?.block_expired_sales;
     const batchTrackingOnU = !!sysSettingsU?.batch_tracking_enabled;
 
+    // Pre-flight color validation for the update path. Same rules as
+    // create — required color_id for multi-color products, color must
+    // belong to product, stock check (which now reads the post-reverse
+    // current_stock since we just credited it back).
+    try {
+      await validateBillColorRequirements({
+        items: processedItems,
+        direction: 'sale',
+        allowNegativeStock: allowNegStockU,
+        transaction: t,
+      });
+    } catch (err) {
+      await t.rollback();
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+
     for (const item of processedItems) {
       // Same pattern as create(): fetch the product once, snapshot its
       // per-mode cost via the shared helper, reuse for stock update.
@@ -1281,6 +1344,15 @@ exports.update = async (req, res) => {
             product_id: item.product_id, batch_id: batchIdU,
             godown_id: billData.godown_id,
             delta: -parseFloat(item.quantity), t,
+          });
+        }
+        // Re-apply per-color decrement at the new color_id (the OLD
+        // colors were already restored above; this is the new pick).
+        if (item.color_id) {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: -parseFloat(item.quantity),
+            transaction: t,
           });
         }
         await StockLedger.create({
@@ -1409,6 +1481,13 @@ exports.cancel = async (req, res) => {
         }
       }
     }
+    // Restore the per-color stock for multi-color lines. Walks the
+    // saved items[] and re-credits each color_id by its sale qty.
+    await reverseBillColorStock({
+      items: bill.items,
+      direction: 'sale',
+      transaction: t,
+    });
 
     // Remove stock ledger entries for this bill (bill is cancelled, so entries should be gone too)
     await StockLedger.destroy({

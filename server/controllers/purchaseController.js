@@ -9,6 +9,11 @@ const { buildPurchaseBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
 const { resolveOrCreateBatch, applyBatchStockDelta } = require('../utils/batchStock');
+const {
+  validateBillColorRequirements,
+  applyColorStockDelta,
+  reverseBillColorStock,
+} = require('../services/productColorStockService');
 const { applyWeightedAvgIncrement, recomputeWeightedAvgFromLedger } = require('../utils/weightedAvgCost');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
@@ -261,7 +266,7 @@ exports.getAll = async (req, res) => {
 
 exports.getById = async (req, res) => {
   try {
-    const { ProductBatch } = require('../models');
+    const { ProductBatch, ProductColor } = require('../models');
     const bill = await PurchaseBill.findByPk(req.params.id, {
       include: [
         { model: Party, as: 'supplier' },
@@ -272,8 +277,12 @@ exports.getById = async (req, res) => {
             // without re-fetching products one-by-one. Lazy required so
             // restoring a recalled draft / opening an old bill renders
             // the batch column correctly on first paint.
-            { model: Product, as: 'product', attributes: ['product_id', 'is_batch_tracked'] },
+            { model: Product, as: 'product', attributes: ['product_id', 'is_batch_tracked', 'color_mode'] },
             { model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date', 'notes'] },
+            // Color row tied to this line — populated for multi-color
+            // products. Edit-mode rehydrates the items table dropdown
+            // using it.color.color_name and it.color_id.
+            { model: ProductColor, as: 'color', attributes: ['color_id', 'color_name'] },
           ],
         },
       ],
@@ -560,6 +569,22 @@ exports.create = async (req, res) => {
       payment_status: paymentStatus,
     }, { transaction: t });
 
+    // ── Pre-flight color validation ──────────────────────────────
+    // Mirrors the sales controller. Direction = 'purchase' so the
+    // helper validates (color belongs to product, multi-color products
+    // require a color) but skips the stock-deplete check (purchase
+    // increments stock, never depletes it).
+    try {
+      await validateBillColorRequirements({
+        items: processedItems,
+        direction: 'purchase',
+        transaction: t,
+      });
+    } catch (err) {
+      await t.rollback();
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+
     for (const item of processedItems) {
       // Resolve / create the batch BEFORE inserting the bill item so the
       // line carries its batch_id. Same first-write-wins behaviour as the
@@ -623,6 +648,16 @@ exports.create = async (req, res) => {
             product_id: item.product_id, batch_id: batchId,
             godown_id: billData.godown_id,
             delta: +parseFloat(item.quantity), t,
+          });
+        }
+        // Per-color stock increment for multi-color tracked products.
+        // Validation has already passed (above the loop) so color_id
+        // is known to belong to this product.
+        if (item.color_id) {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: +parseFloat(item.quantity),
+            transaction: t,
           });
         }
         // ── Catalog field updates: mode-aware (audit-driven Phase 3) ────
@@ -884,6 +919,13 @@ exports.update = async (req, res) => {
         }
       }
     }
+    // Reverse per-color stock from the OLD lines. Re-apply happens
+    // inside the new-items loop using the updated color_id.
+    await reverseBillColorStock({
+      items: existingBill.items,
+      direction: 'purchase',
+      transaction: t,
+    });
 
     // ── Step 2: Delete old stock ledger rows for this bill (keeps statement clean) ──
     await StockLedger.destroy({
@@ -1077,6 +1119,20 @@ exports.update = async (req, res) => {
       if (oldItem.product_id) touchedProductIds.add(oldItem.product_id);
     }
 
+    // Pre-flight color validation for the update path. Direction =
+    // 'purchase' so the helper validates structure but skips stock
+    // depletion (purchase increments).
+    try {
+      await validateBillColorRequirements({
+        items: processedItems,
+        direction: 'purchase',
+        transaction: t,
+      });
+    } catch (err) {
+      await t.rollback();
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+
     for (const item of processedItems) {
       // Resolve / create the batch first so the inserted line carries the
       // batch_id and the StockLedger row tracks it. Same first-write-wins
@@ -1116,6 +1172,16 @@ exports.update = async (req, res) => {
             product_id: item.product_id, batch_id: batchId,
             godown_id: billData.godown_id,
             delta: +parseFloat(item.quantity), t,
+          });
+        }
+        // Re-apply per-color stock at the new color_id. Old colors were
+        // already credited back above; this re-debits the (possibly
+        // changed) new color choice.
+        if (item.color_id) {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: +parseFloat(item.quantity),
+            transaction: t,
           });
         }
         // Mode-aware catalog field updates — see the equivalent block in
@@ -1312,6 +1378,13 @@ exports.cancel = async (req, res) => {
         }
       }
     }
+    // Reverse the per-color stock that this purchase added. Walks the
+    // saved items[] and subtracts each color_id by its received qty.
+    await reverseBillColorStock({
+      items: bill.items,
+      direction: 'purchase',
+      transaction: t,
+    });
 
     // Remove stock ledger entries for this bill (bill is gone, so entries should be gone too)
     await StockLedger.destroy({

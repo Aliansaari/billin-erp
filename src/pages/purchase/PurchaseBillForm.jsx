@@ -10,7 +10,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
-import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
+import { useMultiWarehouseEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import ProductFormModal from '../../components/ProductFormModal';
 import './purchase-bill-form.css';
@@ -39,6 +39,12 @@ const EMPTY_ENTRY = {
   //      hide when a single-mode product is bound — they're master data,
   //      not per-line inputs in single mode.
   product_mode:'variant',
+  // Color dimension — only meaningful for multi-color tracked
+  // products. Each line carries a color_mode flag (copied from the
+  // resolved product), the picked color_id+color_name, and the
+  // available colors list (so the items-table dropdown can render
+  // without a separate fetch). Non-multi lines stay 'none'/null.
+  color_mode:'none', color_id:null, color_name:'', colors:[],
 };
 
 /* ── Variant Picker Dropdown ─────────────────────────────────────────────── */
@@ -204,6 +210,7 @@ export default function PurchaseBillForm() {
   // bill posts against the seeded default godown — the loadGodowns
   // pre-fill below already sets that, so submission still works.
   const multiWarehouseOn = useMultiWarehouseEnabled();
+  const multiColorOn = useMultiColorEnabled();
   // Active godowns the operator can receive purchases into (filtered to
   // user.allowed_godowns when set; server enforces independently).
   const [godowns, setGodowns]       = useState([]);
@@ -603,6 +610,13 @@ export default function PurchaseBillForm() {
         is_batch_tracked:!!data.is_batch_tracked,
         product_mode:data.product_mode||'variant',
         batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
+        // Multi-color tracking — purchase shows the dropdown of all
+        // active colors (no stock filter; receiving more of any color
+        // is always valid). Operator picks one before ADD; the per-
+        // line color_id propagates into the saved bill row.
+        color_mode: data.color_mode || 'none',
+        color_id: null, color_name: '',
+        colors: (data.color_mode === 'multi' && Array.isArray(data.colors)) ? data.colors : [],
       }));
       setBarcodeError('');
       setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
@@ -1330,8 +1344,28 @@ export default function PurchaseBillForm() {
           manufacture_date:i.manufacture_date||undefined,
           expiry_date:i.expiry_date||undefined,
           batch_notes:i.batch_notes||undefined,
+          // Forward color_id only for multi-color products. Backend
+          // validator throws if a non-multi line carries one (stale
+          // state from a UI bug).
+          color_id: i.color_mode === 'multi' ? (i.color_id || null) : null,
         })),
       };
+      // Block save while any multi-color line is missing its pick.
+      // Server validates the same rule, but catching it here saves a
+      // round-trip and keeps the operator's focus on the bad line.
+      if (billMode !== 'amount') {
+        const missing = items.findIndex(
+          (it) => it.color_mode === 'multi' && !it.color_id,
+        );
+        if (missing >= 0) {
+          message.warning(
+            `Pick a color on line ${missing + 1} (${items[missing].product_name || 'item'}) before saving.`,
+          );
+          submittingRef.current = false;
+          setLoading(false);
+          return;
+        }
+      }
       const{data}=isEdit?await purchaseAPI.update(id,billData):await purchaseAPI.create(billData);
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
       invalidateFamilyCache(); // newly-created variants are now live in DB — drop cached lookups
@@ -1697,6 +1731,32 @@ export default function PurchaseBillForm() {
       ),
     },
     { key:'size',     title:'Size',  dataIndex:'size',             width:70,  render:(v,r,ri)=>txtCell(ri,2,v,'size') },
+    // Color column — same posture as the sales form: shown only for
+    // multi-color tracked products, hidden cell ("—") for non-multi
+    // lines so a mixed bill reads cleanly. The column itself drops
+    // out of the table when no line is multi-color (see filter below).
+    { key:'color', title:'Color', dataIndex:'color_id', width:130,
+      render:(v,r)=>{
+        if (r.color_mode !== 'multi') return <span style={{color:'var(--fg-tertiary)'}}>—</span>;
+        const opts = (r.colors || []).map((c) => ({ value: c.color_id, label: c.color_name }));
+        return (
+          <Select
+            size="small"
+            value={v || undefined}
+            placeholder="Pick color"
+            onChange={(val) => {
+              const picked = (r.colors || []).find((c) => c.color_id === val);
+              updateItem(r.key, 'color_id', val);
+              updateItem(r.key, 'color_name', picked?.color_name || '');
+            }}
+            style={{ width: '100%' }}
+            status={!v ? 'error' : ''}
+            options={opts}
+            dropdownStyle={{ minWidth: 160 }}
+          />
+        );
+      },
+    },
     { key:'article',  title:'Art#',  dataIndex:'article_number',   width:80,  render:(v,r,ri)=>txtCell(ri,3,v,'article_number') },
     { key:'qty',      required:true, title:'Qty',   dataIndex:'quantity',          width:80,  align:'center', className:'num-cell', render:(v,r,ri)=>numCell(ri,4,v,'quantity',0) },
     { key:'qpb',      title:'P/Box', dataIndex:'quantity_per_box',  width:70,  align:'center', className:'num-cell', render:(v,r,ri)=>numCell(ri,5,v,'quantity_per_box',1) },
@@ -1713,7 +1773,14 @@ export default function PurchaseBillForm() {
     },
   ];
   // Filter to operator-chosen columns. Required ones always pass.
-  const itemColumns = allItemColumns.filter(c => c.required || pbfVisibleCols.has(c.key));
+  // The Color column appears only when the global Multi-color toggle
+  // is ON AND at least one line is multi-color tracked — installs
+  // without the feature continue to look identical to before.
+  const pbfAnyMultiColor = items.some((it) => it.color_mode === 'multi');
+  const itemColumns = allItemColumns.filter(c => {
+    if (c.key === 'color') return !!multiColorOn && pbfAnyMultiColor;
+    return c.required || pbfVisibleCols.has(c.key);
+  });
 
   // Customize popover — uses the shared `.cols-menu` markup so the
   // global customize-menu styles in styles/global.css drive the look.

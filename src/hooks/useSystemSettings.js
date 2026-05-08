@@ -68,13 +68,34 @@ export function useMultiWarehouseEnabled() {
   return s == null ? null : !!s.multi_warehouse_enabled;
 }
 
+/* ── Color-tracking feature flags ─────────────────────────────────── */
+export function useSingleColorEnabled() {
+  const s = useSystemSettings();
+  return s == null ? null : !!s.single_color_enabled;
+}
+
+export function useMultiColorEnabled() {
+  const s = useSystemSettings();
+  return s == null ? null : !!s.multi_color_enabled;
+}
+
+export function useMergeRepeatScansEnabled() {
+  // FORCED OFF when multi-color is on — merging would conflate
+  // different-color picks across scans into one line. Mirrors the
+  // rule the backend enforces on save.
+  const s = useSystemSettings();
+  if (s == null) return null;
+  if (s.multi_color_enabled) return false;
+  return !!s.merge_repeat_scans_enabled;
+}
+
 /* ── Developer-tier feature gates ─────────────────────────────────────
  *
  * Returns true when the named feature should be VISIBLE for the current
  * session. The rule is:
  *
- *   - Developer-mode unlock?  → always visible (developers see everything)
- *   - dev_show_<feature> flag in system_settings is true? → visible
+ *   - Developer-mode unlock (and not previewing-as-user) → always visible
+ *   - dev_show_<feature> flag in system_settings is true → visible
  *   - else → hidden
  *
  * Use the named helpers below for consumers; new flags need a one-line

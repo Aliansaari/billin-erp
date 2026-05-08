@@ -41,6 +41,36 @@ const SystemSettings = sequelize.define('SystemSettings', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  // ── Single-color label ─────────────────────────────────────────
+  // Adds an optional `color_label` text field on the product master.
+  // Pure metadata — no stock implications, just a tag for filtering
+  // on lists/reports ("show me all Red products"). Mutually exclusive
+  // per-product with multi-color tracked stock.
+  single_color_enabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  // ── Multi-color stock tracking ─────────────────────────────────
+  // Per-product opt-in via the product form's "Track colors" checkbox.
+  // When ON for a product, the purchase form gains a color box (qty
+  // per color), the sales form gains a color dropdown (required, only
+  // colors with stock>0), and per-color stock is tracked in the
+  // product_colors table.
+  multi_color_enabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  // ── Merge repeat barcode scans on the sales form ───────────────
+  // ON  — same SKU scanned N times merges into one line with qty=N.
+  // OFF — N scans = N separate lines (default; matches the current
+  //       behavior expected by users counting items off a stack).
+  // FORCED OFF when multi_color_enabled is ON and the scanned product
+  // is a multi-color tracked SKU — merging would conflate different
+  // colors picked across scans into one line.
+  merge_repeat_scans_enabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
   // Default mode for NEW products. Existing products keep their mode
   // permanently — flipping this only affects the next product created
   // (via any path: manual form, auto-from-purchase, Excel import,

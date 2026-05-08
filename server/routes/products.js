@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
+const productColorController = require('../controllers/productColorController');
 const { authenticateToken } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 
@@ -13,6 +14,23 @@ router.get('/low-stock',          requirePermission('inventory.view'),   product
 router.get('/next-barcode',       requirePermission('inventory.create'), productController.getNextBarcode);
 router.get('/barcode/:barcode',   requirePermission('inventory.view'),   productController.getByBarcode);
 router.get('/:id/batches',        requirePermission('inventory.view'),   productController.getBatches);
+
+// ── Product colors (multi-color stock module) ─────────────────────
+//
+// Per-product color list with per-color stock. Routes nest under
+// /api/products/:productId/colors so the parent FK is implicit and
+// permissions cascade naturally from the inventory module.
+//
+// IMPORTANT: these route definitions MUST come before the general
+// /:id route below — Express matches in declaration order, and a
+// path like /api/products/12/colors would otherwise be swallowed by
+// /:id (which would treat "12/colors" as the product id and fail).
+router.get('/:productId/colors',         requirePermission('inventory.view'),   productColorController.list);
+router.post('/:productId/colors',        requirePermission('inventory.edit'),   productColorController.create);
+router.put('/:productId/colors/:id',     requirePermission('inventory.edit'),   productColorController.update);
+router.delete('/:productId/colors/:id',  requirePermission('inventory.edit'),   productColorController.remove);
+router.post('/:productId/colors/bulk',   requirePermission('inventory.edit'),   productColorController.bulkReplace);
+
 router.get('/:id',                requirePermission('inventory.view'),   productController.getById);
 router.get('/:id/stock-movement', requirePermission('inventory.view'),   productController.getStockMovement);
 router.post('/',                  requirePermission('inventory.create'), productController.create);

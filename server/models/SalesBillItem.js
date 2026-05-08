@@ -110,6 +110,14 @@ const SalesBillItem = sequelize.define('SalesBillItem', {
     allowNull: true,
     references: { model: 'product_batches', key: 'batch_id' },
   },
+  // Color the line drew from. NULL when the parent product is not
+  // multi-color tracked (color_mode != 'multi'); required (validated
+  // at the controller) when it is. Decrements product_colors.current_stock.
+  color_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'product_colors', key: 'color_id' },
+  },
 }, {
   tableName: 'sales_bill_items',
   timestamps: false,
