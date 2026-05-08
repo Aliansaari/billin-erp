@@ -7,11 +7,13 @@ import {
 import { BarcodeOutlined, SettingOutlined, EditOutlined, ArrowRightOutlined, TagsOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { productAPI, categoryAPI, dataAPI, settingsAPI } from '../../api';
+import { productAPI, productColorAPI, categoryAPI, dataAPI, settingsAPI } from '../../api';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import ProductColorsPanel from '../../components/ProductColorsPanel';
+import { useSingleColorEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
 
 dayjs.extend(relativeTime);
 import '../../styles/editorial-product-list.css';
@@ -158,6 +160,13 @@ export default function ProductList() {
   const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
 
+  // Color section state — kept outside the AntD form because the colors
+  // panel is a custom controlled component (mode picker + dynamic list)
+  // that doesn't fit the Form.Item shape cleanly.
+  const [colorState, setColorState] = useState({ color_mode: 'none', color_label: '', colors: [] });
+  const singleColorEnabled = useSingleColorEnabled();
+  const multiColorEnabled  = useMultiColorEnabled();
+
   // F4 = Find target — focused by the strip.
   const searchInputRef = useRef(null);
 
@@ -203,9 +212,18 @@ export default function ProductList() {
         opening_stock_rate: openingRate,
         opening_stock_date: openingDate,
       });
+      // Reset the color section to whatever the product carried.
+      // ProductColorsPanel will hydrate the multi-color list from the
+      // server when productId is supplied AND mode is 'multi'.
+      setColorState({
+        color_mode:  product.color_mode || 'none',
+        color_label: product.color_label || '',
+        colors:      [],
+      });
     } else {
       form.resetFields();
       form.setFieldsValue({ opening_stock_date: dayjs() });
+      setColorState({ color_mode: 'none', color_label: '', colors: [] });
     }
     setFormVisible(true);
   };
@@ -217,12 +235,44 @@ export default function ProductList() {
       if (values.opening_stock_date) {
         values.opening_stock_date = dayjs(values.opening_stock_date).format('YYYY-MM-DD');
       }
+      // Stamp color_mode + color_label onto the product payload so the
+      // controller's whitelist persists them. The colors[] list is sent
+      // separately to the bulk endpoint after the product save returns
+      // (we need the product_id, which only exists post-create).
+      values.color_mode  = colorState.color_mode || 'none';
+      values.color_label = colorState.color_mode === 'single' ? (colorState.color_label || null) : null;
+
+      let savedProductId;
       if (editing) {
         await productAPI.update(editing.product_id, values);
+        savedProductId = editing.product_id;
         message.success('Product updated');
       } else {
         const { data } = await productAPI.create(values);
+        savedProductId = data.product_id || data.product?.product_id;
         message.success(`Product added — Barcode: ${data.barcode || data.product?.barcode}`);
+      }
+
+      // Sync the color list when the product is in multi-color mode.
+      // Bulk endpoint diffs against the server-side state and applies
+      // adds / renames / threshold edits / soft-or-hard deletes per
+      // the lifecycle rules in the controller.
+      if (savedProductId && colorState.color_mode === 'multi') {
+        try {
+          await productColorAPI.bulkReplace(
+            savedProductId,
+            (colorState.colors || []).map((c) => ({
+              color_id:        c.color_id || undefined,
+              color_name:      c.color_name,
+              opening_stock:   c.opening_stock || 0,
+              low_stock_alert: c.low_stock_alert,
+            })),
+          );
+        } catch (e) {
+          message.error(e.response?.data?.error || 'Colors save failed.');
+          // Continue — the product itself saved; the colors panel can
+          // be re-saved by reopening the form.
+        }
       }
       setFormVisible(false);
       refresh();
@@ -725,6 +775,19 @@ export default function ProductList() {
             </>
           )}
 
+          {(singleColorEnabled || multiColorEnabled) && (
+            <>
+              <Divider plain />
+              <ProductColorsPanel
+                value={colorState}
+                onChange={setColorState}
+                productId={editing?.product_id || null}
+                singleEnabled={!!singleColorEnabled}
+                multiEnabled={!!multiColorEnabled}
+              />
+            </>
+          )}
+
           <Divider plain><span style={{ color: 'var(--ed-accent)', fontWeight: 600 }}>Opening Stock</span></Divider>
           <div style={{ background: 'var(--ed-accent-s)', border: '1px solid var(--ed-accent-b)', borderRadius: 8, padding: '12px 16px' }}>
             <Row gutter={16}>
@@ -745,7 +808,7 @@ export default function ProductList() {
               </Col>
             </Row>
             <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ed-fg-3)' }}>
-              Leave Opening Qty blank or 0 if no opening stock.
+              Leave Opening Qty blank or 0 if no opening stock. For multi-color products, opening qty per color is set in the Colors panel above.
             </div>
           </div>
         </Form>

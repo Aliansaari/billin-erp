@@ -162,6 +162,33 @@ const Product = sequelize.define('Product', {
     type: DataTypes.DATEONLY,
     allowNull: true,
   },
+  // ── Color mode (mutually exclusive) ────────────────────────────
+  //
+  //   'none'   — no color tracking. Default for every existing product.
+  //   'single' — gated on system_settings.single_color_enabled. Free-text
+  //              `color_label` field on this row, pure metadata for
+  //              filtering. No stock implications.
+  //   'multi'  — gated on system_settings.multi_color_enabled. Per-color
+  //              stock tracked in product_colors table (joined by
+  //              product_id). Bill items carry color_id FK. Sales form
+  //              shows a required color dropdown; purchase form shows
+  //              the color-box popover.
+  //
+  // Mutually exclusive — a product is in EXACTLY one mode at a time.
+  // The product form picks; the controller validates that flipping
+  // away from 'multi' is only allowed when sum of color stocks is 0.
+  color_mode: {
+    type: DataTypes.ENUM('none', 'single', 'multi'),
+    defaultValue: 'none',
+    allowNull: false,
+  },
+  // Free-text label for color_mode='single'. NULL otherwise. Indexed
+  // separately via the migration block so list filters ("all Red
+  // products") read fast.
+  color_label: {
+    type: DataTypes.STRING(50),
+    allowNull: true,
+  },
 }, {
   tableName: 'products',
   timestamps: true,

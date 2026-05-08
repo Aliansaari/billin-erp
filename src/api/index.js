@@ -98,6 +98,20 @@ export const productAPI = {
   delete: (id) => api.delete(`/products/${id}`),
 };
 
+// Per-product color list (multi-color stock module). Endpoints nest
+// under /api/products/:productId/colors so the parent FK is implicit
+// and permissions cascade naturally from inventory.{view,edit}.
+export const productColorAPI = {
+  list:        (productId, params = {}) => api.get(`/products/${productId}/colors`, { params }),
+  create:      (productId, body) => api.post(`/products/${productId}/colors`, body),
+  update:      (productId, colorId, body) => api.put(`/products/${productId}/colors/${colorId}`, body),
+  remove:      (productId, colorId) => api.delete(`/products/${productId}/colors/${colorId}`),
+  // Bulk replace — used by the product form's Save flow when the user
+  // edits the colors panel as a whole. Body: { colors: [{ color_id?,
+  // color_name, opening_stock?, low_stock_alert? }] }.
+  bulkReplace: (productId, colors) => api.post(`/products/${productId}/colors/bulk`, { colors }),
+};
+
 // Purchases
 export const purchaseAPI = {
   getAll: (params) => api.get('/purchases', { params }),
