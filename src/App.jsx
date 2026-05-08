@@ -13,6 +13,7 @@ import { GlobalSearchModal } from './components/GlobalSearch';
 // reach them via useContext.
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
+import ServerSetup, { useNeedsServerSetup } from './pages/ServerSetup';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import CustomerList from './pages/parties/CustomerList';
@@ -262,6 +263,12 @@ function PartyDetailRedirect() {
 export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  // First-launch gate: when running under file:// (Electron prod) and the
+  // user hasn't picked a server URL yet, force the Server Setup screen
+  // ahead of every other route. Browser clients on http(s):// implicitly
+  // know the server URL (it's the same origin) so this returns false and
+  // they go straight to login.
+  const needsServerSetup = useNeedsServerSetup();
 
   const toggleHelp = useCallback((val) => {
     if (typeof val === 'boolean') setShowShortcuts(val);
@@ -278,6 +285,12 @@ export default function App() {
     if (isAuthenticated) refreshFinancialYear();
   }, [isAuthenticated]);
 
+  // Pre-auth, pre-everything: if Electron has no server URL configured
+  // yet, the user picks one before they can even see the login screen.
+  if (needsServerSetup) {
+    return <ServerSetup />;
+  }
+
   return (
     <>
       <ShortcutsOverlay visible={showShortcuts} onClose={() => setShowShortcuts(false)} />
@@ -289,6 +302,11 @@ export default function App() {
           fetch parties unauthed. */}
       {isAuthenticated && <GlobalSearchModal />}
       <Routes>
+        {/* Always-available reroute back into Server Setup — usable from
+            Settings → Network or by manually typing /server-setup. The
+            allowSkip prop lets a user with a working session bail out
+            without forcing a reload (the gate above handles cold-boot). */}
+        <Route path="/server-setup" element={<ServerSetup allowSkip />} />
         <Route path="/login" element={<Login />} />
         <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>

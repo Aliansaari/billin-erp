@@ -1,8 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
-const crypto = require('crypto');
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -139,125 +137,14 @@ function assertSafeName(name) {
   return name;
 }
 
-// Generate a PDF from HTML in an off-screen BrowserWindow and write it to
-// the user's Downloads folder. Returns { filePath, error }. Writing in main
-// avoids the IPC structured-clone corruption that made earlier PDFs open as
-// "cannot render" — the Buffer from printToPDF goes straight to fs.writeFile
-// without round-tripping through a number[] across the IPC bridge.
-ipcMain.handle('pdf:save', async (_ev, payload) => {
-  const { html, fileName, paperWidthMm, paperHeightMm, marginsMm } = payload || {};
-  if (!html) return { error: 'No HTML supplied' };
-
-  let safeName;
-  try { safeName = assertSafeName(sanitizeForFs(fileName) || 'bill.pdf'); }
-  catch (e) { return { error: e.message }; }
-  if (!/\.pdf$/i.test(safeName)) safeName += '.pdf';
-
-  // Stage the HTML to a temp file rather than a data: URL. Earlier we
-  // encoded the document as `data:text/html;charset=utf-8,${encodeURIComponent(html)}` —
-  // that path silently produces an empty / broken PDF when the encoded
-  // URL exceeds the renderer's URL-length cap or when the HTML contains
-  // characters that disagree with `loadURL`'s parser. A real `loadFile`
-  // sidesteps both issues, lets relative paths inside the HTML resolve,
-  // and gives a useful "did-fail-load" signal we can surface to the
-  // operator.
-  const tempName = `bill-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.html`;
-  const tempPath = path.join(os.tmpdir(), tempName);
-  await fs.promises.writeFile(tempPath, html, 'utf8');
-
-  // Window viewport must match the paper width so CSS layout reflows at
-  // the same aspect ratio printToPDF will capture. Earlier we used a
-  // fixed 1400×1800 viewport and let printToPDF squish whatever rendered
-  // into an 80mm thermal page — the result was a PDF page with a wildly
-  // off aspect ratio that some viewers (SumatraPDF) refused to render.
-  //
-  // CSS px ≈ paper_mm × 96 / 25.4. Default to A4 if no paper size in the
-  // payload. Capped at 2000px tall so the window is always reasonable.
-  const PX_PER_MM = 96 / 25.4;
-  const cssW = Math.max(280, Math.round(((Number(paperWidthMm)  || 210)) * PX_PER_MM));
-  const cssH = Math.max(400, Math.min(2400,
-    Math.round(((Number(paperHeightMm) || 297)) * PX_PER_MM) + 200));
-  const win = new BrowserWindow({
-    show: false,
-    width:  cssW,
-    height: cssH,
-    backgroundColor: '#ffffff',
-    webPreferences: { offscreen: false, contextIsolation: true },
-  });
-  // Capture any did-fail-load events so a render failure surfaces back
-  // to the renderer instead of producing a silent blank PDF.
-  let loadErr = null;
-  win.webContents.on('did-fail-load', (_e, code, desc) => {
-    loadErr = `did-fail-load (${code}) ${desc}`;
-  });
-  try {
-    await win.loadFile(tempPath);
-    if (loadErr) return { error: loadErr };
-
-    // Wait for the document to be fully loaded AND fonts to be available
-    // before snapshotting to PDF. Without this, printToPDF occasionally fires
-    // mid-layout and produces a PDF whose page object resolves but whose
-    // /Contents stream is empty — the viewer sees a valid page with no
-    // drawing operators and reports "Couldn't render the page".
-    await win.webContents.executeJavaScript(
-      'new Promise(res => {' +
-      '  const done = () => Promise.all([' +
-      '    document.fonts?.ready || Promise.resolve(),' +
-      '    new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))' +
-      '  ]).then(() => res(true));' +
-      '  if (document.readyState === "complete") return done();' +
-      '  window.addEventListener("load", done);' +
-      '})'
-    ).catch(() => {});
-    // Final settle tick — gives layout a frame to flush after fonts resolve.
-    // 400ms is generous; matches the timing successful Electron printToPDF
-    // setups in the wild use to avoid mid-paint snapshots.
-    await new Promise(r => setTimeout(r, 400));
-
-    const w = Number(paperWidthMm);
-    const h = Number(paperHeightMm);
-    const pdfOpts = {
-      printBackground: true,
-      margins: marginsMm ? {
-        top:    Number(marginsMm.top    ?? 10) / 25.4,  // mm → inches
-        right:  Number(marginsMm.right  ?? 10) / 25.4,
-        bottom: Number(marginsMm.bottom ?? 10) / 25.4,
-        left:   Number(marginsMm.left   ?? 10) / 25.4,
-      } : undefined,
-    };
-    if (w > 0 && !Number.isNaN(w)) {
-      const effH = (h > 0 && !Number.isNaN(h)) ? h : w * 3;
-      // Electron 28 printToPDF expects pageSize width/height in microns.
-      pdfOpts.pageSize = {
-        width:  Math.round(w    * 1000),
-        height: Math.round(effH * 1000),
-      };
-    }
-
-    const buffer = await win.webContents.printToPDF(pdfOpts);
-    // Guard: a zero-length or non-PDF buffer means Chromium bailed silently.
-    // Surface it instead of writing a corrupt file the user would open later.
-    // Buffer.slice + toString('ascii') is explicit about the encoding so
-    // a future Buffer→Uint8Array migration doesn't accidentally break the
-    // magic-byte check.
-    if (!buffer || buffer.length < 100
-        || Buffer.from(buffer).slice(0, 4).toString('ascii') !== '%PDF') {
-      return { error: 'Empty or invalid PDF output from renderer' };
-    }
-    const dir = app.getPath('downloads');
-    const filePath = path.join(dir, safeName);
-    await fs.promises.writeFile(filePath, Buffer.from(buffer));
-    return { filePath };
-  } catch (e) {
-    console.error('[pdf:save]', e);
-    return { error: e.message };
-  } finally {
-    // Clean up the staged HTML and close the offscreen window. Both are
-    // best-effort — leaving a stray temp file isn't a correctness bug.
-    fs.promises.unlink(tempPath).catch(() => {});
-    setTimeout(() => { try { win.close(); } catch {} }, 500);
-  }
-});
+// (Removed) The `pdf:save` handler that took raw HTML and rendered it to
+// PDF via an offscreen BrowserWindow + `webContents.printToPDF` is gone.
+// Despite many timing / viewport / temp-file fixes, certain viewers
+// (SumatraPDF most prominently) consistently refused to render the
+// resulting pages — the page object would be valid but the /Contents
+// stream would be malformed or empty. Every PDF surface in the app now
+// builds its bytes with jsPDF in the renderer and ships them through
+// `pdf:save-blob` below; that's the single, reliable bridge.
 
 // Write a renderer-built PDF blob (jsPDF Uint8Array) directly to the
 // user's Downloads folder. Used by the bill / list PDF exports — far

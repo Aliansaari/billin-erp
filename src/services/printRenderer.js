@@ -79,7 +79,7 @@ const renderHeader = (profile, company, doc) => {
       ${company?.company_address ? `<div class="hdr-sub">${esc(company.company_address)}</div>` : ''}
       ${company?.gstin ? `<div class="hdr-sub">GSTIN: ${esc(company.gstin)}${company?.pan_number ? ' · PAN: ' + esc(company.pan_number) : ''}</div>` : ''}
       ${profile?.header_html ? `<div class="hdr-extra">${profile.header_html}</div>` : ''}
-      <div class="doc-type">${esc(DOC_LABEL[doc.__doctype] || 'DOCUMENT')}${doc.__copyLabel ? ` · ${esc(doc.__copyLabel)}` : ''}</div>
+      <div class="doc-type">${esc((profile?.doc_label || '').trim() || DOC_LABEL[doc.__doctype] || 'DOCUMENT')}${doc.__copyLabel ? ` · ${esc(doc.__copyLabel)}` : ''}</div>
     </div>
   `;
 };
@@ -281,6 +281,122 @@ const themeCSS = (profile) => {
     .tot-grand { background: ${accent}; color: #fff; padding: 8px 10px; border: none; margin-top: 4mm; }
     .fb-bank, .fb-tc { background: #f9fafb; padding: 4mm; border-radius: 4px; }
   `;
+  // Studio — modern editorial spread. Title carries an accent-coloured
+  // left rule, doc-type sits as quiet uppercase eyebrow text, table
+  // is borderless with a single accent rule under the head row, generous
+  // whitespace throughout. The "default" theme for new installs going
+  // forward — feels current without being aggressively styled.
+  if (t === 'studio') return `
+    body { font-family: ${profile?.font_family || "'Source Sans 3', 'Inter', system-ui, sans-serif"}; color: #1f2937; }
+    .hdr { padding-left: 14px; border-left: 4px solid ${accent}; margin-left: -14px; }
+    .hdr-name { font-size: 1.6em; font-weight: 700; letter-spacing: -0.4px; color: #111; }
+    .hdr-sub { font-size: .88em; color: #6b7280; }
+    .doc-type { border: none; padding: 0; font-size: .72em; letter-spacing: 2px; text-transform: uppercase; color: ${accent}; font-weight: 600; margin-top: 4mm; }
+    table.items { font-size: .92em; }
+    table.items th, table.items td { border: none; padding: 7px 8px; }
+    table.items th { background: transparent; color: #9ca3af; font-weight: 600; font-size: .72em; text-transform: uppercase; letter-spacing: 1.2px; border-bottom: 1.5px solid ${accent}; }
+    table.items tbody tr + tr { border-top: 1px solid #f3f4f6; }
+    .tot-grand { border-top: 2px solid ${accent}; border-bottom: none; color: ${accent}; padding: 6px 0 0; font-size: 1.25em; }
+    .tot-words { color: #6b7280; }
+    .fb { border-top: none; padding-top: 5mm; }
+    .sig-line { border-color: ${accent}; }
+  `;
+  // Cash Memo — classic Indian retail cash-memo print. Full-page hairline
+  // frame, large centered serif shop name, dedicated "CASH MEMO" box
+  // pinned to the top-right (with bill number + date inside), bordered
+  // ruled items table, and a hairline-bordered totals strip flush with
+  // the page frame. The doc-subtitle in the right cell reads from the
+  // meta-block's `data-doc` attribute (emitted by renderA4) so the user's
+  // Print-Settings override (or the per-doc-type default) flows through
+  // automatically — leave doc_label blank for "TAX INVOICE" /
+  // "PURCHASE BILL", or set "CASH MEMO", "ESTIMATE", "BILL OF SUPPLY", etc.
+  if (t === 'cashmemo') return `
+    body { color: #000; font-family: ${profile?.font_family || "'Source Sans 3', system-ui, sans-serif"}; }
+    .page { border: 1px solid #000; padding: 0; }
+
+    /* Header band — centered, large serif shop name, hairline rule below. */
+    .hdr { text-align: center; padding: 5mm 8mm 4mm; border-bottom: 1px solid #000; margin: 0; }
+    .hdr-name { font-family: 'Times New Roman', Georgia, serif; font-size: 2.4em; font-weight: 800;
+                letter-spacing: 1.5px; line-height: 1.05; }
+    .hdr-sub { font-size: .9em; color: #000; margin-top: 1px; }
+    .hdr-extra { font-size: .85em; margin-top: 2px; }
+    .logo { max-height: 48px; }
+    /* Doc-type lives inside the right meta box — hide the header copy. */
+    .hdr .doc-type { display: none; }
+
+    /* Two-cell meta band: bill-meta cell visually on the right (the
+       CASH-MEMO box), party block on the left. Renderer emits bill-meta
+       first then party, so flex-direction: row-reverse swaps them. */
+    .meta { display: flex; flex-direction: row-reverse; margin: 0; gap: 0;
+            border-bottom: 1px solid #000; min-height: 18mm; }
+    .meta-block { padding: 0; flex: 1 1 0; min-width: 0; }
+
+    /* Visually-RIGHT cell (DOM-first child) — title bar above, No/Date below. */
+    .meta-block:first-child { border-left: 1px solid #000; display: flex; flex-direction: column; }
+    .meta-block:first-child::before {
+      content: attr(data-doc);
+      display: block;
+      text-align: left;
+      font-weight: 700;
+      font-size: 1em;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      border-bottom: 1px solid #000;
+      padding: 2.2mm 5mm;
+    }
+    .meta-block:first-child > div { padding: 1mm 5mm; }
+    .meta-block:first-child > div:first-of-type { padding-top: 2mm; }
+    .meta-block:first-child b { display: inline-block; min-width: 56px; font-weight: 400; color: #000; }
+
+    /* Visually-LEFT cell — party. Drop the existing 'BILL TO' eyebrow
+       (the cash-memo style names parties inline rather than under a label). */
+    .meta-block:last-child { padding: 3mm 5mm; }
+    .meta-block:last-child > div:first-child { display: none; }
+    .party { line-height: 1.6; font-size: .96em; }
+
+    /* Items table — hairline borders all the way through, uppercase head row,
+       no shaded fill. Outer columns lose their left/right border so the
+       table sits flush against the page frame. */
+    table.items { margin: 0; border: none; }
+    table.items th, table.items td { border: 1px solid #000; padding: 4px 7px; }
+    table.items thead tr th { border-top: none; }
+    table.items th:first-child, table.items td:first-child { border-left: none; }
+    table.items th:last-child,  table.items td:last-child  { border-right: none; }
+    table.items th { background: transparent; text-transform: uppercase; font-weight: 700;
+                     font-size: .9em; letter-spacing: 0.4px; }
+
+    /* Totals — full width, hairline rules between rows, flush with the frame. */
+    .totals { width: 100%; margin: 0; border-top: 1px solid #000; }
+    .tot-row { padding: 4px 8mm; border-bottom: 1px solid #000; }
+    .tot-grand { padding: 5px 8mm; border: none; border-bottom: 1px solid #000; font-weight: 700;
+                 font-size: 1.05em; letter-spacing: 0.5px; }
+    .tot-words { padding: 4mm 8mm; font-style: normal; font-size: .92em;
+                 border-bottom: 1px solid #000; }
+
+    /* Footer — signature anchored to the bottom-left of the frame. */
+    .fb { padding: 4mm 8mm 6mm; margin: 0; grid-template-columns: 1fr 1fr; }
+    .fb-bank, .fb-tc, .fb-extra { padding: 2mm 0; }
+    .fb-sig { grid-column: 1; text-align: left; margin-top: 6mm; }
+    .sig-line { border-color: #000; max-width: 60mm; margin-bottom: 1mm; }
+  `;
+  // Wholesale — dense tabular B2B. Mono numerics so columns align
+  // optically across rows, subtle row stripes, solid total banner. Built
+  // for trade where the operator scans columns of numbers fast.
+  if (t === 'wholesale') return `
+    body { font-family: ${profile?.font_family || "'Source Sans 3', system-ui, sans-serif"}; color: #111; }
+    .hdr-name { font-weight: 800; letter-spacing: -0.2px; font-size: 1.35em; }
+    .doc-type { border: 1.5px solid #111; padding: 3px 10px; display: inline-block; font-weight: 700; letter-spacing: 1.5px; font-size: .85em; }
+    table.items { font-variant-numeric: tabular-nums; }
+    table.items th { background: #f3f4f6; color: #111; font-weight: 700; font-size: .8em; text-transform: uppercase; letter-spacing: 0.8px; border: 1px solid #d1d5db; }
+    table.items td { border: 1px solid #e5e7eb; padding: 4px 6px; }
+    table.items tbody tr:nth-child(even) td { background: #fafafa; }
+    .c-qty, .c-rate, .c-mrp, .c-disc, .c-tax, .c-amt {
+      font-family: 'JetBrains Mono', 'Consolas', 'Menlo', 'Courier New', monospace;
+      font-feature-settings: 'tnum';
+    }
+    .tot-grand { background: #111; color: #fff; border: none; padding: 8px 12px; margin-top: 3mm; font-size: 1.15em; letter-spacing: 0.5px; }
+    .tot-words { font-style: normal; font-weight: 600; }
+  `;
   return '';  // classic = base CSS only
 };
 
@@ -289,7 +405,13 @@ const baseCSS = (profile) => `
   html, body { background: #fff; color: #111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body {
     margin: 0;
-    font-family: ${profile?.font_family || "'Source Sans 3', system-ui, sans-serif"};
+    /* Always lead with Source Sans 3 (the software's UI font) so prints
+       visually match the app. Profile-specific font_family — including
+       legacy Courier values from older saved profiles — falls in as a
+       later option after the system sans-serif chain. Modern themes
+       (studio / wholesale / elegant) override the body font-family in
+       their own theme block when they want a different look. */
+    font-family: 'Source Sans 3', 'Source Sans 3 Variable', 'Segoe UI', system-ui, -apple-system, ${profile?.font_family || ''}, 'Helvetica Neue', Arial, sans-serif;
     font-size: ${profile?.font_size_pt || 10}pt;
     line-height: ${profile?.line_spacing || 1.35};
   }
@@ -403,6 +525,89 @@ const thermalStyleCSS = (style, accent) => {
       .t-grand { font-size: 1.2em; padding: 2mm 0; margin: 2mm 0; }
       .fb { margin-top: 5mm; }
     `;
+    case 'editorial': return `
+      /* Editorial — magazine-style receipt. Big display-serif title,
+         italic labels, bold body text, hairline separators. The boutique
+         look. Inherits the Simple table structure (s-items / s-nm / etc.)
+         and re-skins it with editorial typography. */
+      body { font-family: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
+             color: #1a1a1a; line-height: 1.45; }
+      .hdr { text-align: center; margin-bottom: 5mm; padding-bottom: 3mm; }
+      .hdr-name { font-family: 'Playfair Display', 'Bodoni Moda', Georgia, 'Times New Roman', serif;
+                   font-weight: 800; font-size: 2em; letter-spacing: -1px;
+                   line-height: 1; margin-bottom: 1mm; }
+      .hdr-sub { font-size: .75em; letter-spacing: 2px; text-transform: uppercase;
+                  color: #666; font-weight: 500; }
+      .doc-type { font-size: .65em; letter-spacing: 4px; text-transform: uppercase;
+                   color: #666; border: none; padding: 0; margin-top: 2mm;
+                   font-weight: 500; }
+      /* Meta block — italic "Bill No :" "Date :" labels in the s-row spans */
+      .s-meta { margin: 4mm 0 3mm; padding: 0; border: none; font-size: .92em; }
+      .s-row { padding: 0.6mm 0; }
+      .s-row span { font-weight: 700; }
+      /* Re-style "Bill No :" / "Date :" / "Time :" / "Name :" prefixes via
+         a font-style trick — the label sits left of the colon. CSS can't
+         split text at ":", but in renderThermalSimple each s-row span is a
+         "Label : Value" string. Italicize the whole thing softly, then
+         the eye reads the label as italic-prefix + value. */
+      .s-row span:first-child { font-weight: 400; }
+      .hrb { border-top: 1px solid #c8c8c8; margin: 2mm 0; }
+      table.s-items { margin: 4mm 0 2mm; }
+      table.s-items th { font-style: italic; font-weight: 400;
+                          color: #666; font-size: .82em; text-transform: none;
+                          letter-spacing: 0.2px; padding-bottom: 2mm;
+                          border-bottom: 1px solid #c8c8c8; }
+      table.s-items td { padding: 2.5mm 1px; vertical-align: top;
+                          border-bottom: 1px solid #ececec; }
+      table.s-items .s-nm { font-weight: 700; color: #1a1a1a; }
+      table.s-items .s-qt, table.s-items .s-rt, table.s-items .s-am {
+        font-weight: 600; color: #333;
+      }
+      .s-summary { font-size: .82em; color: #888; padding: 2mm 0;
+                    font-style: italic; text-align: center; }
+      .s-total { text-align: right; font-size: 1em; padding: 3mm 0;
+                  border-top: 1px solid #c8c8c8; margin-top: 2mm;
+                  letter-spacing: 0.3px; font-style: italic; font-weight: 400;
+                  color: #666; }
+      .fb { margin-top: 5mm; padding-top: 3mm; border-top: 1px solid #ececec;
+            font-size: .82em; color: #666; text-align: center; line-height: 1.5; }
+    `;
+    case 'ruled': return `
+      /* Ruled — clean rows with a hairline below each item. Inherits
+         Simple's table structure and adds bottom-border on each row.
+         Great when the operator wants visible row separation without
+         the boxed-table look. */
+      body { font-family: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
+             color: #1a1a1a; }
+      .hdr { margin-bottom: 3mm; padding-bottom: 2mm; text-align: center;
+              border-bottom: 1px solid #c8c8c8; }
+      .hdr-name { font-size: 1.25em; font-weight: 800; letter-spacing: -0.2px; }
+      .hdr-sub { font-size: .82em; color: #555; }
+      .doc-type { font-size: .75em; letter-spacing: 2px; text-transform: uppercase;
+                   color: #666; padding: 0; border: none; margin-top: 1.5mm;
+                   font-weight: 600; }
+      .s-meta { margin: 3mm 0; padding: 2mm 0;
+                 border-top: 1px solid #d8d8d8; border-bottom: 1px solid #d8d8d8;
+                 font-size: .9em; }
+      .s-row { padding: 0.4mm 0; }
+      table.s-items { margin: 3mm 0 2mm; font-size: .92em; }
+      table.s-items th { background: transparent; color: #555; font-weight: 700;
+                          font-size: .76em; letter-spacing: 0.6px; text-transform: uppercase;
+                          border: none; border-bottom: 1.5px solid #1a1a1a;
+                          padding: 2mm 1px; }
+      table.s-items td { border: none; border-bottom: 1px solid #d8d8d8;
+                          padding: 2mm 1px; vertical-align: top; }
+      table.s-items tbody tr:last-child td { border-bottom: 1.5px solid #1a1a1a; }
+      table.s-items .s-nm { font-weight: 600; }
+      .hrb { display: none; }
+      .s-summary { padding: 2mm 0; font-size: .85em; color: #555; }
+      .s-total { border-top: 2px solid #1a1a1a; border-bottom: 2px solid #1a1a1a;
+                  padding: 2.5mm 0; margin-top: 2mm; font-size: 1.15em;
+                  font-weight: 800; text-align: right; letter-spacing: 0.3px; }
+      .fb { margin-top: 4mm; padding-top: 3mm;
+             border-top: 1px solid #c8c8c8; font-size: .85em; color: #555;
+             text-align: center; }
+    `;
     case 'modern': return `
       body { font-family: 'Source Sans 3', 'Helvetica Neue', Arial, sans-serif; }
       .hdr { margin-bottom: 3mm; }
@@ -446,6 +651,11 @@ const thermalCSS = (profile) => {
   const accent = profile?.accent_color || '#000';
   const style  = profile?.thermal_style || 'standard';
   const bold   = profile?.bold_level    || 'bold';
+  // Thermal default font now matches the software's Editorial typography
+  // (Source Sans 3 → Segoe UI → system) with tabular numerals for clean
+  // column alignment. The previous Courier monospace default felt dated
+  // and didn't match the on-screen experience. Operators who want the
+  // classic POS look can still pick Courier from the Font preset list.
   return `
   * { box-sizing: border-box; }
   /* Pure black text + explicit white background. Thermal drivers otherwise
@@ -457,10 +667,58 @@ const thermalCSS = (profile) => {
     text-rendering: geometricPrecision; }
   body {
     margin: 0;
-    font-family: ${profile?.font_family || "'Courier New', 'Consolas', monospace"};
+    /* Source Sans 3 is ALWAYS the primary font for thermal — matches the
+       software UI typography. The profile-saved font_family (which on
+       legacy installs may still be Courier monospace) acts as a
+       fallback only, after the system sans-serif chain. This means an
+       operator never has to manually update old profiles to get the
+       refreshed look; their existing saved settings still apply if the
+       sans-serif chain is not available, but on any modern browser /
+       Electron build Source Sans 3 (or Segoe UI on Windows) wins. */
+    font-family: 'Source Sans 3', 'Source Sans 3 Variable', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, ${profile?.font_family || ''}, sans-serif;
     font-size: ${profile?.font_size_pt || 10}pt;
     line-height: 1.3;
     width: ${profile?.paper_width_mm || 80}mm;
+    /* Tabular numerals so digits column-align even with a proportional
+       sans-serif body font — keeps Qty/Rate/Amount columns reading
+       cleanly without forcing Courier on the whole document. */
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Two-column layout for label/value rows in the meta block AND the
+     totals breakdown - declared at the base level so every simple-style
+     receipt (simple / editorial / ruled) gets the same alignment. Without
+     this, the label and value spans collapse inline and read as
+     "Sub TotalRs 4,230" instead of "Sub Total ........... Rs 4,230". */
+  .s-row { display: flex; justify-content: space-between; gap: 6px; padding: 0.4mm 0; }
+  .s-row > span { flex: 0 0 auto; }
+  .s-row > span:only-child { flex: 1; }
+  /* Items table - full width with fixed column proportions. Declared at
+     the base level so simple / editorial / ruled all share the SAME
+     layout (just different chrome). Earlier these rules lived only in
+     the simple-style block, so editorial / ruled rendered the table
+     at content-width - squishing all five columns into the left half of
+     the receipt and leaving the right half empty. */
+  table.s-items { width: 100%; border-collapse: collapse;
+                  table-layout: fixed; font-variant-numeric: tabular-nums; }
+  table.s-items th,
+  table.s-items td { overflow: hidden; vertical-align: top; padding: 0.4mm 2px;
+                     line-height: 1.25; }
+  table.s-items th { text-align: left; font-weight: inherit; letter-spacing: 0.3px; }
+  table.s-items .s-sr { width: 8%;  text-align: left;  padding-left: 0; white-space: nowrap; }
+  table.s-items .s-nm { width: 44%; text-align: left;  word-wrap: break-word;
+                        overflow-wrap: anywhere; padding-right: 3px; }
+  table.s-items .s-qt { width: 12%; text-align: right; white-space: nowrap; padding-right: 3px; }
+  table.s-items .s-rt { width: 17%; text-align: right; white-space: nowrap; padding-right: 3px; }
+  table.s-items .s-am { width: 19%; text-align: right; white-space: nowrap; padding-right: 0; }
+  /* Numeric cells reinforce tabular nums explicitly so even profiles that
+     override body font (back to Courier, etc.) keep numeric alignment. */
+  .c-qty, .c-rate, .c-mrp, .c-disc, .c-tax, .c-amt,
+  .s-qt, .s-rt, .s-am,
+  .t-grand, .s-total, .meta-row {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
   }
   /* Force black ink on every text node inside the receipt. Authors of
      custom header/footer HTML can override by inlining styles, but the
@@ -494,11 +752,20 @@ const thermalCSS = (profile) => {
 
 function renderA4(bill, profile, company) {
   const items = bill.items || [];
+  // Doc subtitle exposed to CSS via data-doc on the bill-meta block. The
+  // cashmemo theme reads it through `content: attr(data-doc)` to render
+  // the boxed CASH-MEMO header on the right side of the page; every
+  // other theme ignores the attribute. Resolution chain matches the
+  // header doc-type chip: explicit profile override first, then the
+  // per-doc-type default, then "BILL".
+  const docLabel = (profile?.doc_label || '').trim()
+    || DOC_LABEL[bill.__doctype]
+    || 'BILL';
   return `
     <div class="page">
       ${renderHeader(profile, company, bill)}
       <div class="meta">
-        <div class="meta-block">
+        <div class="meta-block" data-doc="${esc(docLabel)}">
           <div><b>Bill #:</b> ${esc(bill.bill_number || bill.transaction_number || '')}</div>
           <div><b>Date:</b> ${esc(fmtDate(bill.bill_date || bill.transaction_date))}</div>
           ${bill.sale_type ? `<div><b>Type:</b> ${esc(bill.sale_type)}</div>` : ''}
@@ -653,7 +920,17 @@ function renderSimpleTail(bill, profile, fmtInt) {
 }
 
 function renderThermal(bill, profile, company) {
-  if ((profile?.thermal_style || 'standard') === 'simple') return renderThermalSimple(bill, profile, company);
+  // Three styles route through the cleaner Simple table-based renderer:
+  //   simple    — the original clean credit-memo layout
+  //   editorial — magazine-style serif title + italic labels (uses Simple's
+  //               table structure for clarity, then layers editorial CSS)
+  //   ruled     — Simple's table with a hairline below every row
+  // Other styles (standard / compact / bold / spacious / modern) use the
+  // legacy two-line item layout below.
+  const style = profile?.thermal_style || 'standard';
+  if (style === 'simple' || style === 'editorial' || style === 'ruled') {
+    return renderThermalSimple(bill, profile, company);
+  }
   const items = bill.items || [];
   const showDisc   = profile?.show_discount !== false;
   const showGst    = profile?.show_gst !== false;
@@ -740,9 +1017,35 @@ export function renderBillHTML({ bill, profile, company, docType }) {
     ? `@page { size: ${profile.paper_width_mm || 80}mm auto; margin: ${profile.margin_top_mm || 3}mm ${profile.margin_right_mm || 3}mm ${profile.margin_bottom_mm || 3}mm ${profile.margin_left_mm || 3}mm; }`
     : `@page { size: ${profile.paper_width_mm || 210}mm ${profile.paper_height_mm || 297}mm; margin: ${profile.margin_top_mm || 10}mm ${profile.margin_right_mm || 10}mm ${profile.margin_bottom_mm || 10}mm ${profile.margin_left_mm || 10}mm; }`;
 
+  // Always pull Source Sans 3 from Google Fonts so every print HTML
+  // (silent print, iframe preview, PDF render) has the actual font
+  // available — the on-screen app loads it via @fontsource, but the
+  // print iframe and Electron silent-print offscreen window are
+  // separate document contexts that don't inherit those font assets.
+  // Including the link unconditionally keeps thermal AND A4 prints
+  // visually consistent with the software UI, regardless of what the
+  // operator's profile saved as font_family. preconnect makes the
+  // first print fast; subsequent prints hit the disk cache.
+  // Always pull Source Sans 3 (the software UI font). Also pull Playfair
+  // Display whenever the active profile is the Editorial thermal style —
+  // its display-serif title relies on it; without the font the title
+  // falls back to Bodoni / Georgia / Times, which still reads cleanly
+  // but doesn't match the editorial look. Loaded conditionally so other
+  // styles don't pay the extra ~30KB font request.
+  const wantsPlayfair = profile?.format === 'thermal' && profile?.thermal_style === 'editorial';
+  const playfairImport = wantsPlayfair
+    ? `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&display=swap">`
+    : '';
+  const fontImport = `
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700;800&display=swap">
+    ${playfairImport}`;
+
   return `<!doctype html>
 <html><head><meta charset="utf-8"/>
 <title>${esc((bill.bill_number || bill.transaction_number || 'Document'))}</title>
+${fontImport}
 <style>${pageRule}\n${css}</style>
 </head><body>${pages}</body></html>`;
 }

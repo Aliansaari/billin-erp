@@ -10,17 +10,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listPrinters: () => ipcRenderer.invoke('print:list-printers'),
   printSilent: (payload) => ipcRenderer.invoke('print:silent', payload),
 
-  // Generate a PDF from HTML and WRITE IT TO DISK in main — returns the
-  // absolute filePath. The earlier round-trip-buffer approach produced a PDF
-  // that Acrobat rejected ("cannot render") because IPC structured-clone of
-  // large number arrays subtly corrupts the bytes on some Electron builds.
-  // Doing the fs.writeFile in main (with the raw Buffer) sidesteps that.
-  savePDF: (payload) => ipcRenderer.invoke('pdf:save', payload),
-
   // Renderer-built PDF blob (jsPDF) → write to Downloads. Bytes go over
   // IPC as a Uint8Array so the structured-clone path stays type-stable;
-  // main wraps in Buffer and writes. Used by the bill / list PDF
-  // exports — sidesteps the printToPDF round-trip entirely.
+  // main wraps in Buffer and writes.
+  //
+  // The legacy `pdf:save` (HTML-to-PDF via offscreen Chromium printToPDF)
+  // bridge was removed: every viewer in the wild was hit-or-miss with
+  // its output ("Couldn't render the page" in SumatraPDF, font subset
+  // errors in Acrobat). Bills, statements, and the report PDFs now build
+  // their bytes with jsPDF in the renderer and ship them through this
+  // single, reliable bridge.
   saveBlobToDownloads: (payload) => ipcRenderer.invoke('pdf:save-blob', payload),
 
   // Shell helpers so the renderer can open a file in the system default app

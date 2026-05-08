@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, settingsAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
-import { printDocument, exportBillPDF } from '../../services/printer';
+import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import useListSelection from '../../hooks/useListSelection';
@@ -233,6 +233,7 @@ export default function PurchaseList() {
   };
 
   const handleExportPDF = (bill) => exportBillPDF({ docType: 'purchase', bill });
+  const handleWhatsApp  = (bill) => shareBillViaWhatsApp({ docType: 'purchase', bill });
   const handleRecordPayment = (bill) => {
     navigate('/payment/new', { state: { preselect: { party_id: bill.supplier?.party_id, bill_id: bill.purchase_bill_id } } });
   };
@@ -246,6 +247,14 @@ export default function PurchaseList() {
   const single         = !isMulti ? activeRow : null;
   const singleCancelled  = single?.is_cancelled;
   const singleHasBalance = single ? parseFloat(single.balance_amount || 0) > 0.01 : false;
+  // Phone derived from supplier mobile_1, gating the WhatsApp action.
+  // Mirrors SalesList.singlePhone — bare digits only; the printer service
+  // strips formatting + adds country code.
+  const singlePhone = (() => {
+    if (!single) return null;
+    const m = single.supplier?.mobile_1;
+    return m && !/^TLY/i.test(m) ? m : null;
+  })();
 
   // Bulk-cancel — confirm once, run cancellations serially, summarize at
   // the end. Avoids drowning the user in N error popups on a partial fail.
@@ -671,6 +680,12 @@ export default function PurchaseList() {
             id: 'export', key: 'F10', label: 'Export PDF',
             disabled: isMulti || !single,
             onAction: () => single && handleExportPDF(single),
+          },
+          {
+            id: 'whatsapp', key: 'F11', label: 'WhatsApp',
+            disabled: isMulti || !single || singleCancelled || !singlePhone,
+            onAction: () => single && handleWhatsApp(single),
+            title: 'Share this purchase bill PDF with the supplier',
           },
           {
             id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
