@@ -1356,6 +1356,17 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
 .cols-menu {
   min-width: 240px;
   padding: 4px 8px 8px;
+  /* Panel chrome — opaque background + hairline border + lift shadow.
+   * Used inside Dropdown's `dropdownRender`, which strips Antd's default
+   * popup container; without these styles the popover renders
+   * transparent and the table behind shows through (visible bug on the
+   * Stock Report Customize popover). Other call sites used to bolt
+   * these on inline; centralising here means every consumer renders
+   * opaque by default. */
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
 
 .cols-menu .grp { padding: 4px 0 6px; }
