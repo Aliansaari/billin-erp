@@ -11,7 +11,7 @@ const { resolveInterState } = require('../utils/interStateResolver');
 const { applyColorStockDelta } = require('../services/productColorStockService');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesReturnVouchers } = require('../services/voucherBuilders');
-const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite, getDefaultGodownId } = require('../utils/godownStock');
 const { applyBatchStockDelta } = require('../utils/batchStock');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
@@ -972,17 +972,24 @@ exports.cancel = async (req, res) => {
     }
 
     // Reverse stock at the return's godown.
+    // Audit C6: legacy returns (pre-godown) had godown_id = NULL,
+    // and the previous guard skipped reversal. Falls back to default.
+    let cancelGodownId = bill.godown_id;
+    if (!cancelGodownId && bill.return_mode === 'Items'
+        && bill.items.some(i => i.product_id)) {
+      cancelGodownId = await getDefaultGodownId({ t });
+    }
     if (bill.return_mode === 'Items') {
       for (const item of bill.items) {
-        if (item.product_id && bill.godown_id) {
+        if (item.product_id && cancelGodownId) {
           await applyGodownStockDelta({
-            product_id: item.product_id, godown_id: bill.godown_id,
+            product_id: item.product_id, godown_id: cancelGodownId,
             delta: -parseFloat(item.quantity), t,
           });
           if (item.batch_id) {
             await applyBatchStockDelta({
               product_id: item.product_id, batch_id: item.batch_id,
-              godown_id: bill.godown_id,
+              godown_id: cancelGodownId,
               delta: -parseFloat(item.quantity), t,
             });
           }

@@ -7,7 +7,7 @@ const { resolveInterState } = require('../utils/interStateResolver');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
-const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite, getDefaultGodownId } = require('../utils/godownStock');
 const {
   validateBillColorRequirements,
   applyColorStockDelta,
@@ -1455,10 +1455,23 @@ exports.cancel = async (req, res) => {
 
     // Reverse the deduction at the bill's own godown (the one the sale
     // shipped from). Cancellation never re-routes stock.
+    //
+    // Audit C6: legacy bills created before the per-godown migration
+    // have `bill.godown_id = NULL`. The previous guard `bill.godown_id`
+    // SKIPPED reversal entirely on those bills — the StockLedger row
+    // got destroyed below but `current_stock` was left at its
+    // post-sale value, breaking conservation. Now we fall back to the
+    // system default godown so the reversal still happens. The bill is
+    // pre-godown but the stock is post-godown; that's fine because the
+    // mirror invariant `current_stock = SUM(PGS)` is maintained.
+    let cancelGodownId = bill.godown_id;
+    if (!cancelGodownId && bill.items.some(i => i.product_id)) {
+      cancelGodownId = await getDefaultGodownId({ t });
+    }
     for (const item of bill.items) {
-      if (item.product_id && bill.godown_id) {
+      if (item.product_id && cancelGodownId) {
         await applyGodownStockDelta({
-          product_id: item.product_id, godown_id: bill.godown_id,
+          product_id: item.product_id, godown_id: cancelGodownId,
           delta: +parseFloat(item.quantity), t,
         });
         // Restore the per-batch on-hand for batched lines. Both the
@@ -1467,7 +1480,7 @@ exports.cancel = async (req, res) => {
         if (item.batch_id) {
           await applyBatchStockDelta({
             product_id: item.product_id, batch_id: item.batch_id,
-            godown_id: bill.godown_id,
+            godown_id: cancelGodownId,
             delta: +parseFloat(item.quantity), t,
           });
         }
