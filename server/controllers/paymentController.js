@@ -207,6 +207,20 @@ exports.create = async (req, res) => {
       const isInward = data.transaction_type === 'Receipt';
       const chequeDate = ps.cheque_date || data.transaction_date;
       const isPdc = String(chequeDate) > String(data.transaction_date);
+      // Audit C9: an INWARD PDC must NOT be auto-deposited on the
+      // receipt date — its `cheque_date` is in the future, so the bank
+      // ledger should not rise until the cheque physically clears.
+      // Previously the auto-sync code force-set status=DEPOSITED and
+      // deposit_date=transaction_date for every inward cheque, including
+      // PDCs, which inflated the bank balance days/weeks before the
+      // money could actually move. The cheque-controller's deposit()
+      // endpoint already blocks future-dated deposits (line 532); this
+      // path was bypassing that guard.
+      //
+      // New rule: inward non-PDC → DEPOSITED today (matches existing
+      // behaviour); inward PDC → PENDING with no deposit_date (operator
+      // hits Deposit on or after maturity); outward → PENDING (existing).
+      const inwardImmediate = isInward && !isPdc;
       try {
         await Cheque.create({
           direction:               isInward ? 'INWARD' : 'OUTWARD',
@@ -215,10 +229,10 @@ exports.create = async (req, res) => {
           amount:                  ps.amount,
           party_id:                payment.party_id,
           bank_ledger_id:          ps.bank_ledger_id,
-          status:                  isInward ? 'DEPOSITED' : 'PENDING',
+          status:                  inwardImmediate ? 'DEPOSITED' : 'PENDING',
           is_pdc:                  isPdc,
           instrument_date:         data.transaction_date,
-          deposit_date:            isInward ? data.transaction_date : null,
+          deposit_date:            inwardImmediate ? data.transaction_date : null,
           source_payment_id:       payment.transaction_id,
           source_payment_split_id: ps.split_id,
           created_by:              req.user?.user_id || null,
