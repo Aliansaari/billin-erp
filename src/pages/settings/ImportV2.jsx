@@ -19,6 +19,7 @@ import { UploadOutlined, ReloadOutlined, StopOutlined, DownloadOutlined } from '
 import { useNavigate } from 'react-router-dom';
 import { importsAPI, ledgerAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import './ModuleSettings.css';
 
 const { Title, Text } = Typography;
 
@@ -144,7 +145,17 @@ export default function ImportV2() {
   };
 
   return (
-    <div>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <h1 className="ms-page-title">Import (queued)</h1>
+        <p className="ms-page-sub">
+          Upload a vendor's catalog or daily-rate sheet — this runs as a background job so the UI stays
+          responsive while it processes thousands of rows.
+        </p>
+      </header>
+
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
       {/* Source picker + upload */}
       {!job && (
         <Card>
@@ -243,6 +254,8 @@ export default function ImportV2() {
           <Alert type="warning" showIcon message="Import cancelled" description="Already-committed rows are still in the database." />
         )}
       </Modal>
+        </div>
+      </div>
 
       <ActionStrip
         actions={[

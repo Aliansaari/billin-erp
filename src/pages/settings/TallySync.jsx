@@ -30,6 +30,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { tallyAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import './ModuleSettings.css';
 
 const { Title, Text, Paragraph } = Typography;
 const { RangePicker } = DatePicker;
@@ -184,16 +185,17 @@ export default function TallySync() {
   /* ── Render ─────────────────────────────────────────────────────────── */
 
   return (
-    <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
-      <div style={{ marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}><ApiOutlined /> TallyPrime Sync</Title>
-        <Text type="secondary">
-          Two-way bridge between this ERP and TallyPrime. Use <b>File mode</b> if your
-          Tally is on a different machine; use <b>Live mode</b> if Tally is running
-          locally with the XML server enabled.
-        </Text>
-      </div>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <h1 className="ms-page-title">TallyPrime Sync</h1>
+        <p className="ms-page-sub">
+          Two-way bridge between this ERP and TallyPrime. Use <b>File mode</b> if your Tally is on a
+          different machine; use <b>Live mode</b> if Tally is running locally with the XML server enabled.
+        </p>
+      </header>
 
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
       <Card title={<Space><LinkOutlined /> Connection</Space>} style={{ marginBottom: 16 }}>
         <Form form={form} layout="vertical" onFinish={handleSave} initialValues={{ tally_host: 'localhost', tally_port: 9000 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
@@ -396,6 +398,8 @@ export default function TallySync() {
           },
         ]}
       />
+        </div>
+      </div>
 
       <ActionStrip
         actions={[

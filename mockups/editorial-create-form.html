@@ -1,0 +1,873 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Create Form Mockup — Billing ERP</title>
+<style>
+/* ========================================================================
+   Static mockup of the proposed shared EntityFormModal.
+   No JavaScript, no real data. Open this file in a browser to review.
+
+   Design language: SOLID — sharp 4px corners, hairline 1px borders,
+   high-contrast text, tabular numerics, dense rows, F-key footer
+   matching the existing bill forms (F1 Save / F5 Reset / Esc Cancel).
+   ======================================================================== */
+
+:root {
+  --bg-app:        #0d1117;
+  --bg-panel:      #151b24;
+  --bg-elevated:   #1a212c;
+  --bg-muted:      #1f2630;
+  --bg-hover:      #232a35;
+
+  --fg-primary:    #e6edf3;
+  --fg-secondary:  #b0b8c4;
+  --fg-tertiary:   #6e7681;
+  --fg-inverse:    #ffffff;
+
+  --accent:        #818cf8;
+  --accent-bg:     rgba(129, 140, 248, 0.12);
+  --accent-border: rgba(129, 140, 248, 0.32);
+
+  --success:       #4ade80;
+  --warning:       #fbbf24;
+  --danger:        #f87171;
+  --danger-bg:     rgba(248, 113, 113, 0.10);
+
+  --border:        #2a313e;
+  --border-subtle: #232a35;
+  --border-strong: #3a4252;
+
+  --kbd-bg:        #232a35;
+  --kbd-border:    #3a4252;
+
+  --shadow-modal:  0 24px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Source Sans 3', -apple-system, system-ui, sans-serif;
+  background: var(--bg-app);
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page-wrap {
+  max-width: 1700px;
+  margin: 0 auto;
+  padding: 32px 28px 80px;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+.page-sub {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  margin: 0 0 28px;
+  max-width: 640px;
+  line-height: 1.55;
+}
+.page-sub b { color: var(--fg-primary); font-weight: 600; }
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(380px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+/* ============================ MODAL SHELL ============================ */
+
+.efm {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;             /* Solid: 6px, not 12px */
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+
+/* ── Title strip ───────────────────────────────────────────────── */
+.efm-hd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+.efm-hd .ic {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.efm-hd-title {
+  flex: 1; min-width: 0;
+}
+.efm-hd-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--fg-primary);
+  line-height: 1.2;
+}
+.efm-hd-title .sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+}
+.efm-hd-x {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+  font-size: 14px;
+}
+.efm-hd-x:hover { background: var(--bg-hover); color: var(--fg-primary); }
+
+/* ── Body ───────────────────────────────────────────────────────── */
+.efm-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+  scrollbar-width: thin;
+}
+.efm-body::-webkit-scrollbar { width: 6px; }
+.efm-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Section frame — sharp hairline divider, eyebrow label */
+.efm-section { padding: 14px 18px 16px; }
+.efm-section + .efm-section { border-top: 1px solid var(--border-subtle); }
+
+.efm-section-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 12px;
+}
+.efm-section-hd .lbl {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.efm-section-hd .anchor {
+  font-size: 9.5px;
+  letter-spacing: 0.6px;
+  color: var(--fg-tertiary);
+  font-weight: 600;
+}
+.efm-section-hd .anchor kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--kbd-bg);
+  border: 1px solid var(--kbd-border);
+  border-radius: 3px;
+  font: 600 9.5px/1 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-secondary);
+  margin-right: 4px;
+}
+
+/* Field grid — solid / dense */
+.efm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+.efm-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.efm-field { display: flex; flex-direction: column; gap: 4px; }
+.efm-field.full { grid-column: 1 / -1; }
+
+.efm-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  display: flex; align-items: center; gap: 4px;
+}
+.efm-lbl .req { color: var(--danger); font-weight: 700; }
+.efm-input,
+.efm-select,
+.efm-textarea {
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color .12s, box-shadow .12s;
+}
+.efm-textarea {
+  height: auto;
+  min-height: 64px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+.efm-input::placeholder,
+.efm-textarea::placeholder { color: var(--fg-tertiary); font-weight: 500; }
+.efm-input:focus,
+.efm-select:focus,
+.efm-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+.efm-input.has-error,
+.efm-select.has-error {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-bg);
+}
+.efm-help {
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+  margin-top: 1px;
+}
+.efm-err {
+  font-size: 10.5px;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Select with affordance */
+.efm-select {
+  appearance: none;
+  background:
+    var(--bg-app)
+    url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3e%3cpath d='M2 4l3 3 3-3' stroke='%236e7681' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e")
+    no-repeat right 10px center;
+  padding-right: 28px;
+}
+
+/* Inline group: input + suffix unit */
+.efm-suffix {
+  display: flex;
+  align-items: stretch;
+}
+.efm-suffix .efm-input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+  flex: 1; min-width: 0;
+}
+.efm-suffix .unit {
+  display: grid; place-items: center;
+  padding: 0 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.02em;
+}
+
+/* Toggle pill row (e.g. Active / Inactive) */
+.efm-pills {
+  display: inline-flex;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px;
+  gap: 0;
+}
+.efm-pills button {
+  background: transparent;
+  border: 0;
+  height: 26px;
+  padding: 0 14px;
+  font: 600 11.5px/1 inherit;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  letter-spacing: 0.02em;
+  transition: background .12s, color .12s;
+}
+.efm-pills button.on {
+  background: var(--accent);
+  color: var(--fg-inverse);
+}
+.efm-pills button:not(.on):hover { color: var(--fg-primary); }
+
+/* ── Footer (F-key strip) ─────────────────────────────────────── */
+.efm-ft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.efm-ft .spacer { flex: 1; }
+
+.fkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-secondary);
+  font: 600 11.5px/1 inherit;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.fkey:hover { border-color: var(--accent-border); color: var(--accent); }
+.fkey kbd {
+  display: inline-block;
+  padding: 2px 5px;
+  background: var(--kbd-bg);
+  border: 1px solid var(--kbd-border);
+  border-radius: 3px;
+  font: 700 10px/1 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-secondary);
+}
+.fkey.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--fg-inverse);
+}
+.fkey.primary kbd {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.95);
+}
+.fkey.primary:hover { filter: brightness(1.08); }
+.fkey.danger { color: var(--danger); }
+.fkey.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+/* ── Mockup label (annotation) ─────────────────────────────────── */
+.mock-tag {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 2px 8px;
+  font: 600 10px/1.5 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg-secondary);
+}
+
+/* Notes panel */
+.notes {
+  margin-top: 36px;
+  padding: 22px 24px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.notes h3 {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+}
+.notes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px 32px;
+}
+.note-item {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  line-height: 1.55;
+}
+.note-item h4 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: 0.02em;
+}
+.note-item code {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font: 600 11px/1 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-primary);
+}
+
+/* Backdrop hint — visualize what the dim overlay looks like in real use */
+.backdrop-hint {
+  margin-top: 28px;
+  padding: 18px 22px;
+  background: var(--bg-panel);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  line-height: 1.6;
+}
+.backdrop-hint b { color: var(--fg-secondary); }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <h1 class="page-title">Create form mockup — proposed `EntityFormModal`</h1>
+  <p class="page-sub">
+    Static mockup. No JS, no real data. Goal: <b>one shared shell</b> (title strip,
+    section frame, footer with F-key bindings, dirty-state confirm) used by every
+    entity create/edit form. F-keys match the existing bill forms — <b>F1 Save · F5
+    Reset · F8 Save & Close · Esc Cancel</b>. Three variants below show the same
+    shell housing different field bodies: Product (complex, sectioned) · Customer
+    (medium) · Category (minimal).
+  </p>
+
+  <div class="row">
+
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <!-- VARIANT 1: PRODUCT (sectioned, the most complex form)           -->
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <div>
+      <span class="mock-tag">Variant 1 · Product</span>
+      <div class="efm" role="dialog" aria-label="Create Product">
+
+        <header class="efm-hd">
+          <div class="ic">P</div>
+          <div class="efm-hd-title">
+            <h2>Add Product</h2>
+            <div class="sub">New SKU · creates one inventory record</div>
+          </div>
+          <button class="efm-hd-x" aria-label="Close">✕</button>
+        </header>
+
+        <div class="efm-body">
+
+          <section class="efm-section">
+            <div class="efm-section-hd">
+              <span class="lbl">Identifiers</span>
+              <span class="anchor"><kbd>Alt</kbd>+<kbd>1</kbd></span>
+            </div>
+            <div class="efm-grid">
+              <div class="efm-field full">
+                <label class="efm-lbl">Product Name <span class="req">*</span></label>
+                <input class="efm-input" placeholder="e.g. Banarasi Silk Saree" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Category <span class="req">*</span></label>
+                <select class="efm-select">
+                  <option>Sarees</option>
+                  <option>Cotton Fabric</option>
+                </select>
+                <span class="efm-help"><kbd style="font:600 10px/1 'JetBrains Mono',monospace;background:var(--kbd-bg);border:1px solid var(--kbd-border);border-radius:3px;padding:1px 4px;color:var(--fg-secondary);">⌘K</kbd> picker · <kbd style="font:600 10px/1 'JetBrains Mono',monospace;background:var(--kbd-bg);border:1px solid var(--kbd-border);border-radius:3px;padding:1px 4px;color:var(--fg-secondary);">+</kbd> new</span>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Barcode</label>
+                <input class="efm-input" placeholder="auto-generated if blank" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Size</label>
+                <input class="efm-input" placeholder="e.g. M / 38 / 100ml" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Article #</label>
+                <input class="efm-input" />
+              </div>
+            </div>
+          </section>
+
+          <section class="efm-section">
+            <div class="efm-section-hd">
+              <span class="lbl">Pricing</span>
+              <span class="anchor"><kbd>Alt</kbd>+<kbd>2</kbd></span>
+            </div>
+            <div class="efm-grid cols-3">
+              <div class="efm-field">
+                <label class="efm-lbl">Purchase Rate <span class="req">*</span></label>
+                <div class="efm-suffix">
+                  <input class="efm-input" placeholder="0.00" value="100.00" />
+                  <span class="unit">₹</span>
+                </div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Margin %</label>
+                <div class="efm-suffix">
+                  <input class="efm-input" placeholder="0" value="30" />
+                  <span class="unit">%</span>
+                </div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Sale Rate</label>
+                <div class="efm-suffix">
+                  <input class="efm-input" placeholder="auto" value="130.00" />
+                  <span class="unit">₹</span>
+                </div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">MRP</label>
+                <div class="efm-suffix">
+                  <input class="efm-input" placeholder="0.00" />
+                  <span class="unit">₹</span>
+                </div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">GST %</label>
+                <select class="efm-select">
+                  <option>0%</option><option>5%</option><option>12%</option><option>18%</option><option>28%</option>
+                </select>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">HSN Code</label>
+                <input class="efm-input" placeholder="6207" />
+              </div>
+            </div>
+          </section>
+
+          <section class="efm-section">
+            <div class="efm-section-hd">
+              <span class="lbl">Inventory</span>
+              <span class="anchor"><kbd>Alt</kbd>+<kbd>3</kbd></span>
+            </div>
+            <div class="efm-grid cols-3">
+              <div class="efm-field">
+                <label class="efm-lbl">Opening Stock</label>
+                <input class="efm-input" placeholder="0" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Min Level</label>
+                <input class="efm-input" placeholder="0" />
+                <span class="efm-help">Triggers low-stock alert</span>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Pcs / Box</label>
+                <input class="efm-input" placeholder="1" />
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+        <footer class="efm-ft">
+          <button class="fkey danger" type="button">
+            <kbd>Esc</kbd> Cancel
+          </button>
+          <button class="fkey" type="button">
+            <kbd>F5</kbd> Reset
+          </button>
+          <span class="spacer"></span>
+          <button class="fkey" type="button">
+            <kbd>F8</kbd> Save & Close
+          </button>
+          <button class="fkey primary" type="button">
+            <kbd>F1</kbd> Save
+          </button>
+        </footer>
+
+      </div>
+    </div>
+
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <!-- VARIANT 2: CUSTOMER (medium)                                    -->
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <div>
+      <span class="mock-tag">Variant 2 · Customer</span>
+      <div class="efm" role="dialog" aria-label="Create Customer">
+
+        <header class="efm-hd">
+          <div class="ic" style="background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.28);color:#4ade80;">C</div>
+          <div class="efm-hd-title">
+            <h2>Add Customer</h2>
+            <div class="sub">Walk-in or credit account</div>
+          </div>
+          <button class="efm-hd-x" aria-label="Close">✕</button>
+        </header>
+
+        <div class="efm-body">
+
+          <section class="efm-section">
+            <div class="efm-section-hd">
+              <span class="lbl">Identity</span>
+            </div>
+            <div class="efm-grid">
+              <div class="efm-field full">
+                <label class="efm-lbl">Party Name <span class="req">*</span></label>
+                <input class="efm-input" placeholder="e.g. Bharat Wholesale" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Mobile <span class="req">*</span></label>
+                <input class="efm-input" placeholder="+91 XXXXX XXXXX" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Alt. Mobile</label>
+                <input class="efm-input" />
+              </div>
+              <div class="efm-field full">
+                <label class="efm-lbl">GST Number</label>
+                <input class="efm-input" placeholder="22AAAAA0000A1Z5" style="font-family:'JetBrains Mono',monospace;" />
+                <span class="efm-help">Optional · 15 chars · validated on save</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="efm-section">
+            <div class="efm-section-hd">
+              <span class="lbl">Address</span>
+            </div>
+            <div class="efm-grid">
+              <div class="efm-field full">
+                <label class="efm-lbl">Address Line</label>
+                <input class="efm-input" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">City</label>
+                <input class="efm-input" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">PIN Code</label>
+                <input class="efm-input" placeholder="6 digits" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">State</label>
+                <select class="efm-select">
+                  <option>Maharashtra</option>
+                  <option>Karnataka</option>
+                </select>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Country</label>
+                <input class="efm-input" value="India" />
+              </div>
+            </div>
+          </section>
+
+          <section class="efm-section">
+            <div class="efm-section-hd">
+              <span class="lbl">Credit</span>
+            </div>
+            <div class="efm-grid cols-3">
+              <div class="efm-field">
+                <label class="efm-lbl">Allow Credit</label>
+                <div class="efm-pills" role="tablist">
+                  <button class="on" type="button">Yes</button>
+                  <button type="button">No</button>
+                </div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Credit Limit</label>
+                <div class="efm-suffix">
+                  <input class="efm-input" placeholder="0" />
+                  <span class="unit">₹</span>
+                </div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Credit Days</label>
+                <input class="efm-input" placeholder="0" />
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+        <footer class="efm-ft">
+          <button class="fkey danger" type="button">
+            <kbd>Esc</kbd> Cancel
+          </button>
+          <button class="fkey" type="button">
+            <kbd>F5</kbd> Reset
+          </button>
+          <span class="spacer"></span>
+          <button class="fkey" type="button">
+            <kbd>F8</kbd> Save & Close
+          </button>
+          <button class="fkey primary" type="button">
+            <kbd>F1</kbd> Save
+          </button>
+        </footer>
+
+      </div>
+    </div>
+
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <!-- VARIANT 3: CATEGORY (minimal — proves shell adapts to small)    -->
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <div>
+      <span class="mock-tag">Variant 3 · Category</span>
+      <div class="efm" role="dialog" aria-label="Create Category">
+
+        <header class="efm-hd">
+          <div class="ic" style="background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.28);color:#fbbf24;">⌘</div>
+          <div class="efm-hd-title">
+            <h2>Add Category</h2>
+            <div class="sub">Top-level inventory grouping</div>
+          </div>
+          <button class="efm-hd-x" aria-label="Close">✕</button>
+        </header>
+
+        <div class="efm-body">
+
+          <section class="efm-section">
+            <div class="efm-grid">
+              <div class="efm-field full">
+                <label class="efm-lbl">Category Name <span class="req">*</span></label>
+                <input class="efm-input" placeholder="e.g. Sarees" />
+                <span class="efm-help">Used in product master + reports drill-down</span>
+              </div>
+              <div class="efm-field full">
+                <label class="efm-lbl">Description</label>
+                <textarea class="efm-textarea" placeholder="Internal notes (optional)"></textarea>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Status</label>
+                <div class="efm-pills" role="tablist">
+                  <button class="on" type="button">Active</button>
+                  <button type="button">Inactive</button>
+                </div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Sort Order</label>
+                <input class="efm-input" placeholder="0" />
+                <span class="efm-help">Lower numbers float up</span>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+        <footer class="efm-ft">
+          <button class="fkey danger" type="button">
+            <kbd>Esc</kbd> Cancel
+          </button>
+          <button class="fkey" type="button">
+            <kbd>F5</kbd> Reset
+          </button>
+          <span class="spacer"></span>
+          <button class="fkey" type="button">
+            <kbd>F8</kbd> Save & Close
+          </button>
+          <button class="fkey primary" type="button">
+            <kbd>F1</kbd> Save
+          </button>
+        </footer>
+
+      </div>
+    </div>
+
+  </div><!-- /.row -->
+
+
+  <!-- ────────────────────────────────────────────────────────────── -->
+  <!-- DESIGN NOTES                                                     -->
+  <!-- ────────────────────────────────────────────────────────────── -->
+  <div class="notes">
+    <h3>Design notes — what's intentional</h3>
+    <div class="notes-grid">
+
+      <div class="note-item">
+        <h4>Solid, not soft</h4>
+        Modal corners are <code>6px</code>. Field corners are <code>4px</code>. Borders are <code>1px</code>
+        hairlines at <code>--border:#2a313e</code> — a deliberate step darker than the
+        previous "muted-grey" treatment. No drop shadow on cards inside the modal;
+        only the modal itself lifts off the page.
+      </div>
+
+      <div class="note-item">
+        <h4>Typography hierarchy</h4>
+        Title <code>15/700</code>, section eyebrow <code>9.5/700/uppercase/1.4em letter-spacing</code>,
+        field label <code>11/600/uppercase/0.04em</code>, value <code>13/500</code>. Three weights
+        (500 / 600 / 700) plus uppercasing carry the hierarchy — no extra colour
+        noise needed.
+      </div>
+
+      <div class="note-item">
+        <h4>F-key footer matches the bill forms</h4>
+        Pinned to the bottom: <code>Esc Cancel</code> · <code>F5 Reset</code> · spacer ·
+        <code>F8 Save & Close</code> · <code>F1 Save</code>. Each is labelled with a real
+        <code>&lt;kbd&gt;</code> chip so the muscle-memory user sees the binding without hovering.
+        F1 is the primary action, accent-filled, right-most.
+      </div>
+
+      <div class="note-item">
+        <h4>Section anchors</h4>
+        Long forms (Product) get <code>Alt+1</code> / <code>Alt+2</code> / <code>Alt+3</code> jumps
+        rendered as a small pill on the right of each section header. Short forms
+        (Category) skip them entirely — the shell hides the chip when only one
+        section exists.
+      </div>
+
+      <div class="note-item">
+        <h4>Field affordances</h4>
+        Numerics use <code>font-variant-numeric: tabular-nums</code> so columns align.
+        Suffix units (<code>₹</code> · <code>%</code>) live in their own muted slot to the right of
+        the input — clearer than placing them as a placeholder. Required fields
+        carry a single red asterisk (no label colour change — just one signal,
+        one place).
+      </div>
+
+      <div class="note-item">
+        <h4>Relation pickers</h4>
+        Category, Party, Godown — anything that links to another entity — gets
+        <code>⌘K</code> picker + <code>+</code> new shortcut. The "+ new" path opens the SAME
+        modal shell for the related entity, stacked at <code>z-index+1</code>; closing it
+        returns the operator to the original form with the new value pre-selected.
+      </div>
+
+      <div class="note-item">
+        <h4>Dirty-state confirm</h4>
+        <code>Esc</code> with no edits → close instantly. <code>Esc</code> with edits →
+        small inline confirm (no second modal): <code>"Discard changes? Esc again, or
+        F1 to save."</code> Two-keystroke escape preserves the no-modal-stack rule.
+      </div>
+
+      <div class="note-item">
+        <h4>Phase 4: global "Create…" launcher</h4>
+        Optional follow-up. <code>Cmd+N</code> (or <code>Ctrl+N</code>) opens a small palette
+        with a single search input — type <code>prod</code>, <code>cust</code>, <code>cat</code> →
+        Enter opens the matching create modal. Built on top of the same shell;
+        zero duplicate modal code.
+      </div>
+
+    </div>
+  </div>
+
+  <div class="backdrop-hint">
+    <b>How it lands in the app:</b>
+    The modal sits in the centre of the viewport with a <code>rgba(0,0,0,.55)</code> dim
+    backdrop covering the page behind it. Only one modal open at a time except
+    in the relation-picker → "+ new" stack case noted above. The page underneath
+    keeps focus inert so <code>Tab</code> stays inside the modal until close.
+  </div>
+
+</div>
+</body>
+</html>

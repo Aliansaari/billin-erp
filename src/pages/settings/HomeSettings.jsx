@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 
 import useHomeSettingsStore, { KNOWN_ACTIONS } from '../../store/homeSettingsStore';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import './ModuleSettings.css';
 
 const { Title, Text } = Typography;
 
@@ -70,26 +71,21 @@ export default function HomeSettings() {
   };
 
   return (
-    /* Outer shell — fills the AppLayout's full-page Content (100vh). The
-     * page splits into a fixed header and a scrolling body so toggle cards
-     * scroll inside this page without engaging the app-level scrollbar. */
-    <div style={{
-      height: '100%',
-      width: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      background: 'var(--bg-app)',
-      overflow: 'hidden',
-    }}>
-      <FixedHeader onReset={reset} />
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <h1 className="ms-page-title">Home Page</h1>
+          <p className="ms-page-sub">
+            Choose what shows on the Command Center landing page. Changes save instantly.
+          </p>
+        </div>
+        <Tooltip title="Restore every toggle to its default value.">
+          <Button icon={<ReloadOutlined />} onClick={reset}>Restore defaults</Button>
+        </Tooltip>
+      </header>
 
-      {/* Scrollable body — every card lives here. */}
-      <div style={{
-        flex: '1 1 auto',
-        minHeight: 0,
-        overflowY: 'auto',
-      }}>
-        <div style={{ padding: '20px clamp(12px, 2vw, 32px) 32px', maxWidth: 960, margin: '0 auto' }}>
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
 
           {/* ── Live preview ────────────────────────────────────────────────── */}
           <Card
@@ -225,37 +221,9 @@ export default function HomeSettings() {
  * Sits above the scrollable body so the title + restore-defaults stay
  * visible while the operator scrolls through toggle cards below.
  * ══════════════════════════════════════════════════════════════════════════ */
-function FixedHeader({ onReset }) {
-  return (
-    <header style={{
-      flex: '0 0 auto',
-      background: 'var(--bg-panel)',
-      borderBottom: '1px solid var(--border)',
-      padding: '18px clamp(12px, 2vw, 32px)',
-    }}>
-      <div style={{
-        maxWidth: 960, margin: '0 auto',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: 16, flexWrap: 'wrap',
-      }}>
-        <div>
-          <Title level={3} style={{ margin: 0, color: 'var(--fg-primary)', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <HomeOutlined style={{ color: 'var(--accent)' }} />
-            Home page
-          </Title>
-          <Text style={{ color: 'var(--fg-secondary)', fontSize: 13 }}>
-            Choose what shows on the Command Center landing page. Changes save instantly.
-          </Text>
-        </div>
-        <Tooltip title="Restore every toggle to its default value.">
-          <Button icon={<ReloadOutlined />} onClick={onReset}>
-            Restore defaults
-          </Button>
-        </Tooltip>
-      </div>
-    </header>
-  );
-}
+/* FixedHeader removed — header now lives inline at the top of the
+ * page using the shared .ms-page-header pattern that every settings
+ * page uses. Kept the function name retired to flag the migration. */
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Action picker — grid of card buttons. Each card mirrors the look of the
@@ -443,37 +411,124 @@ function PreviewBar() {
  * (the real page picks up live data + animations) — it's just a layout
  * stand-in. */
 function Preview({ cfg }) {
-  const visibleKpiCount = [
-    cfg.showKpiSales, cfg.showKpiBills, cfg.showKpiRecv, cfg.showKpiPay, cfg.showKpiProfit,
-  ].filter(Boolean).length;
+  // Realistic mock data for the KPI strip — each card shows the same
+  // label/value/trend pattern the real Home page renders, just smaller.
+  // Using dummy figures so the preview reads as "this is what your
+  // Home will look like" rather than a wireframe of empty boxes.
+  const KPI_DATA = [
+    { key: 'showKpiSales',  label: 'Sales today',  value: '₹ 2.48L', trend: '+12%',     tone: 'success' },
+    { key: 'showKpiBills',  label: 'Bills today',  value: '24',      trend: '+3',       tone: 'success' },
+    { key: 'showKpiRecv',   label: 'Receivables',  value: '₹ 2.01L', trend: '18 due',   tone: 'warning' },
+    { key: 'showKpiPay',    label: 'Payables',     value: '₹ 6.79L', trend: '13 supp.', tone: 'warning' },
+    { key: 'showKpiProfit', label: 'Profit · MTD', value: '₹ 54k',   trend: '+8%',      tone: 'success' },
+  ];
+  const visibleKpis = KPI_DATA.filter((k) => cfg[k.key]);
   const actionCount = (cfg.actions || []).length || 1;
+
+  // Realistic action labels — covers the common Home action ribbon.
+  const ACTION_DATA = [
+    { label: 'Sale',      shortcut: '⌃S' },
+    { label: 'Purchase',  shortcut: '⌃P' },
+    { label: 'Receipt',   shortcut: 'F6' },
+    { label: 'Payment',   shortcut: 'F7' },
+    { label: 'Day book',  shortcut: 'D' },
+    { label: 'Dashboard', shortcut: '⌃D' },
+    { label: 'Reports',   shortcut: 'R' },
+    { label: 'Search',    shortcut: '⌘K' },
+  ];
+
+  const toneColor = (tone) =>
+    tone === 'success' ? 'var(--success)'
+    : tone === 'warning' ? 'var(--warning)'
+    : 'var(--fg-tertiary)';
+  const toneBg = (tone) =>
+    tone === 'success' ? 'var(--success-bg)'
+    : tone === 'warning' ? 'var(--warning-bg)'
+    : 'var(--bg-muted)';
 
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      height: 280,
-      background: 'var(--bg-app)',
+      height: 320,
+      background:
+        'radial-gradient(800px 280px at 50% 60%, var(--accent-bg), transparent 70%), ' +
+        'var(--bg-app)',
       padding: 0,
+      borderRadius: 8,
+      overflow: 'hidden',
     }}>
-      {/* KPI strip */}
-      {cfg.showKpiStrip && visibleKpiCount > 0 && (
+      {/* KPI strip — realistic mini cards with label, value, trend chip. */}
+      {cfg.showKpiStrip && visibleKpis.length > 0 && (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: `repeat(${visibleKpiCount}, 1fr)`,
+          gridTemplateColumns: `repeat(${visibleKpis.length}, 1fr)`,
           gap: 6,
           padding: '8px 12px',
           flex: '0 0 auto',
         }}>
-          {Array.from({ length: visibleKpiCount }).map((_, i) => (
-            <div key={i} style={{
-              background: 'var(--bg-panel)', border: '1px solid var(--border)',
-              borderRadius: 6, height: 50, padding: 6,
-              display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+          {visibleKpis.map((k) => (
+            <div key={k.key} style={{
+              background: 'var(--bg-panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              minHeight: 56,
+              padding: '6px 8px',
+              display: 'flex', flexDirection: 'column', gap: 3,
             }}>
-              <div style={{ height: 5, width: '40%', background: 'var(--bg-muted)', borderRadius: 2 }} />
-              <div style={{ height: 8, width: '60%', background: 'var(--fg-tertiary)', opacity: 0.4, borderRadius: 2 }} />
-              {cfg.showKpiSparks && <div style={{ height: 4, width: '90%', background: 'var(--accent-bg)', borderRadius: 2 }} />}
+              <div style={{
+                fontSize: 7,
+                fontWeight: 700,
+                letterSpacing: 0.6,
+                color: 'var(--fg-tertiary)',
+                textTransform: 'uppercase',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}>
+                {k.label}
+              </div>
+              <div style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: 'var(--fg-primary)',
+                letterSpacing: '-0.01em',
+                lineHeight: 1.1,
+              }}>
+                {k.value}
+              </div>
+              {k.trend && (
+                <span style={{
+                  fontSize: 7,
+                  fontWeight: 600,
+                  padding: '1px 5px',
+                  borderRadius: 999,
+                  background: toneBg(k.tone),
+                  color: toneColor(k.tone),
+                  alignSelf: 'flex-start',
+                }}>
+                  {k.trend}
+                </span>
+              )}
+              {cfg.showKpiSparks && (
+                <div style={{
+                  marginTop: 'auto',
+                  height: 3,
+                  width: '100%',
+                  background: 'var(--accent-bg)',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  position: 'relative',
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: '70%',
+                    background: 'var(--accent)',
+                    opacity: 0.7,
+                    borderRadius: 2,
+                  }} />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -483,44 +538,117 @@ function Preview({ cfg }) {
       <div style={{
         flex: '1 1 auto', minHeight: 0,
         display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center', gap: 8,
-        padding: 12,
+        alignItems: 'center', justifyContent: 'center', gap: 5,
+        padding: 10,
       }}>
         {cfg.showGreeting && (
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.4, color: 'var(--accent)', textTransform: 'uppercase' }}>
+          <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 1.4, color: 'var(--accent)', textTransform: 'uppercase' }}>
             WORKING LATE
           </div>
         )}
         {cfg.showHeadline && (
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-primary)' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--fg-primary)', letterSpacing: '-0.01em' }}>
             What would you like to do?
           </div>
         )}
         {cfg.showSearch && (
           <div style={{
-            height: 22, width: '60%',
+            height: 26,
+            width: '64%',
             background: 'var(--bg-elevated)',
             border: '1.5px solid var(--accent-border)',
             borderRadius: 8,
             boxShadow: '0 0 0 3px var(--accent-bg)',
-          }} />
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '0 6px',
+          }}>
+            {/* Mini search-glass icon — pure CSS so no asset dependency. */}
+            <span style={{
+              width: 9,
+              height: 9,
+              borderRadius: '50%',
+              border: '1.5px solid var(--fg-tertiary)',
+              flexShrink: 0,
+              position: 'relative',
+            }}>
+              <span style={{
+                position: 'absolute',
+                right: -4,
+                bottom: -4,
+                width: 4,
+                height: 1.5,
+                background: 'var(--fg-tertiary)',
+                transform: 'rotate(45deg)',
+                transformOrigin: 'left center',
+              }} />
+            </span>
+            <span style={{
+              flex: 1,
+              fontSize: 9,
+              color: 'var(--fg-tertiary)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}>
+              Search anything — customers, products, bills, reports…
+            </span>
+            <span style={{
+              fontSize: 7,
+              fontWeight: 600,
+              fontFamily: 'ui-monospace, SF Mono, Menlo, monospace',
+              color: 'var(--fg-tertiary)',
+              background: 'var(--bg-muted)',
+              border: '1px solid var(--border-subtle)',
+              padding: '1px 4px',
+              borderRadius: 3,
+              lineHeight: 1.2,
+              flexShrink: 0,
+            }}>
+              ⌘K
+            </span>
+          </div>
         )}
         {cfg.showSearch && cfg.showSearchHint && (
-          <div style={{ height: 5, width: '40%', background: 'var(--bg-muted)', borderRadius: 2 }} />
+          <div style={{
+            fontSize: 7,
+            color: 'var(--fg-tertiary)',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <span style={{
+                fontFamily: 'ui-monospace, monospace',
+                background: 'var(--bg-muted)', border: '1px solid var(--border-subtle)',
+                padding: '0 3px', borderRadius: 2, fontSize: 6.5, fontWeight: 600,
+              }}>⌥S</span>
+              <span style={{ opacity: 0.85 }}>sale</span>
+            </span>
+            <span style={{ opacity: 0.5 }}>·</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <span style={{
+                fontFamily: 'ui-monospace, monospace',
+                background: 'var(--bg-muted)', border: '1px solid var(--border-subtle)',
+                padding: '0 3px', borderRadius: 2, fontSize: 6.5, fontWeight: 600,
+              }}>⌥P</span>
+              <span style={{ opacity: 0.85 }}>purchase</span>
+            </span>
+          </div>
         )}
         {cfg.showClock && (
           <div style={{
             fontFamily: 'ui-monospace, monospace',
-            fontSize: 28, fontWeight: 700, color: 'var(--fg-primary)',
+            fontSize: 22, fontWeight: 700, color: 'var(--fg-primary)',
             letterSpacing: '-0.04em',
-            display: 'flex', alignItems: 'center', gap: 8,
-            marginTop: 6,
+            display: 'flex', alignItems: 'center', gap: 7,
+            marginTop: 4,
+            fontVariantNumeric: 'tabular-nums',
           }}>
             {cfg.showLivePulse && (
               <span style={{
-                width: 7, height: 7, borderRadius: '50%',
+                width: 6, height: 6, borderRadius: '50%',
                 background: 'var(--success)',
-                boxShadow: '0 0 0 3px var(--success-bg)',
+                boxShadow: '0 0 0 2px var(--success-bg)',
               }} />
             )}
             {(() => {
@@ -531,7 +659,7 @@ function Preview({ cfg }) {
         )}
         {cfg.showClock && cfg.showClockDate && (
           <div style={{
-            fontSize: 9,
+            fontSize: 8,
             fontWeight: 700,
             letterSpacing: 1.4,
             color: 'var(--fg-secondary)',
@@ -543,22 +671,54 @@ function Preview({ cfg }) {
         )}
       </div>
 
-      {/* Action ribbon */}
+      {/* Action ribbon — content-sized mini cards centred in the row.
+       * 1fr grid stretched cards across the full width which made
+       * the label/shortcut sit absurdly far apart on wide previews. */}
       {cfg.showActionRibbon && actionCount > 0 && (
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${Math.min(actionCount, 8)}, 1fr)`,
-          gap: 4,
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          gap: 6,
           padding: '8px 12px',
           background: 'var(--bg-muted)',
           borderTop: '1px solid var(--border)',
           flex: '0 0 auto',
         }}>
-          {Array.from({ length: Math.min(actionCount, 8) }).map((_, i) => (
-            <div key={i} style={{
-              height: 28, background: 'var(--bg-panel)',
-              border: '1px solid var(--border)', borderRadius: 5,
-            }} />
+          {ACTION_DATA.slice(0, Math.min(actionCount, ACTION_DATA.length)).map((a) => (
+            <div key={a.label} style={{
+              height: 26,
+              background: 'var(--bg-panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 5,
+              padding: '0 8px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              flexShrink: 0,
+            }}>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: 'var(--fg-primary)',
+                whiteSpace: 'nowrap',
+              }}>
+                {a.label}
+              </span>
+              <span style={{
+                fontSize: 8,
+                fontWeight: 600,
+                fontFamily: 'ui-monospace, SF Mono, Menlo, monospace',
+                color: 'var(--fg-tertiary)',
+                background: 'var(--bg-muted)',
+                border: '1px solid var(--border-subtle)',
+                padding: '1px 5px',
+                borderRadius: 3,
+                lineHeight: 1.2,
+              }}>
+                {a.shortcut}
+              </span>
+            </div>
           ))}
         </div>
       )}

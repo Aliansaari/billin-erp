@@ -18,6 +18,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { backupAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import CleanupModal from './CleanupModal';
+import './ModuleSettings.css';
 
 dayjs.extend(relativeTime);
 
@@ -566,57 +567,56 @@ export default function BackupRestore() {
   ];
 
   return (
-    <div style={{ padding: '0 4px' }}>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <h1 className="ms-page-title">Backup &amp; Recovery</h1>
+        <p className="ms-page-sub">
+          Create, schedule, and restore full database backups — all data included. The Danger Zone
+          at the bottom permanently deletes data by category.
+        </p>
+      </header>
 
-      {/* Page header */}
-      <div style={{ marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          <DatabaseOutlined style={{ marginRight: 10, color: '#1677ff' }} />
-          Backup &amp; Recovery
-        </Title>
-        <Text type="secondary">
-          Create, schedule, and restore full database backups — all data included.
-        </Text>
-      </div>
-
-      {/* Stats row */}
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
+      {/* Stats row — uses theme tokens so the cards adapt to dark mode
+          instead of staying pastel-light against a dark page. */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ background: '#f0f7ff', borderRadius: 12 }}>
+          <Card bordered={false} style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent-border)', borderRadius: 12 }}>
             <Statistic
               title="Total Backups"
               value={backups.length}
-              prefix={<DatabaseOutlined style={{ color: '#1677ff' }} />}
+              prefix={<DatabaseOutlined style={{ color: 'var(--accent)' }} />}
             />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ background: '#f6ffed', borderRadius: 12 }}>
+          <Card bordered={false} style={{ background: 'var(--success-bg)', border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
             <Statistic
               title="Storage Used"
               value={totalSize}
-              prefix={<FolderOpenOutlined style={{ color: '#52c41a' }} />}
+              prefix={<FolderOpenOutlined style={{ color: 'var(--success)' }} />}
             />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ background: '#fffbe6', borderRadius: 12 }}>
+          <Card bordered={false} style={{ background: 'var(--warning-bg)', border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
             <Statistic
               title="Last Backup"
               value={lastBackupTime}
-              prefix={<ClockCircleOutlined style={{ color: '#faad14' }} />}
+              prefix={<ClockCircleOutlined style={{ color: 'var(--warning)' }} />}
             />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ background: settings.enabled ? '#f6ffed' : '#fafafa', borderRadius: 12 }}>
+          <Card bordered={false} style={{ background: settings.enabled ? 'var(--success-bg)' : 'var(--bg-muted)', border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
             <Statistic
               title="Auto-Backup"
               value={settings.enabled ? `${(settings.frequency || 'daily').charAt(0).toUpperCase() + (settings.frequency || 'daily').slice(1)}` : 'Disabled'}
               prefix={
                 settings.enabled
-                  ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                  : <CloseCircleOutlined style={{ color: '#d9d9d9' }} />
+                  ? <CheckCircleOutlined style={{ color: 'var(--success)' }} />
+                  : <CloseCircleOutlined style={{ color: 'var(--fg-tertiary)' }} />
               }
             />
           </Card>
@@ -729,6 +729,8 @@ export default function BackupRestore() {
           )}
         </Space>
       </Modal>
+        </div>
+      </div>
 
       <ActionStrip
         actions={[

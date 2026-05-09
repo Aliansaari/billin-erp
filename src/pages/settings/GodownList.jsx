@@ -5,6 +5,7 @@ import { godownAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import EntityFormModal from '../../components/EntityFormModal';
+import './ModuleSettings.css';
 
 const { Section, Field } = EntityFormModal;
 const EMPTY_GD = { code: '', name: '', address: '', city: '', state: '', pincode: '', gstin: '' };
@@ -217,19 +218,19 @@ export default function GodownList() {
   ], []);
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <BankOutlined /> Godowns
-        </h2>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <h1 className="ms-page-title">Godowns</h1>
+          <p className="ms-page-sub">
+            Physical storage locations. Each bill is issued from a specific godown; stock is tracked per-godown.
+          </p>
+        </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Add Godown</Button>
-      </div>
+      </header>
 
-      <p style={{ color: 'var(--fg-secondary, #6b7280)', marginTop: 0, marginBottom: 16, fontSize: 13 }}>
-        Physical storage locations. Each bill is issued from a specific godown; stock is tracked per-godown.
-        Stock transfers move inventory between godowns without affecting books.
-      </p>
-
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
       <Table
         rowKey="godown_id"
         loading={loading}
@@ -252,6 +253,8 @@ export default function GodownList() {
           onDoubleClick: () => record && openEdit(record),
         })}
       />
+        </div>
+      </div>
 
       {/* ── Add / Edit Godown — uses the shared EntityFormModal shell.
        *  Two sections: Identity (code + name + address) and

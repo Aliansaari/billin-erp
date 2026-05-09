@@ -22,9 +22,17 @@ async function generateBarcode(transaction) {
     if (!settings) throw new Error('Barcode settings not configured');
 
     const nextNumber = settings.current_number + 1;
-    const digits     = Math.max(1, (settings.total_digits || 13) - (settings.prefix?.length || 0) - 1);
+    // Empty prefix is allowed — pure-numeric barcodes (e.g. EAN-style)
+    // are produced by leaving prefix blank. The separator (- / _ / /
+    // / . / none) is configurable and only counts toward digits when
+    // both prefix and separator are non-empty.
+    const prefix = settings.prefix || '';
+    const sepRaw = settings.separator ?? '-';
+    const separator = prefix ? sepRaw : '';
+    const usedChars = prefix.length + separator.length;
+    const digits = Math.max(1, (settings.total_digits || 13) - usedChars);
     const paddedNumber = String(nextNumber).padStart(digits, '0');
-    const barcode = `${settings.prefix}-${paddedNumber}`;
+    const barcode = `${prefix}${separator}${paddedNumber}`;
 
     await settings.update({ current_number: nextNumber }, { transaction: t });
     return barcode;
