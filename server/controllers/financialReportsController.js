@@ -971,6 +971,12 @@ exports.cashFlowMonth = async (req, res) => {
           WHERE le.ledger_id IN (:ids)
             AND ${liveEntriesWhereSql('le', true, true)}
        ),
+       -- Audit M8: when a voucher splits cash across multiple contra
+       -- ledgers (e.g. Cash 100 / Sales 80 / CGST 10 / SGST 10), this
+       -- DISTINCT ON picks the first non-cash leg and attributes the
+       -- WHOLE cash amount to its sub_group. Tally-style attribution —
+       -- documented behaviour, but worth flagging here so an
+       -- enhancement that splits cash by leg-amount stays compatible.
        contra_first AS (
          SELECT DISTINCT ON (le.entry_number)
                 le.entry_number,

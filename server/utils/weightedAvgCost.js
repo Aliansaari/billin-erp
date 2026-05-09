@@ -134,11 +134,22 @@ async function recomputeWeightedAvgFromLedger({ product_id, t }) {
       stock = newStock;
     }
     if (qOut > 0) {
-      // Returns / negative adjustments don't change wac in steady state
-      // (returning at the same rate just trims contribution proportionally).
-      // We DO drop wac when stock goes to zero — the next purchase resets
-      // the basis. Sales aren't in this loop because they don't affect
-      // wac (cost_rate snapshot was already taken at sale time).
+      // qOut here is from the qty_out side of Purchase Return /
+      // Stock Adjustment ledger rows (Sales aren't replayed — they
+      // don't affect wac; the cost_rate snapshot was taken at sale
+      // time). Returns / negative adjustments don't change wac in
+      // steady state (returning at the same rate just trims the
+      // contribution proportionally).
+      //
+      // When stock crosses zero we drop wac; the next purchase resets
+      // the basis from scratch. This is intentional — there's no
+      // meaningful weighted average to carry across a stock-out — but
+      // it does mean a temporary zero-crossing on `allow_negative_stock`
+      // products will erase the historical wac. Audit M5: documented
+      // in case anyone tries to extend this to preserve wac across
+      // crossings; the simplest preservation rule (keep wac when
+      // stock dips ≤ 0 but expect the basis to reset on next inward)
+      // is what callers already see in practice.
       stock = stock - qOut;
       if (stock <= 0) { stock = 0; wac = 0; }
     }
