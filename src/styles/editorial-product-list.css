@@ -579,7 +579,23 @@
    Stock-movement page specifics — same tokens, different layout:
    left pane is a product picker, right pane is the ledger.
    ═══════════════════════════════════════════════════════════════════════ */
+/* Stock Movement uses a side-by-side layout: picker (left) + ledger
+ * (right). The legacy `.ed-prod.sm` did this by flipping the outer to
+ * flex-direction:row, but that swallowed the bottom ActionStrip into
+ * the row and floated it top-right. New `.sm-page` keeps the outer
+ * flex-column (so the ActionStrip flows below) and `.sm-row` does the
+ * horizontal layout. */
 .ed-prod.sm { flex-direction: row; }
+.ed-prod.sm-page {
+  flex-direction: column;
+}
+.ed-prod.sm-page .sm-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
 .ed-prod .sm-pick {
   width: 320px; flex: 0 0 320px;
   border-right: 1px solid var(--ed-rule);

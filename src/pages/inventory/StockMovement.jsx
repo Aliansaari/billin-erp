@@ -313,7 +313,13 @@ export default function StockMovement() {
   };
 
   return (
-    <div className="ed-prod sm">
+    // Outer wrapper is flex COLUMN so the ActionStrip below sits at
+    // the bottom of the viewport. The aside + section are nested
+    // inside `.sm-row` so they flow side-by-side as before — without
+    // this, the row-layout on `.ed-prod.sm` swallowed the strip into
+    // the row and floated it top-right of the page.
+    <div className="ed-prod sm-page">
+     <div className="sm-row">
 
       {/* ── Left: product picker ── */}
       <aside className="sm-pick">
@@ -604,6 +610,7 @@ export default function StockMovement() {
           </>
         )}
       </section>
+     </div>{/* /.sm-row */}
 
       <ActionStrip
         actions={[
