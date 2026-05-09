@@ -38,32 +38,39 @@ const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const VALID_MODES = ['sales', 'purchase', 'payment', 'receipt'];
 
 // Per-mode definition. `naturalSide` drives the closing-balance suffix
-// (Dr or Cr) and the opening interpretation. `ledgerName` is set for
-// ledger-backed modes; voucher-backed modes (payment, receipt) use the
-// _voucherRows query path instead.
+// (Dr or Cr) and the opening interpretation. `subGroup` matches ledger
+// accounts by their `sub_group` column — the same classification the
+// rest of the reporting codebase uses (financialReportsController's
+// SALES_ACCOUNTS_SUB / PURCHASE_ACCOUNTS_SUB). The previous version
+// matched by exact ledger_name='Sales Account', so a renamed primary
+// ledger or a second sales ledger ("Sales – Wholesale") was silently
+// excluded from the register. Audit H15.
+//
+// Voucher-backed modes (payment, receipt) use the _voucherRows query
+// path instead.
 const MODE = {
   sales: {
     label:        'Sales Register',
-    ledgerName:   'Sales Account',
+    subGroup:     'Sales Accounts',
     naturalSide:  'Cr',          // SUM(cr) - SUM(dr), positive = Cr
     rowsFn:       _ledgerRows,
   },
   purchase: {
     label:        'Purchase Register',
-    ledgerName:   'Purchase Account',
+    subGroup:     'Purchase Accounts',
     naturalSide:  'Dr',          // SUM(dr) - SUM(cr), positive = Dr
     rowsFn:       _ledgerRows,
   },
   payment: {
     label:        'Payment Register',
-    ledgerName:   null,           // aggregates payments_receipts
+    subGroup:     null,           // aggregates payments_receipts
     naturalSide:  'Dr',
     rowsFn:       _voucherRows,
     voucherType:  'Payment',
   },
   receipt: {
     label:        'Receipt Register',
-    ledgerName:   null,
+    subGroup:     null,
     naturalSide:  'Cr',
     rowsFn:       _voucherRows,
     voucherType:  'Receipt',
@@ -116,19 +123,30 @@ function fyLabel(from, to) {
 // `closing` per row is signed in the natural side's direction. The
 // frontend formats as "X.XX Cr" or "X.XX Dr" by combining `closing`
 // (signed magnitude) with `closing_side`.
-async function _ledgerRows({ ledgerName, naturalSide, from, to }) {
-  // Opening: net (Dr - Cr) of all entries strictly before `from`. For
-  // a Cr-natural account, store as positive Cr.
+async function _ledgerRows({ subGroup, naturalSide, from, to }) {
+  // Opening: net (Dr - Cr) of all entries strictly before `from` for
+  // every ledger in this sub_group. For a Cr-natural account, store
+  // as positive Cr.
+  //
+  // We filter `ledger_name NOT ILIKE '%return%'` so the Sales Register
+  // continues to show only forward sales (Tally convention) — the seed
+  // puts the system "Sales Return" ledger under sub_group='Sales Accounts'
+  // which would otherwise drag credit-note movements into the register.
+  // The name-based exclusion is safe because the system seeders use
+  // 'Sales Return' / 'Purchase Return' canonical names; user-created
+  // forward ledgers ("Sales – Wholesale", "Sales – GST 12%") still fall
+  // through and are now included (audit H15).
   const [openingRow] = await sequelize.query(
     `SELECT COALESCE(SUM(le.debit_amount),  0)::float AS dr,
             COALESCE(SUM(le.credit_amount), 0)::float AS cr
        FROM ledger_entries le
        JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
-      WHERE la.ledger_name = :name
+      WHERE la.sub_group = :subGroup
+        AND la.ledger_name NOT ILIKE '%return%'
         AND le.entry_date < :from
         AND le.reversal_of_id IS NULL
         AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)`,
-    { replacements: { name: ledgerName, from }, type: sequelize.QueryTypes.SELECT },
+    { replacements: { subGroup, from }, type: sequelize.QueryTypes.SELECT },
   );
   const openingNet = naturalSide === 'Cr'
     ? r2(openingRow.cr - openingRow.dr)
@@ -150,7 +168,8 @@ async function _ledgerRows({ ledgerName, naturalSide, from, to }) {
               COALESCE(SUM(le.credit_amount), 0)::float AS cr
          FROM ledger_entries le
          JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
-        WHERE la.ledger_name = :name
+        WHERE la.sub_group = :subGroup
+          AND la.ledger_name NOT ILIKE '%return%'
           AND le.entry_date >= :from AND le.entry_date <= :to
           AND le.reversal_of_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
@@ -164,7 +183,7 @@ async function _ledgerRows({ ledgerName, naturalSide, from, to }) {
        FROM month_series ms
        LEFT JOIN monthly m ON m.m = ms.month_start
       ORDER BY ms.month_start ASC`,
-    { replacements: { name: ledgerName, from, to }, type: sequelize.QueryTypes.SELECT },
+    { replacements: { subGroup, from, to }, type: sequelize.QueryTypes.SELECT },
   );
 
   let runningClosing = openingNet;
@@ -379,14 +398,16 @@ async function _buildSection(modeKey, from, to, withTax) {
   const data = useBillTotals
     ? await _billTotalRows({ side: modeKey, naturalSide: cfg.naturalSide, from, to })
     : await cfg.rowsFn({
-        ledgerName:   cfg.ledgerName,
+        subGroup:     cfg.subGroup,
         voucherType:  cfg.voucherType,
         naturalSide:  cfg.naturalSide,
         from, to,
       });
   return {
     label:           cfg.label,
-    ledger_name:     cfg.ledgerName || cfg.label.replace(' Register', '') + 's',
+    // The register may aggregate multiple ledgers under one sub_group
+    // now (audit H15) — show the sub_group as the friendly label.
+    ledger_name:     cfg.subGroup || cfg.label.replace(' Register', '') + 's',
     natural_side:    cfg.naturalSide,
     with_tax:        !!useBillTotals,
     opening_balance: data.opening_balance,
