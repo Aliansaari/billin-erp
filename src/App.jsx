@@ -100,6 +100,7 @@ import HomeSettings from './pages/settings/HomeSettings';
 import DashboardSettings from './pages/settings/DashboardSettings';
 import DefaultsSettings from './pages/settings/DefaultsSettings';
 import SettingsLayout from './pages/settings/SettingsLayout';
+import EntityFormModalDemo from './pages/dev/EntityFormModalDemo';
 
 /**
  * Gate a route on the global Multi-warehouse toggle. When the flag is
@@ -415,6 +416,9 @@ export default function App() {
               period range picker. Drill-down from ProfitLoss rewired. */}
           <Route path="reports/fast-slow-stock"    element={<RoleRoute perm="reports.view"><FastSlowStock /></RoleRoute>} />
           <Route path="reports/stock-by-color"             element={<RoleRoute perm="reports.view"><StockByColor /></RoleRoute>} />
+          {/* Dev-only preview route for the new EntityFormModal shell.
+           *  Not linked from any menu. Visit /dev/efm directly to test. */}
+          <Route path="dev/efm"                            element={<EntityFormModalDemo />} />
           <Route path="reports/stock-by-color/:productId"  element={<RoleRoute perm="reports.view"><StockByColorDetail /></RoleRoute>} />
           {/* Redirect — keep the legacy /reports/movers slug alive
               forever so any user-saved bookmark, copy-pasted URL, or

@@ -1,0 +1,466 @@
+/* ── EntityFormModal ─────────────────────────────────────────────────
+ *
+ * Solid editorial language — sharp 6px modal corners, 4px field
+ * corners, 1px hairline borders, dense 32px rows, tabular-num
+ * numerics, F-key footer matching the bill forms. Direct port of
+ * mockups/editorial-create-form.html (v1) to production CSS.
+ *
+ * All colour pulled from the global theme tokens (--bg-*, --fg-*,
+ * --border, --accent, --success, --warning, --danger) so the modal
+ * adapts to every theme without overrides.
+ *
+ * Class prefix: .efm- (Entity Form Modal). Carved out from .sbf-
+ * (sales bill form) and .cols-menu so existing customise modals are
+ * untouched.
+ * ────────────────────────────────────────────────────────────────── */
+
+.efm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* Animate in: backdrop fade + modal pop. Soft enough to feel polished
+   * without delaying the operator. */
+  animation: efm-fade-in 0.12s ease-out;
+}
+
+@keyframes efm-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.efm {
+  width: var(--efm-w, 540px);
+  max-width: 100%;
+  max-height: 86vh;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  animation: efm-pop-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Reset stacking — children own their own positioning. */
+  position: relative;
+}
+
+@keyframes efm-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ── Title strip ──────────────────────────────────────────────── */
+.efm-hd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg-panel));
+  flex-shrink: 0;
+}
+
+.efm-hd-ic {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent-border, rgba(129, 140, 248, 0.32));
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+
+.efm-hd-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.efm-hd-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--fg-primary);
+  line-height: 1.2;
+}
+
+.efm-hd-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+}
+
+.efm-hd-x {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+.efm-hd-x:hover {
+  background: var(--bg-hover, var(--bg-muted));
+  color: var(--fg-primary);
+}
+
+/* ── Body (scroll region) ────────────────────────────────────── */
+.efm-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+  scrollbar-width: thin;
+}
+.efm-body::-webkit-scrollbar { width: 6px; }
+.efm-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.efm-body::-webkit-scrollbar-thumb:hover { background: var(--border-strong, var(--border)); }
+
+/* ── Sections ────────────────────────────────────────────────── */
+.efm-section {
+  padding: 14px 18px 16px;
+}
+.efm-section + .efm-section {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.efm-section-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 12px;
+}
+.efm-section-hd .lbl {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.efm-anchor {
+  font-size: 9.5px;
+  letter-spacing: 0.6px;
+  color: var(--fg-tertiary);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.efm-anchor kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: 600 9.5px/1 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-secondary);
+}
+
+/* ── Field grid ──────────────────────────────────────────────── */
+.efm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+.efm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.efm-field.full {
+  grid-column: 1 / -1;
+}
+.efm-field.third {
+  /* Third-width — combines well with full for "label spans 2/3 + value
+   * spans 1/3" patterns. */
+  grid-column: span 1;
+}
+/* When the parent grid switches to 3 columns, full still spans all */
+.efm-grid.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.efm-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.efm-lbl .req {
+  color: var(--danger);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* Default input/select/textarea styling — consumers can override per
+ * field but should rarely need to. The classes match the mockup. */
+.efm-input,
+.efm-select,
+.efm-textarea {
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+  width: 100%;
+}
+.efm-textarea {
+  height: auto;
+  min-height: 64px;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.45;
+}
+.efm-input::placeholder,
+.efm-textarea::placeholder {
+  color: var(--fg-tertiary);
+  font-weight: 500;
+}
+.efm-input:focus,
+.efm-select:focus,
+.efm-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+.efm-input.has-error,
+.efm-select.has-error,
+.efm-textarea.has-error {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-bg);
+}
+.efm-help {
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+  margin-top: 1px;
+}
+.efm-err {
+  font-size: 10.5px;
+  color: var(--danger);
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+/* Select with chevron affordance */
+.efm-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background:
+    var(--bg-app)
+    url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3e%3cpath d='M2 4l3 3 3-3' stroke='%236e7681' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e")
+    no-repeat right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+/* Inline group: input + suffix unit (e.g. ₹, %, kg, days) */
+.efm-suffix {
+  display: flex;
+  align-items: stretch;
+}
+.efm-suffix .efm-input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+  flex: 1;
+  min-width: 0;
+}
+.efm-suffix .efm-suffix-unit {
+  display: grid;
+  place-items: center;
+  padding: 0 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Toggle pill row (Active / Inactive, Yes / No) */
+.efm-pills {
+  display: inline-flex;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px;
+  gap: 0;
+  width: fit-content;
+}
+.efm-pills button {
+  background: transparent;
+  border: 0;
+  height: 26px;
+  padding: 0 14px;
+  font: 600 11.5px/1 inherit;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  letter-spacing: 0.02em;
+  transition: background 0.12s, color 0.12s;
+}
+.efm-pills button.on {
+  background: var(--accent);
+  color: var(--fg-inverse, #fff);
+}
+.efm-pills button:not(.on):hover {
+  color: var(--fg-primary);
+}
+
+/* ── Dirty-state Esc confirm ribbon ─────────────────────────── */
+.efm-confirm {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--warning-bg, rgba(251, 191, 36, 0.10));
+  border-top: 1px solid var(--warning, #f59e0b);
+  font-size: 12px;
+  color: var(--fg-primary);
+  font-weight: 500;
+}
+.efm-confirm-msg {
+  flex: 1;
+  min-width: 0;
+}
+.efm-confirm-msg kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: 600 10px/1 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-secondary);
+  margin: 0 2px;
+}
+.efm-confirm-keep,
+.efm-confirm-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-secondary);
+  font: 600 11px/1 inherit;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.efm-confirm-keep:hover { color: var(--fg-primary); }
+.efm-confirm-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--fg-inverse, #fff);
+}
+.efm-confirm-save kbd {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.95);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font: 700 9.5px/1 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+}
+.efm-confirm-save:hover { filter: brightness(1.08); }
+
+/* ── Footer (F-key strip) ───────────────────────────────────── */
+.efm-ft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated, var(--bg-panel));
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.efm-ft-spacer {
+  flex: 1;
+}
+
+.efm-ft .fkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-secondary);
+  font: 600 11.5px/1 inherit;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.efm-ft .fkey:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.efm-ft .fkey:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.efm-ft .fkey kbd {
+  display: inline-block;
+  padding: 2px 5px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: 700 10px/1 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-secondary);
+}
+.efm-ft .fkey.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--fg-inverse, #fff);
+}
+.efm-ft .fkey.primary kbd {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.95);
+}
+.efm-ft .fkey.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.efm-ft .fkey.danger {
+  color: var(--danger);
+}
+.efm-ft .fkey.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
