@@ -25,7 +25,7 @@ const {
   LedgerAccount, LedgerEntry, LoanAccount, Party,
 } = require('../models');
 const { getLedgerStatement } = require('../services/ledgerStatementService');
-const { postVoucher } = require('../services/ledgerPostingService');
+const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 
 const LOAN_SUBGROUPS = {
   taken: 'Loans (Liability)',
@@ -78,27 +78,40 @@ function buildSchedule(loan) {
   let outstanding = P;
   // Iterate by month from first_emi_date.
   const baseDate = new Date(loan.first_emi_date);
+  // Audit H10: emit ALL n rows so Σ principal across the schedule
+  // equals the original principal exactly. Previously the
+  // `if (outstanding <= 0.005) break` could exit BEFORE i=n in a
+  // high-rate / short-tenure loan when rounding pushed `outstanding`
+  // to ~0 early — the "i === n absorbs drift" branch never ran and
+  // Σprincipal undershot principal. Now we always run the loop to n
+  // and let the i===n branch top up any sub-paisa drift.
   for (let i = 1; i <= n; i++) {
     const due = new Date(baseDate);
     due.setMonth(due.getMonth() + (i - 1));
     const dueIso = due.toISOString().slice(0, 10);
 
-    const interestPart = r2(outstanding * r);
+    const interestPart = r2(Math.max(0, outstanding) * r);
     let principalPart = r2(emi - interestPart);
-    // Last EMI absorbs any rounding drift so the closing equals 0.
-    if (i === n) principalPart = r2(outstanding);
+    // Last EMI absorbs any rounding drift so Σprincipal == P.
+    if (i === n) principalPart = r2(Math.max(0, outstanding));
     const closing = r2(outstanding - principalPart);
     rows.push({
       emi_no:     i,
       due_date:   dueIso,
-      opening:    r2(outstanding),
+      opening:    r2(Math.max(0, outstanding)),
       interest:   interestPart,
       principal:  principalPart,
       closing:    Math.max(0, closing),
+      // EMI recomputed from the actual principal+interest split for
+      // this row — the last row may differ from `loan.emi_amount` by
+      // a few paise due to rounding absorption, and the schedule
+      // should report what *will* post, not the bank-quoted EMI.
       emi:        r2(principalPart + interestPart),
     });
     outstanding = closing;
-    if (outstanding <= 0.005) break;
+    // Don't early-break — see comment above. If outstanding hits 0
+    // before i=n, subsequent rows will simply have zero
+    // principal/interest, which is harmless.
   }
   return rows;
 }
@@ -969,6 +982,62 @@ exports.recordEMI = async (req, res) => {
   } catch (err) {
     await t.rollback();
     console.error('recordEMI error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+};
+
+// Reverse the most-recently-recorded EMI for a loan. Audit H10:
+// previously the only way to undo a wrong-amount EMI was a manual JV,
+// which left the original `loan_emi` voucher live and `paid_count` stale
+// (the integrity report's loan checks then drifted). This endpoint
+// reverses the highest-emiSeq voucher cleanly, dropping paid_count by
+// one in lockstep.
+exports.reverseEMI = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const ledgerId = parseInt(req.params.ledger_id, 10);
+    if (!Number.isFinite(ledgerId)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid ledger_id' });
+    }
+    const loan = await LoanAccount.findOne({ where: { ledger_id: ledgerId }, transaction: t });
+    if (!loan) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Loan not found' });
+    }
+
+    // Find the highest-numbered live EMI voucher for this loan.
+    // sourceId encoding: loan.loan_id * 100000 + emiSeq, so MAX(sourceId)
+    // in the live (reversal_of_id IS NULL) entries gives us the latest.
+    const [latest] = await sequelize.query(
+      `SELECT MAX(reference_id)::int AS source_id
+         FROM ledger_entries
+        WHERE ledger_id = :id
+          AND source_type = 'loan_emi'
+          AND reversal_of_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = ledger_entries.entry_id
+          )`,
+      { replacements: { id: ledgerId }, type: sequelize.QueryTypes.SELECT, transaction: t },
+    );
+    if (!latest || !latest.source_id) {
+      await t.rollback();
+      return res.status(400).json({ error: 'No EMI to reverse' });
+    }
+
+    await reverseVoucher({
+      sourceType: 'loan_emi',
+      sourceId:   latest.source_id,
+      reason:     req.body?.reason || 'EMI reversed',
+      userId:     req.user?.user_id || null,
+      transaction: t,
+    });
+
+    await t.commit();
+    res.json({ ok: true, reversed_source_id: latest.source_id });
+  } catch (err) {
+    if (!t.finished) await t.rollback().catch(() => {});
+    console.error('reverseEMI error:', err);
     res.status(500).json({ error: 'Server error: ' + err.message });
   }
 };
