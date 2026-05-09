@@ -803,6 +803,21 @@ async function commitBill(job, item, action, kind) {
       }
       const qty = Number(it.quantity) || 0;
       const rate = Number(it.rate) || 0;
+      // Compute per-line GST so total_amount carries the same semantics
+      // as the live UI controllers: total_amount = taxable + GST per row
+      // (audit C3). Excel imports previously wrote total_amount = qty×rate
+      // (taxable-only) which produced inconsistent semantics across bills
+      // — reports that SUM(total_amount) under-counted GST for imported
+      // bills. Cess columns aren't in the workbook schema so are 0 here.
+      const lineTaxable = round2(qty * rate);
+      const gstRate = Number(it.gst_rate) || 0;
+      const lineGst = round2(lineTaxable * gstRate / 100);
+      // Imports default to intra-state (the workbook has no GSTIN column
+      // to thread inter-state through). Even if wrong, the bill-level
+      // header GST is recomputed elsewhere — this only affects the
+      // PER-LINE split. The Excel sheet doesn't separate cgst/sgst/igst
+      // either, so we conservatively split 50/50 into CGST + SGST.
+      const halfGst = round2(lineGst / 2);
       // SalesBillItem stores the line price as `rate`; PurchaseBillItem
       // splits it into `purchase_rate` (NOT NULL — what the supplier
       // charged) and `sale_rate` (planned outgoing). We map the single
@@ -816,9 +831,13 @@ async function commitBill(job, item, action, kind) {
         hsn_code: it.hsn_code || null,
         quantity: qty,
         mrp: 0,
-        taxable_amount: round2(qty * rate),
-        gst_rate: Number(it.gst_rate) || 0,
-        total_amount: round2(qty * rate),
+        taxable_amount: lineTaxable,
+        gst_rate: gstRate,
+        cgst_amount: halfGst,
+        sgst_amount: round2(lineGst - halfGst),
+        igst_amount: 0,
+        cess_amount: 0,
+        total_amount: round2(lineTaxable + lineGst),
       };
       if (kind === 'sales') {
         itemData.rate = rate;

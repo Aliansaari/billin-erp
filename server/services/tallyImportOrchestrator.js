@@ -630,6 +630,15 @@ async function insertVoucherItems({
     // Per-item GST falls back to product master, then to bill-level pct.
     const gstRate = (product && Number(product.gst_rate)) || voucherTaxablePct || 0;
 
+    // total_amount = taxable + GST so the semantics match the live UI
+    // (audit C3). Without this, reports SUM-ing total_amount across
+    // mixed UI + Tally-imported bills under-count GST. Cess unsupported
+    // by Tally XML at this version; defaults to 0. Conservative 50/50
+    // CGST/SGST split for intra-state (Tally schema doesn't expose
+    // inter-state at the line level here).
+    const lineGst = Math.round(taxable * gstRate / 100 * 100) / 100;
+    const halfGst = Math.round(lineGst / 2 * 100) / 100;
+
     const itemData = {
       [idCol]: billId,
       product_id: product ? product.product_id : null,
@@ -640,7 +649,11 @@ async function insertVoucherItems({
       mrp: 0,
       taxable_amount: taxable,
       gst_rate: gstRate,
-      total_amount: taxable,
+      cgst_amount: halfGst,
+      sgst_amount: Math.round((lineGst - halfGst) * 100) / 100,
+      igst_amount: 0,
+      cess_amount: 0,
+      total_amount: Math.round((taxable + lineGst) * 100) / 100,
     };
     if (kind === 'purchase') {
       // PurchaseBillItem.purchase_rate is NOT NULL. sale_rate falls back
