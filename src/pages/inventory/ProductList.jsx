@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Input, Button, Modal, Form, InputNumber, Select, Switch,
+  Input, Button, Form, InputNumber, Select, Switch,
   Row, Col, Divider, message, DatePicker, Dropdown, Tooltip,
 } from 'antd';
 import { BarcodeOutlined, SettingOutlined, EditOutlined, ArrowRightOutlined, TagsOutlined } from '@ant-design/icons';
@@ -13,6 +13,7 @@ import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import ProductColorsPanel from '../../components/ProductColorsPanel';
+import EntityFormModal from '../../components/EntityFormModal';
 import { useSingleColorEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
 
 dayjs.extend(relativeTime);
@@ -161,26 +162,30 @@ export default function ProductList() {
   const [form] = Form.useForm();
 
   // Sidebar deep-link — /products?new=1 lands here from the "New
-  // Product" sidebar entry. Open the create modal once on mount, then
-  // strip the param so refreshing doesn't re-open it.
+  // Product" entry. Open the modal every time the param appears, then
+  // strip it. Dep on searchParams so revisiting the URL while already
+  // on /products also fires (without it, "New Product" while already
+  // on /products is a no-op).
+  //
+  // Open synchronously (no setTimeout). A previous version deferred the
+  // open via setTimeout + clearTimeout cleanup — but stripping the
+  // search param re-fires the effect, the cleanup runs, and the
+  // pending timeout is cancelled before the modal renders. Doing it
+  // synchronously matches PartyListView's working pattern.
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     if (searchParams.get('new') === '1') {
-      // Defer one tick so categories etc. have a chance to load before
-      // openForm reads them.
-      const t = setTimeout(() => {
-        setEditing(null);
-        form.resetFields();
-        setColorState({ color_mode: 'none', color_label: '', colors: [] });
-        setFormVisible(true);
-      }, 80);
+      setEditing(null);
+      form.resetFields();
+      form.setFieldsValue({ opening_stock_date: dayjs() });
+      setColorState({ color_mode: 'none', color_label: '', colors: [] });
+      setFormVisible(true);
       const next = new URLSearchParams(searchParams);
       next.delete('new');
       setSearchParams(next, { replace: true });
-      return () => clearTimeout(t);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams, setSearchParams]);
 
   // Color section state — kept outside the AntD form because the colors
   // panel is a custom controlled component (mode picker + dynamic list)
@@ -703,138 +708,195 @@ export default function ProductList() {
         ]}
       />
 
-      {/* ── Add / Edit modal — unchanged from the editorial version ── */}
-      <Modal
-        title={editing ? `Edit — ${editing.product_name}` : 'Add New Product'}
-        open={formVisible}
-        onCancel={() => setFormVisible(false)}
-        onOk={handleSubmit}
-        confirmLoading={formLoading}
-        width={680}
-        destroyOnClose
-        okText={editing ? 'Update' : 'Add Product'}
-      >
-        <Form form={form} layout="vertical" size="middle">
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item name="barcode" label="Barcode" help="Leave blank to auto-generate">
-                <Input placeholder="Auto-generate" prefix={<BarcodeOutlined />} />
+      {/* ── Add / Edit Product — uses the shared EntityFormModal shell.
+       *  Keeps the existing Antd Form for state + validation (Form.Item
+       *  rules, form.validateFields, form.setFieldsValue all unchanged
+       *  so handleSubmit / openForm and the colour-sync flow work as
+       *  before). The shell owns the chrome (header / sections / footer /
+       *  F1/F5/F8/Esc bindings); each Form.Item is wrapped in an
+       *  EntityFormModal.Field so the labels render in the spec style
+       *  and validation errors surface inline.
+       *
+       *  Form wraps EntityFormModal (not the other way around) so the
+       *  shell sees Sections as direct children — that's what drives
+       *  the Alt+1..9 anchor count. EntityFormModal renders into a
+       *  portal but the Antd Form context flows through React tree, so
+       *  Form.Item children inside the portal still register with this
+       *  form instance. */}
+      <Form form={form} layout="vertical" size="middle" component={false}>
+        <EntityFormModal
+          open={formVisible}
+          onClose={() => setFormVisible(false)}
+          title={editing ? 'Edit Product' : 'Add Product'}
+          subtitle={editing ? editing.product_name : 'New SKU · creates one inventory record'}
+          entityIcon="P"
+          entityTone="accent"
+          saving={formLoading}
+          onSave={handleSubmit}
+          onSaveAndClose={handleSubmit}
+          onReset={() => {
+            if (editing) {
+              // In edit mode, reset = re-hydrate from the saved row.
+              openForm(editing);
+            } else {
+              form.resetFields();
+              form.setFieldsValue({ opening_stock_date: dayjs() });
+              setColorState({ color_mode: 'none', color_label: '', colors: [] });
+            }
+          }}
+          width={720}
+        >
+
+          <EntityFormModal.Section label="Identifiers">
+            <EntityFormModal.Field label="Product Name" required span="full">
+              <Form.Item name="product_name" rules={[{ required: true, message: 'Required' }]} noStyle>
+                <Input className="efm-input" autoFocus={!editing} />
               </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="category_id" label="Category" rules={[{ required: true, message: 'Required' }]}>
-                <Select placeholder="Select category" showSearch optionFilterProp="children">
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Category" required>
+              <Form.Item name="category_id" rules={[{ required: true, message: 'Required' }]} noStyle>
+                <Select className="efm-select-antd" placeholder="Select category" showSearch optionFilterProp="children">
                   {categories.map(c => <Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
                 </Select>
               </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="product_name" label="Product Name" rules={[{ required: true, message: 'Required' }]}>
-                <Input placeholder="Product name" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={6}><Form.Item name="size_value" label="Size"><Input placeholder="S/M/L/XL" /></Form.Item></Col>
-            <Col span={6}><Form.Item name="article_number" label="Article No"><Input /></Form.Item></Col>
-            <Col span={6}><Form.Item name="hsn_code" label="HSN Code"><Input /></Form.Item></Col>
-            <Col span={6}><Form.Item name="gst_rate" label="GST %"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={6}>
-              <Form.Item name="unit_of_measurement" label="Unit" initialValue="PCS">
-                <Select>{['PCS','KG','METER','LITER','BOX','DOZEN'].map(u => <Select.Option key={u}>{u}</Select.Option>)}</Select>
-              </Form.Item>
-            </Col>
-            <Col span={6}><Form.Item name="quantity_per_box" label="Qty/Box"><InputNumber style={{ width: '100%' }} min={1} /></Form.Item></Col>
-            <Col span={6}><Form.Item name="minimum_stock_level" label="Min Stock"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-            <Col span={6}><Form.Item name="reorder_level" label="Reorder Level"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-          </Row>
-          <Divider plain>Pricing</Divider>
-          <Row gutter={16}>
-            <Col span={6}>
-              <Form.Item name="purchase_rate" label="Purchase Rate" rules={[{ required: true }]}>
-                <InputNumber style={{ width: '100%' }} min={0} prefix="₹" onChange={marginChanged} />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item name="margin_percentage" label="Margin %">
-                <InputNumber style={{ width: '100%' }} min={0} suffix="%" onChange={marginChanged} />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item name="sale_rate" label="Sale Rate" rules={[{ required: true }]}>
-                <InputNumber style={{ width: '100%' }} min={0} prefix="₹" />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item name="mrp" label="MRP">
-                <InputNumber style={{ width: '100%' }} min={0} prefix="₹" />
-              </Form.Item>
-            </Col>
-          </Row>
+            </EntityFormModal.Field>
 
-          {batchTrackingEnabled && (
-            <>
-              <Divider plain><span style={{ fontWeight: 600 }}><TagsOutlined /> Batch Tracking</span></Divider>
-              <Row gutter={16}>
-                <Col span={24}>
-                  <Form.Item
-                    name="is_batch_tracked"
-                    label="Track by batch"
-                    valuePropName="checked"
-                    style={{ marginBottom: 4 }}
-                    extra={
-                      editing && editing.is_batch_tracked
-                        ? <span style={{ fontSize: 12, color: '#6b7280' }}>Once stock movements exist on a batch-tracked product, the toggle is locked. Move all batch stock to zero before disabling.</span>
-                        : <span style={{ fontSize: 12, color: '#6b7280' }}>Each unit can be grouped into a batch with its own dates and (optional) expiry. Batch picker appears on purchases, sales, returns, and transfers.</span>
-                    }
-                  >
-                    <Switch checkedChildren="ON" unCheckedChildren="OFF" />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </>
-          )}
+            <EntityFormModal.Field label="Barcode" help="Leave blank to auto-generate">
+              <Form.Item name="barcode" noStyle>
+                <Input className="efm-input" placeholder="Auto-generate" prefix={<BarcodeOutlined />} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Size">
+              <Form.Item name="size_value" noStyle>
+                <Input className="efm-input" placeholder="S / M / L / XL" />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Article No">
+              <Form.Item name="article_number" noStyle>
+                <Input className="efm-input" />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="HSN Code">
+              <Form.Item name="hsn_code" noStyle>
+                <Input className="efm-input" />
+              </Form.Item>
+            </EntityFormModal.Field>
+          </EntityFormModal.Section>
+
+          <EntityFormModal.Section label="Pricing">
+            <EntityFormModal.Field label="Purchase Rate" required>
+              <Form.Item name="purchase_rate" rules={[{ required: true }]} noStyle>
+                <InputNumber className="efm-input" min={0} prefix="₹" onChange={marginChanged} controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Margin %">
+              <Form.Item name="margin_percentage" noStyle>
+                <InputNumber className="efm-input" min={0} suffix="%" onChange={marginChanged} controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Sale Rate" required>
+              <Form.Item name="sale_rate" rules={[{ required: true }]} noStyle>
+                <InputNumber className="efm-input" min={0} prefix="₹" controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="MRP">
+              <Form.Item name="mrp" noStyle>
+                <InputNumber className="efm-input" min={0} prefix="₹" controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="GST %">
+              <Form.Item name="gst_rate" noStyle>
+                <InputNumber className="efm-input" min={0} suffix="%" controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+          </EntityFormModal.Section>
+
+          <EntityFormModal.Section label="Inventory">
+            <EntityFormModal.Field label="Unit of Measurement">
+              <Form.Item name="unit_of_measurement" initialValue="PCS" noStyle>
+                <Select className="efm-select-antd">
+                  {['PCS','KG','METER','LITER','BOX','DOZEN'].map(u => <Select.Option key={u}>{u}</Select.Option>)}
+                </Select>
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Pcs / Box">
+              <Form.Item name="quantity_per_box" noStyle>
+                <InputNumber className="efm-input" min={1} controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Min Stock" help="Triggers low-stock alert">
+              <Form.Item name="minimum_stock_level" noStyle>
+                <InputNumber className="efm-input" min={0} controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Reorder Level">
+              <Form.Item name="reorder_level" noStyle>
+                <InputNumber className="efm-input" min={0} controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            {batchTrackingEnabled && (
+              <EntityFormModal.Field
+                label="Track by Batch"
+                span="full"
+                help={editing && editing.is_batch_tracked
+                  ? 'Once stock movements exist on a batch-tracked product, the toggle is locked. Move all batch stock to zero before disabling.'
+                  : 'Each unit can be grouped into a batch with mfg / expiry. Batch picker appears on purchases, sales, returns, and transfers.'}
+              >
+                <Form.Item name="is_batch_tracked" valuePropName="checked" noStyle>
+                  <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+                </Form.Item>
+              </EntityFormModal.Field>
+            )}
+          </EntityFormModal.Section>
 
           {(singleColorEnabled || multiColorEnabled) && (
-            <>
-              <Divider plain />
-              <ProductColorsPanel
-                value={colorState}
-                onChange={setColorState}
-                productId={editing?.product_id || null}
-                singleEnabled={!!singleColorEnabled}
-                multiEnabled={!!multiColorEnabled}
-              />
-            </>
+            <EntityFormModal.Section label="Colors">
+              <div style={{ gridColumn: '1 / -1' }}>
+                <ProductColorsPanel
+                  value={colorState}
+                  onChange={setColorState}
+                  productId={editing?.product_id || null}
+                  singleEnabled={!!singleColorEnabled}
+                  multiEnabled={!!multiColorEnabled}
+                />
+              </div>
+            </EntityFormModal.Section>
           )}
 
-          <Divider plain><span style={{ color: 'var(--ed-accent)', fontWeight: 600 }}>Opening Stock</span></Divider>
-          <div style={{ background: 'var(--ed-accent-s)', border: '1px solid var(--ed-accent-b)', borderRadius: 8, padding: '12px 16px' }}>
-            <Row gutter={16}>
-              <Col span={8}>
-                <Form.Item name="opening_stock" label="Opening Qty" style={{ marginBottom: 0 }}>
-                  <InputNumber style={{ width: '100%' }} min={0} placeholder="0" precision={2} />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item name="opening_stock_rate" label="Rate / Unit" style={{ marginBottom: 0 }}>
-                  <InputNumber style={{ width: '100%' }} min={0} prefix="₹" placeholder="Purchase rate" precision={2} />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item name="opening_stock_date" label="As of Date" style={{ marginBottom: 0 }}>
-                  <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
-                </Form.Item>
-              </Col>
-            </Row>
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ed-fg-3)' }}>
-              Leave Opening Qty blank or 0 if no opening stock. For multi-color products, opening qty per color is set in the Colors panel above.
-            </div>
-          </div>
-        </Form>
-      </Modal>
+          <EntityFormModal.Section label="Opening Stock">
+            <EntityFormModal.Field label="Opening Qty" help="Leave blank or 0 if none">
+              <Form.Item name="opening_stock" noStyle>
+                <InputNumber className="efm-input" min={0} placeholder="0" precision={2} controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Rate / Unit">
+              <Form.Item name="opening_stock_rate" noStyle>
+                <InputNumber className="efm-input" min={0} prefix="₹" placeholder="Purchase rate" precision={2} controls={false} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="As of Date" span="full">
+              <Form.Item name="opening_stock_date" noStyle>
+                <DatePicker className="efm-input" style={{ width: '100%', height: 32 }} format="DD/MM/YYYY" />
+              </Form.Item>
+            </EntityFormModal.Field>
+          </EntityFormModal.Section>
+
+        </EntityFormModal>
+      </Form>
     </div>
   );
 }

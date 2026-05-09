@@ -106,8 +106,10 @@ export default function PartyListView({ partyType }) {
   const [formOpen, setFormOpen] = useState(false);
   // Sidebar deep-link — clicking "New Customer" / "New Supplier" routes
   // to /customers?new=1 (or /suppliers?new=1). Open the create modal
-  // once on mount, then strip the param so refreshing the page doesn't
-  // re-open it.
+  // every time the param appears, then strip it. Dep on searchParams
+  // (not []) so revisiting the same URL while already on this page
+  // also fires — without it, "New Customer" while already on
+  // /customers becomes a no-op.
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     if (searchParams.get('new') === '1') {
@@ -116,8 +118,7 @@ export default function PartyListView({ partyType }) {
       next.delete('new');
       setSearchParams(next, { replace: true });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams, setSearchParams]);
   const [editingParty, setEditingParty] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
 

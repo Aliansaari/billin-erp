@@ -35,19 +35,24 @@ export default function CategoryList() {
   useEffect(() => { loadCategories(); }, []);
 
   // Sidebar deep-link — /categories?new=1 from the "New Category"
-  // sidebar entry. Open the create modal once on mount, then strip
-  // the param so refresh doesn't re-open it.
+  // entry. Open the modal every time the param appears, then strip
+  // it. Dep on searchParams so revisiting the URL while already on
+  // /categories also fires.
+  //
+  // Open synchronously (no setTimeout). A previous version deferred
+  // the open via setTimeout + clearTimeout cleanup — but stripping
+  // the search param re-fires the effect, the cleanup runs, and the
+  // pending timeout is cancelled before the modal renders.
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     if (searchParams.get('new') === '1') {
-      const t = setTimeout(() => openForm(), 60);
+      openForm();
       const next = new URLSearchParams(searchParams);
       next.delete('new');
       setSearchParams(next, { replace: true });
-      return () => clearTimeout(t);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams, setSearchParams]);
 
   const loadCategories = async () => {
     setLoading(true);

@@ -477,3 +477,68 @@
 .efm-ft .fkey.danger-action:hover:not(:disabled) {
   background: var(--danger-bg);
 }
+
+/* ── Antd control overrides ──────────────────────────────────────────
+ *
+ * The shell renders best with native <input>/<select> children, but
+ * some legacy forms (notably ProductList) keep an Antd <Form> + <Input>/
+ * <InputNumber>/<Select> tree because the validation rules + ref API
+ * are deeply integrated. The rules below shrink Antd's controls to
+ * the spec's 32px row height + 4px corner radius + tabular numerics
+ * so the two render paths look the same.
+ *
+ * Scoped to `.efm-body` so no other Antd surfaces are affected. */
+
+.efm-body .ant-input,
+.efm-body .ant-input-number,
+.efm-body .ant-input-number-input,
+.efm-body .ant-input-affix-wrapper,
+.efm-body .ant-picker,
+.efm-body .ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  height: 32px;
+  min-height: 32px;
+  border-radius: 4px;
+  background: var(--bg-app);
+  border-color: var(--border);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.efm-body .ant-input,
+.efm-body .ant-input-number-input {
+  padding: 0 10px;
+}
+.efm-body .ant-input-affix-wrapper { padding: 0 10px; }
+.efm-body .ant-input-affix-wrapper .ant-input { height: 30px; padding: 0; }
+.efm-body .ant-picker { padding: 0 10px; }
+.efm-body .ant-select-selection-search-input,
+.efm-body .ant-select-selection-item,
+.efm-body .ant-select-selection-placeholder {
+  line-height: 30px !important;
+  font-size: 13px !important;
+}
+.efm-body .ant-select-single .ant-select-selector .ant-select-selection-search {
+  inset-inline-start: 10px;
+  inset-inline-end: 10px;
+}
+.efm-body .ant-input:focus,
+.efm-body .ant-input-affix-wrapper-focused,
+.efm-body .ant-input-number-focused,
+.efm-body .ant-select-focused .ant-select-selector,
+.efm-body .ant-picker-focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg) !important;
+}
+.efm-body .ant-input-number,
+.efm-body .ant-picker {
+  width: 100%;
+}
+/* Hide the increment/decrement controls — `controls={false}` on the
+ * JSX side already disables them, but in case any consumer forgets,
+ * the column is wasted real estate at this density. */
+.efm-body .ant-input-number-handler-wrap { display: none; }
+
+/* Antd Switch — sized to fit the 32px row in pill rows. */
+.efm-body .ant-switch { background: var(--border-strong, var(--border)); }
+.efm-body .ant-switch-checked { background: var(--accent); }
