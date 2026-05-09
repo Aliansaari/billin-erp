@@ -759,12 +759,15 @@ exports.exportBills = async (req, res) => {
     ws.getRow(1).font = { bold: true };
     ws.views = [{ state: 'frozen', ySplit: 1 }];
 
+    // Use the same settings-derived bucket bounds + classifier as
+    // _billsList / aging.js. Previously this branch hard-coded 30/60/90
+    // → a user with custom buckets (e.g. 15/30/45 days) saw the right
+    // bucket labels but rows physically classified at the wrong day
+    // cut-points. Audit H4.
     const labels = result.bucket_labels;
+    const bounds = await _agingBounds();
     for (const r of result.data) {
-      const bucket = r.overdue_days <= 0 ? 'current'
-                   : r.overdue_days <= 30 ? 'b1'
-                   : r.overdue_days <= 60 ? 'b2'
-                   : r.overdue_days <= 90 ? 'b3' : 'b4';
+      const bucket = bucketFor(r.overdue_days, bounds);
       ws.addRow({
         ...r,
         bucket_label: labels[bucket],
