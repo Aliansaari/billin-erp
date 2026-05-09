@@ -470,6 +470,14 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: refErr.message });
     }
 
+    // Audit M2: take a Postgres advisory lock on the sales-return key
+    // (904, same numeric ID the inline-return helper uses) BEFORE
+    // looking up the latest row. Without this, two concurrent
+    // standalone POSTs both row-lock different rows (or no row, on a
+    // fresh table) and emit duplicate return_numbers — the inline-
+    // return path was hardened earlier; this path was not.
+    await sequelize.query('SELECT pg_advisory_xact_lock(904)', { transaction: t });
+
     // Lock the latest return row for race-free number generation (same pattern
     // as salesController.create — concurrent POSTs can otherwise both read
     // the same lastBill and issue duplicate numbers).

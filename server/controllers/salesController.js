@@ -643,6 +643,29 @@ exports.create = async (req, res) => {
       await t.rollback();
       return res.status(400).json({ error: `Return amount (₹${rawReturn.toFixed(2)}) cannot exceed bill total (₹${totalAmount.toFixed(2)})` });
     }
+    // Audit M1: deprecate the walk-in `return_amount` field for credit
+    // sales. It reduces bill.balance_amount + parties.current_balance
+    // but never posts a corresponding ledger voucher, so Sundry Debtors
+    // ledger and the aging banner drift from the bill table by exactly
+    // the return amount. Operators should use the inline-return flow
+    // (which posts a credit-note voucher cleanly). For a real-customer
+    // credit sale we now reject the legacy field so silent drift can't
+    // accumulate. Cash-counter sales (no customer_id, system-cash, or
+    // an inline_return payload alongside) still pass through.
+    if (rawReturn > 0.005 && billData.customer_id && !inline_return) {
+      const cust = await Party.findByPk(billData.customer_id, { transaction: t });
+      if (cust && !cust.is_system_cash) {
+        await t.rollback();
+        return res.status(400).json({
+          error:
+            'Walk-in `return_amount` is deprecated for credit sales — it reduces the ' +
+            'bill balance but skips the ledger, causing drift between Sundry Debtors ' +
+            'and the aging banner. Use the inline-return flow on the bill form (which ' +
+            'posts a credit-note voucher), or post the return as a separate Sales Return.',
+          field: 'return_amount',
+        });
+      }
+    }
 
     // Enforce full payment if customer has credit_not_allowed
     let finalPaidAmount = parseFloat(paid_amount);
