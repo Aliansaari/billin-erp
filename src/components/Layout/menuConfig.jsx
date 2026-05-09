@@ -70,8 +70,14 @@ export const menuItems = [
     icon: <TeamOutlined />,
     label: 'Parties',
     children: [
-      { key: '/customers', icon: <UserOutlined />, label: 'Customers', perm: 'parties.view' },
-      { key: '/suppliers', icon: <BankOutlined />, label: 'Suppliers', perm: 'parties.view' },
+      // "+ New …" shortcuts — same pattern Sales/Purchase use (a
+      // create entry above the list entry). Each routes to the list
+      // page with ?new=1; the list page reads the param and opens its
+      // create modal on mount.
+      { key: '/customers?new=1', icon: <PlusCircleOutlined />,    label: 'New Customer',  perm: 'parties.create' },
+      { key: '/suppliers?new=1', icon: <PlusCircleOutlined />,    label: 'New Supplier',  perm: 'parties.create' },
+      { key: '/customers',       icon: <UserOutlined />,          label: 'Customers',     perm: 'parties.view' },
+      { key: '/suppliers',       icon: <BankOutlined />,          label: 'Suppliers',     perm: 'parties.view' },
     ],
   },
   {
@@ -79,17 +85,20 @@ export const menuItems = [
     icon: <InboxOutlined />,
     label: 'Inventory',
     children: [
+      { key: '/products?new=1',   icon: <PlusCircleOutlined />, label: 'New Product',    perm: 'inventory.create' },
+      { key: '/categories?new=1', icon: <PlusCircleOutlined />, label: 'New Category',   perm: 'inventory.create' },
       { key: '/products',         icon: <AppstoreOutlined />, label: 'Products',        perm: 'inventory.view' },
       { key: '/categories',       icon: <TagsOutlined />,     label: 'Categories',      perm: 'inventory.view' },
       { key: '/stock-movement',   icon: <SwapOutlined />,     label: 'Stock Movement',  perm: 'inventory.view' },
       { key: '/stock-report',     icon: <StockOutlined />,    label: 'Stock Report',    perm: 'inventory.view' },
       { key: '/stock-report-pro', icon: <TableOutlined />,    label: 'Smart Stock',     perm: 'inventory.view' },
       { key: '/stock-transfers',  icon: <SwapOutlined />,     label: 'Stock Transfers', perm: 'stock_transfers.view', flag: 'multi_warehouse_enabled' },
-      // Batches (Commit 5) — gated on batches.view. The page itself
-      // shows an "Enable batch tracking" placeholder when the global
-      // toggle is OFF, so adding the entry here doesn't surface a
-      // broken page; it surfaces the onboarding nudge.
-      { key: '/inventory/batches', icon: <AppstoreOutlined />, label: 'Batches',         perm: 'batches.view' },
+      // Batches (Commit 5) — gated on batches.view AND the global
+      // batch_tracking_enabled toggle. The page itself still has an
+      // "Enable batch tracking" placeholder for direct-URL hits, but
+      // the sidebar entry hides when the toggle is off so operators
+      // don't land there by accident.
+      { key: '/inventory/batches', icon: <AppstoreOutlined />, label: 'Batches',         perm: 'batches.view', flag: 'batch_tracking_enabled' },
     ],
   },
   {

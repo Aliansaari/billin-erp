@@ -313,7 +313,14 @@ export default function StockMovement() {
   };
 
   return (
-    <div className="ed-prod sm">
+    // Outer wrapper is flex COLUMN so the ActionStrip below sits at
+    // the bottom of the viewport. The aside + section are nested
+    // inside `.sm-body` so they flow side-by-side. Class name is
+    // deliberately NOT `.sm-row` — that's already used by the inner
+    // ledger row markup (header + data rows) and the more-specific
+    // page-level selector would have inherited the wrong layout.
+    <div className="ed-prod sm-page">
+     <div className="sm-body">
 
       {/* ── Left: product picker ── */}
       <aside className="sm-pick">
@@ -604,6 +611,7 @@ export default function StockMovement() {
           </>
         )}
       </section>
+     </div>{/* /.sm-body */}
 
       <ActionStrip
         actions={[

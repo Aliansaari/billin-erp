@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
-const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, StockLedger, Category, SystemSettings, Godown } = require('../models');
+const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, ProductColor, StockLedger, Category, SystemSettings, Godown } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
@@ -153,6 +153,36 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
   // Otherwise, generate one under the current transaction so the counter lock
   // is released atomically with the purchase bill commit/rollback.
   const newBarcode = item.barcode || await generateBarcode(t);
+
+  // Family-level color inheritance — if any sibling under the same
+  // product name carries color_mode='multi', the family is multi-color
+  // and a brand-new variant born here should inherit that flag.
+  // (Sizes can have different colors; the actual product_colors rows
+  // get created lazily in resolveColorForProduct when a bill line
+  // picks a color the new variant doesn't carry yet.)
+  //
+  // Compare with TRIM + LOWER on both sides — product_name in the DB
+  // can have trailing whitespace from earlier UI bugs (e.g. "color
+  // test ") that a plain iLike-without-wildcards won't match.
+  let inheritedColorMode = 'none';
+  const familyName = String(item.product_name || '').trim().toLowerCase();
+  if (defaultProductMode !== 'single' && familyName) {
+    const familySibling = await Product.findOne({
+      where: {
+        [Op.and]: [
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.fn('TRIM', sequelize.col('product_name'))),
+            familyName,
+          ),
+          { color_mode: 'multi' },
+          { is_active: true },
+        ],
+      },
+      transaction: t,
+    });
+    if (familySibling) inheritedColorMode = 'multi';
+  }
+
   // Newly created products inherit the current default mode. Mode is
   // permanent once a product exists (mirrors the is_batch_tracked lock
   // pattern). For single-mode new products, weighted_avg_cost gets set
@@ -173,9 +203,79 @@ async function resolveOrCreateProduct(item, t, defaultProductMode = 'variant') {
     quantity_per_box: item.quantity_per_box || 1,
     current_stock:    0,
     product_mode:     defaultProductMode,
+    color_mode:       inheritedColorMode,
   }, { transaction: t });
 
   return { product_id: newProduct.product_id, barcode: newBarcode, isNew: true, product: newProduct };
+}
+
+/**
+ * Resolve (or create) the color row that a bill line's color_id +
+ * color_name should map to on the resolved product.
+ *
+ * Two scenarios this exists for:
+ *
+ *  (a) Cross-variant remap — the bill form's family-color picker shows
+ *      the union of colors across all siblings, so the picked color_id
+ *      may belong to a SIBLING product, not the resolved variant. If
+ *      we wrote it straight to purchase_bill_items, the FK would be
+ *      valid but semantically wrong, and validateBillColorRequirements
+ *      would reject it.
+ *
+ *  (b) Inline-created colors — the matrix popup's "+ Add color" path
+ *      lets the operator type a brand-new color name on the line.
+ *      It arrives here as color_name without color_id; we find-or-
+ *      create on the resolved product.
+ *
+ * Idempotent on (product_id, color_name) — repeated saves with the
+ * same name don't create duplicates. Returns null when the line has
+ * no color info at all (validation will catch that for multi-color
+ * products elsewhere).
+ */
+async function resolveColorForProduct(itemColorId, itemColorName, resolvedProductId, t) {
+  if (!resolvedProductId) return null;
+
+  // Path (a): color_id is set — remap if cross-variant, else passthrough.
+  if (itemColorId) {
+    const picked = await ProductColor.findByPk(itemColorId, { transaction: t });
+    if (picked) {
+      if (picked.product_id === resolvedProductId) return picked.color_id;
+      const existing = await ProductColor.findOne({
+        where: { product_id: resolvedProductId, color_name: picked.color_name, is_active: true },
+        transaction: t,
+      });
+      if (existing) return existing.color_id;
+      const created = await ProductColor.create({
+        product_id: resolvedProductId,
+        color_name: picked.color_name,
+        is_active: true,
+      }, { transaction: t });
+      return created.color_id;
+    }
+    // Fall through to color_name path if the id is stale.
+  }
+
+  // Path (b): only a name (operator typed a new color in the matrix popup).
+  const name = (itemColorName || '').trim();
+  if (name) {
+    const existing = await ProductColor.findOne({
+      where: {
+        product_id: resolvedProductId,
+        color_name: { [Op.iLike]: name },
+        is_active: true,
+      },
+      transaction: t,
+    });
+    if (existing) return existing.color_id;
+    const created = await ProductColor.create({
+      product_id: resolvedProductId,
+      color_name: name,
+      is_active: true,
+    }, { transaction: t });
+    return created.color_id;
+  }
+
+  return null;
 }
 
 exports.getAll = async (req, res) => {
@@ -276,8 +376,19 @@ exports.getById = async (req, res) => {
             // Pull product so edit-mode can re-detect is_batch_tracked
             // without re-fetching products one-by-one. Lazy required so
             // restoring a recalled draft / opening an old bill renders
-            // the batch column correctly on first paint.
-            { model: Product, as: 'product', attributes: ['product_id', 'is_batch_tracked', 'color_mode'] },
+            // the batch column correctly on first paint. Active colors
+            // come along too so the matrix popup can re-open with the
+            // full per-product palette (existing pick + others) when
+            // the operator clicks the Color cell on edit.
+            { model: Product, as: 'product',
+              attributes: ['product_id', 'is_batch_tracked', 'color_mode'],
+              include: [{
+                model: ProductColor, as: 'colors',
+                where: { is_active: true },
+                required: false,
+                attributes: ['color_id', 'color_name', 'current_stock'],
+              }],
+            },
             { model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date', 'notes'] },
             // Color row tied to this line — populated for multi-color
             // products. Edit-mode rehydrates the items table dropdown
@@ -426,10 +537,16 @@ exports.create = async (req, res) => {
       const product_id = resolved.product_id;
       const barcode    = resolved.barcode;
 
+      // Remap color_id when the line's pick belongs to a sibling
+      // (family-color picker case). For an existing variant where the
+      // operator picked one of its own colors, this is a no-op.
+      const finalColorId = await resolveColorForProduct(item.color_id, item.color_name, product_id, t);
+
       processedItems.push({
         ...item,
         product_id,
         barcode,
+        color_id: finalColorId,
         _postItemTaxable: postItemTaxable,
         taxable_amount: postItemTaxable,
         discount_amount: discountAmt,
@@ -976,8 +1093,12 @@ exports.update = async (req, res) => {
       const product_id = resolved.product_id;
       const barcode    = resolved.barcode;
 
+      // Same color remap as create() — see comment in resolveColorForProduct.
+      const finalColorId = await resolveColorForProduct(item.color_id, item.color_name, product_id, t);
+
       processedItems.push({
         ...item, product_id, barcode,
+        color_id: finalColorId,
         _postItemTaxable: postItemTaxable,
         taxable_amount: postItemTaxable,
         discount_amount: discountAmt,

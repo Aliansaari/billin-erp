@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Input, Select, message, Spin, Upload, Modal, Progress, Dropdown, DatePicker,
+  Input, Select, message, Spin, Upload, Modal, Progress, Dropdown, DatePicker, Checkbox,
 } from 'antd';
 import {
   SearchOutlined, FileExcelOutlined,
@@ -10,7 +10,7 @@ import {
 import dayjs from 'dayjs';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { reportAPI, categoryAPI, godownAPI, dataAPI } from '../../api';
-import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
+import { useMultiWarehouseEnabled, useBatchTrackingEnabled } from '../../hooks/useSystemSettings';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import useListSelection from '../../hooks/useListSelection';
@@ -128,6 +128,7 @@ export default function StockReport() {
   // the per-godown KPI sub-line drops out — totals are unfiltered and
   // the "All Godowns" caption would just be noise.
   const multiWarehouseOn            = useMultiWarehouseEnabled();
+  const batchTrackingOn             = useBatchTrackingEnabled();
   const [prefs, setPrefs] = useState(loadPrefs);
   useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch {} }, [prefs]);
   const cols = prefs;
@@ -138,6 +139,10 @@ export default function StockReport() {
   const [importProgress, setImportProgress] = useState(0);
   const [importPhase, setImportPhase] = useState('');
   const [downloadingFailed, setDownloadingFailed] = useState(false);
+  // Customize-columns modal — matches SalesBillForm's centered modal
+  // (instead of the popover dropdown) so the operator gets a denser
+  // list with proper Reset / Done footer and internal scrolling.
+  const [colsModalOpen, setColsModalOpen] = useState(false);
 
   // Hidden file input drives the Import menu item (Antd Upload's wrapper
   // would close the dropdown before the file chooser opens).
@@ -705,29 +710,36 @@ export default function StockReport() {
         ><span className="dot neg"></span>Negative</span>
 
         <div className="ml-auto" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-          {/* Group-by-batch link (Commit 5 — Part D). The Stock Summary
-           *  table virtualizes a flat per-product dataset, so per-batch
-           *  in-row expansion lives on its own page (/inventory/batches)
-           *  rather than re-flowing the virtual rows here. The link is
-           *  always visible so operators discover the per-batch view;
-           *  the Batches page renders an "Enable batch tracking"
-           *  placeholder when the global toggle is off. */}
+          {/* Group-by-batch link (Commit 5 — Part D). Per-batch view
+           *  lives on its own page at /inventory/batches. The button
+           *  hides when the global Batch Tracking toggle is OFF — no
+           *  point sending operators to a placeholder when they have
+           *  no way to act on it from this report. Hooks resolve to
+           *  null while settings are loading; render nothing in that
+           *  brief window too. */}
+          {batchTrackingOn === true && (
+            <button
+              className="sr-btn"
+              onClick={() => navigate('/inventory/batches')}
+              title="View stock grouped by batch / lot"
+            >
+              View by batch →
+            </button>
+          )}
+          {/* Customize columns — opens a centered Modal (matches the
+           *  SalesBillForm pattern). Earlier this was an Antd Dropdown
+           *  with dropdownRender, which (a) ran out of vertical room
+           *  on the long column list and (b) bled into the table when
+           *  the popup container was stripped. The Modal route is a
+           *  cleaner UX: dim overlay, dense rows, internal scroll,
+           *  Reset + Done footer. */}
           <button
             className="sr-btn"
-            onClick={() => navigate('/inventory/batches')}
-            title="View stock grouped by batch / lot"
+            onClick={() => setColsModalOpen(true)}
+            title="Customize the report columns"
           >
-            View by batch →
+            <SettingOutlined /> Customize
           </button>
-          <Dropdown
-            trigger={['click']}
-            placement="bottomRight"
-            dropdownRender={() => customizePopoverContent}
-          >
-            <button className="sr-btn">
-              <SettingOutlined /> Customize
-            </button>
-          </Dropdown>
         </div>
       </div>
 
@@ -831,6 +843,92 @@ export default function StockReport() {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* Customize columns modal — same UX vocabulary as the Sales Bill
+       *  form's column picker. Width 340px, dense rows, accent rail on
+       *  the active state, internal scroll for the long column list. */}
+      <Modal
+        open={colsModalOpen}
+        onCancel={() => setColsModalOpen(false)}
+        title="Customize columns"
+        footer={
+          <div className="sbf-cols-footer">
+            <button
+              type="button"
+              className="sbf-cols-reset"
+              onClick={() => {
+                setPrefs(DEFAULT_PREFS);
+                try { localStorage.removeItem(LS_KEY); } catch {}
+              }}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="sbf-cols-done"
+              onClick={() => setColsModalOpen(false)}
+            >
+              Done
+            </button>
+          </div>
+        }
+        width={340}
+        styles={{ body: { padding: 0 } }}
+        className="sbf-cust-modal"
+      >
+        <div className="sbf-cust-list">
+          {[
+            { label: 'Identifiers', keys: COL_DEFS.filter(c => c.group === 'id').map(c => c.key) },
+            { label: 'Quantity',    keys: COL_DEFS.filter(c => c.group === 'qty').map(c => c.key) },
+            { label: 'Pricing & Value', keys: COL_DEFS.filter(c => c.group === 'price').map(c => c.key) },
+          ].map(group => {
+            const rows = group.keys
+              .map(k => COL_DEFS.find(c => c.key === k))
+              .filter(Boolean);
+            if (!rows.length) return null;
+            return (
+              <div key={group.label} className="sbf-cust-group">
+                <div className="sbf-cust-group-lbl">{group.label}</div>
+                {rows.map(c => {
+                  const isOn = !!cols[c.key] || !!c.fixed;
+                  return (
+                    <label
+                      key={c.key}
+                      className={`sbf-cust-row${isOn ? ' on' : ''}`}
+                    >
+                      <Checkbox
+                        checked={isOn}
+                        disabled={!!c.fixed}
+                        onChange={(e) => setPrefs(p => ({ ...p, [c.key]: e.target.checked }))}
+                      />
+                      <span className="sbf-cust-row-lbl">{c.label}</span>
+                      {c.fixed && <span className="sbf-cust-row-pin">Fixed</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+          <div className="sbf-cust-group">
+            <div className="sbf-cust-group-lbl">Page Sections</div>
+            {SEC_DEFS.map(s => {
+              const isOn = !!cols[s.key];
+              return (
+                <label
+                  key={s.key}
+                  className={`sbf-cust-row${isOn ? ' on' : ''}`}
+                >
+                  <Checkbox
+                    checked={isOn}
+                    onChange={(e) => setPrefs(p => ({ ...p, [s.key]: e.target.checked }))}
+                  />
+                  <span className="sbf-cust-row-lbl">{s.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
       </Modal>
 
       <ActionStrip

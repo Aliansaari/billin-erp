@@ -862,6 +862,26 @@ export default function SalesBillForm() {
           const sibs = data.data || [];
           setSiblings(sibs);
           setSiblingsLoading(false);
+          // Family-level color hint — colors are per-variant in the schema,
+          // but color_mode is a family decision (you don't track colors
+          // for size S and skip them for size M). If ANY sibling carries
+          // color_mode='multi', the family is multi-color. Union the
+          // sibling colors as a starting palette so even a brand-new
+          // size variant (no sibling row exists yet) renders the picker
+          // with the colors the operator already defined elsewhere.
+          // Sales filters to in-stock colors at the items-table render.
+          const familyMulti = sibs.some((s) => s.color_mode === 'multi');
+          const familyColorsMap = new Map();
+          if (familyMulti) {
+            sibs.forEach((s) => {
+              (s.colors || []).forEach((c) => {
+                if (!familyColorsMap.has(c.color_name)) {
+                  familyColorsMap.set(c.color_name, c);
+                }
+              });
+            });
+          }
+          const familyColors = Array.from(familyColorsMap.values());
           // Stage just the family name on entry. Wipe any stale variant
           // fields from a previous unconfirmed family pick so the cells
           // visibly clear until the operator confirms via Size.
@@ -877,6 +897,9 @@ export default function SalesBillForm() {
             is_batch_tracked: false,
             batch_id: null, batch_number: '',
             manufacture_date: null, expiry_date: null, batch_stock: 0,
+            color_mode: familyMulti ? 'multi' : 'none',
+            color_id: null, color_name: '',
+            colors: familyMulti ? familyColors.filter((c) => Number(c.current_stock) > 0) : [],
           }));
           // Hand focus to Size and open the Select so Enter on the
           // highlighted top sibling commits fast.
@@ -920,6 +943,17 @@ export default function SalesBillForm() {
       // when the new product is batch-tracked.
       batch_id:null, batch_number:'', manufacture_date:null, expiry_date:null,
       batch_stock:0,
+      // Color dimension — propagate from the picked product so the
+      // line carries color_mode='multi' and the active colors list.
+      // Sales-form colors are filtered to current_stock > 0 (you can
+      // only sell what's on hand). Without this the items-table Color
+      // cell falls through to "—" even for multi-color products picked
+      // via the dropdown (versus the scan path which already sets it).
+      color_mode: p.color_mode || 'none',
+      color_id: null, color_name: '',
+      colors: (p.color_mode === 'multi' && Array.isArray(p.colors))
+        ? p.colors.filter((c) => Number(c.current_stock) > 0)
+        : [],
     }));
     // For batch-tracked products with the global toggle on, jump to
     // the Lot dropdown and open it instead of qty — the operator's
@@ -991,6 +1025,13 @@ export default function SalesBillForm() {
       // re-fetches and auto-picks the FEFO/FIFO winner if applicable.
       batch_id: null, batch_number: '',
       manufacture_date: null, expiry_date: null, batch_stock: 0,
+      // Color dimension — same treatment as handleProdSel. Multi-color
+      // is a per-variant flag, so the picked sibling's color_mode wins.
+      color_mode: sib.color_mode || 'none',
+      color_id: null, color_name: '',
+      colors: (sib.color_mode === 'multi' && Array.isArray(sib.colors))
+        ? sib.colors.filter((c) => Number(c.current_stock) > 0)
+        : [],
     }));
     setSizeOpen(false);
     if (batchTrackingOn && sib.is_batch_tracked) {
@@ -2031,13 +2072,16 @@ export default function SalesBillForm() {
   //   • drop display-only `option:true` rows (Customize-modal toggles)
   //   • include `required:true` always (index, product, qty, rate, …)
   //   • include `visibleCols`-checked rows
-  //   • include `color` only when the global Multi-color toggle is ON
-  //     AND at least one line is a multi-color product. Lets non-multi
-  //     installs continue to look identical to before.
-  const anyMultiColor = items.some((it) => it.color_mode === 'multi');
+  //   • include `color` whenever the global Multi-color toggle is ON.
+  //     Non-multi-color lines render "—" in the cell so the column
+  //     reads cleanly when only some products track colors. Showing
+  //     the column always (rather than only after a multi-color scan)
+  //     avoids the chicken-and-egg of "column hidden until I scan a
+  //     multi-color product" — the operator can SEE colors are tracked
+  //     and pick the right product accordingly.
   const cols = allCols.filter(c => {
     if (c.option) return false;
-    if (c.key === 'color') return !!multiColorOn && anyMultiColor;
+    if (c.key === 'color') return !!multiColorOn;
     return c.required || visibleCols.has(c.key);
   });
   // Sum of widths so the table's horizontal scroll-x stays correct as

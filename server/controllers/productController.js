@@ -198,10 +198,28 @@ exports.getAll = async (req, res) => {
 
     const { count, rows } = await Product.findAndCountAll({
       where,
-      include: [{ model: Category, attributes: ['category_name'] }],
+      // Include active colors alongside Category. Sales / purchase
+      // pickers (handleProdSel / handleProductSelect) read p.colors so
+      // when the operator picks a multi-color product from the dropdown
+      // — instead of scanning the barcode — the line still gets its
+      // colors list. Empty for non-multi products; required:false keeps
+      // them in the result either way.
+      include: [
+        { model: Category, attributes: ['category_name'] },
+        {
+          model: ProductColor,
+          as: 'colors',
+          where: { is_active: true },
+          required: false,
+          attributes: ['color_id', 'color_name', 'current_stock', 'low_stock_alert'],
+        },
+      ],
       order: orderClause,
       limit,
       offset,
+      // Sequelize collapses the LEFT JOIN into a single row per Product
+      // (one row per join would duplicate Products by N colors).
+      distinct: true,
     });
 
     // Opt-in lifetime aggregates for the product management UI. Other

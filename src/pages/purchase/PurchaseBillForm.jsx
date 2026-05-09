@@ -4,7 +4,7 @@ import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Po
 import { SettingOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
+import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, productColorAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
 import { printDocument } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
@@ -322,6 +322,15 @@ export default function PurchaseBillForm() {
   // other; we don't auto-select on the entry row.
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
 
+  // Color matrix popup — opens when the operator clicks the Color cell on a
+  // multi-color line. Lets them enter receiving qty per color in one shot;
+  // Apply explodes the line into one row per color with qty>0 (each row
+  // carries its own color_id + quantity for the existing per-color stock
+  // pipeline). null = closed.
+  // shape: { rowKey, productName, sizeValue, colors: ProductColor[],
+  //          values: { [color_id]: number } }
+  const [colorMatrix, setColorMatrix] = useState(null);
+
   // ── Hold / Recall / Drafts state ──
   // Tracks which draft (if any) the form was recalled from so handleSave
   // can pass the draft_id to the backend for same-txn deletion.
@@ -555,6 +564,18 @@ export default function PurchaseBillForm() {
           manufacture_date: it.batch?.manufacture_date || null,
           expiry_date: it.batch?.expiry_date || null,
           batch_notes: it.batch?.notes || '',
+          // Restore color dimension. color_mode comes from the product;
+          // color_id + color_name come from the saved bill item; colors
+          // is the full active palette of the product so the matrix
+          // popup can re-open and show every option (not just the
+          // saved pick). Without these fields the items-table Color
+          // cell falls through to "—" and the Pick colors button never
+          // appears on edit.
+          color_mode: it.product?.color_mode || 'none',
+          color_id: it.color_id || null,
+          color_name: it.color?.color_name || '',
+          colors: (it.product?.color_mode === 'multi' && Array.isArray(it.product?.colors))
+                  ? it.product.colors : [],
         }));
         // Advance monotonic key counter above any loaded row so newly-added
         // items in edit mode can't collide with existing keys.
@@ -711,6 +732,14 @@ export default function PurchaseBillForm() {
         is_batch_tracked: !!p.is_batch_tracked,
         product_mode: 'single',
         batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
+        // Color dimension — propagate from the picked product. Purchase
+        // shows ALL active colors (no stock filter — receiving more of
+        // any color is always valid). Without this, picking a multi-
+        // color product via the dropdown leaves the row's Color cell as
+        // "—" because color_mode stays 'none' on the entry.
+        color_mode: p.color_mode || 'none',
+        color_id: null, color_name: '',
+        colors: (p.color_mode === 'multi' && Array.isArray(p.colors)) ? p.colors : [],
       }));
       setBarcodeError('');
       // Single mode has no Size / Art# entry — focus Qty directly.
@@ -720,9 +749,32 @@ export default function PurchaseBillForm() {
       return;
     }
 
-    // VARIANT mode (existing behaviour, unchanged) — only set name +
-    // category. Match lookup (by category+name+size+article) runs after
-    // article# is entered to resolve which specific variant the user means.
+    // VARIANT mode — only set name + category. Match lookup (by
+    // category+name+size+article) runs after article# is entered to
+    // resolve which specific variant the user means.
+    //
+    // Family-level color hint — `prodRawList` is the search result for
+    // this name in this category (i.e. all variants of the family). If
+    // ANY sibling has color_mode='multi', the family is multi-color
+    // and any new variant typed under it should render the picker.
+    // Union the sibling colors as the starting palette so the operator
+    // can pick from existing colors even before the new variant exists
+    // in the DB. (Backend resolveOrCreateProduct + bill save will
+    // inherit color_mode + create any new colors when the line saves.)
+    const variantSiblings = (prodRawList || []).filter(
+      (s) => (s.product_name || '').trim().toLowerCase() === (p.product_name || '').trim().toLowerCase()
+              && (!p.category_id || s.category_id === p.category_id)
+    );
+    const familyMulti = variantSiblings.some((s) => s.color_mode === 'multi');
+    const familyColorsMap = new Map();
+    if (familyMulti) {
+      variantSiblings.forEach((s) => {
+        (s.colors || []).forEach((c) => {
+          if (!familyColorsMap.has(c.color_name)) familyColorsMap.set(c.color_name, c);
+        });
+      });
+    }
+    const familyColors = Array.from(familyColorsMap.values());
     setEntry(prev=>({...prev,
       product_name:p.product_name,
       category_id:p.category_id||prev.category_id,
@@ -734,6 +786,9 @@ export default function PurchaseBillForm() {
       is_batch_tracked:!!p.is_batch_tracked,
       product_mode: p.product_mode || 'variant',
       batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
+      color_mode: familyMulti ? 'multi' : 'none',
+      color_id: null, color_name: '',
+      colors: familyMulti ? familyColors : [],
     }));
     setBarcodeError('');
     justSelectedRef.current=true;
@@ -833,6 +888,13 @@ export default function PurchaseBillForm() {
           quantity_per_box:qpbEntered?prev.quantity_per_box:parseFloat(fullMatch.quantity_per_box)||1,
           is_batch_tracked:!!fullMatch.is_batch_tracked,
           product_mode:fullMatch.product_mode||'variant',
+          // Color dimension — bind to the matched variant so the line
+          // can render the per-line color matrix. Without this, a
+          // multi-color product picked via variant lookup falls through
+          // to the items-table "—" cell.
+          color_mode: fullMatch.color_mode || 'none',
+          colors: (fullMatch.color_mode === 'multi' && Array.isArray(fullMatch.colors))
+                  ? fullMatch.colors : [],
         }));
       } else {
         // Identity matched but no variant has this exact pricing → new barcode variant
@@ -858,6 +920,13 @@ export default function PurchaseBillForm() {
       gst_rate:parseFloat(variant.gst_rate)||0,
       is_batch_tracked:!!variant.is_batch_tracked,
       product_mode:variant.product_mode||'variant',
+      // Color dimension — propagate from the picked variant. Same as
+      // the other entry-fill paths; without this the items-table Color
+      // cell renders "—" for multi-color products picked through the
+      // inline variant picker.
+      color_mode: variant.color_mode || 'none',
+      color_id: null, color_name: '',
+      colors: (variant.color_mode === 'multi' && Array.isArray(variant.colors)) ? variant.colors : [],
     }));
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setTimeout(()=>{ qtyRef.current?.focus(); qtyRef.current?.select?.(); },50);
@@ -1131,6 +1200,153 @@ export default function PurchaseBillForm() {
   },[entry,barcodeError,invalidateFamilyCache,batchTrackingEnabled]);
   const removeItem=(key)=>setItems(prev=>prev.filter(i=>i.key!==key));
 
+  // ── Color matrix popup ───────────────────────────────────────────
+  // Multi-color products commonly arrive in mixed colors per receipt
+  // (e.g. 5 Red, 3 Blue, 2 Green of "Lyra Leggings XL"). Scanning the
+  // same barcode three times and hand-picking each color is tedious.
+  // The matrix lets the operator click the Color cell once, enter qty
+  // per color, and Apply — the row explodes into one row per non-zero
+  // color so the existing per-color stock pipeline (validateBill /
+  // applyColorStockDelta) sees N independent items as it expects.
+  //
+  // Each entry in colorMatrix.entries has a `key` (string) used as the
+  // values map key. Existing colors use String(color_id); inline-added
+  // colors use a `new:N` placeholder until the bill saves.
+  const openColorMatrix = (rowKey) => {
+    const row = items.find((it) => it.key === rowKey);
+    if (!row || row.color_mode !== 'multi') return;
+    const entries = (row.colors || []).map((c) => ({
+      key: String(c.color_id),
+      color_id: c.color_id,
+      color_name: c.color_name,
+      current_stock: Number(c.current_stock) || 0,
+      is_new: false,
+    }));
+    const initialValues = {};
+    entries.forEach((e) => { initialValues[e.key] = 0; });
+    let nextTempIdx = 0;
+    // Pre-fill the row's own pick if already set so re-opening lets the
+    // operator edit instead of starting from zero. Three flavours:
+    //  - Existing color (color_id set) → bump that entry's qty.
+    //  - Inline-new color (color_name set, color_id null) → that entry
+    //    isn't in row.colors yet (still pending creation on save), so
+    //    re-add it as an editable is_new row pre-filled with the qty.
+    const rowQty = Number(row.quantity) || 0;
+    const rowName = (row.color_name || '').trim();
+    if (row.color_id && rowQty > 0) {
+      initialValues[String(row.color_id)] = rowQty;
+    } else if (!row.color_id && rowName && rowQty > 0) {
+      const tempKey = `new:${nextTempIdx++}`;
+      entries.push({
+        key: tempKey, color_id: null, color_name: rowName,
+        current_stock: 0, is_new: true,
+      });
+      initialValues[tempKey] = rowQty;
+    }
+    setColorMatrix({
+      rowKey,
+      productId: row.product_id || null,
+      productName: row.product_name || '',
+      sizeValue: row.size || '',
+      entries,
+      values: initialValues,
+      nextTempIdx,
+    });
+  };
+
+  // Add a blank color row. Operator types the name + qty; on Apply it
+  // gets resolved on the backend (POST /products/:id/colors when the
+  // variant exists, else find-or-create at bill save via
+  // resolveColorForProduct's color_name path).
+  const addNewColorRow = () => {
+    setColorMatrix((cm) => {
+      if (!cm) return cm;
+      const tempKey = `new:${cm.nextTempIdx}`;
+      return {
+        ...cm,
+        entries: [...cm.entries, { key: tempKey, color_id: null, color_name: '', current_stock: 0, is_new: true }],
+        values: { ...cm.values, [tempKey]: 0 },
+        nextTempIdx: cm.nextTempIdx + 1,
+      };
+    });
+  };
+
+  // Delete a color row from the matrix. For unsaved (new) rows this is
+  // a pure local splice. For existing colors with a productId, soft-
+  // delete them on the server too — the column stays out of the bill
+  // AND future scans don't see it. The backend's RESTRICT FK guards
+  // against deleting colors that previous bill items reference (the
+  // controller surfaces a friendly message in that case).
+  const deleteColorRow = async (key) => {
+    const cm = colorMatrix;
+    if (!cm) return;
+    const entry = cm.entries.find((e) => e.key === key);
+    if (!entry) return;
+    if (!entry.is_new && entry.color_id && cm.productId) {
+      try {
+        await productColorAPI.remove(cm.productId, entry.color_id);
+      } catch (err) {
+        const msg = err?.response?.data?.error || 'Failed to delete color';
+        message.error(msg);
+        return;
+      }
+    }
+    setColorMatrix((prev) => {
+      if (!prev) return prev;
+      const nextEntries = prev.entries.filter((e) => e.key !== key);
+      const nextValues = { ...prev.values };
+      delete nextValues[key];
+      return { ...prev, entries: nextEntries, values: nextValues };
+    });
+  };
+
+  const updateNewColorName = (key, name) => {
+    setColorMatrix((cm) => cm ? ({
+      ...cm,
+      entries: cm.entries.map((e) => e.key === key ? { ...e, color_name: name } : e),
+    }) : cm);
+  };
+
+  const applyColorMatrix = () => {
+    if (!colorMatrix) return;
+    const { rowKey, values, entries } = colorMatrix;
+    const picked = entries
+      .map((e) => ({ ...e, qty: Number(values[e.key]) || 0 }))
+      .filter((e) => e.qty > 0);
+    if (picked.length === 0) {
+      message.warning('Enter quantity for at least one color');
+      return;
+    }
+    // Reject incomplete new rows — a non-zero qty without a name would
+    // hit the backend without a color identity and either save weird
+    // ('') or fail validation. Surface it here so the operator notices.
+    const blankNew = picked.find((e) => e.is_new && !(e.color_name || '').trim());
+    if (blankNew) {
+      message.warning('Type a name for the new color before applying');
+      return;
+    }
+    setItems((prev) => {
+      const idx = prev.findIndex((it) => it.key === rowKey);
+      if (idx === -1) return prev;
+      const original = prev[idx];
+      const newRows = picked.map((e, i) => ({
+        ...original,
+        // First entry reuses the original key so cursor focus / row
+        // selection (if any) doesn't jump; later entries get fresh keys.
+        key: i === 0 ? original.key : nextKeyRef.current++,
+        // For inline-added colors, color_id stays null and the bill
+        // save's resolveColorForProduct does the find-or-create using
+        // color_name. For existing colors we send the id straight.
+        color_id: e.is_new ? null : e.color_id,
+        color_name: (e.color_name || '').trim(),
+        quantity: e.qty,
+        total_amount: +(e.qty * (Number(original.purchase_rate) || 0)).toFixed(2),
+      }));
+      return [...prev.slice(0, idx), ...newRows, ...prev.slice(idx + 1)];
+    });
+    setColorMatrix(null);
+  };
+
   /* totals */
   const discountPct  = Form.useWatch('discount_percentage',form)||0;
   const paidAmt      = Form.useWatch('paid_amount',form)||0;
@@ -1344,18 +1560,25 @@ export default function PurchaseBillForm() {
           manufacture_date:i.manufacture_date||undefined,
           expiry_date:i.expiry_date||undefined,
           batch_notes:i.batch_notes||undefined,
-          // Forward color_id only for multi-color products. Backend
-          // validator throws if a non-multi line carries one (stale
-          // state from a UI bug).
-          color_id: i.color_mode === 'multi' ? (i.color_id || null) : null,
+          // Forward color identity only for multi-color products. The
+          // line carries either color_id (existing color) or color_name
+          // (operator added a new color via the matrix popup's "+ Add
+          // color" — backend find-or-creates it on the resolved variant
+          // via resolveColorForProduct's color_name path). Non-multi
+          // lines must carry NEITHER, or the validator rejects.
+          color_id:   i.color_mode === 'multi' ? (i.color_id || null) : null,
+          color_name: i.color_mode === 'multi' ? ((i.color_name || '').trim() || null) : null,
         })),
       };
-      // Block save while any multi-color line is missing its pick.
-      // Server validates the same rule, but catching it here saves a
-      // round-trip and keeps the operator's focus on the bad line.
+      // Block save while any multi-color line has no color identity at
+      // all. A line is OK if it carries color_id (existing color) OR a
+      // non-empty color_name (inline new color the backend will create
+      // on save). Server validates the same rule.
       if (billMode !== 'amount') {
         const missing = items.findIndex(
-          (it) => it.color_mode === 'multi' && !it.color_id,
+          (it) => it.color_mode === 'multi'
+                  && !it.color_id
+                  && !((it.color_name || '').trim()),
         );
         if (missing >= 0) {
           message.warning(
@@ -1731,29 +1954,69 @@ export default function PurchaseBillForm() {
       ),
     },
     { key:'size',     title:'Size',  dataIndex:'size',             width:70,  render:(v,r,ri)=>txtCell(ri,2,v,'size') },
-    // Color column — same posture as the sales form: shown only for
-    // multi-color tracked products, hidden cell ("—") for non-multi
-    // lines so a mixed bill reads cleanly. The column itself drops
-    // out of the table when no line is multi-color (see filter below).
-    { key:'color', title:'Color', dataIndex:'color_id', width:130,
+    // Color column — multi-color lines render a clickable button that
+    // opens a color/qty matrix popup; non-multi lines render "—". One
+    // click → operator enters qty per color → Apply explodes the row
+    // into one item per color (much faster than scanning the barcode
+    // N times to enter N colors). The button shows the current pick
+    // ("Red · 5") or a red "Pick colors" placeholder while empty so
+    // the operator can't miss it on save validation.
+    { key:'color', title:'Color', dataIndex:'color_id', width:140,
       render:(v,r)=>{
         if (r.color_mode !== 'multi') return <span style={{color:'var(--fg-tertiary)'}}>—</span>;
-        const opts = (r.colors || []).map((c) => ({ value: c.color_id, label: c.color_name }));
+        // A line counts as "picked" when it has either a color_id
+        // (existing color) OR a color_name (operator typed a new color
+        // inline; the backend will create it on save). Without the
+        // color_name branch, inline-added colors render as red "Pick
+        // colors" placeholders even after Apply, making the operator
+        // think nothing happened.
+        const hasName = !!(r.color_name || '').trim();
+        const hasPick = (!!r.color_id || hasName) && Number(r.quantity) > 0;
+        if (hasPick) {
+          // Picked → plain clickable text, matches the rest of the row
+          // (no input-box framing). Click re-opens the matrix to edit.
+          return (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={() => openColorMatrix(r.key)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openColorMatrix(r.key); }}
+              title="Click to edit colors"
+              style={{
+                display:'inline-block', width:'100%', cursor:'pointer',
+                color:'var(--fg-primary)', fontSize:13, fontWeight:600,
+                fontFamily:'inherit',
+                overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+              }}
+            >
+              {`${r.color_name || '?'} · ${r.quantity}`}
+            </span>
+          );
+        }
+        // Empty → red placeholder button so the operator can't miss it.
         return (
-          <Select
-            size="small"
-            value={v || undefined}
-            placeholder="Pick color"
-            onChange={(val) => {
-              const picked = (r.colors || []).find((c) => c.color_id === val);
-              updateItem(r.key, 'color_id', val);
-              updateItem(r.key, 'color_name', picked?.color_name || '');
+          <button
+            type="button"
+            onClick={() => openColorMatrix(r.key)}
+            title="Click to enter quantity per color"
+            style={{
+              width:'100%', height:30, padding:'0 8px',
+              background:'transparent',
+              color:'var(--danger, #dc2626)',
+              border:'1px solid var(--danger, #dc2626)',
+              borderRadius: 4,
+              fontSize: 12,
+              fontWeight: 600,
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              textAlign: 'left',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
-            style={{ width: '100%' }}
-            status={!v ? 'error' : ''}
-            options={opts}
-            dropdownStyle={{ minWidth: 160 }}
-          />
+          >
+            Pick colors
+          </button>
         );
       },
     },
@@ -1773,12 +2036,14 @@ export default function PurchaseBillForm() {
     },
   ];
   // Filter to operator-chosen columns. Required ones always pass.
-  // The Color column appears only when the global Multi-color toggle
-  // is ON AND at least one line is multi-color tracked — installs
-  // without the feature continue to look identical to before.
-  const pbfAnyMultiColor = items.some((it) => it.color_mode === 'multi');
+  // The Color column shows whenever the global Multi-color toggle is
+  // ON. Non-multi-color lines render "—" in the cell. Showing the
+  // column always (rather than only after a multi-color scan) avoids
+  // the chicken-and-egg of "column hidden until I scan a multi-color
+  // product" — the operator can SEE colors are tracked and pick the
+  // right product accordingly.
   const itemColumns = allItemColumns.filter(c => {
-    if (c.key === 'color') return !!multiColorOn && pbfAnyMultiColor;
+    if (c.key === 'color') return !!multiColorOn;
     return c.required || pbfVisibleCols.has(c.key);
   });
 
@@ -2644,6 +2909,117 @@ export default function PurchaseBillForm() {
         }}
         defaultName={entry.product_name || ''}
       />
+
+      {/* Color matrix popup — opens from the Color cell on a multi-color
+          line. Operator types receiving qty per color; Apply explodes
+          the row into one item per non-zero color. */}
+      <Modal
+        open={!!colorMatrix}
+        onCancel={() => setColorMatrix(null)}
+        onOk={applyColorMatrix}
+        title={colorMatrix ? (
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+            <span style={{ fontWeight:700, color:'var(--fg-primary)' }}>Pick colors</span>
+            <span style={{ fontSize:13, color:'var(--fg-tertiary)' }}>·</span>
+            <span style={{ fontSize:14, fontWeight:600, color:'var(--fg-secondary, #475569)' }}>
+              {colorMatrix.productName}{colorMatrix.sizeValue ? ` (${colorMatrix.sizeValue})` : ''}
+            </span>
+          </div>
+        ) : null}
+        okText="Apply"
+        cancelText="Cancel"
+        width={520}
+        zIndex={1100}
+        destroyOnClose
+      >
+        {colorMatrix && (
+          <Table
+            size="small"
+            pagination={false}
+            rowKey={(r) => r.key}
+            dataSource={colorMatrix.entries}
+            scroll={{ y: 360 }}
+            columns={[
+              { title: 'Color', dataIndex: 'color_name', key: 'color_name',
+                render: (v, r) => r.is_new ? (
+                  <Input
+                    size="small"
+                    autoFocus
+                    placeholder="Color name"
+                    value={r.color_name}
+                    onChange={(e) => updateNewColorName(r.key, e.target.value)}
+                    style={{ width: '100%' }}
+                  />
+                ) : (
+                  <span style={{ fontWeight:600 }}>{v}</span>
+                ),
+              },
+              { title: 'In stock', dataIndex: 'current_stock', key: 'current_stock',
+                width: 100, align: 'right',
+                render: (v, r) => r.is_new ? (
+                  <span style={{ color:'var(--fg-tertiary)' }}>—</span>
+                ) : (
+                  <span style={{ fontVariantNumeric:'tabular-nums', color:'var(--fg-tertiary)' }}>
+                    {Number(v) || 0}
+                  </span>
+                ),
+              },
+              { title: 'Receiving qty', key: 'qty', width: 130, align: 'right',
+                render: (_, r) => (
+                  <InputNumber
+                    min={0}
+                    size="small"
+                    value={colorMatrix.values[r.key] || 0}
+                    onChange={(val) => setColorMatrix((cm) => cm ? ({
+                      ...cm,
+                      values: { ...cm.values, [r.key]: val == null ? 0 : Number(val) },
+                    }) : cm)}
+                    style={{ width: '100%' }}
+                  />
+                ),
+              },
+              { key: 'remove', title: '', width: 36, align: 'center',
+                render: (_, r) => (
+                  <button
+                    type="button"
+                    onClick={() => deleteColorRow(r.key)}
+                    title={r.is_new ? 'Discard this row' : 'Delete this color from the product'}
+                    style={{
+                      background:'none', border:'none', cursor:'pointer',
+                      color:'var(--danger, #dc2626)', fontSize:16, padding:'4px 6px',
+                      lineHeight:1,
+                    }}
+                  >×</button>
+                ),
+              },
+            ]}
+            footer={() => {
+              const total = Object.values(colorMatrix.values).reduce(
+                (s, v) => s + (Number(v) || 0), 0
+              );
+              return (
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, fontSize:13 }}>
+                  <button
+                    type="button"
+                    onClick={addNewColorRow}
+                    style={{
+                      background:'transparent', border:'1px dashed var(--border, #cbd5e1)',
+                      borderRadius:4, padding:'4px 12px', fontSize:12, fontWeight:600,
+                      color:'var(--fg-secondary, #475569)', cursor:'pointer',
+                    }}
+                  >+ Add color</button>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <span style={{ color:'var(--fg-tertiary)' }}>Total receiving qty:</span>
+                    <span style={{ fontWeight:700, color:'var(--fg-primary)', fontVariantNumeric:'tabular-nums' }}>
+                      {total}
+                    </span>
+                  </div>
+                </div>
+              );
+            }}
+          />
+        )}
+      </Modal>
     </Form>
   );
 }

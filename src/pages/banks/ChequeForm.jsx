@@ -1,7 +1,8 @@
 // ── Cheque Form modal ─────────────────────────────────────────────
 //
 // Single modal for both create and edit. The relevant prop is
-// `cheque` — null = create, an object = edit.
+// `cheque` — null = create, an object = edit. Renders inside the
+// shared EntityFormModal shell.
 //
 // Direction is the structural choice that picks every other label:
 //   • INWARD  — received from a customer.  The party picker filters
@@ -13,19 +14,18 @@
 //                a PDC (post-dated cheque) automatically.
 //
 // Live preview banner shows the exact double-entry that will post
-// when the operator hits Save — so a non-accountant operator can
-// see what's about to happen to the books before committing.
+// when the operator hits Save.
 //
 // Editing financial details is only allowed while PENDING. Past
 // PENDING the form opens in memo-only mode (notes editable, all
 // other fields locked + disabled).
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Form, Input, InputNumber, DatePicker, Select, message } from 'antd';
-import { ArrowDownOutlined, ArrowUpOutlined, FileDoneOutlined } from '@ant-design/icons';
+import { Form, Input, InputNumber, DatePicker, Select, message } from 'antd';
+import { ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { chequeAPI, partyAPI, bankAPI } from '../../api';
-import './cheques.css';
+import EntityFormModal from '../../components/EntityFormModal';
 
 const fmtRupees = (v) => {
   const n = Number(v) || 0;
@@ -41,6 +41,7 @@ export default function ChequeForm({ open, onClose, onSaved, cheque }) {
   const [saving, setSaving]   = useState(false);
   const [parties, setParties] = useState([]);
   const [banks,   setBanks]   = useState([]);
+  const [dirty,   setDirty]   = useState(false);
 
   // Watch the relevant fields so the preview banner updates live as
   // the operator types. Each Form.useWatch returns undefined while the
@@ -82,6 +83,7 @@ export default function ChequeForm({ open, onClose, onSaved, cheque }) {
   // added parties / banks show up without a page reload.
   useEffect(() => {
     if (!open) return;
+    setDirty(false);
 
     partyAPI.getAll({ limit: 5000 })
       .then((r) => {
@@ -132,12 +134,13 @@ export default function ChequeForm({ open, onClose, onSaved, cheque }) {
   // want to lose the keystrokes.
   const setDirection = (d) => {
     form.setFieldsValue({ direction: d, party_id: undefined });
+    setDirty(true);
   };
 
   const handleSave = async () => {
     let v;
     try { v = await form.validateFields(); }
-    catch { return; }
+    catch { message.warning('Fix the highlighted fields and try again'); return; }
 
     const body = memoOnly
       ? {
@@ -165,6 +168,7 @@ export default function ChequeForm({ open, onClose, onSaved, cheque }) {
         await chequeAPI.create(body);
         message.success('Cheque recorded');
       }
+      setDirty(false);
       onSaved?.();
       onClose?.();
     } catch (e) {
@@ -172,6 +176,36 @@ export default function ChequeForm({ open, onClose, onSaved, cheque }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleReset = () => {
+    if (isEdit) {
+      form.setFieldsValue({
+        direction:        cheque.direction,
+        cheque_number:    cheque.cheque_number,
+        cheque_date:      cheque.cheque_date ? dayjs(cheque.cheque_date) : null,
+        instrument_date:  cheque.instrument_date ? dayjs(cheque.instrument_date) : dayjs(),
+        amount:           Number(cheque.amount),
+        party_id:         cheque.party_id,
+        bank_ledger_id:   cheque.bank_ledger_id || undefined,
+        drawee_bank_name: cheque.drawee_bank_name || '',
+        notes:            cheque.notes || '',
+      });
+    } else {
+      const today = dayjs();
+      form.setFieldsValue({
+        direction:        'INWARD',
+        cheque_number:    '',
+        cheque_date:      today,
+        instrument_date:  today,
+        amount:           null,
+        party_id:         undefined,
+        bank_ledger_id:   undefined,
+        drawee_bank_name: '',
+        notes:            '',
+      });
+    }
+    setDirty(false);
   };
 
   // Resolve the human-readable double-entry preview based on the
@@ -197,212 +231,224 @@ export default function ChequeForm({ open, onClose, onSaved, cheque }) {
   }, [direction, amount, selectedParty, selectedBank, isPdc]);
 
   const title = isEdit
-    ? (memoOnly ? 'Edit notes' : 'Edit cheque')
-    : 'Record cheque';
+    ? (memoOnly ? 'Edit Notes' : 'Edit Cheque')
+    : 'Record Cheque';
 
   return (
-    <Modal
-      title={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <FileDoneOutlined style={{ color: '#4F46E5' }} />
-          {title}
-        </span>
-      }
-      open={open}
-      onCancel={onClose}
-      onOk={handleSave}
-      okText={isEdit ? 'Save changes' : 'Record cheque'}
-      confirmLoading={saving}
-      destroyOnClose
-      width={620}
+    <Form
+      form={form}
+      layout="vertical"
+      requiredMark={false}
+      preserve={false}
+      component={false}
+      onValuesChange={() => setDirty(true)}
     >
-      <Form form={form} layout="vertical" requiredMark={false} preserve={false}>
-
-        <Form.Item name="direction" hidden><Input /></Form.Item>
-
-        {/* Direction picker — the structural choice. Locked when
-            editing because flipping direction would silently rewire
-            the posting; the controller would reject it anyway. */}
-        <div className="chq-form-direction-card">
-          <button
-            type="button"
-            className={`chq-form-dir-btn in${direction === 'INWARD' ? ' on' : ''}`}
-            disabled={isEdit}
-            onClick={() => setDirection('INWARD')}
-          >
-            <div className="ic"><ArrowDownOutlined /></div>
-            <div className="stack">
-              <div className="name">Inward · Received</div>
-              <div className="hint">From a customer or debtor</div>
-            </div>
-          </button>
-          <button
-            type="button"
-            className={`chq-form-dir-btn out${direction === 'OUTWARD' ? ' on' : ''}`}
-            disabled={isEdit}
-            onClick={() => setDirection('OUTWARD')}
-          >
-            <div className="ic"><ArrowUpOutlined /></div>
-            <div className="stack">
-              <div className="name">Outward · Issued</div>
-              <div className="hint">To a supplier or creditor</div>
-            </div>
-          </button>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Form.Item
-            name="cheque_number"
-            label="Cheque number"
-            rules={[
-              { required: true, message: 'Cheque number is required' },
-              { max: 40, message: 'Max 40 characters' },
-              { whitespace: true, message: 'Cheque number is required' },
-            ]}
-          >
-            <Input placeholder="000123" maxLength={40} disabled={memoOnly} autoFocus={!isEdit} />
-          </Form.Item>
-
-          <Form.Item
-            name="amount"
-            label="Amount"
-            rules={[
-              { required: true, message: 'Amount is required' },
-              { type: 'number', min: 0.01, message: 'Must be > 0' },
-            ]}
-          >
-            <InputNumber
-              keyboard={false}
-              min={0.01}
-              step={100}
-              style={{ width: '100%' }}
-              placeholder="0.00"
-              disabled={memoOnly}
-              formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
-              parser={(v) => v.replace(/₹\s?|,/g, '')}
-            />
-          </Form.Item>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Form.Item
-            name="instrument_date"
-            label={direction === 'INWARD' ? 'Received on' : 'Issued on'}
-            rules={[{ required: true, message: 'Date is required' }]}
-            extra="Date the cheque physically changed hands."
-          >
-            <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" disabled={memoOnly} allowClear={false} />
-          </Form.Item>
-
-          <Form.Item
-            name="cheque_date"
-            label="Cheque date"
-            rules={[{ required: true, message: 'Cheque date is required' }]}
-            extra={isPdc ? <span style={{ color: '#7E22CE', fontWeight: 600 }}>Post-dated · PDC</span> : 'Date written on the cheque face.'}
-          >
-            <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" disabled={memoOnly} allowClear={false} />
-          </Form.Item>
-        </div>
-
-        <Form.Item
-          name="party_id"
-          label={direction === 'INWARD' ? 'From customer' : 'To supplier'}
-          rules={[{ required: true, message: `Pick a ${direction === 'INWARD' ? 'customer' : 'supplier'}` }]}
-        >
-          <Select
-            showSearch
-            placeholder={direction === 'INWARD' ? 'Select customer…' : 'Select supplier…'}
-            optionFilterProp="label"
-            disabled={memoOnly}
-            options={filteredParties.map((p) => ({
-              value: p.party_id,
-              label: p.party_name + (p.mobile_1 && p.mobile_1 !== 'CASH' ? ` · ${p.mobile_1}` : ''),
-            }))}
-          />
+      <EntityFormModal
+        open={open}
+        onClose={onClose}
+        title={title}
+        subtitle={isEdit ? `${cheque.direction} · ${cheque.cheque_number}` : 'Capture an inward or outward cheque'}
+        entityIcon="₹"
+        entityTone="accent"
+        dirty={dirty}
+        saving={saving}
+        onSave={handleSave}
+        onSaveAndClose={handleSave}
+        onReset={handleReset}
+        width={620}
+      >
+        {/* Hidden Form.Item to register direction with the form. The
+            visible UI is the toggle-cards row below. */}
+        <Form.Item name="direction" hidden noStyle>
+          <Input />
         </Form.Item>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Form.Item
-            name="bank_ledger_id"
-            label={direction === 'INWARD' ? 'Deposit to (our bank)' : 'Drawn on (our bank)'}
-            rules={direction === 'OUTWARD'
-              ? [{ required: true, message: 'Pick the bank' }]
-              : []}
-            extra={direction === 'INWARD'
-              ? 'Optional now — required when you deposit.'
-              : null}
-          >
-            <Select
-              showSearch
-              placeholder="Select bank…"
-              optionFilterProp="label"
-              disabled={memoOnly && direction !== 'INWARD'}
-              allowClear={direction === 'INWARD'}
-              options={banks.map((b) => ({
-                value: b.ledger_id,
-                label: b.name + (b.is_overdraft ? ' (OD)' : ''),
-              }))}
-            />
-          </Form.Item>
-
-          {direction === 'INWARD' ? (
-            <Form.Item
-              name="drawee_bank_name"
-              label="Drawee bank (printed)"
-              extra="Customer's bank name printed on the cheque."
+        <EntityFormModal.Section label="Direction">
+          <div className="efm-toggle-cards" style={{ gridColumn: '1 / -1' }}>
+            <button
+              type="button"
+              className={direction === 'INWARD' ? 'on' : ''}
+              disabled={isEdit}
+              onClick={() => setDirection('INWARD')}
             >
-              <Input placeholder="HDFC, ICICI, …" maxLength={120} />
-            </Form.Item>
-          ) : (
-            <div /> /* spacer to keep grid tidy */
-          )}
-        </div>
+              <div className="ic"><ArrowDownOutlined /></div>
+              <div className="stack">
+                <div className="name">Inward · Received</div>
+                <div className="hint">From a customer or debtor</div>
+              </div>
+            </button>
+            <button
+              type="button"
+              className={direction === 'OUTWARD' ? 'on' : ''}
+              disabled={isEdit}
+              onClick={() => setDirection('OUTWARD')}
+            >
+              <div className="ic"><ArrowUpOutlined /></div>
+              <div className="stack">
+                <div className="name">Outward · Issued</div>
+                <div className="hint">To a supplier or creditor</div>
+              </div>
+            </button>
+          </div>
 
-        <Form.Item name="notes" label="Notes">
-          <Input.TextArea rows={2} maxLength={500} showCount placeholder="Optional context…" />
-        </Form.Item>
+          {memoOnly && (
+            <div className="efm-callout warning" style={{ gridColumn: '1 / -1' }}>
+              Cheque is <b>{cheque.status}</b> — only notes / drawee name can be edited. To change financial details, cancel the cheque and record a new one.
+            </div>
+          )}
+        </EntityFormModal.Section>
+
+        <EntityFormModal.Section label="Cheque">
+          <EntityFormModal.Field label="Cheque Number" required>
+            <Form.Item
+              name="cheque_number"
+              rules={[
+                { required: true, message: 'Required' },
+                { max: 40, message: 'Max 40 characters' },
+                { whitespace: true, message: 'Required' },
+              ]}
+              noStyle
+            >
+              <Input className="efm-input" placeholder="000123" maxLength={40} disabled={memoOnly} autoFocus={!isEdit} />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field label="Amount" required>
+            <Form.Item
+              name="amount"
+              rules={[
+                { required: true, message: 'Required' },
+                { type: 'number', min: 0.01, message: 'Must be > 0' },
+              ]}
+              noStyle
+            >
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                min={0.01}
+                step={100}
+                style={{ width: '100%' }}
+                controls={false}
+                placeholder="0.00"
+                disabled={memoOnly}
+                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                parser={(v) => v.replace(/₹\s?|,/g, '')}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field
+            label={direction === 'INWARD' ? 'Received On' : 'Issued On'}
+            required
+            help="Date the cheque physically changed hands."
+          >
+            <Form.Item name="instrument_date" rules={[{ required: true, message: 'Required' }]} noStyle>
+              <DatePicker className="efm-input" style={{ width: '100%' }} format="DD MMM YYYY" disabled={memoOnly} allowClear={false} />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field
+            label="Cheque Date"
+            required
+            help={isPdc ? <span style={{ color: 'var(--warning)', fontWeight: 600 }}>Post-dated · PDC</span> : 'Date written on the cheque face.'}
+          >
+            <Form.Item name="cheque_date" rules={[{ required: true, message: 'Required' }]} noStyle>
+              <DatePicker className="efm-input" style={{ width: '100%' }} format="DD MMM YYYY" disabled={memoOnly} allowClear={false} />
+            </Form.Item>
+          </EntityFormModal.Field>
+        </EntityFormModal.Section>
+
+        <EntityFormModal.Section label="Counterparty">
+          <EntityFormModal.Field
+            label={direction === 'INWARD' ? 'From Customer' : 'To Supplier'}
+            required
+            span="full"
+          >
+            <Form.Item
+              name="party_id"
+              rules={[{ required: true, message: `Pick a ${direction === 'INWARD' ? 'customer' : 'supplier'}` }]}
+              noStyle
+            >
+              <Select
+                className="efm-select-antd"
+                showSearch
+                placeholder={direction === 'INWARD' ? 'Select customer…' : 'Select supplier…'}
+                optionFilterProp="label"
+                disabled={memoOnly}
+                options={filteredParties.map((p) => ({
+                  value: p.party_id,
+                  label: p.party_name + (p.mobile_1 && p.mobile_1 !== 'CASH' ? ` · ${p.mobile_1}` : ''),
+                }))}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field
+            label={direction === 'INWARD' ? 'Deposit To' : 'Drawn On'}
+            required={direction === 'OUTWARD'}
+            help={direction === 'INWARD' ? 'Optional — required when you deposit' : null}
+          >
+            <Form.Item
+              name="bank_ledger_id"
+              rules={direction === 'OUTWARD' ? [{ required: true, message: 'Pick the bank' }] : []}
+              noStyle
+            >
+              <Select
+                className="efm-select-antd"
+                showSearch
+                placeholder="Select bank…"
+                optionFilterProp="label"
+                disabled={memoOnly && direction !== 'INWARD'}
+                allowClear={direction === 'INWARD'}
+                options={banks.map((b) => ({
+                  value: b.ledger_id,
+                  label: b.name + (b.is_overdraft ? ' (OD)' : ''),
+                }))}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          {direction === 'INWARD' && (
+            <EntityFormModal.Field label="Drawee Bank" help="Customer's bank name printed on the cheque">
+              <Form.Item name="drawee_bank_name" noStyle>
+                <Input className="efm-input" placeholder="HDFC, ICICI, …" maxLength={120} />
+              </Form.Item>
+            </EntityFormModal.Field>
+          )}
+
+          <EntityFormModal.Field label="Notes" span="full">
+            <Form.Item name="notes" noStyle>
+              <Input.TextArea rows={2} maxLength={500} showCount placeholder="Optional context…" />
+            </Form.Item>
+          </EntityFormModal.Field>
+        </EntityFormModal.Section>
 
         {/* Live preview — reads the watched form values and renders
             the exact Dr/Cr that will post. Doesn't show until enough
             of the form is filled in to make a meaningful prediction. */}
         {!memoOnly && previewLines && (
-          <div className="chq-form-preview">
-            <div className="chq-form-preview-hd">Will post</div>
-            {previewLines.map((line, i) => (
-              <div key={i}>
-                <div className="leg">
-                  <span className="dr">Dr</span> {line.dr} <b>{line.drAmt}</b>
+          <EntityFormModal.Section label="Will Post">
+            <div className="efm-preview" style={{ gridColumn: '1 / -1' }}>
+              {previewLines.map((line, i) => (
+                <div key={i}>
+                  <div className="leg">
+                    <span className="dr">Dr</span> {line.dr} · <b>{line.drAmt}</b>
+                  </div>
+                  <div style={{ marginLeft: 14, marginTop: 2 }} className="leg">
+                    <span className="cr">Cr</span> {line.cr} · <b>{line.crAmt}</b>
+                  </div>
                 </div>
-                <div style={{ marginLeft: 12, marginTop: 2 }}>
-                  <span className="leg">
-                    <span className="cr">Cr</span> {line.cr} <b>{line.crAmt}</b>
-                  </span>
-                </div>
-              </div>
-            ))}
-            {isPdc && direction === 'OUTWARD' && (
-              <div className="chq-form-preview-pdc">
-                Post-dated cheque — credits the PDC liability ledger,
-                not your bank, until it matures.
-              </div>
-            )}
-            {isPdc && direction === 'INWARD' && (
-              <div className="chq-form-preview-pdc">
-                Post-dated cheque — sits in Cheques in Hand;
-                cannot be deposited until the cheque date.
-              </div>
-            )}
-          </div>
+              ))}
+              {isPdc && direction === 'OUTWARD' && (
+                <div className="pdc">Post-dated cheque — credits the PDC liability ledger, not your bank, until it matures.</div>
+              )}
+              {isPdc && direction === 'INWARD' && (
+                <div className="pdc">Post-dated cheque — sits in Cheques in Hand; cannot be deposited until the cheque date.</div>
+              )}
+            </div>
+          </EntityFormModal.Section>
         )}
-
-        {memoOnly && (
-          <div className="chq-form-preview">
-            Cheque is <b>{cheque.status}</b> — only notes / drawee
-            name can be edited. To change financial details, cancel
-            the cheque and record a new one.
-          </div>
-        )}
-      </Form>
-    </Modal>
+      </EntityFormModal>
+    </Form>
   );
 }

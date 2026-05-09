@@ -894,3 +894,187 @@ exports.godownValuation = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
+
+// ── Stock by Color ────────────────────────────────────────────────────
+//
+// ONE row per multi-color product. Each row carries an aggregate of its
+// active color rows (color_count, total_stock, stock_value) plus has_low /
+// has_out flags so the operator can scan a list of products and spot
+// which families have at least one color short. Tapping a row drills
+// into a per-color detail page (handled by GET /api/products/:id/colors
+// — already wired by productColorAPI).
+//
+// Why per-product, not per-color: a Stock-Report-style master list with
+// a "8 colors" badge is what the operator wants for purchase decisions.
+// "80 in stock" hides "0 Blue" — but at master level the operator
+// just needs to see "Lyra has issues, drill in."
+//
+// Filters:
+//   • category_id   — single id (numeric)
+//   • search        — case-insensitive substring on product_name,
+//                     barcode, article_number (mirror of Stock Report)
+//   • status        — 'all' (default), 'short' (any color out OR low),
+//                     'ok' (all colors OK)
+//
+// Pagination + summary contract matches the rest of the report endpoints
+// so the page can use useVirtualizedReport / VirtualReportTable
+// unchanged.
+exports.stockByColor = async (req, res) => {
+  try {
+    const { sanitizePagination } = require('../utils/helpers');
+    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
+
+    const replacements = {};
+    let categoryFilter = '';
+    if (req.query.category_id) {
+      categoryFilter = ' AND p.category_id = :cid ';
+      replacements.cid = parseInt(req.query.category_id, 10);
+    }
+    let searchFilter = '';
+    if (req.query.search) {
+      searchFilter = ` AND (
+        p.product_name    ILIKE :search OR
+        p.barcode         ILIKE :search OR
+        p.article_number  ILIKE :search
+      ) `;
+      replacements.search = `%${String(req.query.search).trim()}%`;
+    }
+
+    // Per-product roll-up. A LEFT JOIN onto product_colors keeps a
+    // multi-color product with no active colors visible (count = 0)
+    // rather than disappearing.
+    //
+    // Status-aware aggregates use FILTER (...) clauses so the helper
+    // count-of-low / count-of-out doesn't require a second pass.
+    const baseSql = `
+      WITH per_product AS (
+        SELECT p.product_id,
+               p.product_name,
+               p.barcode,
+               p.size_value,
+               p.article_number,
+               p.product_mode,
+               p.is_batch_tracked,
+               p.purchase_rate::float        AS purchase_rate,
+               p.weighted_avg_cost::float    AS weighted_avg_cost,
+               p.unit_of_measurement,
+               p.category_id,
+               c.category_name,
+               COUNT(pc.color_id) FILTER (WHERE pc.is_active = true)::int  AS color_count,
+               COALESCE(SUM(pc.current_stock) FILTER (WHERE pc.is_active = true), 0)::float AS total_stock,
+               COUNT(pc.color_id) FILTER (
+                 WHERE pc.is_active = true AND pc.current_stock <= 0
+               )::int AS out_count,
+               COUNT(pc.color_id) FILTER (
+                 WHERE pc.is_active = true
+                   AND pc.low_stock_alert > 0
+                   AND pc.current_stock > 0
+                   AND pc.current_stock <= pc.low_stock_alert
+               )::int AS low_count
+          FROM products p
+          LEFT JOIN categories c ON c.category_id = p.category_id
+          LEFT JOIN product_colors pc ON pc.product_id = p.product_id
+         WHERE p.is_active = true
+           AND p.color_mode = 'multi'
+           ${categoryFilter}
+           ${searchFilter}
+         GROUP BY p.product_id, p.product_name, p.barcode, p.size_value,
+                  p.article_number, p.product_mode, p.is_batch_tracked,
+                  p.purchase_rate, p.weighted_avg_cost,
+                  p.unit_of_measurement, p.category_id, c.category_name
+      )`;
+
+    // Status filter applied AFTER the aggregate so out_count/low_count
+    // are available. Three modes mirror the Stock Report's chip filter.
+    let statusFilter = '';
+    const status = (req.query.status || 'all').toString();
+    if (status === 'short') statusFilter = ' WHERE (out_count > 0 OR low_count > 0) ';
+    else if (status === 'ok') statusFilter = ' WHERE out_count = 0 AND low_count = 0 ';
+
+    // Page query — ordered, paginated.
+    const pagedSql = `
+      ${baseSql}
+      SELECT * FROM per_product
+      ${statusFilter}
+      ORDER BY product_name ASC, size_value ASC NULLS LAST
+      LIMIT :limit OFFSET :offset
+    `;
+    const pagedRows = await sequelize.query(pagedSql, {
+      replacements: { ...replacements, limit, offset },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    // Total + summary across the FULL filtered set (not just the page)
+    // so the KPI strip + paginator stay correct as the user scrolls.
+    const summarySql = `
+      ${baseSql}
+      SELECT COUNT(*)::int                                           AS total_count,
+             COALESCE(SUM(total_stock), 0)::float                    AS total_qty,
+             COUNT(*) FILTER (WHERE out_count > 0)::int              AS short_out_count,
+             COUNT(*) FILTER (WHERE low_count > 0 AND out_count = 0)::int AS short_low_count,
+             COUNT(*) FILTER (WHERE out_count = 0 AND low_count = 0)::int AS ok_count
+        FROM per_product
+        ${statusFilter}
+    `;
+    const summaryRow = (await sequelize.query(summarySql, {
+      replacements,
+      type: sequelize.QueryTypes.SELECT,
+    }))[0] || {};
+
+    // Per-row stock value via the same display-cost helper the rest of
+    // the inventory reports use. Single+batch rows fall back to 0 — per-
+    // color batch rates aren't tracked, so we don't fabricate a number.
+    let totalValue = 0;
+    const enriched = pagedRows.map((r) => {
+      let rate = 0;
+      if (r.product_mode === 'single' && r.is_batch_tracked) {
+        rate = 0;
+      } else {
+        rate = computeDisplayCost(r);
+      }
+      const value = num(r.total_stock) * rate;
+      totalValue += value;
+      const isShort = (r.out_count > 0) || (r.low_count > 0);
+      return {
+        product_id:      r.product_id,
+        product_name:    r.product_name,
+        barcode:         r.barcode,
+        size_value:      r.size_value,
+        article_number:  r.article_number,
+        category_id:     r.category_id,
+        category_name:   r.category_name,
+        unit_of_measurement: r.unit_of_measurement,
+        color_count:     r.color_count,
+        total_stock:     r2(num(r.total_stock)),
+        out_count:       r.out_count,
+        low_count:       r.low_count,
+        purchase_rate:   r2(rate),
+        stock_value:     r2(value),
+        is_short:        isShort,
+      };
+    });
+
+    // total_value is a page-level total, not a global one — the global
+    // value would need a second pass over every product (heavy) and
+    // isn't usually what the operator wants on a paginated list.
+    const summary = {
+      total_count:   parseInt(summaryRow.total_count || 0, 10),
+      total_qty:     r2(num(summaryRow.total_qty)),
+      short_out_count: parseInt(summaryRow.short_out_count || 0, 10),
+      short_low_count: parseInt(summaryRow.short_low_count || 0, 10),
+      ok_count:      parseInt(summaryRow.ok_count || 0, 10),
+      page_value:    r2(totalValue),
+    };
+
+    res.json({
+      total: summary.total_count,
+      page,
+      limit,
+      data: enriched,
+      summary,
+    });
+  } catch (err) {
+    console.error('stockByColor error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};

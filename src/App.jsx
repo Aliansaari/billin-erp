@@ -73,6 +73,8 @@ import HsnSummary from './pages/reports/HsnSummary';
 import FastSlowStock from './pages/reports/FastSlowStock';
 import GodownTransferRegister from './pages/reports/GodownTransferRegister';
 import GodownValuation from './pages/reports/GodownValuation';
+import StockByColor from './pages/reports/StockByColor';
+import StockByColorDetail from './pages/reports/StockByColorDetail';
 import ReportsHub from './pages/reports/ReportsHub';
 import JournalVoucherList from './pages/accounts/JournalVoucherList';
 import JournalVoucherForm from './pages/accounts/JournalVoucherForm';
@@ -99,6 +101,7 @@ import HomeSettings from './pages/settings/HomeSettings';
 import DashboardSettings from './pages/settings/DashboardSettings';
 import DefaultsSettings from './pages/settings/DefaultsSettings';
 import SettingsLayout from './pages/settings/SettingsLayout';
+import EntityFormModalDemo from './pages/dev/EntityFormModalDemo';
 import DeveloperSettings from './pages/settings/DeveloperSettings';
 import CompanyList from './pages/settings/CompanyList';
 import {
@@ -473,6 +476,11 @@ export default function App() {
               now live on the inventory Stock Report via the movement-
               period range picker. Drill-down from ProfitLoss rewired. */}
           <Route path="reports/fast-slow-stock"    element={<RoleRoute perm="reports.view"><FastSlowStock /></RoleRoute>} />
+          <Route path="reports/stock-by-color"             element={<RoleRoute perm="reports.view"><StockByColor /></RoleRoute>} />
+          {/* Dev-only preview route for the new EntityFormModal shell.
+           *  Not linked from any menu. Visit /dev/efm directly to test. */}
+          <Route path="dev/efm"                            element={<EntityFormModalDemo />} />
+          <Route path="reports/stock-by-color/:productId"  element={<RoleRoute perm="reports.view"><StockByColorDetail /></RoleRoute>} />
           {/* Redirect — keep the legacy /reports/movers slug alive
               forever so any user-saved bookmark, copy-pasted URL, or
               cached favourite resolves to the new path.  Replace=true

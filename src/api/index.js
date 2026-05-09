@@ -373,6 +373,10 @@ export const reportAPI = {
   // Phase Godown — multi-warehouse reports
   transferRegister:   (params) => api.get('/reports/transfer-register',  { params }),
   godownValuation:    (params) => api.get('/reports/godown-valuation',   { params }),
+  // Multi-color stock breakdown — one row per (multi-color product,
+  // color). Drives the standalone Stock by Color report and feeds the
+  // expandable rows in the main Stock Report.
+  stockByColor:       (params) => api.get('/reports/stock-by-color',     { params }),
 
   // Filter-aware XLSX exports — SAME filter shape as the JSON endpoints above.
   // The server applies the filters, fetches ALL matching rows (no page limit),

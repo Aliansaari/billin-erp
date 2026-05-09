@@ -68,6 +68,17 @@ export function useMultiWarehouseEnabled() {
   return s == null ? null : !!s.multi_warehouse_enabled;
 }
 
+// Batch / lot tracking master toggle — gates every batch surface across
+// the app: Batches sidebar entry, Expiry Report, Stock Report's "View
+// by batch" button, batch column on bill rows, etc. When false, the
+// batch pages render a placeholder; the consumers below hide their
+// entry points so the operator never lands on those placeholders by
+// accident.
+export function useBatchTrackingEnabled() {
+  const s = useSystemSettings();
+  return s == null ? null : !!s.batch_tracking_enabled;
+}
+
 /* ── Color-tracking feature flags ─────────────────────────────────── */
 export function useSingleColorEnabled() {
   const s = useSystemSettings();

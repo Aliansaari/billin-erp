@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { message, Modal, Spin } from 'antd';
 import dayjs from 'dayjs';
 import { partyAPI, authAPI, dataAPI } from '../../api';
@@ -104,6 +104,21 @@ export default function PartyListView({ partyType }) {
 
   // Party form (Edit/Create modal)
   const [formOpen, setFormOpen] = useState(false);
+  // Sidebar deep-link — clicking "New Customer" / "New Supplier" routes
+  // to /customers?new=1 (or /suppliers?new=1). Open the create modal
+  // every time the param appears, then strip it. Dep on searchParams
+  // (not []) so revisiting the same URL while already on this page
+  // also fires — without it, "New Customer" while already on
+  // /customers becomes a no-op.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setFormOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('new');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const [editingParty, setEditingParty] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
 

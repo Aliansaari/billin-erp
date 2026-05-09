@@ -1,9 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Modal, Form, Input, Switch, Tag, Space, Popconfirm, message, Tooltip } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Table, Button, Switch, Tag, Space, Popconfirm, message, Tooltip } from 'antd';
 import { BankOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleFilled, StarFilled } from '@ant-design/icons';
 import { godownAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import EntityFormModal from '../../components/EntityFormModal';
+
+const { Section, Field } = EntityFormModal;
+const EMPTY_GD = { code: '', name: '', address: '', city: '', state: '', pincode: '', gstin: '' };
 
 /*
  * Settings → Godowns.
@@ -24,7 +28,11 @@ export default function GodownList() {
   const [loading, setLoading]       = useState(false);
   const [editing, setEditing]       = useState(null);   // null = closed, {} = create, {…} = edit
   const [submitting, setSubmitting] = useState(false);
-  const [form] = Form.useForm();
+  // Replaced Antd Form with plain state — handled by the shared
+  // EntityFormModal shell. 7 fields, no async validators.
+  const [form, setForm]             = useState(EMPTY_GD);
+  const [initialForm, setInitialForm] = useState(EMPTY_GD);
+  const [formErrors, setFormErrors]   = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -40,31 +48,75 @@ export default function GodownList() {
 
   useEffect(() => { load(); }, []);
 
-  const openCreate = () => { setEditing({}); form.resetFields(); };
-  const openEdit   = (g) => { setEditing(g); form.setFieldsValue(g); };
-  const close      = () => { setEditing(null); form.resetFields(); };
+  const hydrate = (g) => {
+    const fresh = {
+      code: g?.code || '',
+      name: g?.name || '',
+      address: g?.address || '',
+      city: g?.city || '',
+      state: g?.state || '',
+      pincode: g?.pincode || '',
+      gstin: g?.gstin || '',
+    };
+    setForm(fresh);
+    setInitialForm(fresh);
+    setFormErrors({});
+  };
+
+  const openCreate = () => { setEditing({}); hydrate(null); };
+  const openEdit   = (g) => { setEditing(g); hydrate(g); };
+  const close      = () => { setEditing(null); hydrate(null); };
+
+  const setField = (k) => (e) => {
+    const v = e?.target ? e.target.value : e;
+    setForm((p) => ({ ...p, [k]: v }));
+    if (formErrors[k]) setFormErrors((er) => { const x = { ...er }; delete x[k]; return x; });
+  };
+
+  const formDirty = useMemo(() => {
+    return Object.keys(initialForm).some((k) =>
+      (form[k] || '') !== (initialForm[k] || ''));
+  }, [form, initialForm]);
 
   const submit = async () => {
+    const next = {};
+    if (!(form.code || '').trim()) next.code = 'Code is required';
+    else if (form.code.length > 20) next.code = 'Max 20 characters';
+    if (!(form.name || '').trim()) next.name = 'Name is required';
+    else if (form.name.length > 100) next.name = 'Max 100 characters';
+    if (form.gstin && form.gstin.length !== 15) next.gstin = 'GSTIN must be 15 characters';
+    setFormErrors(next);
+    if (Object.keys(next).length) {
+      message.warning('Fix the highlighted fields and try again');
+      return;
+    }
+    setSubmitting(true);
     try {
-      const vals = await form.validateFields();
-      setSubmitting(true);
+      const payload = {
+        ...form,
+        code: form.code.trim().toUpperCase(),
+        name: form.name.trim(),
+      };
       if (editing && editing.godown_id) {
-        await godownAPI.update(editing.godown_id, vals);
+        await godownAPI.update(editing.godown_id, payload);
         message.success('Godown updated');
       } else {
-        await godownAPI.create(vals);
+        await godownAPI.create(payload);
         message.success('Godown created');
       }
       close();
       await load();
     } catch (err) {
-      // Form validation surfaces its own messages; only show server errors.
-      if (err?.errorFields) return;
       message.error(err?.response?.data?.error || 'Save failed');
     } finally {
       setSubmitting(false);
     }
   };
+
+  const handleReset = useCallback(() => {
+    setForm(initialForm);
+    setFormErrors({});
+  }, [initialForm]);
 
   const setDefault = async (g) => {
     try {
@@ -201,50 +253,84 @@ export default function GodownList() {
         })}
       />
 
-      <Modal
-        title={editing && editing.godown_id ? `Edit godown — ${editing.code}` : 'Add godown'}
+      {/* ── Add / Edit Godown — uses the shared EntityFormModal shell.
+       *  Two sections: Identity (code + name + address) and
+       *  Location & Tax (city / state / pin / GSTIN override). Tone
+       *  is `info` since godowns are an admin/settings surface. */}
+      <EntityFormModal
         open={!!editing}
-        onCancel={close}
-        onOk={submit}
-        confirmLoading={submitting}
-        okText={editing && editing.godown_id ? 'Save' : 'Create'}
-        destroyOnClose
+        onClose={close}
+        title={editing && editing.godown_id ? 'Edit Godown' : 'Add Godown'}
+        subtitle={editing && editing.godown_id
+          ? `${editing.code} · update godown details`
+          : 'New warehouse / branch location'}
+        entityIcon="G"
+        entityTone="info"
+        dirty={formDirty}
+        saving={submitting}
+        onSave={submit}
+        onSaveAndClose={submit}
+        onReset={handleReset}
         width={560}
       >
-        <Form form={form} layout="vertical" requiredMark="optional" preserve={false}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
-            <Form.Item
-              name="code" label="Code"
-              rules={[{ required: true, message: 'Code is required' }, { max: 20 }]}
-              tooltip="Short identifier (auto-uppercased) shown in selectors. e.g. MAIN, MUM-01"
-            >
-              <Input placeholder="e.g. MUM-01" maxLength={20} />
-            </Form.Item>
-            <Form.Item
-              name="name" label="Name"
-              rules={[{ required: true, message: 'Name is required' }, { max: 100 }]}
-            >
-              <Input placeholder="e.g. Mumbai Branch Stock" maxLength={100} />
-            </Form.Item>
-          </div>
-          <Form.Item name="address" label="Address">
-            <Input.TextArea rows={2} maxLength={500} />
-          </Form.Item>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', columnGap: 12 }}>
-            <Form.Item name="city" label="City"><Input /></Form.Item>
-            <Form.Item name="state" label="State" tooltip="Used for Place-of-Supply on bills issued from this godown.">
-              <Input placeholder="e.g. Maharashtra" />
-            </Form.Item>
-            <Form.Item name="pincode" label="PIN"><Input maxLength={10} /></Form.Item>
-          </div>
-          <Form.Item
-            name="gstin" label="GSTIN (override)"
-            tooltip="Leave blank to use the company GSTIN. Set only when this godown has its own state registration."
-          >
-            <Input placeholder="Optional 15-char GSTIN" maxLength={15} />
-          </Form.Item>
-        </Form>
-      </Modal>
+        <Section label="Identity">
+          <Field label="Code" required error={formErrors.code}
+            help="Short identifier — e.g. MAIN, MUM-01. Auto-uppercased.">
+            <input
+              className={`efm-input${formErrors.code ? ' has-error' : ''}`}
+              value={form.code}
+              onChange={setField('code')}
+              maxLength={20}
+              autoFocus
+              style={{ textTransform: 'uppercase' }}
+            />
+          </Field>
+
+          <Field label="Name" required error={formErrors.name}>
+            <input
+              className={`efm-input${formErrors.name ? ' has-error' : ''}`}
+              value={form.name}
+              onChange={setField('name')}
+              maxLength={100}
+            />
+          </Field>
+
+          <Field label="Address" span="full">
+            <textarea
+              className="efm-textarea"
+              value={form.address}
+              onChange={setField('address')}
+              maxLength={500}
+              rows={2}
+            />
+          </Field>
+        </Section>
+
+        <Section label="Location & Tax">
+          <Field label="City">
+            <input className="efm-input" value={form.city} onChange={setField('city')} />
+          </Field>
+
+          <Field label="State" help="Used for Place-of-Supply on bills issued from this godown">
+            <input className="efm-input" value={form.state} onChange={setField('state')} />
+          </Field>
+
+          <Field label="PIN">
+            <input className="efm-input" value={form.pincode} onChange={setField('pincode')} maxLength={10} inputMode="numeric" />
+          </Field>
+
+          <Field label="GSTIN Override" span="full" error={formErrors.gstin}
+            help="Leave blank to use the company GSTIN. Set only when this godown has its own state registration.">
+            <input
+              className={`efm-input${formErrors.gstin ? ' has-error' : ''}`}
+              value={form.gstin}
+              onChange={(e) => setField('gstin')(e.target.value.toUpperCase())}
+              maxLength={15}
+              style={{ fontFamily: 'Geist Mono, JetBrains Mono, monospace', textTransform: 'uppercase' }}
+            />
+          </Field>
+        </Section>
+      </EntityFormModal>
 
       <ActionStrip
         actions={[

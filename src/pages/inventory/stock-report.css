@@ -79,9 +79,23 @@
 /* ── KPI strip — rounded-card style, matches editorial mockup ──────── */
 .sr-kpis {
   flex-shrink: 0;
-  padding: 14px 24px 0;
+  /* Top: 8px — the strip sits right under the page header which
+   *   already has its own bottom padding, so a smaller top gutter
+   *   keeps the visual rhythm tight.
+   * Bottom: 14px — without this the cards butted directly against
+   *   the data-integrity banner or filter row below them (visible in
+   *   the user's screenshot as "stuck on the down side").
+   * Sides: 24px — matches the page-content gutter used elsewhere. */
+  padding: 8px 24px 14px;
   background: transparent;
-  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  /* Responsive grid — 6 cards live happily on a wide viewport, but on
+   * a narrow window (electron at <1500px) the fixed `repeat(6, 1fr)`
+   * crushed each card into a 150px column so the labels wrapped onto
+   * 3 lines and the values ("₹ 12.61 L") stacked vertically. auto-fit
+   * + minmax(180px, 1fr) keeps a readable floor — cards wrap onto a
+   * second row instead of getting squished. */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
 .sr-kpi {
@@ -384,3 +398,119 @@
 .sr-imp-stat.ok      { background: var(--success-bg); border-color: var(--success); color: var(--success); }
 .sr-imp-stat.skipped { background: var(--danger-bg);  border-color: var(--danger);  color: var(--danger); }
 .sr-imp-stat.total   { background: var(--accent-bg);  border-color: var(--accent);  color: var(--accent); }
+
+/* ── Customize columns modal — mirror of SalesBillForm's column picker
+ *   (.sbf-cust-* / .sbf-cols-*). Copied here so the Stock Report's
+ *   modal renders with the same density + visual rhythm without
+ *   pulling the entire sales-bill-form.css into the inventory page.
+ *   Keep these in sync with sales-bill-form.css if you tweak the
+ *   density target there. */
+.sbf-cust-modal .ant-modal-content { padding: 16px 0 8px; }
+.sbf-cust-modal .ant-modal-header { padding: 0 16px 10px; margin-bottom: 0; }
+.sbf-cust-modal .ant-modal-body { padding: 0; }
+.sbf-cust-modal .ant-modal-footer { padding: 8px 16px 0; margin-top: 6px; border-top: 1px solid var(--border-subtle); }
+
+.sbf-cust-list {
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 0 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) transparent;
+}
+.sbf-cust-list::-webkit-scrollbar { width: 5px; }
+.sbf-cust-list::-webkit-scrollbar-track { background: transparent; }
+.sbf-cust-list::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+.sbf-cust-list::-webkit-scrollbar-thumb:hover { background: var(--fg-tertiary); }
+
+.sbf-cust-group { padding: 4px 0 6px; }
+.sbf-cust-group + .sbf-cust-group {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 6px;
+  padding-top: 8px;
+}
+.sbf-cust-group-lbl {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  padding: 0 12px 6px;
+}
+
+.sbf-cust-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 4px 14px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s, box-shadow .12s;
+  position: relative;
+}
+.sbf-cust-row + .sbf-cust-row { margin-top: 2px; }
+.sbf-cust-row:hover { background: var(--bg-muted); }
+.sbf-cust-row.on {
+  background: rgba(79,70,229,0.06);
+  box-shadow: inset 3px 0 0 var(--accent, #4F46E5);
+}
+.sbf-cust-row.on:hover { background: rgba(79,70,229,0.11); }
+.sbf-cust-row-lbl {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  letter-spacing: 0.1px;
+}
+.sbf-cust-row .ant-checkbox-wrapper { font-size: 0; line-height: 1; }
+.sbf-cust-row .ant-checkbox-inner { width: 14px; height: 14px; }
+.sbf-cust-row .ant-checkbox-inner::after { width: 5.5px; height: 8.5px; }
+.sbf-cust-row-pin {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.sbf-cols-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0;
+}
+.sbf-cols-reset {
+  background: transparent;
+  border: 0;
+  color: var(--fg-tertiary);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+.sbf-cols-reset:hover { color: var(--fg-secondary); }
+.sbf-cols-done {
+  background: var(--accent, #4F46E5);
+  border: 0;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 6px 22px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sbf-cols-done:hover { filter: brightness(1.08); }

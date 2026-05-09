@@ -1,0 +1,779 @@
+/* ── EntityFormModal ─────────────────────────────────────────────────
+ *
+ * Solid editorial language — sharp 6px modal corners, 4px field
+ * corners, 1px hairline borders, dense 32px rows, tabular-num
+ * numerics, F-key footer matching the bill forms. Direct port of
+ * mockups/editorial-create-form.html (v1) to production CSS.
+ *
+ * All colour pulled from the global theme tokens (--bg-*, --fg-*,
+ * --border, --accent, --success, --warning, --danger) so the modal
+ * adapts to every theme without overrides.
+ *
+ * Class prefix: .efm- (Entity Form Modal). Carved out from .sbf-
+ * (sales bill form) and .cols-menu so existing customise modals are
+ * untouched.
+ * ────────────────────────────────────────────────────────────────── */
+
+.efm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* Animate in: backdrop fade + modal pop. Soft enough to feel polished
+   * without delaying the operator. */
+  animation: efm-fade-in 0.12s ease-out;
+}
+
+@keyframes efm-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.efm {
+  width: var(--efm-w, 540px);
+  max-width: 100%;
+  max-height: 86vh;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  animation: efm-pop-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Reset stacking — children own their own positioning. */
+  position: relative;
+}
+
+@keyframes efm-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ── Title strip ──────────────────────────────────────────────── */
+.efm-hd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg-panel));
+  flex-shrink: 0;
+}
+
+.efm-hd-ic {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent-border, rgba(129, 140, 248, 0.32));
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+
+.efm-hd-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.efm-hd-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--fg-primary);
+  line-height: 1.2;
+}
+
+.efm-hd-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+}
+
+.efm-hd-x {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+.efm-hd-x:hover {
+  background: var(--bg-hover, var(--bg-muted));
+  color: var(--fg-primary);
+}
+
+/* ── Body (scroll region) ────────────────────────────────────── */
+.efm-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+  scrollbar-width: thin;
+}
+.efm-body::-webkit-scrollbar { width: 6px; }
+.efm-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.efm-body::-webkit-scrollbar-thumb:hover { background: var(--border-strong, var(--border)); }
+
+/* ── Sections ────────────────────────────────────────────────── */
+.efm-section {
+  padding: 14px 18px 16px;
+}
+.efm-section + .efm-section {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.efm-section-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 12px;
+}
+.efm-section-hd .lbl {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.efm-anchor {
+  font-size: 9.5px;
+  letter-spacing: 0.6px;
+  color: var(--fg-tertiary);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.efm-anchor kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: 600 9.5px/1 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-secondary);
+}
+
+/* ── Field grid ──────────────────────────────────────────────── */
+.efm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+.efm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.efm-field.full {
+  grid-column: 1 / -1;
+}
+.efm-field.third {
+  /* Third-width — combines well with full for "label spans 2/3 + value
+   * spans 1/3" patterns. */
+  grid-column: span 1;
+}
+/* When the parent grid switches to 3 columns, full still spans all */
+.efm-grid.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.efm-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.efm-lbl .req {
+  color: var(--danger);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* Default input/select/textarea styling — consumers can override per
+ * field but should rarely need to. The classes match the mockup. */
+.efm-input,
+.efm-select,
+.efm-textarea {
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+  width: 100%;
+}
+.efm-textarea {
+  height: auto;
+  min-height: 64px;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.45;
+}
+.efm-input::placeholder,
+.efm-textarea::placeholder {
+  color: var(--fg-tertiary);
+  font-weight: 500;
+}
+.efm-input:focus,
+.efm-select:focus,
+.efm-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+.efm-input.has-error,
+.efm-select.has-error,
+.efm-textarea.has-error {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-bg);
+}
+.efm-help {
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+  margin-top: 1px;
+}
+.efm-err {
+  font-size: 10.5px;
+  color: var(--danger);
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+/* Select with chevron affordance */
+.efm-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background:
+    var(--bg-app)
+    url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3e%3cpath d='M2 4l3 3 3-3' stroke='%236e7681' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e")
+    no-repeat right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+/* Inline group: input + suffix unit (e.g. ₹, %, kg, days) */
+.efm-suffix {
+  display: flex;
+  align-items: stretch;
+}
+.efm-suffix .efm-input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+  flex: 1;
+  min-width: 0;
+}
+.efm-suffix .efm-suffix-unit {
+  display: grid;
+  place-items: center;
+  padding: 0 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Toggle pill row (Active / Inactive, Yes / No) */
+.efm-pills {
+  display: inline-flex;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px;
+  gap: 0;
+  width: fit-content;
+}
+.efm-pills button {
+  background: transparent;
+  border: 0;
+  height: 26px;
+  padding: 0 14px;
+  font: 600 11.5px/1 inherit;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  letter-spacing: 0.02em;
+  transition: background 0.12s, color 0.12s;
+}
+.efm-pills button.on {
+  background: var(--accent);
+  color: var(--fg-inverse, #fff);
+}
+.efm-pills button:not(.on):hover {
+  color: var(--fg-primary);
+}
+
+/* ── Dirty-state Esc confirm ribbon ─────────────────────────── */
+.efm-confirm {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--warning-bg, rgba(251, 191, 36, 0.10));
+  border-top: 1px solid var(--warning, #f59e0b);
+  font-size: 12px;
+  color: var(--fg-primary);
+  font-weight: 500;
+}
+.efm-confirm-msg {
+  flex: 1;
+  min-width: 0;
+}
+.efm-confirm-msg kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: 600 10px/1 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-secondary);
+  margin: 0 2px;
+}
+.efm-confirm-keep,
+.efm-confirm-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-secondary);
+  font: 600 11px/1 inherit;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.efm-confirm-keep:hover { color: var(--fg-primary); }
+.efm-confirm-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--fg-inverse, #fff);
+}
+.efm-confirm-save kbd {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.95);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font: 700 9.5px/1 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+}
+.efm-confirm-save:hover { filter: brightness(1.08); }
+
+/* ── Footer (F-key strip) ───────────────────────────────────── */
+.efm-ft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated, var(--bg-panel));
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.efm-ft-spacer {
+  flex: 1;
+}
+
+.efm-ft .fkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-secondary);
+  font: 600 11.5px/1 inherit;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.efm-ft .fkey:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.efm-ft .fkey:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.efm-ft .fkey kbd {
+  display: inline-block;
+  padding: 2px 5px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: 700 10px/1 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-secondary);
+}
+.efm-ft .fkey.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--fg-inverse, #fff);
+}
+.efm-ft .fkey.primary kbd {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.95);
+}
+.efm-ft .fkey.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.efm-ft .fkey.danger {
+  color: var(--danger);
+}
+.efm-ft .fkey.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Outline danger action button (e.g. "Delete Customer") — sits at the
+ * far left of the footer, separated from the save controls. Slightly
+ * stronger border than the rest so it reads as destructive but never
+ * the primary action. */
+.efm-ft .fkey.danger-action {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.efm-ft .fkey.danger-action:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+/* ── Callout block ──────────────────────────────────────────────────
+ *
+ * Inline informational note inside a Section. Used for "what this does"
+ * explanatory text next to a field group — e.g. the Bank modal's
+ * footer about the ledger being wired into double-entry posting.
+ * Sits at full grid width inside .efm-grid; place via
+ * `style={{ gridColumn: '1 / -1' }}` or wrap in a Field with span="full".
+ */
+.efm-callout {
+  padding: 8px 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+}
+.efm-callout b { font-weight: 700; color: var(--fg-primary); }
+.efm-callout.warning {
+  background: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.32);
+  color: var(--fg-primary);
+}
+.efm-callout.danger {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.32);
+  color: var(--fg-primary);
+}
+.efm-callout.success {
+  background: rgba(74, 222, 128, 0.08);
+  border-color: rgba(74, 222, 128, 0.32);
+}
+
+/* Compact KPI cells used inside a Section to show live derived
+ * values (loan EMI calc, cheque preview, payment splits). 3-up
+ * grid with a subtle divider; place via `<div className="efm-calc">`
+ * around three children. Each child is `.efm-calc-cell`.
+ */
+.efm-calc {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-muted);
+}
+.efm-calc-cell {
+  padding: 8px 12px;
+}
+.efm-calc-cell + .efm-calc-cell {
+  border-left: 1px solid var(--border-subtle, var(--border));
+}
+.efm-calc-cell .k {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.efm-calc-cell .v {
+  margin-top: 3px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.efm-calc-cell .v.accent  { color: var(--accent); }
+.efm-calc-cell .v.success { color: var(--success); }
+.efm-calc-cell .v.danger  { color: var(--danger); }
+.efm-calc-cell .v.warning { color: var(--warning); }
+.efm-calc-cell .n {
+  margin-top: 1px;
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+}
+
+/* Direction picker cards — used by ChequeForm for Inward / Outward
+ * and adaptable for any binary choice (Loan Taken / Given, Cash /
+ * Bank, etc.). Two-up grid, full width inside Section. Each card is
+ * a button; .on adds the accent border + tinted background. */
+.efm-toggle-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.efm-toggle-cards button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.efm-toggle-cards button:disabled { opacity: 0.5; cursor: not-allowed; }
+.efm-toggle-cards button:hover:not(:disabled) { border-color: var(--accent-border); }
+.efm-toggle-cards button.on {
+  border-color: var(--accent);
+  background: var(--accent-bg, rgba(129, 140, 248, 0.08));
+}
+.efm-toggle-cards button .ic {
+  width: 26px; height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--fg-secondary);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.efm-toggle-cards button.on .ic {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-app);
+}
+.efm-toggle-cards button .stack { min-width: 0; }
+.efm-toggle-cards button .name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: 0;
+}
+.efm-toggle-cards button .hint {
+  margin-top: 1px;
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+}
+
+/* Posting-preview block — used by ChequeForm to show the Dr/Cr
+ * lines that will post on Save. Sits at full grid width. */
+.efm-preview {
+  padding: 8px 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--fg-primary);
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+.efm-preview .hd {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-bottom: 4px;
+}
+.efm-preview .leg .dr,
+.efm-preview .leg .cr {
+  display: inline-block;
+  font: 700 9.5px/1 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin-right: 6px;
+}
+.efm-preview .leg .dr { background: rgba(74, 222, 128, 0.12); color: var(--success); }
+.efm-preview .leg .cr { background: rgba(248, 113, 113, 0.12); color: var(--danger); }
+.efm-preview b { font-weight: 700; }
+.efm-preview .pdc {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  font-size: 11px;
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* ── Antd control overrides ──────────────────────────────────────────
+ *
+ * The shell renders best with native <input>/<select> children, but
+ * some legacy forms (notably ProductList) keep an Antd <Form> + <Input>/
+ * <InputNumber>/<Select> tree because the validation rules + ref API
+ * are deeply integrated. The rules below shrink Antd's controls to
+ * the spec's 32px row height + 4px corner radius + tabular numerics
+ * so the two render paths look the same.
+ *
+ * Scoped to `.efm-body` so no other Antd surfaces are affected. */
+
+.efm-body .ant-input,
+.efm-body .ant-input-number,
+.efm-body .ant-input-number-input,
+.efm-body .ant-input-affix-wrapper,
+.efm-body .ant-picker,
+.efm-body .ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  height: 32px;
+  min-height: 32px;
+  border-radius: 4px;
+  background: var(--bg-app);
+  border-color: var(--border);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.efm-body .ant-input,
+.efm-body .ant-input-number-input {
+  padding: 0 10px;
+}
+.efm-body .ant-input-affix-wrapper { padding: 0 10px; }
+.efm-body .ant-input-affix-wrapper .ant-input { height: 30px; padding: 0; }
+.efm-body .ant-picker { padding: 0 10px; }
+.efm-body .ant-select-selection-search-input,
+.efm-body .ant-select-selection-item,
+.efm-body .ant-select-selection-placeholder {
+  line-height: 30px !important;
+  font-size: 13px !important;
+}
+.efm-body .ant-select-single .ant-select-selector .ant-select-selection-search {
+  inset-inline-start: 10px;
+  inset-inline-end: 10px;
+}
+.efm-body .ant-input:focus,
+.efm-body .ant-input-affix-wrapper-focused,
+.efm-body .ant-input-number-focused,
+.efm-body .ant-select-focused .ant-select-selector,
+.efm-body .ant-picker-focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg) !important;
+}
+.efm-body .ant-input-number,
+.efm-body .ant-picker {
+  width: 100%;
+}
+/* Hide the increment/decrement controls — `controls={false}` on the
+ * JSX side already disables them, but in case any consumer forgets,
+ * the column is wasted real estate at this density. */
+.efm-body .ant-input-number-handler-wrap { display: none; }
+
+/* Antd Switch — sized to fit the 32px row in pill rows. */
+.efm-body .ant-switch { background: var(--border-strong, var(--border)); }
+.efm-body .ant-switch-checked { background: var(--accent); }
+
+/* Antd Radio.Group / Radio.Button — solid not soft. Border radius
+ * matches inputs; the active button uses the accent token. Multi-line
+ * label content (e.g. label + sublabel) is supported via auto height. */
+.efm-body .ant-radio-group {
+  display: inline-flex;
+  width: auto;
+}
+.efm-body .ant-radio-button-wrapper {
+  height: 32px;
+  min-height: 32px;
+  line-height: 30px;
+  padding: 0 12px;
+  background: var(--bg-app);
+  border-color: var(--border);
+  color: var(--fg-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.efm-body .ant-radio-button-wrapper:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.efm-body .ant-radio-button-wrapper:last-child {
+  border-radius: 0 4px 4px 0;
+}
+.efm-body .ant-radio-button-wrapper:hover:not(.ant-radio-button-wrapper-disabled) {
+  color: var(--accent);
+}
+.efm-body .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--fg-inverse, #fff);
+  box-shadow: -1px 0 0 0 var(--accent);
+}
+.efm-body .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled):hover {
+  background: var(--accent);
+  color: var(--fg-inverse, #fff);
+  filter: brightness(1.06);
+}
+/* Multi-line radio (label + sublabel) — relax height + padding. */
+.efm-body .ant-radio-button-wrapper:has(div) {
+  height: auto;
+  min-height: 38px;
+  line-height: 1.25;
+  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Antd TextArea inside .efm-body. */
+.efm-body textarea.ant-input {
+  min-height: 64px;
+  padding: 8px 10px;
+  line-height: 1.45;
+  height: auto;
+}

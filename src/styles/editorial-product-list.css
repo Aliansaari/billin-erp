@@ -579,7 +579,26 @@
    Stock-movement page specifics — same tokens, different layout:
    left pane is a product picker, right pane is the ledger.
    ═══════════════════════════════════════════════════════════════════════ */
+/* Stock Movement uses a side-by-side layout: picker (left) + ledger
+ * (right). The legacy `.ed-prod.sm` did this by flipping the outer to
+ * flex-direction:row, but that swallowed the bottom ActionStrip into
+ * the row and floated it top-right. New `.sm-page` keeps the outer
+ * flex-column (so the ActionStrip flows below) and `.sm-body` does
+ * the horizontal layout. (NOTE: name is deliberately `.sm-body`, not
+ * `.sm-row` — that class is already used by the inner ledger header
+ * + transaction rows below; reusing it caused every ledger row to
+ * inherit flex:1 + flex-direction:row and broke the panel layout.) */
 .ed-prod.sm { flex-direction: row; }
+.ed-prod.sm-page {
+  flex-direction: column;
+}
+.ed-prod.sm-page .sm-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
 .ed-prod .sm-pick {
   width: 320px; flex: 0 0 320px;
   border-right: 1px solid var(--ed-rule);
@@ -642,60 +661,81 @@
   display: flex; flex-direction: column;
   overflow: hidden;
 }
+/* Header tightening — earlier version reserved ~40% of the panel for
+ * the title + tags + stats and pushed the ledger far down the page.
+ * Padding collapsed, heading sized down, meta tags moved inline with
+ * the title (so they share one row instead of stacking), and stats
+ * pack into a horizontally-scrolling single row when the panel is
+ * narrow (instead of wrapping into a wasteful 2-row grid). */
 .ed-prod .sm-hd {
   flex-shrink: 0;
-  padding: 16px 28px 12px;
+  padding: 10px 24px 8px;
   border-bottom: 1px solid var(--ed-rule);
   background: var(--ed-bg);
 }
-.ed-prod .sm-hd-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.ed-prod .sm-hd-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ed-prod .sm-hd h1 {
   font-family: 'Source Sans 3', sans-serif;
-  font-size: 22px; font-weight: 600;
+  font-size: 17px; font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--ed-fg);
-  margin: 0 0 6px;
-  line-height: 1.15;
+  margin: 0;
+  line-height: 1.2;
 }
 .ed-prod .sm-hd .meta-row {
-  display: flex; gap: 14px; flex-wrap: wrap;
-  font-size: 11.5px; color: var(--ed-fg-3);
+  display: flex; gap: 6px; flex-wrap: wrap;
+  font-size: 10.5px; color: var(--ed-fg-3);
   font-variant-numeric: tabular-nums;
   align-items: center;
+  margin-top: 4px;
 }
 .ed-prod .sm-hd .meta-row .tag {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 2px 8px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px;
   background: var(--ed-muted);
-  border: 1px solid var(--ed-rule);
+  border: 1px solid var(--ed-rule-sub);
   border-radius: 4px;
   color: var(--ed-fg-2); font-weight: 500;
-  font-size: 11px;
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
 }
 .ed-prod .sm-stats {
-  display: flex; gap: 24px; flex-wrap: wrap;
-  margin-top: 12px;
+  display: flex;
+  gap: 18px;
+  margin-top: 8px;
+  /* Single-row scrollable strip instead of wrapping to multiple
+   * rows. Keeps the header compact regardless of how many stats
+   * are rendered (currently 7 — On Hand, Opening, In, Out, Cost,
+   * Sale, Stock Value). */
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
 }
-.ed-prod .sm-stat { min-width: 130px; }
+.ed-prod .sm-stats::-webkit-scrollbar { height: 4px; }
+.ed-prod .sm-stats::-webkit-scrollbar-thumb { background: var(--ed-rule-sub); border-radius: 2px; }
+.ed-prod .sm-stat { flex-shrink: 0; }
 .ed-prod .sm-stat .k {
-  font-size: 10px; letter-spacing: 1.2px;
+  font-size: 9px;
+  letter-spacing: 0.9px;
   text-transform: uppercase; color: var(--ed-fg-3);
   font-weight: 700;
 }
 .ed-prod .sm-stat .v {
   font-family: 'Source Sans 3', sans-serif;
-  font-weight: 600; font-size: 17px;
+  font-weight: 700; font-size: 14px;
   color: var(--ed-fg);
-  margin-top: 3px;
+  margin-top: 1px;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 .ed-prod .sm-stat .v.ok   { color: var(--ed-ok); }
 .ed-prod .sm-stat .v.warn { color: var(--ed-warn); }
 .ed-prod .sm-stat .v.out  { color: var(--ed-danger); }
 
 .ed-prod .sm-filter {
-  padding: 12px 28px 10px;
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 24px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   border-bottom: 1px solid var(--ed-rule-sub);
   background: var(--ed-bg);
 }

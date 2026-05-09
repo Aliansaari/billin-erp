@@ -10,15 +10,16 @@
 //                / Bank Cr (total)
 //   For GIVEN:   Bank Dr (total) / Loan Cr (principal) + Interest Income Cr
 //
-// The modal is intentionally lightweight — most of the time the
-// operator just clicks "Record" and the defaults are correct.
+// Renders inside the shared EntityFormModal shell — F1 Save / F5 Reset
+// / F8 Save & Close / Esc Cancel like every other entity form.
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, DatePicker, InputNumber, Input, Radio, message } from 'antd';
-import { DollarOutlined, WalletOutlined, BankOutlined } from '@ant-design/icons';
+import { Form, DatePicker, InputNumber, Input, Radio, message } from 'antd';
+import { WalletOutlined, BankOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { loanAPI } from '../../api';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
+import EntityFormModal from '../../components/EntityFormModal';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -31,11 +32,15 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
   // physically hand over money or receive cash repayments.
   const [payMode, setPayMode] = useState('Bank');
   const [bankLedgerId, setBankLedgerId] = useState(null);
+  const [dirty, setDirty] = useState(false);
 
   // Pull the schedule when modal opens to compute the pre-fill values.
   useEffect(() => {
     if (!open || !loan) return;
     let cancelled = false;
+    setDirty(false);
+    setPayMode('Bank');
+    setBankLedgerId(null);
     loanAPI.schedule(loan.ledger_id)
       .then((r) => {
         if (cancelled) return;
@@ -64,7 +69,7 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
   const handleSave = async () => {
     let v;
     try { v = await form.validateFields(); }
-    catch { return; }
+    catch { message.warning('Fix the highlighted fields and try again'); return; }
 
     const total = (Number(v.principal) || 0) + (Number(v.interest) || 0);
     if (total <= 0) {
@@ -87,6 +92,7 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
       }
       await loanAPI.recordEmi(loan.ledger_id, payload);
       message.success(`EMI recorded — ₹${fmtN(total)} ${payMode === 'Cash' ? 'cash' : 'via bank'}`);
+      setDirty(false);
       onSaved?.();
       onClose?.();
     } catch (e) {
@@ -96,111 +102,165 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
     }
   };
 
+  const handleReset = () => {
+    if (!schedule) return;
+    const next = (schedule.schedule || [])[schedule.paid_count];
+    if (next) {
+      form.setFieldsValue({
+        date:      dayjs(next.due_date),
+        principal: next.principal,
+        interest:  next.interest,
+        narration: null,
+      });
+    }
+    setPayMode('Bank');
+    setBankLedgerId(null);
+    setDirty(false);
+  };
+
   if (!loan) return null;
   const isTaken = loan.loan_type === 'taken';
   const next = schedule?.schedule?.[schedule.paid_count];
   const remaining = (schedule?.total_count || loan.emi_total) - (schedule?.paid_count || loan.emi_count || 0);
 
   return (
-    <Modal
-      title={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <DollarOutlined style={{ color: '#10B981' }} />
-          Record EMI · {loan.name}
-        </span>
-      }
-      open={open}
-      onCancel={onClose}
-      onOk={handleSave}
-      okText={`Record ${isTaken ? 'payment' : 'receipt'}`}
-      confirmLoading={saving}
-      destroyOnClose
-      width={520}
+    <Form
+      form={form}
+      layout="vertical"
+      requiredMark={false}
+      preserve={false}
+      component={false}
+      onValuesChange={() => setDirty(true)}
     >
-      {/* Context summary */}
-      <div style={{
-        padding: '10px 14px', borderRadius: 8, marginBottom: 14,
-        background: 'linear-gradient(135deg, rgba(79,70,229,0.05), #FFFFFF 60%)',
-        border: '1px solid #E5E7EB',
-        fontSize: 12.5, color: '#374151',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <span>EMI <b>#{(schedule?.paid_count || 0) + 1}</b> of <b>{schedule?.total_count || loan.emi_total}</b></span>
-          <span style={{ color: '#6B7280' }}>{remaining} remaining</span>
-        </div>
-        {next && (
-          <div style={{ marginTop: 6, fontSize: 12, color: '#6B7280' }}>
-            Scheduled for <b>{dayjs(next.due_date).format('DD MMM YYYY')}</b>
-            {' · '}EMI <b>₹{fmtN(next.emi)}</b>
-            {' '}(principal <b>₹{fmtN(next.principal)}</b> + interest <b>₹{fmtN(next.interest)}</b>)
+      <EntityFormModal
+        open={open}
+        onClose={onClose}
+        title="Record EMI"
+        subtitle={loan.name}
+        entityIcon="₹"
+        entityTone="success"
+        dirty={dirty}
+        saving={saving}
+        onSave={handleSave}
+        onSaveAndClose={handleSave}
+        onReset={handleReset}
+        width={520}
+      >
+        <EntityFormModal.Section label="Schedule">
+          <div className="efm-callout" style={{ gridColumn: '1 / -1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span>EMI <b>#{(schedule?.paid_count || 0) + 1}</b> of <b>{schedule?.total_count || loan.emi_total}</b></span>
+              <span style={{ color: 'var(--fg-tertiary)' }}>{remaining} remaining</span>
+            </div>
+            {next && (
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--fg-tertiary)' }}>
+                Scheduled for <b>{dayjs(next.due_date).format('DD MMM YYYY')}</b>
+                {' · '}EMI <b>₹{fmtN(next.emi)}</b>
+                {' '}(principal <b>₹{fmtN(next.principal)}</b> + interest <b>₹{fmtN(next.interest)}</b>)
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <Form form={form} layout="vertical" requiredMark={false} preserve={false}>
-        <Form.Item
-          name="date"
-          label={isTaken ? 'Payment date' : 'Receipt date'}
-          rules={[{ required: true, message: 'Required' }]}
-        >
-          <DatePicker style={{ width: '100%' }} format="DD-MM-YYYY" />
-        </Form.Item>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Form.Item
-            name="principal"
-            label="Principal portion"
-            rules={[{ type: 'number', min: 0, message: 'Cannot be negative' }]}
-            extra={isTaken ? 'Reduces loan balance' : 'Reduces what they owe'}
+          <EntityFormModal.Field
+            label={isTaken ? 'Payment Date' : 'Receipt Date'}
+            required
+            span="full"
           >
-            <InputNumber
-              keyboard={false} min={0} step={100} style={{ width: '100%' }}
-              formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
-              parser={(v) => v.replace(/₹\s?|,/g, '')}
-            />
-          </Form.Item>
-          <Form.Item
-            name="interest"
-            label="Interest portion"
-            rules={[{ type: 'number', min: 0, message: 'Cannot be negative' }]}
-            extra={isTaken ? 'Posts to Interest Expense' : 'Posts to Interest Income'}
+            <Form.Item name="date" rules={[{ required: true, message: 'Required' }]} noStyle>
+              <DatePicker className="efm-input" style={{ width: '100%' }} format="DD-MM-YYYY" allowClear={false} />
+            </Form.Item>
+          </EntityFormModal.Field>
+        </EntityFormModal.Section>
+
+        <EntityFormModal.Section label="Split">
+          <EntityFormModal.Field
+            label="Principal Portion"
+            help={isTaken ? 'Reduces loan balance' : 'Reduces what they owe'}
           >
-            <InputNumber
-              keyboard={false} min={0} step={100} style={{ width: '100%' }}
-              formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
-              parser={(v) => v.replace(/₹\s?|,/g, '')}
-            />
-          </Form.Item>
-        </div>
+            <Form.Item
+              name="principal"
+              rules={[{ type: 'number', min: 0, message: 'Cannot be negative' }]}
+              noStyle
+            >
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                min={0}
+                step={100}
+                style={{ width: '100%' }}
+                controls={false}
+                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                parser={(v) => v.replace(/₹\s?|,/g, '')}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
 
-        <Form.Item label={isTaken ? 'Pay via' : 'Receive in'}>
-          <Radio.Group value={payMode} onChange={(e) => setPayMode(e.target.value)} buttonStyle="solid">
-            <Radio.Button value="Cash" style={{ width: 120, textAlign: 'center' }}>
-              <WalletOutlined /> Cash
-            </Radio.Button>
-            <Radio.Button value="Bank" style={{ width: 120, textAlign: 'center' }}>
-              <BankOutlined /> Bank
-            </Radio.Button>
-          </Radio.Group>
-        </Form.Item>
+          <EntityFormModal.Field
+            label="Interest Portion"
+            help={isTaken ? 'Posts to Interest Expense' : 'Posts to Interest Income'}
+          >
+            <Form.Item
+              name="interest"
+              rules={[{ type: 'number', min: 0, message: 'Cannot be negative' }]}
+              noStyle
+            >
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                min={0}
+                step={100}
+                style={{ width: '100%' }}
+                controls={false}
+                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                parser={(v) => v.replace(/₹\s?|,/g, '')}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+        </EntityFormModal.Section>
 
-        {/* Bank picker — only when Bank mode selected. Cash uses the
-            system Cash ledger automatically (resolved server-side). */}
-        {payMode === 'Bank' && (
-          <Form.Item label={isTaken ? 'Paid from bank' : 'Received in bank'}>
-            <BankLedgerSelect
-              value={bankLedgerId}
-              onChange={setBankLedgerId}
-              mode="Cheque"
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-        )}
+        <EntityFormModal.Section label="Method">
+          <EntityFormModal.Field
+            label={isTaken ? 'Pay via' : 'Receive in'}
+            span={payMode === 'Bank' ? 'half' : 'full'}
+          >
+            <Radio.Group
+              value={payMode}
+              onChange={(e) => { setPayMode(e.target.value); setDirty(true); }}
+              style={{ width: '100%', display: 'flex' }}
+            >
+              <Radio.Button value="Cash" style={{ flex: 1, textAlign: 'center' }}>
+                <WalletOutlined /> Cash
+              </Radio.Button>
+              <Radio.Button value="Bank" style={{ flex: 1, textAlign: 'center' }}>
+                <BankOutlined /> Bank
+              </Radio.Button>
+            </Radio.Group>
+          </EntityFormModal.Field>
 
-        <Form.Item name="narration" label="Narration (optional)">
-          <Input placeholder={`EMI ${isTaken ? 'paid' : 'received'} — auto-generated if blank`} maxLength={200} />
-        </Form.Item>
-      </Form>
-    </Modal>
+          {/* Bank picker — only when Bank mode selected. Cash uses the
+              system Cash ledger automatically (resolved server-side). */}
+          {payMode === 'Bank' && (
+            <EntityFormModal.Field label={isTaken ? 'From bank' : 'To bank'}>
+              <BankLedgerSelect
+                value={bankLedgerId}
+                onChange={(v) => { setBankLedgerId(v); setDirty(true); }}
+                mode="Cheque"
+                style={{ width: '100%' }}
+              />
+            </EntityFormModal.Field>
+          )}
+
+          <EntityFormModal.Field label="Narration" span="full">
+            <Form.Item name="narration" noStyle>
+              <Input
+                className="efm-input"
+                placeholder={`EMI ${isTaken ? 'paid' : 'received'} — auto-generated if blank`}
+                maxLength={200}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+        </EntityFormModal.Section>
+      </EntityFormModal>
+    </Form>
   );
 }
