@@ -6,6 +6,8 @@ import {
 import {
   PlusOutlined, CopyOutlined, DeleteOutlined, SaveOutlined,
   PrinterOutlined, ReloadOutlined, StarFilled, StarOutlined,
+  BgColorsOutlined, LayoutOutlined, FileTextOutlined,
+  TableOutlined, NumberOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { printAPI, settingsAPI } from '../../api';
@@ -36,35 +38,46 @@ const FORMATS = [
 // change. Each paired with a short description + a swatch of the accent
 // color default so users can eye-pick before clicking.
 const THEMES = [
-  { v: 'classic', l: 'Classic',  d: 'Traditional tax-invoice layout, bordered table, uppercase headers.', swatch: '#111111' },
-  { v: 'modern',  l: 'Modern',   d: 'Sans-serif, borderless rows, pill-shaped doc-type badge.',        swatch: '#4F46E5' },
-  { v: 'minimal', l: 'Minimal',  d: 'Zero borders, thin dividers, light ink — clean retail look.',     swatch: '#6B7280' },
-  { v: 'elegant', l: 'Elegant',  d: 'Serif display font, letterspaced dividers — boutique style.',     swatch: '#8B5CF6' },
-  { v: 'boxed',   l: 'Boxed',    d: 'Full-page border, solid header block — formal / legal feel.',     swatch: '#B1472F' },
+  { v: 'cashmemo',  l: 'Cash Memo',  d: 'Classic Indian retail cash-memo — full-page hairline frame, big serif shop name, dedicated CASH-MEMO box top-right with bill no & date.', swatch: '#000000', isNew: true },
+  { v: 'studio',    l: 'Studio',     d: 'Modern editorial — accent rule on title, airy whitespace, clean rows.',    swatch: '#21604C', isNew: true },
+  { v: 'modern',    l: 'Modern',     d: 'Sans-serif, accent doc-type chip, pill-shaped grand-total bar.',           swatch: '#4F46E5' },
+  { v: 'minimal',   l: 'Minimal',    d: 'Zero borders, soft greys, generous spacing — clean retail.',               swatch: '#6B7280' },
+  { v: 'wholesale', l: 'Wholesale',  d: 'Dense tabular layout, monospace numeric columns, solid total bar — B2B.',  swatch: '#222222', isNew: true },
+  { v: 'classic',   l: 'Classic',    d: 'Bordered cells, uppercase headers — traditional tax-invoice style.',       swatch: '#333333' },
+  { v: 'elegant',   l: 'Elegant',    d: 'Times serif italic title, hairline rules — boutique professional.',        swatch: '#8B5CF6' },
+  { v: 'boxed',     l: 'Boxed',      d: 'Full-page accent border, white-on-accent header — formal / legal.',        swatch: '#B1472F' },
 ];
 
 // Thermal-specific styles shown when format='thermal'. These supersede the
 // A4/A5 themes for receipt render — layout/font/weights are tuned for the
 // paper width and the physical characteristics of thermal heads.
 const THERMAL_STYLES = [
-  { v: 'simple',   l: 'Simple',    d: 'Tabular Sr · Item · Qty · Rate · Amt rows, dashed separators, no frills — the clean credit-memo look.' },
-  { v: 'standard', l: 'Standard',  d: 'Two-line items (name / qty × rate), dashed rules — classic POS feel.' },
-  { v: 'compact',  l: 'Compact',   d: 'Tight spacing, smaller rows — fits long bills on short rolls.' },
-  { v: 'bold',     l: 'Bold POS',  d: 'Uppercase headers, thick rules, heavy weights — maximum legibility.' },
-  { v: 'spacious', l: 'Spacious',  d: 'Generous padding and line-height — easy to read, premium feel.' },
-  { v: 'modern',   l: 'Modern',    d: 'Sans-serif, inverted doc-type chip, black total banner.' },
+  { v: 'editorial', l: 'Editorial',  d: 'Magazine-style receipt — display-serif title, italic labels, bold body text, hairline separators. The boutique look.', isNew: true },
+  { v: 'ruled',     l: 'Ruled',      d: 'Clean rows with a hairline below each item — clear separation without heavy boxed borders.', isNew: true },
+  { v: 'simple',    l: 'Simple',     d: 'Tabular Sr · Item · Qty · Rate · Amt rows, dashed separators, no frills — the clean credit-memo look.' },
+  { v: 'standard',  l: 'Standard',   d: 'Two-line items (name / qty × rate), dashed rules — classic POS feel.' },
+  { v: 'compact',   l: 'Compact',    d: 'Tight spacing, smaller rows — fits long bills on short rolls.' },
+  { v: 'bold',      l: 'Bold POS',   d: 'Uppercase headers, thick rules, heavy weights — maximum legibility.' },
+  { v: 'spacious',  l: 'Spacious',   d: 'Generous padding and line-height — easy to read, premium feel.' },
+  { v: 'modern',    l: 'Modern',     d: 'Sans-serif, inverted doc-type chip, black total banner.' },
 ];
 
 // Font presets — a curated list that actually renders well on both screen
 // and thermal paper. Users can still type a custom stack in the text input.
+// Order matters — Source Sans 3 sits at the top because it's the
+// software's own UI font. Picking it makes printed bills (thermal AND
+// A4) match the on-screen typography. The classic monospace stacks
+// remain available below for operators who prefer the traditional POS
+// receipt look.
 const FONT_PRESETS = [
-  { v: "'Courier New', 'Consolas', monospace",        l: 'Courier (classic receipt)' },
-  { v: "'Consolas', 'Menlo', 'Courier New', monospace", l: 'Consolas (clean mono)' },
-  { v: "'Roboto Mono', 'Courier New', monospace",     l: 'Roboto Mono' },
-  { v: "'Source Sans 3', 'Segoe UI', system-ui, sans-serif",  l: 'Source Sans 3 (modern sans)' },
-  { v: "'Helvetica Neue', Arial, sans-serif",         l: 'Helvetica Neue' },
-  { v: "'Arial Black', 'Arial Bold', sans-serif",     l: 'Arial Black (thickest)' },
-  { v: "'Georgia', 'Times New Roman', serif",         l: 'Georgia (serif)' },
+  { v: "'Source Sans 3', 'Segoe UI', system-ui, sans-serif",  l: 'Source Sans 3 — matches the software (recommended)' },
+  { v: "'Inter', 'Segoe UI', system-ui, sans-serif",          l: 'Inter (modern sans)' },
+  { v: "'Helvetica Neue', Arial, sans-serif",                 l: 'Helvetica Neue' },
+  { v: "'Arial Black', 'Arial Bold', sans-serif",             l: 'Arial Black (thickest)' },
+  { v: "'Georgia', 'Times New Roman', serif",                 l: 'Georgia (serif)' },
+  { v: "'Courier New', 'Consolas', monospace",                l: 'Courier (classic POS receipt)' },
+  { v: "'Consolas', 'Menlo', 'Courier New', monospace",       l: 'Consolas (clean mono)' },
+  { v: "'Roboto Mono', 'Courier New', monospace",             l: 'Roboto Mono' },
 ];
 
 const BOLD_LEVELS = [
@@ -139,6 +152,7 @@ const blankProfile = (docType = 'sales') => ({
   margin_top_mm: 10, margin_right_mm: 10, margin_bottom_mm: 10, margin_left_mm: 10,
   font_family: "'Source Sans 3', system-ui, sans-serif", font_size_pt: 10, line_spacing: 1.35,
   show_logo: true, header_title: '', header_html: '', header_align: 'center',
+  doc_label: '',
   show_hsn: true, show_batch: false, show_mrp: true, show_discount: true,
   show_tax_breakdown: true, show_gst: true, show_return_amount: true,
   show_previous_balance: false,
@@ -249,7 +263,11 @@ export default function PrintSettings() {
       setDraft(prev => ({ ...prev, format: 'thermal',
         paper_width_mm: 80, paper_height_mm: 0,
         margin_top_mm: 3, margin_right_mm: 3, margin_bottom_mm: 3, margin_left_mm: 3,
-        font_family: "'Courier New', 'Consolas', monospace",
+        // Match the software's UI typography by default. Tabular numerals
+        // in the thermal CSS keep numeric columns aligned even on a
+        // proportional sans-serif. Operators who want the classic Courier
+        // POS look can still pick that from the Font preset list.
+        font_family: "'Source Sans 3', 'Segoe UI', system-ui, sans-serif",
         font_size_pt: 10, line_spacing: 1.3,
         thermal_style: prev.thermal_style || 'simple',
         bold_level:    prev.bold_level    || 'bold',
@@ -435,10 +453,11 @@ export default function PrintSettings() {
             </Space>}>
 
             <Tabs
-              defaultActiveKey="basic"
+              defaultActiveKey="theme"
               items={[
                 {
-                  key: 'basic', label: 'Basic',
+                  key: 'basic',
+                  label: <span><LayoutOutlined style={{ marginRight: 6 }} />Layout</span>,
                   children: (
                     <div>
                       <Row gutter={12}>
@@ -536,7 +555,8 @@ export default function PrintSettings() {
                   ),
                 },
                 {
-                  key: 'header', label: 'Header / Footer',
+                  key: 'header',
+                  label: <span><FileTextOutlined style={{ marginRight: 6 }} />Header &amp; Footer</span>,
                   children: (
                     <div>
                       <Row gutter={12}>
@@ -548,6 +568,44 @@ export default function PrintSettings() {
                           <label>Align</label>
                           <Select value={draft.header_align} onChange={v => set('header_align', v)} style={{ width: '100%' }}
                             options={[{ value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' }]} />
+                        </Col>
+                      </Row>
+                      <Row gutter={12} style={{ marginTop: 8 }}>
+                        <Col span={24}>
+                          <label>
+                            Document subtitle{' '}
+                            <Tooltip title={
+                              `Override the printed subtitle. Blank uses the default for this document type — `
+                              + `${DOC_TYPES.find(d => d.v === draft.doc_type)?.l || draft.doc_type} `
+                              + `defaults to "${(({
+                                sales: 'TAX INVOICE',
+                                purchase: 'PURCHASE BILL',
+                                sales_return: 'CREDIT NOTE',
+                                purchase_return: 'DEBIT NOTE',
+                                receipt: 'RECEIPT',
+                                payment: 'PAYMENT VOUCHER',
+                                quotation: 'QUOTATION',
+                                challan: 'DELIVERY CHALLAN',
+                              })[draft.doc_type]) || 'DOCUMENT'}". Composition-scheme dealers can change to "BILL OF SUPPLY", retailers to "ESTIMATE", etc.`
+                            }>
+                              <Text type="secondary" style={{ cursor: 'help' }}>(?)</Text>
+                            </Tooltip>
+                          </label>
+                          <Input
+                            value={draft.doc_label}
+                            onChange={e => set('doc_label', e.target.value)}
+                            placeholder={(({
+                              sales: 'TAX INVOICE',
+                              purchase: 'PURCHASE BILL',
+                              sales_return: 'CREDIT NOTE',
+                              purchase_return: 'DEBIT NOTE',
+                              receipt: 'RECEIPT',
+                              payment: 'PAYMENT VOUCHER',
+                              quotation: 'QUOTATION',
+                              challan: 'DELIVERY CHALLAN',
+                            })[draft.doc_type]) || 'DOCUMENT'}
+                            maxLength={60}
+                          />
                         </Col>
                       </Row>
                       <div style={{ marginTop: 8 }}>
@@ -593,7 +651,8 @@ export default function PrintSettings() {
                   ),
                 },
                 {
-                  key: 'fields', label: 'Fields / Columns',
+                  key: 'fields',
+                  label: <span><TableOutlined style={{ marginRight: 6 }} />Fields &amp; Totals</span>,
                   children: (
                     <div>
                       <Divider orientation="left" plain style={{ margin: '0 0 10px' }}>Item table columns (A4 / A5)</Divider>
@@ -662,7 +721,8 @@ export default function PrintSettings() {
                   ),
                 },
                 {
-                  key: 'theme', label: isThermal ? 'Style' : 'Theme',
+                  key: 'theme',
+                  label: <span><BgColorsOutlined style={{ marginRight: 6 }} />{isThermal ? 'Style' : 'Theme'}</span>,
                   children: (
                     <div>
                       <label style={{ display: 'block', marginBottom: 10, fontSize: 13, fontWeight: 600 }}>
@@ -693,6 +753,17 @@ export default function PrintSettings() {
                                   <span style={{ width: 16, height: 16, borderRadius: 4, background: t.swatch, display: 'inline-block' }} />
                                 )}
                                 <b style={{ fontSize: 14 }}>{t.l}</b>
+                                {t.isNew && (
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 700, letterSpacing: 0.6,
+                                    padding: '1px 6px', borderRadius: 4,
+                                    background: 'var(--accent-bg, rgba(79,70,229,0.12))',
+                                    color: 'var(--accent, #4F46E5)',
+                                    textTransform: 'uppercase',
+                                  }}>
+                                    New
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontSize: 12, color: 'var(--fg-secondary, #666)', lineHeight: 1.4 }}>
                                 {t.d}
@@ -750,7 +821,8 @@ export default function PrintSettings() {
                   ),
                 },
                 {
-                  key: 'printer', label: 'Printer',
+                  key: 'printer',
+                  label: <span><PrinterOutlined style={{ marginRight: 6 }} />Printer</span>,
                   children: (
                     <div>
                       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 8 }}>

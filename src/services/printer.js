@@ -295,7 +295,13 @@ export async function shareBillViaWhatsApp({ docType, id, bill: presetBill, prof
     // Save PDF to Downloads (skip the auto-open so the viewer doesn't steal
     // focus from the about-to-be-opened WhatsApp chat).
     const saved = await exportBillPDF({ docType, bill, profileId, openAfterSave: false });
-    if (!saved?.filePath && window.electronAPI?.savePDF) return;  // hard failure in Electron
+    // Hard-failure guard in Electron — if the renderer-built PDF didn't
+    // make it to disk, bail before opening WhatsApp so the operator
+    // isn't left dragging an absent file. Detect Electron via the
+    // saveBlobToDownloads bridge (the only PDF-write API the preload
+    // currently exposes); browsers don't have it, so this guard is a
+    // no-op in pure-web contexts.
+    if (!saved?.filePath && window.electronAPI?.saveBlobToDownloads) return;
 
     // Pop Explorer at the file so the drag-source is one click away.
     if (saved?.filePath && window.electronAPI?.showItemInFolder) {

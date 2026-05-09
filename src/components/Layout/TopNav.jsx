@@ -12,7 +12,7 @@ import { resolveMode } from '../../theme/tokens';
 import { useMenuItems, menuItems as staticMenuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
 import useFavoritesStore from '../../store/favoritesStore';
 import { useMenuPopup } from '../keyboard/MenuPopup';
-import { ALT_MENUS } from '../keyboard/menuCatalog';
+import useFilteredAltMenus from '../../hooks/useFilteredAltMenus';
 import './top-nav.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -61,14 +61,17 @@ export default function TopNav() {
   // Reverse-lookup: anchorKey ('sales-menu') -> ALT_MENUS entry. Lets a
   // pill click open the same Tally popup that Alt+S opens, so mouse and
   // keyboard land in identical UI instead of two different dropdowns.
+  // Uses the dev-flag-filtered version so pill-click can't reach a
+  // route the sidebar / keyboard wouldn't allow.
+  const altMenus = useFilteredAltMenus();
   const menusByAnchor = useMemo(() => {
     const m = {};
-    for (const code in ALT_MENUS) {
-      const menu = ALT_MENUS[code];
+    for (const code in altMenus) {
+      const menu = altMenus[code];
       if (menu.anchorKey) m[menu.anchorKey] = menu;
     }
     return m;
-  }, []);
+  }, [altMenus]);
 
   // Guarded navigate — matches Sidebar. confirmLeave takes an onConfirm
   // callback and fires it (clean form) or shows the AntD modal and fires

@@ -28,11 +28,13 @@ import {
   SwapOutlined, ApiOutlined, PrinterOutlined,
   StarFilled, RiseOutlined, PieChartOutlined,
   CheckCircleOutlined, HomeOutlined, AuditOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
 import useFavoritesStore from '../../store/favoritesStore';
 import { CATEGORY_META, resolveReports } from '../../config/reports';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
+import useDevModeStore from '../../store/devModeStore';
 
 export const menuItems = [
   // Home (Command Center) — the / route. Distinct from /dashboard, which
@@ -158,7 +160,11 @@ export const menuItems = [
     children: [
       { key: '/accounts/journal/new', icon: <PlusCircleOutlined />,    label: 'New Journal Voucher', perm: 'accounts.view' },
       { key: '/accounts/journal',     icon: <UnorderedListOutlined />, label: 'Journal Vouchers',    perm: 'accounts.view' },
-      { key: '/accounts/integrity',   icon: <ThunderboltOutlined />,   label: 'Ledger Integrity',    perm: 'accounts.view' },
+      // Ledger Integrity is a heavy DB-diagnostic page. Default-hidden;
+      // a developer can flip dev_show_ledger_integrity to expose it to
+      // accountants who legitimately need it. Developer mode sees it
+      // regardless of the flag.
+      { key: '/accounts/integrity',   icon: <ThunderboltOutlined />,   label: 'Ledger Integrity',    perm: 'accounts.view', flag: 'dev_show_ledger_integrity' },
     ],
   },
   // Reports — children are dynamic (driven by user favorites). The
@@ -178,14 +184,27 @@ export const menuItems = [
     label: 'Settings',
     children: [
       { key: '/settings/company',        icon: <BankOutlined />,        label: 'Company Profile',  perm: 'settings.manage_company' },
+      // Multi-company directory — list / create / archive. The page
+      // self-hides its CREATE button + show inactive when only one
+      // company exists, so single-company installs see a quiet
+      // read-only entry.
+      { key: '/settings/companies',      icon: <AppstoreOutlined />,    label: 'Companies',        perm: 'settings.manage_company' },
       { key: '/settings/users',          icon: <UserOutlined />,        label: 'Users',            perm: 'settings.manage_users' },
       { key: '/settings/theme',          icon: <BgColorsOutlined />,    label: 'Theme',            perm: 'settings.theme' },
       { key: '/settings/barcode',        icon: <TagsOutlined />,        label: 'Barcode',          perm: 'settings.barcode' },
       { key: '/settings/print',          icon: <PrinterOutlined />,     label: 'Print Settings',   perm: 'settings.print' },
       { key: '/settings/modules',        icon: <ThunderboltOutlined />, label: 'Modules',          perm: 'settings.manage_company' },
-      { key: '/settings/import-export',  icon: <SwapOutlined />,        label: 'Import & Export',  perm: 'settings.import_export' },
-      { key: '/settings/import',         icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export' },
-      { key: '/settings/tally',          icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally' },
+      // Import / Export bulk Excel — most shops use this every closing
+      // day. Default-visible (dev_show_import_export = true).
+      { key: '/settings/import-export',  icon: <SwapOutlined />,        label: 'Import & Export',  perm: 'settings.import_export', flag: 'dev_show_import_export' },
+      { key: '/settings/import',         icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export', flag: 'dev_show_import_export' },
+      // Tally Sync — XML export is fine for normal users; live HTTP
+      // sync can corrupt accounting data if pointed at the wrong
+      // Tally book. Default-hidden.
+      { key: '/settings/tally',          icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally', flag: 'dev_show_tally_sync' },
+      // Backup page — creating a backup is harmless. RESTORING wipes
+      // every table though, so the page itself ships visible but the
+      // restore button is gated separately inside (see BackupRestore).
       { key: '/settings/backup',         icon: <CloudServerOutlined />, label: 'Backup & Recovery',perm: 'settings.backup' },
       { key: '/settings/godowns',        icon: <BankOutlined />,        label: 'Godowns',          perm: 'godowns.view', flag: 'multi_warehouse_enabled' },
       // Home page customization — every operator can pick what shows on
@@ -193,6 +212,15 @@ export const menuItems = [
       { key: '/settings/home',           icon: <HomeOutlined />,        label: 'Home Page' },
       // Dashboard tile picker — same per-user UX gate (none).
       { key: '/settings/dashboard',      icon: <DashboardOutlined />,   label: 'Dashboard' },
+      // Server Setup — lets a user re-point the app at a different LAN
+      // host. Default-hidden so regular staff can't break the connection.
+      { key: '/server-setup',            icon: <CloudServerOutlined />, label: 'Server / Network Setup', flag: 'dev_show_server_settings' },
+      // Developer Settings is intentionally NOT in the sidebar. The
+      // entry point is the user-avatar dropdown ("Developer Access"
+      // when locked, "Developer Settings" when unlocked). Keeping it
+      // out of the sidebar means even an unlocked dev session doesn't
+      // accidentally show the page to a curious staff member glancing
+      // at the screen.
     ],
   },
 ];
@@ -252,6 +280,16 @@ export function useMenuItems() {
   // pop in once the fetch resolves; consumers re-render via the
   // useSystemSettings subscription.
   const settings = useSystemSettings();
+  // Developer mode unlock — when true (and not previewing), EVERY
+  // `flag`-gated entry shows regardless of system_settings, and
+  // __devOnly entries become visible. When `previewAsUser` is also
+  // on, the dev temporarily sees the sidebar exactly as a regular
+  // user does — gated entries respect their flags, __devOnly entries
+  // stay hidden — so the developer can verify the toggle settings
+  // without having to lock dev mode and re-enter the password.
+  const devUnlocked   = useDevModeStore((s) => s.unlocked);
+  const previewAsUser = useDevModeStore((s) => s.previewAsUser);
+  const effectiveDev  = devUnlocked && !previewAsUser;
 
   const inflated = menuItems.map((item) => {
     if (item.__dynamic !== 'reports') return item;
@@ -294,7 +332,7 @@ export function useMenuItems() {
     return { ...item, children };
   });
 
-  return filterMenuByFeatureFlags(inflated, settings);
+  return filterMenuByFeatureFlags(inflated, settings, effectiveDev);
 }
 
 /**
@@ -306,13 +344,24 @@ export function useMenuItems() {
  * `settings` is the shared cache from useSystemSettings — pass null while
  * loading and every flagged entry hides (safer than a flicker where a
  * gated module appears for half a second).
+ *
+ * `devUnlocked` (third arg) overrides the entire filter: when true, every
+ * `flag`-gated entry shows AND `__devOnly` entries (Developer Settings)
+ * become visible. When false (default), `__devOnly` entries are hidden.
  */
-export function filterMenuByFeatureFlags(items, settings) {
+export function filterMenuByFeatureFlags(items, settings, devUnlocked = false) {
   return items
     .map((item) => {
-      if (item.flag && !settings?.[item.flag]) return null;
+      // __devOnly entries: visible only when developer mode is unlocked.
+      // (Developer Settings page itself.)
+      if (item.__devOnly && !devUnlocked) return null;
+
+      // `flag`-gated entries: hidden unless system_settings[flag] is on.
+      // Developer mode override — devs see every flagged entry.
+      if (item.flag && !devUnlocked && !settings?.[item.flag]) return null;
+
       if (item.children) {
-        const children = filterMenuByFeatureFlags(item.children, settings);
+        const children = filterMenuByFeatureFlags(item.children, settings, devUnlocked);
         if (children.length === 0) return null;
         return { ...item, children };
       }

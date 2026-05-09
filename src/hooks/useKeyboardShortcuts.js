@@ -1,7 +1,8 @@
 import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMenuPopup } from '../components/keyboard/MenuPopup';
-import { ALT_MENUS, CTRL_DIRECT } from '../components/keyboard/menuCatalog';
+import { CTRL_DIRECT } from '../components/keyboard/menuCatalog';
+import useFilteredAltMenus from './useFilteredAltMenus';
 
 export const SHORTCUTS_LIST = [
   { keys: 'Cmd/Ctrl + K', description: 'Open global search' },
@@ -17,6 +18,8 @@ export const SHORTCUTS_LIST = [
   { keys: 'Alt + R', description: 'Reports menu' },
   { keys: 'Alt + T', description: 'Settings menu' },
   { keys: 'Alt + D', description: 'Dashboard' },
+  { keys: 'Ctrl + Alt + C', description: 'Manage Companies' },
+  { keys: 'F9', description: 'Switch company' },
   { keys: 'Ctrl + S', description: 'New Sale (direct)' },
   { keys: 'Ctrl + P', description: 'New Purchase (direct)' },
   { keys: 'Ctrl + M', description: 'New Payment (direct)' },
@@ -35,6 +38,11 @@ export const SHORTCUTS_LIST = [
 export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
   const navigate = useNavigate();
   const { openMenu } = useMenuPopup();
+  // Use the filtered version so Alt+A → I (Ledger Integrity) etc.
+  // respect the developer-tier toggles. Without filtering here, the
+  // sidebar would hide an entry but the keyboard shortcut would still
+  // jump to it.
+  const altMenus = useFilteredAltMenus();
 
   useEffect(() => {
     const handler = (e) => {
@@ -58,13 +66,39 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
         return;
       }
 
+      // Ctrl + Alt + C — open the company switcher / Manage Companies.
+      // The chord is rare enough not to clash with anything else; "C"
+      // for Company. Alt is on the chord so a single Ctrl+C stays as
+      // copy. Routes to /settings/companies which holds the full
+      // switcher + manage UI.
+      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === 'KeyC') {
+        e.preventDefault();
+        navigate('/settings/companies');
+        return;
+      }
+
+      // F9 — single-key shortcut for switching company. Alone on its row
+      // (F5/F6/F7 are taken by refresh/receipt/payment), so muscle
+      // memory doesn't clash. No modifiers required, fires from
+      // anywhere except active text inputs (the keydown listener for
+      // form fields runs after this so a user typing in a textarea
+      // still gets the F-keys).
+      if (e.key === 'F9' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        const tag = (e.target?.tagName || '').toLowerCase();
+        if (tag !== 'input' && tag !== 'textarea') {
+          e.preventDefault();
+          navigate('/settings/companies');
+          return;
+        }
+      }
+
       // ── Alt + letter → open the Tally-style menu popup.
       // Uses e.code (the PHYSICAL key) instead of e.key because macOS
       // Option is a dead key (Option+S generates "ß", Option+P → "π",
       // Option+D → "∂"). e.code is "KeyS" / "KeyP" / "KeyD" regardless
       // of the OS's transformation.
       if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        const menu = ALT_MENUS[e.code];
+        const menu = altMenus[e.code];
         if (menu) {
           e.preventDefault();
           // Single-item menus (Alt+H / Alt+D) skip the popup and just
@@ -136,7 +170,7 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [navigate, onRefresh, onToggleHelp, openMenu]);
+  }, [navigate, onRefresh, onToggleHelp, openMenu, altMenus]);
 }
 
 export function useEnterNavigation(containerRef, onLastField) {

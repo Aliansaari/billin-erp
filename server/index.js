@@ -1,6 +1,9 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
+const helmet = require('helmet');
+const os = require('os');
 const path = require('path');
 const { sequelize } = require('./models');
 const seedDefaultData = require('./seeders/defaultData');
@@ -8,8 +11,105 @@ const seedDefaultData = require('./seeders/defaultData');
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
 
-// Middleware
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }));
+/* ── LAN-aware middleware stack ────────────────────────────────────────
+ *
+ * The server is designed to run in three deployment modes simultaneously:
+ *
+ *   1) Single machine (default)   — Electron + Vite + server all on
+ *      one PC; only localhost talks to it.
+ *
+ *   2) LAN host                   — one PC runs the server, other PCs
+ *      on the same office Wi-Fi/LAN connect via the host's IP. Needs
+ *      CORS open to private-IP clients and Express trusting the proxy.
+ *
+ *   3) Browser-only client        — a Wi-Fi-only laptop / tablet that
+ *      can't run Electron. It opens http://<host-ip>:3001 directly,
+ *      and this Express server delivers the React SPA + API from the
+ *      same origin. No CORS issues at all because the browser is on
+ *      the same origin.
+ *
+ * Helmet and compression are universally applied. CORS uses a function
+ * origin so we can dynamically allow private RFC1918 ranges without
+ * having to enumerate every client's IP in env. */
+
+// helmet: sensible default security headers. Drop the strict CSP — the
+// app uses inline styles (antd, dynamic CSS-in-JS) and inline event
+// handlers in print-preview iframes, and our LAN deployment isn't
+// public-internet-facing so the CSP value is low. crossOriginResourcePolicy
+// must allow loading our own static assets from a different IP than the
+// API origin (e.g. browser-only clients hitting :3001).
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginEmbedderPolicy: false,
+}));
+
+// gzip every response > 1 KiB. Electron clients on localhost don't benefit
+// much (loopback is already fast), but LAN browser clients pulling the
+// 2 MB Vite bundle do — first-load drops from ~2 MB to ~600 KB on the wire.
+app.use(compression({
+  threshold: 1024,
+  // PDF/Excel exports are already binary-compressed; skip them so we
+  // don't pay CPU recompressing for no win.
+  filter: (req, res) => {
+    const type = res.getHeader('Content-Type') || '';
+    if (/^application\/(pdf|vnd\.openxmlformats|octet-stream)/i.test(String(type))) return false;
+    return compression.filter(req, res);
+  },
+}));
+
+// Trust proxy (X-Forwarded-For) so req.ip resolves correctly when the
+// server sits behind a reverse proxy. Limited to "loopback, linklocal,
+// uniquelocal" so a client on the LAN can't spoof a fake IP into the
+// auth-rate-limit key.
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+
+/* CORS — allow:
+ *
+ *   - The literal CLIENT_URL from env (legacy single-machine setup)
+ *   - http(s)://localhost and 127.0.0.1 on any port (dev / Electron)
+ *   - Any RFC1918 private-IP range on any port:
+ *       10.0.0.0/8         (10.x.x.x)
+ *       172.16.0.0/12      (172.16-31.x.x)
+ *       192.168.0.0/16     (192.168.x.x)
+ *       169.254.0.0/16     (link-local — rare but valid for ad-hoc Wi-Fi)
+ *   - Any extra origins listed in CORS_EXTRA_ORIGINS (comma-separated)
+ *     so an admin can whitelist a custom hostname like "shop.local" or
+ *     "billing.office.example.com".
+ *
+ * Same-origin browser-only clients (those served the SPA from /dist by
+ * THIS server) don't hit the function — they have no Origin header
+ * because the API and the page share an origin.
+ *
+ * Origin-less requests (curl, native mobile apps, server-to-server) are
+ * permitted — we authenticate via Bearer JWT, not via origin.
+ */
+// Pattern matches an `Origin` header from a private-IP client. Each
+// RFC1918 range gets its own alternative — combining them under one
+// shared "(?:10|192.168|169.254)" prefix would miscount octets, since
+// 10.x.x.x has THREE octets after "10" while 192.168.x.x has only TWO
+// after "192.168". Spelled out fully here for clarity.
+const PRIVATE_IP_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})(?::\d+)?$/i;
+const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+const LEGACY_ORIGIN = process.env.CLIENT_URL || 'http://localhost:5173';
+app.use(cors({
+  credentials: true,
+  // Returning `cb(null, false)` for an unknown origin tells the cors
+  // middleware "skip the CORS headers entirely" — the preflight returns
+  // 204 without Access-Control-Allow-Origin, which the browser then
+  // refuses to use. That's the canonical CORS-deny behaviour. (Earlier
+  // we returned `cb(new Error(...))`, which propagated as a 500 to the
+  // global error handler — looked like a server bug to LAN admins.)
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);                                  // curl / native app / same-origin
+    if (origin === LEGACY_ORIGIN) return cb(null, true);
+    if (PRIVATE_IP_RE.test(origin)) return cb(null, true);
+    if (EXTRA_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+}));
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -17,6 +117,14 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 const fs = require('fs');
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
+
+// LAN gate — enforces dev_lan_enabled + dev_lan_max_clients from
+// system_settings. Mounted before the API routes so a denied client
+// gets a 503 instead of (e.g.) a successful login. Health and
+// server-info endpoints are exempt inside the middleware itself so
+// the Server Setup screen can still probe.
+const { lanGate } = require('./middleware/lanGate');
+app.use('/api', lanGate);
 
 // API Routes
 app.use('/api/auth', require('./routes/auth'));
@@ -48,23 +156,191 @@ app.use('/api/banks', require('./routes/banks'));
 app.use('/api/loans', require('./routes/loans'));
 app.use('/api/cheques', require('./routes/cheques'));
 app.use('/api/expenses', require('./routes/expenses'));
+app.use('/api/companies', require('./routes/companies'));
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Enumerate every IPv4 the host advertises so client setup screens can
+// show the user "your office machines should connect to ANY of these
+// addresses". Filters out internal (loopback) and IPv6 — those aren't
+// useful for LAN peers.
+function getLanAddresses() {
+  const ifaces = os.networkInterfaces();
+  const addrs = [];
+  for (const [name, list] of Object.entries(ifaces)) {
+    for (const iface of (list || [])) {
+      if (iface.family !== 'IPv4' || iface.internal) continue;
+      addrs.push({ iface: name, address: iface.address, netmask: iface.netmask, mac: iface.mac });
+    }
+  }
+  return addrs;
+}
+
+const SERVER_VERSION = require('../package.json').version || '0.0.0';
+
+/* ── Health & discovery endpoints ───────────────────────────────────────
+ *
+ * /api/health      — 200 OK plus DB connectivity. Browser-only clients
+ *                    poll this in the Server Setup screen to confirm
+ *                    they typed the right IP/port.
+ *
+ * /api/server-info — descriptive: hostname, version, all the LAN IPs
+ *                    the host advertises, the port it's listening on,
+ *                    and a copy-pasteable URL for each. The Settings
+ *                    > Network page renders this so an admin can read
+ *                    the address out to office staff.
+ *
+ * Both endpoints are intentionally unauthenticated: a Wi-Fi-only client
+ * needs to be able to confirm the server URL BEFORE it can log in. They
+ * leak no sensitive data — just version + LAN IP, which any device on
+ * the same network already knows. */
+app.get('/api/health', async (req, res) => {
+  let dbOk = true;
+  let dbError = null;
+  try {
+    await sequelize.authenticate();
+  } catch (e) {
+    dbOk = false;
+    dbError = e.message;
+  }
+  res.json({
+    status: dbOk ? 'ok' : 'degraded',
+    db: dbOk,
+    db_error: dbError,
+    version: SERVER_VERSION,
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '..', 'dist')));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+app.get('/api/server-info', (req, res) => {
+  const addrs = getLanAddresses();
+  // Surface live concurrency state so the Developer Settings page can
+  // render "3 of 10 clients active" without polling a separate endpoint.
+  const { getActiveClients } = require('./middleware/lanGate');
+  res.json({
+    name: 'Billing ERP',
+    version: SERVER_VERSION,
+    hostname: os.hostname(),
+    platform: process.platform,
+    port: PORT,
+    addresses: addrs,
+    // Convenience: pre-built URLs the user can copy-paste
+    urls: addrs.map(a => `http://${a.address}:${PORT}`),
+    active_clients: getActiveClients(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/* ── SPA delivery to browser-only clients ──────────────────────────────
+ *
+ * If a `dist/` build exists, serve it from the same Express app. This
+ * is the bridge that lets a Wi-Fi-only laptop/tablet bill from a browser
+ * by visiting http://<host-ip>:3001 directly — same origin as the API,
+ * so no CORS, no token-leakage between origins, no Electron required.
+ *
+ * Previously this was gated on NODE_ENV === 'production', which meant
+ * `npm run server` (used in dev) wouldn't serve the SPA even if a build
+ * was present. Now it auto-detects: if the build is there, serve it; if
+ * it's not, return a friendly hint at the root so the admin knows to
+ * `npm run build` first.
+ *
+ * Cache headers: the Vite build emits hashed filenames (assets/*.[hash].js)
+ * so they're safe to cache aggressively. index.html stays no-cache so a
+ * server upgrade is picked up by clients on next refresh.
+ */
+const distDir = path.join(__dirname, '..', 'dist');
+const distExists = fs.existsSync(path.join(distDir, 'index.html'));
+if (distExists) {
+  /* The Vite build emits relative asset paths (./assets/*.js) so the
+   * same dist/ also works under file:// inside Electron. But that means
+   * a browser landing on a deep-link route like /sale/new would resolve
+   * ./assets/x.js to /sale/assets/x.js — 404. To handle both cases from
+   * one build, we inject `<base href="/">` into the HTML we serve over
+   * HTTP. Relative URLs then resolve from the document root regardless
+   * of how deep the deep-link is.
+   *
+   * Electron's loadFile() reads the on-disk file directly and doesn't
+   * pass through this transformer, so the file:// case keeps the
+   * original (untouched) index.html. There ./assets/x.js resolves
+   * relative to the file location — which IS the dist directory — so
+   * everything works.
+   */
+  let indexHtml;
+  try {
+    const raw = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
+    indexHtml = raw.includes('<base ')
+      ? raw
+      : raw.replace(/<head([^>]*)>/i, '<head$1>\n    <base href="/" />');
+  } catch (e) {
+    console.error('[SPA serve] failed to read dist/index.html:', e.message);
+    indexHtml = null;
+  }
+
+  // Hashed assets — 1 year, immutable.
+  app.use('/assets', express.static(path.join(distDir, 'assets'), {
+    maxAge: '365d',
+    immutable: true,
+    index: false,
+  }));
+  // Everything else (favicon, manifest, root-level files) — 1 day.
+  // Skip serving index.html through the static handler so our
+  // transformed copy below wins for both root and deep-link routes.
+  app.use(express.static(distDir, {
+    maxAge: '1d',
+    index: false,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    },
+  }));
+  // SPA fallback — non-/api, non-/assets, non-extension routes return
+  // the transformed index.html so React Router can take over. The two
+  // exclusions matter because:
+  //   - /api/* — should 404 if a route is missing (caller bug), not
+  //     silently render the SPA shell.
+  //   - /assets/* and /*.{ext} — a missing/stale-hash asset returning
+  //     index.html (Content-Type: text/html) makes the BROWSER refuse
+  //     to use it as JS/CSS, and the page renders blank with a
+  //     "Refused to apply style/script" error in the console. Letting
+  //     it 404 lets a stale-cache reload recover instead of silently
+  //     painting white.
+  app.get(/^\/(?!api(\/|$)|assets\/|.*\.[a-z0-9]+$).*/, (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    if (indexHtml) {
+      res.type('html').send(indexHtml);
+    } else {
+      res.sendFile(path.join(distDir, 'index.html'));
+    }
+  });
+} else {
+  // No build yet: hint the admin instead of returning a blank 404.
+  app.get('/', (req, res) => {
+    res.type('html').send(
+      `<!doctype html><meta charset="utf-8"><title>Billing ERP</title>` +
+      `<body style="font-family:system-ui;padding:40px;max-width:560px;margin:auto">` +
+      `<h2 style="margin-top:0">Billing ERP — API only</h2>` +
+      `<p>The server is running and the API is live at <code>/api</code>.</p>` +
+      `<p>To serve the web UI to browser-only clients on your LAN, build the frontend first:</p>` +
+      `<pre style="background:#f4f4f5;padding:12px;border-radius:6px">npm run build</pre>` +
+      `<p>Then restart the server.</p>` +
+      `<hr><p style="color:#666;font-size:13px">Health: <a href="/api/health">/api/health</a> · ` +
+      `Network info: <a href="/api/server-info">/api/server-info</a></p></body>`,
+    );
   });
 }
 
 // Database sync and start server
 async function startServer() {
   try {
+    // ── Multi-company bootstrap ───────────────────────────────────────
+    // Runs FIRST: ensures the master DB exists, syncs the companies
+    // table, and registers the existing single-DB install as the
+    // "primary company" if it hasn't been registered yet. Idempotent —
+    // safe on every boot. Throws if the master DB can't be reached, in
+    // which case startup aborts so we don't run half-initialised.
+    const { runCompanyBootstrap } = require('./services/companyBootstrap');
+    await runCompanyBootstrap();
+    console.log('Multi-company bootstrap complete');
+
     await sequelize.authenticate();
     console.log('Database connected successfully');
 
@@ -300,6 +576,36 @@ async function startServer() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tally_last_sync') THEN
           ALTER TABLE system_settings ADD COLUMN tally_last_sync TIMESTAMP;
         END IF;
+
+        -- ── Developer-tier feature gates ───────────────────────────
+        -- See SystemSettings.js for rationale per column. Each flag
+        -- controls whether the corresponding feature is visible to
+        -- non-developer users; developers see everything regardless.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_ledger_integrity') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_ledger_integrity BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_data_cleanup') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_data_cleanup BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_backup_restore') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_backup_restore BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_tally_sync') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_tally_sync BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_import_export') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_import_export BOOLEAN DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_show_server_settings') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_show_server_settings BOOLEAN DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_lan_enabled') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_lan_enabled BOOLEAN DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='dev_lan_max_clients') THEN
+          ALTER TABLE system_settings ADD COLUMN dev_lan_max_clients INTEGER DEFAULT 0;
+        END IF;
+
         -- Return bill prefixes. Defaults match the seeder; existing DBs that
         -- ran the seeder before this column shipped still need a value so the
         -- controller trim() call does not throw on NULL.
@@ -478,6 +784,11 @@ async function startServer() {
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_profiles' AND column_name='show_previous_balance') THEN
           ALTER TABLE print_profiles ADD COLUMN show_previous_balance BOOLEAN DEFAULT false;
+        END IF;
+        -- Doc-subtitle override. Blank = renderer falls back to the
+        -- per-doc-type default ("TAX INVOICE", "PURCHASE BILL", etc.).
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_profiles' AND column_name='doc_label') THEN
+          ALTER TABLE print_profiles ADD COLUMN doc_label VARCHAR(60) DEFAULT '';
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='custom_permissions') THEN
           ALTER TABLE users ADD COLUMN custom_permissions JSONB DEFAULT NULL;
@@ -1448,6 +1759,36 @@ async function startServer() {
         ON product_batches (expiry_date);
       CREATE INDEX IF NOT EXISTS idx_product_batches_product_expiry
         ON product_batches (product_id, expiry_date);
+
+      -- ── LAN-deployment hot-path indexes ─────────────────────────────
+      -- These cover the queries that fan out the most when 10–20 clients
+      -- hit the dashboard / aging / outstanding pages simultaneously:
+      --
+      --   sales_bills    (customer_id, bill_date)         -- party statements + aging
+      --   sales_bills    (is_cancelled, bill_date)        -- monthly + today aggregates
+      --   sales_bills    (is_cancelled, balance_amount)   -- receivables roll-up (partial)
+      --   purchase_bills (supplier_id, bill_date)         -- supplier statements + aging
+      --   purchase_bills (is_cancelled, bill_date)        -- monthly + today aggregates
+      --   purchase_bills (is_cancelled, balance_amount)   -- payables roll-up (partial)
+      --   payments_receipts (transaction_type, is_cancelled, transaction_date)
+      --
+      -- Partial indexes are only built where they help — Postgres won't
+      -- bother scanning a 5M-row history of cancelled bills when the
+      -- dashboard only ever wants is_cancelled = false.
+      CREATE INDEX IF NOT EXISTS idx_sales_bills_customer_date
+        ON sales_bills (customer_id, bill_date);
+      CREATE INDEX IF NOT EXISTS idx_purchase_bills_supplier_date
+        ON purchase_bills (supplier_id, bill_date);
+      CREATE INDEX IF NOT EXISTS idx_sales_bills_active_date
+        ON sales_bills (bill_date) WHERE is_cancelled = false;
+      CREATE INDEX IF NOT EXISTS idx_purchase_bills_active_date
+        ON purchase_bills (bill_date) WHERE is_cancelled = false;
+      CREATE INDEX IF NOT EXISTS idx_sales_bills_active_balance
+        ON sales_bills (customer_id) WHERE is_cancelled = false AND balance_amount > 0;
+      CREATE INDEX IF NOT EXISTS idx_purchase_bills_active_balance
+        ON purchase_bills (supplier_id) WHERE is_cancelled = false AND balance_amount > 0;
+      CREATE INDEX IF NOT EXISTS idx_payments_receipts_type_date
+        ON payments_receipts (transaction_type, transaction_date) WHERE is_cancelled = false;
     `).catch((err) => {
       console.error('[Batch tracking migration] Error:', err.message);
     });
@@ -1851,9 +2192,35 @@ async function startServer() {
       console.error('[Cheque sync migration] Error:', err.message);
     }
 
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-      console.log(`API available at http://localhost:${PORT}/api`);
+    const httpServer = app.listen(PORT, '0.0.0.0', () => {
+      const lan = getLanAddresses();
+      console.log('');
+      console.log('┌───────────────────────────────────────────────────────────┐');
+      console.log('│  Billing ERP server is running                            │');
+      console.log('├───────────────────────────────────────────────────────────┤');
+      console.log(`│  Local:    http://localhost:${PORT}`.padEnd(60) + '│');
+      if (lan.length === 0) {
+        console.log(`│  LAN:      (no LAN interface detected)`.padEnd(60) + '│');
+      } else {
+        for (const a of lan) {
+          console.log(`│  LAN:      http://${a.address}:${PORT}   (${a.iface})`.padEnd(60) + '│');
+        }
+      }
+      console.log(`│  API:      /api/*`.padEnd(60) + '│');
+      console.log(`│  Web UI:   ${distExists ? 'served from /dist (browser clients OK)' : 'not built — run "npm run build"'}`.padEnd(60) + '│');
+      console.log(`│  Health:   /api/health`.padEnd(60) + '│');
+      console.log('└───────────────────────────────────────────────────────────┘');
+      console.log('');
+
+      // Tune the underlying TCP socket for many concurrent LAN clients:
+      //   - keepAlive prevents idle Electron sessions from being silently
+      //     dropped by Wi-Fi access points after ~5 min of inactivity.
+      //   - keepAliveTimeout / headersTimeout headroom prevents the kernel
+      //     from killing legitimate long-poll requests.
+      httpServer.keepAliveTimeout = 65_000;   // > typical proxy idle timeout
+      httpServer.headersTimeout = 70_000;     // must be > keepAliveTimeout
+      httpServer.requestTimeout = 0;          // no hard cap — backups + imports run long
+
       // Start auto-backup scheduler
       require('./controllers/backupController').initScheduler();
       // Import job worker — recover orphans first, then start polling.
@@ -1862,6 +2229,23 @@ async function startServer() {
         .then(() => importWorker.start())
         .catch((e) => console.error('[importJobWorker] failed to start:', e.message));
     });
+
+    // Graceful shutdown — drain in-flight requests on SIGTERM/SIGINT so
+    // an Electron quit or a `taskkill` doesn't leave half-written
+    // payments-receipts in the DB. 5-second hard cap.
+    const shutdown = (signal) => {
+      console.log(`\n${signal} received — draining requests…`);
+      const force = setTimeout(() => {
+        console.warn('Drain timed out, forcing exit');
+        process.exit(1);
+      }, 5000);
+      httpServer.close(() => {
+        clearTimeout(force);
+        sequelize.close().finally(() => process.exit(0));
+      });
+    };
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT',  () => shutdown('SIGINT'));
   } catch (error) {
     console.error('Failed to start server:', error.message);
     console.error('Make sure PostgreSQL is running and the database exists.');

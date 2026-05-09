@@ -457,18 +457,21 @@ exports.create = async (req, res) => {
     }
     billData.bill_mode = bill_mode === 'amount' ? 'amount' : 'item';
 
-    // Generate bill number using prefix from settings — inside transaction to prevent race condition
+    // ── Bill number race (Fix #17) ─────────────────────────────────────
+    // See salesController for full rationale. Advisory key 905 = purchase
+    // bills. Serialises concurrent purchase-bill creators long enough to
+    // allocate a unique number; auto-released on commit/rollback.
+    await sequelize.query('SELECT pg_advisory_xact_lock(:key)', {
+      replacements: { key: 905 }, transaction: t,
+    });
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.purchase_bill_prefix?.trim() || '';
     // Default mode applied to NEW products created by this bill. Existing
     // products keep their own product_mode (read off the row).
     const defaultProductMode = settings?.default_product_mode || 'variant';
     const batchTrackingEnabled = !!settings?.batch_tracking_enabled;
-    // Bill number race fix: lock the "latest" row so concurrent creates can't
-    // both read the same lastBill and issue duplicate bill numbers.
     const lastBill = await PurchaseBill.findOne({
       order: [['purchase_bill_id', 'DESC']],
-      lock: t.LOCK.UPDATE,
       transaction: t,
     });
     const lastNum = lastBill ? parseInt(lastBill.bill_number.split('-').pop()) : 0;

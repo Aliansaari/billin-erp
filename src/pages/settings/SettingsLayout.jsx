@@ -4,7 +4,9 @@ import {
   BankOutlined, UserOutlined, BgColorsOutlined, TagsOutlined,
   PrinterOutlined, ThunderboltOutlined, SwapOutlined, ApiOutlined,
   CloudServerOutlined, HomeOutlined, ControlOutlined, DashboardOutlined,
+  AppstoreOutlined, CodeOutlined,
 } from '@ant-design/icons';
+import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
 import useAuthStore from '../../store/authStore';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -30,10 +32,15 @@ const SETTINGS_GROUPS = [
   {
     label: 'Business',
     items: [
-      { path: 'company',  icon: <BankOutlined />,        label: 'Company Profile', perm: 'settings.manage_company' },
-      { path: 'modules',  icon: <ThunderboltOutlined />, label: 'Features',        perm: 'settings.manage_company' },
-      { path: 'defaults', icon: <ControlOutlined />,     label: 'Defaults',        perm: 'settings.manage_company' },
-      { path: 'godowns',  icon: <BankOutlined />,        label: 'Godowns',         perm: 'godowns.view', flag: 'multi_warehouse_enabled' },
+      { path: 'company',   icon: <BankOutlined />,        label: 'Company Profile', perm: 'settings.manage_company' },
+      // Companies entry — list / create / archive across companies in
+      // the master DB. Same permission gate as Company Profile so any
+      // user who can edit the current company's profile can also see
+      // the list.
+      { path: 'companies', icon: <AppstoreOutlined />,    label: 'Companies',       perm: 'settings.manage_company' },
+      { path: 'modules',   icon: <ThunderboltOutlined />, label: 'Features',        perm: 'settings.manage_company' },
+      { path: 'defaults',  icon: <ControlOutlined />,     label: 'Defaults',        perm: 'settings.manage_company' },
+      { path: 'godowns',   icon: <BankOutlined />,        label: 'Godowns',         perm: 'godowns.view', flag: 'multi_warehouse_enabled' },
     ],
   },
   {
@@ -55,10 +62,22 @@ const SETTINGS_GROUPS = [
   {
     label: 'Data',
     items: [
-      { path: 'import-export', icon: <SwapOutlined />,        label: 'Import & Export',  perm: 'settings.import_export' },
-      { path: 'import',        icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export' },
-      { path: 'tally',         icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally' },
+      // Import / Export + Tally Sync mirror the developer-tier flags
+      // used by the main sidebar so the settings rail honours the same
+      // hide/show toggles. Backup creation stays visible regardless.
+      { path: 'import-export', icon: <SwapOutlined />,        label: 'Import & Export',  perm: 'settings.import_export', flag: 'dev_show_import_export' },
+      { path: 'import',        icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export', flag: 'dev_show_import_export' },
+      { path: 'tally',         icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally',         flag: 'dev_show_tally_sync' },
       { path: 'backup',        icon: <CloudServerOutlined />, label: 'Backup & Recovery', perm: 'settings.backup' },
+    ],
+  },
+  {
+    // Visible only when developer mode is unlocked on this device.
+    // Filtered by the `__devOnly` marker — the visibleGroups computation
+    // below honours it.
+    label: 'Developer',
+    items: [
+      { path: 'developer',  icon: <CodeOutlined />,        label: 'Developer Access', __devOnly: true },
     ],
   },
 ];
@@ -69,25 +88,40 @@ export default function SettingsLayout() {
   const user = useAuthStore((s) => s.user);
   const settings = useSystemSettings();
   const [query, setQuery] = useState('');
+  // Developer mode + preview-as-user — same logic as the main sidebar's
+  // useMenuItems filter. When dev is unlocked AND not previewing, every
+  // `flag`-gated entry is visible regardless of the system_settings
+  // value, and `__devOnly` entries (Developer Access) appear.
+  const devUnlocked   = useDevModeStore((s) => s.unlocked);
+  const previewAsUser = useDevModeStore((s) => s.previewAsUser);
+  const effectiveDev  = devUnlocked && !previewAsUser;
 
   // Filter groups to ones the current user can reach. Drop groups that
   // end up with no visible items so the rail doesn't show empty
   // headers. Items with a `flag` field are also gated on the matching
   // system-settings boolean — null while the cache loads (treated as
   // off, so flagged entries hide until we know they should appear).
+  // Developer mode override: when active, all flag-gated items show
+  // and __devOnly items become visible.
   const visibleGroups = useMemo(() => {
     const q = query.trim().toLowerCase();
     return SETTINGS_GROUPS
       .map((g) => ({
         ...g,
-        items: g.items.filter((it) =>
-          (it.perm === null || hasPermission(user, it.perm)) &&
-          (!it.flag || !!settings?.[it.flag]) &&
-          (!q || it.label.toLowerCase().includes(q))
-        ),
+        items: g.items.filter((it) => {
+          // __devOnly entries — only when dev mode is unlocked AND not previewing.
+          if (it.__devOnly && !effectiveDev) return false;
+          // Permission check.
+          if (it.perm !== null && it.perm !== undefined && !hasPermission(user, it.perm)) return false;
+          // Flag check — bypass when dev mode is active.
+          if (it.flag && !effectiveDev && !settings?.[it.flag]) return false;
+          // Search filter.
+          if (q && !it.label.toLowerCase().includes(q)) return false;
+          return true;
+        }),
       }))
       .filter((g) => g.items.length > 0);
-  }, [user, settings, query]);
+  }, [user, settings, query, effectiveDev]);
 
   const totalVisible = visibleGroups.reduce((n, g) => n + g.items.length, 0);
 

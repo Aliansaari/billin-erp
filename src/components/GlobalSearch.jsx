@@ -424,6 +424,28 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       setSel((i) => Math.max(0, i - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      // ── Hidden developer-access trigger ──────────────────────────
+      // Typing "/__dev" + Enter opens the developer-mode password
+      // modal. Intentionally invisible: no autocomplete suggestion,
+      // no result row, no hint anywhere in the UI. A regular user
+      // glancing at this code wouldn't see anything; only the
+      // string-match branch below produces an effect.
+      //
+      // Why the global search palette: it's the one input that's
+      // always reachable from any page (Ctrl+K / Alt+G), shared
+      // across browser and Electron clients alike, and already has
+      // an Enter handler — adding a magic-string intercept is a few
+      // lines instead of plumbing a separate keyboard listener.
+      const trimmed = String(query || '').trim();
+      if (trimmed === '/__dev' || trimmed === '/__developer') {
+        // Fire a window event the Sidebar listens for; it owns the
+        // DeveloperGate modal. Keeps the palette decoupled from the
+        // dev-mode store.
+        window.dispatchEvent(new CustomEvent('dev-gate:open'));
+        setQuery('');
+        onClose?.();
+        return;
+      }
       choose(flat[selectedIdx]);
     } else if (e.key === 'Escape') {
       // The underlying page (bill forms, lists) usually has its own

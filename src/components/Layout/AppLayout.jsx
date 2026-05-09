@@ -13,19 +13,64 @@ const SIDEBAR_KEY = 'sidebar_collapsed';
 // exactly viewport-minus-nav and the bottom action bars land flush.
 const TOP_NAV_H = 56;
 
+// Viewport-width breakpoints driving auto-collapse. Tuned for the ERP's
+// content density: a typical bill form needs ~880-1000 px of horizontal
+// content space, so anything narrower than ~1100 px (sidebar 270 + content
+// 880 + chrome) is too tight unless the sidebar collapses. Below ~700 px
+// the collapsed sidebar (68 px) eats too much; we hide it entirely behind
+// a hamburger toggle the user can open as an overlay.
+const COLLAPSE_BREAKPOINT = 1100;
+const HIDE_BREAKPOINT     = 700;
+
 export default function AppLayout() {
-  const [collapsed, setCollapsed] = useState(() => {
-    const stored = localStorage.getItem(SIDEBAR_KEY);
-    return stored === 'true';
-  });
   const location = useLocation();
   const navigate = useNavigate();
   const menuOrientation = useThemeStore((s) => s.menuOrientation);
   const isHorizontal = menuOrientation === 'horizontal';
 
+  // User preference for sidebar collapse. Auto-collapse on small viewports
+  // OVERRIDES this preference but doesn't overwrite it — once the window
+  // grows back above the breakpoint, the user's saved choice returns.
+  const userPreferredCollapsed = (() => {
+    try { return localStorage.getItem(SIDEBAR_KEY) === 'true'; }
+    catch { return false; }
+  })();
+
+  // Track viewport width so we can auto-collapse / auto-hide the sidebar.
+  // Using innerWidth (not matchMedia) keeps the calculation in one place
+  // and avoids two listeners when the window is resized.
+  const [vw, setVw] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1400));
   useEffect(() => {
+    const onResize = () => setVw(window.innerWidth);
+    window.addEventListener('resize', onResize, { passive: true });
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const autoCollapsed = vw < COLLAPSE_BREAKPOINT;
+  const autoHidden    = vw < HIDE_BREAKPOINT;
+
+  // Collapsed state shown to Sidebar. Auto-collapse wins; otherwise the
+  // user's persisted preference stands.
+  const [collapsed, setCollapsed] = useState(() => userPreferredCollapsed);
+  useEffect(() => {
+    if (autoCollapsed) setCollapsed(true);
+    else setCollapsed(userPreferredCollapsed);
+  }, [autoCollapsed, userPreferredCollapsed]);
+
+  // Mobile-overlay: when vw < HIDE_BREAKPOINT the sidebar is taken out of
+  // the layout flow entirely and rendered as a slide-in panel triggered
+  // by a hamburger button in the top bar. Always close the overlay nav
+  // on route change so a tap-link-then-page flow doesn't leave the menu
+  // sitting open over the new page.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useEffect(() => { setMobileNavOpen(false); }, [location.pathname]);
+
+  // Persist user preference, NOT the auto-collapsed state. Otherwise
+  // resizing once would silently flip the sticky preference for next
+  // boot.
+  useEffect(() => {
+    if (autoCollapsed) return;
     localStorage.setItem(SIDEBAR_KEY, String(collapsed));
-  }, [collapsed]);
+  }, [collapsed, autoCollapsed]);
 
   // Global ESC-back when on a report page that was opened from the
   // /reports hub. The hub sets sessionStorage 'reports_hub_back' = '1'
@@ -180,7 +225,9 @@ export default function AppLayout() {
   ].includes(location.pathname);
 
   // In horizontal mode the top-nav eats TOP_NAV_H px; fullpage needs the rest.
-  const fullPageH = isHorizontal ? `calc(100vh - ${TOP_NAV_H}px)` : '100vh';
+  // 100dvh handles dynamic browser chrome (mobile URL bars) without leaving
+  // a gap or overshooting on resize.
+  const fullPageH = isHorizontal ? `calc(100dvh - ${TOP_NAV_H}px)` : '100dvh';
 
   // Page wrapper key. Keyed on the top-level route segment — NOT the full
   // pathname — so in-page navigation (e.g. /stock-movement → /stock-movement/42
@@ -194,21 +241,22 @@ export default function AppLayout() {
   // Horizontal mode: stack TopNav + Content vertically.
   if (isHorizontal) {
     return (
-      <Layout className="app-layout-horizontal" style={{ minHeight: '100vh', flexDirection: 'column' }}>
+      <Layout className="app-layout-horizontal" style={{ minHeight: '100dvh', flexDirection: 'column' }}>
         <TopNav />
         <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Content style={{
-            margin:        isFullPage ? 0 : 'clamp(8px, 2vw, 20px)',
-            padding:       isFullPage ? 0 : 'clamp(12px, 2vw, 24px)',
+            margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
+            padding:       isFullPage ? 0 : 'clamp(10px, 2vw, 24px)',
             background:    'transparent',
             overflow:      isFullPage ? 'hidden' : 'auto',
             flex:          1,
             minWidth:      0,
             // maxHeight pins Content to the viewport so flex children (like
             // bill lists / party ledger) can't push the body to overflow.
+            // 100dvh adapts to dynamic browser chrome (mobile URL bars).
             height:        isFullPage ? fullPageH : undefined,
             maxHeight:     isFullPage ? fullPageH : undefined,
-            minHeight:     isFullPage ? 0 : `calc(100vh - ${TOP_NAV_H + 40}px)`,
+            minHeight:     isFullPage ? 0 : `calc(100dvh - ${TOP_NAV_H + 40}px)`,
           }}>
             <div
               key={pageKey}
@@ -232,22 +280,48 @@ export default function AppLayout() {
   }
 
   // Default: vertical sidebar layout.
+  //
+  // On very narrow viewports (autoHidden), the Sidebar is rendered in a
+  // wrapper that's positioned fixed off-screen by default. A hamburger
+  // button shown via .erp-mobile-nav-toggle (CSS-only, in global.css)
+  // toggles `mobileNavOpen` to slide it in. The .erp-mobile-nav-scrim
+  // covers the page so a tap outside dismisses the menu.
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout className={`erp-app-layout${autoHidden ? ' is-mobile' : ''}${mobileNavOpen ? ' nav-open' : ''}`}
+            style={{ minHeight: '100dvh' }}>
+      {autoHidden && (
+        <button
+          type="button"
+          className="erp-mobile-nav-toggle"
+          aria-label="Open menu"
+          onClick={() => setMobileNavOpen(o => !o)}
+        >
+          <span /><span /><span />
+        </button>
+      )}
+      {autoHidden && mobileNavOpen && (
+        <div
+          className="erp-mobile-nav-scrim"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
       <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <Content style={{
-          margin:        isFullPage ? 0 : 'clamp(8px, 2vw, 20px)',
-          padding:       isFullPage ? 0 : 'clamp(12px, 2vw, 24px)',
+          margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
+          padding:       isFullPage ? 0 : 'clamp(10px, 2vw, 24px)',
           background:    'transparent',
           overflow:      isFullPage ? 'hidden' : 'auto',
           flex:          1,
           minWidth:      0,
-          // maxHeight pins Content to the viewport so flex children (like
-          // bill lists / party ledger) can't push the body to overflow.
-          height:        isFullPage ? '100vh' : undefined,
-          maxHeight:     isFullPage ? '100vh' : undefined,
-          minHeight:     isFullPage ? 0 : 'calc(100vh - 40px)',
+          // dvh (dynamic viewport height) keeps the layout fitted when
+          // mobile address bars expand/collapse and when Electron's
+          // window menu changes the chrome height. Falls back to vh on
+          // older browsers via the dual declaration in CSS.
+          height:        isFullPage ? '100dvh' : undefined,
+          maxHeight:     isFullPage ? '100dvh' : undefined,
+          minHeight:     isFullPage ? 0 : 'calc(100dvh - 40px)',
         }}>
           <div
             key={location.pathname}
@@ -255,7 +329,7 @@ export default function AppLayout() {
             data-fullpage={isFullPage ? '' : undefined}
             // Explicit height (not 100%) — see the horizontal branch for why:
             // percentage heights collapse inside AntD's flex-basis-0 main column.
-            style={isFullPage ? { height: '100vh', overflow: 'hidden' } : undefined}
+            style={isFullPage ? { height: '100dvh', overflow: 'hidden' } : undefined}
           >
             <Outlet />
           </div>

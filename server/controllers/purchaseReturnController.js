@@ -371,13 +371,19 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: refErr.message });
     }
 
+    // ── Return number race (Fix #17) ───────────────────────────────────
+    // Advisory key 906 = purchase returns. Same rationale as the other
+    // bill-number allocations — row-level FOR UPDATE didn't serialise
+    // concurrent INSERTs so two clients could mint the same return_number.
+    await sequelize.query('SELECT pg_advisory_xact_lock(:key)', {
+      replacements: { key: 906 }, transaction: t,
+    });
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.purchase_return_prefix?.trim() || 'PR';
     const allowNeg = settings?.allow_negative_stock || false;
 
     const lastBill = await PurchaseReturnBill.findOne({
       order: [['purchase_return_id', 'DESC']],
-      lock: t.LOCK.UPDATE,
       transaction: t,
     });
     const lastNum = lastBill ? parseInt((lastBill.return_number.split('-').pop() || '0')) : 0;

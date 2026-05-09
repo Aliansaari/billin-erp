@@ -13,6 +13,7 @@ import { GlobalSearchModal } from './components/GlobalSearch';
 // reach them via useContext.
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
+import ServerSetup, { useNeedsServerSetup } from './pages/ServerSetup';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import CustomerList from './pages/parties/CustomerList';
@@ -101,6 +102,12 @@ import DashboardSettings from './pages/settings/DashboardSettings';
 import DefaultsSettings from './pages/settings/DefaultsSettings';
 import SettingsLayout from './pages/settings/SettingsLayout';
 import EntityFormModalDemo from './pages/dev/EntityFormModalDemo';
+import DeveloperSettings from './pages/settings/DeveloperSettings';
+import CompanyList from './pages/settings/CompanyList';
+import {
+  useShowLedgerIntegrity, useShowImportExport, useShowTallySync,
+  useShowServerSettings, useDeveloperMode,
+} from './hooks/useSystemSettings';
 
 /**
  * Gate a route on the global Multi-warehouse toggle. When the flag is
@@ -113,6 +120,42 @@ function MultiWarehouseRoute({ children }) {
   const enabled = useMultiWarehouseEnabled();
   if (enabled === null) return null;
   if (!enabled) return <Navigate to="/" replace />;
+  return children;
+}
+
+/**
+ * Gate a route on a developer-tier feature flag. Identical pattern to
+ * MultiWarehouseRoute — bouncer redirects to / when the flag is off
+ * AND developer mode isn't unlocked. Use the `flag` prop with one of
+ * the dev_show_* selector hooks. Stops a stale bookmark or copy-pasted
+ * URL from reaching a hidden destructive page.
+ */
+function DevGatedRoute({ flag, children }) {
+  // Evaluate every selector unconditionally (rules of hooks). The `flag`
+  // string picks which one applies. Adding a new gate is a 2-line
+  // change here + a hook in useSystemSettings.
+  const ledger    = useShowLedgerIntegrity();
+  const importExp = useShowImportExport();
+  const tally     = useShowTallySync();
+  const server    = useShowServerSettings();
+  const visible = {
+    ledger_integrity: ledger,
+    import_export:    importExp,
+    tally_sync:       tally,
+    server_settings:  server,
+  }[flag];
+  if (!visible) return <Navigate to="/" replace />;
+  return children;
+}
+
+/**
+ * Gate a route on developer-mode unlock specifically (not a flag).
+ * Used for the Developer Settings page itself — it's reachable only
+ * by users who've entered the developer password.
+ */
+function DevModeOnlyRoute({ children }) {
+  const isDev = useDeveloperMode();
+  if (!isDev) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -265,6 +308,12 @@ function PartyDetailRedirect() {
 export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  // First-launch gate: when running under file:// (Electron prod) and the
+  // user hasn't picked a server URL yet, force the Server Setup screen
+  // ahead of every other route. Browser clients on http(s):// implicitly
+  // know the server URL (it's the same origin) so this returns false and
+  // they go straight to login.
+  const needsServerSetup = useNeedsServerSetup();
 
   const toggleHelp = useCallback((val) => {
     if (typeof val === 'boolean') setShowShortcuts(val);
@@ -281,6 +330,12 @@ export default function App() {
     if (isAuthenticated) refreshFinancialYear();
   }, [isAuthenticated]);
 
+  // Pre-auth, pre-everything: if Electron has no server URL configured
+  // yet, the user picks one before they can even see the login screen.
+  if (needsServerSetup) {
+    return <ServerSetup />;
+  }
+
   return (
     <>
       <ShortcutsOverlay visible={showShortcuts} onClose={() => setShowShortcuts(false)} />
@@ -292,6 +347,12 @@ export default function App() {
           fetch parties unauthed. */}
       {isAuthenticated && <GlobalSearchModal />}
       <Routes>
+        {/* Manual access to Server Setup is dev-gated — once the office
+            is configured, regular staff shouldn't be able to re-point
+            the app at a different host. Cold-boot (no saved URL on
+            file://) still triggers ServerSetup directly via the
+            useNeedsServerSetup gate above this Routes block. */}
+        <Route path="/server-setup" element={<DevGatedRoute flag="server_settings"><ServerSetup allowSkip /></DevGatedRoute>} />
         <Route path="/login" element={<Login />} />
         <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
@@ -432,7 +493,7 @@ export default function App() {
           <Route path="accounts/journal"          element={<RoleRoute perm="accounts.view"><JournalVoucherList /></RoleRoute>} />
           <Route path="accounts/journal/new"      element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
           <Route path="accounts/journal/edit/:id" element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
-          <Route path="accounts/integrity"        element={<RoleRoute perm="accounts.view"><LedgerIntegrity /></RoleRoute>} />
+          <Route path="accounts/integrity"        element={<DevGatedRoute flag="ledger_integrity"><RoleRoute perm="accounts.view"><LedgerIntegrity /></RoleRoute></DevGatedRoute>} />
           <Route path="banks"                      element={<RoleRoute perm="accounts.view"><BankList /></RoleRoute>} />
           {/* /banks/reconciliation and /banks/cheques must both come
               before /banks/:ledger_id/statement — otherwise React Router
@@ -462,9 +523,9 @@ export default function App() {
             <Route path="backup"              element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
             {/* Theme is per-user UX — anyone can pick light/dark. */}
             <Route path="theme"               element={<ThemeSettings />} />
-            <Route path="import-export"       element={<RoleRoute perm="settings.import_export"><ImportExport /></RoleRoute>} />
-            <Route path="import"              element={<RoleRoute perm="settings.import_export"><ImportV2 /></RoleRoute>} />
-            <Route path="tally"               element={<RoleRoute perm="settings.tally"><TallySync /></RoleRoute>} />
+            <Route path="import-export"       element={<DevGatedRoute flag="import_export"><RoleRoute perm="settings.import_export"><ImportExport /></RoleRoute></DevGatedRoute>} />
+            <Route path="import"              element={<DevGatedRoute flag="import_export"><RoleRoute perm="settings.import_export"><ImportV2 /></RoleRoute></DevGatedRoute>} />
+            <Route path="tally"               element={<DevGatedRoute flag="tally_sync"><RoleRoute perm="settings.tally"><TallySync /></RoleRoute></DevGatedRoute>} />
             <Route path="print"               element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
             <Route path="godowns"             element={<MultiWarehouseRoute><RoleRoute perm="godowns.view"><GodownList /></RoleRoute></MultiWarehouseRoute>} />
             {/* Home page customization — no perm gate; every operator can
@@ -474,6 +535,15 @@ export default function App() {
                 /dashboard route renders whatever tiles the operator has
                 pinned in their localStorage settings. */}
             <Route path="dashboard"           element={<DashboardSettings />} />
+            {/* Developer Settings — only reachable when developer mode is
+                unlocked on this device. The page itself shows the toggle
+                grid and the LAN-deployment knobs. */}
+            <Route path="developer"           element={<DevModeOnlyRoute><DeveloperSettings /></DevModeOnlyRoute>} />
+            {/* Manage Companies — list / create / archive. Visible to
+                every authenticated user (the sidebar entry is). The
+                CREATE button is implicitly gated by the dev_max_companies
+                cap on the server. */}
+            <Route path="companies"           element={<CompanyList />} />
           </Route>
         </Route>
       </Routes>

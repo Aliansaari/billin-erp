@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesReturnAPI, settingsAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
-import { printDocument, exportBillPDF } from '../../services/printer';
+import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
@@ -225,6 +225,7 @@ export default function SalesReturnList() {
   const handlePrint     = (id) => printDocument({ docType: 'sales_return', id });
   const handleEdit      = (id) => navigate(`/sales-return/edit/${id}`);
   const handleExportPDF = (bill) => exportBillPDF({ docType: 'sales_return', bill });
+  const handleWhatsApp  = (bill) => shareBillViaWhatsApp({ docType: 'sales_return', bill });
 
   // Selection model — cursor + multi-select.
   const sel = useListSelection({ totalCount, rows });
@@ -234,6 +235,12 @@ export default function SalesReturnList() {
   const isMulti        = selectionCount > 1;
   const single         = !isMulti ? activeRow : null;
   const singleCancelled = single?.is_cancelled;
+  // Phone derived from the credit note's customer mobile_1.
+  const singlePhone = (() => {
+    if (!single || single.customer?.is_system_cash) return null;
+    const m = single.customer?.mobile_1;
+    return m && !/^TLY/i.test(m) ? m : null;
+  })();
 
   // Bulk-cancel — confirm once, run cancellations serially, summarize at
   // the end. Preserves the existing single-cancel error semantics for
@@ -611,6 +618,12 @@ export default function SalesReturnList() {
             id: 'export', key: 'F10', label: 'Export PDF',
             disabled: isMulti || !single,
             onAction: () => single && handleExportPDF(single),
+          },
+          {
+            id: 'whatsapp', key: 'F11', label: 'WhatsApp',
+            disabled: isMulti || !single || singleCancelled || !singlePhone,
+            onAction: () => single && handleWhatsApp(single),
+            title: 'Share this credit note PDF with the customer',
           },
           {
             id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',

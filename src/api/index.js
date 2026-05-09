@@ -1,7 +1,118 @@
 import axios from 'axios';
 
+/* ── API base URL resolution ────────────────────────────────────────────
+ *
+ * The renderer can run in four environments. Each needs a different base.
+ *
+ *   1. Vite dev server (npm run dev)
+ *      Page is at http://localhost:5173. Vite proxies /api → :3001, so
+ *      a relative `/api` works.
+ *
+ *   2. Electron production (loadFile dist/index.html)
+ *      Page is at file://. Relative URLs resolve to file:///api/* which
+ *      doesn't go anywhere. We need an absolute http://host:port URL.
+ *      Where it points depends on whether this PC is the LAN server or
+ *      a LAN client — the user picks during first-run Server Setup.
+ *      The chosen URL is persisted in localStorage under SERVER_URL_KEY.
+ *
+ *   3. Browser hitting http://<host-ip>:3001 directly (Wi-Fi-only client)
+ *      Same origin as the API, so a relative `/api` works.
+ *
+ *   4. Browser hitting http://<host-ip>:5173 in dev
+ *      Vite proxy carries /api back to :3001 — same as case 1.
+ *
+ * Resolution order (higher wins):
+ *   a. import.meta.env.VITE_API_URL          — build-time override
+ *   b. window.__BILLING_ERP_API_URL__         — runtime injection by Electron
+ *      preload (for future use; preload doesn't set this today)
+ *   c. localStorage.getItem('billing_erp_server_url') — Server Setup choice
+ *   d. file:// protocol  → http://localhost:3001 (single-machine fallback)
+ *   e. anything else     → relative '/api' (proxy / same-origin)
+ */
+
+export const SERVER_URL_KEY = 'billing_erp_server_url';
+
+function resolveApiBaseUrl() {
+  // (a) build-time
+  try {
+    if (import.meta && import.meta.env && import.meta.env.VITE_API_URL) {
+      return String(import.meta.env.VITE_API_URL).replace(/\/+$/, '') + '/api';
+    }
+  } catch { /* import.meta.env not available in some contexts */ }
+
+  // (b) runtime injection (preload bridge)
+  if (typeof window !== 'undefined' && window.__BILLING_ERP_API_URL__) {
+    return String(window.__BILLING_ERP_API_URL__).replace(/\/+$/, '') + '/api';
+  }
+
+  // (c) user-selected during Server Setup. Persisted across reloads.
+  try {
+    const stored = typeof localStorage !== 'undefined' && localStorage.getItem(SERVER_URL_KEY);
+    if (stored) return String(stored).replace(/\/+$/, '') + '/api';
+  } catch { /* private mode etc. */ }
+
+  // (d) Electron prod (file://) with no Server Setup choice yet → assume
+  // this PC is also the server and try localhost. The Setup screen will
+  // overwrite SERVER_URL_KEY once the user confirms.
+  if (typeof window !== 'undefined' && window.location && window.location.protocol === 'file:') {
+    return 'http://localhost:3001/api';
+  }
+
+  // (e) http(s):// — same-origin / Vite-proxied
+  return '/api';
+}
+
+/**
+ * Update the saved server URL and reload so all open API consumers pick
+ * up the new base. Called from the Server Setup screen.
+ *
+ * url = bare origin like "http://192.168.1.50:3001" — no trailing /api,
+ * no trailing slash. Pass empty/null to clear and fall back to defaults.
+ */
+export function setServerUrl(url) {
+  try {
+    if (url) localStorage.setItem(SERVER_URL_KEY, String(url).replace(/\/+$/, ''));
+    else     localStorage.removeItem(SERVER_URL_KEY);
+  } catch { /* swallow private-mode errors */ }
+}
+
+/** Read back what the user picked, without the /api suffix. */
+export function getServerUrl() {
+  try { return localStorage.getItem(SERVER_URL_KEY) || ''; }
+  catch { return ''; }
+}
+
+/**
+ * Probe a candidate server URL by hitting /api/health. Returns the
+ * server-info response on success, throws on failure. Used by the
+ * Server Setup screen so the user gets a clear pass/fail signal
+ * before committing the URL to localStorage.
+ */
+export async function probeServer(baseUrl, { timeout = 4000 } = {}) {
+  if (!baseUrl) throw new Error('Server URL is required');
+  const cleaned = String(baseUrl).replace(/\/+$/, '');
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    const r = await fetch(`${cleaned}/api/health`, { signal: ctrl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const health = await r.json();
+    if (!health.db) throw new Error('Server reachable but database is offline');
+    // Pull the descriptive info too — used to show hostname / version
+    // back in the Setup screen so the user knows they hit the right box.
+    let info = null;
+    try {
+      const ir = await fetch(`${cleaned}/api/server-info`, { signal: ctrl.signal });
+      if (ir.ok) info = await ir.json();
+    } catch { /* server-info is best-effort */ }
+    return { health, info };
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: resolveApiBaseUrl(),
   timeout: 30000,
 });
 
@@ -32,7 +143,15 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem('must_change_password');
-      window.location.href = '/login';
+      // Don't redirect if we're already on /login — otherwise a
+      // login-page API probe (e.g. companies/list-public on some
+      // setups) that 401s would force a hard reload, the new mount
+      // would 401 again, and we'd be stuck in a redirect loop that
+      // shows as a blank/blinking screen. Single-shot redirect from
+      // anywhere else.
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
       return Promise.reject(error);
     }
     if (status === 403) {
@@ -55,6 +174,10 @@ export const authAPI = {
   getProfile: () => api.get('/auth/profile'),
   changePassword: (data) => api.post('/auth/change-password', data),
   verifyPassword: (password) => api.post('/auth/verify-password', { password }),
+  // Developer-mode unlock — verifies the env-tunable DEVELOPER_PASSWORD.
+  // Returns { ok: true, using_default_password: bool } on success.
+  // 401 on wrong password; 429 if rate-limited (5+ failures in 15 min).
+  verifyDeveloperPassword: (password) => api.post('/auth/dev-verify', { password }),
 };
 
 // Parties
@@ -530,6 +653,25 @@ export const batchAPI = {
 // summary() returns by-head, by-month, by-party rollups for the
 // Expense Report page. cancel() is the soft-delete (posts a reversing
 // entry); update() is reverse + repost.
+// ── Multi-company directory ─────────────────────────────────────────
+//
+// listPublic() is fired by the login screen BEFORE any token exists,
+// so the picker can show available companies. It returns minimal
+// metadata (id, name, logo, accent) — no GSTIN/address.
+// All other endpoints require auth.
+export const companyAPI = {
+  // Public — used pre-login to populate the picker.
+  listPublic: () => api.get('/companies/list-public'),
+  // Authenticated — full metadata for the topbar + Manage page.
+  list:    (params = {}) => api.get('/companies', { params }),
+  create:  (data) => api.post('/companies', data),
+  update:  (id, data) => api.patch(`/companies/${id}`, data),
+  archive: (id) => api.delete(`/companies/${id}`),
+  // Master cap — Developer Settings reads/writes via these.
+  getMaxCap: () => api.get('/companies/settings/max-cap'),
+  setMaxCap: (n) => api.put('/companies/settings/max-cap', { dev_max_companies: n }),
+};
+
 export const expenseAPI = {
   list:       (params = {}) => api.get('/expenses', { params }),
   getById:    (id)          => api.get(`/expenses/${id}`),

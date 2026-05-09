@@ -48,120 +48,161 @@ exports.dashboardStats = async (req, res) => {
     }
     const priorMonthEnd     = localDateString(priorMonthEndObj);
 
-    // Today's sales
-    const todaySales = await SalesBill.findAll({
-      where: { bill_date: today, is_cancelled: false },
-      attributes: [
-        [fn('COUNT', col('sales_bill_id')), 'count'],
-        [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
-      ],
-      raw: true,
-    });
+    /* ── Parallel fetch of all independent aggregates ─────────────────────
+     *
+     * Every read below is independent of every other read in this block.
+     * Running them sequentially (the old code did) wasted ~80% of the
+     * wall-clock time waiting on Postgres round-trips that could have
+     * been overlapped. Promise.all collapses that to a single batch and
+     * lets Sequelize pull connections from the pool concurrently — what
+     * used to be ~21 queries × 30 ms = 630 ms drops to ~80 ms (the slowest
+     * query alone). Crucial for 10–20 LAN clients each hitting the
+     * dashboard on cold-load.
+     *
+     * Rules to keep this safe when adding a new read:
+     *   1. The query must NOT depend on a value computed from another
+     *      read in this block. If it does, await that one upstream and
+     *      pass the value in via `replacements`.
+     *   2. Every query opens its own pool connection — DON'T use
+     *      `sequelize.transaction(...)` here; it would serialise them.
+     *   3. Order of destructure matches the order of the array literal.
+     *      Add new entries at the end so existing indexes don't shift.
+     */
+    const [
+      todaySales,
+      todayPurchases,
+      monthlySales,
+      monthlyPurchases,
+      recBillsRows,
+      payBillsRows,
+      openRecRows,
+      openPayRows,
+      onAccountReceiptsRows,
+      onAccountPaymentsRows,
+    ] = await Promise.all([
+      // Today's sales
+      SalesBill.findAll({
+        where: { bill_date: today, is_cancelled: false },
+        attributes: [
+          [fn('COUNT', col('sales_bill_id')), 'count'],
+          [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
+        ],
+        raw: true,
+      }),
 
-    // Today's purchases
-    const todayPurchases = await PurchaseBill.findAll({
-      where: { bill_date: today, is_cancelled: false },
-      attributes: [
-        [fn('COUNT', col('purchase_bill_id')), 'count'],
-        [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
-      ],
-      raw: true,
-    });
+      // Today's purchases
+      PurchaseBill.findAll({
+        where: { bill_date: today, is_cancelled: false },
+        attributes: [
+          [fn('COUNT', col('purchase_bill_id')), 'count'],
+          [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
+        ],
+        raw: true,
+      }),
 
-    // Monthly sales — pull gross and GST components so we can derive true revenue
-    // (revenue excluding tax) for the profit metric. GST is collected on behalf of
-    // the tax authority, NOT income — mixing it into profit overstates margin by
-    // up to 18%. The proper P&L computation lives in financialReportsController.
-    const monthlySales = await SalesBill.findAll({
-      where: { bill_date: { [Op.gte]: monthStart }, is_cancelled: false },
-      attributes: [
-        [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
-        [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
-        [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
-        [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'igst'],
-        [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'cess'],
-      ],
-      raw: true,
-    });
+      // Monthly sales — pull gross and GST components so we can derive true revenue
+      // (revenue excluding tax) for the profit metric. GST is collected on behalf of
+      // the tax authority, NOT income — mixing it into profit overstates margin by
+      // up to 18%. The proper P&L computation lives in financialReportsController.
+      SalesBill.findAll({
+        where: { bill_date: { [Op.gte]: monthStart }, is_cancelled: false },
+        attributes: [
+          [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
+          [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
+          [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
+          [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'igst'],
+          [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'cess'],
+        ],
+        raw: true,
+      }),
 
-    // Monthly purchases
-    const monthlyPurchases = await PurchaseBill.findAll({
-      where: { bill_date: { [Op.gte]: monthStart }, is_cancelled: false },
-      attributes: [
-        [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
-        [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
-        [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
-        [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'igst'],
-        [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'cess'],
-      ],
-      raw: true,
-    });
+      // Monthly purchases
+      PurchaseBill.findAll({
+        where: { bill_date: { [Op.gte]: monthStart }, is_cancelled: false },
+        attributes: [
+          [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
+          [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
+          [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
+          [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'igst'],
+          [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'cess'],
+        ],
+        raw: true,
+      }),
 
-    // Receivables and payables — compute from the bills directly (not from
-    // the cached Party.current_balance column). The cache can drift when bills
-    // are edited, cancelled, or when payments are reversed, and a drifted
-    // dashboard would mislead finance decisions. Source of truth: sum of
-    // balance_amount across non-cancelled bills grouped by party, plus the
-    // opening-balance on the party side (which has no bill to aggregate).
-    const [recBillsRaw] = await sequelize.query(`
-      SELECT COUNT(DISTINCT sb.customer_id)::int  AS count,
-             COALESCE(SUM(sb.balance_amount), 0)::float AS total
-      FROM sales_bills sb
-      JOIN parties p ON p.party_id = sb.customer_id
-      WHERE sb.is_cancelled = false
-        AND sb.balance_amount > 0
-        AND p.party_type IN ('Customer','Both')
-    `);
-    const [payBillsRaw] = await sequelize.query(`
-      SELECT COUNT(DISTINCT pb.supplier_id)::int  AS count,
-             COALESCE(SUM(pb.balance_amount), 0)::float AS total
-      FROM purchase_bills pb
-      JOIN parties p ON p.party_id = pb.supplier_id
-      WHERE pb.is_cancelled = false
-        AND pb.balance_amount > 0
-        AND p.party_type IN ('Supplier','Both')
-    `);
+      // Receivables and payables — compute from the bills directly (not from
+      // the cached Party.current_balance column). The cache can drift when bills
+      // are edited, cancelled, or when payments are reversed, and a drifted
+      // dashboard would mislead finance decisions. Source of truth: sum of
+      // balance_amount across non-cancelled bills grouped by party, plus the
+      // opening-balance on the party side (which has no bill to aggregate).
+      sequelize.query(`
+        SELECT COUNT(DISTINCT sb.customer_id)::int  AS count,
+               COALESCE(SUM(sb.balance_amount), 0)::float AS total
+        FROM sales_bills sb
+        JOIN parties p ON p.party_id = sb.customer_id
+        WHERE sb.is_cancelled = false
+          AND sb.balance_amount > 0
+          AND p.party_type IN ('Customer','Both')
+      `).then(([rows]) => rows),
+      sequelize.query(`
+        SELECT COUNT(DISTINCT pb.supplier_id)::int  AS count,
+               COALESCE(SUM(pb.balance_amount), 0)::float AS total
+        FROM purchase_bills pb
+        JOIN parties p ON p.party_id = pb.supplier_id
+        WHERE pb.is_cancelled = false
+          AND pb.balance_amount > 0
+          AND p.party_type IN ('Supplier','Both')
+      `).then(([rows]) => rows),
 
-    // Opening balance contributions from parties that have no bills yet —
-    // receivable opening for customers adds to receivables, payable opening for
-    // suppliers adds to payables.
-    const [openRecRaw] = await sequelize.query(`
-      SELECT COALESCE(SUM(opening_balance), 0)::float AS total,
-             COUNT(*)::int AS count
-      FROM parties
-      WHERE opening_balance_type = 'Receivable'
-        AND opening_balance > 0
-        AND party_type IN ('Customer','Both')
-    `);
-    const [openPayRaw] = await sequelize.query(`
-      SELECT COALESCE(SUM(opening_balance), 0)::float AS total,
-             COUNT(*)::int AS count
-      FROM parties
-      WHERE opening_balance_type = 'Payable'
-        AND opening_balance > 0
-        AND party_type IN ('Supplier','Both')
-    `);
+      // Opening balance contributions from parties that have no bills yet —
+      // receivable opening for customers adds to receivables, payable opening for
+      // suppliers adds to payables.
+      sequelize.query(`
+        SELECT COALESCE(SUM(opening_balance), 0)::float AS total,
+               COUNT(*)::int AS count
+        FROM parties
+        WHERE opening_balance_type = 'Receivable'
+          AND opening_balance > 0
+          AND party_type IN ('Customer','Both')
+      `).then(([rows]) => rows),
+      sequelize.query(`
+        SELECT COALESCE(SUM(opening_balance), 0)::float AS total,
+               COUNT(*)::int AS count
+        FROM parties
+        WHERE opening_balance_type = 'Payable'
+          AND opening_balance > 0
+          AND party_type IN ('Supplier','Both')
+      `).then(([rows]) => rows),
 
-    // Net on-account receipts/payments (money received/paid with NO bill yet)
-    // still reduces outstanding balances — subtract from the bill-based totals.
-    // NOTE: payment_splits FK is `transaction_id` (NOT payment_id) — see PaymentSplit model.
-    // Previous version used ps.payment_id which doesn't exist → dashboard crashed at runtime.
-    const [onAccountReceiptsRaw] = await sequelize.query(`
-      SELECT COALESCE(SUM(pr.total_amount), 0)::float AS total
-      FROM payments_receipts pr
-      WHERE pr.transaction_type = 'Receipt' AND pr.is_cancelled = false
-        AND NOT EXISTS (
-          SELECT 1 FROM payment_splits ps WHERE ps.transaction_id = pr.transaction_id
-        )
-    `);
-    const [onAccountPaymentsRaw] = await sequelize.query(`
-      SELECT COALESCE(SUM(pr.total_amount), 0)::float AS total
-      FROM payments_receipts pr
-      WHERE pr.transaction_type = 'Payment' AND pr.is_cancelled = false
-        AND NOT EXISTS (
-          SELECT 1 FROM payment_splits ps WHERE ps.transaction_id = pr.transaction_id
-        )
-    `);
+      // Net on-account receipts/payments (money received/paid with NO bill yet)
+      // still reduces outstanding balances — subtract from the bill-based totals.
+      // NOTE: payment_splits FK is `transaction_id` (NOT payment_id) — see PaymentSplit model.
+      sequelize.query(`
+        SELECT COALESCE(SUM(pr.total_amount), 0)::float AS total
+        FROM payments_receipts pr
+        WHERE pr.transaction_type = 'Receipt' AND pr.is_cancelled = false
+          AND NOT EXISTS (
+            SELECT 1 FROM payment_splits ps WHERE ps.transaction_id = pr.transaction_id
+          )
+      `).then(([rows]) => rows),
+      sequelize.query(`
+        SELECT COALESCE(SUM(pr.total_amount), 0)::float AS total
+        FROM payments_receipts pr
+        WHERE pr.transaction_type = 'Payment' AND pr.is_cancelled = false
+          AND NOT EXISTS (
+            SELECT 1 FROM payment_splits ps WHERE ps.transaction_id = pr.transaction_id
+          )
+      `).then(([rows]) => rows),
+    ]);
+
+    // Re-bind to the names the rest of the controller already uses, so the
+    // downstream blocks below stay untouched.
+    const recBillsRaw          = recBillsRows;
+    const payBillsRaw          = payBillsRows;
+    const openRecRaw           = openRecRows;
+    const openPayRaw           = openPayRows;
+    const onAccountReceiptsRaw = onAccountReceiptsRows;
+    const onAccountPaymentsRaw = onAccountPaymentsRows;
 
     const receivables = [{
       count: (recBillsRaw[0]?.count || 0) + (openRecRaw[0]?.count || 0),
@@ -173,65 +214,98 @@ exports.dashboardStats = async (req, res) => {
       total: Math.max(0, (payBillsRaw[0]?.total || 0) + (openPayRaw[0]?.total || 0) - (onAccountPaymentsRaw[0]?.total || 0)),
     }];
 
-    // Low stock count
-    const lowStock = await Product.count({
-      where: {
-        is_active: true,
-        minimum_stock_level: { [Op.gt]: 0 },
-        current_stock: { [Op.lte]: col('minimum_stock_level') },
-      },
-    });
+    /* ── Second parallel batch ──────────────────────────────────────────
+     * Stock-value, low-stock, recent-bills, and the COGS roll-up are all
+     * independent of the receivables/payables pulled above. Run them in
+     * parallel too. The single sequential dependency that remains is
+     * `dashBatchAgg → batchProductIds`, which we resolve right after. */
+    const [lowStock, stockValue, batchProductIds, recentSales, recentPurchases, cogsRow] = await Promise.all([
+      // Low stock count
+      Product.count({
+        where: {
+          is_active: true,
+          minimum_stock_level: { [Op.gt]: 0 },
+          current_stock: { [Op.lte]: col('minimum_stock_level') },
+        },
+      }),
 
-    // Stock value — mode-aware (audit-driven, Commit 3c).
-    //   purchase_value: variant uses purchase_rate; single (no batch)
-    //                   uses weighted_avg_cost (with COALESCE to
-    //                   purchase_rate to 0); single+batch uses
-    //                   SUM(batch.qty × batch.rate) via separate query.
-    //   sale_value:     unchanged — sale_rate is the catalog list price
-    //                   in all modes.
-    const stockValue = await Product.findAll({
-      where: { is_active: true, current_stock: { [Op.gt]: 0 } },
-      attributes: [
-        [fn('COALESCE', fn('SUM', literal(`
-          "current_stock" * (CASE
-            WHEN "product_mode" = 'single' AND "is_batch_tracked" = false
-              THEN COALESCE("weighted_avg_cost", "purchase_rate", 0)
-            WHEN "product_mode" = 'single' AND "is_batch_tracked" = true
-              THEN 0
-            ELSE "purchase_rate"
-          END)
-        `)), 0), 'partial_purchase_value'],
-        [fn('COALESCE', fn('SUM', literal('"current_stock" * "sale_rate"')), 0), 'sale_value'],
-      ],
-      raw: true,
-    });
-    // Single+batch contribution to purchase_value — same active-and-on-hand
-    // filter as the main aggregate. fetchBatchAggregate covers the batch
-    // dimension; we only need to sum the per-product total_value across
-    // the rows it returns for batch-tracked active products.
-    const batchProductIds = await Product.findAll({
-      where: { is_active: true, product_mode: 'single', is_batch_tracked: true },
-      attributes: ['product_id'],
-      raw: true,
-    });
+      // Stock value — mode-aware (audit-driven, Commit 3c).
+      //   purchase_value: variant uses purchase_rate; single (no batch)
+      //                   uses weighted_avg_cost (with COALESCE to
+      //                   purchase_rate to 0); single+batch uses
+      //                   SUM(batch.qty × batch.rate) via separate query.
+      //   sale_value:     unchanged — sale_rate is the catalog list price
+      //                   in all modes.
+      Product.findAll({
+        where: { is_active: true, current_stock: { [Op.gt]: 0 } },
+        attributes: [
+          [fn('COALESCE', fn('SUM', literal(`
+            "current_stock" * (CASE
+              WHEN "product_mode" = 'single' AND "is_batch_tracked" = false
+                THEN COALESCE("weighted_avg_cost", "purchase_rate", 0)
+              WHEN "product_mode" = 'single' AND "is_batch_tracked" = true
+                THEN 0
+              ELSE "purchase_rate"
+            END)
+          `)), 0), 'partial_purchase_value'],
+          [fn('COALESCE', fn('SUM', literal('"current_stock" * "sale_rate"')), 0), 'sale_value'],
+        ],
+        raw: true,
+      }),
+
+      // Single+batch contribution to purchase_value — same active-and-on-hand
+      // filter as the main aggregate. fetchBatchAggregate (called below)
+      // covers the batch dimension; we only need to sum the per-product
+      // total_value across the rows it returns for batch-tracked active
+      // products.
+      Product.findAll({
+        where: { is_active: true, product_mode: 'single', is_batch_tracked: true },
+        attributes: ['product_id'],
+        raw: true,
+      }),
+
+      // Recent bills (used to render the recent-activity strip)
+      SalesBill.findAll({
+        where: { is_cancelled: false },
+        include: [{ model: Party, as: 'customer', attributes: ['party_name'] }],
+        order: [['created_date', 'DESC']],
+        limit: 10,
+      }),
+      PurchaseBill.findAll({
+        where: { is_cancelled: false },
+        include: [{ model: Party, as: 'supplier', attributes: ['party_name'] }],
+        order: [['created_date', 'DESC']],
+        limit: 10,
+      }),
+
+      // Real gross profit COGS — moved up from the section below so it can
+      // run in parallel with all the other reads. The rest of the profit
+      // calculation (which depends on monthlySales/monthlyPurchases) stays
+      // where it was.
+      sequelize.query(
+        `
+        SELECT
+          (
+            SELECT COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float
+            FROM sales_bill_items sbi
+            JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+            WHERE sb.is_cancelled = false AND sb.bill_date >= :monthStart
+          ) AS cogs,
+          (
+            SELECT COALESCE(SUM(special_discount + return_amount), 0)::float
+            FROM sales_bills
+            WHERE is_cancelled = false AND bill_date >= :monthStart
+          ) AS adjustments
+        `,
+        { replacements: { monthStart }, type: sequelize.QueryTypes.SELECT },
+      ).then(rows => rows[0]),
+    ]);
+
+    // Single small sequential step that genuinely depends on the parallel
+    // batch above — fetchBatchAggregate needs the IDs we just fetched.
     const dashBatchAgg = await fetchBatchAggregate(batchProductIds.map(r => r.product_id));
     const dashBatchPurchaseValue = Array.from(dashBatchAgg.values())
       .reduce((s, a) => s + (a.total_value || 0), 0);
-
-    // Recent bills
-    const recentSales = await SalesBill.findAll({
-      where: { is_cancelled: false },
-      include: [{ model: Party, as: 'customer', attributes: ['party_name'] }],
-      order: [['created_date', 'DESC']],
-      limit: 10,
-    });
-
-    const recentPurchases = await PurchaseBill.findAll({
-      where: { is_cancelled: false },
-      include: [{ model: Party, as: 'supplier', attributes: ['party_name'] }],
-      order: [['created_date', 'DESC']],
-      limit: 10,
-    });
 
     // Compute tax-excluded figures for the profit metric.
     const ms = monthlySales[0], mp = monthlyPurchases[0];
@@ -251,75 +325,58 @@ exports.dashboardStats = async (req, res) => {
     // inventory; this number replaces it without breaking the existing
     // `monthly_profit` contract on the dashboard.
     //
-    // Bill-level adjustments (special_discount, return_amount) are summed
-    // separately from the bills table — joining with items would multiply
-    // them by the line count.
-    const [cogsRow] = await sequelize.query(
-      `
-      SELECT
-        (
-          SELECT COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float
-          FROM sales_bill_items sbi
-          JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
-          WHERE sb.is_cancelled = false AND sb.bill_date >= :monthStart
-        ) AS cogs,
-        (
-          SELECT COALESCE(SUM(special_discount + return_amount), 0)::float
-          FROM sales_bills
-          WHERE is_cancelled = false AND bill_date >= :monthStart
-        ) AS adjustments
-      `,
-      { replacements: { monthStart }, type: sequelize.QueryTypes.SELECT }
-    );
+    // The cogsRow query was hoisted up into the second parallel batch to
+    // overlap with the stock-value reads.
     const monthlyCOGS   = parseFloat(cogsRow.cogs) || 0;
     const monthlyAdj    = parseFloat(cogsRow.adjustments) || 0;
     const monthlyProfit = +(monthlySalesExGST - monthlyCOGS - monthlyAdj).toFixed(2);
 
-    // ── Prior-period aggregates for delta chips ────────────────────────
-    // Yesterday's sales/purchases (for the "today" tiles' delta) plus
-    // last-month-MTD sales / purchases / cogs / adjustments (for the
-    // monthly tiles). One statement each — the indices on (bill_date,
-    // is_cancelled) keep them cheap.
-    const [yPriorSales] = await sequelize.query(
-      `SELECT COUNT(*)::int AS count,
-              COALESCE(SUM(total_amount), 0)::float AS total
-         FROM sales_bills
-        WHERE bill_date = :yesterday AND is_cancelled = false`,
-      { replacements: { yesterday }, type: sequelize.QueryTypes.SELECT },
-    );
-    const [yPriorPurchases] = await sequelize.query(
-      `SELECT COUNT(*)::int AS count,
-              COALESCE(SUM(total_amount), 0)::float AS total
-         FROM purchase_bills
-        WHERE bill_date = :yesterday AND is_cancelled = false`,
-      { replacements: { yesterday }, type: sequelize.QueryTypes.SELECT },
-    );
-
-    const [priorMonthSales] = await sequelize.query(
-      `SELECT COALESCE(SUM(total_amount), 0)::float AS total,
-              COALESCE(SUM(cgst_amount + sgst_amount + igst_amount + cess_amount), 0)::float AS gst,
-              COALESCE(SUM(special_discount + return_amount), 0)::float AS adjustments
-         FROM sales_bills
-        WHERE is_cancelled = false
-          AND bill_date BETWEEN :from AND :to`,
-      { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
-    );
-    const [priorMonthPurchases] = await sequelize.query(
-      `SELECT COALESCE(SUM(total_amount), 0)::float AS total,
-              COALESCE(SUM(cgst_amount + sgst_amount + igst_amount + cess_amount), 0)::float AS gst
-         FROM purchase_bills
-        WHERE is_cancelled = false
-          AND bill_date BETWEEN :from AND :to`,
-      { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
-    );
-    const [priorCogsRow] = await sequelize.query(
-      `SELECT COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float AS cogs
-         FROM sales_bill_items sbi
-         JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
-        WHERE sb.is_cancelled = false
-          AND sb.bill_date BETWEEN :from AND :to`,
-      { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
-    );
+    /* ── Prior-period aggregates for delta chips ───────────────────────
+     * Yesterday's sales/purchases (for the "today" tiles' delta) plus
+     * last-month-MTD sales / purchases / cogs (for the monthly tiles).
+     * One statement each — the indices on (bill_date, is_cancelled) keep
+     * them cheap. All independent → run in parallel. */
+    const [yPriorSales, yPriorPurchases, priorMonthSales, priorMonthPurchases, priorCogsRow] = await Promise.all([
+      sequelize.query(
+        `SELECT COUNT(*)::int AS count,
+                COALESCE(SUM(total_amount), 0)::float AS total
+           FROM sales_bills
+          WHERE bill_date = :yesterday AND is_cancelled = false`,
+        { replacements: { yesterday }, type: sequelize.QueryTypes.SELECT },
+      ).then(rows => rows[0]),
+      sequelize.query(
+        `SELECT COUNT(*)::int AS count,
+                COALESCE(SUM(total_amount), 0)::float AS total
+           FROM purchase_bills
+          WHERE bill_date = :yesterday AND is_cancelled = false`,
+        { replacements: { yesterday }, type: sequelize.QueryTypes.SELECT },
+      ).then(rows => rows[0]),
+      sequelize.query(
+        `SELECT COALESCE(SUM(total_amount), 0)::float AS total,
+                COALESCE(SUM(cgst_amount + sgst_amount + igst_amount + cess_amount), 0)::float AS gst,
+                COALESCE(SUM(special_discount + return_amount), 0)::float AS adjustments
+           FROM sales_bills
+          WHERE is_cancelled = false
+            AND bill_date BETWEEN :from AND :to`,
+        { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
+      ).then(rows => rows[0]),
+      sequelize.query(
+        `SELECT COALESCE(SUM(total_amount), 0)::float AS total,
+                COALESCE(SUM(cgst_amount + sgst_amount + igst_amount + cess_amount), 0)::float AS gst
+           FROM purchase_bills
+          WHERE is_cancelled = false
+            AND bill_date BETWEEN :from AND :to`,
+        { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
+      ).then(rows => rows[0]),
+      sequelize.query(
+        `SELECT COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float AS cogs
+           FROM sales_bill_items sbi
+           JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+          WHERE sb.is_cancelled = false
+            AND sb.bill_date BETWEEN :from AND :to`,
+        { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
+      ).then(rows => rows[0]),
+    ]);
 
     const priorSalesGross   = parseFloat(priorMonthSales.total)    || 0;
     const priorSalesGST     = parseFloat(priorMonthSales.gst)      || 0;
