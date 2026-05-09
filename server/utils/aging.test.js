@@ -162,7 +162,9 @@ test('labels: default bounds produce Tally-standard ranges', () => {
   assert.equal(l.b1, '1–30');
   assert.equal(l.b2, '31–60');
   assert.equal(l.b3, '61–90');
-  assert.equal(l.b4, '90+');
+  // b4 starts at b3 + 1 = 91 (a 90-day-old bill is still in b3 per
+  // bucketFor's <=b3 cutoff). Audit L1.
+  assert.equal(l.b4, '91+');
 });
 
 test('labels: custom bounds generate correct ranges', () => {
@@ -170,7 +172,7 @@ test('labels: custom bounds generate correct ranges', () => {
   assert.equal(l.b1, '1–15');
   assert.equal(l.b2, '16–45');
   assert.equal(l.b3, '46–75');
-  assert.equal(l.b4, '75+');
+  assert.equal(l.b4, '76+');
 });
 
 // ─────────────────────────────────────────────────────────────────────

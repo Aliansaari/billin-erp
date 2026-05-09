@@ -77,12 +77,15 @@ function bucketFor(overdueDays, bounds) {
  */
 function bucketLabels(bounds) {
   const { b1, b2, b3 } = bounds;
+  // Bucket b4 covers > b3 (i.e. b3+1 and above) — label was previously
+  // "${b3}+" which is off-by-one. With b3=90 the label said "90+" but
+  // a 90-day-overdue bill is actually in b3, not b4. (audit L1)
   return {
     current: 'Not Due',
     b1: `1–${b1}`,
     b2: `${b1 + 1}–${b2}`,
     b3: `${b2 + 1}–${b3}`,
-    b4: `${b3}+`,
+    b4: `${b3 + 1}+`,
   };
 }
 
