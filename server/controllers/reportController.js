@@ -2084,7 +2084,13 @@ exports.agingReport = async (req, res) => {
     const partyType = req.query.party_type === 'Supplier' ? 'Supplier' : 'Customer';
     const settings = await SystemSettings.findOne();
     const bounds = _agingBounds(settings);
-    const asOf = localDateString();
+    // Honour the operator's date picker — defaults to today when the
+    // query param is absent / blank. The previous version hard-coded
+    // localDateString() and silently ignored ?as_of=YYYY-MM-DD, making
+    // the picker a no-op (audit C7).
+    const asOf = (req.query.as_of && /^\d{4}-\d{2}-\d{2}$/.test(req.query.as_of))
+      ? req.query.as_of
+      : localDateString();
 
     const bills = await _loadAgingBills(partyType);
     const result = aggregateAging(bills, asOf, bounds);
@@ -2102,7 +2108,10 @@ exports.exportAgingReport = async (req, res) => {
     const partyType = req.query.party_type === 'Supplier' ? 'Supplier' : 'Customer';
     const settings = await SystemSettings.findOne();
     const bounds = _agingBounds(settings);
-    const asOf = localDateString();
+    // Same as_of handling as agingReport above — honour ?as_of=YYYY-MM-DD.
+    const asOf = (req.query.as_of && /^\d{4}-\d{2}-\d{2}$/.test(req.query.as_of))
+      ? req.query.as_of
+      : localDateString();
 
     const bills = await _loadAgingBills(partyType);
     const { rows, grand, bucket_labels } = aggregateAging(bills, asOf, bounds);
