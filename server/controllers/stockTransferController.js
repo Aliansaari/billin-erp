@@ -217,9 +217,10 @@ exports.create = async (req, res) => {
             return res.status(400).json({ error: err });
           }
         } else {
-          // Non-batch: godown-level check.
+          // Non-batch: godown-level check (audit H7 — lock the row).
           const have = await getGodownStock({
             product_id: it.product_id, godown_id: from_godown_id, t,
+            lock: true,
           });
           if (parseFloat(have) < parseFloat(it.quantity)) {
             await t.rollback();
@@ -379,8 +380,10 @@ exports.submit = async (req, res) => {
           return res.status(400).json({ error: err });
         }
       } else {
+        // Audit H7 — lock the PGS row.
         const have = await getGodownStock({
           product_id: it.product_id, godown_id: transfer.from_godown_id, t,
+          lock: true,
         });
         if (parseFloat(have) < parseFloat(it.quantity)) {
           await t.rollback();
@@ -469,7 +472,22 @@ exports.receive = async (req, res) => {
       // held this batch before, then increments). Same batch_id flows
       // through; we never create a new ProductBatch row, just a new
       // ProductBatchStock row at the destination godown.
+      //
+      // Audit M6: validate that the batch still belongs to this
+      // product before crediting. submit() already validates this on
+      // the source side via validateTransferBatchLine; if an admin
+      // reassigned the batch (or merged) between submit and receive,
+      // this guard prevents the In-leg from crediting the wrong
+      // product's batch row.
       if (batchTrackingOn && it.batch_id) {
+        const batch = await ProductBatch.findByPk(it.batch_id, { transaction: t });
+        if (!batch || batch.product_id !== it.product_id) {
+          await t.rollback();
+          return res.status(400).json({
+            error: `Batch #${it.batch_id} no longer belongs to product #${it.product_id}. ` +
+                   'Cancel and re-create the transfer.',
+          });
+        }
         await applyBatchStockDelta({
           product_id: it.product_id, batch_id: it.batch_id,
           godown_id: transfer.to_godown_id,

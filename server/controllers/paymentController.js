@@ -207,30 +207,43 @@ exports.create = async (req, res) => {
       const isInward = data.transaction_type === 'Receipt';
       const chequeDate = ps.cheque_date || data.transaction_date;
       const isPdc = String(chequeDate) > String(data.transaction_date);
-      try {
-        await Cheque.create({
-          direction:               isInward ? 'INWARD' : 'OUTWARD',
-          cheque_number:           ps.cheque_number,
-          cheque_date:             chequeDate,
-          amount:                  ps.amount,
-          party_id:                payment.party_id,
-          bank_ledger_id:          ps.bank_ledger_id,
-          status:                  isInward ? 'DEPOSITED' : 'PENDING',
-          is_pdc:                  isPdc,
-          instrument_date:         data.transaction_date,
-          deposit_date:            isInward ? data.transaction_date : null,
-          source_payment_id:       payment.transaction_id,
-          source_payment_split_id: ps.split_id,
-          created_by:              req.user?.user_id || null,
-        }, { transaction: t });
-      } catch (chErr) {
-        // Don't block the payment save on a cheque-sync failure.  If
-        // the Cheque insert collides on a unique constraint or hits
-        // some other non-fatal issue, log and continue — the payment
-        // is still valid.  A scheduled re-sync (or the boot
-        // backfill) will pick the row up later.
-        console.warn('[Cheque sync] failed to insert Cheque for split', ps.split_id, chErr.message);
-      }
+      // Audit C9: an INWARD PDC must NOT be auto-deposited on the
+      // receipt date — its `cheque_date` is in the future, so the bank
+      // ledger should not rise until the cheque physically clears.
+      // Previously the auto-sync code force-set status=DEPOSITED and
+      // deposit_date=transaction_date for every inward cheque, including
+      // PDCs, which inflated the bank balance days/weeks before the
+      // money could actually move. The cheque-controller's deposit()
+      // endpoint already blocks future-dated deposits (line 532); this
+      // path was bypassing that guard.
+      //
+      // New rule: inward non-PDC → DEPOSITED today (matches existing
+      // behaviour); inward PDC → PENDING with no deposit_date (operator
+      // hits Deposit on or after maturity); outward → PENDING (existing).
+      const inwardImmediate = isInward && !isPdc;
+      // Audit H12: previously this catch swallowed the error inside
+      // the active transaction, which CAN abort the savepoint and
+      // cause every subsequent statement to fail with "current
+      // transaction is aborted". The user saw "saved" but the
+      // cheque register was missing the row. We now ABORT the whole
+      // payment transaction on cheque-sync failure — the operator
+      // re-tries with a corrected cheque number rather than ending
+      // up with a divergent payment-vs-cheque-register state.
+      await Cheque.create({
+        direction:               isInward ? 'INWARD' : 'OUTWARD',
+        cheque_number:           ps.cheque_number,
+        cheque_date:             chequeDate,
+        amount:                  ps.amount,
+        party_id:                payment.party_id,
+        bank_ledger_id:          ps.bank_ledger_id,
+        status:                  inwardImmediate ? 'DEPOSITED' : 'PENDING',
+        is_pdc:                  isPdc,
+        instrument_date:         data.transaction_date,
+        deposit_date:            inwardImmediate ? data.transaction_date : null,
+        source_payment_id:       payment.transaction_id,
+        source_payment_split_id: ps.split_id,
+        created_by:              req.user?.user_id || null,
+      }, { transaction: t });
     }
 
     // ── Per-bill sanity check (user's explicit allocations mustn't exceed that bill's current remaining) ──

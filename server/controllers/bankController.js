@@ -583,25 +583,47 @@ exports.reconciliation = async (req, res) => {
 };
 
 // ── Mark a payment_receipt as cleared / uncleared ───────────────────
+//
+// Audit M3: previously these handlers ran without an explicit
+// transaction. Two concurrent calls — one markCleared, one
+// markUncleared — could race: both load the row, both write back,
+// last-writer wins. Now both endpoints take a transaction and a
+// SELECT … FOR UPDATE on the row so the second call serialises
+// behind the first.
 exports.markCleared = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const txnId = parseInt(req.params.transaction_id, 10);
-    if (!Number.isFinite(txnId)) return res.status(400).json({ error: 'Invalid transaction_id' });
+    if (!Number.isFinite(txnId)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid transaction_id' });
+    }
 
     const clearedAt = req.body?.cleared_at
       ? new Date(req.body.cleared_at)
       : new Date();
     if (Number.isNaN(clearedAt.getTime())) {
+      await t.rollback();
       return res.status(400).json({ error: 'Invalid cleared_at date' });
     }
 
-    const r = await PaymentReceipt.findByPk(txnId);
-    if (!r) return res.status(404).json({ error: 'Receipt/Payment not found' });
-    if (r.is_cancelled) return res.status(400).json({ error: 'Cannot clear a cancelled receipt' });
+    const r = await PaymentReceipt.findByPk(txnId, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!r) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Receipt/Payment not found' });
+    }
+    if (r.is_cancelled) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Cannot clear a cancelled receipt' });
+    }
 
     r.cleared_at = clearedAt;
     r.cleared_by = req.user?.user_id || null;
-    await r.save();
+    await r.save({ transaction: t });
+    await t.commit();
 
     res.json({
       ok: true,
@@ -610,25 +632,38 @@ exports.markCleared = async (req, res) => {
       cleared_by: r.cleared_by,
     });
   } catch (err) {
+    if (!t.finished) await t.rollback().catch(() => {});
     console.error('markCleared error:', err);
     res.status(500).json({ error: 'Server error: ' + err.message });
   }
 };
 
 exports.markUncleared = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const txnId = parseInt(req.params.transaction_id, 10);
-    if (!Number.isFinite(txnId)) return res.status(400).json({ error: 'Invalid transaction_id' });
+    if (!Number.isFinite(txnId)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid transaction_id' });
+    }
 
-    const r = await PaymentReceipt.findByPk(txnId);
-    if (!r) return res.status(404).json({ error: 'Receipt/Payment not found' });
+    const r = await PaymentReceipt.findByPk(txnId, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!r) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Receipt/Payment not found' });
+    }
 
     r.cleared_at = null;
     r.cleared_by = null;
-    await r.save();
+    await r.save({ transaction: t });
+    await t.commit();
 
     res.json({ ok: true, transaction_id: txnId });
   } catch (err) {
+    if (!t.finished) await t.rollback().catch(() => {});
     console.error('markUncleared error:', err);
     res.status(500).json({ error: 'Server error: ' + err.message });
   }

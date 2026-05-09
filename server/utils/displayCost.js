@@ -375,10 +375,13 @@ async function computeCostRateForSale({ product, batch_id = null, t = null }) {
       const batchRate = parseFloat(batch.purchase_rate);
       if (Number.isFinite(batchRate) && batchRate !== 0) return batchRate;
     }
-    // Batch row missing or has NULL/0 rate — fall through to wac /
-    // purchase_rate cascade. Don't warn here: it's a documented
-    // legacy case (batches created before product_batches.purchase_rate
-    // existed; audit 9.7).
+    // Batch row missing or has NULL/0 rate — fall through to the
+    // cascade below. For batch-tracked products we now prefer the
+    // master purchase_rate over the wac (audit M7): batch-tracked
+    // products SHOULD have weighted_avg_cost = NULL, but legacy
+    // products that toggled FROM single-mode INTO batch carry over
+    // a stale wac from their non-batched days. Using that wac for a
+    // brand-new batch with NULL purchase_rate inflates COGS.
   } else {
     // Defensive path: batch-tracked product with no batch on the line.
     // Indicates a sale that bypassed the batch picker. Log loudly so
@@ -386,6 +389,16 @@ async function computeCostRateForSale({ product, batch_id = null, t = null }) {
     console.warn(`[computeCostRateForSale] Batch-tracked product ${product.product_id || '(unknown)'} sold without batch_id; falling back to weighted_avg_cost`);
   }
 
+  // Cascade order:
+  //   · For batched products: master purchase_rate first (M7), then
+  //     wac as a last resort.
+  //   · For non-batched products: wac first (the existing single-mode
+  //     convention), then purchase_rate.
+  if (isBatch) {
+    if (Number.isFinite(purchaseRate) && purchaseRate !== 0) return purchaseRate;
+    if (Number.isFinite(wac) && wac !== 0) return wac;
+    return 0;
+  }
   if (Number.isFinite(wac) && wac !== 0) return wac;
   if (Number.isFinite(purchaseRate)) return purchaseRate;
   return 0;

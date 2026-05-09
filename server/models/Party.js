@@ -238,54 +238,74 @@ Party.addHook('afterCreate', async (party, options) => {
   );
   party.ledger_account_id = ledger.ledger_id;
 
-  // Opening balance JV — only if non-zero
-  const opening = Number(party.opening_balance) || 0;
-  if (opening > 0.005) {
-    const obe = await LedgerAccount.findOne({
-      where: { ledger_name: 'Opening Balance Equity' },
-      transaction: t,
-    });
-    if (!obe) {
-      throw new Error('afterCreate: Opening Balance Equity ledger missing — seed not run?');
-    }
-
-    // Date = FY start - 1 day (so opening appears strictly before the
-    // first regular transaction). Fall back to today - 1 if settings absent.
-    const settings = await SystemSettings.findOne({ where: { setting_id: 1 }, transaction: t });
-    let openingDate = new Date();
-    if (settings && settings.financial_year_start) {
-      const fy = new Date(settings.financial_year_start);
-      fy.setDate(fy.getDate() - 1);
-      openingDate = fy;
-    } else {
-      openingDate.setDate(openingDate.getDate() - 1);
-    }
-
-    // Receivable → party-ledger Dr, OBE Cr
-    // Payable    → OBE Dr, party-ledger Cr
-    const isReceivable = (party.opening_balance_type || 'Receivable') === 'Receivable';
-    const lines = isReceivable
-      ? [
-          { ledgerAccountId: ledger.ledger_id, debit:  opening, credit: 0, partyId: party.party_id },
-          { ledgerAccountId: obe.ledger_id,    debit:  0,       credit: opening },
-        ]
-      : [
-          { ledgerAccountId: obe.ledger_id,    debit:  opening, credit: 0 },
-          { ledgerAccountId: ledger.ledger_id, debit:  0,       credit: opening, partyId: party.party_id },
-        ];
-
-    await postVoucher({
-      voucherType: 'Journal',
-      sourceType: 'party_opening',
-      sourceId: party.party_id,
-      voucherDate: openingDate,
-      referenceNumber: `OB-${party.party_id}`,
-      narration: `Opening balance for ${party.party_name}`,
-      lines,
-      userId: party.created_by || null,
-      transaction: t,
-    });
-  }
+  await postPartyOpeningJV(party, ledger.ledger_id, t);
 });
+
+/**
+ * Post the party_opening JV using the party's current opening_balance
+ * + opening_balance_type. Called from afterCreate AND from
+ * partyController.update when those fields change (audit H2).
+ *
+ * Caller is responsible for FIRST reversing any existing party_opening
+ * voucher when this is being called as part of an edit.
+ *
+ * Skips silently when opening is effectively zero — no voucher needed.
+ */
+async function postPartyOpeningJV(party, ledgerId, transaction) {
+  /* eslint-disable global-require */
+  const { LedgerAccount, SystemSettings } = require('./index');
+  const { postVoucher } = require('../services/ledgerPostingService');
+  /* eslint-enable global-require */
+
+  const opening = Number(party.opening_balance) || 0;
+  if (opening <= 0.005) return;
+
+  const obe = await LedgerAccount.findOne({
+    where: { ledger_name: 'Opening Balance Equity' },
+    transaction,
+  });
+  if (!obe) {
+    throw new Error('postPartyOpeningJV: Opening Balance Equity ledger missing — seed not run?');
+  }
+
+  // Date = FY start - 1 day (so opening appears strictly before the
+  // first regular transaction). Fall back to today - 1 if settings absent.
+  const settings = await SystemSettings.findOne({ where: { setting_id: 1 }, transaction });
+  let openingDate = new Date();
+  if (settings && settings.financial_year_start) {
+    const fy = new Date(settings.financial_year_start);
+    fy.setDate(fy.getDate() - 1);
+    openingDate = fy;
+  } else {
+    openingDate.setDate(openingDate.getDate() - 1);
+  }
+
+  // Receivable → party-ledger Dr, OBE Cr
+  // Payable    → OBE Dr, party-ledger Cr
+  const isReceivable = (party.opening_balance_type || 'Receivable') === 'Receivable';
+  const lines = isReceivable
+    ? [
+        { ledgerAccountId: ledgerId,      debit:  opening, credit: 0, partyId: party.party_id },
+        { ledgerAccountId: obe.ledger_id, debit:  0,       credit: opening },
+      ]
+    : [
+        { ledgerAccountId: obe.ledger_id, debit:  opening, credit: 0 },
+        { ledgerAccountId: ledgerId,      debit:  0,       credit: opening, partyId: party.party_id },
+      ];
+
+  await postVoucher({
+    voucherType: 'Journal',
+    sourceType: 'party_opening',
+    sourceId: party.party_id,
+    voucherDate: openingDate,
+    referenceNumber: `OB-${party.party_id}`,
+    narration: `Opening balance for ${party.party_name}`,
+    lines,
+    userId: party.created_by || null,
+    transaction,
+  });
+}
+
+Party.postPartyOpeningJV = postPartyOpeningJV;
 
 module.exports = Party;

@@ -7,6 +7,8 @@ const {
 } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { resolveInterState } = require('../utils/interStateResolver');
+const { applyColorStockDelta } = require('../services/productColorStockService');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPurchaseReturnVouchers } = require('../services/voucherBuilders');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
@@ -218,7 +220,11 @@ exports.getReferenceBill = async (req, res) => {
   }
 };
 
-async function computeTotals(req, items, billData) {
+// `interState` decides CGST+SGST vs IGST routing for per-line GST. Mirrors
+// the sales-return convention. (Audit H1: returns must classify identically
+// to the original purchase or GSTR-1's Debit Note section reports the wrong
+// place-of-supply head.)
+async function computeTotals(req, items, billData, interState = false) {
   const { cgst_pct = 0, sgst_pct = 0, igst_pct = 0, gst_mode } = req.body;
   const billWise = gst_mode === 'bill'
     ? true
@@ -281,7 +287,9 @@ async function computeTotals(req, items, billData) {
   for (const it of processedItems) {
     const lineBase = +(it._postItemTaxable * (1 - billDiscRatio)).toFixed(2);
     it.taxable_amount = lineBase;
-    const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(lineBase, it.gst_rate || 0);
+    const gst = billWise
+      ? { cgst: 0, sgst: 0, igst: 0, cess: 0 }
+      : calculateGST(lineBase, it.gst_rate || 0, !!interState);
     it.cgst_amount = gst.cgst;
     it.sgst_amount = gst.sgst;
     it.igst_amount = gst.igst;
@@ -429,6 +437,7 @@ exports.create = async (req, res) => {
         const product = await Product.findByPk(pid, { transaction: t });
         const haveAtGodown = await getGodownStock({
           product_id: pid, godown_id: billData.godown_id, t,
+          lock: true,  // audit H7
         });
         const finalStock = +(haveAtGodown - qty).toFixed(2);
         if (finalStock < 0) {
@@ -440,9 +449,14 @@ exports.create = async (req, res) => {
       }
     }
 
+    // Resolve inter-state from the supplier's place-of-supply (audit H1).
+    const interState = await resolveInterState({
+      partyId: billData.supplier_id, transaction: t,
+    });
+
     let totals;
     try {
-      totals = await computeTotals(req, effectiveItems, billData);
+      totals = await computeTotals(req, effectiveItems, billData, interState);
     } catch (mathErr) {
       await t.rollback();
       return res.status(400).json({ error: mathErr.message });
@@ -523,6 +537,17 @@ exports.create = async (req, res) => {
             product_id: item.product_id, batch_id: item.batch_id,
             godown_id: billData.godown_id,
             delta: -parseFloat(item.quantity), t,
+          });
+        }
+        // Audit C5: a purchase return SHIPS goods back to the supplier,
+        // so per-color stock decrements for the picked color. Without
+        // this, parent stock falls but per-color stock is left high,
+        // breaking the sum-of-colors = parent invariant.
+        if (item.color_id && product.color_mode === 'multi') {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: -parseFloat(item.quantity),
+            transaction: t,
           });
         }
 
@@ -670,6 +695,16 @@ exports.update = async (req, res) => {
               delta: +parseFloat(oldItem.quantity), t,
             });
           }
+          // Audit C5: reverse the per-color stock decrement that the
+          // original return create posted. The new items' colors are
+          // re-applied below.
+          if (oldItem.color_id) {
+            await applyColorStockDelta({
+              color_id: oldItem.color_id,
+              delta: +parseFloat(oldItem.quantity),
+              transaction: t,
+            });
+          }
         }
       }
     }
@@ -699,6 +734,7 @@ exports.update = async (req, res) => {
         const product = await Product.findByPk(pid, { transaction: t });
         const haveAtGodown = await getGodownStock({
           product_id: pid, godown_id: billData.godown_id, t,
+          lock: true,  // audit H7
         });
         const finalStock = +(haveAtGodown - qty).toFixed(2);
         if (finalStock < 0) {
@@ -710,9 +746,14 @@ exports.update = async (req, res) => {
       }
     }
 
+    // Resolve inter-state from the supplier's place-of-supply (audit H1).
+    const interStateUpd = await resolveInterState({
+      partyId: billData.supplier_id || existing.supplier_id, transaction: t,
+    });
+
     let totals;
     try {
-      totals = await computeTotals(req, effectiveItems, billData);
+      totals = await computeTotals(req, effectiveItems, billData, interStateUpd);
     } catch (mathErr) {
       await t.rollback();
       return res.status(400).json({ error: mathErr.message });
@@ -785,6 +826,15 @@ exports.update = async (req, res) => {
             product_id: item.product_id, batch_id: item.batch_id,
             godown_id: billData.godown_id,
             delta: -parseFloat(item.quantity), t,
+          });
+        }
+        // Audit C5: re-apply per-color stock for the (possibly edited)
+        // return lines. Old items' color stock was reversed above.
+        if (item.color_id && product.color_mode === 'multi') {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: -parseFloat(item.quantity),
+            transaction: t,
           });
         }
         await StockLedger.create({
@@ -874,6 +924,15 @@ exports.cancel = async (req, res) => {
               product_id: item.product_id, batch_id: item.batch_id,
               godown_id: bill.godown_id,
               delta: +parseFloat(item.quantity), t,
+            });
+          }
+          // Audit C5: cancelling a purchase return reverses the per-color
+          // decrement that was posted at create time.
+          if (item.color_id) {
+            await applyColorStockDelta({
+              color_id: item.color_id,
+              delta: +parseFloat(item.quantity),
+              transaction: t,
             });
           }
         }

@@ -3,11 +3,11 @@ const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, SalesBillDraft, SalesReturnBill, SalesReturnBillItem, Party, Product, StockLedger, SystemSettings, Godown } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
-const { stateCodeFromGstin, stateCodeFromName } = require('../utils/gstr1');
+const { resolveInterState } = require('../utils/interStateResolver');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
-const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite, getDefaultGodownId } = require('../utils/godownStock');
 const {
   validateBillColorRequirements,
   applyColorStockDelta,
@@ -83,19 +83,11 @@ async function validateBatchLine({ product, item, godownId, t, blockExpired, isR
  * `isInterState`/`placeOfSupply`) uses on the read side, so what we
  * STORE here is what the report will then SEE.
  */
+// Backwards-compatible thin wrapper. The actual logic lives in
+// utils/interStateResolver so salesReturnController + purchaseReturnController
+// can share it (audit H1).
 async function _resolveInterState(billData, t) {
-  if (!billData.customer_id) return false;
-  const [cust, settings] = await Promise.all([
-    Party.findByPk(billData.customer_id, { transaction: t }),
-    SystemSettings.findByPk(1, { transaction: t }),
-  ]);
-  if (!cust) return false;
-  const companyCode = settings ? stateCodeFromGstin(settings.gstin) : null;
-  if (!companyCode) return false;
-  // Customer place-of-supply: GSTIN prefix wins, fall back to state name.
-  const custCode = stateCodeFromGstin(cust.gstin) || stateCodeFromName(cust.state);
-  if (!custCode) return false;
-  return custCode !== companyCode;
+  return resolveInterState({ partyId: billData.customer_id, transaction: t });
 }
 
 exports.getAll = async (req, res) => {
@@ -651,6 +643,29 @@ exports.create = async (req, res) => {
       await t.rollback();
       return res.status(400).json({ error: `Return amount (₹${rawReturn.toFixed(2)}) cannot exceed bill total (₹${totalAmount.toFixed(2)})` });
     }
+    // Audit M1: deprecate the walk-in `return_amount` field for credit
+    // sales. It reduces bill.balance_amount + parties.current_balance
+    // but never posts a corresponding ledger voucher, so Sundry Debtors
+    // ledger and the aging banner drift from the bill table by exactly
+    // the return amount. Operators should use the inline-return flow
+    // (which posts a credit-note voucher cleanly). For a real-customer
+    // credit sale we now reject the legacy field so silent drift can't
+    // accumulate. Cash-counter sales (no customer_id, system-cash, or
+    // an inline_return payload alongside) still pass through.
+    if (rawReturn > 0.005 && billData.customer_id && !inline_return) {
+      const cust = await Party.findByPk(billData.customer_id, { transaction: t });
+      if (cust && !cust.is_system_cash) {
+        await t.rollback();
+        return res.status(400).json({
+          error:
+            'Walk-in `return_amount` is deprecated for credit sales — it reduces the ' +
+            'bill balance but skips the ledger, causing drift between Sundry Debtors ' +
+            'and the aging banner. Use the inline-return flow on the bill form (which ' +
+            'posts a credit-note voucher), or post the return as a separate Sales Return.',
+          field: 'return_amount',
+        });
+      }
+    }
 
     // Enforce full payment if customer has credit_not_allowed
     let finalPaidAmount = parseFloat(paid_amount);
@@ -805,9 +820,16 @@ exports.create = async (req, res) => {
       // pre-check uses getGodownStock so the per-godown current_stock
       // governs the negative-stock guard — a product that has 5 units
       // total but 0 at this godown can't be sold from this godown.
+      //
+      // Audit H7: pass `lock: true` so the pre-check takes a row-level
+      // FOR UPDATE lock on (product_id, godown_id). Without it, two
+      // concurrent sales of the last unit can both pass the check and
+      // both UPDATE current_stock = current_stock - 1, ending at -1
+      // even with allow_negative_stock=false.
       if (product) {
         const currentStock = await getGodownStock({
           product_id: item.product_id, godown_id: billData.godown_id, t,
+          lock: true,
         });
         const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
 
@@ -1323,8 +1345,10 @@ exports.update = async (req, res) => {
       }, { transaction: t });
 
       if (product) {
+        // Audit H7: lock the PGS row before the pre-check.
         const currentStock = await getGodownStock({
           product_id: item.product_id, godown_id: billData.godown_id, t,
+          lock: true,
         });
         const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
 
@@ -1463,10 +1487,23 @@ exports.cancel = async (req, res) => {
 
     // Reverse the deduction at the bill's own godown (the one the sale
     // shipped from). Cancellation never re-routes stock.
+    //
+    // Audit C6: legacy bills created before the per-godown migration
+    // have `bill.godown_id = NULL`. The previous guard `bill.godown_id`
+    // SKIPPED reversal entirely on those bills — the StockLedger row
+    // got destroyed below but `current_stock` was left at its
+    // post-sale value, breaking conservation. Now we fall back to the
+    // system default godown so the reversal still happens. The bill is
+    // pre-godown but the stock is post-godown; that's fine because the
+    // mirror invariant `current_stock = SUM(PGS)` is maintained.
+    let cancelGodownId = bill.godown_id;
+    if (!cancelGodownId && bill.items.some(i => i.product_id)) {
+      cancelGodownId = await getDefaultGodownId({ t });
+    }
     for (const item of bill.items) {
-      if (item.product_id && bill.godown_id) {
+      if (item.product_id && cancelGodownId) {
         await applyGodownStockDelta({
-          product_id: item.product_id, godown_id: bill.godown_id,
+          product_id: item.product_id, godown_id: cancelGodownId,
           delta: +parseFloat(item.quantity), t,
         });
         // Restore the per-batch on-hand for batched lines. Both the
@@ -1475,7 +1512,7 @@ exports.cancel = async (req, res) => {
         if (item.batch_id) {
           await applyBatchStockDelta({
             product_id: item.product_id, batch_id: item.batch_id,
-            godown_id: bill.godown_id,
+            godown_id: cancelGodownId,
             delta: +parseFloat(item.quantity), t,
           });
         }

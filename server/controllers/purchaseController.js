@@ -7,7 +7,7 @@ const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/ba
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPurchaseBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
-const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
+const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite, getDefaultGodownId } = require('../utils/godownStock');
 const { resolveOrCreateBatch, applyBatchStockDelta } = require('../utils/batchStock');
 const {
   validateBillColorRequirements,
@@ -1001,7 +1001,7 @@ exports.update = async (req, res) => {
         if (delta >= 0) continue;              // net addition → safe
         const product = await Product.findByPk(pid, { transaction: t });
         const haveAtGodown = oldGodown
-          ? await getGodownStock({ product_id: pid, godown_id: oldGodown, t })
+          ? await getGodownStock({ product_id: pid, godown_id: oldGodown, t, lock: true })
           : 0;
         const finalStock = +(haveAtGodown + delta).toFixed(2);
         if (finalStock < 0) {
@@ -1433,7 +1433,7 @@ exports.cancel = async (req, res) => {
       for (const [pid, qty] of revByProduct) {
         const product = await Product.findByPk(pid, { transaction: t });
         const haveAtGodown = billGodown
-          ? await getGodownStock({ product_id: pid, godown_id: billGodown, t })
+          ? await getGodownStock({ product_id: pid, godown_id: billGodown, t, lock: true })
           : 0;
         const finalStock = +(haveAtGodown - qty).toFixed(2);
         if (finalStock < 0) {
@@ -1479,11 +1479,21 @@ exports.cancel = async (req, res) => {
     // disabled. allowGodownStockDelta handles the row-locked update +
     // products.current_stock mirror in one shot.
     const cancelTouchedProductIds = new Set();
+    // Audit C6: legacy bills (pre-godown) have bill.godown_id = NULL.
+    // Without a fallback the loop guard `bill.godown_id` skipped the
+    // entire reversal — current_stock stayed at the post-purchase value
+    // even though the StockLedger row was destroyed below, leaving
+    // conservation broken silently. Resolve to the default godown so
+    // the reversal still happens.
+    let cancelGodownId = bill.godown_id;
+    if (!cancelGodownId && bill.items.some(i => i.product_id)) {
+      cancelGodownId = await getDefaultGodownId({ t });
+    }
     for (const item of bill.items) {
-      if (item.product_id && bill.godown_id) {
+      if (item.product_id && cancelGodownId) {
         cancelTouchedProductIds.add(item.product_id);
         await applyGodownStockDelta({
-          product_id: item.product_id, godown_id: bill.godown_id,
+          product_id: item.product_id, godown_id: cancelGodownId,
           delta: -parseFloat(item.quantity), t,
         });
         // Mirror the reversal at the batch level so product_batch_stock
@@ -1493,7 +1503,7 @@ exports.cancel = async (req, res) => {
         if (item.batch_id) {
           await applyBatchStockDelta({
             product_id: item.product_id, batch_id: item.batch_id,
-            godown_id: bill.godown_id,
+            godown_id: cancelGodownId,
             delta: -parseFloat(item.quantity), t,
           });
         }

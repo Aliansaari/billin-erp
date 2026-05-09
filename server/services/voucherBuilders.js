@@ -31,7 +31,11 @@
 // DB themselves; that's the Posting Service's job.
 // ────────────────────────────────────────────────────────────────────────
 
-const { LedgerAccount, Party } = require('../models');
+const {
+  LedgerAccount, Party,
+  SalesBillItem, PurchaseBillItem,
+  SalesReturnBillItem, PurchaseReturnBillItem,
+} = require('../models');
 
 // Round to 2dp and treat near-zero as zero so we don't post junk lines.
 function r2(n) {
@@ -52,6 +56,44 @@ async function getSystemLedger(name, cache, transaction) {
   }
   cache[name] = row;
   return row;
+}
+
+// Optional system ledger — returns null when missing rather than throwing.
+// Used for Cess Output / Cess Input which are NEW ledgers (audit C1) that
+// older deployments may not have seeded yet. Callers fold cess into the
+// general GST ledger when null is returned.
+async function getOptionalLedger(name, cache, transaction) {
+  if (cache[name]) return cache[name];
+  const row = await LedgerAccount.findOne({
+    where: { ledger_name: name },
+    transaction,
+  });
+  if (row) cache[name] = row;
+  return row || null;
+}
+
+// Sum the per-line `discount_amount` across the items of a bill. The
+// builder needs this so the income / expense leg can be netted at
+// `sub_total - itemDiscountTotal - billDiscount - special_discount` —
+// matching how `total_amount` was computed by the controller. Without
+// this, a bill with ANY per-line discount produces an unbalanced voucher
+// and rolls back. (Audit C1.)
+//
+// Loads items only if `bill.items` wasn't preloaded by the caller (most
+// modern call-sites preload via `include` in salesController/etc.).
+async function sumItemDiscount(bill, ItemModel, billIdField, transaction) {
+  if (Array.isArray(bill.items) && bill.items.length > 0) {
+    return r2(bill.items.reduce((s, it) => s + (Number(it.discount_amount) || 0), 0));
+  }
+  // Fallback: re-load.
+  const billId = bill[billIdField];
+  if (!billId) return 0;
+  const rows = await ItemModel.findAll({
+    where: { [billIdField]: billId },
+    attributes: ['discount_amount'],
+    transaction,
+  });
+  return r2(rows.reduce((s, r) => s + (Number(r.discount_amount) || 0), 0));
 }
 
 async function getPartyLedger(party, transaction) {
@@ -145,20 +187,34 @@ async function buildSalesBillVouchers(bill, opts = {}) {
   const sgstOut = await getSystemLedger('SGST Output',   cache, t);
   const igstOut = await getSystemLedger('IGST Output',   cache, t);
   const roundOf = await getSystemLedger('Round Off',     cache, t);
+  // Cess output is optional — older deployments don't seed it. When
+  // missing, cess folds into IGST Output (a defensible fallback that
+  // preserves Σ Dr = Σ Cr; report consumers can still read cess_amount
+  // off the bill row for GSTR-3B). Audit C1.
+  const cessOut = await getOptionalLedger('Cess Output', cache, t);
 
   const subTotal       = r2(bill.sub_total);
   const discount       = r2(bill.discount_amount);
+  const specialDisc    = r2(bill.special_discount);
   const otherCharges   = r2(bill.other_charges);
   const freight        = r2(bill.freight_charges);
   const cgst           = r2(bill.cgst_amount);
   const sgst           = r2(bill.sgst_amount);
   const igst           = r2(bill.igst_amount);
+  const cess           = r2(bill.cess_amount);
   const roundOff       = r2(bill.round_off);
   const totalAmount    = r2(bill.total_amount);
   const paidAmount     = r2(bill.paid_amount);
 
-  // Net sales credit
-  const salesCredit = r2(subTotal - discount + otherCharges + freight);
+  // Per-line discount sum — controller persists it as
+  // sales_bill_items.discount_amount. Without netting it, the Sales Cr
+  // leg is too high by exactly this amount and the voucher fails to
+  // balance. Audit C1.
+  const itemDiscountTotal = await sumItemDiscount(bill, SalesBillItem, 'sales_bill_id', t);
+
+  // Net sales credit — mirrors the controller's taxable-base formula:
+  //   sub_total - itemDisc - billDisc - special_disc + other + freight
+  const salesCredit = r2(subTotal - itemDiscountTotal - discount - specialDisc + otherCharges + freight);
 
   const lines = [];
 
@@ -179,6 +235,12 @@ async function buildSalesBillVouchers(bill, opts = {}) {
   if (cgst > 0)        lines.push({ ledgerAccountId: cgstOut.ledger_id, debit: 0, credit: cgst });
   if (sgst > 0)        lines.push({ ledgerAccountId: sgstOut.ledger_id, debit: 0, credit: sgst });
   if (igst > 0)        lines.push({ ledgerAccountId: igstOut.ledger_id, debit: 0, credit: igst });
+  if (cess > 0) {
+    // Cess Output if seeded; otherwise fold into IGST Output as a
+    // defensible fallback (still Σ Dr = Σ Cr, just less granular).
+    const cessLedger = cessOut || igstOut;
+    lines.push({ ledgerAccountId: cessLedger.ledger_id, debit: 0, credit: cess });
+  }
 
   if (roundOff > 0) {
     lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: roundOff });
@@ -243,25 +305,36 @@ async function buildPurchaseBillVouchers(bill, opts = {}) {
   const sgstIn   = await getSystemLedger('SGST Input',       cache, t);
   const igstIn   = await getSystemLedger('IGST Input',       cache, t);
   const roundOf  = await getSystemLedger('Round Off',        cache, t);
+  const cessIn   = await getOptionalLedger('Cess Input', cache, t);
 
   const subTotal     = r2(bill.sub_total);
   const discount     = r2(bill.discount_amount);
+  const specialDisc  = r2(bill.special_discount);
   const otherCharges = r2(bill.other_charges);
   const freight      = r2(bill.freight_charges);
   const cgst         = r2(bill.cgst_amount);
   const sgst         = r2(bill.sgst_amount);
   const igst         = r2(bill.igst_amount);
+  const cess         = r2(bill.cess_amount);
   const roundOff     = r2(bill.round_off);
   const totalAmount  = r2(bill.total_amount);
   const paidAmount   = r2(bill.paid_amount);
 
-  const purchaseDebit = r2(subTotal - discount + otherCharges + freight);
+  // Per-line discount sum + special_discount + cess — see audit C1
+  // comment in buildSalesBillVouchers.
+  const itemDiscountTotal = await sumItemDiscount(bill, PurchaseBillItem, 'purchase_bill_id', t);
+
+  const purchaseDebit = r2(subTotal - itemDiscountTotal - discount - specialDisc + otherCharges + freight);
 
   const lines = [];
   if (purchaseDebit > 0) lines.push({ ledgerAccountId: purchase.ledger_id, debit: purchaseDebit, credit: 0 });
   if (cgst > 0)          lines.push({ ledgerAccountId: cgstIn.ledger_id,   debit: cgst, credit: 0 });
   if (sgst > 0)          lines.push({ ledgerAccountId: sgstIn.ledger_id,   debit: sgst, credit: 0 });
   if (igst > 0)          lines.push({ ledgerAccountId: igstIn.ledger_id,   debit: igst, credit: 0 });
+  if (cess > 0) {
+    const cessLedger = cessIn || igstIn;
+    lines.push({ ledgerAccountId: cessLedger.ledger_id, debit: cess, credit: 0 });
+  }
   if (roundOff > 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: roundOff, credit: 0 });
   else if (roundOff < 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: -roundOff });
 
@@ -328,24 +401,35 @@ async function buildSalesReturnVouchers(ret, opts = {}) {
   const sgstOut     = await getSystemLedger('SGST Output',  cache, t);
   const igstOut     = await getSystemLedger('IGST Output',  cache, t);
   const roundOf     = await getSystemLedger('Round Off',    cache, t);
+  const cessOut     = await getOptionalLedger('Cess Output', cache, t);
 
   const subTotal      = r2(ret.sub_total);
   const discount      = r2(ret.discount_amount);
+  const specialDisc   = r2(ret.special_discount);
   const otherCharges  = r2(ret.other_charges);
   const freight       = r2(ret.freight_charges);
   const cgst          = r2(ret.cgst_amount);
   const sgst          = r2(ret.sgst_amount);
   const igst          = r2(ret.igst_amount);
+  const cess          = r2(ret.cess_amount);
   const roundOff      = r2(ret.round_off);
   const totalAmount   = r2(ret.total_amount);
 
-  const returnDebit = r2(subTotal - discount + otherCharges + freight);
+  // Audit C1 — same shape as the forward sale: net out itemDisc +
+  // billDisc + special_disc; emit a separate cess leg.
+  const itemDiscountTotal = await sumItemDiscount(ret, SalesReturnBillItem, 'sales_return_id', t);
+
+  const returnDebit = r2(subTotal - itemDiscountTotal - discount - specialDisc + otherCharges + freight);
 
   const lines = [];
   if (returnDebit > 0) lines.push({ ledgerAccountId: salesReturn.ledger_id, debit: returnDebit, credit: 0 });
   if (cgst > 0)        lines.push({ ledgerAccountId: cgstOut.ledger_id,     debit: cgst, credit: 0 });
   if (sgst > 0)        lines.push({ ledgerAccountId: sgstOut.ledger_id,     debit: sgst, credit: 0 });
   if (igst > 0)        lines.push({ ledgerAccountId: igstOut.ledger_id,     debit: igst, credit: 0 });
+  if (cess > 0) {
+    const cessLedger = cessOut || igstOut;
+    lines.push({ ledgerAccountId: cessLedger.ledger_id, debit: cess, credit: 0 });
+  }
   if (roundOff > 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: roundOff, credit: 0 });
   else if (roundOff < 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: -roundOff });
 
@@ -387,18 +471,23 @@ async function buildPurchaseReturnVouchers(ret, opts = {}) {
   const sgstIn         = await getSystemLedger('SGST Input',      cache, t);
   const igstIn         = await getSystemLedger('IGST Input',      cache, t);
   const roundOf        = await getSystemLedger('Round Off',       cache, t);
+  const cessIn         = await getOptionalLedger('Cess Input', cache, t);
 
   const subTotal     = r2(ret.sub_total);
   const discount     = r2(ret.discount_amount);
+  const specialDisc  = r2(ret.special_discount);
   const otherCharges = r2(ret.other_charges);
   const freight      = r2(ret.freight_charges);
   const cgst         = r2(ret.cgst_amount);
   const sgst         = r2(ret.sgst_amount);
   const igst         = r2(ret.igst_amount);
+  const cess         = r2(ret.cess_amount);
   const roundOff     = r2(ret.round_off);
   const totalAmount  = r2(ret.total_amount);
 
-  const returnCredit = r2(subTotal - discount + otherCharges + freight);
+  const itemDiscountTotal = await sumItemDiscount(ret, PurchaseReturnBillItem, 'purchase_return_id', t);
+
+  const returnCredit = r2(subTotal - itemDiscountTotal - discount - specialDisc + otherCharges + freight);
 
   const lines = [];
   if (!isCashSupplier) {
@@ -415,6 +504,10 @@ async function buildPurchaseReturnVouchers(ret, opts = {}) {
   if (cgst > 0)         lines.push({ ledgerAccountId: cgstIn.ledger_id,         debit: 0, credit: cgst });
   if (sgst > 0)         lines.push({ ledgerAccountId: sgstIn.ledger_id,         debit: 0, credit: sgst });
   if (igst > 0)         lines.push({ ledgerAccountId: igstIn.ledger_id,         debit: 0, credit: igst });
+  if (cess > 0) {
+    const cessLedger = cessIn || igstIn;
+    lines.push({ ledgerAccountId: cessLedger.ledger_id, debit: 0, credit: cess });
+  }
   if (roundOff > 0)      lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: roundOff });
   else if (roundOff < 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: -roundOff, credit: 0 });
 

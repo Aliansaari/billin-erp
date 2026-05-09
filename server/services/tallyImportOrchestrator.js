@@ -39,6 +39,7 @@ const {
   buildSalesBillVouchers, buildPurchaseBillVouchers, buildPaymentReceiptVouchers,
   buildSalesReturnVouchers, buildPurchaseReturnVouchers,
 } = require('./voucherBuilders');
+const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
 
 const REJECTED_DIR = path.join(__dirname, '..', '..', 'uploads', 'rejected');
 fs.mkdirSync(REJECTED_DIR, { recursive: true });
@@ -630,6 +631,15 @@ async function insertVoucherItems({
     // Per-item GST falls back to product master, then to bill-level pct.
     const gstRate = (product && Number(product.gst_rate)) || voucherTaxablePct || 0;
 
+    // total_amount = taxable + GST so the semantics match the live UI
+    // (audit C3). Without this, reports SUM-ing total_amount across
+    // mixed UI + Tally-imported bills under-count GST. Cess unsupported
+    // by Tally XML at this version; defaults to 0. Conservative 50/50
+    // CGST/SGST split for intra-state (Tally schema doesn't expose
+    // inter-state at the line level here).
+    const lineGst = Math.round(taxable * gstRate / 100 * 100) / 100;
+    const halfGst = Math.round(lineGst / 2 * 100) / 100;
+
     const itemData = {
       [idCol]: billId,
       product_id: product ? product.product_id : null,
@@ -640,7 +650,11 @@ async function insertVoucherItems({
       mrp: 0,
       taxable_amount: taxable,
       gst_rate: gstRate,
-      total_amount: taxable,
+      cgst_amount: halfGst,
+      sgst_amount: Math.round((lineGst - halfGst) * 100) / 100,
+      igst_amount: 0,
+      cess_amount: 0,
+      total_amount: Math.round((taxable + lineGst) * 100) / 100,
     };
     if (kind === 'purchase') {
       // PurchaseBillItem.purchase_rate is NOT NULL. sale_rate falls back
@@ -665,11 +679,18 @@ async function insertVoucherItems({
     // the bill so Stock Movement and bill-cancellation cleanup work.
     if (product && stockTxnType) {
       const isInbound = stockTxnType === 'Purchase' || stockTxnType === 'Sales Return';
-      // Refresh the running balance from the product row. Live flows do a
-      // similar incremental update; we keep it simple here since the
-      // post-import re-sync sweep in server/index.js reconciles anyway.
-      const currentStock = Number(product.current_stock) || 0;
-      const newStock = isInbound ? currentStock + qty : currentStock - qty;
+      // Audit C4: previously this path mutated products.current_stock
+      // DIRECTLY. Now route through applyGodownStockDelta so PGS stays
+      // in lockstep — otherwise the next live sale recomputes
+      // products.current_stock = SUM(PGS) and erases the imported delta.
+      const signedDelta = isInbound ? qty : -qty;
+      const importGodownId = await getDefaultGodownId({ t: transaction });
+      const newStock = await applyGodownStockDelta({
+        product_id: product.product_id,
+        godown_id:  importGodownId,
+        delta:      signedDelta,
+        t:          transaction,
+      });
       await StockLedger.create({
         product_id: product.product_id,
         barcode: product.barcode,
@@ -680,12 +701,9 @@ async function insertVoucherItems({
         quantity_in:  isInbound ? qty : 0,
         quantity_out: isInbound ? 0   : qty,
         rate, balance_quantity: newStock,
+        godown_id: importGodownId,
         created_by: userId || null,
       }, { transaction });
-      await Product.update(
-        { current_stock: newStock },
-        { where: { product_id: product.product_id }, transaction },
-      );
       // Update the cached product so subsequent lines on the same bill
       // see the freshly-updated stock.
       product.current_stock = newStock;

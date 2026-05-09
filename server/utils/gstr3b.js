@@ -158,10 +158,12 @@ function summarizeInterStateUnreg(activeBills, activeReturns, companyStateCode) 
  * (B) Reversed and (D) Other Details require operator entry — exposed as
  * zero-initialised so the UI can capture them at filing time.
  */
-function summarizeITC(purchases) {
+function summarizeITC(purchases, purchaseReturns = []) {
   const all_other = { igst: 0, cgst: 0, sgst: 0, cess: 0 };
   let purchaseTaxableTotal = 0;
   let invoiceCount = 0;
+  let returnCount = 0;
+  let returnTaxableTotal = 0;
   for (const p of (purchases || [])) {
     if (p.is_cancelled) continue;
     invoiceCount += 1;
@@ -173,7 +175,26 @@ function summarizeITC(purchases) {
       purchaseTaxableTotal += Number(it.taxable_amount) || 0;
     }
   }
-  for (const k of Object.keys(all_other)) all_other[k] = round2(all_other[k]);
+  // Net out purchase returns (debit notes) — they reverse part of the
+  // earlier ITC claim. Filing 3B without netting overstates 4(A)(5) by
+  // exactly the return tax amounts. Audit C8.
+  for (const pr of (purchaseReturns || [])) {
+    if (pr.is_cancelled) continue;
+    returnCount += 1;
+    all_other.igst -= Number(pr.igst_amount) || 0;
+    all_other.cgst -= Number(pr.cgst_amount) || 0;
+    all_other.sgst -= Number(pr.sgst_amount) || 0;
+    all_other.cess -= Number(pr.cess_amount) || 0;
+    for (const it of (pr.items || [])) {
+      returnTaxableTotal += Number(it.taxable_amount) || 0;
+    }
+  }
+  // Clamp at zero — a return-heavy month with leftover credit from an
+  // earlier period shouldn't propose a NEGATIVE ITC. Operators reverse
+  // ITC via section 4(B) instead.
+  for (const k of Object.keys(all_other)) {
+    all_other[k] = Math.max(0, round2(all_other[k]));
+  }
 
   const ZERO = { igst: 0, cgst: 0, sgst: 0, cess: 0 };
   const A = {
@@ -215,8 +236,10 @@ function summarizeITC(purchases) {
     C_net_available: C,
     D,
     meta: {
-      purchase_invoice_count: invoiceCount,
-      purchase_taxable_total: round2(purchaseTaxableTotal),
+      purchase_invoice_count:  invoiceCount,
+      purchase_taxable_total:  round2(purchaseTaxableTotal),
+      purchase_return_count:   returnCount,
+      purchase_return_taxable: round2(returnTaxableTotal),
     },
   };
 }
@@ -277,12 +300,13 @@ function buildGstr3b({
   activeBills      = [],
   activeReturns    = [],
   purchases        = [],
+  purchaseReturns  = [],
   companyStateCode = null,
 } = {}) {
   const cStateCode = companyStateCode || null;
   const outward    = summarizeOutward(activeBills, activeReturns, cStateCode);
   const interUnreg = summarizeInterStateUnreg(activeBills, activeReturns, cStateCode);
-  const itc        = summarizeITC(purchases);
+  const itc        = summarizeITC(purchases, purchaseReturns);
   const payment    = summarizePayment(outward, itc);
   const exempt     = summarizeExemptInward();
 
@@ -291,6 +315,7 @@ function buildGstr3b({
       sales_invoice_count:    activeBills.length,
       credit_note_count:      activeReturns.length,
       purchase_invoice_count: itc.meta.purchase_invoice_count,
+      debit_note_count:       itc.meta.purchase_return_count,
       company_state_code:     cStateCode,
     },
     section_3_1: outward,

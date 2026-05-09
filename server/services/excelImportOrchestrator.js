@@ -28,6 +28,7 @@ const {
 } = require('../models');
 const { postVoucher, reverseVoucher } = require('./ledgerPostingService');
 const { buildSalesBillVouchers, buildPurchaseBillVouchers, buildPaymentReceiptVouchers } = require('./voucherBuilders');
+const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
 
 const REJECTED_DIR = path.join(__dirname, '..', '..', 'uploads', 'rejected');
 fs.mkdirSync(REJECTED_DIR, { recursive: true });
@@ -759,15 +760,18 @@ async function commitBill(job, item, action, kind) {
       });
       for (const r of oldStockRows) {
         if (!r.product_id) continue;
-        const p = await Product.findByPk(r.product_id, { transaction: t });
-        if (!p) continue;
+        // Audit C4: this reversal path also previously bypassed PGS.
+        // Route through applyGodownStockDelta so the per-godown row
+        // reverses in lockstep with products.current_stock.
         // Sales out → add back; Purchase in → take away.
         const delta = Number(r.quantity_out) - Number(r.quantity_in);
-        const restored = (Number(p.current_stock) || 0) + delta;
-        await Product.update(
-          { current_stock: restored },
-          { where: { product_id: p.product_id }, transaction: t },
-        );
+        const reverseGodownId = r.godown_id || await getDefaultGodownId({ t });
+        await applyGodownStockDelta({
+          product_id: r.product_id,
+          godown_id:  reverseGodownId,
+          delta,
+          t,
+        });
       }
       await StockLedger.destroy({
         where: {
@@ -803,6 +807,21 @@ async function commitBill(job, item, action, kind) {
       }
       const qty = Number(it.quantity) || 0;
       const rate = Number(it.rate) || 0;
+      // Compute per-line GST so total_amount carries the same semantics
+      // as the live UI controllers: total_amount = taxable + GST per row
+      // (audit C3). Excel imports previously wrote total_amount = qty×rate
+      // (taxable-only) which produced inconsistent semantics across bills
+      // — reports that SUM(total_amount) under-counted GST for imported
+      // bills. Cess columns aren't in the workbook schema so are 0 here.
+      const lineTaxable = round2(qty * rate);
+      const gstRate = Number(it.gst_rate) || 0;
+      const lineGst = round2(lineTaxable * gstRate / 100);
+      // Imports default to intra-state (the workbook has no GSTIN column
+      // to thread inter-state through). Even if wrong, the bill-level
+      // header GST is recomputed elsewhere — this only affects the
+      // PER-LINE split. The Excel sheet doesn't separate cgst/sgst/igst
+      // either, so we conservatively split 50/50 into CGST + SGST.
+      const halfGst = round2(lineGst / 2);
       // SalesBillItem stores the line price as `rate`; PurchaseBillItem
       // splits it into `purchase_rate` (NOT NULL — what the supplier
       // charged) and `sale_rate` (planned outgoing). We map the single
@@ -816,9 +835,13 @@ async function commitBill(job, item, action, kind) {
         hsn_code: it.hsn_code || null,
         quantity: qty,
         mrp: 0,
-        taxable_amount: round2(qty * rate),
-        gst_rate: Number(it.gst_rate) || 0,
-        total_amount: round2(qty * rate),
+        taxable_amount: lineTaxable,
+        gst_rate: gstRate,
+        cgst_amount: halfGst,
+        sgst_amount: round2(lineGst - halfGst),
+        igst_amount: 0,
+        cess_amount: 0,
+        total_amount: round2(lineTaxable + lineGst),
       };
       if (kind === 'sales') {
         itemData.rate = rate;
@@ -832,17 +855,30 @@ async function commitBill(job, item, action, kind) {
       }
       await ItemModel.create(itemData, { transaction: t });
 
-      // Stock-ledger + current_stock update per line. Without this,
-      // products.current_stock drifts from the stock_ledger sum: the
-      // Stock Movement view's running balance reads from stock_ledger
-      // (correct) while the On Hand tile reads products.current_stock
-      // (stale). Same shape Tally orchestrator uses + same shape live
-      // sales/purchase controllers use.
+      // Stock-ledger + per-godown stock update per line.
+      //
+      // Audit C4: previously this path mutated products.current_stock
+      // DIRECTLY. The next live sale that ran applyGodownStockDelta()
+      // recomputed products.current_stock = SUM(product_godown_stock)
+      // and silently ERASED the imported delta because PGS was never
+      // updated. Now we route through applyGodownStockDelta which
+      // updates both PGS and the products mirror atomically.
+      //
+      // The default godown is resolved once per import (cached on `prod`
+      // doesn't help — different products may target different godowns
+      // in future, but the current Excel schema has no godown column,
+      // so every import lands in the system default).
       if (prod && qty > 0) {
         const isInbound = kind === 'purchase';
         const stockTxnType = isInbound ? 'Purchase' : 'Sales';
-        const currentStock = Number(prod.current_stock) || 0;
-        const newStock = isInbound ? currentStock + qty : currentStock - qty;
+        const signedDelta = isInbound ? qty : -qty;
+        const importGodownId = await getDefaultGodownId({ t });
+        const newStock = await applyGodownStockDelta({
+          product_id: prod.product_id,
+          godown_id:  importGodownId,
+          delta:      signedDelta,
+          t,
+        });
         await StockLedger.create({
           product_id: prod.product_id,
           barcode: prod.barcode,
@@ -853,14 +889,12 @@ async function commitBill(job, item, action, kind) {
           quantity_in:  isInbound ? qty : 0,
           quantity_out: isInbound ? 0   : qty,
           rate, balance_quantity: newStock,
+          godown_id: importGodownId,
           created_by: job.created_by || null,
         }, { transaction: t });
-        await Product.update(
-          { current_stock: newStock },
-          { where: { product_id: prod.product_id }, transaction: t },
-        );
         // Refresh cached product so subsequent lines on the same bill
-        // see the just-updated stock.
+        // see the just-updated stock. (applyGodownStockDelta already
+        // updated products.current_stock = SUM(PGS) in DB.)
         prod.current_stock = newStock;
       }
     }

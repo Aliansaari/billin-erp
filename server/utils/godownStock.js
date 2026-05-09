@@ -89,12 +89,22 @@ async function applyGodownStockDelta({ product_id, godown_id, delta, t }) {
  * Read current_stock at a specific godown without mutating it. Returns 0
  * for missing pairs (matches the implicit-zero semantics of pre-godown
  * code that defaulted unmoved products to zero stock).
+ *
+ * `lock: true` (audit H7) takes a row-level FOR UPDATE lock so a
+ * pre-check followed by applyGodownStockDelta in the same transaction
+ * serialises against concurrent writers. Without this lock, two
+ * concurrent sales of the last unit can both pass the pre-check
+ * (both see stock=1) and both apply -1, ending at stock=-1 even when
+ * `allow_negative_stock=false`. Callers in pre-check paths SHOULD pass
+ * `{ lock: true }`; callers that just want a read-only snapshot
+ * (reports, UI) leave it false.
  */
-async function getGodownStock({ product_id, godown_id, t }) {
+async function getGodownStock({ product_id, godown_id, t, lock = false }) {
   if (!product_id || !godown_id) return 0;
   const row = await ProductGodownStock.findOne({
     where: { product_id, godown_id },
     transaction: t,
+    lock: (lock && t) ? t.LOCK.UPDATE : undefined,
   });
   return row ? parseFloat(row.current_stock || 0) : 0;
 }

@@ -1,6 +1,6 @@
 const { Op, fn, col, literal } = require('sequelize');
 const sequelize = require('../config/database');
-const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, SystemSettings, ProductGodownStock } = require('../models');
+const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, PurchaseReturnBillItem, SystemSettings, ProductGodownStock } = require('../models');
 const { sanitizePagination } = require('../utils/helpers');
 const { aggregateAging } = require('../utils/aging');
 const { fetchBatchAggregate, computeDisplayCost, attachDisplayCost } = require('../utils/displayCost');
@@ -2084,7 +2084,13 @@ exports.agingReport = async (req, res) => {
     const partyType = req.query.party_type === 'Supplier' ? 'Supplier' : 'Customer';
     const settings = await SystemSettings.findOne();
     const bounds = _agingBounds(settings);
-    const asOf = localDateString();
+    // Honour the operator's date picker — defaults to today when the
+    // query param is absent / blank. The previous version hard-coded
+    // localDateString() and silently ignored ?as_of=YYYY-MM-DD, making
+    // the picker a no-op (audit C7).
+    const asOf = (req.query.as_of && /^\d{4}-\d{2}-\d{2}$/.test(req.query.as_of))
+      ? req.query.as_of
+      : localDateString();
 
     const bills = await _loadAgingBills(partyType);
     const result = aggregateAging(bills, asOf, bounds);
@@ -2102,7 +2108,10 @@ exports.exportAgingReport = async (req, res) => {
     const partyType = req.query.party_type === 'Supplier' ? 'Supplier' : 'Customer';
     const settings = await SystemSettings.findOne();
     const bounds = _agingBounds(settings);
-    const asOf = localDateString();
+    // Same as_of handling as agingReport above — honour ?as_of=YYYY-MM-DD.
+    const asOf = (req.query.as_of && /^\d{4}-\d{2}-\d{2}$/.test(req.query.as_of))
+      ? req.query.as_of
+      : localDateString();
 
     const bills = await _loadAgingBills(partyType);
     const { rows, grand, bucket_labels } = aggregateAging(bills, asOf, bounds);
@@ -2746,22 +2755,69 @@ async function _loadGstr3bPurchases(from, to) {
   }));
 }
 
+// Load purchase returns (debit notes) in the period — these reverse part
+// of the earlier ITC claim. Without this loader, `summarizeITC` overstated
+// 4(A)(5) by the full return tax. (Audit C8.)
+async function _loadGstr3bPurchaseReturns(from, to) {
+  const rows = await PurchaseReturnBill.findAll({
+    where: { return_date: { [Op.between]: [from, to] } },
+    attributes: ['purchase_return_id', 'return_number', 'return_date',
+                 'cgst_amount', 'sgst_amount', 'igst_amount', 'cess_amount',
+                 'total_amount', 'is_cancelled'],
+    include: [
+      { model: Party, as: 'supplier',
+        attributes: ['party_name', 'gstin', 'state'] },
+      { model: PurchaseReturnBillItem, as: 'items',
+        attributes: ['hsn_code', 'gst_rate', 'taxable_amount',
+                     'cgst_amount', 'sgst_amount', 'igst_amount', 'cess_amount'] },
+    ],
+    order: [['return_date', 'ASC']],
+  });
+  return rows.map(r => ({
+    purchase_return_id: r.purchase_return_id,
+    return_number:      r.return_number,
+    return_date:        r.return_date,
+    is_cancelled:       !!r.is_cancelled,
+    cgst_amount:        Number(r.cgst_amount) || 0,
+    sgst_amount:        Number(r.sgst_amount) || 0,
+    igst_amount:        Number(r.igst_amount) || 0,
+    cess_amount:        Number(r.cess_amount) || 0,
+    total_amount:       Number(r.total_amount) || 0,
+    supplier: r.supplier ? {
+      party_name: r.supplier.party_name,
+      gstin:      r.supplier.gstin,
+      state:      r.supplier.state,
+    } : null,
+    items: (r.items || []).map(it => ({
+      hsn_code:       it.hsn_code,
+      gst_rate:       Number(it.gst_rate) || 0,
+      taxable_amount: Number(it.taxable_amount) || 0,
+      cgst_amount:    Number(it.cgst_amount) || 0,
+      sgst_amount:    Number(it.sgst_amount) || 0,
+      igst_amount:    Number(it.igst_amount) || 0,
+      cess_amount:    Number(it.cess_amount) || 0,
+    })),
+  }));
+}
+
 exports.gstr3bReport = async (req, res) => {
   try {
     const period = _gstr1Period(req.query);
     const settings = await SystemSettings.findOne();
     const companyStateCode = stateCodeFromGstin(settings?.gstin) || null;
 
-    const [{ active }, returnsRes, purchases] = await Promise.all([
+    const [{ active }, returnsRes, purchases, purchaseReturns] = await Promise.all([
       _loadGstr1Bills(period.from, period.to),
       _loadGstr1Returns(period.from, period.to),
       _loadGstr3bPurchases(period.from, period.to),
+      _loadGstr3bPurchaseReturns(period.from, period.to),
     ]);
 
     const report = buildGstr3b({
-      activeBills:   active,
-      activeReturns: returnsRes.active,
-      purchases:     purchases.filter(p => !p.is_cancelled),
+      activeBills:     active,
+      activeReturns:   returnsRes.active,
+      purchases:       purchases.filter(p => !p.is_cancelled),
+      purchaseReturns: purchaseReturns.filter(p => !p.is_cancelled),
       companyStateCode,
     });
 
@@ -2794,16 +2850,18 @@ exports.exportGstr3bReport = async (req, res) => {
     const settings = await SystemSettings.findOne();
     const companyStateCode = stateCodeFromGstin(settings?.gstin) || null;
 
-    const [{ active }, returnsRes, purchases] = await Promise.all([
+    const [{ active }, returnsRes, purchases, purchaseReturns] = await Promise.all([
       _loadGstr1Bills(period.from, period.to),
       _loadGstr1Returns(period.from, period.to),
       _loadGstr3bPurchases(period.from, period.to),
+      _loadGstr3bPurchaseReturns(period.from, period.to),
     ]);
 
     const r = buildGstr3b({
-      activeBills:   active,
-      activeReturns: returnsRes.active,
-      purchases:     purchases.filter(p => !p.is_cancelled),
+      activeBills:     active,
+      activeReturns:   returnsRes.active,
+      purchases:       purchases.filter(p => !p.is_cancelled),
+      purchaseReturns: purchaseReturns.filter(p => !p.is_cancelled),
       companyStateCode,
     });
 

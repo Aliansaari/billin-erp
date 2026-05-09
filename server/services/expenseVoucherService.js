@@ -15,8 +15,16 @@
 //   IF Σ sgst > 0:  Dr  SGST Input  Σ sgst
 //   IF Σ igst > 0:  Dr  IGST Input  Σ igst
 //
-//   IF round_off > 0:  Cr  Round Off    round_off
-//   IF round_off < 0:  Dr  Round Off   -round_off
+//   IF round_off > 0:  Dr  Round Off    round_off
+//   IF round_off < 0:  Cr  Round Off   -round_off
+//
+// NOTE on signs (audit C2): the cash/bank credit leg pays
+// `total_amount = sub_total + GST + round_off`, but the expense + GST
+// debit legs sum only to `sub_total + GST` (the UNROUNDED part). When
+// round_off > 0 the credit side is too high — we Dr Round Off as a
+// loss to balance. When round_off < 0 the credit side is too low —
+// we Cr Round Off as a gain. Mirrors the purchase voucher convention
+// in voucherBuilders.js:265–266 (expenses are purchases of services).
 //
 //   IF paid_amount > 0:
 //     IF Cash mode:    Cr  Cash         paid_amount
@@ -108,8 +116,10 @@ async function buildExpenseVoucher(voucher, opts = {}) {
   if (sgst > 0) lines.push({ ledgerAccountId: sgstIn.ledger_id, debit: sgst, credit: 0 });
   if (igst > 0) lines.push({ ledgerAccountId: igstIn.ledger_id, debit: igst, credit: 0 });
 
-  if (roundOff < 0) {
-    lines.push({ ledgerAccountId: roundOf.ledger_id, debit: -roundOff, credit: 0 });
+  // Round-off as a loss (operator paid more than the unrounded total
+  // because of round-up). Mirrors the purchase voucher convention.
+  if (roundOff > 0) {
+    lines.push({ ledgerAccountId: roundOf.ledger_id, debit: roundOff, credit: 0 });
   }
 
   // Cash / bank credit leg (paid portion).
@@ -167,8 +177,10 @@ async function buildExpenseVoucher(voucher, opts = {}) {
     });
   }
 
-  if (roundOff > 0) {
-    lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: roundOff });
+  // Round-off as a gain (operator paid less than the unrounded total
+  // because of round-down).
+  if (roundOff < 0) {
+    lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: -roundOff });
   }
 
   // Sanity: debits must equal credits before we hand off to the posting

@@ -27,5 +27,6 @@ router.post('/',                         requirePermission('accounts.view'), loa
 router.patch('/:ledger_id',              requirePermission('accounts.view'), loan.updateLoan);
 router.delete('/:ledger_id',             requirePermission('accounts.view'), loan.deleteLoan);
 router.post('/:ledger_id/emi',           requirePermission('accounts.view'), loan.recordEMI);
+router.post('/:ledger_id/emi/reverse',   requirePermission('accounts.view'), loan.reverseEMI);
 
 module.exports = router;
