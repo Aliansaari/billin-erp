@@ -186,6 +186,43 @@ test('summarizeITC: A_total sums across (1)-(5); B_total starts zero; C = A − 
   assert.equal(itc.C_net_available.igst, 50);
 });
 
+// Audit C8 — purchase returns must be netted from ITC.
+test('summarizeITC: purchase returns NET from (5) all_other', () => {
+  // Bought ₹100 + ₹18 GST, returned ₹50 + ₹9 GST → net ITC = ₹9
+  const p = purchase({ items: [item({ taxable_amount: 100,
+    cgst_amount: 9, sgst_amount: 9, igst_amount: 0 })] });
+  const pr = purchase({ items: [item({ taxable_amount: 50,
+    cgst_amount: 4.5, sgst_amount: 4.5, igst_amount: 0 })] });
+  const itc = summarizeITC([p], [pr]);
+  assert.equal(itc.A.all_other.cgst, 4.5);
+  assert.equal(itc.A.all_other.sgst, 4.5);
+  assert.equal(itc.meta.purchase_return_count, 1);
+  assert.equal(itc.meta.purchase_return_taxable, 50);
+  // C_net_available reflects the net
+  assert.equal(itc.C_net_available.cgst, 4.5);
+});
+
+test('summarizeITC: cancelled purchase returns excluded', () => {
+  const p = purchase({ items: [item({ cgst_amount: 90, sgst_amount: 90 })] });
+  const livePr = purchase({ items: [item({ cgst_amount: 30, sgst_amount: 30 })] });
+  const deadPr = purchase({ is_cancelled: true,
+    items: [item({ cgst_amount: 9999, sgst_amount: 9999 })] });
+  const itc = summarizeITC([p], [livePr, deadPr]);
+  assert.equal(itc.A.all_other.cgst, 60);   // 90 − 30, dead PR ignored
+  assert.equal(itc.meta.purchase_return_count, 1);
+});
+
+test('summarizeITC: returns exceeding purchases clamp to zero (no negative ITC)', () => {
+  // Operator returns more than purchased in this period (carry-over from
+  // a prior month). Section 4(B) is the right place for that adjustment;
+  // 4(A) shouldn't go negative.
+  const p = purchase({ items: [item({ cgst_amount: 50, sgst_amount: 50 })] });
+  const pr = purchase({ items: [item({ cgst_amount: 200, sgst_amount: 200 })] });
+  const itc = summarizeITC([p], [pr]);
+  assert.equal(itc.A.all_other.cgst, 0);
+  assert.equal(itc.A.all_other.sgst, 0);
+});
+
 // ─── 6.1 payment ─────────────────────────────────────────────────
 
 test('summarizePayment: ITC reduces cash payable to zero when sufficient', () => {
