@@ -160,6 +160,14 @@ exports.dayBook = async (req, res) => {
 
     const vouchers = [];
     let totalDr = 0, totalCr = 0;
+    // Track all-legs totals separately so the response can advertise BOTH
+    // the per-row "movement" (primary-leg) total and the bookkeeping
+    // Σ Dr = Σ Cr total. Audit H14: the previous response only exposed
+    // primary-leg sums but called them total_debit / total_credit, so an
+    // operator reading the day-book summary on a sales-only day saw
+    // Cr = 0, which is correct for "Tally-style movement" but misleading
+    // when read as "total debits / total credits."
+    let totalDrAllLegs = 0, totalCrAllLegs = 0;
 
     for (const v of byVoucher.values()) {
       const primary = pickPrimary(v.legs);
@@ -172,6 +180,12 @@ exports.dayBook = async (req, res) => {
       const cr = num(primary.credit_amount);
       totalDr += dr;
       totalCr += cr;
+
+      // Sum across every leg of this voucher (always balanced per voucher).
+      for (const l of v.legs) {
+        totalDrAllLegs += num(l.debit_amount);
+        totalCrAllLegs += num(l.credit_amount);
+      }
 
       vouchers.push({
         entry_number:     v.entry_number,
@@ -215,8 +229,19 @@ exports.dayBook = async (req, res) => {
       total: vouchers.length,
       summary: {
         voucher_count: vouchers.length,
-        total_debit:   Math.round(totalDr * 100) / 100,
-        total_credit:  Math.round(totalCr * 100) / 100,
+        // Per-row primary-leg totals (Tally-style "movement"). Asymmetric
+        // for single-direction days — e.g. a pure-sales day has
+        // total_credit_primary = 0 because every voucher's primary leg is
+        // a Customer Dr. Suitable for "money in / money out" framing.
+        total_debit:           Math.round(totalDr * 100) / 100,
+        total_credit:          Math.round(totalCr * 100) / 100,
+        total_debit_primary:   Math.round(totalDr * 100) / 100,
+        total_credit_primary:  Math.round(totalCr * 100) / 100,
+        // Σ across every leg of every voucher in the result set. Balanced
+        // by construction (each voucher is balanced). Suitable for the
+        // "total debits = total credits" reconciliation banner. Audit H14.
+        total_debit_all_legs:  Math.round(totalDrAllLegs * 100) / 100,
+        total_credit_all_legs: Math.round(totalCrAllLegs * 100) / 100,
         counts_by_type: counts,
       },
       from_date: from,
