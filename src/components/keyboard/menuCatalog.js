@@ -63,8 +63,12 @@ export const ALT_MENUS = {
     title: 'Parties',
     anchorKey: 'parties-menu',
     items: [
-      { letter: 'C', label: 'Customers', sub: 'Party master',  route: '/customers' },
-      { letter: 'S', label: 'Suppliers', sub: 'Vendor master', route: '/suppliers' },
+      // "New X" entries route to the list page with ?new=1; the list
+      // page reads the param on mount and auto-opens its create modal.
+      { letter: 'N', label: 'New Customer', sub: 'Add a new customer',  route: '/customers?new=1' },
+      { letter: 'A', label: 'Add Supplier', sub: 'Add a new supplier',  route: '/suppliers?new=1' },
+      { letter: 'C', label: 'Customers',    sub: 'Party master',        route: '/customers' },
+      { letter: 'S', label: 'Suppliers',    sub: 'Vendor master',       route: '/suppliers' },
     ],
   },
 
@@ -72,6 +76,8 @@ export const ALT_MENUS = {
     title: 'Inventory',
     anchorKey: 'inventory-menu',
     items: [
+      { letter: 'N', label: 'New Product',      sub: 'Add a new product',   route: '/products?new=1' },
+      { letter: 'A', label: 'Add Category',     sub: 'Add a new category',  route: '/categories?new=1' },
       { letter: 'P', label: 'Products',         sub: 'Item master',         route: '/products' },
       { letter: 'C', label: 'Categories',       sub: 'Product categories',  route: '/categories' },
       { letter: 'M', label: 'Stock Movement',   sub: 'Transaction history', route: '/stock-movement' },
