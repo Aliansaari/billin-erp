@@ -277,6 +277,28 @@ function EntityFormModal({
           const f = target.querySelector('input, select, textarea, button');
           f?.focus?.();
         }
+        return;
+      }
+
+      // Enter on a focused <select> opens the dropdown. Native select
+      // only opens on Space or Alt+Down — Enter is a no-op by default,
+      // which surprises operators who expect "tab to field, hit Enter
+      // to interact". showPicker() is the modern API (Chromium 99+,
+      // which Electron uses); fall back to dispatching Alt+ArrowDown
+      // for older browsers.
+      if (e.key === 'Enter' && e.target?.tagName === 'SELECT') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const sel = e.target;
+        if (typeof sel.showPicker === 'function') {
+          try { sel.showPicker(); return; } catch { /* fall through */ }
+        }
+        // Polyfill: synthesise Alt+ArrowDown which IS the platform
+        // shortcut for opening native selects.
+        sel.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowDown', code: 'ArrowDown',
+          altKey: true, bubbles: true,
+        }));
       }
     };
     window.addEventListener('keydown', handler, true);

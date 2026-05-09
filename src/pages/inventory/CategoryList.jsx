@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Table, Modal, message, Tooltip } from 'antd';
 import {
   SearchOutlined, PlusOutlined,
@@ -32,6 +33,21 @@ export default function CategoryList() {
   const searchInputRef = useRef(null);
 
   useEffect(() => { loadCategories(); }, []);
+
+  // Sidebar deep-link — /categories?new=1 from the "New Category"
+  // sidebar entry. Open the create modal once on mount, then strip
+  // the param so refresh doesn't re-open it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      const t = setTimeout(() => openForm(), 60);
+      const next = new URLSearchParams(searchParams);
+      next.delete('new');
+      setSearchParams(next, { replace: true });
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadCategories = async () => {
     setLoading(true);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Input, Button, Modal, Form, InputNumber, Select, Switch,
   Row, Col, Divider, message, DatePicker, Dropdown, Tooltip,
@@ -159,6 +159,28 @@ export default function ProductList() {
   const [editing, setEditing] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
+
+  // Sidebar deep-link — /products?new=1 lands here from the "New
+  // Product" sidebar entry. Open the create modal once on mount, then
+  // strip the param so refreshing doesn't re-open it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      // Defer one tick so categories etc. have a chance to load before
+      // openForm reads them.
+      const t = setTimeout(() => {
+        setEditing(null);
+        form.resetFields();
+        setColorState({ color_mode: 'none', color_label: '', colors: [] });
+        setFormVisible(true);
+      }, 80);
+      const next = new URLSearchParams(searchParams);
+      next.delete('new');
+      setSearchParams(next, { replace: true });
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Color section state — kept outside the AntD form because the colors
   // panel is a custom controlled component (mode picker + dynamic list)
