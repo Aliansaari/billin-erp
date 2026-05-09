@@ -1,6 +1,8 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { Party, SalesBill, PurchaseBill, PaymentReceipt, SalesReturnBill, PurchaseReturnBill, SystemSettings } = require('../models');
+const { postPartyOpeningJV } = require('../models/Party');
+const { reverseVoucher } = require('../services/ledgerPostingService');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
 const { sanitizePagination } = require('../utils/helpers');
 
@@ -140,9 +142,13 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
-    const party = await Party.findByPk(req.params.id);
-    if (!party) return res.status(404).json({ error: 'Party not found' });
+    const party = await Party.findByPk(req.params.id, { transaction: t });
+    if (!party) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Party not found' });
+    }
 
     // Strip everything the client isn't allowed to touch — prevents attackers
     // from sending {"current_balance": 99999999} and silently rewriting ledgers.
@@ -154,6 +160,7 @@ exports.update = async (req, res) => {
     // — we never want its name drift) into the reserved /^cash/i
     // namespace. Same rejection as create().
     if (safe.party_name !== undefined && isReservedCashName(safe.party_name)) {
+      await t.rollback();
       return res.status(400).json({
         error: 'The name "Cash" is reserved. Use the system Cash party instead.',
         field: 'party_name',
@@ -164,16 +171,31 @@ exports.update = async (req, res) => {
       safe.opening_balance !== undefined ||
       safe.opening_balance_type !== undefined;
 
-    await party.update(safe);
+    await party.update(safe, { transaction: t });
 
-    // If opening balance was edited, recalculate current_balance from scratch
-    if (openingChanged) {
-      await recalculatePartyBalance(party.party_id);
-      await party.reload();
+    // Audit H2: when opening_balance / opening_balance_type changes,
+    // reverse the existing party_opening voucher and re-post a fresh
+    // one with the new values. Without this, parties.current_balance
+    // moves correctly via recalculatePartyBalance but the party-ledger
+    // entries (and therefore Trial Balance, Sundry Debtors aging, GSTR
+    // reconciliation) keep showing the OLD opening — silent drift.
+    if (openingChanged && party.ledger_account_id && !party.is_system_cash) {
+      await reverseVoucher({
+        sourceType: 'party_opening',
+        sourceId:   party.party_id,
+        reason:     'Party opening balance edited',
+        userId:     req.user?.user_id || null,
+        transaction: t,
+      });
+      await postPartyOpeningJV(party, party.ledger_account_id, t);
+      await recalculatePartyBalance(party.party_id, t);
+      await party.reload({ transaction: t });
     }
 
+    await t.commit();
     res.json(party);
   } catch (error) {
+    if (!t.finished) await t.rollback().catch(() => {});
     console.error('Update party error:', error);
     res.status(500).json({ error: 'Server error' });
   }
@@ -399,16 +421,21 @@ exports.toggleActive = async (req, res) => {
 };
 
 exports.delete = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
-    const party = await Party.findByPk(req.params.id);
-    if (!party) return res.status(404).json({ error: 'Party not found' });
+    const party = await Party.findByPk(req.params.id, { transaction: t });
+    if (!party) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Party not found' });
+    }
 
-    const salesCount    = await SalesBill.count({ where: { customer_id: party.party_id } });
-    const purchaseCount = await PurchaseBill.count({ where: { supplier_id: party.party_id } });
-    const paymentCount  = await PaymentReceipt.count({ where: { party_id: party.party_id } });
+    const salesCount    = await SalesBill.count({ where: { customer_id: party.party_id }, transaction: t });
+    const purchaseCount = await PurchaseBill.count({ where: { supplier_id: party.party_id }, transaction: t });
+    const paymentCount  = await PaymentReceipt.count({ where: { party_id: party.party_id }, transaction: t });
     const total = salesCount + purchaseCount + paymentCount;
 
     if (total > 0) {
+      await t.rollback();
       return res.status(400).json({
         error: `Cannot delete: this party has ${total} transaction(s) linked to them.`,
         canDeactivate: true,
@@ -416,9 +443,25 @@ exports.delete = async (req, res) => {
       });
     }
 
-    await party.destroy();
+    // Audit H2: reverse any party_opening voucher BEFORE destroying the
+    // party row. Otherwise the JV becomes orphaned: party_id FK points
+    // at a now-deleted row and the entries remain live, inflating
+    // Trial Balance + leaving an unmatched Cr in OBE.
+    if (party.ledger_account_id && !party.is_system_cash) {
+      await reverseVoucher({
+        sourceType: 'party_opening',
+        sourceId:   party.party_id,
+        reason:     'Party deleted',
+        userId:     req.user?.user_id || null,
+        transaction: t,
+      });
+    }
+
+    await party.destroy({ transaction: t });
+    await t.commit();
     res.json({ message: 'Deleted successfully' });
   } catch (error) {
+    if (!t.finished) await t.rollback().catch(() => {});
     console.error('Delete party error:', error);
     res.status(500).json({ error: 'Server error' });
   }
