@@ -4,6 +4,7 @@ const { Product, Category, StockLedger, ProductBatch, ProductColor } = require('
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { sanitizePagination } = require('../utils/helpers');
 const { attachDisplayCost, fetchBatchAggregate } = require('../utils/displayCost');
+const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
 
 // Bulk-fetch lifetime aggregates (total purchased / total sold / last sold)
 // for the given product_ids. Used by getAll when the client opts in via
@@ -603,18 +604,25 @@ exports.update = async (req, res) => {
       }
     }
 
-    // Handle opening stock change
+    // Handle opening stock change.
+    //
+    // Audit H5: previously this path mutated `products.current_stock`
+    // directly while leaving `product_godown_stock` untouched. The next
+    // live sale ran applyGodownStockDelta() which rewrites
+    // products.current_stock = SUM(PGS) — silently erasing the
+    // opening-stock edit. Now we route the delta through
+    // applyGodownStockDelta against the system default godown so the
+    // PGS row stays in sync (and the Sequelize-cached
+    // `product.current_stock` becomes stale; the helper updates the
+    // canonical value in the DB).
     const newOpeningQty = parseFloat(opening_stock ?? '');
     if (!isNaN(newOpeningQty) && opening_stock !== undefined && opening_stock !== null && opening_stock !== '') {
-      // CRITICAL: Read the OLD opening-stock row BEFORE destroying it, otherwise
-      // the recalculation uses oldQty=0 and current_stock drifts by the old opening.
-      // Example before fix: opening 100, current 110 → set opening 50 → current = 110 - 0 + 50 = 160 (wrong)
-      // After fix: current = 110 - 100 + 50 = 60 (correct)
       const oldOpeningRow = await StockLedger.findOne({
         where: { product_id: req.params.id, transaction_type: 'Opening Stock' },
         transaction: t,
       });
       const oldQty = parseFloat(oldOpeningRow?.quantity_in || 0);
+      const editGodownId = oldOpeningRow?.godown_id || await getDefaultGodownId({ t });
 
       // Now safe to remove the old row
       await StockLedger.destroy({
@@ -622,12 +630,23 @@ exports.update = async (req, res) => {
         transaction: t,
       });
 
-      if (newOpeningQty > 0) {
-        const newStock = +((parseFloat(product.current_stock) - oldQty + newOpeningQty)).toFixed(2);
-        // Clamp at 0: going negative would mean we sold/consumed more than on hand,
-        // which is a data-integrity issue that shouldn't be introduced by this edit.
-        data.current_stock = Math.max(0, newStock);
+      // Net delta the opening edit applies to PGS.
+      const netDelta = +(newOpeningQty - oldQty).toFixed(2);
+      if (Math.abs(netDelta) > 0.0049) {
+        await applyGodownStockDelta({
+          product_id: req.params.id,
+          godown_id:  editGodownId,
+          delta:      netDelta,
+          t,
+        });
+      }
+      // Don't override data.current_stock here — applyGodownStockDelta
+      // already updated products.current_stock = SUM(PGS) in DB.
+      // Strip the field from `data` so product.update doesn't clobber
+      // the helper's value.
+      delete data.current_stock;
 
+      if (newOpeningQty > 0) {
         await StockLedger.create({
           product_id: req.params.id,
           barcode: product.barcode,
@@ -638,13 +657,10 @@ exports.update = async (req, res) => {
           quantity_out: 0,
           rate: parseFloat(opening_stock_rate || data.purchase_rate || product.purchase_rate || 0),
           balance_quantity: newOpeningQty,
+          godown_id: editGodownId,
           remarks: 'Opening Stock',
           created_by: req.user?.user_id,
         }, { transaction: t });
-      } else {
-        // Opening stock set to 0 — subtract the previously-stored opening qty from current_stock
-        const newStock = +((parseFloat(product.current_stock) - oldQty)).toFixed(2);
-        data.current_stock = Math.max(0, newStock);
       }
     }
 
@@ -706,17 +722,29 @@ exports.adjust = async (req, res) => {
     if (sale_rate !== undefined && sale_rate !== '') updateData.sale_rate = parseFloat(sale_rate);
     if (minimum_stock_level !== undefined && minimum_stock_level !== '') updateData.minimum_stock_level = parseFloat(minimum_stock_level);
 
-    // If stock is being changed, compute diff against the LEDGER balance (source of truth)
-    // so the ledger entry is always correct even if product.current_stock was previously out of sync.
+    // If stock is being changed, route the diff through applyGodownStockDelta
+    // so product_godown_stock stays in sync. Audit H6: previously this path
+    // wrote `current_stock` directly without touching PGS — the next live
+    // sale's applyGodownStockDelta() recomputes
+    // products.current_stock = SUM(PGS) and erases the adjustment.
     if (current_stock !== undefined && current_stock !== '') {
       const newStock = parseFloat(current_stock);
-      updateData.current_stock = newStock;
-
       const oldStock = parseFloat(product.current_stock || 0);
-      const stockDiff = +( newStock - oldStock ).toFixed(2);
+      const stockDiff = +(newStock - oldStock).toFixed(2);
 
-      // Only create a ledger entry when the stock actually changes
+      // Only create a ledger entry + delta when the stock actually changes
       if (stockDiff !== 0) {
+        const adjustGodownId = await getDefaultGodownId({ t });
+        await applyGodownStockDelta({
+          product_id: product.product_id,
+          godown_id:  adjustGodownId,
+          delta:      stockDiff,
+          t,
+        });
+        // applyGodownStockDelta already updated products.current_stock
+        // — strip from updateData so product.update doesn't overwrite.
+        delete updateData.current_stock;
+
         const today = new Date().toISOString().split('T')[0];
         const dateLabel = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
@@ -730,6 +758,7 @@ exports.adjust = async (req, res) => {
           quantity_out: stockDiff < 0 ? +Math.abs(stockDiff).toFixed(2) : 0,
           rate: parseFloat(purchase_rate || product.purchase_rate || 0),
           balance_quantity: +newStock.toFixed(2),
+          godown_id: adjustGodownId,
           remarks: `Adjusted on ${dateLabel}`,
           created_by: req.user?.user_id,
         }, { transaction: t });
