@@ -229,3 +229,304 @@
     transform: none !important;
   }
 }
+
+/* ── Barcode Label Designer ─────────────────────────────────────────
+ *
+ * Three-column editor: fields list, canvas (label preview), properties.
+ * Reuses the .ms-section card shell so it visually matches the rest of
+ * the settings hub — no heavy coloured panel headers, no indigo bars,
+ * just subtle uppercase section titles like everywhere else. */
+
+/* Toolbar — single horizontal strip. Tight spacing, labelled
+ * controls on the left, action cluster on the right. Wraps on
+ * narrow viewports but never on the desktop sizes the app targets. */
+.bcd-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+.bcd-toolbar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bcd-toolbar-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  cursor: default;
+}
+.bcd-toolbar-divider {
+  flex: 1;
+  /* Visible 1px hair separating fields from actions, only when
+   * there's enough space. Falls into the flex-1 spacer role. */
+}
+.bcd-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+@media (max-width: 880px) {
+  .bcd-toolbar { flex-wrap: wrap; }
+  .bcd-toolbar-divider { display: none; }
+  .bcd-toolbar-actions { width: 100%; justify-content: flex-end; }
+}
+
+.bcd-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr 240px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .bcd-grid { grid-template-columns: 1fr; }
+}
+
+/* Side panels — fields list + properties. Override .ms-section's
+ * default 18px padding for a denser editor feel. */
+.bcd-panel {
+  padding: 14px 14px 8px;
+}
+
+/* Fields list — clean rows with a left accent bar on the active one,
+ * no full-row purple wash. Hidden fields fade their label so the
+ * operator can see what's "off" at a glance. */
+.bcd-fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 -8px;
+}
+.bcd-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background .12s ease;
+  position: relative;
+}
+.bcd-field-row:hover {
+  background: var(--bg-hover);
+}
+.bcd-field-row.active {
+  background: var(--accent-bg);
+}
+.bcd-field-row.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.bcd-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+}
+.bcd-field-row.hidden .bcd-field-label {
+  color: var(--fg-tertiary);
+}
+.bcd-field-row.active .bcd-field-label {
+  font-weight: 600;
+  color: var(--accent);
+}
+.bcd-field-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+  transition: background .12s ease, color .12s ease;
+}
+.bcd-field-eye:hover {
+  background: var(--bg-hover);
+}
+.bcd-field-eye.on {
+  color: var(--accent);
+}
+
+/* Canvas — wraps the label preview in a "desk surface" so the pure-
+ * white printed label feels grounded on the page instead of floating
+ * over the dark theme. The stage uses a faint dot pattern that
+ * matches the label's internal grid for visual continuity. */
+.bcd-canvas-card {
+  padding: 14px 16px 12px;
+}
+.bcd-canvas-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  background:
+    radial-gradient(circle at 1px 1px, var(--border-strong) 0.6px, transparent 0.6px) 0 0/14px 14px,
+    var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  margin: 10px 0 0;
+}
+
+/* Legend — clean strip, not indigo Tag pills. Each visible-field chip
+ * looks like a quiet keyboard-style badge so the row reads as
+ * informational, not interactive. */
+.bcd-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.bcd-legend-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  margin-right: 4px;
+}
+.bcd-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+/* Properties panel — grouped sections, inline labels, no
+ * old-school "FORM_LABEL_UPPER" admin styling. Each group is
+ * separated by a hairline, position fields share a row, toggles
+ * sit inline next to numeric inputs where possible. Density tuned
+ * to roughly match the Fields list visually so the three editor
+ * columns (fields / canvas / properties) feel like siblings, not
+ * a giant form on one side. */
+.bcd-props {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.bcd-props-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bcd-props-group:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.bcd-props-group-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.bcd-props-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: end;
+}
+.bcd-props-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bcd-props-field-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+}
+.bcd-props-hint {
+  font-size: 10px;
+  color: var(--fg-tertiary);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.bcd-props-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0;                     /* no card chrome — sits flush in the group */
+  background: transparent;
+  border: none;
+  min-height: 28px;
+}
+/* The compact toggle inside the 2-col grid (Bold next to Font) DOES
+ * get a card chrome so it visually pairs with the input beside it. */
+.bcd-props-toggle-compact {
+  padding: 0 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  height: 24px;                   /* matches AntD InputNumber size="small" */
+}
+.bcd-props-toggle .ant-switch {
+  flex-shrink: 0;
+}
+
+/* Empty state — friendly, not a one-line instruction. */
+.bcd-props-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px 16px 20px;
+  gap: 8px;
+}
+.bcd-props-empty-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 16px;
+}
+.bcd-props-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  margin-top: 4px;
+}
+.bcd-props-empty-hint {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  line-height: 1.45;
+  max-width: 200px;
+}

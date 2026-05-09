@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Create Form Mockup — v2 Sidebar Workspace</title>
+<style>
+/* ========================================================================
+   v2 — Sidebar Workspace.
+   Wider modal (~780px) with a LEFT section-nav rail and a RIGHT form pane.
+   Each section is one screen of the form; the rail acts as the table of
+   contents AND the keyboard target (F2..F4 jump between sections, instead
+   of Alt+1..3). Active section reads as the heading in the right pane.
+   Footer F-keys unchanged: Esc · F5 · F8 · F1.
+   ======================================================================== */
+:root {
+  --bg-app:        #0d1117;
+  --bg-panel:      #151b24;
+  --bg-elevated:   #1a212c;
+  --bg-muted:      #1f2630;
+  --bg-hover:      #232a35;
+  --bg-rail:       #0f141d;
+
+  --fg-primary:    #e6edf3;
+  --fg-secondary:  #b0b8c4;
+  --fg-tertiary:   #6e7681;
+  --fg-inverse:    #ffffff;
+
+  --accent:        #818cf8;
+  --accent-bg:     rgba(129, 140, 248, 0.12);
+  --accent-border: rgba(129, 140, 248, 0.32);
+
+  --success:       #4ade80;
+  --warning:       #fbbf24;
+  --danger:        #f87171;
+  --danger-bg:     rgba(248, 113, 113, 0.10);
+
+  --border:        #2a313e;
+  --border-subtle: #232a35;
+  --border-strong: #3a4252;
+
+  --kbd-bg:        #232a35;
+  --kbd-border:    #3a4252;
+
+  --shadow-modal:  0 24px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  font-family: 'Source Sans 3', -apple-system, system-ui, sans-serif;
+  background: var(--bg-app); color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+.page-wrap { max-width: 1700px; margin: 0 auto; padding: 32px 28px 80px; }
+.page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; }
+.page-sub { font-size: 12.5px; color: var(--fg-secondary); margin: 0 0 28px; max-width: 700px; line-height: 1.55; }
+.page-sub b { color: var(--fg-primary); font-weight: 600; }
+
+.row { display: grid; grid-template-columns: minmax(720px, 1fr); gap: 24px; align-items: start; }
+.row.two { grid-template-columns: minmax(720px, 1fr); }
+.row.compact { grid-template-columns: minmax(420px, 460px) minmax(420px, 460px); gap: 24px; }
+
+.mock-tag {
+  display: inline-block; margin-bottom: 10px; padding: 2px 8px;
+  font: 600 10px/1.5 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 3px; color: var(--fg-secondary);
+}
+
+/* ============================ MODAL SHELL — WORKSPACE ============================ */
+.efm {
+  display: grid; grid-template-columns: 200px 1fr;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+  max-width: 820px;
+  height: 560px;
+}
+
+/* ── Left rail — section nav ───────────────────────────────── */
+.efm-rail {
+  background: var(--bg-rail);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.efm-rail-hd {
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 9px;
+}
+.efm-rail-ic {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  color: var(--accent);
+  font-weight: 700; font-size: 13px;
+}
+.efm-rail-ttl {
+  font-size: 13px; font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--fg-primary);
+  line-height: 1.2;
+}
+.efm-rail-ttl .sub {
+  display: block; font-size: 10px; font-weight: 500;
+  color: var(--fg-tertiary); margin-top: 1px; letter-spacing: 0.02em;
+}
+
+.efm-rail-list {
+  list-style: none; margin: 0; padding: 8px 6px;
+  display: flex; flex-direction: column; gap: 1px;
+  flex: 1; overflow-y: auto;
+}
+.efm-rail-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px; font-weight: 600;
+  color: var(--fg-secondary);
+  border-left: 2px solid transparent;
+  transition: background .12s, color .12s;
+}
+.efm-rail-item:hover { background: var(--bg-hover); color: var(--fg-primary); }
+.efm-rail-item.on {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+.efm-rail-item .num {
+  width: 18px; height: 18px;
+  display: grid; place-items: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: 600 9.5px/1 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-tertiary);
+  letter-spacing: 0;
+}
+.efm-rail-item.on .num { background: var(--accent); border-color: var(--accent); color: var(--fg-inverse); }
+.efm-rail-item.done .num { background: var(--bg-app); color: var(--success); border-color: rgba(74,222,128,.3); }
+.efm-rail-item .lbl { flex: 1; }
+.efm-rail-item .key {
+  font: 700 9.5px/1 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg-tertiary);
+  background: var(--kbd-bg); border: 1px solid var(--kbd-border);
+  border-radius: 3px; padding: 2px 5px;
+  letter-spacing: 0;
+}
+.efm-rail-item.on .key { color: var(--accent); border-color: var(--accent-border); background: rgba(129,140,248,.06); }
+
+.efm-rail-foot {
+  border-top: 1px solid var(--border);
+  padding: 10px 14px;
+  font-size: 10px; color: var(--fg-tertiary); font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.efm-rail-foot kbd {
+  display: inline-block;
+  background: var(--kbd-bg); border: 1px solid var(--kbd-border);
+  border-radius: 3px; padding: 1px 5px;
+  font: 600 9.5px/1 'JetBrains Mono', monospace;
+  color: var(--fg-secondary);
+}
+
+/* ── Right pane ────────────────────────────────────────────── */
+.efm-pane {
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+
+.efm-pane-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+.efm-pane-hd-l h3 {
+  margin: 0; font-size: 14px; font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--fg-primary); line-height: 1.2;
+}
+.efm-pane-hd-l .sub {
+  margin-top: 2px; font-size: 10.5px;
+  color: var(--fg-tertiary); font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.efm-pane-hd-step {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10.5px; font-weight: 600;
+  color: var(--fg-tertiary); letter-spacing: 0.04em;
+}
+.efm-pane-hd-step b { color: var(--accent); font-weight: 700; }
+
+.efm-pane-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 16px 18px 14px;
+  scrollbar-width: thin;
+}
+.efm-pane-body::-webkit-scrollbar { width: 6px; }
+.efm-pane-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Field grid */
+.efm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.efm-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.efm-field { display: flex; flex-direction: column; gap: 4px; }
+.efm-field.full { grid-column: 1 / -1; }
+
+.efm-lbl {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--fg-tertiary);
+  display: flex; align-items: center; gap: 4px;
+}
+.efm-lbl .req { color: var(--danger); font-weight: 700; }
+
+.efm-input, .efm-select, .efm-textarea {
+  height: 32px; padding: 0 10px;
+  background: var(--bg-app); border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-primary);
+  font: inherit; font-size: 13px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color .12s, box-shadow .12s;
+}
+.efm-textarea { height: auto; min-height: 64px; padding: 8px 10px; resize: vertical; }
+.efm-input::placeholder, .efm-textarea::placeholder { color: var(--fg-tertiary); font-weight: 500; }
+.efm-input:focus, .efm-select:focus, .efm-textarea:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg);
+}
+.efm-help { font-size: 10.5px; color: var(--fg-tertiary); font-weight: 500; }
+
+.efm-select {
+  appearance: none;
+  background:
+    var(--bg-app)
+    url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3e%3cpath d='M2 4l3 3 3-3' stroke='%236e7681' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e")
+    no-repeat right 10px center;
+  padding-right: 28px;
+}
+.efm-suffix { display: flex; align-items: stretch; }
+.efm-suffix .efm-input {
+  border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0;
+  flex: 1; min-width: 0;
+}
+.efm-suffix .unit {
+  display: grid; place-items: center; padding: 0 10px;
+  background: var(--bg-muted); border: 1px solid var(--border);
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+  font-size: 11px; font-weight: 600; color: var(--fg-tertiary);
+}
+.efm-pills {
+  display: inline-flex; background: var(--bg-app);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px;
+}
+.efm-pills button {
+  background: transparent; border: 0; height: 26px; padding: 0 14px;
+  font: 600 11.5px/1 inherit; color: var(--fg-secondary);
+  cursor: pointer; border-radius: 3px; letter-spacing: 0.02em;
+  transition: background .12s, color .12s;
+}
+.efm-pills button.on { background: var(--accent); color: var(--fg-inverse); }
+.efm-pills button:not(.on):hover { color: var(--fg-primary); }
+
+/* ── Footer (F-key strip) ─────────────────────────────────── */
+.efm-ft {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+}
+.efm-ft .spacer { flex: 1; }
+.fkey {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 30px; padding: 0 10px 0 8px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--fg-secondary);
+  font: 600 11.5px/1 inherit; cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: border-color .12s, color .12s;
+}
+.fkey:hover { border-color: var(--accent-border); color: var(--accent); }
+.fkey kbd {
+  display: inline-block; padding: 2px 5px;
+  background: var(--kbd-bg); border: 1px solid var(--kbd-border);
+  border-radius: 3px;
+  font: 700 10px/1 'JetBrains Mono', monospace;
+  color: var(--fg-secondary);
+}
+.fkey.primary {
+  background: var(--accent); border-color: var(--accent); color: var(--fg-inverse);
+}
+.fkey.primary kbd { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.28); color: rgba(255,255,255,.95); }
+.fkey.primary:hover { filter: brightness(1.08); }
+.fkey.danger { color: var(--danger); }
+.fkey.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+.efm-secondary {
+  grid-column: 1 / -1;
+  display: grid; grid-template-columns: 200px 1fr;
+}
+
+/* Compact variant for short forms (Category): no rail, single section */
+.efm-compact {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  max-width: 460px;
+}
+.efm-compact .efm-pane-hd { background: var(--bg-elevated); }
+
+/* Notes panel */
+.notes {
+  margin-top: 36px; padding: 22px 24px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px;
+}
+.notes h3 {
+  margin: 0 0 14px; font-size: 14px; font-weight: 700;
+  letter-spacing: 0.02em; text-transform: uppercase;
+  color: var(--fg-secondary);
+}
+.notes-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px 32px; }
+.note-item { font-size: 12.5px; color: var(--fg-secondary); line-height: 1.55; }
+.note-item h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; color: var(--fg-primary); letter-spacing: 0.02em; }
+.note-item code {
+  background: var(--bg-elevated); border: 1px solid var(--border-subtle);
+  border-radius: 3px; padding: 1px 5px;
+  font: 600 11px/1 'JetBrains Mono', monospace;
+  color: var(--fg-primary);
+}
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <h1 class="page-title">Create form — v2 Sidebar Workspace</h1>
+  <p class="page-sub">
+    A wider modal (~820 px) with a left section-nav rail. The rail doubles as
+    table-of-contents and keyboard target — <b>F2 / F3 / F4</b> jump between
+    sections instead of <code>Alt+1..3</code>. Active section is the heading
+    of the right pane. Compared to v1 (centred sectioned form), v2 keeps long
+    forms scannable without scrolling and surfaces "where you are" at all
+    times. Short forms (Category) collapse to the same compact shell as v1.
+  </p>
+
+  <!-- ─── PRODUCT (Workspace shell) ─── -->
+  <div class="row two">
+    <div>
+      <span class="mock-tag">Product · 3 sections · Workspace</span>
+      <div class="efm" role="dialog" aria-label="Create Product">
+
+        <!-- Left rail -->
+        <aside class="efm-rail">
+          <div class="efm-rail-hd">
+            <div class="efm-rail-ic">P</div>
+            <div class="efm-rail-ttl">
+              Add Product
+              <span class="sub">New SKU</span>
+            </div>
+          </div>
+          <ul class="efm-rail-list" role="tablist">
+            <li class="efm-rail-item on" role="tab">
+              <span class="num">1</span>
+              <span class="lbl">Identifiers</span>
+              <span class="key">F2</span>
+            </li>
+            <li class="efm-rail-item" role="tab">
+              <span class="num">2</span>
+              <span class="lbl">Pricing</span>
+              <span class="key">F3</span>
+            </li>
+            <li class="efm-rail-item" role="tab">
+              <span class="num">3</span>
+              <span class="lbl">Inventory</span>
+              <span class="key">F4</span>
+            </li>
+          </ul>
+          <div class="efm-rail-foot">
+            <kbd>↑</kbd> <kbd>↓</kbd> navigate · <kbd>Enter</kbd> open
+          </div>
+        </aside>
+
+        <!-- Right pane -->
+        <div class="efm-pane">
+          <header class="efm-pane-hd">
+            <div class="efm-pane-hd-l">
+              <h3>Identifiers</h3>
+              <div class="sub">Name, category, codes</div>
+            </div>
+            <div class="efm-pane-hd-step">
+              Step <b>1</b> of 3
+            </div>
+          </header>
+          <div class="efm-pane-body">
+            <div class="efm-grid">
+              <div class="efm-field full">
+                <label class="efm-lbl">Product Name <span class="req">*</span></label>
+                <input class="efm-input" placeholder="e.g. Banarasi Silk Saree" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Category <span class="req">*</span></label>
+                <select class="efm-select"><option>Sarees</option></select>
+                <span class="efm-help">⌘K picker · + new</span>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Barcode</label>
+                <input class="efm-input" placeholder="auto-generated" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Size</label>
+                <input class="efm-input" placeholder="M / 38 / 100ml" />
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Article #</label>
+                <input class="efm-input" />
+              </div>
+              <div class="efm-field full">
+                <label class="efm-lbl">HSN Code</label>
+                <input class="efm-input" placeholder="6207" />
+                <span class="efm-help">Required for GST returns</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer spans both columns -->
+        <footer class="efm-ft">
+          <button class="fkey danger"><kbd>Esc</kbd> Cancel</button>
+          <button class="fkey"><kbd>F5</kbd> Reset</button>
+          <span class="spacer"></span>
+          <button class="fkey"><kbd>F8</kbd> Save & Close</button>
+          <button class="fkey primary"><kbd>F1</kbd> Save</button>
+        </footer>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── PRODUCT SECTION 2 — to show the rail state changes ─── -->
+  <div class="row two" style="margin-top:28px;">
+    <div>
+      <span class="mock-tag">Same shell · viewing section 2 (Pricing)</span>
+      <div class="efm" role="dialog" aria-label="Create Product">
+        <aside class="efm-rail">
+          <div class="efm-rail-hd">
+            <div class="efm-rail-ic">P</div>
+            <div class="efm-rail-ttl">Add Product<span class="sub">New SKU</span></div>
+          </div>
+          <ul class="efm-rail-list">
+            <li class="efm-rail-item done"><span class="num">✓</span><span class="lbl">Identifiers</span><span class="key">F2</span></li>
+            <li class="efm-rail-item on"><span class="num">2</span><span class="lbl">Pricing</span><span class="key">F3</span></li>
+            <li class="efm-rail-item"><span class="num">3</span><span class="lbl">Inventory</span><span class="key">F4</span></li>
+          </ul>
+          <div class="efm-rail-foot"><kbd>↑</kbd> <kbd>↓</kbd> navigate · <kbd>Enter</kbd> open</div>
+        </aside>
+
+        <div class="efm-pane">
+          <header class="efm-pane-hd">
+            <div class="efm-pane-hd-l">
+              <h3>Pricing</h3>
+              <div class="sub">Cost, margin, tax</div>
+            </div>
+            <div class="efm-pane-hd-step">Step <b>2</b> of 3</div>
+          </header>
+          <div class="efm-pane-body">
+            <div class="efm-grid cols-3">
+              <div class="efm-field">
+                <label class="efm-lbl">Purchase Rate <span class="req">*</span></label>
+                <div class="efm-suffix"><input class="efm-input" value="100.00" /><span class="unit">₹</span></div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Margin %</label>
+                <div class="efm-suffix"><input class="efm-input" value="30" /><span class="unit">%</span></div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Sale Rate</label>
+                <div class="efm-suffix"><input class="efm-input" value="130.00" /><span class="unit">₹</span></div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">MRP</label>
+                <div class="efm-suffix"><input class="efm-input" placeholder="0.00" /><span class="unit">₹</span></div>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">GST %</label>
+                <select class="efm-select"><option>5%</option><option>12%</option><option>18%</option></select>
+              </div>
+              <div class="efm-field">
+                <label class="efm-lbl">Cess %</label>
+                <input class="efm-input" placeholder="0" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="efm-ft">
+          <button class="fkey danger"><kbd>Esc</kbd> Cancel</button>
+          <button class="fkey"><kbd>F5</kbd> Reset</button>
+          <span class="spacer"></span>
+          <button class="fkey"><kbd>F8</kbd> Save & Close</button>
+          <button class="fkey primary"><kbd>F1</kbd> Save</button>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── CUSTOMER + CATEGORY (compact fallback) ─── -->
+  <div class="row compact" style="margin-top:28px;">
+
+    <div>
+      <span class="mock-tag">Customer · Workspace · 3 sections</span>
+      <div class="efm" style="max-width:none; height:520px;">
+        <aside class="efm-rail">
+          <div class="efm-rail-hd">
+            <div class="efm-rail-ic" style="background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.28);color:#4ade80;">C</div>
+            <div class="efm-rail-ttl">Add Customer<span class="sub">Walk-in or credit</span></div>
+          </div>
+          <ul class="efm-rail-list">
+            <li class="efm-rail-item on"><span class="num">1</span><span class="lbl">Identity</span><span class="key">F2</span></li>
+            <li class="efm-rail-item"><span class="num">2</span><span class="lbl">Address</span><span class="key">F3</span></li>
+            <li class="efm-rail-item"><span class="num">3</span><span class="lbl">Credit</span><span class="key">F4</span></li>
+          </ul>
+          <div class="efm-rail-foot"><kbd>↑</kbd> <kbd>↓</kbd> navigate</div>
+        </aside>
+        <div class="efm-pane">
+          <header class="efm-pane-hd">
+            <div class="efm-pane-hd-l"><h3>Identity</h3><div class="sub">Name, mobile, GST</div></div>
+            <div class="efm-pane-hd-step">Step <b>1</b> of 3</div>
+          </header>
+          <div class="efm-pane-body">
+            <div class="efm-grid">
+              <div class="efm-field full">
+                <label class="efm-lbl">Party Name <span class="req">*</span></label>
+                <input class="efm-input" placeholder="Bharat Wholesale" />
+              </div>
+              <div class="efm-field full">
+                <label class="efm-lbl">Mobile <span class="req">*</span></label>
+                <input class="efm-input" placeholder="+91 XXXXX XXXXX" />
+              </div>
+              <div class="efm-field full">
+                <label class="efm-lbl">GST Number</label>
+                <input class="efm-input" placeholder="22AAAAA0000A1Z5" style="font-family:'JetBrains Mono',monospace;" />
+                <span class="efm-help">Optional · 15 chars · validated on save</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer class="efm-ft">
+          <button class="fkey danger"><kbd>Esc</kbd> Cancel</button>
+          <button class="fkey"><kbd>F5</kbd> Reset</button>
+          <span class="spacer"></span>
+          <button class="fkey primary"><kbd>F1</kbd> Save</button>
+        </footer>
+      </div>
+    </div>
+
+    <div>
+      <span class="mock-tag">Category · single section · falls back to compact shell</span>
+      <div class="efm-compact">
+        <header class="efm-pane-hd">
+          <div class="efm-pane-hd-l" style="display:flex;align-items:center;gap:9px;">
+            <div class="efm-rail-ic" style="background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.28);color:#fbbf24;">⌘</div>
+            <div>
+              <h3>Add Category</h3>
+              <div class="sub">Top-level inventory grouping</div>
+            </div>
+          </div>
+          <button class="fkey" style="height:26px;padding:0 8px;"><kbd>Esc</kbd></button>
+        </header>
+        <div class="efm-pane-body" style="padding:16px 18px 18px;">
+          <div class="efm-grid">
+            <div class="efm-field full">
+              <label class="efm-lbl">Category Name <span class="req">*</span></label>
+              <input class="efm-input" placeholder="e.g. Sarees" />
+              <span class="efm-help">Used in product master + reports drill-down</span>
+            </div>
+            <div class="efm-field full">
+              <label class="efm-lbl">Description</label>
+              <textarea class="efm-textarea" placeholder="Internal notes (optional)"></textarea>
+            </div>
+            <div class="efm-field">
+              <label class="efm-lbl">Status</label>
+              <div class="efm-pills"><button class="on">Active</button><button>Inactive</button></div>
+            </div>
+            <div class="efm-field">
+              <label class="efm-lbl">Sort Order</label>
+              <input class="efm-input" placeholder="0" />
+            </div>
+          </div>
+        </div>
+        <footer class="efm-ft" style="grid-column: auto;">
+          <button class="fkey danger"><kbd>Esc</kbd> Cancel</button>
+          <button class="fkey"><kbd>F5</kbd> Reset</button>
+          <span class="spacer"></span>
+          <button class="fkey primary"><kbd>F1</kbd> Save</button>
+        </footer>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Notes -->
+  <div class="notes">
+    <h3>Why this layout — v2 Workspace</h3>
+    <div class="notes-grid">
+      <div class="note-item">
+        <h4>Section nav as muscle memory</h4>
+        <code>F2 / F3 / F4</code> jump between Identifiers / Pricing / Inventory
+        without arrow nav. The rail visually anchors which step you're on; the
+        right pane shows only that step's fields, so the operator never scrolls
+        through 25 fields at once.
+      </div>
+      <div class="note-item">
+        <h4>Step counter + done state</h4>
+        Top-right of the pane shows <code>Step 1 of 3</code>. Already-edited
+        sections get a green ✓ in the rail. Operator always knows where they
+        are and where they've been. F1 still saves the WHOLE form (no per-step
+        save).
+      </div>
+      <div class="note-item">
+        <h4>Short forms collapse</h4>
+        Category has only one section, so it falls back to a single-pane
+        compact modal (~460 px wide) — no empty rail. Same shell logic, same
+        F-key footer; the rail just doesn't render when there's nothing to
+        navigate.
+      </div>
+      <div class="note-item">
+        <h4>Trade-off vs v1</h4>
+        v1 keeps everything visible — fast for 3-field forms, scrolly for
+        Product. v2 is the opposite — slower for tiny forms (extra rail
+        chrome), much faster for Product because each step is one screen.
+        Choose v2 if your most-edited form is the complex one.
+      </div>
+      <div class="note-item">
+        <h4>Keyboard contract — same as v1</h4>
+        <code>Esc</code> cancel · <code>F5</code> reset · <code>F8</code> save & close ·
+        <code>F1</code> save · plus <code>F2/F3/F4</code> for section jumps and
+        <code>↑↓</code> when focus is on the rail.
+      </div>
+      <div class="note-item">
+        <h4>Width</h4>
+        Modal is ~820 px (rail 200 + pane 620). Comfortable on a 1366-wide
+        laptop with the sidebar collapsed; on smaller windows the rail can
+        compress to icons-only or hide behind a hamburger toggle (deferred —
+        first ship at 820).
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

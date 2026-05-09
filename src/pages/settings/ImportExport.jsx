@@ -33,6 +33,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { dataAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import './ModuleSettings.css';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -173,15 +174,17 @@ export default function ImportExport() {
   /* ── Render ─────────────────────────────────────────────────────────── */
 
   return (
-    <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
-      <div style={{ marginBottom: 20 }}>
-        <Title level={3} style={{ margin: 0 }}>Import &amp; Export</Title>
-        <Text type="secondary">
-          Move master data in and out of the ERP via Excel (.xlsx). Each entity has a
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <h1 className="ms-page-title">Import &amp; Export</h1>
+        <p className="ms-page-sub">
+          Move master data in and out via Excel (.xlsx). Each entity has a
           downloadable template with an Instructions sheet.
-        </Text>
-      </div>
+        </p>
+      </header>
 
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
       {/* Entity picker */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 20 }}>
         {ENTITIES.map(e => {
@@ -353,6 +356,8 @@ export default function ImportExport() {
           }
         />
       </Modal>
+        </div>
+      </div>
 
       <ActionStrip
         actions={[

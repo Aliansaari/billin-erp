@@ -6,12 +6,13 @@ import {
 import {
   SaveOutlined, BarcodeOutlined, DeleteOutlined, EyeOutlined,
   EyeInvisibleOutlined, BoldOutlined, PlusOutlined, ReloadOutlined,
-  PrinterOutlined,
+  PrinterOutlined, SlidersOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import JsBarcode from 'jsbarcode';
 import { settingsAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import './ModuleSettings.css';
 
 // ── Print helpers (shared with test print) ────────────────────────────────────
 const ptMm = (pt) => +((pt / 72) * 25.4).toFixed(3);
@@ -195,23 +196,41 @@ function LabelCanvas({ labelSize, codeType, elements, selectedId, onSelect, onMo
         position: 'relative',
         width: canvasW,
         height: canvasH,
-        background: 'white',
-        border: '2px solid #374151',
-        borderRadius: 2,
+        background: '#ffffff',
+        /* Soft 1px border + layered shadow gives the "lifted printed
+         * label sitting on a desk" effect — replaces the heavy 2px
+         * dark-gray frame which read as utilitarian admin chrome. */
+        border: '1px solid #D4D4D8',
+        borderRadius: 4,
         overflow: 'hidden',
         cursor: 'default',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+        boxShadow:
+          '0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.12), 0 16px 48px rgba(0, 0, 0, 0.06)',
         flexShrink: 0,
       }}
     >
-      {/* mm grid dots */}
-      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', opacity: 0.12 }}>
-        {Array.from({ length: Math.floor(w / 5) + 1 }, (_, i) => (
-          <line key={`vg${i}`} x1={i * 5 * SCALE} y1={0} x2={i * 5 * SCALE} y2={canvasH} stroke="#6b7280" strokeWidth="0.5" strokeDasharray="2,2" />
-        ))}
-        {Array.from({ length: Math.floor(h / 5) + 1 }, (_, i) => (
-          <line key={`hg${i}`} x1={0} y1={i * 5 * SCALE} x2={canvasW} y2={i * 5 * SCALE} stroke="#6b7280" strokeWidth="0.5" strokeDasharray="2,2" />
-        ))}
+      {/* 1mm dot grid + 5mm major lines — gives a graph-paper feel
+       * the operator can register positions against, instead of an
+       * empty white slab. Both layers are subtle so the actual
+       * label content stays the focus. */}
+      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+        {/* 1mm dots */}
+        <g opacity="0.10">
+          {Array.from({ length: Math.floor(w) + 1 }, (_, x) =>
+            Array.from({ length: Math.floor(h) + 1 }, (_, y) => (
+              <circle key={`d${x}-${y}`} cx={x * SCALE} cy={y * SCALE} r="0.5" fill="#374151" />
+            ))
+          )}
+        </g>
+        {/* 5mm grid */}
+        <g opacity="0.12">
+          {Array.from({ length: Math.floor(w / 5) + 1 }, (_, i) => (
+            <line key={`vg${i}`} x1={i * 5 * SCALE} y1={0} x2={i * 5 * SCALE} y2={canvasH} stroke="#6b7280" strokeWidth="0.4" />
+          ))}
+          {Array.from({ length: Math.floor(h / 5) + 1 }, (_, i) => (
+            <line key={`hg${i}`} x1={0} y1={i * 5 * SCALE} x2={canvasW} y2={i * 5 * SCALE} stroke="#6b7280" strokeWidth="0.4" />
+          ))}
+        </g>
       </svg>
 
       {elements.filter(el => el.visible).map(el => {
@@ -230,9 +249,9 @@ function LabelCanvas({ labelSize, codeType, elements, selectedId, onSelect, onMo
               top: el.y * SCALE,
               cursor: 'grab',
               userSelect: 'none',
-              outline: isSelected ? '1.5px dashed #4F46E5' : '1px dashed transparent',
+              outline: isSelected ? '1.5px solid var(--accent)' : '1px dashed transparent',
               outlineOffset: 2,
-              background: isSelected ? 'rgba(79,70,229,0.05)' : 'transparent',
+              background: isSelected ? 'var(--accent-bg)' : 'transparent',
               borderRadius: 2,
               padding: '1px 2px',
               zIndex: isSelected ? 10 : 1,
@@ -265,69 +284,91 @@ function LabelCanvas({ labelSize, codeType, elements, selectedId, onSelect, onMo
 
 // ── Properties Panel ───────────────────────────────────────────────────────────
 function PropertiesPanel({ element, labelSize, onUpdate }) {
-  if (!element) return (
-    <div style={{ padding: '24px 16px', textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
-      Click an element on the canvas to edit its properties
-    </div>
-  );
+  if (!element) {
+    return (
+      <div className="bcd-props-empty">
+        <div className="bcd-props-empty-icon" aria-hidden="true">
+          <SlidersOutlined />
+        </div>
+        <div className="bcd-props-empty-title">Nothing selected</div>
+        <div className="bcd-props-empty-hint">
+          Click a field on the left, or any element on the label, to edit its properties.
+        </div>
+      </div>
+    );
+  }
 
   const { w, h } = LABEL_SIZES[labelSize];
-  const meta = FIELD_META[element.id];
+  const isCode = element.id === 'code';
 
   return (
-    <div style={{ padding: '12px 16px' }}>
-      <div style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', marginBottom: 12, borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>
-        {meta?.label}
+    <div className="bcd-props">
+      {/* Position group — X/Y as a coordinate pair */}
+      <div className="bcd-props-group">
+        <div className="bcd-props-group-title">Position</div>
+        <div className="bcd-props-grid-2">
+          <label className="bcd-props-field">
+            <span className="bcd-props-field-label">X · mm</span>
+            <InputNumber size="small" min={0} max={w} step={0.5} value={element.x}
+              onChange={v => onUpdate('x', v)} style={{ width: '100%' }} />
+          </label>
+          <label className="bcd-props-field">
+            <span className="bcd-props-field-label">Y · mm</span>
+            <InputNumber size="small" min={0} max={h} step={0.5} value={element.y}
+              onChange={v => onUpdate('y', v)} style={{ width: '100%' }} />
+          </label>
+        </div>
       </div>
 
-      <div style={{ marginBottom: 10 }}>
-        <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>POSITION X (mm)</label>
-        <InputNumber size="small" min={0} max={w} step={0.5} value={element.x}
-          onChange={v => onUpdate('x', v)} style={{ width: '100%' }} />
-      </div>
-
-      <div style={{ marginBottom: 10 }}>
-        <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>POSITION Y (mm)</label>
-        <InputNumber size="small" min={0} max={h} step={0.5} value={element.y}
-          onChange={v => onUpdate('y', v)} style={{ width: '100%' }} />
-      </div>
-
-      {element.id === 'code' ? (
-        <div style={{ marginBottom: 10 }}>
-          <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>SIZE (mm)</label>
-          <InputNumber size="small" min={5} max={45} step={1} value={element.size || 12}
-            onChange={v => onUpdate('size', v)} style={{ width: '100%' }} />
+      {/* Type-specific group */}
+      {isCode ? (
+        <div className="bcd-props-group">
+          <div className="bcd-props-group-title">Code</div>
+          <label className="bcd-props-field">
+            <span className="bcd-props-field-label">Size · mm</span>
+            <InputNumber size="small" min={5} max={45} step={1} value={element.size || 12}
+              onChange={v => onUpdate('size', v)} style={{ width: '100%' }} />
+          </label>
         </div>
       ) : (
         <>
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>FONT SIZE (pt)</label>
-            <InputNumber size="small" min={5} max={20} value={element.fontSize}
-              onChange={v => onUpdate('fontSize', v)} style={{ width: '100%' }} />
-          </div>
-
-          <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <label style={{ fontSize: 11, color: '#6b7280' }}>BOLD</label>
-            <Switch size="small" checked={element.bold} onChange={v => onUpdate('bold', v)} />
-          </div>
-
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>PREFIX / LABEL</label>
-            <Input size="small"
-              value={element.prefix ?? ''}
-              onChange={e => onUpdate('prefix', e.target.value)}
-              placeholder={FIELD_META[element.id]?.defaultPrefix || 'e.g. Name:'}
-              style={{ width: '100%' }} />
-            <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 3 }}>
-              Shown before value · leave blank for none
+          <div className="bcd-props-group">
+            <div className="bcd-props-group-title">Typography</div>
+            <div className="bcd-props-grid-2">
+              <label className="bcd-props-field">
+                <span className="bcd-props-field-label">Font · pt</span>
+                <InputNumber size="small" min={5} max={20} value={element.fontSize}
+                  onChange={v => onUpdate('fontSize', v)} style={{ width: '100%' }} />
+              </label>
+              <div className="bcd-props-toggle bcd-props-toggle-compact">
+                <span className="bcd-props-field-label">Bold</span>
+                <Switch size="small" checked={element.bold} onChange={v => onUpdate('bold', v)} />
+              </div>
             </div>
+          </div>
+
+          <div className="bcd-props-group">
+            <div className="bcd-props-group-title">Label text</div>
+            <label className="bcd-props-field">
+              <span className="bcd-props-field-label">Prefix (optional)</span>
+              <Input
+                size="small"
+                value={element.prefix ?? ''}
+                onChange={e => onUpdate('prefix', e.target.value)}
+                placeholder={FIELD_META[element.id]?.defaultPrefix || 'e.g. Name:'}
+                allowClear
+              />
+              <span className="bcd-props-hint">Shown before the value · leave blank for none</span>
+            </label>
           </div>
         </>
       )}
 
-      <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <label style={{ fontSize: 11, color: '#6b7280' }}>VISIBLE</label>
-        <Switch size="small" checked={element.visible} onChange={v => onUpdate('visible', v)} />
+      <div className="bcd-props-group">
+        <div className="bcd-props-toggle">
+          <span className="bcd-props-field-label">Show on label</span>
+          <Switch size="small" checked={element.visible} onChange={v => onUpdate('visible', v)} />
+        </div>
       </div>
     </div>
   );
@@ -368,17 +409,30 @@ export default function BarcodeSettings() {
     setLoadingSettings(true);
     try {
       const { data } = await settingsAPI.getBarcode();
-      form.setFieldsValue(data.data);
-      updatePreview(data.data);
+      // Older rows may predate the separator column — default to '-'
+      // so the form shows something sensible and existing barcodes
+      // keep their previous shape.
+      const settings = { separator: '-', ...(data.data || {}) };
+      if (settings.separator === null || settings.separator === undefined) settings.separator = '-';
+      form.setFieldsValue(settings);
+      updatePreview(settings);
     } catch (_) {}
     setLoadingSettings(false);
   };
 
   const updatePreview = (values) => {
+    // Mirrors server/utils/barcode.js exactly — empty prefix means
+    // pure numbers (no separator); otherwise the user-picked separator
+    // (- / _ / / / . / none) joins prefix and number and counts toward
+    // total_digits.
     const prefix = values?.prefix || '';
+    const sepRaw = values?.separator ?? '-';
+    const separator = prefix ? sepRaw : '';
     const number = values?.current_number || values?.starting_number || 1;
-    const digits = values?.total_digits || 6;
-    setPreview(`${prefix}${String(number).padStart(digits, '0')}`);
+    const totalDigits = values?.total_digits || 13;
+    const usedChars = prefix.length + separator.length;
+    const numDigits = Math.max(1, totalDigits - usedChars);
+    setPreview(`${prefix}${separator}${String(number).padStart(numDigits, '0')}`);
   };
 
   const handleSettingsSave = async (values) => {
@@ -519,135 +573,147 @@ export default function BarcodeSettings() {
   const { w, h } = LABEL_SIZES[labelSize];
 
   return (
-    <div>
-      <Title level={3} style={{ marginBottom: 20 }}>Barcode Settings</Title>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <h1 className="ms-page-title">Barcode</h1>
+        <p className="ms-page-sub">
+          Design barcode labels for shelf printing and configure label-numbering rules.
+        </p>
+      </header>
 
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
         {
           key: 'designer',
           label: <span><BarcodeOutlined /> Label Designer</span>,
           children: (
             <div>
-              {/* Toolbar */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 12,
-                background: 'white', padding: '12px 16px', borderRadius: 10,
-                border: '1px solid #e5e7eb', marginBottom: 16,
-                flexWrap: 'wrap',
-              }}>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginRight: 6 }}>SIZE:</label>
-                  <Select value={labelSize} onChange={handleSizeChange} style={{ width: 200 }} size="small">
+              {/* Toolbar — single row that doesn't wrap. Labelled
+               * controls hug the left, action cluster hugs the right.
+               * No section padding around it (.bcd-toolbar overrides
+               * ms-section's defaults) so the row reads as a strip,
+               * not a card. */}
+              <section className="bcd-toolbar">
+                <div className="bcd-toolbar-field">
+                  <label className="bcd-toolbar-label" htmlFor="bcd-size">Size</label>
+                  <Select id="bcd-size" value={labelSize} onChange={handleSizeChange} style={{ width: 200 }}>
                     {Object.entries(LABEL_SIZES).map(([k, v]) => (
                       <Select.Option key={k} value={k}>{v.label}</Select.Option>
                     ))}
                   </Select>
                 </div>
 
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginRight: 6 }}>CODE TYPE:</label>
-                  <Select value={codeType} onChange={v => { setCodeType(v); }} style={{ width: 140 }} size="small">
+                <div className="bcd-toolbar-field">
+                  <label className="bcd-toolbar-label" htmlFor="bcd-codetype">Code type</label>
+                  <Select id="bcd-codetype" value={codeType} onChange={v => { setCodeType(v); }} style={{ width: 150 }}>
                     <Select.Option value="barcode">Barcode (1D)</Select.Option>
                     <Select.Option value="qrcode">QR Code (2D)</Select.Option>
                   </Select>
                 </div>
 
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-                  <Button size="small" icon={<ReloadOutlined />} onClick={handleResetDesign}>
-                    Reset
-                  </Button>
-                  <Button size="small" icon={<PrinterOutlined />} onClick={handleTestPrint}
-                    loading={testPrinting} style={{ borderColor: '#059669', color: '#059669' }}>
-                    Test Print
-                  </Button>
-                  <Button size="small" type="primary" icon={<SaveOutlined />} onClick={handleSaveDesign}
-                    style={{ background: '#4F46E5', borderColor: '#4F46E5' }}>
-                    Save Design
-                  </Button>
+                <div className="bcd-toolbar-divider" />
+
+                <div className="bcd-toolbar-actions">
+                  <Button icon={<ReloadOutlined />} onClick={handleResetDesign}>Reset</Button>
+                  <Button icon={<PrinterOutlined />} onClick={handleTestPrint} loading={testPrinting}>Test print</Button>
+                  <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveDesign}>Save design</Button>
                 </div>
-              </div>
+              </section>
 
-              {/* Designer body */}
-              <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-
+              {/* Designer body — three columns sharing the same card
+               * shell with subtle uppercase headers, matching the rest
+               * of the settings UI. */}
+              <div className="bcd-grid">
                 {/* Fields panel */}
-                <div style={{
-                  width: 160, flexShrink: 0, background: 'white', borderRadius: 10,
-                  border: '1px solid #e5e7eb', overflow: 'hidden',
-                }}>
-                  <div style={{ background: '#4F46E5', color: 'white', fontSize: 11, fontWeight: 700, padding: '8px 12px', letterSpacing: 0.5 }}>
-                    FIELDS
+                <section className="ms-section bcd-panel">
+                  <div className="ms-section-head" style={{ marginBottom: 0, paddingBottom: 12, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                    <h2 className="ms-section-title">Fields</h2>
+                    <span style={{ fontSize: 11, color: 'var(--fg-tertiary)' }}>
+                      {elements.filter(el => el.visible).length}/{elements.length} on
+                    </span>
                   </div>
-                  {Object.entries(FIELD_META).map(([id, meta]) => {
-                    const elem = elements.find(el => el.id === id);
-                    const isVisible = elem?.visible ?? false;
-                    return (
-                      <div key={id}
-                        onClick={() => { setSelectedId(id); }}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          padding: '7px 10px', borderBottom: '1px solid #f3f4f6',
-                          background: selectedId === id ? '#eef2ff' : 'white',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <span style={{ fontSize: 12, color: isVisible ? '#111827' : '#9ca3af', fontWeight: selectedId === id ? 600 : 400 }}>
-                          {meta.label}
-                        </span>
-                        <Tooltip title={isVisible ? 'Hide' : 'Show'}>
-                          <span onClick={e => { e.stopPropagation(); handleToggleVisible(id); }}
-                            style={{ cursor: 'pointer', color: isVisible ? '#4F46E5' : '#d1d5db', fontSize: 14 }}>
-                            {isVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-                          </span>
-                        </Tooltip>
-                      </div>
-                    );
-                  })}
-                </div>
+                  <div className="bcd-fields-list">
+                    {Object.entries(FIELD_META).map(([id, meta]) => {
+                      const elem = elements.find(el => el.id === id);
+                      const isVisible = elem?.visible ?? false;
+                      const isSelected = selectedId === id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => { setSelectedId(id); }}
+                          className={`bcd-field-row${isSelected ? ' active' : ''}${isVisible ? '' : ' hidden'}`}
+                        >
+                          <span className="bcd-field-label">{meta.label}</span>
+                          <Tooltip title={isVisible ? 'Hide on label' : 'Show on label'}>
+                            <span
+                              onClick={e => { e.stopPropagation(); handleToggleVisible(id); }}
+                              className={`bcd-field-eye${isVisible ? ' on' : ''}`}
+                            >
+                              {isVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                            </span>
+                          </Tooltip>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
 
-                {/* Canvas area */}
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                  <div style={{ fontSize: 11, color: '#6b7280', background: '#f9fafb', padding: '4px 12px', borderRadius: 20, border: '1px solid #e5e7eb' }}>
-                    {w}mm × {h}mm · Drag elements to reposition · Click to select
+                {/* Canvas */}
+                <section className="ms-section bcd-canvas-card">
+                  <div className="ms-section-head" style={{ marginBottom: 0, paddingBottom: 12, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                    <h2 className="ms-section-title">Preview</h2>
+                    <span style={{ fontSize: 11, color: 'var(--fg-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
+                      {w} × {h} mm · drag to reposition
+                    </span>
                   </div>
-                  <LabelCanvas
-                    labelSize={labelSize}
-                    codeType={codeType}
-                    elements={elements}
-                    selectedId={selectedId}
-                    onSelect={setSelectedId}
-                    onMove={handleMove}
-                  />
-                  <div style={{ fontSize: 11, color: '#9ca3af' }}>
-                    Grid lines every 5mm
+                  <div className="bcd-canvas-stage">
+                    <LabelCanvas
+                      labelSize={labelSize}
+                      codeType={codeType}
+                      elements={elements}
+                      selectedId={selectedId}
+                      onSelect={setSelectedId}
+                      onMove={handleMove}
+                    />
                   </div>
-                </div>
+                  <div style={{ marginTop: 10, fontSize: 11, color: 'var(--fg-tertiary)', textAlign: 'center' }}>
+                    Grid lines every 5 mm
+                  </div>
+                </section>
 
                 {/* Properties panel */}
-                <div style={{
-                  width: 180, flexShrink: 0, background: 'white', borderRadius: 10,
-                  border: '1px solid #e5e7eb', overflow: 'hidden',
-                }}>
-                  <div style={{ background: '#f3f4f6', fontSize: 11, fontWeight: 700, padding: '8px 12px', color: '#374151', letterSpacing: 0.5 }}>
-                    PROPERTIES
+                <section className="ms-section bcd-panel">
+                  <div className="ms-section-head" style={{ marginBottom: 0, paddingBottom: 12 }}>
+                    <h2 className="ms-section-title">Properties</h2>
+                    <p className="ms-section-desc">
+                      {selectedElem ? FIELD_META[selectedElem.id]?.label : 'Pick a field on the left or canvas.'}
+                    </p>
                   </div>
                   <PropertiesPanel
                     element={selectedElem}
                     labelSize={labelSize}
                     onUpdate={handleUpdateProp}
                   />
-                </div>
-
+                </section>
               </div>
 
-              {/* Legend */}
-              <div style={{ marginTop: 16, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+              {/* Legend — clean inline strip instead of indigo Tag pills.
+               * Visible fields enumerate as small chips so the operator
+               * sees what's currently being printed. */}
+              <div className="bcd-legend">
+                <span className="bcd-legend-label">Showing on label:</span>
+                {Object.entries(FIELD_META).filter(([id]) => elements.find(el => el.id === id)?.visible).length === 0 && (
+                  <span style={{ fontSize: 12, color: 'var(--fg-tertiary)', fontStyle: 'italic' }}>nothing yet — toggle a field on</span>
+                )}
                 {Object.entries(FIELD_META).filter(([id]) => elements.find(el => el.id === id)?.visible).map(([id, meta]) => (
-                  <Tag key={id} color="geekblue" style={{ fontSize: 11 }}>{meta.label}</Tag>
+                  <span key={id} className="bcd-legend-chip">{meta.label}</span>
                 ))}
-                <Tag color="default" style={{ fontSize: 11 }}>
+                <span style={{ flex: 1 }} />
+                <span style={{ fontSize: 11, color: 'var(--fg-tertiary)' }}>
                   Design applies to all barcode prints
-                </Tag>
+                </span>
               </div>
             </div>
           ),
@@ -663,31 +729,57 @@ export default function BarcodeSettings() {
                     onValuesChange={(_, all) => updatePreview(all)}>
                     <Row gutter={16}>
                       <Col xs={24} md={12}>
-                        <Form.Item name="prefix" label="Prefix" rules={[{ required: true }]}>
-                          <Input placeholder="e.g. PRD" />
+                        <Form.Item
+                          name="prefix"
+                          label="Prefix (optional)"
+                          extra="Leave blank for pure-numeric barcodes."
+                        >
+                          <Input placeholder="e.g. PRD — leave blank for numbers only" allowClear />
                         </Form.Item>
                       </Col>
                       <Col xs={24} md={12}>
-                        <Form.Item name="total_digits" label="Total Digits" rules={[{ required: true }]}>
-                          <InputNumber min={4} max={12} style={{ width: '100%' }} />
+                        <Form.Item
+                          name="separator"
+                          label="Separator"
+                          extra="Joins prefix and number. Ignored when prefix is blank."
+                        >
+                          <Select
+                            options={[
+                              { value: '-', label: 'Hyphen  —  PROD-04039' },
+                              { value: '_', label: 'Underscore  —  PROD_04039' },
+                              { value: '/', label: 'Slash  —  PROD/04039' },
+                              { value: '.', label: 'Dot  —  PROD.04039' },
+                              { value: '',  label: 'None  —  PROD04039' },
+                            ]}
+                          />
                         </Form.Item>
                       </Col>
                     </Row>
                     <Row gutter={16}>
                       <Col xs={24} md={12}>
+                        <Form.Item name="total_digits" label="Total Digits" rules={[{ required: true }]}>
+                          <InputNumber min={4} max={12} style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={12}>
                         <Form.Item name="starting_number" label="Starting Number" rules={[{ required: true }]}>
                           <InputNumber min={1} style={{ width: '100%' }} />
                         </Form.Item>
                       </Col>
+                    </Row>
+                    <Row gutter={16}>
                       <Col xs={24} md={12}>
                         <Form.Item name="current_number" label="Current Number">
                           <InputNumber disabled style={{ width: '100%' }} />
                         </Form.Item>
                       </Col>
                     </Row>
-                    <Form.Item name="format_pattern" label="Format Pattern">
-                      <Input placeholder="e.g. {prefix}-{number}" />
-                    </Form.Item>
+                    {/* Format Pattern field removed — it was a stub the
+                     * UI saved but neither the preview nor the backend
+                     * generator ever read. The four fields above
+                     * (Prefix / Total Digits / Starting / Current)
+                     * deterministically define the output, and the
+                     * Barcode Preview to the right reflects it live. */}
                     <Form.Item>
                       <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={savingSettings}>
                         Save Settings
@@ -699,7 +791,7 @@ export default function BarcodeSettings() {
               <Col xs={24} lg={10}>
                 <Card>
                   <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                    <BarcodeOutlined style={{ fontSize: 48, color: '#4F46E5', marginBottom: 16 }} />
+                    <BarcodeOutlined style={{ fontSize: 48, color: 'var(--accent)', marginBottom: 16 }} />
                     <Title level={4}>Barcode Preview</Title>
                     <Divider />
                     <div style={{ background: '#fff', border: '2px dashed #d9d9d9', borderRadius: 8, padding: '24px 16px', marginBottom: 16 }}>
@@ -715,6 +807,8 @@ export default function BarcodeSettings() {
           ),
         },
       ]} />
+        </div>
+      </div>
 
       <ActionStrip
         actions={[

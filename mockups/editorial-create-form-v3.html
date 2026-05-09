@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Create Form Mockup — v3 Side Drawer</title>
+<style>
+/* ========================================================================
+   v3 — Side Drawer.
+   Slides in from the right edge. Width ~480 px. NO full-screen backdrop —
+   the list page behind stays visible (and clickable to dismiss). Single
+   scrollable column inside the drawer, sections stacked with hairline
+   dividers. Footer F-keys identical to v1/v2: Esc · F5 · F8 · F1.
+
+   Why a drawer instead of a modal:
+   - Operator can still see the list they came from (e.g. ProductList)
+     while the new entity is being entered. Useful when the new entry
+     references the list (e.g. picking a parent category that's visible
+     in the page behind).
+   - No dim flash on open / close — feels lighter, more like a tool.
+   - Same shell can grow tall without bumping into the modal-height ceiling.
+   ======================================================================== */
+:root {
+  --bg-app:        #0d1117;
+  --bg-panel:      #151b24;
+  --bg-elevated:   #1a212c;
+  --bg-muted:      #1f2630;
+  --bg-hover:      #232a35;
+
+  --fg-primary:    #e6edf3;
+  --fg-secondary:  #b0b8c4;
+  --fg-tertiary:   #6e7681;
+  --fg-inverse:    #ffffff;
+
+  --accent:        #818cf8;
+  --accent-bg:     rgba(129, 140, 248, 0.12);
+  --accent-border: rgba(129, 140, 248, 0.32);
+
+  --success:       #4ade80;
+  --warning:       #fbbf24;
+  --danger:        #f87171;
+  --danger-bg:     rgba(248, 113, 113, 0.10);
+
+  --border:        #2a313e;
+  --border-subtle: #232a35;
+
+  --kbd-bg:        #232a35;
+  --kbd-border:    #3a4252;
+
+  --shadow-drawer: -16px 0 32px rgba(0, 0, 0, 0.45), -4px 0 12px rgba(0, 0, 0, 0.30);
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; min-height: 100vh;
+  font-family: 'Source Sans 3', -apple-system, system-ui, sans-serif;
+  background: var(--bg-app); color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+.page-wrap { max-width: 1700px; margin: 0 auto; padding: 32px 28px 80px; }
+.page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; }
+.page-sub { font-size: 12.5px; color: var(--fg-secondary); margin: 0 0 28px; max-width: 700px; line-height: 1.55; }
+.page-sub b { color: var(--fg-primary); font-weight: 600; }
+
+.mock-tag {
+  display: inline-block; margin-bottom: 10px; padding: 2px 8px;
+  font: 600 10px/1.5 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 3px; color: var(--fg-secondary);
+}
+
+/* ─── Stage simulating the page behind ─── */
+.stage {
+  position: relative;
+  height: 640px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-panel);
+  display: flex; flex-direction: column;
+  margin-bottom: 28px;
+}
+.stage-hd {
+  flex-shrink: 0;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  display: flex; align-items: center; gap: 10px;
+}
+.stage-hd h2 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -0.005em; }
+.stage-hd .sub { font-size: 11px; color: var(--fg-tertiary); font-weight: 500; }
+.stage-list {
+  flex: 1; min-height: 0;
+  padding: 8px;
+  overflow-y: auto;
+  font-size: 11.5px;
+}
+.stage-row {
+  display: grid; grid-template-columns: 1fr 90px 100px 90px;
+  gap: 10px; padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--fg-secondary);
+}
+.stage-row.head {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.stage-row.muted { opacity: 0.55; }
+.stage-row b { color: var(--fg-primary); font-weight: 600; }
+
+/* ─── Drawer ─── */
+.drw {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: 480px;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-drawer);
+  display: flex; flex-direction: column;
+  z-index: 5;
+}
+/* Subtle dim ONLY behind the drawer, not full-screen */
+.stage::before {
+  content: ""; position: absolute;
+  top: 0; left: 0; bottom: 0; right: 480px;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.drw-hd {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  display: flex; align-items: center; gap: 12px;
+}
+.drw-hd .ic {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  color: var(--accent);
+  font-weight: 700; font-size: 13px;
+}
+.drw-hd-ttl { flex: 1; min-width: 0; }
+.drw-hd-ttl h3 {
+  margin: 0; font-size: 14px; font-weight: 700;
+  letter-spacing: -0.005em; line-height: 1.2;
+  color: var(--fg-primary);
+}
+.drw-hd-ttl .sub {
+  margin-top: 2px;
+  font-size: 10.5px; color: var(--fg-tertiary);
+  font-weight: 500; letter-spacing: 0.02em;
+}
+.drw-hd-x {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  background: transparent; border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+}
+.drw-hd-x:hover { background: var(--bg-hover); color: var(--fg-primary); }
+
+.drw-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  scrollbar-width: thin;
+}
+.drw-body::-webkit-scrollbar { width: 6px; }
+.drw-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.drw-section { padding: 14px 16px 16px; }
+.drw-section + .drw-section { border-top: 1px solid var(--border-subtle); }
+.drw-section-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 0 0 12px;
+}
+.drw-section-hd .lbl {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.drw-section-hd kbd {
+  display: inline-block; padding: 2px 5px;
+  background: var(--kbd-bg); border: 1px solid var(--kbd-border);
+  border-radius: 3px;
+  font: 700 9.5px/1 'JetBrains Mono', monospace;
+  color: var(--fg-secondary);
+}
+
+.drw-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+.drw-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.drw-field { display: flex; flex-direction: column; gap: 4px; }
+.drw-field.full { grid-column: 1 / -1; }
+
+.drw-lbl {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--fg-tertiary);
+  display: flex; align-items: center; gap: 4px;
+}
+.drw-lbl .req { color: var(--danger); font-weight: 700; }
+
+.drw-input, .drw-select, .drw-textarea {
+  height: 32px; padding: 0 10px;
+  background: var(--bg-app); border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-primary);
+  font: inherit; font-size: 13px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color .12s, box-shadow .12s;
+}
+.drw-textarea { height: auto; min-height: 64px; padding: 8px 10px; resize: vertical; }
+.drw-input:focus, .drw-select:focus, .drw-textarea:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg);
+}
+.drw-input::placeholder, .drw-textarea::placeholder { color: var(--fg-tertiary); font-weight: 500; }
+.drw-help { font-size: 10.5px; color: var(--fg-tertiary); font-weight: 500; }
+
+.drw-select {
+  appearance: none;
+  background:
+    var(--bg-app)
+    url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3e%3cpath d='M2 4l3 3 3-3' stroke='%236e7681' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e")
+    no-repeat right 10px center;
+  padding-right: 28px;
+}
+
+.drw-suffix { display: flex; align-items: stretch; }
+.drw-suffix .drw-input {
+  border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0;
+  flex: 1; min-width: 0;
+}
+.drw-suffix .unit {
+  display: grid; place-items: center; padding: 0 10px;
+  background: var(--bg-muted); border: 1px solid var(--border);
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+  font-size: 11px; font-weight: 600; color: var(--fg-tertiary);
+}
+
+.drw-pills {
+  display: inline-flex; background: var(--bg-app);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px;
+}
+.drw-pills button {
+  background: transparent; border: 0; height: 26px; padding: 0 14px;
+  font: 600 11.5px/1 inherit; color: var(--fg-secondary);
+  cursor: pointer; border-radius: 3px; letter-spacing: 0.02em;
+}
+.drw-pills button.on { background: var(--accent); color: var(--fg-inverse); }
+.drw-pills button:not(.on):hover { color: var(--fg-primary); }
+
+/* Footer (F-keys) */
+.drw-ft {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+}
+.drw-ft .spacer { flex: 1; }
+.fkey {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 30px; padding: 0 10px 0 8px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--fg-secondary);
+  font: 600 11.5px/1 inherit; cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: border-color .12s, color .12s;
+}
+.fkey:hover { border-color: var(--accent-border); color: var(--accent); }
+.fkey kbd {
+  display: inline-block; padding: 2px 5px;
+  background: var(--kbd-bg); border: 1px solid var(--kbd-border);
+  border-radius: 3px;
+  font: 700 10px/1 'JetBrains Mono', monospace;
+  color: var(--fg-secondary);
+}
+.fkey.primary { background: var(--accent); border-color: var(--accent); color: var(--fg-inverse); }
+.fkey.primary kbd { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.28); color: rgba(255,255,255,.95); }
+.fkey.primary:hover { filter: brightness(1.08); }
+.fkey.danger { color: var(--danger); }
+.fkey.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+/* Notes */
+.notes {
+  margin-top: 36px; padding: 22px 24px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px;
+}
+.notes h3 {
+  margin: 0 0 14px; font-size: 14px; font-weight: 700;
+  letter-spacing: 0.02em; text-transform: uppercase;
+  color: var(--fg-secondary);
+}
+.notes-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px 32px; }
+.note-item { font-size: 12.5px; color: var(--fg-secondary); line-height: 1.55; }
+.note-item h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; color: var(--fg-primary); letter-spacing: 0.02em; }
+.note-item code {
+  background: var(--bg-elevated); border: 1px solid var(--border-subtle);
+  border-radius: 3px; padding: 1px 5px;
+  font: 600 11px/1 'JetBrains Mono', monospace;
+  color: var(--fg-primary);
+}
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <h1 class="page-title">Create form — v3 Side Drawer</h1>
+  <p class="page-sub">
+    Slide-from-right drawer (~480 px). The list page behind stays visible
+    (subtly dimmed only on the left side, not full-screen). Same F-key
+    contract as v1/v2 — <b>Esc · F5 · F8 · F1</b>. Single scrollable
+    column inside the drawer; sections stacked with hairline dividers
+    instead of a sidebar nav. Three stages below show the drawer over a
+    Products list, a Customers list, and a Categories list.
+  </p>
+
+  <!-- ════════════ STAGE 1 — PRODUCT drawer over Products list ════════════ -->
+  <span class="mock-tag">Stage 1 · Add Product over Products list</span>
+  <div class="stage">
+
+    <!-- Page behind -->
+    <header class="stage-hd">
+      <h2>Products</h2>
+      <span class="sub">· 4,937 active · drawer below</span>
+    </header>
+    <div class="stage-list">
+      <div class="stage-row head"><span>Product</span><span>Category</span><span>Stock</span><span>Rate</span></div>
+      <div class="stage-row muted"><span><b>Banarasi Silk Saree</b> · 8</span><span>Sarees</span><span>30</span><span>₹50</span></div>
+      <div class="stage-row muted"><span><b>Banarasi Silk Saree</b> · 88</span><span>Sarees</span><span>0</span><span>₹70</span></div>
+      <div class="stage-row muted"><span><b>Cotton Print Floral</b> · 36in</span><span>Cotton Fabric</span><span>190</span><span>₹0</span></div>
+      <div class="stage-row muted"><span><b>Cotton Print Floral Blue</b></span><span>Cotton Fabric</span><span>406</span><span>₹110</span></div>
+      <div class="stage-row muted"><span><b>Cotton Thread Spool 500m</b></span><span>Accessories</span><span>1,776</span><span>₹18</span></div>
+      <div class="stage-row muted"><span><b>Georgette Plain Pink</b></span><span>Synthetic</span><span>440</span><span>₹85</span></div>
+      <div class="stage-row muted"><span><b>Heavy Denim Indigo</b></span><span>Imported</span><span>220</span><span>₹0</span></div>
+    </div>
+
+    <!-- Drawer -->
+    <aside class="drw" role="dialog" aria-label="Add Product">
+      <header class="drw-hd">
+        <div class="ic">P</div>
+        <div class="drw-hd-ttl">
+          <h3>Add Product</h3>
+          <div class="sub">New SKU · saves to master</div>
+        </div>
+        <button class="drw-hd-x" aria-label="Close">✕</button>
+      </header>
+      <div class="drw-body">
+
+        <section class="drw-section">
+          <div class="drw-section-hd">
+            <span class="lbl">Identifiers</span>
+            <kbd>Alt+1</kbd>
+          </div>
+          <div class="drw-grid">
+            <div class="drw-field full">
+              <label class="drw-lbl">Product Name <span class="req">*</span></label>
+              <input class="drw-input" placeholder="e.g. Banarasi Silk Saree" />
+            </div>
+            <div class="drw-field full">
+              <label class="drw-lbl">Category <span class="req">*</span></label>
+              <select class="drw-select"><option>Sarees</option></select>
+              <span class="drw-help">⌘K picker · + new</span>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Size</label>
+              <input class="drw-input" placeholder="M / 38" />
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Article #</label>
+              <input class="drw-input" />
+            </div>
+            <div class="drw-field full">
+              <label class="drw-lbl">Barcode</label>
+              <input class="drw-input" placeholder="auto-generated if blank" />
+            </div>
+          </div>
+        </section>
+
+        <section class="drw-section">
+          <div class="drw-section-hd">
+            <span class="lbl">Pricing</span>
+            <kbd>Alt+2</kbd>
+          </div>
+          <div class="drw-grid cols-3">
+            <div class="drw-field">
+              <label class="drw-lbl">Cost <span class="req">*</span></label>
+              <div class="drw-suffix"><input class="drw-input" value="100.00" /><span class="unit">₹</span></div>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Margin</label>
+              <div class="drw-suffix"><input class="drw-input" value="30" /><span class="unit">%</span></div>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Sale</label>
+              <div class="drw-suffix"><input class="drw-input" value="130.00" /><span class="unit">₹</span></div>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">MRP</label>
+              <div class="drw-suffix"><input class="drw-input" placeholder="0.00" /><span class="unit">₹</span></div>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">GST</label>
+              <select class="drw-select"><option>5%</option></select>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">HSN</label>
+              <input class="drw-input" placeholder="6207" />
+            </div>
+          </div>
+        </section>
+
+        <section class="drw-section">
+          <div class="drw-section-hd">
+            <span class="lbl">Inventory</span>
+            <kbd>Alt+3</kbd>
+          </div>
+          <div class="drw-grid cols-3">
+            <div class="drw-field">
+              <label class="drw-lbl">Opening</label>
+              <input class="drw-input" placeholder="0" />
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Min Level</label>
+              <input class="drw-input" placeholder="0" />
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Pcs / Box</label>
+              <input class="drw-input" placeholder="1" />
+            </div>
+          </div>
+        </section>
+
+      </div>
+      <footer class="drw-ft">
+        <button class="fkey danger"><kbd>Esc</kbd> Cancel</button>
+        <button class="fkey"><kbd>F5</kbd> Reset</button>
+        <span class="spacer"></span>
+        <button class="fkey"><kbd>F8</kbd> Save & Close</button>
+        <button class="fkey primary"><kbd>F1</kbd> Save</button>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- ════════════ STAGE 2 — CUSTOMER drawer over Customers list ════════════ -->
+  <span class="mock-tag">Stage 2 · Add Customer</span>
+  <div class="stage">
+    <header class="stage-hd">
+      <h2>Customers</h2>
+      <span class="sub">· 1,284 active</span>
+    </header>
+    <div class="stage-list">
+      <div class="stage-row head"><span>Name</span><span>Mobile</span><span>Outstanding</span><span>Limit</span></div>
+      <div class="stage-row muted"><span><b>Bharat Wholesale</b></span><span>+91 …4321</span><span>₹15,800</span><span>₹50,000</span></div>
+      <div class="stage-row muted"><span><b>City Mart</b></span><span>+91 …7211</span><span>₹0</span><span>₹25,000</span></div>
+      <div class="stage-row muted"><span><b>Local Cotton Suppliers</b></span><span>+91 …3145</span><span>₹4,200</span><span>—</span></div>
+      <div class="stage-row muted"><span><b>Mahalaxmi Textiles</b></span><span>+91 …8702</span><span>₹0</span><span>₹10,000</span></div>
+      <div class="stage-row muted"><span><b>RS Garments</b></span><span>+91 …4419</span><span>₹38,000</span><span>₹40,000</span></div>
+    </div>
+
+    <aside class="drw" role="dialog">
+      <header class="drw-hd">
+        <div class="ic" style="background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.28);color:#4ade80;">C</div>
+        <div class="drw-hd-ttl"><h3>Add Customer</h3><div class="sub">Walk-in or credit account</div></div>
+        <button class="drw-hd-x">✕</button>
+      </header>
+      <div class="drw-body">
+        <section class="drw-section">
+          <div class="drw-section-hd"><span class="lbl">Identity</span><kbd>Alt+1</kbd></div>
+          <div class="drw-grid">
+            <div class="drw-field full">
+              <label class="drw-lbl">Party Name <span class="req">*</span></label>
+              <input class="drw-input" placeholder="Bharat Wholesale" />
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Mobile <span class="req">*</span></label>
+              <input class="drw-input" placeholder="+91 XXXXX" />
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Alt. Mobile</label>
+              <input class="drw-input" />
+            </div>
+            <div class="drw-field full">
+              <label class="drw-lbl">GST</label>
+              <input class="drw-input" placeholder="22AAAAA0000A1Z5" style="font-family:'JetBrains Mono',monospace;" />
+            </div>
+          </div>
+        </section>
+        <section class="drw-section">
+          <div class="drw-section-hd"><span class="lbl">Address</span><kbd>Alt+2</kbd></div>
+          <div class="drw-grid">
+            <div class="drw-field full">
+              <label class="drw-lbl">Address Line</label>
+              <input class="drw-input" />
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">City</label>
+              <input class="drw-input" />
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">PIN</label>
+              <input class="drw-input" placeholder="6 digits" />
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">State</label>
+              <select class="drw-select"><option>Maharashtra</option></select>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Country</label>
+              <input class="drw-input" value="India" />
+            </div>
+          </div>
+        </section>
+        <section class="drw-section">
+          <div class="drw-section-hd"><span class="lbl">Credit</span><kbd>Alt+3</kbd></div>
+          <div class="drw-grid cols-3">
+            <div class="drw-field">
+              <label class="drw-lbl">Allow Credit</label>
+              <div class="drw-pills"><button class="on">Yes</button><button>No</button></div>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Limit</label>
+              <div class="drw-suffix"><input class="drw-input" placeholder="0" /><span class="unit">₹</span></div>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Days</label>
+              <input class="drw-input" placeholder="0" />
+            </div>
+          </div>
+        </section>
+      </div>
+      <footer class="drw-ft">
+        <button class="fkey danger"><kbd>Esc</kbd> Cancel</button>
+        <button class="fkey"><kbd>F5</kbd> Reset</button>
+        <span class="spacer"></span>
+        <button class="fkey primary"><kbd>F1</kbd> Save</button>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- ════════════ STAGE 3 — CATEGORY drawer over Categories list ════════════ -->
+  <span class="mock-tag">Stage 3 · Add Category (drawer auto-shrinks for short forms)</span>
+  <div class="stage" style="height:480px;">
+    <header class="stage-hd">
+      <h2>Categories</h2>
+      <span class="sub">· 18 active</span>
+    </header>
+    <div class="stage-list">
+      <div class="stage-row head"><span>Category</span><span>Sort</span><span>Products</span><span>Status</span></div>
+      <div class="stage-row muted"><span><b>Sarees</b></span><span>10</span><span>248</span><span>Active</span></div>
+      <div class="stage-row muted"><span><b>Cotton Fabric</b></span><span>20</span><span>312</span><span>Active</span></div>
+      <div class="stage-row muted"><span><b>Synthetic</b></span><span>30</span><span>145</span><span>Active</span></div>
+      <div class="stage-row muted"><span><b>Accessories</b></span><span>40</span><span>96</span><span>Active</span></div>
+    </div>
+
+    <aside class="drw" role="dialog">
+      <header class="drw-hd">
+        <div class="ic" style="background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.28);color:#fbbf24;">⌘</div>
+        <div class="drw-hd-ttl"><h3>Add Category</h3><div class="sub">Top-level inventory grouping</div></div>
+        <button class="drw-hd-x">✕</button>
+      </header>
+      <div class="drw-body">
+        <section class="drw-section">
+          <div class="drw-grid">
+            <div class="drw-field full">
+              <label class="drw-lbl">Category Name <span class="req">*</span></label>
+              <input class="drw-input" placeholder="e.g. Sarees" />
+              <span class="drw-help">Used in product master + reports drill-down</span>
+            </div>
+            <div class="drw-field full">
+              <label class="drw-lbl">Description</label>
+              <textarea class="drw-textarea" placeholder="Internal notes (optional)"></textarea>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Status</label>
+              <div class="drw-pills"><button class="on">Active</button><button>Inactive</button></div>
+            </div>
+            <div class="drw-field">
+              <label class="drw-lbl">Sort Order</label>
+              <input class="drw-input" placeholder="0" />
+            </div>
+          </div>
+        </section>
+      </div>
+      <footer class="drw-ft">
+        <button class="fkey danger"><kbd>Esc</kbd> Cancel</button>
+        <button class="fkey"><kbd>F5</kbd> Reset</button>
+        <span class="spacer"></span>
+        <button class="fkey primary"><kbd>F1</kbd> Save</button>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- Notes -->
+  <div class="notes">
+    <h3>Why a side drawer — v3</h3>
+    <div class="notes-grid">
+      <div class="note-item">
+        <h4>Page behind stays visible</h4>
+        Operator can read existing rows while typing — useful when the new
+        record references something on the list. Categories list visible
+        while adding a new one means no surprises about duplicate names.
+      </div>
+      <div class="note-item">
+        <h4>Lighter visual weight</h4>
+        No dim flash on open / close. The drawer slides in over only its
+        own column and the list page scrolls behind. Reads as a tool
+        attached to the list, not a takeover.
+      </div>
+      <div class="note-item">
+        <h4>Fixed width for muscle memory</h4>
+        480 px regardless of which entity. Field grid is 2-col by default;
+        Pricing collapses to 3-col only because each cell is narrow (₹100).
+        Operator's eye hits the same place every time they open it.
+      </div>
+      <div class="note-item">
+        <h4>Section anchors</h4>
+        <code>Alt+1</code> / <code>Alt+2</code> / <code>Alt+3</code> jump to
+        section, just like v1. Anchors are chips on the right of each
+        section header — small, present but never demanding attention.
+      </div>
+      <div class="note-item">
+        <h4>Trade-off vs v1 / v2</h4>
+        v1 (centred modal) is most familiar; v2 (workspace) is best for
+        complex forms; v3 (drawer) is best when the list behind the form
+        is part of the operator's context. Drawer is also the most
+        natural for "+ new" stacking — second drawer can slide in over
+        the first without losing the page.
+      </div>
+      <div class="note-item">
+        <h4>Width compromise on small windows</h4>
+        Below ~960 px viewport, drawer takes 100% width and acts like a
+        modal. The same component handles both — no separate codepath.
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

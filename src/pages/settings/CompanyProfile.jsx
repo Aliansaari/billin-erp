@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import { settingsAPI } from '../../api';
 import { refreshFinancialYear } from '../../hooks/useFinancialYear';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import './ModuleSettings.css';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -61,9 +62,18 @@ export default function CompanyProfile() {
   };
 
   return (
-    <div>
-      <Title level={3}>Company Profile</Title>
-      <Card loading={loading}>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <h1 className="ms-page-title">Company Profile</h1>
+        <p className="ms-page-sub">
+          Business identity printed on invoices and used for GST calculations.
+          Save with <kbd>F1</kbd>.
+        </p>
+      </header>
+
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
+          <Card loading={loading} bordered={false} style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', borderRadius: 10 }}>
         <Form form={form} layout="vertical" onFinish={handleSave}>
           <Row gutter={16}>
             <Col xs={24} md={12}>
@@ -111,7 +121,9 @@ export default function CompanyProfile() {
             </Button>
           </Form.Item>
         </Form>
-      </Card>
+          </Card>
+        </div>
+      </div>
 
       <ActionStrip
         actions={[

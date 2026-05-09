@@ -133,10 +133,10 @@ export default function CleanupModal({ open, onClose }) {
       />
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <span style={{ fontWeight: 600, color: '#374151', fontSize: 13 }}>Select data to delete:</span>
+        <span style={{ fontWeight: 600, color: 'var(--fg-primary)', fontSize: 13 }}>Select data to delete:</span>
         <button
           onClick={() => toggleAll(!allSelected)}
-          style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: 12, color: '#6b7280', fontWeight: 500 }}
+          style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: 12, color: 'var(--fg-secondary)', fontWeight: 500 }}
         >
           {allSelected ? 'Deselect All' : 'Select All'}
         </button>
@@ -152,23 +152,23 @@ export default function CleanupModal({ open, onClose }) {
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 12,
                 padding: '12px 14px', borderRadius: 8, cursor: 'pointer',
-                border: checked ? `1.5px solid ${item.color}` : '1.5px solid #e5e7eb',
-                background: checked ? `${item.color}10` : '#fafafa',
+                border: checked ? `1.5px solid ${item.color}` : '1.5px solid var(--border)',
+                background: checked ? `${item.color}1A` : 'var(--bg-muted)',
                 transition: 'all .15s',
               }}
             >
               <Checkbox checked={checked} style={{ marginTop: 2, flexShrink: 0 }} onChange={() => toggle(item.key)} />
               <div>
-                <div style={{ fontWeight: 600, fontSize: 13, color: checked ? item.color : '#374151' }}>{item.label}</div>
-                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{item.desc}</div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: checked ? item.color : 'var(--fg-primary)' }}>{item.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--fg-secondary)', marginTop: 2 }}>{item.desc}</div>
               </div>
             </div>
           );
         })}
       </div>
 
-      <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '14px 16px', marginBottom: 20 }}>
-        <div style={{ fontSize: 13, color: '#7f1d1d', fontWeight: 500, marginBottom: 8 }}>
+      <div style={{ background: 'var(--danger-bg)', border: '1px solid var(--danger)', borderColor: 'rgba(239, 68, 68, 0.30)', borderRadius: 8, padding: '14px 16px', marginBottom: 20 }}>
+        <div style={{ fontSize: 13, color: 'var(--danger)', fontWeight: 500, marginBottom: 8 }}>
           Type <strong>DELETE</strong> below to confirm permanent deletion of{' '}
           <strong>
             {selected.length === 0
@@ -186,7 +186,7 @@ export default function CleanupModal({ open, onClose }) {
           style={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: 2, marginBottom: 12 }}
           status={confirmText && confirmText !== 'DELETE' ? 'error' : ''}
         />
-        <div style={{ fontSize: 13, color: '#7f1d1d', fontWeight: 500, marginBottom: 8 }}>
+        <div style={{ fontSize: 13, color: 'var(--danger)', fontWeight: 500, marginBottom: 8 }}>
           Re-enter your admin password:
         </div>
         <Input.Password

@@ -27,6 +27,12 @@ const BarcodeSettings = sequelize.define('BarcodeSettings', {
     type: DataTypes.STRING(30),
     defaultValue: 'PREFIX-NNNNNN',
   },
+  // separator joins prefix and number ('-', '_', '/', '.', or '' for none).
+  // Empty prefix always produces no separator regardless of this value.
+  separator: {
+    type: DataTypes.STRING(2),
+    defaultValue: '-',
+  },
 }, {
   tableName: 'barcode_settings',
   timestamps: false,

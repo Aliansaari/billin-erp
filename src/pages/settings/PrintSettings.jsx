@@ -14,6 +14,7 @@ import { printAPI, settingsAPI } from '../../api';
 import { renderBillHTML } from '../../services/printRenderer';
 import { listPrinters, printRawHTML } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import './ModuleSettings.css';
 
 const { Title, Text } = Typography;
 
@@ -353,28 +354,25 @@ export default function PrintSettings() {
   const isThermal = draft.format === 'thermal';
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{
-        display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
-        marginBottom: 20, gap: 20, flexWrap: 'wrap',
-      }}>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Title level={2} style={{ margin: 0, letterSpacing: '-0.5px', lineHeight: 1.1 }}>
-            Print Settings
-          </Title>
-          <Text type="secondary" style={{ fontSize: 13 }}>
+          <h1 className="ms-page-title">Print</h1>
+          <p className="ms-page-sub">
             Design invoice, receipt and voucher templates. Changes preview live on the right.
-          </Text>
+          </p>
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={loadProfiles}>Reload</Button>
-          <Button type="primary" size="middle" icon={<PlusOutlined />}
+          <Button type="primary" icon={<PlusOutlined />}
             onClick={() => newProfile(filterDoc || 'sales')}>
             New Profile
           </Button>
         </Space>
-      </div>
+      </header>
 
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
       <Row gutter={16}>
         {/* ── LEFT: profile list ───────────────────────────── */}
         <Col span={6}>
@@ -398,7 +396,7 @@ export default function PrintSettings() {
               />
             </div>
             {filtered.length === 0 && (
-              <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>No profiles yet.</div>
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--fg-tertiary)' }}>No profiles yet.</div>
             )}
             {filtered.map(p => {
               const active = p.profile_id === selectedId;
@@ -926,6 +924,8 @@ export default function PrintSettings() {
           </Card>
         </Col>
       </Row>
+        </div>
+      </div>
 
       <ActionStrip
         actions={[

@@ -11,6 +11,7 @@ import { settingsAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import EntityFormModal from '../../components/EntityFormModal';
+import './ModuleSettings.css';
 
 /*
  * User Management — user list + full permission editor.
@@ -374,13 +375,18 @@ export default function UserManagement() {
   const single = sel.activeRow;
 
   return (
-    <div>
-      <div className="erp-list-header">
-        <Title level={3} style={{ margin: 0 }}>User Management</Title>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <h1 className="ms-page-title">Users</h1>
+          <p className="ms-page-sub">Accounts, roles, and permissions for everyone using this software.</p>
+        </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Add User</Button>
-      </div>
+      </header>
 
-      <Card>
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
+          <Card bordered={false} style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', borderRadius: 10 }}>
         <Table
           columns={columns}
           dataSource={users}
@@ -401,7 +407,9 @@ export default function UserManagement() {
             onDoubleClick: () => record && handleEdit(record),
           })}
         />
-      </Card>
+          </Card>
+        </div>
+      </div>
 
       <Form
         form={form}

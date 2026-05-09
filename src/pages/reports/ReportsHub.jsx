@@ -445,14 +445,14 @@ export default function ReportsHub() {
                       display: 'flex', alignItems: 'baseline', gap: 10,
                       padding: selected ? '10px 8px' : '10px 0',
                       cursor: 'pointer',
-                      background: selected ? 'var(--bg-subtle, #fafafa)' : '',
+                      background: selected ? 'var(--bg-hover)' : '',
                       borderLeft: selected ? `3px solid ${tone.fg}` : '3px solid transparent',
                       borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
                       transition: 'background .12s, padding .12s',
                     }}
                     onMouseEnter={(e) => {
                       if (selected) return;
-                      e.currentTarget.style.background = 'var(--bg-subtle, #fafafa)';
+                      e.currentTarget.style.background = 'var(--bg-hover)';
                       e.currentTarget.style.padding = '10px 8px';
                     }}
                     onMouseLeave={(e) => {
