@@ -340,28 +340,50 @@ export default function App() {
   //
   // Both endpoints are exempt from the LAN + license gates so they're
   // reachable on a brand-new install without any prior state.
+  //
+  // Redirect-loop guard: stash a flag in sessionStorage when a redirect
+  // happens. If we're invoked again within the same tab session AND
+  // we'd redirect to a URL we've already redirected to, skip — the
+  // user is presumably on that page now and should be able to complete
+  // it without us bouncing them. The flag clears when the user
+  // navigates anywhere else. This was a real problem during the
+  // post-activation transition where reloading ended up flickering
+  // between /license and / repeatedly.
   useEffect(() => {
     if (needsServerSetup) return;
     const here = window.location.pathname;
-    if (here.startsWith('/license') || here === '/server-setup' || here === '/setup') return;
+    if (here.startsWith('/license') || here === '/server-setup' || here === '/setup') {
+      try { sessionStorage.setItem('boot_probe_at', here); } catch {}
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
         const { default: api } = await import('./api');
+        const lastTarget = (() => { try { return sessionStorage.getItem('boot_probe_redirect'); } catch { return null; } })();
+
         // Setup first — without a master DB, license info would also
         // 503 on the DB connection that sequelize hasn't established.
         const sr = await api.get('/setup/status');
         if (cancelled) return;
         if (!sr.data?.setup_complete) {
+          if (lastTarget === '/setup') return;     // already bounced here once; don't loop
+          try { sessionStorage.setItem('boot_probe_redirect', '/setup'); } catch {}
           window.location.href = '/setup';
           return;
         }
         const r = await api.get('/license/info');
         if (cancelled) return;
         if (!r.data?.activated) {
+          if (lastTarget === '/license') return;
           try { sessionStorage.setItem('license_block_status', JSON.stringify(r.data?.status || { code: 'no_license' })); } catch {}
+          try { sessionStorage.setItem('boot_probe_redirect', '/license'); } catch {}
           window.location.href = '/license';
+          return;
         }
+        // All gates passed — clear the redirect-loop flag so a future
+        // reload (e.g. user logs out and back in) gets a fresh probe.
+        try { sessionStorage.removeItem('boot_probe_redirect'); } catch {}
       } catch {
         // network errors handled elsewhere; don't block boot on a
         // probe that may not be reachable yet.

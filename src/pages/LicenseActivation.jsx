@@ -61,9 +61,14 @@ export default function LicenseActivation() {
       const r = await api.post('/license/activate', { license: text });
       if (r.data?.ok) {
         message.success('License activated successfully');
-        // Full reload — easier than rehydrating every store; this only
-        // happens once per install per machine.
-        setTimeout(() => window.location.reload(), 600);
+        // Hard-navigate to '/' (NOT reload) so the boot probe in App.jsx
+        // re-evaluates state from scratch and routes the user to the
+        // right next step — Postgres setup, login, or home — without
+        // leaving them stuck on /license. Reload would just bring us
+        // back to /license with activated:true and no clear next step,
+        // which made the post-activation experience confusing.
+        try { sessionStorage.removeItem('license_block_status'); } catch {}
+        setTimeout(() => { window.location.href = '/'; }, 600);
       } else {
         setError(r.data?.message || 'Activation failed');
       }
