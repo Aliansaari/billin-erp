@@ -7,6 +7,7 @@ const {
 } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { resolveInterState } = require('../utils/interStateResolver');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesReturnVouchers } = require('../services/voucherBuilders');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
@@ -269,7 +270,14 @@ exports.getReferenceBill = async (req, res) => {
 
 // Shared math for create + update — keep in one place so the two paths can
 // never drift. Returns computed totals and a list of items ready to persist.
-async function computeTotals(req, items, billData, returnMode, t) {
+//
+// `interState` decides which GST head the per-line tax goes into (CGST+SGST
+// for intra-state, IGST for inter-state). Caller resolves this from the
+// customer's place-of-supply via resolveInterState() — passing it explicitly
+// keeps computeTotals free of DB calls. (Audit H1: returns must classify
+// identically to the original sale or GSTR-1's Credit Note section reports
+// the wrong head.)
+async function computeTotals(req, items, billData, returnMode, t, interState = false) {
   const { cgst_pct = 0, sgst_pct = 0, igst_pct = 0, gst_mode } = req.body;
   const billWise = gst_mode === 'bill'
     ? true
@@ -342,7 +350,9 @@ async function computeTotals(req, items, billData, returnMode, t) {
   for (const it of processedItems) {
     const lineBase = +(it._postItemTaxable * (1 - billDiscRatio)).toFixed(2);
     it.taxable_amount = lineBase;
-    const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(lineBase, it.gst_rate || 0);
+    const gst = billWise
+      ? { cgst: 0, sgst: 0, igst: 0, cess: 0 }
+      : calculateGST(lineBase, it.gst_rate || 0, !!interState);
     it.cgst_amount = gst.cgst;
     it.sgst_amount = gst.sgst;
     it.igst_amount = gst.igst;
@@ -356,6 +366,8 @@ async function computeTotals(req, items, billData, returnMode, t) {
   }
 
   if (billWise) {
+    // Bill-wise mode: operator picked specific cgst/sgst/igst pcts; honour
+    // them as-is. The interState flag governs only the per-line product mode.
     totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
     totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
     totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
@@ -500,9 +512,18 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: 'At least one item is required' });
     }
 
+    // Resolve inter-state from the customer's place-of-supply BEFORE
+    // computing totals — calculateGST routes to CGST+SGST vs IGST based
+    // on this flag. Audit H1: returns must classify identically to the
+    // original sale or GSTR-1's Credit Note section reports the wrong
+    // place-of-supply head.
+    const interState = await resolveInterState({
+      partyId: billData.customer_id, transaction: t,
+    });
+
     let totals;
     try {
-      totals = await computeTotals(req, effectiveItems, billData, return_mode, t);
+      totals = await computeTotals(req, effectiveItems, billData, return_mode, t, interState);
     } catch (mathErr) {
       await t.rollback();
       return res.status(400).json({ error: mathErr.message });
@@ -734,9 +755,15 @@ exports.update = async (req, res) => {
       return res.status(400).json({ error: 'At least one item is required' });
     }
 
+    // Resolve inter-state from the customer's place-of-supply (audit H1).
+    const customerForInterState = billData.customer_id || existing.customer_id;
+    const interState = await resolveInterState({
+      partyId: customerForInterState, transaction: t,
+    });
+
     let totals;
     try {
-      totals = await computeTotals(req, effectiveItems, billData, return_mode, t);
+      totals = await computeTotals(req, effectiveItems, billData, return_mode, t, interState);
     } catch (mathErr) {
       await t.rollback();
       return res.status(400).json({ error: mathErr.message });

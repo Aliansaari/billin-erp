@@ -3,7 +3,7 @@ const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, SalesBillDraft, SalesReturnBill, SalesReturnBillItem, Party, Product, StockLedger, SystemSettings, Godown } = require('../models');
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
-const { stateCodeFromGstin, stateCodeFromName } = require('../utils/gstr1');
+const { resolveInterState } = require('../utils/interStateResolver');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
@@ -83,19 +83,11 @@ async function validateBatchLine({ product, item, godownId, t, blockExpired, isR
  * `isInterState`/`placeOfSupply`) uses on the read side, so what we
  * STORE here is what the report will then SEE.
  */
+// Backwards-compatible thin wrapper. The actual logic lives in
+// utils/interStateResolver so salesReturnController + purchaseReturnController
+// can share it (audit H1).
 async function _resolveInterState(billData, t) {
-  if (!billData.customer_id) return false;
-  const [cust, settings] = await Promise.all([
-    Party.findByPk(billData.customer_id, { transaction: t }),
-    SystemSettings.findByPk(1, { transaction: t }),
-  ]);
-  if (!cust) return false;
-  const companyCode = settings ? stateCodeFromGstin(settings.gstin) : null;
-  if (!companyCode) return false;
-  // Customer place-of-supply: GSTIN prefix wins, fall back to state name.
-  const custCode = stateCodeFromGstin(cust.gstin) || stateCodeFromName(cust.state);
-  if (!custCode) return false;
-  return custCode !== companyCode;
+  return resolveInterState({ partyId: billData.customer_id, transaction: t });
 }
 
 exports.getAll = async (req, res) => {
