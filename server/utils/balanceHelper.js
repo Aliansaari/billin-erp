@@ -58,6 +58,17 @@ async function recalculatePartyBalance(partyId, t = null) {
     :  Math.abs(rawOpening);
 
   // ── Sales side (customer owes us) ─────────────────────────────────────────
+  // Audit H3: exclude `auto_from_bill` receipts. Those are 1:1 with the
+  // bill's at-billing `paid_amount` (auto-generated when the operator
+  // marks money as collected at the counter). Counting both
+  // `salesPaid` (which sums bill.paid_amount) AND those auto-receipts
+  // double-deducts the at-billing-paid portion. After
+  // reconcileBillsForParty runs, bill.paid_amount may also include
+  // FIFO-applied receipts — those are non-auto and remain in
+  // totalReceipts, then ALSO get deducted via the bumped salesPaid.
+  // So the manual/standalone receipts that ARE in totalReceipts (and
+  // not yet applied to a specific bill) represent advances; those
+  // legitimately reduce the customer's net balance.
   const [
     totalSalesRaw, salesPaidRaw, salesWalkInReturnRaw, totalReceiptsRaw,
     salesReturnBalanceRaw,
@@ -66,7 +77,13 @@ async function recalculatePartyBalance(partyId, t = null) {
     SalesBill.sum('paid_amount',   { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
     SalesBill.sum('return_amount', { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
     PaymentReceipt.sum('total_amount', {
-      where: { party_id: partyId, transaction_type: 'Receipt', is_cancelled: false },
+      where: {
+        party_id: partyId, transaction_type: 'Receipt', is_cancelled: false,
+        [Op.or]: [
+          { source: { [Op.ne]: 'auto_from_bill' } },
+          { source: { [Op.is]: null } },
+        ],
+      },
       ...opts,
     }),
     // Net credit-note effect per formal return: total - refund = balance_amount.
@@ -102,8 +119,15 @@ async function recalculatePartyBalance(partyId, t = null) {
   ] = await Promise.all([
     PurchaseBill.sum('total_amount', { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
     PurchaseBill.sum('paid_amount',  { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
+    // Audit H3: same auto_from_bill exclusion as the sales side.
     PaymentReceipt.sum('total_amount', {
-      where: { party_id: partyId, transaction_type: 'Payment', is_cancelled: false },
+      where: {
+        party_id: partyId, transaction_type: 'Payment', is_cancelled: false,
+        [Op.or]: [
+          { source: { [Op.ne]: 'auto_from_bill' } },
+          { source: { [Op.is]: null } },
+        ],
+      },
       ...opts,
     }),
     PurchaseReturnBill.sum('balance_amount', {
@@ -158,8 +182,15 @@ async function getPartyOutstanding(partyId, transactionType, t = null) {
     const [totalPurchasesRaw, purchasePaidRaw, totalPaymentsRaw, prBalRaw, prRefundRaw] = await Promise.all([
       PurchaseBill.sum('total_amount', { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
       PurchaseBill.sum('paid_amount',  { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
+      // Audit H3: exclude auto_from_bill receipts (already in paid_amount).
       PaymentReceipt.sum('total_amount', {
-        where: { party_id: partyId, transaction_type: 'Payment', is_cancelled: false },
+        where: {
+          party_id: partyId, transaction_type: 'Payment', is_cancelled: false,
+          [Op.or]: [
+            { source: { [Op.ne]: 'auto_from_bill' } },
+            { source: { [Op.is]: null } },
+          ],
+        },
         ...opts,
       }),
       PurchaseReturnBill.sum('balance_amount', { where: { supplier_id: partyId, is_cancelled: false }, ...opts }),
@@ -180,8 +211,15 @@ async function getPartyOutstanding(partyId, transactionType, t = null) {
       SalesBill.sum('total_amount',  { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
       SalesBill.sum('paid_amount',   { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
       SalesBill.sum('return_amount', { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
+      // Audit H3: exclude auto_from_bill receipts.
       PaymentReceipt.sum('total_amount', {
-        where: { party_id: partyId, transaction_type: 'Receipt', is_cancelled: false },
+        where: {
+          party_id: partyId, transaction_type: 'Receipt', is_cancelled: false,
+          [Op.or]: [
+            { source: { [Op.ne]: 'auto_from_bill' } },
+            { source: { [Op.is]: null } },
+          ],
+        },
         ...opts,
       }),
       SalesReturnBill.sum('balance_amount', { where: { customer_id: partyId, is_cancelled: false }, ...opts }),
