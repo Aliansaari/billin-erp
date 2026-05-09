@@ -8,6 +8,7 @@ const {
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
+const { applyColorStockDelta } = require('../services/productColorStockService');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPurchaseReturnVouchers } = require('../services/voucherBuilders');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
@@ -537,6 +538,17 @@ exports.create = async (req, res) => {
             delta: -parseFloat(item.quantity), t,
           });
         }
+        // Audit C5: a purchase return SHIPS goods back to the supplier,
+        // so per-color stock decrements for the picked color. Without
+        // this, parent stock falls but per-color stock is left high,
+        // breaking the sum-of-colors = parent invariant.
+        if (item.color_id && product.color_mode === 'multi') {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: -parseFloat(item.quantity),
+            transaction: t,
+          });
+        }
 
         await StockLedger.create({
           product_id: item.product_id,
@@ -682,6 +694,16 @@ exports.update = async (req, res) => {
               delta: +parseFloat(oldItem.quantity), t,
             });
           }
+          // Audit C5: reverse the per-color stock decrement that the
+          // original return create posted. The new items' colors are
+          // re-applied below.
+          if (oldItem.color_id) {
+            await applyColorStockDelta({
+              color_id: oldItem.color_id,
+              delta: +parseFloat(oldItem.quantity),
+              transaction: t,
+            });
+          }
         }
       }
     }
@@ -804,6 +826,15 @@ exports.update = async (req, res) => {
             delta: -parseFloat(item.quantity), t,
           });
         }
+        // Audit C5: re-apply per-color stock for the (possibly edited)
+        // return lines. Old items' color stock was reversed above.
+        if (item.color_id && product.color_mode === 'multi') {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: -parseFloat(item.quantity),
+            transaction: t,
+          });
+        }
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
@@ -891,6 +922,15 @@ exports.cancel = async (req, res) => {
               product_id: item.product_id, batch_id: item.batch_id,
               godown_id: bill.godown_id,
               delta: +parseFloat(item.quantity), t,
+            });
+          }
+          // Audit C5: cancelling a purchase return reverses the per-color
+          // decrement that was posted at create time.
+          if (item.color_id) {
+            await applyColorStockDelta({
+              color_id: item.color_id,
+              delta: +parseFloat(item.quantity),
+              transaction: t,
             });
           }
         }

@@ -8,6 +8,7 @@ const {
 const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
+const { applyColorStockDelta } = require('../services/productColorStockService');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesReturnVouchers } = require('../services/voucherBuilders');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite } = require('../utils/godownStock');
@@ -611,6 +612,20 @@ exports.create = async (req, res) => {
           });
         }
 
+        // Audit C5: a sales return RECEIVES goods from the customer, so
+        // the per-color stock must increment for the picked color. Without
+        // this, parent stock (products.current_stock) restores correctly
+        // but per-color stock stays at the post-sale value, breaking the
+        // sum-of-colors = parent invariant and blocking future sales of
+        // the returned color.
+        if (item.color_id && product.color_mode === 'multi') {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: +parseFloat(item.quantity),
+            transaction: t,
+          });
+        }
+
         await StockLedger.create({
           product_id: item.product_id,
           godown_id: billData.godown_id,
@@ -739,6 +754,15 @@ exports.update = async (req, res) => {
             delta: -parseFloat(oldItem.quantity), t,
           });
         }
+        // Audit C5: reverse the per-color stock that was added at the
+        // ORIGINAL return create time. We re-apply the new items below.
+        if (oldItem.color_id) {
+          await applyColorStockDelta({
+            color_id: oldItem.color_id,
+            delta: -parseFloat(oldItem.quantity),
+            transaction: t,
+          });
+        }
       }
     }
     await StockLedger.destroy({
@@ -839,6 +863,16 @@ exports.update = async (req, res) => {
             product_id: item.product_id, batch_id: item.batch_id,
             godown_id: billData.godown_id,
             delta: +parseFloat(item.quantity), t,
+          });
+        }
+        // Audit C5: re-apply per-color stock for the (possibly edited)
+        // return lines. The old items' color stock was already reversed
+        // above.
+        if (item.color_id && product.color_mode === 'multi') {
+          await applyColorStockDelta({
+            color_id: item.color_id,
+            delta: +parseFloat(item.quantity),
+            transaction: t,
           });
         }
         await StockLedger.create({
@@ -950,6 +984,15 @@ exports.cancel = async (req, res) => {
               product_id: item.product_id, batch_id: item.batch_id,
               godown_id: bill.godown_id,
               delta: -parseFloat(item.quantity), t,
+            });
+          }
+          // Audit C5: cancelling a sales return reverses the per-color
+          // stock that was added when the return was created.
+          if (item.color_id) {
+            await applyColorStockDelta({
+              color_id: item.color_id,
+              delta: -parseFloat(item.quantity),
+              transaction: t,
             });
           }
         }
