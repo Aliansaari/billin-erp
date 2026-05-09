@@ -25,7 +25,7 @@ const LICENSE_PUBLIC_KEY =
   // 32-byte Ed25519 public key in base64, length 44 chars. The default
   // value below is a placeholder — replace before shipping any build to
   // a real customer.
-  'qeYSprhA2eb2vbgE7clxAzjGX555gq5YQsdGxpjKCBE=';
+  'C05347K65k1J3v6gFae8Pbha/jsi3ZsreSfdm/++ucY=';
 
 /**
  * Where the license file is stored on the customer's machine.
