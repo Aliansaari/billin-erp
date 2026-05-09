@@ -134,6 +134,12 @@ async function seedDefaultData() {
     //   cheques cleanly.
     { ledger_name: 'Cheques in Hand',       ledger_group: 'Assets',      sub_group: 'Current Assets',     is_system_ledger: true },
     { ledger_name: 'Cheques Issued (PDC)',  ledger_group: 'Liabilities', sub_group: 'Current Liabilities', is_system_ledger: true },
+    // INWARD PDC holding ledger (audit H11). When a customer hands over a
+    // post-dated cheque, the receivable on the asset side belongs HERE,
+    // not in Cheques in Hand — the funds aren't legally realisable until
+    // the cheque date arrives. The deposit voucher then drains this
+    // holding ledger into the bank when the cheque is presented.
+    { ledger_name: 'Post-Dated Cheques (Receivable)', ledger_group: 'Assets', sub_group: 'Current Assets', is_system_ledger: true },
     { ledger_name: 'Cheque Bounce Charges', ledger_group: 'Expenses',    sub_group: 'Indirect Expenses',  is_system_ledger: true },
 
     // ── Common expense heads for the Expense Tracker ─────────────────

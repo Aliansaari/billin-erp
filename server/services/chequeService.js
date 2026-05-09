@@ -82,18 +82,50 @@ async function getBankLedger(bankLedgerId, transaction) {
   return row;
 }
 
+// Optional system ledger — returns null when not seeded, so callers can
+// gracefully fall back to a different ledger.
+async function getOptionalLedger(name, cache, transaction) {
+  if (cache[name]) return cache[name];
+  const row = await LedgerAccount.findOne({ where: { ledger_name: name }, transaction });
+  if (row) cache[name] = row;
+  return row || null;
+}
+
 // ── Builders ─────────────────────────────────────────────────────────
 
 // Receipt of an INWARD cheque: customer hands it to us.
-//   Cheques in Hand   Dr  amount
-//     Customer        Cr  amount    (clears the receivable)
+//
+//   Regular dated (cheque_date <= today): the money is realisable
+//   today (subject to bank clearance), so we route through Cheques
+//   in Hand.
+//
+//     Cheques in Hand                  Dr amount
+//       Customer                       Cr amount
+//
+//   Post-dated (cheque_date > today): legally NOT realisable today.
+//   We route through a separate holding ledger
+//   "Post-Dated Cheques (Receivable)" so the asset side of the
+//   balance sheet doesn't inflate prematurely. This mirrors the
+//   OUTWARD PDC convention which uses "Cheques Issued (PDC)".
+//   On maturity, buildInwardDeposit() (or a manual move) shifts the
+//   balance into Cheques in Hand. (Audit H11.)
+//
+//   When the holding ledger isn't seeded, we fall back to Cheques
+//   in Hand to preserve the existing behaviour for installs that
+//   haven't run the new seeder.
 async function buildInwardReceipt(cheque, party, opts = {}) {
   const t = opts.transaction;
   const cache = {};
-  const cih = await getSystemLedger('Cheques in Hand', cache, t);
   const partyLedger = await getPartyLedger(party, t);
   if (!partyLedger) {
     throw new Error(`chequeService: party #${party.party_id} has no ledger account`);
+  }
+  let assetLedger;
+  if (cheque.is_pdc) {
+    assetLedger = await getOptionalLedger('Post-Dated Cheques (Receivable)', cache, t)
+               || await getSystemLedger('Cheques in Hand', cache, t);
+  } else {
+    assetLedger = await getSystemLedger('Cheques in Hand', cache, t);
   }
   const amount = r2(cheque.amount);
   return {
@@ -103,22 +135,35 @@ async function buildInwardReceipt(cheque, party, opts = {}) {
     voucherDate: cheque.instrument_date,
     referenceNumber: cheque.cheque_number,
     lines: [
-      { ledgerAccountId: cih.ledger_id,         debit: amount, credit: 0 },
+      { ledgerAccountId: assetLedger.ledger_id, debit: amount, credit: 0 },
       { ledgerAccountId: partyLedger.ledger_id, debit: 0, credit: amount, partyId: party.party_id },
     ],
     narration:
       `Cheque #${cheque.cheque_number} received from ${party.party_name}` +
-      (cheque.is_pdc ? ' (PDC)' : ''),
+      (cheque.is_pdc ? ` (PDC, posted to ${assetLedger.ledger_name})` : ''),
   };
 }
 
 // Deposit of an INWARD cheque at OUR bank:
-//   Bank             Dr  amount
-//     Cheques in Hand Cr amount
+//   Bank                                Dr  amount
+//     Cheques in Hand / PDC Receivable  Cr  amount
+//
+// Audit H11: when the cheque was originally posted as a PDC, the
+// receipt landed on "Post-Dated Cheques (Receivable)", not on
+// "Cheques in Hand". This deposit voucher must credit the SAME
+// asset ledger to keep the books balanced. We pick the ledger by
+// inspecting cheque.is_pdc + the optional PDC-receivable ledger
+// (with the same fallback as buildInwardReceipt).
 async function buildInwardDeposit(cheque, opts = {}) {
   const t = opts.transaction;
   const cache = {};
-  const cih = await getSystemLedger('Cheques in Hand', cache, t);
+  let sourceLedger;
+  if (cheque.is_pdc) {
+    sourceLedger = await getOptionalLedger('Post-Dated Cheques (Receivable)', cache, t)
+                || await getSystemLedger('Cheques in Hand', cache, t);
+  } else {
+    sourceLedger = await getSystemLedger('Cheques in Hand', cache, t);
+  }
   const bank = await getBankLedger(cheque.bank_ledger_id, t);
   const amount = r2(cheque.amount);
   return {
@@ -128,10 +173,11 @@ async function buildInwardDeposit(cheque, opts = {}) {
     voucherDate: cheque.deposit_date,
     referenceNumber: cheque.cheque_number,
     lines: [
-      { ledgerAccountId: bank.ledger_id, debit: amount, credit: 0 },
-      { ledgerAccountId: cih.ledger_id,  debit: 0, credit: amount },
+      { ledgerAccountId: bank.ledger_id,         debit: amount, credit: 0 },
+      { ledgerAccountId: sourceLedger.ledger_id, debit: 0, credit: amount },
     ],
-    narration: `Cheque #${cheque.cheque_number} deposited to ${bank.ledger_name}`,
+    narration: `Cheque #${cheque.cheque_number} deposited to ${bank.ledger_name}`
+      + (cheque.is_pdc ? ` (PDC matured from ${sourceLedger.ledger_name})` : ''),
   };
 }
 

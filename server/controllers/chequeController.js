@@ -635,7 +635,14 @@ exports.bounce = async (req, res) => {
   try {
     const cheque = await Cheque.findByPk(req.params.cheque_id, { transaction: t });
     if (!cheque) { await t.rollback(); return res.status(404).json({ error: 'Cheque not found' }); }
-    if (['CLEARED', 'BOUNCED', 'CANCELLED'].includes(cheque.status)) {
+    // Audit H13: previously bounce blocked status=CLEARED, leaving a
+    // cleared-then-actually-bounced cheque with no programmatic
+    // recovery path. Now we allow CLEARED → BOUNCED — any clearance
+    // voucher (e.g. cheque_outward_clear for OUTWARD PDCs) is reversed
+    // alongside the issue/receipt vouchers when bounce runs, so all
+    // posted vouchers for this cheque return to zero. Terminal states
+    // (BOUNCED, CANCELLED) still block.
+    if (['BOUNCED', 'CANCELLED'].includes(cheque.status)) {
       await t.rollback();
       return res.status(400).json({ error: `Cheque is already ${cheque.status}` });
     }
@@ -674,7 +681,7 @@ exports.bounce = async (req, res) => {
 
     // Walk back the vouchers in reverse-chronological order.
     if (cheque.direction === 'INWARD') {
-      if (cheque.status === 'DEPOSITED') {
+      if (cheque.status === 'CLEARED' || cheque.status === 'DEPOSITED') {
         await reverseChequeVoucher({
           sourceType: 'cheque_inward_deposit', chequeId: cheque.cheque_id,
           reason: 'Cheque bounced', userId: req.user?.user_id, transaction: t,
@@ -685,9 +692,16 @@ exports.bounce = async (req, res) => {
         reason: 'Cheque bounced', userId: req.user?.user_id, transaction: t,
       });
     } else {
-      // OUTWARD never advances past PENDING before clearance, so the
-      // only voucher to reverse here is the issue voucher. (PDCs
-      // would be CLEARED before this can fire — guarded above.)
+      // Audit H13: a CLEARED outward PDC has BOTH issue + clear
+      // vouchers posted. Reverse the clearance first (it sits on top),
+      // then the issue voucher. Non-CLEARED outwards just need the
+      // issue reversal.
+      if (cheque.status === 'CLEARED') {
+        await reverseChequeVoucher({
+          sourceType: 'cheque_outward_clear', chequeId: cheque.cheque_id,
+          reason: 'Cheque bounced after clearance', userId: req.user?.user_id, transaction: t,
+        });
+      }
       await reverseChequeVoucher({
         sourceType: 'cheque_outward_issue', chequeId: cheque.cheque_id,
         reason: 'Cheque bounced', userId: req.user?.user_id, transaction: t,
