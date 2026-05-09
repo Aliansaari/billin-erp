@@ -2402,6 +2402,20 @@ export default function SalesBillForm() {
                       setActiveCatId(v||null);
                       setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
                     }}
+                    onKeyDown={(e)=>{
+                      // Backspace clears the picked category when there's no
+                      // search text. Antd doesn't bind Backspace to clear by
+                      // default — operators expected the same affordance as
+                      // the X button via keyboard.
+                      if(e.key==='Backspace' && !e.target.value && activeCatId){
+                        e.preventDefault();
+                        skipCatAutoOpenRef.current = false;
+                        setSiblings([]);
+                        setSizeOpen(false);
+                        setActiveCatId(null);
+                        setEntry(p=>({...p,category_id:null,category_name:'',product_name:'',product_id:null}));
+                      }
+                    }}
                     placeholder="Category" showSearch
                     filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
                     allowClear notFoundContent={null} dropdownMatchSelectWidth={300}>
@@ -2454,6 +2468,23 @@ export default function SalesBillForm() {
                         batch_id:null, batch_number:'',
                         manufacture_date:null, expiry_date:null, batch_stock:0,
                       }));
+                    }}
+                    onKeyDown={(e)=>{
+                      // Backspace clears the picked product when no search
+                      // text is being typed (mirrors the X clear button
+                      // from the keyboard).
+                      if(e.key==='Backspace' && !e.target.value && (entry.product_id || entry.product_name)){
+                        e.preventDefault();
+                        setProdOpen(false);
+                        setSiblings([]);
+                        setEntry(p=>({
+                          ...p, product_id:null, product_name:'',
+                          size:'', article_number:'',
+                          is_batch_tracked:false,
+                          batch_id:null, batch_number:'',
+                          manufacture_date:null, expiry_date:null, batch_stock:0,
+                        }));
+                      }
                     }}
                     allowClear
                     placeholder="Product name" notFoundContent={null}
@@ -3302,6 +3333,15 @@ export default function SalesBillForm() {
                   setRetActiveCatId(v || null);
                   setRetEntry(p => ({ ...p, category_id: v || null, category_name: opt?.children || '', product_name: '', product_id: null }));
                 }}
+                onKeyDown={(e) => {
+                  // Backspace clears the picked category from the keyboard
+                  // (Antd doesn't bind it by default).
+                  if (e.key === 'Backspace' && !e.target.value && retActiveCatId) {
+                    e.preventDefault();
+                    setRetActiveCatId(null);
+                    setRetEntry(p => ({ ...p, category_id: null, category_name: '', product_name: '', product_id: null }));
+                  }
+                }}
                 placeholder="Category" showSearch
                 filterOption={(input, opt) => !input || opt.children.toLowerCase().includes(input.toLowerCase())}
                 allowClear notFoundContent={null}>
@@ -3323,6 +3363,14 @@ export default function SalesBillForm() {
                   }
                 }}
                 onClear={() => { setRetProdOpen(false); setRetEntry(p => ({ ...p, product_id: null, product_name: '' })); }}
+                onKeyDown={(e) => {
+                  // Backspace clears the picked product from the keyboard.
+                  if (e.key === 'Backspace' && !e.target.value && (retEntry.product_id || retEntry.product_name)) {
+                    e.preventDefault();
+                    setRetProdOpen(false);
+                    setRetEntry(p => ({ ...p, product_id: null, product_name: '' }));
+                  }
+                }}
                 allowClear placeholder="Product name" notFoundContent={null}
                 listHeight={320} dropdownMatchSelectWidth={460}
               >

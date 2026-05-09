@@ -2307,6 +2307,19 @@ export default function PurchaseBillForm() {
                     onChange={(v,opt)=>{
                       setActiveCatId(v||null);
                       setEntry(p=>({...p,category_id:v||null,category_name:opt?.children||'',product_name:'',product_id:null}));
+                    }}
+                    onKeyDown={(e)=>{
+                      // Backspace clears the picked category when there's no
+                      // search text being typed. Antd's default Backspace
+                      // handling only edits the search input — it never
+                      // clears a selected value, so operators expect to
+                      // reach for the X button. Here we map Backspace to
+                      // the same path as `allowClear` for keyboard parity.
+                      if(e.key==='Backspace' && !e.target.value && activeCatId){
+                        e.preventDefault();
+                        setActiveCatId(null);
+                        setEntry(p=>({...p,category_id:null,category_name:'',product_name:'',product_id:null}));
+                      }
                     }}>
                     {categories.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
                   </Select>
@@ -2325,6 +2338,15 @@ export default function PurchaseBillForm() {
                       }
                     }}
                     onClear={()=>setEntry(p=>({...p,product_name:'',product_id:null}))}
+                    onKeyDown={(e)=>{
+                      // Backspace clears the picked product when no search
+                      // text is being typed (same affordance as the X clear
+                      // button, but driven from the keyboard).
+                      if(e.key==='Backspace' && !e.target.value && entry.product_name){
+                        e.preventDefault();
+                        setEntry(p=>({...p,product_name:'',product_id:null}));
+                      }
+                    }}
                     allowClear
                     placeholder={activeCatId?'Product name (in category)':'Product name'}
                     notFoundContent={productSearching?'Searching…':null}
