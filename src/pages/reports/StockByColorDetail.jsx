@@ -202,55 +202,68 @@ export default function StockByColorDetail() {
       </div>
 
       {/* ── Table band ─────────────────────────────────────────
-       *   Single Antd Table with an inline summary row — same visual
-       *   rhythm as the master page (which uses VirtualReportTable's
-       *   summary band). The summary row aligns with the data columns
-       *   so TOTAL / qty / value all live in their proper cells.
+       *   Two stacked Antd Tables (mirror of how VirtualReportTable
+       *   does it on the master page): the data Table fills the top
+       *   of the wrap with flex:1, and a SEPARATE summary Table
+       *   (showHeader=false, dataSource=[], summary returns the row)
+       *   sits at the bottom with flex-shrink:0. Same `cols` array
+       *   feeds both so column widths align cell-for-cell.
        *
-       *   For LONG color lists (taller than the wrap) Antd's scroll-y
-       *   kicks in and the summary stays at the end of the scroll
-       *   body. For SHORT lists the summary sits right after the last
-       *   data row, exactly like the master report does. */}
+       *   This is the ONLY way to keep the totals row pinned at the
+       *   wrap's bottom regardless of how short the data list is —
+       *   Antd's inline summary on a single Table sits right after
+       *   the data rows, leaving empty space below for short lists. */}
       <div className="sbc-tbl-wrap" tabIndex={0}>
-        <Table
-          size="small"
-          columns={cols}
-          dataSource={enriched}
-          rowKey="color_id"
-          loading={loading}
-          rowClassName={rowClassName}
-          pagination={false}
-          scroll={{ y: 'calc(100vh - 360px)' }}
-          locale={{
-            emptyText: loading
-              ? 'Loading colors…'
-              : product?.color_mode === 'multi'
-                ? 'No active colors yet — add some in Inventory → Edit product.'
-                : 'This product is not multi-color tracked.',
-          }}
-          summary={(rows) => {
-            if (rows.length === 0) return null;
-            return (
-              <Table.Summary.Row className="sbc-summary-row">
-                <Table.Summary.Cell index={0} colSpan={2}>
-                  <span className="sbc-summary-label">Total · {rows.length} {rows.length === 1 ? 'color' : 'colors'}</span>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={2} align="right">
-                  <span className="sbc-summary-num sbc-summary-num--ok">{fmtN(totals.qty)}</span>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={3} />
-                <Table.Summary.Cell index={4} />
-                <Table.Summary.Cell index={5} />
-                <Table.Summary.Cell index={6} align="right">
-                  <span className="sbc-summary-num">
-                    <span className="sbc-summary-rs">₹</span>{fmtN(totals.value)}
-                  </span>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={7} />
-              </Table.Summary.Row>
-            );
-          }}
-        />
+        <div className="sbc-tbl-data">
+          <Table
+            size="small"
+            columns={cols}
+            dataSource={enriched}
+            rowKey="color_id"
+            loading={loading}
+            rowClassName={rowClassName}
+            pagination={false}
+            scroll={{ y: '100%' }}
+            locale={{
+              emptyText: loading
+                ? 'Loading colors…'
+                : product?.color_mode === 'multi'
+                  ? 'No active colors yet — add some in Inventory → Edit product.'
+                  : 'This product is not multi-color tracked.',
+            }}
+          />
+        </div>
+        {!loading && enriched.length > 0 && (
+          <div className="sbc-tbl-summary">
+            <Table
+              size="small"
+              showHeader={false}
+              columns={cols}
+              dataSource={[]}
+              pagination={false}
+              rowKey={() => 'summary'}
+              summary={() => (
+                <Table.Summary.Row className="sbc-summary-row">
+                  <Table.Summary.Cell index={0} colSpan={2}>
+                    <span className="sbc-summary-label">Total · {enriched.length} {enriched.length === 1 ? 'color' : 'colors'}</span>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={2} align="right">
+                    <span className="sbc-summary-num sbc-summary-num--ok">{fmtN(totals.qty)}</span>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={3} />
+                  <Table.Summary.Cell index={4} />
+                  <Table.Summary.Cell index={5} />
+                  <Table.Summary.Cell index={6} align="right">
+                    <span className="sbc-summary-num">
+                      <span className="sbc-summary-rs">₹</span>{fmtN(totals.value)}
+                    </span>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={7} />
+                </Table.Summary.Row>
+              )}
+            />
+          </div>
+        )}
       </div>
 
       <ActionStrip
@@ -283,22 +296,41 @@ export default function StockByColorDetail() {
           flex-direction: column;
           outline: none;
         }
-        .sbc-tbl-wrap .ant-table-wrapper,
-        .sbc-tbl-wrap .ant-spin-nested-loading,
-        .sbc-tbl-wrap .ant-spin-container,
-        .sbc-tbl-wrap .ant-table {
+        /* Data table fills the available height; its scroll body
+         * sees scroll.y='100%' against this real height. */
+        .sbc-tbl-data {
           flex: 1;
           min-height: 0;
           display: flex;
           flex-direction: column;
         }
-        .sbc-tbl-wrap .ant-table-container { flex: 1; min-height: 0; }
+        .sbc-tbl-data .ant-table-wrapper,
+        .sbc-tbl-data .ant-spin-nested-loading,
+        .sbc-tbl-data .ant-spin-container,
+        .sbc-tbl-data .ant-table {
+          flex: 1;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        .sbc-tbl-data .ant-table-container { flex: 1; min-height: 0; }
 
-        /* Summary row — match the visual style of the master page's
-         * VirtualReportTable summary band. Top hairline border separates
-         * it from data rows; muted background + bold cells mark it as
-         * a totals row, not just another data row. */
-        .sbc-tbl-wrap .ant-table-summary > tr.sbc-summary-row > td {
+        /* Separate summary table at the bottom — flex-shrink:0 so it
+         * always sits at the wrap's bottom edge regardless of how
+         * many data rows there are. Hides Antd's empty-data
+         * placeholder + sets a tight height. */
+        .sbc-tbl-summary {
+          flex-shrink: 0;
+          margin-top: 0;
+        }
+        .sbc-tbl-summary .ant-table-placeholder { display: none !important; }
+        .sbc-tbl-summary .ant-table-tbody { display: none !important; }
+
+        /* Summary row visual — match the master page's VirtualReport-
+         * Table summary band. Top hairline + muted background + bold
+         * cells mark it as a totals row, not another data row. */
+        .sbc-tbl-summary .ant-table-summary > tr.sbc-summary-row > td,
+        .sbc-tbl-data .ant-table-summary > tr.sbc-summary-row > td {
           background: var(--bg-muted);
           border-top: 2px solid var(--border);
           padding: 12px 16px;
