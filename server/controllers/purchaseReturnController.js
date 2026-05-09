@@ -437,6 +437,7 @@ exports.create = async (req, res) => {
         const product = await Product.findByPk(pid, { transaction: t });
         const haveAtGodown = await getGodownStock({
           product_id: pid, godown_id: billData.godown_id, t,
+          lock: true,  // audit H7
         });
         const finalStock = +(haveAtGodown - qty).toFixed(2);
         if (finalStock < 0) {
@@ -733,6 +734,7 @@ exports.update = async (req, res) => {
         const product = await Product.findByPk(pid, { transaction: t });
         const haveAtGodown = await getGodownStock({
           product_id: pid, godown_id: billData.godown_id, t,
+          lock: true,  // audit H7
         });
         const finalStock = +(haveAtGodown - qty).toFixed(2);
         if (finalStock < 0) {

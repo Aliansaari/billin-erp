@@ -1001,7 +1001,7 @@ exports.update = async (req, res) => {
         if (delta >= 0) continue;              // net addition → safe
         const product = await Product.findByPk(pid, { transaction: t });
         const haveAtGodown = oldGodown
-          ? await getGodownStock({ product_id: pid, godown_id: oldGodown, t })
+          ? await getGodownStock({ product_id: pid, godown_id: oldGodown, t, lock: true })
           : 0;
         const finalStock = +(haveAtGodown + delta).toFixed(2);
         if (finalStock < 0) {
@@ -1433,7 +1433,7 @@ exports.cancel = async (req, res) => {
       for (const [pid, qty] of revByProduct) {
         const product = await Product.findByPk(pid, { transaction: t });
         const haveAtGodown = billGodown
-          ? await getGodownStock({ product_id: pid, godown_id: billGodown, t })
+          ? await getGodownStock({ product_id: pid, godown_id: billGodown, t, lock: true })
           : 0;
         const finalStock = +(haveAtGodown - qty).toFixed(2);
         if (finalStock < 0) {

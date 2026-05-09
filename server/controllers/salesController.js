@@ -797,9 +797,16 @@ exports.create = async (req, res) => {
       // pre-check uses getGodownStock so the per-godown current_stock
       // governs the negative-stock guard — a product that has 5 units
       // total but 0 at this godown can't be sold from this godown.
+      //
+      // Audit H7: pass `lock: true` so the pre-check takes a row-level
+      // FOR UPDATE lock on (product_id, godown_id). Without it, two
+      // concurrent sales of the last unit can both pass the check and
+      // both UPDATE current_stock = current_stock - 1, ending at -1
+      // even with allow_negative_stock=false.
       if (product) {
         const currentStock = await getGodownStock({
           product_id: item.product_id, godown_id: billData.godown_id, t,
+          lock: true,
         });
         const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
 
@@ -1315,8 +1322,10 @@ exports.update = async (req, res) => {
       }, { transaction: t });
 
       if (product) {
+        // Audit H7: lock the PGS row before the pre-check.
         const currentStock = await getGodownStock({
           product_id: item.product_id, godown_id: billData.godown_id, t,
+          lock: true,
         });
         const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
 

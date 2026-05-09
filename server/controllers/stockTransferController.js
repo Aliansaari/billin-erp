@@ -217,9 +217,10 @@ exports.create = async (req, res) => {
             return res.status(400).json({ error: err });
           }
         } else {
-          // Non-batch: godown-level check.
+          // Non-batch: godown-level check (audit H7 — lock the row).
           const have = await getGodownStock({
             product_id: it.product_id, godown_id: from_godown_id, t,
+            lock: true,
           });
           if (parseFloat(have) < parseFloat(it.quantity)) {
             await t.rollback();
@@ -379,8 +380,10 @@ exports.submit = async (req, res) => {
           return res.status(400).json({ error: err });
         }
       } else {
+        // Audit H7 — lock the PGS row.
         const have = await getGodownStock({
           product_id: it.product_id, godown_id: transfer.from_godown_id, t,
+          lock: true,
         });
         if (parseFloat(have) < parseFloat(it.quantity)) {
           await t.rollback();

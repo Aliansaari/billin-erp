@@ -48,9 +48,17 @@ async function validateBillColorRequirements({
   const colorIds = [...new Set(items.map((i) => i.color_id).filter(Boolean))];
   let colorById = new Map();
   if (colorIds.length > 0) {
+    // Audit H8: lock the involved color rows FOR UPDATE so concurrent
+    // sales of the last unit of the same color serialise. Without this,
+    // two parallel checkouts both read have=1, both pass the
+    // depletion guard, both apply -1, and product_colors.current_stock
+    // ends at -1 with allowNegativeStock=false. Locking inside the
+    // caller's transaction makes the second sale block on the lock,
+    // re-read the new (already-decremented) value, and reject.
     const colors = await ProductColor.findAll({
       where: { color_id: { [Op.in]: colorIds } },
       transaction,
+      lock: transaction ? transaction.LOCK.UPDATE : undefined,
     });
     colorById = new Map(colors.map((c) => [c.color_id, c]));
   }
