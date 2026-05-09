@@ -189,7 +189,6 @@ export default function ProductFormModal({ open, onCancel, onSaved, defaultName 
         <Field label="Product Name" required span="full" error={errors.product_name}>
           <input
             className={`efm-input${errors.product_name ? ' has-error' : ''}`}
-            placeholder="e.g. Banarasi Silk Saree"
             value={form.product_name}
             onChange={set('product_name')}
             autoFocus

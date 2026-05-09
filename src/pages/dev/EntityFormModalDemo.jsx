@@ -128,7 +128,7 @@ export default function EntityFormModalDemo() {
         >
           <Section label="Identifiers">
             <Field label="Product Name" required span="full">
-              <input className="efm-input" placeholder="e.g. Banarasi Silk Saree"
+              <input className="efm-input"
                 value={form.name || ''} onChange={set('name')} autoFocus />
             </Field>
             <Field label="Category" required help="⌘K picker · + new">

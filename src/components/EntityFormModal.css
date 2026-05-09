@@ -464,3 +464,16 @@
   border-color: var(--danger);
   color: var(--danger);
 }
+
+/* Outline danger action button (e.g. "Delete Customer") — sits at the
+ * far left of the footer, separated from the save controls. Slightly
+ * stronger border than the rest so it reads as destructive but never
+ * the primary action. */
+.efm-ft .fkey.danger-action {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.efm-ft .fkey.danger-action:hover:not(:disabled) {
+  background: var(--danger-bg);
+}

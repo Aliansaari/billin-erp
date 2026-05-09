@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Table, Modal, Form, Input, Select, message, Tooltip } from 'antd';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { Table, Modal, message, Tooltip } from 'antd';
 import {
   SearchOutlined, PlusOutlined,
   TagsOutlined, ReloadOutlined,
@@ -7,7 +7,11 @@ import {
 import { categoryAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import EntityFormModal from '../../components/EntityFormModal';
 import './category-list.css';
+
+const { Section, Field } = EntityFormModal;
+const EMPTY_CAT = { category_name: '', category_code: '', parent_category_id: null };
 
 export default function CategoryList() {
   const [allData,    setAllData]    = useState([]);
@@ -17,7 +21,13 @@ export default function CategoryList() {
   const [formVisible, setFormVisible] = useState(false);
   const [editing, setEditing]         = useState(null);
   const [formLoading, setFormLoading] = useState(false);
-  const [form] = Form.useForm();
+  // Replaced Antd Form with plain state — the EntityFormModal shell
+  // owns the chrome and we own the field rendering. 3 fields, all
+  // simple, no async validators, so manual handling is the cleanest
+  // path.
+  const [form, setForm]               = useState(EMPTY_CAT);
+  const [initialForm, setInitialForm] = useState(EMPTY_CAT);
+  const [formErrors, setFormErrors]   = useState({});
 
   const searchInputRef = useRef(null);
 
@@ -66,30 +76,50 @@ export default function CategoryList() {
 
   const openForm = (cat = null) => {
     setEditing(cat);
-    if (cat) {
-      form.setFieldsValue({
-        category_name: cat.category_name,
-        category_code: cat.category_code,
-        parent_category_id: cat.parent_category_id,
-      });
-    } else {
-      form.resetFields();
-    }
+    const fresh = cat
+      ? {
+          category_name: cat.category_name || '',
+          category_code: cat.category_code || '',
+          parent_category_id: cat.parent_category_id ?? null,
+        }
+      : EMPTY_CAT;
+    setForm(fresh);
+    setInitialForm(fresh);
+    setFormErrors({});
     setFormVisible(true);
   };
 
+  const setField = (k) => (e) => {
+    const v = e?.target ? e.target.value : e;
+    setForm((p) => ({ ...p, [k]: v }));
+    if (formErrors[k]) setFormErrors((er) => { const x = { ...er }; delete x[k]; return x; });
+  };
+
+  // Dirty detection — drives the Esc-confirm ribbon in the shell.
+  const formDirty = useMemo(() => {
+    return Object.keys(initialForm).some((k) => {
+      const a = form[k], b = initialForm[k];
+      return (a == null ? '' : String(a)) !== (b == null ? '' : String(b));
+    });
+  }, [form, initialForm]);
+
   const handleSubmit = async () => {
+    const next = {};
+    if (!(form.category_name || '').trim()) next.category_name = 'Required';
+    setFormErrors(next);
+    if (Object.keys(next).length) {
+      message.warning('Fix the highlighted fields and try again');
+      return;
+    }
     setFormLoading(true);
     try {
-      const values = await form.validateFields();
-      // Antd's Select with allowClear returns `undefined` when cleared,
-      // which JSON.stringify drops on the wire. Normalise to `null` so
-      // the server explicitly receives the "remove parent" signal — its
-      // update guard uses hasOwnProperty(parent_category_id) to decide
-      // whether to touch the field.
+      // Normalise undefined → null on the parent so the server's
+      // hasOwnProperty(parent_category_id) update guard sees an
+      // explicit "remove parent" signal rather than a missing key.
       const payload = {
-        ...values,
-        parent_category_id: values.parent_category_id ?? null,
+        category_name: form.category_name.trim(),
+        category_code: form.category_code || null,
+        parent_category_id: form.parent_category_id ?? null,
       };
       if (editing) {
         await categoryAPI.update(editing.category_id, payload);
@@ -102,12 +132,15 @@ export default function CategoryList() {
       setEditing(null);
       await loadCategories();
     } catch (e) {
-      // Antd form-validation errors don't have a `response` — only show
-      // the toast for backend failures.
-      if (e?.response) message.error(e.response.data?.error || 'Failed to save');
+      message.error(e?.response?.data?.error || 'Failed to save');
     }
     setFormLoading(false);
   };
+
+  const handleReset = useCallback(() => {
+    setForm(initialForm);
+    setFormErrors({});
+  }, [initialForm]);
 
   const handleDelete = (cat) => {
     Modal.confirm({
@@ -247,33 +280,55 @@ export default function CategoryList() {
         ]}
       />
 
-      {/* ── Add / Edit Modal ── */}
-      <Modal
-        title={editing ? `Edit · ${editing.category_name}` : 'Add Category'}
+      {/* ── Add / Edit Modal — uses the shared EntityFormModal shell.
+       *  Single section, three fields. Title flips to "Edit · …" in
+       *  edit mode; tone is warning (amber) so it visually echoes the
+       *  Tags icon used elsewhere for category surfaces. */}
+      <EntityFormModal
         open={formVisible}
-        onCancel={() => { setFormVisible(false); setEditing(null); }}
-        onOk={handleSubmit}
-        confirmLoading={formLoading}
-        okText={editing ? 'Update' : 'Add Category'}
-        destroyOnClose
+        onClose={() => { setFormVisible(false); setEditing(null); }}
+        title={editing ? 'Edit Category' : 'Add Category'}
+        subtitle={editing ? editing.category_name : 'Top-level inventory grouping'}
+        entityIcon="C"
+        entityTone="warning"
+        dirty={formDirty}
+        saving={formLoading}
+        onSave={handleSubmit}
+        onSaveAndClose={handleSubmit}
+        onReset={handleReset}
+        width={460}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-          <Form.Item name="category_name" label="Category Name" rules={[{ required: true, message: 'Required' }]}>
-            <Input placeholder="e.g. Frock, Jeans, T-Shirt" autoFocus />
-          </Form.Item>
-          <Form.Item name="category_code" label="Category Code">
-            <Input placeholder="Optional short code" />
-          </Form.Item>
-          <Form.Item name="parent_category_id" label="Parent Category">
-            <Select placeholder="None (top-level)" allowClear showSearch optionFilterProp="label"
-              options={topLevel
-                .filter(c => c.category_id !== editing?.category_id)
-                .map(c => ({ value: c.category_id, label: c.category_name }))
-              }
+        <Section label="Category">
+          <Field label="Category Name" required span="full" error={formErrors.category_name}
+            help="Used in product master + reports drill-down">
+            <input
+              className={`efm-input${formErrors.category_name ? ' has-error' : ''}`}
+              value={form.category_name}
+              onChange={setField('category_name')}
+              autoFocus
             />
-          </Form.Item>
-        </Form>
-      </Modal>
+          </Field>
+
+          <Field label="Category Code" span="full" help="Optional · short code shown in pickers">
+            <input className="efm-input" value={form.category_code} onChange={setField('category_code')} />
+          </Field>
+
+          <Field label="Parent Category" span="full" help="Leave blank for a top-level category">
+            <select
+              className="efm-select"
+              value={form.parent_category_id ?? ''}
+              onChange={(e) => setField('parent_category_id')(e.target.value ? parseInt(e.target.value, 10) : null)}
+            >
+              <option value="">— None (top-level) —</option>
+              {topLevel
+                .filter((c) => c.category_id !== editing?.category_id)
+                .map((c) => (
+                  <option key={c.category_id} value={c.category_id}>{c.category_name}</option>
+                ))}
+            </select>
+          </Field>
+        </Section>
+      </EntityFormModal>
     </div>
   );
 }

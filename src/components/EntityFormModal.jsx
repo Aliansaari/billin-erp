@@ -138,6 +138,12 @@ function EntityFormModal({
   // For controlled width — defaults to 540 (v1 mockup spec). Pass
   // a wider value (720+) for forms with denser two-column bodies.
   width = 540,
+  // Optional left-aligned destructive action (e.g. "Delete Customer"
+  // in edit mode). Rendered in the footer to the LEFT of Esc/Reset
+  // so it's visually separated from the save controls. Pass:
+  //   { label, onClick, loading?, icon? }
+  // Omit entirely when there's no destructive action available.
+  dangerAction,
 }) {
   // Track whether Esc has been pressed once while dirty (first Esc
   // shows the confirm ribbon, second Esc actually closes).
@@ -346,6 +352,21 @@ function EntityFormModal({
 
         {/* ── Footer (F-key strip) ─────────────────────────────── */}
         <footer className="efm-ft">
+          {/* Destructive action — sits at the far left, visually
+           *  separated from the save controls by the spacer below.
+           *  Outline-style danger so it doesn't compete with the
+           *  primary Save button. */}
+          {dangerAction && (
+            <button
+              type="button"
+              className="fkey danger-action"
+              onClick={dangerAction.onClick}
+              disabled={!!dangerAction.loading || saving}
+              title={dangerAction.title}
+            >
+              {dangerAction.icon} {dangerAction.loading ? 'Working…' : dangerAction.label}
+            </button>
+          )}
           <button type="button" className="fkey danger" onClick={(e) => handleEsc(e)}>
             <kbd>Esc</kbd> Cancel
           </button>
