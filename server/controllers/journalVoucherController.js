@@ -162,10 +162,27 @@ exports.update = async (req, res) => {
       reason: 'JV edited', userId: req.user && req.user.user_id, transaction: t,
     });
 
+    // Audit M4: when the voucher_date changes, the existing voucher_number
+    // becomes stale (its prefix encodes the OLD date). Reports that group
+    // entries by reference_number — and Tally exports that key on this
+    // string — would fan one voucher across two date-prefixed buckets.
+    // Regenerate the number using the new date's prefix so the
+    // reference_number always aligns with entry_date.
+    let nextNumber = jv.voucher_number;
+    const datesDiffer = voucher_date && String(voucher_date) !== String(jv.voucher_date).slice(0, 10);
+    if (datesDiffer) {
+      const oldPrefix = nextVoucherNumberPrefix(jv.voucher_date);
+      const newPrefix = nextVoucherNumberPrefix(voucher_date);
+      if (oldPrefix !== newPrefix) {
+        nextNumber = await nextVoucherNumber(voucher_date, t);
+      }
+    }
+
     await jv.update({
-      voucher_date: voucher_date || jv.voucher_date,
-      narration:    narration   != null ? narration : jv.narration,
-      total_amount: totalDr,
+      voucher_date:   voucher_date || jv.voucher_date,
+      voucher_number: nextNumber,
+      narration:      narration   != null ? narration : jv.narration,
+      total_amount:   totalDr,
     }, { transaction: t });
 
     await postVoucher({
@@ -173,7 +190,7 @@ exports.update = async (req, res) => {
       sourceType:  'journal_voucher',
       sourceId:    jv.id,
       voucherDate: voucher_date || jv.voucher_date,
-      referenceNumber: jv.voucher_number,
+      referenceNumber: nextNumber,
       lines,
       narration: narration || jv.narration,
       userId: req.user && req.user.user_id,
