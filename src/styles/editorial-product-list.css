@@ -583,13 +583,16 @@
  * (right). The legacy `.ed-prod.sm` did this by flipping the outer to
  * flex-direction:row, but that swallowed the bottom ActionStrip into
  * the row and floated it top-right. New `.sm-page` keeps the outer
- * flex-column (so the ActionStrip flows below) and `.sm-row` does the
- * horizontal layout. */
+ * flex-column (so the ActionStrip flows below) and `.sm-body` does
+ * the horizontal layout. (NOTE: name is deliberately `.sm-body`, not
+ * `.sm-row` — that class is already used by the inner ledger header
+ * + transaction rows below; reusing it caused every ledger row to
+ * inherit flex:1 + flex-direction:row and broke the panel layout.) */
 .ed-prod.sm { flex-direction: row; }
 .ed-prod.sm-page {
   flex-direction: column;
 }
-.ed-prod.sm-page .sm-row {
+.ed-prod.sm-page .sm-body {
   flex: 1;
   min-height: 0;
   display: flex;
