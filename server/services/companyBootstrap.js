@@ -181,6 +181,56 @@ async function registerPrimaryIfNeeded() {
 }
 
 /**
+ * Migrate every existing non-primary company DB up to the latest
+ * schema. Called once on server boot so a code update that adds a
+ * new table / column propagates to every company without manual
+ * intervention. Idempotent — each migration block is IF NOT EXISTS.
+ *
+ * Primary company is migrated by the existing master-DB IF NOT EXISTS
+ * blocks in server/index.js (those run against the master sequelize),
+ * so we skip it here.
+ */
+async function migrateExistingCompanyDatabases() {
+  // Lazy-require to avoid circular: companyConnections imports models
+  // imports config/database imports companyContext.
+  const { Sequelize } = require('sequelize');
+  const { runCompanySchemaMigrations } = require('./companySchemaMigrations');
+
+  const rows = await Company.findAll({
+    where: { is_active: true, db_dropped_at: null, is_primary: false },
+  });
+  if (rows.length === 0) return;
+
+  console.log(`[bootstrap] migrating ${rows.length} existing company DB(s)…`);
+  for (const co of rows) {
+    let seq;
+    try {
+      seq = new Sequelize(
+        co.db_name,
+        process.env.DB_USER || 'postgres',
+        process.env.DB_PASSWORD || 'postgres',
+        {
+          host: process.env.DB_HOST || 'localhost',
+          port: process.env.DB_PORT || 5432,
+          dialect: 'postgres',
+          logging: false,
+          pool: { max: 1, min: 0, acquire: 10000, idle: 5000 },
+        }
+      );
+      await seq.authenticate();
+      await runCompanySchemaMigrations(seq);
+      console.log(`[bootstrap]   ✓ ${co.db_name} (company "${co.name}")`);
+    } catch (e) {
+      // Don't abort boot — log and continue. A misconfigured / missing
+      // company DB shouldn't take down the whole server.
+      console.error(`[bootstrap]   ✗ ${co.db_name}: ${e.message}`);
+    } finally {
+      if (seq) try { await seq.close(); } catch {}
+    }
+  }
+}
+
+/**
  * Public entry point — call this from server/index.js on boot, before
  * sequelize.sync runs.
  */
@@ -190,6 +240,12 @@ async function runCompanyBootstrap() {
     await masterSequelize.authenticate();
     await syncMasterSchema();
     await registerPrimaryIfNeeded();
+    // Backfill schema migrations on every existing non-primary company
+    // DB. New code with new columns/tables auto-applies; if we don't
+    // do this, a customer with two companies upgrading the app would
+    // see Company 1 working and Company 2 broken until they re-create
+    // it.
+    await migrateExistingCompanyDatabases();
   } catch (e) {
     console.error('[bootstrap] FATAL — could not initialise master DB:', e.message);
     console.error('Make sure your Postgres user has CREATE DATABASE permission.');

@@ -41,8 +41,7 @@ const {
 } = require('./voucherBuilders');
 const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
 
-const REJECTED_DIR = path.join(__dirname, '..', '..', 'uploads', 'rejected');
-fs.mkdirSync(REJECTED_DIR, { recursive: true });
+const { UPLOADS_REJECTED_DIR: REJECTED_DIR } = require('../utils/paths');
 
 const SUPPORTED_TYPES = new Set([
   'Sales', 'Purchase', 'Receipt', 'Payment',

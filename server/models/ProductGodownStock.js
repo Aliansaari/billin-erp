@@ -40,36 +40,37 @@ const sequelize = require('../config/database');
  *   read the same `current_stock`, both decrement, and lose one bill's
  *   write.
  */
-const ProductGodownStock = sequelize.define('ProductGodownStock', {
-  product_id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    references: { model: 'products', key: 'product_id' },
-  },
-  godown_id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    references: { model: 'godowns', key: 'godown_id' },
-  },
-  current_stock: {
-    type: DataTypes.DECIMAL(10, 2),
-    defaultValue: 0,
-    allowNull: false,
-  },
-  opening_stock: {
-    type: DataTypes.DECIMAL(10, 2),
-    defaultValue: 0,
-    allowNull: false,
-  },
-}, {
-  tableName: 'product_godown_stock',
-  timestamps: true,
-  createdAt: 'created_date',
-  updatedAt: 'modified_date',
-  indexes: [
-    { fields: ['godown_id'] },
-    { fields: ['product_id'] },
-  ],
-});
-
-module.exports = ProductGodownStock;
+module.exports = (sequelize) => {
+  const ProductGodownStock = sequelize.define('ProductGodownStock', {
+    product_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      references: { model: 'products', key: 'product_id' },
+    },
+    godown_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      references: { model: 'godowns', key: 'godown_id' },
+    },
+    current_stock: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0,
+      allowNull: false,
+    },
+    opening_stock: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0,
+      allowNull: false,
+    },
+  }, {
+    tableName: 'product_godown_stock',
+    timestamps: true,
+    createdAt: 'created_date',
+    updatedAt: 'modified_date',
+    indexes: [
+      { fields: ['godown_id'] },
+      { fields: ['product_id'] },
+    ],
+  });
+  return ProductGodownStock;
+};

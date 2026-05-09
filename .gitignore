@@ -5,6 +5,11 @@ server.log
 *.log
 .claude/
 
+# Build artefacts — produced by `npm run dist`. Never check these in.
+dist-electron/
+server-built/
+build/icon.ico
+
 # Runtime data — firm-specific, must never be committed
 server/backups/
 server/uploads/

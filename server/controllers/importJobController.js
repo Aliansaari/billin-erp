@@ -19,8 +19,8 @@ const multer = require('multer');
 const { Op } = require('sequelize');
 const { ImportJob, ImportBatch } = require('../models');
 
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads', 'imports');
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const { UPLOADS_IMPORTS_DIR: UPLOAD_DIR } = require('../utils/paths');
+// dir is created by utils/paths on first require — no need to mkdir again
 
 const upload = multer({
   dest: UPLOAD_DIR,

@@ -7,7 +7,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 
 const upload = multer({
-  dest: path.join(__dirname, '..', 'uploads'),
+  dest: require('../utils/paths').UPLOADS_DIR,
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (['.xlsx', '.xls', '.csv'].includes(ext)) {

@@ -22,65 +22,66 @@ const sequelize = require('../config/database');
  * + a child table + write fan-out per save and buy nothing. We freeze
  * the blob shape with `payload._schema_version` for forward-migration.
  */
-const SalesBillDraft = sequelize.define('SalesBillDraft', {
-  draft_id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  // Auto-allocated "DRAFT-001" inside the create transaction with a
-  // FOR-UPDATE lock on the last row, mirroring the bill_number race fix
-  // in salesController.create. Ensures no two drafts share a number.
-  draft_number: {
-    type: DataTypes.STRING(20),
-    unique: true,
-    allowNull: false,
-  },
-  // Nullable — a walk-in customer may have no party_id at hold time.
-  // ON DELETE SET NULL: deleting a party converts any held drafts into
-  // walk-in drafts rather than blocking the delete. Drafts have no
-  // business invariants tied to party_id (no GST math, no balance, no
-  // stock), so this is a safe, lossless transition.
-  customer_id: {
-    type: DataTypes.INTEGER,
-    references: { model: 'parties', key: 'party_id' },
-    onDelete: 'SET NULL',
-  },
-  draft_date: {
-    type: DataTypes.DATEONLY,
-    allowNull: false,
-    defaultValue: DataTypes.NOW,
-  },
-  // Entire form state. Includes: items[], gst_mode, cgst_pct/sgst_pct/
-  // igst_pct (bill-wise), discount, special_discount, freight, other,
-  // round_off, payment_method, return_amount, remarks, sale_type, etc.
-  payload: {
-    type: DataTypes.JSONB,
-    allowNull: false,
-  },
-  // Denormalised for the list-view UI (so we don't parse payload to
-  // render the table). Updated by the controller on create/update.
-  item_count: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-  },
-  total_preview: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-  },
-  created_by: {
-    type: DataTypes.INTEGER,
-    references: { model: 'users', key: 'user_id' },
-  },
-}, {
-  tableName: 'sales_bill_drafts',
-  timestamps: true,
-  createdAt: 'created_date',
-  updatedAt: 'modified_date',
-  indexes: [
-    { unique: true, fields: ['draft_number'] },
-    { fields: ['created_date'] },
-  ],
-});
-
-module.exports = SalesBillDraft;
+module.exports = (sequelize) => {
+  const SalesBillDraft = sequelize.define('SalesBillDraft', {
+    draft_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    // Auto-allocated "DRAFT-001" inside the create transaction with a
+    // FOR-UPDATE lock on the last row, mirroring the bill_number race fix
+    // in salesController.create. Ensures no two drafts share a number.
+    draft_number: {
+      type: DataTypes.STRING(20),
+      unique: true,
+      allowNull: false,
+    },
+    // Nullable — a walk-in customer may have no party_id at hold time.
+    // ON DELETE SET NULL: deleting a party converts any held drafts into
+    // walk-in drafts rather than blocking the delete. Drafts have no
+    // business invariants tied to party_id (no GST math, no balance, no
+    // stock), so this is a safe, lossless transition.
+    customer_id: {
+      type: DataTypes.INTEGER,
+      references: { model: 'parties', key: 'party_id' },
+      onDelete: 'SET NULL',
+    },
+    draft_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    // Entire form state. Includes: items[], gst_mode, cgst_pct/sgst_pct/
+    // igst_pct (bill-wise), discount, special_discount, freight, other,
+    // round_off, payment_method, return_amount, remarks, sale_type, etc.
+    payload: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+    },
+    // Denormalised for the list-view UI (so we don't parse payload to
+    // render the table). Updated by the controller on create/update.
+    item_count: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    total_preview: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0,
+    },
+    created_by: {
+      type: DataTypes.INTEGER,
+      references: { model: 'users', key: 'user_id' },
+    },
+  }, {
+    tableName: 'sales_bill_drafts',
+    timestamps: true,
+    createdAt: 'created_date',
+    updatedAt: 'modified_date',
+    indexes: [
+      { unique: true, fields: ['draft_number'] },
+      { fields: ['created_date'] },
+    ],
+  });
+  return SalesBillDraft;
+};

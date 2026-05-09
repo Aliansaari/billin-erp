@@ -1,4 +1,12 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+
+// First-run config — apply user-chosen Postgres creds from
+// <homedir>/.billing-erp/config.json BEFORE any module reads DB_*.
+// Has no effect after the wizard finishes (the file just persists the
+// chosen values across restarts), or before it runs (sequelize falls
+// back to env / shipped defaults).
+require('./services/setup').applyConfigToEnv();
+
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
@@ -113,10 +121,11 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Uploads directory
+// Uploads directory — see server/utils/paths.js for the asar-aware
+// resolution. The require below also creates the dir as a side-effect.
 const fs = require('fs');
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
+const { UPLOADS_DIR } = require('./utils/paths');
+process.env.BILLING_ERP_UPLOADS_DIR = UPLOADS_DIR;
 
 // LAN gate — enforces dev_lan_enabled + dev_lan_max_clients from
 // system_settings. Mounted before the API routes so a denied client
@@ -125,6 +134,24 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 // the Server Setup screen can still probe.
 const { lanGate } = require('./middleware/lanGate');
 app.use('/api', lanGate);
+
+// License gate — full-blocks every API route except /api/license/*,
+// /api/health, /api/server-info if the on-disk license is missing,
+// expired, signature-invalid, machine-mismatched, or the system
+// clock has been rolled back. Mounted BEFORE the per-route auth so
+// a customer hitting an expired install can't even reach /login —
+// they'll be redirected to the License Expired screen by the
+// frontend's 403 interceptor.
+const { gate: licenseGate } = require('./middleware/licenseGate');
+app.use(licenseGate);
+
+// License management routes (info / activate / deactivate). Mounted
+// FIRST so the gate's bypass list lets these through cleanly.
+app.use('/api/license', require('./routes/license'));
+
+// First-run setup routes — also bypassed by the license gate (the
+// gate's BYPASS_PATHS includes /api/setup/* via prefix match).
+app.use('/api/setup', require('./routes/setup'));
 
 // API Routes
 app.use('/api/auth', require('./routes/auth'));
@@ -331,6 +358,37 @@ if (distExists) {
 // Database sync and start server
 async function startServer() {
   try {
+    // First-run gate: if the setup wizard hasn't completed yet, skip
+    // every DB-dependent boot step (companies bootstrap, sequelize sync,
+    // schema migrations) and just listen on the port. The frontend will
+    // detect this state via /api/setup/status and run the wizard. After
+    // the user provisions a master DB the app reloads, and on the next
+    // boot setup-complete is true so the full sequence runs.
+    const setupSvc = require('./services/setup');
+    if (!setupSvc.isSetupComplete()) {
+      console.log('[setup] no config.json — entering setup mode');
+      const httpServer = app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Billing ERP setup mode on port ${PORT} — open the UI to finish first-run setup.`);
+      });
+      const shutdown = () => { try { httpServer.close(); } catch {}; process.exit(0); };
+      process.on('SIGTERM', shutdown);
+      process.on('SIGINT',  shutdown);
+      return;
+    }
+
+    // ── Pre-update backup ─────────────────────────────────────────────
+    // The NSIS installer drops a marker file after every install. On
+    // the next boot we dump every DB BEFORE running schema migrations
+    // so a botched update can be rolled back. No-op on fresh installs
+    // (no setup config yet) and on normal boots (no marker).
+    try {
+      await require('./services/preUpdateBackup').runIfNeeded();
+    } catch (e) {
+      console.error('FATAL: pre-update backup failed; refusing to migrate.', e.message);
+      console.error('Restore the previous app version, fix the underlying issue, and try again.');
+      process.exit(1);
+    }
+
     // ── Multi-company bootstrap ───────────────────────────────────────
     // Runs FIRST: ensures the master DB exists, syncs the companies
     // table, and registers the existing single-DB install as the

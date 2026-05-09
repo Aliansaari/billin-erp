@@ -26,117 +26,118 @@ const sequelize = require('../config/database');
 // expense is owed to the vendor (party_id required). 'Bank' uses the
 // per-bank `bank_ledger_id`. 'Cash' posts against the system 'Cash'
 // ledger.
-const ExpenseVoucher = sequelize.define('ExpenseVoucher', {
-  expense_id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  voucher_number: {
-    type: DataTypes.STRING(30),
-    allowNull: false,
-    unique: true,
-  },
-  voucher_date: {
-    type: DataTypes.DATEONLY,
-    allowNull: false,
-  },
-  // 'Cash' (Cr Cash), 'Bank' (Cr bank ledger via bank_ledger_id),
-  // 'Credit' (Cr vendor party ledger via party_id). Mixed mode is not
-  // supported here — record the same expense as two vouchers if the
-  // operator literally split the payment two ways.
-  payment_mode: {
-    type: DataTypes.ENUM('Cash', 'Bank', 'Credit'),
-    allowNull: false,
-    defaultValue: 'Cash',
-  },
-  // Bank ledger when payment_mode='Bank'. NULL otherwise.
-  bank_ledger_id: {
-    type: DataTypes.INTEGER,
-  },
-  // Vendor party (electricity board, landlord, courier, etc.). Required
-  // when payment_mode='Credit'; optional metadata otherwise (so an
-  // operator can tag a cash expense with "paid to Reliance Energy" for
-  // reporting without creating a credit balance).
-  party_id: {
-    type: DataTypes.INTEGER,
-  },
-  // Vendor's reference for the bill / receipt the operator is recording
-  // against. Free text.
-  reference_number: {
-    type: DataTypes.STRING(60),
-  },
-  // Cheque number / UTR / card last-4 — when payment_mode='Bank'.
-  payment_ref: {
-    type: DataTypes.STRING(60),
-  },
-  // Notes / narration carried onto every Dr/Cr leg.
-  narration: {
-    type: DataTypes.TEXT,
-  },
-  // Money fields — always 2dp DECIMAL.
-  sub_total: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-  },
-  cgst_amount: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-  },
-  sgst_amount: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-  },
-  igst_amount: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-  },
-  round_off: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-  },
-  total_amount: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-  },
-  // For credit vouchers, this is the part already paid at entry time
-  // (e.g. ₹500 paid in cash + ₹500 owed). 0 when payment_mode='Credit'
-  // and the expense is fully on credit; equals total_amount when
-  // payment_mode is Cash/Bank.
-  paid_amount: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-  },
-  // Soft delete marker. Cancelled vouchers stay in the table for audit
-  // and the reversal mirror lives in ledger_entries; the list UI hides
-  // them by default.
-  is_cancelled: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false,
-  },
-  cancelled_at: {
-    type: DataTypes.DATE,
-  },
-  cancelled_by: {
-    type: DataTypes.INTEGER,
-  },
-  cancel_reason: {
-    type: DataTypes.STRING(255),
-  },
-  created_by: {
-    type: DataTypes.INTEGER,
-    references: { model: 'users', key: 'user_id' },
-  },
-}, {
-  tableName: 'expense_vouchers',
-  timestamps: true,
-  createdAt: 'created_date',
-  updatedAt: 'modified_date',
-  indexes: [
-    { fields: ['voucher_date'] },
-    { fields: ['party_id'] },
-    { fields: ['is_cancelled'] },
-  ],
-});
-
-module.exports = ExpenseVoucher;
+module.exports = (sequelize) => {
+  const ExpenseVoucher = sequelize.define('ExpenseVoucher', {
+    expense_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    voucher_number: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      unique: true,
+    },
+    voucher_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: false,
+    },
+    // 'Cash' (Cr Cash), 'Bank' (Cr bank ledger via bank_ledger_id),
+    // 'Credit' (Cr vendor party ledger via party_id). Mixed mode is not
+    // supported here — record the same expense as two vouchers if the
+    // operator literally split the payment two ways.
+    payment_mode: {
+      type: DataTypes.ENUM('Cash', 'Bank', 'Credit'),
+      allowNull: false,
+      defaultValue: 'Cash',
+    },
+    // Bank ledger when payment_mode='Bank'. NULL otherwise.
+    bank_ledger_id: {
+      type: DataTypes.INTEGER,
+    },
+    // Vendor party (electricity board, landlord, courier, etc.). Required
+    // when payment_mode='Credit'; optional metadata otherwise (so an
+    // operator can tag a cash expense with "paid to Reliance Energy" for
+    // reporting without creating a credit balance).
+    party_id: {
+      type: DataTypes.INTEGER,
+    },
+    // Vendor's reference for the bill / receipt the operator is recording
+    // against. Free text.
+    reference_number: {
+      type: DataTypes.STRING(60),
+    },
+    // Cheque number / UTR / card last-4 — when payment_mode='Bank'.
+    payment_ref: {
+      type: DataTypes.STRING(60),
+    },
+    // Notes / narration carried onto every Dr/Cr leg.
+    narration: {
+      type: DataTypes.TEXT,
+    },
+    // Money fields — always 2dp DECIMAL.
+    sub_total: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0,
+    },
+    cgst_amount: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0,
+    },
+    sgst_amount: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0,
+    },
+    igst_amount: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0,
+    },
+    round_off: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0,
+    },
+    total_amount: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0,
+    },
+    // For credit vouchers, this is the part already paid at entry time
+    // (e.g. ₹500 paid in cash + ₹500 owed). 0 when payment_mode='Credit'
+    // and the expense is fully on credit; equals total_amount when
+    // payment_mode is Cash/Bank.
+    paid_amount: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0,
+    },
+    // Soft delete marker. Cancelled vouchers stay in the table for audit
+    // and the reversal mirror lives in ledger_entries; the list UI hides
+    // them by default.
+    is_cancelled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    cancelled_at: {
+      type: DataTypes.DATE,
+    },
+    cancelled_by: {
+      type: DataTypes.INTEGER,
+    },
+    cancel_reason: {
+      type: DataTypes.STRING(255),
+    },
+    created_by: {
+      type: DataTypes.INTEGER,
+      references: { model: 'users', key: 'user_id' },
+    },
+  }, {
+    tableName: 'expense_vouchers',
+    timestamps: true,
+    createdAt: 'created_date',
+    updatedAt: 'modified_date',
+    indexes: [
+      { fields: ['voucher_date'] },
+      { fields: ['party_id'] },
+      { fields: ['is_cancelled'] },
+    ],
+  });
+  return ExpenseVoucher;
+};

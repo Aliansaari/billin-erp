@@ -16,37 +16,38 @@ const sequelize = require('../config/database');
  * DECIMAL(14,3) widens past the (10,2) used elsewhere because pharma /
  * food batches are routinely tracked to milligrams or millilitres.
  */
-const ProductBatchStock = sequelize.define('ProductBatchStock', {
-  product_id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    references: { model: 'products', key: 'product_id' },
-  },
-  batch_id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    references: { model: 'product_batches', key: 'batch_id' },
-  },
-  godown_id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    references: { model: 'godowns', key: 'godown_id' },
-  },
-  current_stock: {
-    type: DataTypes.DECIMAL(14, 3),
-    defaultValue: 0,
-    allowNull: false,
-  },
-}, {
-  tableName: 'product_batch_stock',
-  timestamps: true,
-  createdAt: 'created_date',
-  updatedAt: 'modified_date',
-  indexes: [
-    { fields: ['batch_id'] },
-    { fields: ['godown_id'] },
-    { fields: ['product_id', 'godown_id'] },
-  ],
-});
-
-module.exports = ProductBatchStock;
+module.exports = (sequelize) => {
+  const ProductBatchStock = sequelize.define('ProductBatchStock', {
+    product_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      references: { model: 'products', key: 'product_id' },
+    },
+    batch_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      references: { model: 'product_batches', key: 'batch_id' },
+    },
+    godown_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      references: { model: 'godowns', key: 'godown_id' },
+    },
+    current_stock: {
+      type: DataTypes.DECIMAL(14, 3),
+      defaultValue: 0,
+      allowNull: false,
+    },
+  }, {
+    tableName: 'product_batch_stock',
+    timestamps: true,
+    createdAt: 'created_date',
+    updatedAt: 'modified_date',
+    indexes: [
+      { fields: ['batch_id'] },
+      { fields: ['godown_id'] },
+      { fields: ['product_id', 'godown_id'] },
+    ],
+  });
+  return ProductBatchStock;
+};

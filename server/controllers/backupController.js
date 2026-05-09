@@ -9,12 +9,18 @@ const {
   LedgerAccount, LedgerEntry, BarcodeSettings, SystemSettings,
 } = require('../models');
 
-const BACKUPS_DIR = path.join(__dirname, '../backups');
+// In a packaged Electron build, server/ lives inside app.asar (read-
+// only). server/utils/paths picks the right base dir for either case
+// — dev: project root, packaged: <homedir>/.billing-erp.
+const { IN_ASAR, USER_DATA } = require('../utils/paths');
+const BACKUPS_DIR = IN_ASAR
+  ? path.join(USER_DATA, 'app-backups')
+  : path.join(__dirname, '../backups');
 const SETTINGS_FILE = path.join(BACKUPS_DIR, 'backup-settings.json');
 
-// One-time startup sync mkdir is fine — we need the directory to exist before
-// any async handler reads from it, and this runs once at module load.
-if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+// One-time startup mkdir — runs once at module load. Wrapped so a
+// stray ENOENT/permission glitch doesn't crash the whole boot.
+try { fs.mkdirSync(BACKUPS_DIR, { recursive: true }); } catch {}
 
 // ── Safe-filename validator ───────────────────────────────────────────────────
 // Blocks path traversal (../), absolute paths, and stray separators that would

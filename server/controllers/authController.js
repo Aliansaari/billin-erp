@@ -1,6 +1,8 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { User, Role } = require('../models');
+const { User, Role, companyContext } = require('../models');
+const Company = require('../models/Company');
+const { getCompanyConnection } = require('../services/companyConnections');
 const { recordFailure, recordSuccess } = require('../middleware/loginRateLimit');
 
 // A default admin/admin seed is convenient for first-run but dangerous to
@@ -12,80 +14,107 @@ const DEFAULT_ADMIN_PASSWORD = 'admin123';
 
 exports.login = async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, company_id: companyIdRaw } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    const user = await User.findOne({
-      where: { username },
-      include: [{ model: Role }],
-    });
-
-    if (!user) {
-      // Record failure BEFORE returning so brute-force attempts on a wrong
-      // username accumulate toward the rate-limit lockout. Uses composite
-      // IP+username key so legit users on the same LAN aren't punished.
-      recordFailure(req);
-      return res.status(401).json({ error: 'Invalid username or password' });
+    // Resolve which company DB to authenticate against. Defaults to the
+    // primary company so single-company installs (and clients that
+    // haven't been updated to send company_id yet) keep working.
+    let companyId = Number(companyIdRaw);
+    if (!Number.isFinite(companyId) || companyId <= 0) {
+      const primary = await Company.findOne({ where: { is_primary: true } });
+      if (!primary) {
+        return res.status(500).json({ error: 'No primary company configured' });
+      }
+      companyId = primary.company_id;
     }
 
-    if (!user.is_active) {
-      recordFailure(req);
-      return res.status(401).json({ error: 'Account is deactivated. Contact admin.' });
+    // Verify the company is reachable + bootstrapped before we run the
+    // user lookup against it. A new company that hasn't seeded yet will
+    // hit the await ready inside getCompanyConnection.
+    let connection;
+    try {
+      connection = await getCompanyConnection(companyId);
+    } catch (e) {
+      return res.status(404).json({ error: e.message });
     }
 
-    const validPassword = await bcrypt.compare(password, user.password_hash);
-    if (!validPassword) {
-      recordFailure(req);
-      return res.status(401).json({ error: 'Invalid username or password' });
-    }
+    // Run the credential check inside the company's ALS context so the
+    // User / Role lookups land on the right database.
+    return companyContext.run(
+      { sequelize: connection.sequelize, models: connection.models, companyId },
+      async () => {
+        const user = await User.findOne({
+          where: { username },
+          include: [{ model: Role }],
+        });
 
-    // Success — clear any prior failure streak so the user isn't locked out
-    // later in the session by their own mistypes.
-    recordSuccess(req);
+        if (!user) {
+          // Record failure BEFORE returning so brute-force attempts on a wrong
+          // username accumulate toward the rate-limit lockout. Uses composite
+          // IP+username key so legit users on the same LAN aren't punished.
+          recordFailure(req);
+          return res.status(401).json({ error: 'Invalid username or password' });
+        }
 
-    await user.update({ last_login: new Date() });
+        if (!user.is_active) {
+          recordFailure(req);
+          return res.status(401).json({ error: 'Account is deactivated. Contact admin.' });
+        }
 
-    // Flag default-password users: the client must force a change-password
-    // redirect before letting them use the app. We compare the PLAINTEXT
-    // submitted password (never the hash) because bcrypt hashes aren't
-    // reversible — and we only know the default matches the hash here.
-    const mustChangePassword =
-      user.username === 'admin' && password === DEFAULT_ADMIN_PASSWORD;
+        const validPassword = await bcrypt.compare(password, user.password_hash);
+        if (!validPassword) {
+          recordFailure(req);
+          return res.status(401).json({ error: 'Invalid username or password' });
+        }
 
-    const token = jwt.sign(
-      { user_id: user.user_id, username: user.username, role: user.Role.role_name },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+        // Success — clear any prior failure streak.
+        recordSuccess(req);
+        await user.update({ last_login: new Date() });
+
+        const mustChangePassword =
+          user.username === 'admin' && password === DEFAULT_ADMIN_PASSWORD;
+
+        // JWT carries company_id so the auth middleware on every
+        // subsequent request routes the connection automatically.
+        const token = jwt.sign(
+          {
+            user_id: user.user_id,
+            username: user.username,
+            role: user.Role.role_name,
+            company_id: companyId,
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: '24h' }
+        );
+
+        const effectivePerms = user.custom_permissions || user.Role.permissions_json;
+
+        res.json({
+          token,
+          must_change_password: mustChangePassword,
+          company_id: companyId,
+          user: {
+            user_id: user.user_id,
+            username: user.username,
+            full_name: user.full_name,
+            email: user.email,
+            role: user.Role.role_name,
+            role_id: user.role_id,
+            permissions: effectivePerms,
+            custom_permissions: user.custom_permissions,
+            can_view_reports: user.Role.can_view_reports,
+            can_delete_bills: user.Role.can_delete_bills,
+            can_edit_rates: user.Role.can_edit_rates,
+            can_access_accounts: user.Role.can_access_accounts,
+            can_manage_users: user.Role.can_manage_users,
+          },
+        });
+      }
     );
-
-    // Effective permissions = user override if present, else role template.
-    // The frontend receives just `permissions` as the single thing to consult
-    // — it doesn't need to know whether the value came from the role or a
-    // per-user customisation.
-    const effectivePerms = user.custom_permissions || user.Role.permissions_json;
-
-    res.json({
-      token,
-      must_change_password: mustChangePassword,
-      user: {
-        user_id: user.user_id,
-        username: user.username,
-        full_name: user.full_name,
-        email: user.email,
-        role: user.Role.role_name,
-        role_id: user.role_id,
-        permissions: effectivePerms,
-        custom_permissions: user.custom_permissions,   // so the edit form can show "customised" vs "inheriting"
-        can_view_reports: user.Role.can_view_reports,
-        can_delete_bills: user.Role.can_delete_bills,
-        can_edit_rates: user.Role.can_edit_rates,
-        can_access_accounts: user.Role.can_access_accounts,
-        can_manage_users: user.Role.can_manage_users,
-      },
-    });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Server error during login' });
@@ -119,6 +148,128 @@ exports.verifyPassword = async (req, res) => {
   } catch (error) {
     console.error('Verify password error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+/* ── In-place company switch ─────────────────────────────────────────────
+ *
+ * Tally-Prime-style mid-session switch: keep the React app mounted, swap
+ * the auth token in place. The user types only the password for the
+ * destination company (since users + passwords are per-company-isolated,
+ * the same `username` may exist with a different password in each
+ * company DB).
+ *
+ * Flow:
+ *   1. Caller is already authenticated for company A (auth middleware
+ *      ran with company A's ALS context).
+ *   2. We resolve company B's connection.
+ *   3. Inside company B's ALS context, look up the user by the SAME
+ *      username (req.user.username) and validate the supplied password
+ *      against company B's password_hash.
+ *   4. On success, issue a new 24h JWT carrying company_id=B and
+ *      return the same { token, user, company_id } shape as /login so
+ *      the frontend can swap localStorage seamlessly.
+ *
+ * Failure modes (all return 401 with a generic message so an attacker
+ * can't enumerate which usernames exist in which company):
+ *   - Username doesn't exist in destination company
+ *   - User is deactivated in destination company
+ *   - Password doesn't match destination company's hash
+ *
+ * 404 is reserved for "destination company doesn't exist / is archived"
+ * — that's a UI/UX error, not an auth failure.
+ */
+exports.switchCompany = async (req, res) => {
+  try {
+    const { company_id: targetIdRaw, password } = req.body;
+    const targetId = Number(targetIdRaw);
+
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: 'company_id is required' });
+    }
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+    if (targetId === Number(req.companyId)) {
+      return res.status(400).json({ error: 'Already signed in to this company' });
+    }
+
+    // Resolve the destination company (404 if it doesn't exist / archived).
+    let destination;
+    try {
+      destination = await getCompanyConnection(targetId);
+    } catch (e) {
+      return res.status(404).json({ error: e.message });
+    }
+
+    // Validate credentials inside the destination's ALS context so the
+    // User / Role lookups land on the right database.
+    const username = req.user.username;
+    return companyContext.run(
+      { sequelize: destination.sequelize, models: destination.models, companyId: targetId },
+      async () => {
+        const user = await User.findOne({
+          where: { username },
+          include: [{ model: Role }],
+        });
+
+        if (!user || !user.is_active) {
+          recordFailure(req);
+          return res.status(401).json({
+            error: `No active account "${username}" in the selected company. Sign in again to switch.`,
+          });
+        }
+
+        const validPassword = await bcrypt.compare(password, user.password_hash);
+        if (!validPassword) {
+          recordFailure(req);
+          return res.status(401).json({ error: 'Invalid password for the selected company' });
+        }
+
+        recordSuccess(req);
+        await user.update({ last_login: new Date() });
+
+        const mustChangePassword =
+          user.username === 'admin' && password === DEFAULT_ADMIN_PASSWORD;
+
+        const token = jwt.sign(
+          {
+            user_id: user.user_id,
+            username: user.username,
+            role: user.Role.role_name,
+            company_id: targetId,
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: '24h' }
+        );
+
+        const effectivePerms = user.custom_permissions || user.Role.permissions_json;
+
+        res.json({
+          token,
+          must_change_password: mustChangePassword,
+          company_id: targetId,
+          user: {
+            user_id: user.user_id,
+            username: user.username,
+            full_name: user.full_name,
+            email: user.email,
+            role: user.Role.role_name,
+            role_id: user.role_id,
+            permissions: effectivePerms,
+            custom_permissions: user.custom_permissions,
+            can_view_reports: user.Role.can_view_reports,
+            can_delete_bills: user.Role.can_delete_bills,
+            can_edit_rates: user.Role.can_edit_rates,
+            can_access_accounts: user.Role.can_access_accounts,
+            can_manage_users: user.Role.can_manage_users,
+          },
+        });
+      }
+    );
+  } catch (error) {
+    console.error('Switch company error:', error);
+    res.status(500).json({ error: 'Server error during company switch' });
   }
 };
 

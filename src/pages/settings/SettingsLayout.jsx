@@ -4,7 +4,7 @@ import {
   BankOutlined, UserOutlined, BgColorsOutlined, TagsOutlined,
   PrinterOutlined, ThunderboltOutlined, SwapOutlined, ApiOutlined,
   CloudServerOutlined, HomeOutlined, ControlOutlined, DashboardOutlined,
-  AppstoreOutlined, CodeOutlined,
+  AppstoreOutlined, CodeOutlined, KeyOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -78,6 +78,10 @@ const SETTINGS_GROUPS = [
     label: 'Developer',
     items: [
       { path: 'developer',  icon: <CodeOutlined />,        label: 'Developer Access', __devOnly: true },
+      // License panel — visible to anyone (so the customer can see their
+      // expiry / customer ID), but the sensitive Replace flow is dev-gated
+      // inside the panel itself.
+      { path: 'license',    icon: <KeyOutlined />,         label: 'License',          perm: null },
     ],
   },
 ];

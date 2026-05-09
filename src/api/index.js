@@ -155,6 +155,22 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     if (status === 403) {
+      // License gate fires before auth, so its 403 carries
+      // license_block:true. Bounce to /license/* so the user sees the
+      // activation / expired screen instead of a generic permission
+      // toast. The body shape is set in server/middleware/licenseGate.js.
+      const data = error.response?.data;
+      if (data && data.license_block) {
+        try {
+          // Stash the status payload so the activation/expired screen
+          // can display the specific reason without re-fetching.
+          sessionStorage.setItem('license_block_status', JSON.stringify(data));
+        } catch {}
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/license')) {
+          window.location.href = '/license';
+        }
+        return Promise.reject(error);
+      }
       try {
         // Lazily require AntD message so this module stays usable in non-UI
         // contexts (e.g. tests) and doesn't fail if AntD isn't mounted yet.
@@ -178,6 +194,10 @@ export const authAPI = {
   // Returns { ok: true, using_default_password: bool } on success.
   // 401 on wrong password; 429 if rate-limited (5+ failures in 15 min).
   verifyDeveloperPassword: (password) => api.post('/auth/dev-verify', { password }),
+  // In-place switch to another company. Same response shape as /login —
+  // caller swaps the JWT in localStorage and refreshes app state.
+  switchCompany: (company_id, password) =>
+    api.post('/auth/switch-company', { company_id, password }),
 };
 
 // Parties

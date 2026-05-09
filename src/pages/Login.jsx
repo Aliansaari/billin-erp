@@ -155,12 +155,20 @@ export default function Login() {
   const onFinish = async (values) => {
     setLoading(true);
     try {
-      const { data } = await authAPI.login(values);
-      // Persist the company choice (when a picker was shown). For a
-      // single-company install we still record id 1 so the topbar
-      // switcher knows where it is.
-      if (selectedCompanyId) pickCompany(selectedCompanyId);
-      else if (companies.length === 1) pickCompany(companies[0].company_id);
+      // Resolve which company to authenticate against. The picker-driven
+      // selectedCompanyId wins; fall back to the only company on a
+      // single-company install; fall back to undefined (server defaults
+      // to primary) on a fresh install with no companies yet.
+      const company_id =
+        selectedCompanyId ||
+        (companies.length === 1 ? companies[0].company_id : undefined);
+
+      const { data } = await authAPI.login({ ...values, company_id });
+      // Persist the resolved company id (server returns it on success
+      // even if we sent it; either way the store + topbar reflect the
+      // actual book the user just logged into).
+      const resolvedId = data.company_id || company_id;
+      if (resolvedId) pickCompany(resolvedId);
       login(data.user, data.token, !!data.must_change_password);
       if (data.must_change_password) {
         message.warning('Please set a new password to continue.');

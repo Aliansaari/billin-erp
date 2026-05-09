@@ -2,8 +2,96 @@ const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const os = require('os');
 
-const isDev = process.env.NODE_ENV !== 'production';
+// `app.isPackaged` is the canonical "are we running from a packaged
+// .exe?" signal. NODE_ENV-based detection breaks in packaged builds
+// because nothing sets NODE_ENV in customer installs — the result was
+// the app trying to connect to Vite (`http://localhost:5173`) which
+// only runs on the dev machine, producing a blank screen + no logs.
+const isDev = !app.isPackaged;
+
+// ── File logging for packaged builds ────────────────────────────────
+//
+// Packaged Electron apps don't write to a console anywhere by default,
+// so a blank-screen-on-launch failure leaves the user (and us) with
+// nothing to debug. We mirror every stdout/stderr write to a logfile
+// so customers can share `<homedir>/.billing-erp/app.log` when
+// reporting issues.
+//
+// In dev we skip this — the dev shell already shows logs, and we don't
+// want two copies of every line.
+function setupFileLogging() {
+  if (isDev) return;
+  try {
+    const logDir = path.join(os.homedir(), '.billing-erp');
+    fs.mkdirSync(logDir, { recursive: true });
+    const logPath = path.join(logDir, 'app.log');
+    // Trim if oversized (keep last ~1 MB so the file doesn't grow
+    // unbounded over years of use).
+    try {
+      if (fs.existsSync(logPath) && fs.statSync(logPath).size > 1_000_000) {
+        const tail = fs.readFileSync(logPath, 'utf8').slice(-500_000);
+        fs.writeFileSync(logPath, tail);
+      }
+    } catch {}
+    const stream = fs.createWriteStream(logPath, { flags: 'a' });
+    const stamp = () => new Date().toISOString();
+    const tee = (origFn, level) => (...args) => {
+      try {
+        const line = `[${stamp()}][${level}] ` + args.map(a =>
+          typeof a === 'string' ? a : (a && a.stack ? a.stack : JSON.stringify(a))
+        ).join(' ') + '\n';
+        stream.write(line);
+      } catch {}
+      try { origFn.apply(console, args); } catch {}
+    };
+    console.log   = tee(console.log,   'log');
+    console.info  = tee(console.info,  'info');
+    console.warn  = tee(console.warn,  'warn');
+    console.error = tee(console.error, 'error');
+
+    process.on('uncaughtException',  (err) => {
+      console.error('[uncaughtException]', err && err.stack || err);
+    });
+    process.on('unhandledRejection', (err) => {
+      console.error('[unhandledRejection]', err && err.stack || err);
+    });
+    console.log(`[main] log starting — Billing ERP ${app.getVersion?.() || ''}`);
+  } catch { /* never crash on logging setup */ }
+}
+setupFileLogging();
+
+// In a packaged build the user expects a single .exe — they shouldn't
+// have to run `npm run server` in another terminal. Electron's main
+// process IS Node, so we just require the server module here. server/
+// calls app.listen() at the bottom of its boot, so by the time
+// waitForServer resolves below, the API is reachable.
+//
+// In dev we DON'T require the server inline — `npm run dev` already
+// spawns it as a separate process via `npm run server`, and we want
+// nodemon-style restarts to work on server changes.
+//
+// `app.isPackaged` is the canonical "are we shipped as an .exe?"
+// check. Don't use NODE_ENV — that varies by how the user launched.
+function bootstrapServer() {
+  if (app.isPackaged) {
+    // Server lives at <asar>/server/index.js. The path is relative to
+    // electron/main.js — one level up. Wrapped in a try so any startup
+    // error surfaces in the logfile + the renderer's "couldn't reach
+    // server" page rather than crashing the whole app silently.
+    console.log('[main] bootstrapping server inside packaged app…');
+    try {
+      require('../server/index.js');
+      console.log('[main] server module loaded; app.listen will fire async');
+    } catch (e) {
+      console.error('[main] bootstrapServer FAILED — server cannot start:');
+      console.error(e && e.stack || e);
+    }
+  } else {
+    console.log('[main] dev mode — assuming `npm run server` is running separately');
+  }
+}
 
 let mainWindow = null;
 
@@ -100,23 +188,90 @@ async function waitForServer(url, totalTimeoutMs = 30000) {
 }
 
 async function createWindow() {
+  // Window-state persistence: remember last size + position across
+  // launches so a customer who's adjusted the window doesn't have to
+  // re-do it every time they open the app. Stored as a small JSON
+  // sidecar next to the user's data folder so it survives reinstalls.
+  const stateFile = path.join(
+    require('os').homedir(),
+    '.billing-erp',
+    'window-state.json',
+  );
+  let savedState = null;
+  try {
+    if (fs.existsSync(stateFile)) {
+      savedState = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    }
+  } catch { /* ignore — corrupted state just falls back to defaults */ }
+
+  // Default opens at the customer's primary-display work area minus a
+  // 40-px safety margin so the window never paints over the taskbar /
+  // hidden-window edges. Only used on the very first launch (or when
+  // the saved state lives outside any current display).
+  const { screen } = require('electron');
+  const primary = screen.getPrimaryDisplay();
+  const wa = primary.workAreaSize;        // already accounts for taskbar
+  const defaultW = Math.max(1280, wa.width  - 40);
+  const defaultH = Math.max(800,  wa.height - 40);
+
+  // Validate saved state — reject sizes/positions that would paint the
+  // window mostly off-screen (e.g. user docked on a second monitor that
+  // has since been disconnected).
+  let useState = null;
+  if (savedState && savedState.width >= 1280 && savedState.height >= 800) {
+    const inBounds = screen.getAllDisplays().some(d =>
+      savedState.x >= d.bounds.x - 80 &&
+      savedState.y >= d.bounds.y - 40 &&
+      savedState.x <= d.bounds.x + d.bounds.width  - 200 &&
+      savedState.y <= d.bounds.y + d.bounds.height - 100
+    );
+    if (inBounds) useState = savedState;
+  }
+
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    // No minWidth / minHeight — the React app is fully responsive (sidebar
-    // auto-collapses, tables scroll horizontally, dashboards stack). Letting
-    // the user shrink the window arbitrarily means a billing counter with a
-    // half-height monitor or a vertical slice of a wide screen still works.
-    minWidth: 320,
-    minHeight: 400,
+    width:     useState?.width  ?? defaultW,
+    height:    useState?.height ?? defaultH,
+    x:         useState?.x ?? undefined,    // undefined → centered
+    y:         useState?.y ?? undefined,
+    // Hard floor: Tally-Prime-style strict minimum so dragging the
+    // corner can never break the layout. 1280×800 is wide enough for
+    // the sidebar + main content on every modern Indian retail PC
+    // (1366×768 fits 1280×800 with a tiny margin; 1920×1080 has plenty).
+    minWidth:  1280,
+    minHeight: 800,
+    resizable:    true,         // resizing IS allowed — just bounded by minWidth/minHeight
+    maximizable:  true,
+    minimizable:  true,
+    center:       !useState,    // only center on first launch; respect saved x/y after
     title: 'Billing ERP',
     show: false,                // wait until we've decided what to load
+    backgroundColor: '#0f172a', // matches the loading screen so no white flash
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
   });
+
+  // Persist size + position whenever the user resizes / moves so the
+  // next launch picks up where they left off. Throttled via the OS's
+  // own resize event coalescing — no extra debounce needed.
+  const saveState = () => {
+    try {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      // Don't save while the window is in a transient state (minimised
+      // or maximised) — those bounds aren't what the user "chose".
+      if (mainWindow.isMinimized() || mainWindow.isMaximized()) return;
+      const b = mainWindow.getBounds();
+      fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+      fs.writeFileSync(stateFile, JSON.stringify({
+        width:  b.width, height: b.height, x: b.x, y: b.y,
+      }), 'utf8');
+    } catch { /* never crash on state save */ }
+  };
+  mainWindow.on('resize', saveState);
+  mainWindow.on('move',   saveState);
+  mainWindow.on('close',  saveState);
 
   mainWindow.setMenuBarVisibility(false);
   mainWindow.once('ready-to-show', () => mainWindow.show());
@@ -345,7 +500,14 @@ ipcMain.handle('shell:show-item', async (_ev, filePath) => {
   return { ok: true };
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // Spawn the API server INSIDE the electron main process when running
+  // as a packaged build — the user shouldn't have to run `npm run server`
+  // separately. In dev this is a no-op; the dev script already runs the
+  // server on its own.
+  bootstrapServer();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

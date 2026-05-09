@@ -30,8 +30,7 @@ const { postVoucher, reverseVoucher } = require('./ledgerPostingService');
 const { buildSalesBillVouchers, buildPurchaseBillVouchers, buildPaymentReceiptVouchers } = require('./voucherBuilders');
 const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
 
-const REJECTED_DIR = path.join(__dirname, '..', '..', 'uploads', 'rejected');
-fs.mkdirSync(REJECTED_DIR, { recursive: true });
+const { UPLOADS_REJECTED_DIR: REJECTED_DIR } = require('../utils/paths');
 
 // Header → field map per template. Header lookup is case-insensitive and
 // trims whitespace; user can rearrange columns freely.

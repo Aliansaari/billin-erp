@@ -111,7 +111,9 @@ async function lanGate(req, res, next) {
   if (
     path === '/api/health' ||
     path === '/api/server-info' ||
-    path === '/api/companies/list-public'
+    path === '/api/companies/list-public' ||
+    path.startsWith('/api/setup/') ||      // first-run wizard bypasses LAN cap
+    path.startsWith('/api/license/')        // activation flow bypasses LAN cap
   ) return next();
 
   const settings = await loadSettings();

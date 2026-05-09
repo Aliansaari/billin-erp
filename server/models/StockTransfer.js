@@ -38,84 +38,85 @@ const sequelize = require('../config/database');
  *   in the migration block. The frontend ALSO disables submit when both are
  *   the same, but the DB-level guard is the authoritative one.
  */
-const StockTransfer = sequelize.define('StockTransfer', {
-  transfer_id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  transfer_number: {
-    type: DataTypes.STRING(30),
-    allowNull: false,
-    unique: true,
-  },
-  transfer_date: {
-    type: DataTypes.DATEONLY,
-    allowNull: false,
-  },
-  from_godown_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'godowns', key: 'godown_id' },
-  },
-  to_godown_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'godowns', key: 'godown_id' },
-  },
-  status: {
-    type: DataTypes.ENUM('Draft', 'In-Transit', 'Received', 'Cancelled'),
-    allowNull: false,
-    defaultValue: 'Draft',
-  },
-  notes: {
-    type: DataTypes.TEXT,
-  },
-  // Header-level rollups — duplicates of SUM(items.quantity)/SUM(items.amount)
-  // for the list view, so the transfer list can render totals without joining
-  // and aggregating thousands of rows. Kept in sync by the controller on
-  // create/update; never trusted for ledger math.
-  total_quantity: {
-    type: DataTypes.DECIMAL(10, 2),
-    defaultValue: 0,
-  },
-  total_value: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-  },
-  received_date: {
-    type: DataTypes.DATEONLY,
-  },
-  received_by: {
-    type: DataTypes.INTEGER,
-    references: { model: 'users', key: 'user_id' },
-  },
-  cancelled_date: {
-    type: DataTypes.DATE,
-  },
-  cancelled_by: {
-    type: DataTypes.INTEGER,
-    references: { model: 'users', key: 'user_id' },
-  },
-  cancellation_reason: {
-    type: DataTypes.TEXT,
-  },
-  created_by: {
-    type: DataTypes.INTEGER,
-    references: { model: 'users', key: 'user_id' },
-  },
-}, {
-  tableName: 'stock_transfers',
-  timestamps: true,
-  createdAt: 'created_date',
-  updatedAt: 'modified_date',
-  indexes: [
-    { unique: true, fields: ['transfer_number'] },
-    { fields: ['transfer_date'] },
-    { fields: ['from_godown_id'] },
-    { fields: ['to_godown_id'] },
-    { fields: ['status'] },
-  ],
-});
-
-module.exports = StockTransfer;
+module.exports = (sequelize) => {
+  const StockTransfer = sequelize.define('StockTransfer', {
+    transfer_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    transfer_number: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      unique: true,
+    },
+    transfer_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: false,
+    },
+    from_godown_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: { model: 'godowns', key: 'godown_id' },
+    },
+    to_godown_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: { model: 'godowns', key: 'godown_id' },
+    },
+    status: {
+      type: DataTypes.ENUM('Draft', 'In-Transit', 'Received', 'Cancelled'),
+      allowNull: false,
+      defaultValue: 'Draft',
+    },
+    notes: {
+      type: DataTypes.TEXT,
+    },
+    // Header-level rollups — duplicates of SUM(items.quantity)/SUM(items.amount)
+    // for the list view, so the transfer list can render totals without joining
+    // and aggregating thousands of rows. Kept in sync by the controller on
+    // create/update; never trusted for ledger math.
+    total_quantity: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0,
+    },
+    total_value: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0,
+    },
+    received_date: {
+      type: DataTypes.DATEONLY,
+    },
+    received_by: {
+      type: DataTypes.INTEGER,
+      references: { model: 'users', key: 'user_id' },
+    },
+    cancelled_date: {
+      type: DataTypes.DATE,
+    },
+    cancelled_by: {
+      type: DataTypes.INTEGER,
+      references: { model: 'users', key: 'user_id' },
+    },
+    cancellation_reason: {
+      type: DataTypes.TEXT,
+    },
+    created_by: {
+      type: DataTypes.INTEGER,
+      references: { model: 'users', key: 'user_id' },
+    },
+  }, {
+    tableName: 'stock_transfers',
+    timestamps: true,
+    createdAt: 'created_date',
+    updatedAt: 'modified_date',
+    indexes: [
+      { unique: true, fields: ['transfer_number'] },
+      { fields: ['transfer_date'] },
+      { fields: ['from_godown_id'] },
+      { fields: ['to_godown_id'] },
+      { fields: ['status'] },
+    ],
+  });
+  return StockTransfer;
+};

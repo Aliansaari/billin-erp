@@ -25,7 +25,7 @@ const { Sequelize } = require('sequelize');
  *                  open during quiet periods
  * evict    1 s   — sweep dead/stale conns every second
  */
-const sequelize = new Sequelize(
+const masterSequelize = new Sequelize(
   process.env.DB_NAME || 'billing_erp',
   process.env.DB_USER || 'postgres',
   process.env.DB_PASSWORD || 'postgres',
@@ -62,4 +62,47 @@ const sequelize = new Sequelize(
   },
 );
 
+/* ── Multi-tenant Proxy ─────────────────────────────────────────────────
+ *
+ * Controllers across the codebase do `const sequelize = require('../config/database')`
+ * and then `sequelize.transaction(...)`, `sequelize.query(...)`, etc.
+ *
+ * Without a Proxy, those calls would always hit the master DB regardless
+ * of which company the request belongs to — breaking multi-company
+ * isolation since transactions wouldn't run against the right database.
+ *
+ * The Proxy below transparently routes every property access to whichever
+ * sequelize is set in the per-request AsyncLocalStorage (companyContext).
+ * Boot code, scheduled jobs, and anything outside a request still get the
+ * master sequelize because their ALS store is empty.
+ *
+ * Identity-preserving: `sequelize.transaction(cb)` calls cb with a
+ * Transaction bound to whichever underlying sequelize is active —
+ * Sequelize's own internals do `transaction.sequelize` → the active one,
+ * so subsequent queries inside the transaction stay on the same DB.
+ *
+ * The companyContext store has shape:
+ *   { sequelize: <SequelizeInstance>, models: <bag>, companyId: <number> }
+ *
+ * Boot code that needs the literal master (model definition, the master
+ * DB's bootstrap routines) imports `masterSequelize` directly via the
+ * named export below; that bypasses the proxy.
+ */
+const { companyContext } = require('../services/companyContext');
+
+const sequelize = new Proxy(masterSequelize, {
+  get(target, prop, receiver) {
+    const ctx = companyContext.getStore();
+    const active = (ctx && ctx.sequelize) || target;
+    const val = active[prop];
+    // Bind functions to the active instance so `this` inside Sequelize
+    // internals (e.g. transaction managers) stays correct.
+    if (typeof val === 'function') return val.bind(active);
+    return val;
+  },
+});
+
 module.exports = sequelize;
+// Named export for boot / model-definition code that legitimately needs
+// the literal master, untouched by the ALS proxy.
+module.exports.masterSequelize = masterSequelize;

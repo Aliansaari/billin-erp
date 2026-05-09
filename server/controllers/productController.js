@@ -487,6 +487,13 @@ exports.getById = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
+  // Wrap in a transaction so the product, ledger entry, AND
+  // product_godown_stock row are atomic — partial commits would leave
+  // stock visible at the product level but invisible at the godown
+  // level, which is exactly the bug that blocked sales on Company 2.
+  const sequelizeDb = require('../config/database');
+  const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
+  const t = await sequelizeDb.transaction();
   try {
     // Strip to whitelisted columns before unpacking the opening-stock trio.
     const safe = {};
@@ -498,6 +505,7 @@ exports.create = async (req, res) => {
     // Check for existing product with same specs
     const existing = await findExistingProduct(Product, data);
     if (existing) {
+      await t.rollback();
       return res.json({ existing: true, product: existing });
     }
 
@@ -511,14 +519,23 @@ exports.create = async (req, res) => {
       data.sale_rate = +(data.purchase_rate * (1 + data.margin_percentage / 100)).toFixed(2);
     }
 
-    // Set opening stock as current_stock
-    const openingQty = parseFloat(opening_stock || 0);
+    // Determine opening stock — accept either `opening_stock` (form
+    // field) or `current_stock` (legacy import / API direct create).
+    // Both paths fund the godown stock row so the sales controller
+    // can find inventory.
+    const openingQty = parseFloat(
+      opening_stock || data.current_stock || 0,
+    );
     if (openingQty > 0) data.current_stock = openingQty;
 
-    const product = await Product.create(data);
+    const product = await Product.create(data, { transaction: t });
 
-    // Create Opening Stock ledger entry
+    // Create Opening Stock ledger entry + the per-godown stock row.
+    // Both are required for the sales controller's stock check to find
+    // inventory — without the godown row, "Available: 0" even when
+    // products.current_stock is 1000.
     if (openingQty > 0) {
+      const defaultGodownId = await getDefaultGodownId({ t });
       await StockLedger.create({
         product_id: product.product_id,
         barcode: product.barcode,
@@ -531,14 +548,33 @@ exports.create = async (req, res) => {
         balance_quantity: openingQty,
         remarks: 'Opening Stock',
         created_by: req.user?.user_id,
-      });
+        godown_id: defaultGodownId,
+      }, { transaction: t });
+
+      // Seed per-godown stock at the system's default godown so the
+      // sales controller's "Available at this godown" check finds the
+      // inventory. Without this row, Available reads as 0 and bills
+      // are blocked by the negative-stock guard.
+      if (defaultGodownId) {
+        await applyGodownStockDelta({
+          product_id: product.product_id,
+          godown_id: defaultGodownId,
+          delta: openingQty,
+          t,
+        });
+      }
     }
+
+    await t.commit();
 
     const result = await Product.findByPk(product.product_id, {
       include: [{ model: Category, attributes: ['category_name'] }],
     });
     res.status(201).json(result);
   } catch (error) {
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Create product error:', error);
     if (error.name === 'SequelizeUniqueConstraintError') {
       return res.status(400).json({ error: 'Barcode already exists' });
@@ -711,6 +747,7 @@ exports.delete = async (req, res) => {
 
 exports.adjust = async (req, res) => {
   const sequelizeDb = require('../config/database');
+  const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
   const t = await sequelizeDb.transaction();
   try {
     const { current_stock, purchase_rate, sale_rate, minimum_stock_level } = req.body;
@@ -747,6 +784,7 @@ exports.adjust = async (req, res) => {
 
         const today = new Date().toISOString().split('T')[0];
         const dateLabel = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        const defaultGodownId = await getDefaultGodownId({ t });
 
         await StockLedger.create({
           product_id: product.product_id,
@@ -761,7 +799,20 @@ exports.adjust = async (req, res) => {
           godown_id: adjustGodownId,
           remarks: `Adjusted on ${dateLabel}`,
           created_by: req.user?.user_id,
+          godown_id: defaultGodownId,
         }, { transaction: t });
+
+        // Apply the same delta to the per-godown stock row so the
+        // sales controller's "Available at this godown" check stays
+        // consistent with products.current_stock.
+        if (defaultGodownId) {
+          await applyGodownStockDelta({
+            product_id: product.product_id,
+            godown_id: defaultGodownId,
+            delta: stockDiff,
+            t,
+          });
+        }
       }
     }
 

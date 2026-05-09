@@ -12,6 +12,8 @@ import { GlobalSearchModal } from './components/GlobalSearch';
 // component) so that useGlobalShortcuts called from App's body can
 // reach them via useContext.
 import Login from './pages/Login';
+import LicenseActivation from './pages/LicenseActivation';
+import PostgresSetup from './pages/PostgresSetup';
 import ChangePassword from './pages/ChangePassword';
 import ServerSetup, { useNeedsServerSetup } from './pages/ServerSetup';
 import Home from './pages/Home';
@@ -103,6 +105,7 @@ import DefaultsSettings from './pages/settings/DefaultsSettings';
 import SettingsLayout from './pages/settings/SettingsLayout';
 import EntityFormModalDemo from './pages/dev/EntityFormModalDemo';
 import DeveloperSettings from './pages/settings/DeveloperSettings';
+import LicenseSettings from './pages/settings/LicenseSettings';
 import CompanyList from './pages/settings/CompanyList';
 import {
   useShowLedgerIntegrity, useShowImportExport, useShowTallySync,
@@ -330,6 +333,43 @@ export default function App() {
     if (isAuthenticated) refreshFinancialYear();
   }, [isAuthenticated]);
 
+  // Pre-flight chain — order matters:
+  //   1. Server URL (handled by useNeedsServerSetup above)
+  //   2. Postgres setup (`/api/setup/status`) — if not complete, /setup
+  //   3. License (`/api/license/info`)         — if not activated, /license
+  //
+  // Both endpoints are exempt from the LAN + license gates so they're
+  // reachable on a brand-new install without any prior state.
+  useEffect(() => {
+    if (needsServerSetup) return;
+    const here = window.location.pathname;
+    if (here.startsWith('/license') || here === '/server-setup' || here === '/setup') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { default: api } = await import('./api');
+        // Setup first — without a master DB, license info would also
+        // 503 on the DB connection that sequelize hasn't established.
+        const sr = await api.get('/setup/status');
+        if (cancelled) return;
+        if (!sr.data?.setup_complete) {
+          window.location.href = '/setup';
+          return;
+        }
+        const r = await api.get('/license/info');
+        if (cancelled) return;
+        if (!r.data?.activated) {
+          try { sessionStorage.setItem('license_block_status', JSON.stringify(r.data?.status || { code: 'no_license' })); } catch {}
+          window.location.href = '/license';
+        }
+      } catch {
+        // network errors handled elsewhere; don't block boot on a
+        // probe that may not be reachable yet.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [needsServerSetup]);
+
   // Pre-auth, pre-everything: if Electron has no server URL configured
   // yet, the user picks one before they can even see the login screen.
   if (needsServerSetup) {
@@ -353,6 +393,15 @@ export default function App() {
             file://) still triggers ServerSetup directly via the
             useNeedsServerSetup gate above this Routes block. */}
         <Route path="/server-setup" element={<DevGatedRoute flag="server_settings"><ServerSetup allowSkip /></DevGatedRoute>} />
+        {/* /setup — first-run Postgres wizard. Reachable without auth
+            and exempt from the license gate so a brand-new install can
+            provision its master DB before anything else. */}
+        <Route path="/setup" element={<PostgresSetup />} />
+        {/* /license — activation / expired / mismatch screen. Reachable
+            without auth (the gate fires before login) so a brand-new
+            install or an expired customer can self-serve activation
+            without us being remote-connected. */}
+        <Route path="/license" element={<LicenseActivation />} />
         <Route path="/login" element={<Login />} />
         <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
@@ -539,6 +588,10 @@ export default function App() {
                 unlocked on this device. The page itself shows the toggle
                 grid and the LAN-deployment knobs. */}
             <Route path="developer"           element={<DevModeOnlyRoute><DeveloperSettings /></DevModeOnlyRoute>} />
+            {/* License panel — anyone can view their own license status
+                (so they know when it's about to expire); the Replace
+                flow inside the page is dev-gated separately. */}
+            <Route path="license"             element={<LicenseSettings />} />
             {/* Manage Companies — list / create / archive. Visible to
                 every authenticated user (the sidebar entry is). The
                 CREATE button is implicitly gated by the dev_max_companies

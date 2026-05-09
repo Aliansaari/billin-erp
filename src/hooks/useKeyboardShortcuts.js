@@ -83,11 +83,17 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       // anywhere except active text inputs (the keydown listener for
       // form fields runs after this so a user typing in a textarea
       // still gets the F-keys).
+      //
+      // Behaviour: dispatch a window event the topbar CompanySwitcher
+      // listens for to open its dropdown in place. If no switcher is
+      // currently mounted (e.g. only one company exists, the component
+      // returns null), nothing happens — that's correct, there's
+      // nothing to switch to.
       if (e.key === 'F9' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         const tag = (e.target?.tagName || '').toLowerCase();
         if (tag !== 'input' && tag !== 'textarea') {
           e.preventDefault();
-          navigate('/settings/companies');
+          window.dispatchEvent(new CustomEvent('company-switcher:open'));
           return;
         }
       }
