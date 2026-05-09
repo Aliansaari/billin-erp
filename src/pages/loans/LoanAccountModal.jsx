@@ -4,6 +4,9 @@
 // live EMI calculator strip that updates as the operator types
 // principal / rate / tenure — so they can see the EMI before saving.
 //
+// Now renders inside the shared EntityFormModal shell so the chrome /
+// F-key vocabulary / dirty-state confirm matches every other form.
+//
 // Form fields:
 //   • Loan Name (required, unique)
 //   • Loan Type (Taken / Given) — toggle that decides Liability vs Asset
@@ -17,16 +20,14 @@
 //   • EMI Day (1-31, optional reminder hint)
 //   • Notes (optional)
 //
-// Live preview strip:
-//   ┌────────────────────────────────────────┐
-//   │  EMI: ₹X · Total payable: ₹Y · Interest: ₹Z │
-//   └────────────────────────────────────────┘
+// Live preview cells in the "Preview" section show monthly EMI, total
+// payable, and total interest — recomputed via Form.useWatch.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Form, Input, InputNumber, Radio, DatePicker, Select, message } from 'antd';
-import { BankOutlined } from '@ant-design/icons';
+import { Form, Input, InputNumber, DatePicker, Select, message } from 'antd';
 import dayjs from 'dayjs';
 import { loanAPI, partyAPI } from '../../api';
+import EntityFormModal from '../../components/EntityFormModal';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', {
   minimumFractionDigits: 2, maximumFractionDigits: 2,
@@ -50,6 +51,7 @@ export default function LoanAccountModal({ open, onClose, onSaved, loan }) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [parties, setParties] = useState([]);
+  const [dirty, setDirty] = useState(false);
 
   // Watch the relevant fields so the EMI preview updates live.
   const loanType    = Form.useWatch('loan_type', form) || 'taken';
@@ -70,15 +72,16 @@ export default function LoanAccountModal({ open, onClose, onSaved, loan }) {
   // but disabling at the UI keeps users from hitting a wall later).
   const lockTerms = isEdit && (loan?.txn_count || 0) > 0;
 
+  const setLoanType = (t) => {
+    form.setFieldsValue({ loan_type: t });
+    setDirty(true);
+  };
+
   useEffect(() => {
     if (!open) return;
+    setDirty(false);
     // Pull party list. Lenders are typically Suppliers; borrowers
     // typically Customers. Show both kinds — the operator picks.
-    //
-    // /api/parties returns { total, page, limit, data: rows }. Read
-    // .data.data — using the wrong key would set parties to a wrapper
-    // object, and the downstream parties.map(...) call would crash
-    // and blank the page (the original "Add" crash).
     partyAPI.getAll({ limit: 5000 })
       .then((r) => {
         const arr = Array.isArray(r.data) ? r.data
@@ -106,7 +109,9 @@ export default function LoanAccountModal({ open, onClose, onSaved, loan }) {
     } else {
       const today = dayjs();
       form.setFieldsValue({
+        name:              '',
         loan_type:         'taken',
+        party_id:          undefined,
         principal:         null,
         interest_rate:     0,
         tenure_months:     null,
@@ -122,7 +127,7 @@ export default function LoanAccountModal({ open, onClose, onSaved, loan }) {
   const handleSave = async () => {
     let v;
     try { v = await form.validateFields(); }
-    catch { return; }
+    catch { message.warning('Fix the highlighted fields and try again'); return; }
 
     const body = {
       name:              String(v.name || '').trim(),
@@ -147,6 +152,7 @@ export default function LoanAccountModal({ open, onClose, onSaved, loan }) {
         const { data } = await loanAPI.create(body);
         message.success(`"${data.name}" added — EMI ₹${fmtN(data.emi_amount)}`);
       }
+      setDirty(false);
       onSaved?.();
       onClose?.();
     } catch (e) {
@@ -156,200 +162,296 @@ export default function LoanAccountModal({ open, onClose, onSaved, loan }) {
     }
   };
 
+  const handleReset = () => {
+    if (isEdit) {
+      form.setFieldsValue({
+        name:              loan.name,
+        loan_type:         loan.loan_type,
+        party_id:          loan.party_id || undefined,
+        principal:         loan.principal,
+        interest_rate:     loan.interest_rate,
+        tenure_months:     loan.tenure_months,
+        disbursement_date: loan.disbursement_date ? dayjs(loan.disbursement_date) : null,
+        first_emi_date:    loan.first_emi_date    ? dayjs(loan.first_emi_date)    : null,
+        emi_amount:        loan.emi_amount,
+        emi_day:           loan.emi_day,
+        notes:             loan.notes,
+      });
+    } else {
+      const today = dayjs();
+      form.setFieldsValue({
+        name:              '',
+        loan_type:         'taken',
+        party_id:          undefined,
+        principal:         null,
+        interest_rate:     0,
+        tenure_months:     null,
+        disbursement_date: today,
+        first_emi_date:    today.add(1, 'month'),
+        emi_amount:        null,
+        emi_day:           today.add(1, 'month').date(),
+        notes:             '',
+      });
+    }
+    setDirty(false);
+  };
+
+  const showPreview = effectiveEmi > 0 && Number(tenure) > 0;
+
   return (
-    <Modal
-      title={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <BankOutlined style={{ color: '#4F46E5' }} />
-          {isEdit ? 'Edit Loan' : 'Add Loan'}
-        </span>
-      }
-      open={open}
-      onCancel={onClose}
-      onOk={handleSave}
-      okText={isEdit ? 'Save changes' : 'Add loan'}
-      confirmLoading={saving}
-      destroyOnClose
-      width={680}
+    <Form
+      form={form}
+      layout="vertical"
+      requiredMark={false}
+      preserve={false}
+      component={false}
+      onValuesChange={() => setDirty(true)}
     >
-      <Form form={form} layout="vertical" requiredMark={false} preserve={false}>
-
-        {/* Type — top of form because it changes the labels on Party. */}
-        <Form.Item
-          name="loan_type"
-          label="Loan type"
-          rules={[{ required: true }]}
-          extra={lockTerms ? 'Locked — entries already posted to this loan.' : null}
-        >
-          <Radio.Group disabled={lockTerms}>
-            <Radio.Button value="taken">
-              <div style={{ fontWeight: 600 }}>Loan Taken</div>
-              <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 400 }}>
-                Liability · we owe the lender
-              </div>
-            </Radio.Button>
-            <Radio.Button value="given">
-              <div style={{ fontWeight: 600 }}>Loan Given</div>
-              <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 400 }}>
-                Asset · borrower owes us
-              </div>
-            </Radio.Button>
-          </Radio.Group>
-        </Form.Item>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Form.Item
-            name="name"
-            label="Loan name"
-            rules={[
-              { required: true, message: 'Loan name is required' },
-              { whitespace: true, message: 'Loan name is required' },
-            ]}
-            extra={isEdit ? null : 'e.g. "HDFC Vehicle Loan", "Advance to Ramesh"'}
-          >
-            <Input placeholder="HDFC Vehicle Loan" maxLength={100} autoFocus={!isEdit} />
+      <EntityFormModal
+        open={open}
+        onClose={onClose}
+        title={isEdit ? 'Edit Loan' : 'Add Loan'}
+        subtitle={isEdit ? loan?.name : 'New loan ledger · auto-generates amortization schedule'}
+        entityIcon="L"
+        entityTone="info"
+        dirty={dirty}
+        saving={saving}
+        onSave={handleSave}
+        onSaveAndClose={handleSave}
+        onReset={handleReset}
+        width={680}
+      >
+        <EntityFormModal.Section label="Type & Identity">
+          {/* Hidden Form.Item to register loan_type with the form. The
+              visible UI is the toggle-cards row below. */}
+          <Form.Item name="loan_type" hidden noStyle>
+            <Input />
           </Form.Item>
 
-          <Form.Item
-            name="party_id"
-            label={loanType === 'taken' ? 'Lender (optional)' : 'Borrower (optional)'}
-          >
-            <Select
-              showSearch allowClear
-              optionFilterProp="children"
-              placeholder={loanType === 'taken' ? 'Pick lender' : 'Pick borrower'}
+          <div className="efm-toggle-cards" style={{ gridColumn: '1 / -1' }}>
+            <button
+              type="button"
+              className={loanType === 'taken' ? 'on' : ''}
+              disabled={lockTerms}
+              onClick={() => setLoanType('taken')}
             >
-              {parties.map((p) => (
-                <Select.Option key={p.party_id} value={p.party_id}>
-                  {p.party_name}
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
-          <Form.Item
-            name="principal"
-            label="Principal"
-            rules={[
-              { required: true, message: 'Principal is required' },
-              { type: 'number', min: 1, message: 'Must be > 0' },
-            ]}
-          >
-            <InputNumber
-              keyboard={false} disabled={lockTerms} min={0} step={1000} style={{ width: '100%' }}
-              placeholder="100000"
-              formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
-              parser={(v) => v.replace(/₹\s?|,/g, '')}
-            />
-          </Form.Item>
-          <Form.Item
-            name="interest_rate" label="Interest %"
-            rules={[{ type: 'number', min: 0, max: 100 }]}
-          >
-            <InputNumber
-              keyboard={false} min={0} max={100} step={0.25} precision={3}
-              style={{ width: '100%' }} placeholder="9.5"
-              formatter={(v) => v !== null && v !== undefined && v !== '' ? `${v}%` : ''}
-              parser={(v) => String(v).replace('%', '')}
-            />
-          </Form.Item>
-          <Form.Item
-            name="tenure_months" label="Tenure (mo.)"
-            rules={[
-              { required: true, message: 'Required' },
-              { type: 'number', min: 1, max: 600, message: '1–600 months' },
-            ]}
-          >
-            <InputNumber keyboard={false} min={1} max={600} style={{ width: '100%' }} placeholder="60" />
-          </Form.Item>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <Form.Item name="disbursement_date" label="Disbursement date">
-            <DatePicker style={{ width: '100%' }} format="DD-MM-YYYY" />
-          </Form.Item>
-          <Form.Item name="first_emi_date" label="First EMI date">
-            <DatePicker style={{ width: '100%' }} format="DD-MM-YYYY" />
-          </Form.Item>
-          <Form.Item
-            name="emi_day" label="EMI day (1–31)"
-            extra="Reminder hint"
-          >
-            <InputNumber keyboard={false} min={1} max={31} style={{ width: '100%' }} placeholder="5" />
-          </Form.Item>
-        </div>
-
-        <Form.Item
-          name="emi_amount" label="EMI amount (override)"
-          extra="Leave blank to use the calculated amount below"
-        >
-          <InputNumber
-            keyboard={false} min={0} step={100} style={{ width: '100%' }}
-            placeholder={computedEmi ? `Calculated: ₹ ${fmtN(computedEmi)}` : 'Auto'}
-            formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
-            parser={(v) => v.replace(/₹\s?|,/g, '')}
-          />
-        </Form.Item>
-
-        <Form.Item name="notes" label="Notes">
-          <Input.TextArea rows={2} placeholder="Loan agreement number, branch, anything you need to remember…" maxLength={500} />
-        </Form.Item>
-
-        {/* ─── Live calculator strip — updates as fields change ─── */}
-        {effectiveEmi > 0 && Number(tenure) > 0 && (
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0,
-            border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden',
-            background: 'linear-gradient(135deg, rgba(79,70,229,0.04), #FFFFFF 70%)',
-          }}>
-            <CalcCell
-              label="Monthly EMI"
-              value={`₹ ${fmtN(effectiveEmi)}`}
-              accent="#4F46E5"
-              note={overrideEmi && overrideEmi > 0 && Math.abs(overrideEmi - computedEmi) > 0.5
-                ? `Manual override (calc'd: ₹ ${fmtN(computedEmi)})`
-                : 'From principal × rate × tenure'}
-            />
-            <CalcCell
-              label="Total payable"
-              value={`₹ ${fmtN(totalPayable)}`}
-              note={`${tenure} EMIs × ₹ ${fmtN(effectiveEmi)}`}
-            />
-            <CalcCell
-              label="Total interest"
-              value={`₹ ${fmtN(totalInterest)}`}
-              accent={totalInterest > 0 ? '#EF4444' : '#10B981'}
-              note={loanType === 'taken' ? 'Cost of borrowing' : 'Earnings from lending'}
-              border={false}
-            />
+              <div className="ic">↓</div>
+              <div className="stack">
+                <div className="name">Loan Taken</div>
+                <div className="hint">Liability · we owe the lender</div>
+              </div>
+            </button>
+            <button
+              type="button"
+              className={loanType === 'given' ? 'on' : ''}
+              disabled={lockTerms}
+              onClick={() => setLoanType('given')}
+            >
+              <div className="ic">↑</div>
+              <div className="stack">
+                <div className="name">Loan Given</div>
+                <div className="hint">Asset · borrower owes us</div>
+              </div>
+            </button>
           </div>
-        )}
-      </Form>
-    </Modal>
-  );
-}
 
-function CalcCell({ label, value, note, accent, border = true }) {
-  return (
-    <div style={{
-      padding: '10px 14px',
-      borderRight: border ? '1px solid #E5E7EB' : 'none',
-    }}>
-      <div style={{
-        fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4,
-        textTransform: 'uppercase', color: '#6B7280',
-      }}>{label}</div>
-      <div style={{
-        fontSize: 17, fontWeight: 700, marginTop: 3,
-        color: accent || '#111827',
-        letterSpacing: '-0.01em',
-        fontVariantNumeric: 'tabular-nums',
-      }}>{value}</div>
-      {note && (
-        <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 1 }}>{note}</div>
-      )}
-    </div>
+          {lockTerms && (
+            <div className="efm-callout warning" style={{ gridColumn: '1 / -1' }}>
+              Type & principal are locked — entries already posted to this loan.
+            </div>
+          )}
+
+          <EntityFormModal.Field
+            label="Loan Name"
+            required
+            span="full"
+            help={isEdit ? null : 'e.g. "HDFC Vehicle Loan", "Advance to Ramesh"'}
+          >
+            <Form.Item
+              name="name"
+              rules={[
+                { required: true, message: 'Loan name is required' },
+                { whitespace: true, message: 'Loan name is required' },
+              ]}
+              noStyle
+            >
+              <Input className="efm-input" placeholder="HDFC Vehicle Loan" maxLength={100} autoFocus={!isEdit} />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field
+            label={loanType === 'taken' ? 'Lender (optional)' : 'Borrower (optional)'}
+            span="full"
+          >
+            <Form.Item name="party_id" noStyle>
+              <Select
+                className="efm-select-antd"
+                showSearch allowClear
+                optionFilterProp="children"
+                placeholder={loanType === 'taken' ? 'Pick lender' : 'Pick borrower'}
+              >
+                {parties.map((p) => (
+                  <Select.Option key={p.party_id} value={p.party_id}>
+                    {p.party_name}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </EntityFormModal.Field>
+        </EntityFormModal.Section>
+
+        <EntityFormModal.Section label="Terms">
+          <EntityFormModal.Field label="Principal" required>
+            <Form.Item
+              name="principal"
+              rules={[
+                { required: true, message: 'Required' },
+                { type: 'number', min: 1, message: 'Must be > 0' },
+              ]}
+              noStyle
+            >
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                disabled={lockTerms}
+                min={0}
+                step={1000}
+                style={{ width: '100%' }}
+                controls={false}
+                placeholder="100000"
+                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                parser={(v) => v.replace(/₹\s?|,/g, '')}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field label="Interest %">
+            <Form.Item
+              name="interest_rate"
+              rules={[{ type: 'number', min: 0, max: 100 }]}
+              noStyle
+            >
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                min={0}
+                max={100}
+                step={0.25}
+                precision={3}
+                style={{ width: '100%' }}
+                controls={false}
+                placeholder="9.5"
+                formatter={(v) => v !== null && v !== undefined && v !== '' ? `${v}%` : ''}
+                parser={(v) => String(v).replace('%', '')}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field label="Tenure (months)" required>
+            <Form.Item
+              name="tenure_months"
+              rules={[
+                { required: true, message: 'Required' },
+                { type: 'number', min: 1, max: 600, message: '1–600' },
+              ]}
+              noStyle
+            >
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                min={1}
+                max={600}
+                style={{ width: '100%' }}
+                controls={false}
+                placeholder="60"
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field
+            label="EMI Override"
+            help="Leave blank for auto-calculated"
+          >
+            <Form.Item name="emi_amount" noStyle>
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                min={0}
+                step={100}
+                style={{ width: '100%' }}
+                controls={false}
+                placeholder={computedEmi ? `Calc: ₹${fmtN(computedEmi)}` : 'Auto'}
+                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                parser={(v) => v.replace(/₹\s?|,/g, '')}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+        </EntityFormModal.Section>
+
+        <EntityFormModal.Section label="Schedule">
+          <EntityFormModal.Field label="Disbursement Date">
+            <Form.Item name="disbursement_date" noStyle>
+              <DatePicker className="efm-input" style={{ width: '100%' }} format="DD-MM-YYYY" />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field label="First EMI Date">
+            <Form.Item name="first_emi_date" noStyle>
+              <DatePicker className="efm-input" style={{ width: '100%' }} format="DD-MM-YYYY" />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field label="EMI Day (1–31)" help="Reminder hint">
+            <Form.Item name="emi_day" noStyle>
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                min={1}
+                max={31}
+                style={{ width: '100%' }}
+                controls={false}
+                placeholder="5"
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field label="Notes" span="full">
+            <Form.Item name="notes" noStyle>
+              <Input.TextArea
+                rows={2}
+                placeholder="Loan agreement number, branch, anything you need to remember…"
+                maxLength={500}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+        </EntityFormModal.Section>
+
+        {showPreview && (
+          <EntityFormModal.Section label="Preview">
+            <div className="efm-calc" style={{ gridColumn: '1 / -1' }}>
+              <div className="efm-calc-cell">
+                <div className="k">Monthly EMI</div>
+                <div className="v accent">₹ {fmtN(effectiveEmi)}</div>
+                <div className="n">
+                  {overrideEmi && overrideEmi > 0 && Math.abs(overrideEmi - computedEmi) > 0.5
+                    ? `Manual (calc: ₹${fmtN(computedEmi)})`
+                    : 'From P × R × N'}
+                </div>
+              </div>
+              <div className="efm-calc-cell">
+                <div className="k">Total Payable</div>
+                <div className="v">₹ {fmtN(totalPayable)}</div>
+                <div className="n">{tenure} EMIs × ₹{fmtN(effectiveEmi)}</div>
+              </div>
+              <div className="efm-calc-cell">
+                <div className="k">Total Interest</div>
+                <div className={`v ${totalInterest > 0 ? 'danger' : 'success'}`}>₹ {fmtN(totalInterest)}</div>
+                <div className="n">{loanType === 'taken' ? 'Cost of borrowing' : 'Earnings from lending'}</div>
+              </div>
+            </div>
+          </EntityFormModal.Section>
+        )}
+      </EntityFormModal>
+    </Form>
   );
 }

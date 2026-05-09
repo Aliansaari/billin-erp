@@ -1,15 +1,16 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   Table, Button, Input, Space, Tag, Typography, message, Popconfirm,
-  Card, Modal, Form, Select, Switch, Checkbox, Divider, Alert, Tooltip,
+  Card, Form, Select, Switch, Checkbox, Tooltip,
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined, InfoCircleOutlined,
+  PlusOutlined, EditOutlined, DeleteOutlined,
   UndoOutlined, CheckOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import { settingsAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import EntityFormModal from '../../components/EntityFormModal';
 
 /*
  * User Management — user list + full permission editor.
@@ -143,6 +144,7 @@ export default function UserManagement() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   // Permission editor state — lives outside AntD Form because we want
   // full control over the tick grid and the "inherit from role" toggle.
@@ -176,6 +178,7 @@ export default function UserManagement() {
     setSelectedRoleId(null);
     setCustomizing(false);
     setPerms({});
+    setDirty(false);
     setModalVisible(true);
   };
 
@@ -198,6 +201,7 @@ export default function UserManagement() {
       setCustomizing(false);
       setPerms(rolePerms(record.role_id));
     }
+    setDirty(false);
     setModalVisible(true);
   };
 
@@ -208,17 +212,20 @@ export default function UserManagement() {
     // new role's defaults — that's the least-surprising behaviour when
     // switching between "Salesman" and "Manager" for instance.
     setPerms(rolePerms(roleId));
+    setDirty(true);
   };
 
   const handleResetToRole = () => {
     if (!selectedRoleId) return;
     setPerms(rolePerms(selectedRoleId));
     setCustomizing(false);
+    setDirty(true);
   };
 
   const handleTogglePerm = (path) => {
     setPerms(prev => pathSet(prev, path, !pathGet(prev, path)));
     setCustomizing(true);
+    setDirty(true);
   };
 
   const handleToggleModuleAll = (moduleKey, allOn) => {
@@ -226,6 +233,7 @@ export default function UserManagement() {
     for (const a of CRUD_ACTIONS) next = pathSet(next, `${moduleKey}.${a}`, !allOn);
     setPerms(next);
     setCustomizing(true);
+    setDirty(true);
   };
 
   const handleGrantAll = () => {
@@ -235,11 +243,21 @@ export default function UserManagement() {
     for (const s of SETTINGS_PERMS) next = pathSet(next, s.path, true);
     setPerms(next);
     setCustomizing(true);
+    setDirty(true);
   };
 
   const handleRevokeAll = () => {
     setPerms({});
     setCustomizing(true);
+    setDirty(true);
+  };
+
+  const handleResetForm = () => {
+    if (editingUser) {
+      handleEdit(editingUser);
+    } else {
+      handleAdd();
+    }
   };
 
   const handleDelete = async (id) => {
@@ -385,217 +403,250 @@ export default function UserManagement() {
         />
       </Card>
 
-      <Modal
-        title={editingUser ? `Edit User — ${editingUser.username}` : 'Add User'}
-        open={modalVisible}
-        onOk={handleSubmit}
-        onCancel={() => { setModalVisible(false); form.resetFields(); setEditingUser(null); }}
-        confirmLoading={formLoading}
-        destroyOnClose
-        width={820}
-        okText={editingUser ? 'Save changes' : 'Create user'}
+      <Form
+        form={form}
+        layout="vertical"
+        component={false}
+        onValuesChange={() => setDirty(true)}
       >
-        <Form form={form} layout="vertical">
-          {/* ── Basics ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <Form.Item name="username" label="Username" rules={[{ required: true, message: 'Required' }]}>
-              <Input placeholder="e.g. rahul" disabled={!!editingUser} />
-            </Form.Item>
-            <Form.Item
-              name="password"
-              label={editingUser ? 'Password (leave blank to keep)' : 'Password'}
-              rules={editingUser ? [] : [{ required: true, message: 'Required' }, { min: 6, message: 'Minimum 6 characters' }]}
+        <EntityFormModal
+          open={modalVisible}
+          onClose={() => { setModalVisible(false); form.resetFields(); setEditingUser(null); }}
+          title={editingUser ? 'Edit User' : 'Add User'}
+          subtitle={editingUser ? editingUser.username : 'New account · role template + per-user override'}
+          entityIcon="U"
+          entityTone="accent"
+          dirty={dirty}
+          saving={formLoading}
+          onSave={handleSubmit}
+          onSaveAndClose={handleSubmit}
+          onReset={handleResetForm}
+          width={820}
+        >
+          <EntityFormModal.Section label="Account">
+            <EntityFormModal.Field label="Username" required>
+              <Form.Item name="username" rules={[{ required: true, message: 'Required' }]} noStyle>
+                <Input className="efm-input" placeholder="e.g. rahul" disabled={!!editingUser} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field
+              label={editingUser ? 'Password (blank = keep)' : 'Password'}
+              required={!editingUser}
             >
-              <Input.Password placeholder={editingUser ? '••••••' : 'At least 6 characters'} />
-            </Form.Item>
-            <Form.Item name="full_name" label="Full Name" rules={[{ required: true, message: 'Required' }]}>
-              <Input placeholder="Full name" />
-            </Form.Item>
-            <Form.Item name="email" label="Email" rules={[{ type: 'email', message: 'Invalid email' }]}>
-              <Input placeholder="name@company.com" />
-            </Form.Item>
-            <Form.Item name="mobile_number" label="Mobile">
-              <Input placeholder="10-digit phone" />
-            </Form.Item>
-            <Form.Item name="role_id" label="Role" rules={[{ required: true, message: 'Required' }]}>
-              <Select placeholder="Pick a role template" onChange={handleRoleChange}>
-                {roles.map(role => (
-                  <Select.Option key={role.role_id} value={role.role_id}>
-                    {role.role_name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-          </div>
+              <Form.Item
+                name="password"
+                rules={editingUser ? [] : [{ required: true, message: 'Required' }, { min: 6, message: 'Min 6 characters' }]}
+                noStyle
+              >
+                <Input.Password className="efm-input" placeholder={editingUser ? '••••••' : 'At least 6 characters'} />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Full Name" required>
+              <Form.Item name="full_name" rules={[{ required: true, message: 'Required' }]} noStyle>
+                <Input className="efm-input" placeholder="Full name" />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Email">
+              <Form.Item name="email" rules={[{ type: 'email', message: 'Invalid email' }]} noStyle>
+                <Input className="efm-input" placeholder="name@company.com" />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Mobile">
+              <Form.Item name="mobile_number" noStyle>
+                <Input className="efm-input" placeholder="10-digit phone" />
+              </Form.Item>
+            </EntityFormModal.Field>
+
+            <EntityFormModal.Field label="Role" required>
+              <Form.Item name="role_id" rules={[{ required: true, message: 'Required' }]} noStyle>
+                <Select className="efm-select-antd" placeholder="Pick a role template" onChange={handleRoleChange}>
+                  {roles.map(role => (
+                    <Select.Option key={role.role_id} value={role.role_id}>
+                      {role.role_name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </EntityFormModal.Field>
+          </EntityFormModal.Section>
 
           {/* ── Permissions editor ── */}
-          {selectedRoleId && (
-            <>
-              <Divider plain style={{ margin: '8px 0 16px' }}>Permissions</Divider>
+          {selectedRoleId && isSuperAdminRole && (
+            <EntityFormModal.Section label="Permissions">
+              <div className="efm-callout" style={{ gridColumn: '1 / -1' }}>
+                <div style={{ fontWeight: 700, marginBottom: 2 }}>Super Admin has unlimited access</div>
+                Per-user permission overrides are not applied to Super Admin accounts — they always have full access. Use a different role to restrict a user.
+              </div>
+            </EntityFormModal.Section>
+          )}
 
-              {isSuperAdminRole && (
-                <Alert
-                  type="info"
-                  showIcon
-                  icon={<InfoCircleOutlined />}
-                  message="Super Admin has unlimited access"
-                  description="Per-user permission overrides are not applied to Super Admin accounts — they always have full access. Use a different role to restrict a user."
-                  style={{ marginBottom: 16 }}
-                />
-              )}
-
-              {!isSuperAdminRole && (
-                <>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    gap: 12, flexWrap: 'wrap',
-                    padding: '10px 12px', background: 'var(--bg-muted, #f8fafc)',
-                    borderRadius: 8, marginBottom: 12,
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Switch
-                        checked={customizing}
-                        onChange={(v) => {
-                          setCustomizing(v);
-                          if (!v) setPerms(rolePerms(selectedRoleId));    // reverting cleanly
-                        }}
-                      />
-                      <Text strong>Customise for this user</Text>
-                      {customizing
-                        ? <Tag color="gold">override active</Tag>
-                        : <Tag>inheriting from {selectedRole?.role_name}</Tag>}
-                    </div>
-                    <Space size={4}>
-                      <Tooltip title="Copy the role template back into the tick grid">
-                        <Button size="small" icon={<UndoOutlined />} onClick={handleResetToRole} disabled={!customizing}>
-                          Reset to role
-                        </Button>
-                      </Tooltip>
-                      <Button size="small" icon={<CheckOutlined />} onClick={handleGrantAll} disabled={!customizing}>
-                        Grant all
-                      </Button>
-                      <Button size="small" icon={<CloseOutlined />} onClick={handleRevokeAll} disabled={!customizing}>
-                        Revoke all
-                      </Button>
-                    </Space>
+          {selectedRoleId && !isSuperAdminRole && (
+            <EntityFormModal.Section label="Permissions">
+              <div style={{ gridColumn: '1 / -1' }}>
+                {/* Customise switch + accelerators */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  gap: 12, flexWrap: 'wrap',
+                  padding: '8px 10px',
+                  background: 'var(--bg-muted)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  marginBottom: 10,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Switch
+                      size="small"
+                      checked={customizing}
+                      onChange={(v) => {
+                        setCustomizing(v);
+                        if (!v) setPerms(rolePerms(selectedRoleId));
+                        setDirty(true);
+                      }}
+                    />
+                    <Text strong style={{ fontSize: 12.5 }}>Customise for this user</Text>
+                    {customizing
+                      ? <Tag color="gold" style={{ marginInlineEnd: 0 }}>override active</Tag>
+                      : <Tag style={{ marginInlineEnd: 0 }}>inheriting from {selectedRole?.role_name}</Tag>}
                   </div>
+                  <Space size={4}>
+                    <Tooltip title="Copy the role template back into the tick grid">
+                      <Button size="small" icon={<UndoOutlined />} onClick={handleResetToRole} disabled={!customizing}>
+                        Reset to role
+                      </Button>
+                    </Tooltip>
+                    <Button size="small" icon={<CheckOutlined />} onClick={handleGrantAll} disabled={!customizing}>
+                      Grant all
+                    </Button>
+                    <Button size="small" icon={<CloseOutlined />} onClick={handleRevokeAll} disabled={!customizing}>
+                      Revoke all
+                    </Button>
+                  </Space>
+                </div>
 
-                  <div style={{ fontSize: 12, color: 'var(--fg-tertiary, #9ca3af)', marginBottom: 10 }}>
-                    <b>{grantCount}</b> permission{grantCount === 1 ? '' : 's'} granted
-                    {customizing && selectedRole ? <> · role template grants <b>{roleGrantCount}</b></> : null}
-                  </div>
+                <div style={{ fontSize: 11, color: 'var(--fg-tertiary)', marginBottom: 8 }}>
+                  <b>{grantCount}</b> permission{grantCount === 1 ? '' : 's'} granted
+                  {customizing && selectedRole ? <> · role template grants <b>{roleGrantCount}</b></> : null}
+                </div>
 
-                  {/* ── CRUD matrix — modules × (view/create/edit/delete) ── */}
+                {/* CRUD matrix */}
+                <div style={{
+                  border: '1px solid var(--border)', borderRadius: 4,
+                  overflow: 'hidden', marginBottom: 10,
+                  background: 'var(--bg-app)',
+                }}>
                   <div style={{
-                    border: '1px solid var(--border, #e5e7eb)', borderRadius: 8,
-                    overflow: 'hidden', marginBottom: 16,
+                    display: 'grid',
+                    gridTemplateColumns: '1.8fr 56px 56px 56px 56px 52px',
+                    padding: '6px 10px',
+                    fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
+                    color: 'var(--fg-tertiary)',
+                    background: 'var(--bg-muted)',
+                    borderBottom: '1px solid var(--border)',
                   }}>
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1.8fr 60px 60px 60px 60px 56px',
-                      padding: '8px 12px',
-                      fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase',
-                      color: 'var(--fg-tertiary, #9ca3af)',
-                      background: 'var(--bg-muted, #f8fafc)',
-                      borderBottom: '1px solid var(--border, #e5e7eb)',
-                    }}>
-                      <div>Module</div>
-                      <div style={{ textAlign: 'center' }}>View</div>
-                      <div style={{ textAlign: 'center' }}>Create</div>
-                      <div style={{ textAlign: 'center' }}>Edit</div>
-                      <div style={{ textAlign: 'center' }}>Delete</div>
-                      <div style={{ textAlign: 'center' }}>All</div>
-                    </div>
-                    {CRUD_MODULES.map((m, i) => {
-                      const rowAll = CRUD_ACTIONS.every(a => pathGet(perms, `${m.key}.${a}`));
-                      const rowAny = CRUD_ACTIONS.some(a => pathGet(perms, `${m.key}.${a}`));
-                      return (
-                        <div key={m.key} style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1.8fr 60px 60px 60px 60px 56px',
-                          padding: '8px 12px',
-                          alignItems: 'center',
-                          borderBottom: i < CRUD_MODULES.length - 1 ? '1px solid var(--border-subtle, #f0f0f0)' : 'none',
-                          fontSize: 13,
-                        }}>
-                          <div style={{ fontWeight: 500 }}>{m.label}</div>
-                          {CRUD_ACTIONS.map(a => (
-                            <div key={a} style={{ textAlign: 'center' }}>
-                              <Checkbox
-                                checked={pathGet(perms, `${m.key}.${a}`)}
-                                disabled={!customizing}
-                                onChange={() => handleTogglePerm(`${m.key}.${a}`)}
-                              />
-                            </div>
-                          ))}
-                          <div style={{ textAlign: 'center' }}>
+                    <div>Module</div>
+                    <div style={{ textAlign: 'center' }}>View</div>
+                    <div style={{ textAlign: 'center' }}>Create</div>
+                    <div style={{ textAlign: 'center' }}>Edit</div>
+                    <div style={{ textAlign: 'center' }}>Delete</div>
+                    <div style={{ textAlign: 'center' }}>All</div>
+                  </div>
+                  {CRUD_MODULES.map((m, i) => {
+                    const rowAll = CRUD_ACTIONS.every(a => pathGet(perms, `${m.key}.${a}`));
+                    const rowAny = CRUD_ACTIONS.some(a => pathGet(perms, `${m.key}.${a}`));
+                    return (
+                      <div key={m.key} style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1.8fr 56px 56px 56px 56px 52px',
+                        padding: '6px 10px',
+                        alignItems: 'center',
+                        borderBottom: i < CRUD_MODULES.length - 1 ? '1px solid var(--border-subtle, var(--border))' : 'none',
+                        fontSize: 12.5,
+                      }}>
+                        <div style={{ fontWeight: 500 }}>{m.label}</div>
+                        {CRUD_ACTIONS.map(a => (
+                          <div key={a} style={{ textAlign: 'center' }}>
                             <Checkbox
-                              checked={rowAll}
-                              indeterminate={rowAny && !rowAll}
+                              checked={pathGet(perms, `${m.key}.${a}`)}
                               disabled={!customizing}
-                              onChange={() => handleToggleModuleAll(m.key, rowAll)}
+                              onChange={() => handleTogglePerm(`${m.key}.${a}`)}
                             />
                           </div>
+                        ))}
+                        <div style={{ textAlign: 'center' }}>
+                          <Checkbox
+                            checked={rowAll}
+                            indeterminate={rowAny && !rowAll}
+                            disabled={!customizing}
+                            onChange={() => handleToggleModuleAll(m.key, rowAll)}
+                          />
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
-                  {/* ── Single-grant permissions ── */}
+                {/* Single permissions */}
+                <div style={{
+                  border: '1px solid var(--border)', borderRadius: 4,
+                  padding: '8px 10px', marginBottom: 10,
+                  background: 'var(--bg-app)',
+                }}>
                   <div style={{
-                    border: '1px solid var(--border, #e5e7eb)', borderRadius: 8,
-                    padding: '10px 12px', marginBottom: 16,
+                    fontSize: 9.5, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase',
+                    color: 'var(--fg-tertiary)', marginBottom: 6,
                   }}>
-                    <div style={{
-                      fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase',
-                      color: 'var(--fg-tertiary, #9ca3af)', marginBottom: 8,
-                    }}>
-                      Reports & Accounts
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                      {SINGLE_PERMS.map(p => (
-                        <Checkbox
-                          key={p.path}
-                          checked={pathGet(perms, p.path)}
-                          disabled={!customizing}
-                          onChange={() => handleTogglePerm(p.path)}
-                        >
-                          {p.label}
-                        </Checkbox>
-                      ))}
-                    </div>
+                    Reports & Accounts
                   </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                    {SINGLE_PERMS.map(p => (
+                      <Checkbox
+                        key={p.path}
+                        checked={pathGet(perms, p.path)}
+                        disabled={!customizing}
+                        onChange={() => handleTogglePerm(p.path)}
+                        style={{ fontSize: 12.5 }}
+                      >
+                        {p.label}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </div>
 
-                  {/* ── Settings sub-permissions ── */}
+                {/* Settings sub-permissions */}
+                <div style={{
+                  border: '1px solid var(--border)', borderRadius: 4,
+                  padding: '8px 10px',
+                  background: 'var(--bg-app)',
+                }}>
                   <div style={{
-                    border: '1px solid var(--border, #e5e7eb)', borderRadius: 8,
-                    padding: '10px 12px',
+                    fontSize: 9.5, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase',
+                    color: 'var(--fg-tertiary)', marginBottom: 6,
                   }}>
-                    <div style={{
-                      fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase',
-                      color: 'var(--fg-tertiary, #9ca3af)', marginBottom: 8,
-                    }}>
-                      Settings Access
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-                      {SETTINGS_PERMS.map(p => (
-                        <Checkbox
-                          key={p.path}
-                          checked={pathGet(perms, p.path)}
-                          disabled={!customizing}
-                          onChange={() => handleTogglePerm(p.path)}
-                        >
-                          {p.label}
-                        </Checkbox>
-                      ))}
-                    </div>
+                    Settings Access
                   </div>
-                </>
-              )}
-            </>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
+                    {SETTINGS_PERMS.map(p => (
+                      <Checkbox
+                        key={p.path}
+                        checked={pathGet(perms, p.path)}
+                        disabled={!customizing}
+                        onChange={() => handleTogglePerm(p.path)}
+                        style={{ fontSize: 12.5 }}
+                      >
+                        {p.label}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </EntityFormModal.Section>
           )}
-        </Form>
-      </Modal>
+        </EntityFormModal>
+      </Form>
 
       <ActionStrip
         actions={[

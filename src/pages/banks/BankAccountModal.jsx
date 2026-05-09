@@ -1,7 +1,9 @@
 // ── Add / Edit Bank Account modal ──────────────────────────────────
 //
 // Single modal for both create and edit (the difference is the prop
-// `bank` — null = create, an object = edit).
+// `bank` — null = create, an object = edit). Renders inside the shared
+// EntityFormModal shell so the chrome / F-key vocabulary / dirty-state
+// confirm matches every other entity form in the app.
 //
 // Form fields:
 //   • Bank Name (required, unique server-side)
@@ -17,9 +19,9 @@
 // the parent typically refetches the list and closes the modal.
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, Input, InputNumber, Radio, message } from 'antd';
-import { BankOutlined } from '@ant-design/icons';
+import { Form, Input, InputNumber, Radio, message } from 'antd';
 import { bankAPI } from '../../api';
+import EntityFormModal from '../../components/EntityFormModal';
 
 const SUB_GROUPS = [
   { value: 'Bank Accounts', label: 'Bank Account', sublabel: 'Asset · current account / savings' },
@@ -30,29 +32,32 @@ export default function BankAccountModal({ open, onClose, onSaved, bank }) {
   const isEdit = !!bank;
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty]   = useState(false);
 
   // Re-classifying account type after entries are posted is server-
   // rejected. Disable the radio in that case so the operator doesn't
   // hit a wall — the help-text below explains why.
   const lockType = isEdit && (bank?.txn_count || 0) > 0;
 
-  useEffect(() => {
-    if (!open) return;
-    if (isEdit) {
-      form.setFieldsValue({
+  const initialValues = () => isEdit
+    ? {
         name:                 bank.name,
         sub_group:            bank.sub_group,
         opening_balance:      bank.opening_balance ?? 0,
         opening_balance_type: bank.opening_balance_type ?? 'Debit',
-      });
-    } else {
-      form.setFieldsValue({
+      }
+    : {
         name:                 '',
         sub_group:            'Bank Accounts',
         opening_balance:      0,
         opening_balance_type: 'Debit',
-      });
-    }
+      };
+
+  useEffect(() => {
+    if (!open) return;
+    form.setFieldsValue(initialValues());
+    setDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit, bank, form]);
 
   const handleSubGroupChange = (e) => {
@@ -70,7 +75,7 @@ export default function BankAccountModal({ open, onClose, onSaved, bank }) {
   const handleSave = async () => {
     let vals;
     try { vals = await form.validateFields(); }
-    catch { return; /* AntD already showed inline errors */ }
+    catch { message.warning('Fix the highlighted fields and try again'); return; }
 
     setSaving(true);
     try {
@@ -83,6 +88,7 @@ export default function BankAccountModal({ open, onClose, onSaved, bank }) {
         message.success(`"${data.name}" added`);
         onSaved?.(data);
       }
+      setDirty(false);
       onClose?.();
     } catch (e) {
       message.error(e.response?.data?.error || `Failed to ${isEdit ? 'update' : 'create'} bank`);
@@ -91,104 +97,129 @@ export default function BankAccountModal({ open, onClose, onSaved, bank }) {
     }
   };
 
+  const handleReset = () => {
+    form.setFieldsValue(initialValues());
+    setDirty(false);
+  };
+
   return (
-    <Modal
-      title={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <BankOutlined style={{ color: '#4F46E5' }} />
-          {isEdit ? 'Edit Bank Account' : 'Add Bank Account'}
-        </span>
-      }
-      open={open}
-      onCancel={onClose}
-      onOk={handleSave}
-      okText={isEdit ? 'Save changes' : 'Add bank'}
-      confirmLoading={saving}
-      destroyOnClose
-      width={520}
+    <Form
+      form={form}
+      layout="vertical"
+      requiredMark={false}
+      preserve={false}
+      component={false}
+      onValuesChange={() => setDirty(true)}
     >
-      <Form form={form} layout="vertical" requiredMark={false} preserve={false}>
-        <Form.Item
-          name="name"
-          label="Bank name"
-          rules={[
-            { required: true, message: 'Bank name is required' },
-            { max: 100, message: 'Max 100 characters' },
-            { whitespace: true, message: 'Bank name is required' },
-          ]}
-          extra={isEdit ? null : 'e.g. "HDFC – Current A/c", "ICICI Savings"'}
-        >
-          <Input placeholder="HDFC – Current A/c" autoFocus={!isEdit} maxLength={100} />
-        </Form.Item>
-
-        <Form.Item
-          name="sub_group"
-          label="Account type"
-          rules={[{ required: true }]}
-          extra={lockType
-            ? 'Locked — entries already posted to this bank. Type can\'t change without corrupting the Trial Balance.'
-            : null}
-        >
-          <Radio.Group onChange={handleSubGroupChange} disabled={lockType}>
-            {SUB_GROUPS.map((s) => (
-              <Radio.Button key={s.value} value={s.value} style={{ height: 'auto', padding: '6px 14px' }}>
-                <div style={{ fontWeight: 600 }}>{s.label}</div>
-                <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 400, marginTop: 1 }}>
-                  {s.sublabel}
-                </div>
-              </Radio.Button>
-            ))}
-          </Radio.Group>
-        </Form.Item>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-          <Form.Item
-            name="opening_balance"
-            label="Opening balance"
-            rules={[{ type: 'number', min: 0, message: 'Cannot be negative — flip Dr/Cr instead' }]}
-            extra="Balance as of the day this account opens in your books."
+      <EntityFormModal
+        open={open}
+        onClose={onClose}
+        title={isEdit ? 'Edit Bank Account' : 'Add Bank Account'}
+        subtitle={isEdit ? bank?.name : 'New bank ledger · wired into double-entry posting'}
+        entityIcon="B"
+        entityTone="info"
+        dirty={dirty}
+        saving={saving}
+        onSave={handleSave}
+        onSaveAndClose={handleSave}
+        onReset={handleReset}
+        width={520}
+      >
+        <EntityFormModal.Section label="Identity">
+          <EntityFormModal.Field
+            label="Bank Name"
+            required
+            span="full"
+            help={isEdit ? null : 'e.g. "HDFC – Current A/c", "ICICI Savings"'}
           >
-            <InputNumber
-              keyboard={false}
-              min={0}
-              step={1000}
-              style={{ width: '100%' }}
-              placeholder="0"
-              formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
-              parser={(v) => v.replace(/₹\s?|,/g, '')}
-            />
-          </Form.Item>
+            <Form.Item
+              name="name"
+              rules={[
+                { required: true, message: 'Bank name is required' },
+                { max: 100, message: 'Max 100 characters' },
+                { whitespace: true, message: 'Bank name is required' },
+              ]}
+              noStyle
+            >
+              <Input className="efm-input" placeholder="HDFC – Current A/c" autoFocus={!isEdit} maxLength={100} />
+            </Form.Item>
+          </EntityFormModal.Field>
 
-          <Form.Item
-            name="opening_balance_type"
-            label="Type"
-            rules={[{ required: true }]}
+          <EntityFormModal.Field
+            label="Account Type"
+            required
+            span="full"
+            help={lockType
+              ? "Locked — entries already posted to this bank. Type can't change without corrupting the Trial Balance."
+              : 'Asset (regular) vs Liability (overdraft). Drives the sign convention.'}
           >
-            <Radio.Group>
-              <Radio.Button value="Debit">Dr</Radio.Button>
-              <Radio.Button value="Credit">Cr</Radio.Button>
-            </Radio.Group>
-          </Form.Item>
-        </div>
+            <Form.Item name="sub_group" rules={[{ required: true }]} noStyle>
+              <Radio.Group
+                onChange={handleSubGroupChange}
+                disabled={lockType}
+                style={{ display: 'flex', gap: 0, width: '100%' }}
+              >
+                {SUB_GROUPS.map((s) => (
+                  <Radio.Button
+                    key={s.value}
+                    value={s.value}
+                    style={{ height: 'auto', padding: '8px 14px', flex: 1, textAlign: 'left' }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: 12.5 }}>{s.label}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--fg-tertiary)', fontWeight: 400, marginTop: 1 }}>
+                      {s.sublabel}
+                    </div>
+                  </Radio.Button>
+                ))}
+              </Radio.Group>
+            </Form.Item>
+          </EntityFormModal.Field>
+        </EntityFormModal.Section>
 
-        <div style={{
-          padding: '10px 12px',
-          borderRadius: 6,
-          background: '#F9FAFB',
-          border: '1px solid #E5E7EB',
-          fontSize: 12,
-          color: '#6B7280',
-          lineHeight: 1.5,
-        }}>
-          {isEdit ? (
-            <>Editing rebalances the opening leg.  Live entries on this bank are unaffected — only the seed Dr/Cr changes.</>
-          ) : (
-            <>The new bank ledger is wired into double-entry posting automatically.
-            It'll show up in the Bank → Accounts list, in the Reconciliation page,
-            and as a pickable destination in Payment / Receipt / Sales Bill forms.</>
-          )}
-        </div>
-      </Form>
-    </Modal>
+        <EntityFormModal.Section label="Opening Balance">
+          <EntityFormModal.Field
+            label="Opening Balance"
+            help="Balance as of the day this account opens in your books."
+          >
+            <Form.Item
+              name="opening_balance"
+              rules={[{ type: 'number', min: 0, message: 'Cannot be negative — flip Dr/Cr instead' }]}
+              noStyle
+            >
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                min={0}
+                step={1000}
+                style={{ width: '100%' }}
+                placeholder="0"
+                controls={false}
+                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                parser={(v) => v.replace(/₹\s?|,/g, '')}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <EntityFormModal.Field label="Type" required>
+            <Form.Item name="opening_balance_type" rules={[{ required: true }]} noStyle>
+              <Radio.Group style={{ width: '100%', display: 'flex' }}>
+                <Radio.Button value="Debit"  style={{ flex: 1, textAlign: 'center' }}>Dr</Radio.Button>
+                <Radio.Button value="Credit" style={{ flex: 1, textAlign: 'center' }}>Cr</Radio.Button>
+              </Radio.Group>
+            </Form.Item>
+          </EntityFormModal.Field>
+
+          <div className="efm-callout" style={{ gridColumn: '1 / -1' }}>
+            {isEdit ? (
+              <>Editing rebalances the opening leg. Live entries on this bank are unaffected — only the seed Dr/Cr changes.</>
+            ) : (
+              <>The new bank ledger is wired into double-entry posting automatically.
+              It'll show up in the Bank → Accounts list, in the Reconciliation page,
+              and as a pickable destination in Payment / Receipt / Sales Bill forms.</>
+            )}
+          </div>
+        </EntityFormModal.Section>
+      </EntityFormModal>
+    </Form>
   );
 }
