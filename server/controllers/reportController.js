@@ -79,6 +79,7 @@ exports.dashboardStats = async (req, res) => {
       openPayRows,
       onAccountReceiptsRows,
       onAccountPaymentsRows,
+      todayReceiptsRows,
     ] = await Promise.all([
       // Today's sales
       SalesBill.findAll({
@@ -193,6 +194,16 @@ exports.dashboardStats = async (req, res) => {
             SELECT 1 FROM payment_splits ps WHERE ps.transaction_id = pr.transaction_id
           )
       `).then(([rows]) => rows),
+
+      // Today's receipts (money received from customers)
+      PaymentReceipt.findAll({
+        where: { transaction_date: today, transaction_type: 'Receipt', is_cancelled: false },
+        attributes: [
+          [fn('COUNT', col('transaction_id')), 'count'],
+          [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
+        ],
+        raw: true,
+      }),
     ]);
 
     // Re-bind to the names the rest of the controller already uses, so the
@@ -392,6 +403,7 @@ exports.dashboardStats = async (req, res) => {
     res.json({
       today_sales: { count: parseInt(todaySales[0].count), total: parseFloat(todaySales[0].total) },
       today_purchases: { count: parseInt(todayPurchases[0].count), total: parseFloat(todayPurchases[0].total) },
+      today_receipts: { count: parseInt(todayReceiptsRows[0].count), total: parseFloat(todayReceiptsRows[0].total) },
       // Monthly totals — both gross (invoice) and tax-excluded views are returned
       // so the UI can display either. monthly_profit is the CORRECT one (excl. GST).
       monthly_sales: monthlySalesGross,

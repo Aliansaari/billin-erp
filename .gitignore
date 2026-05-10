@@ -10,6 +10,11 @@ dist-electron/
 server-built/
 build/icon.ico
 
+# Mobile build artefact — produced by `npm run build:mobile` /
+# `npm run cap:sync`. Capacitor copies this into ios/App/App/public on
+# each sync, so the actual shipped assets live there, not here.
+dist-mobile/
+
 # Runtime data — firm-specific, must never be committed
 server/backups/
 server/uploads/

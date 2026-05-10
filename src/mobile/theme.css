@@ -1,0 +1,445 @@
+/* ───────────────────────────────────────────────────────────────────────
+ * Mobile theme — editorial palette (warm cream + terracotta).
+ * Light mode is the default; dark mode activates via
+ * [data-mobile-theme="dark"] on <html>, set by the theme switcher
+ * in the side panel.
+ * ─────────────────────────────────────────────────────────────────────── */
+:root,
+[data-mobile-theme="light"] {
+  --c-bg-page:      #E5DFD2;
+  --c-bg-app:       #F2EDE2;
+  --c-bg-surface:   #FBF8F1;
+  --c-bg-card:      #FFFFFF;
+  --c-bg-elev:      #FFFFFF;
+  --c-bg-layout:    var(--c-bg-app);
+
+  --c-text:         #1A1612;
+  --c-text-2:       #4A4239;
+  --c-text-soft:    #6B5F52;
+  --c-text-mute:    #8B8175;
+  --c-text-faint:   #A99E8E;
+
+  --c-line:         #E5DDCD;
+  --c-line-2:       #EEE6D6;
+  --c-border:       #E5DDCD;
+  --c-border-soft:  #EEE6D6;
+
+  --c-primary:      #B5421C;
+  --c-primary-hi:   #DD5527;
+  --c-primary-lo:   #8B3210;
+  --c-primary-soft: #F7E5DA;
+  --c-primary-line: rgba(181, 66, 28, 0.18);
+
+  --c-success:      #2D5A3D;
+  --c-success-soft: #DCE9DF;
+  --c-success-bright: #7FBE94;
+  --c-warning:      #B5811A;
+  --c-warning-soft: #F5EBD2;
+  --c-error:        #B5421C;
+  --c-error-soft:   #F7E5DA;
+  --c-info:         #2A4A7F;
+  --c-info-soft:    #E4ECF5;
+
+  --r-card:         18px;
+  --r-tile:         18px;
+  --r-pill:         999px;
+  --r-hero:         26px;
+
+  --shadow-card:    0 1px 2px rgba(26, 22, 18, 0.04), 0 2px 8px rgba(26, 22, 18, 0.04);
+  --shadow-elev:    0 4px 16px rgba(26, 22, 18, 0.08);
+  --shadow-hero:    0 20px 40px -20px rgba(26, 22, 18, 0.30);
+
+  --pad:            20px;
+  --gap:            12px;
+
+  --tabbar-h:       88px;
+
+  /* Single font across the whole mobile app — Source Sans 3, matching the
+     desktop. The "Variable" suffix is the family the @fontsource-variable
+     package registers; we list the plain name as a fallback so it still
+     resolves if a different fontsource version is swapped in. */
+  --adm-color-primary: var(--c-primary);
+  --adm-font-family:   'Source Sans 3 Variable', 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ─── Dark mode ───────────────────────────────────────────────────── */
+[data-mobile-theme="dark"] {
+  --c-bg-page:      #0A0806;
+  --c-bg-app:       #0E0B08;
+  --c-bg-surface:   #171310;
+  --c-bg-card:      #1C1814;
+  --c-bg-elev:      #221E19;
+  --c-bg-layout:    var(--c-bg-app);
+
+  --c-text:         #F0E8DA;
+  --c-text-2:       #C8BCA8;
+  --c-text-soft:    #9E917E;
+  --c-text-mute:    #7A6F60;
+  --c-text-faint:   #5A5044;
+
+  --c-line:         rgba(255, 255, 255, 0.06);
+  --c-line-2:       rgba(255, 255, 255, 0.04);
+  --c-border:       rgba(255, 255, 255, 0.08);
+  --c-border-soft:  rgba(255, 255, 255, 0.05);
+
+  --c-primary:      #DD5527;
+  --c-primary-hi:   #F06A3A;
+  --c-primary-lo:   #B5421C;
+  --c-primary-soft: rgba(196, 78, 24, 0.14);
+  --c-primary-line: rgba(196, 78, 24, 0.25);
+
+  --c-success:      #4ADE80;
+  --c-success-soft: rgba(74, 222, 128, 0.12);
+  --c-success-bright: #4ADE80;
+  --c-warning:      #FBBF24;
+  --c-warning-soft: rgba(251, 191, 36, 0.12);
+  --c-error:        #F87171;
+  --c-error-soft:   rgba(248, 113, 113, 0.12);
+  --c-info:         #60A5FA;
+  --c-info-soft:    rgba(96, 165, 250, 0.12);
+
+  --shadow-card:    0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-elev:    0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-hero:    0 20px 40px -20px rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--c-bg-app);
+  color: var(--c-text);
+  font-family: var(--adm-font-family);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Screen scaffolding ──────────────────────────────────────────────────── */
+.mobile-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg-app);
+}
+
+.mobile-screen-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  scrollbar-width: none;
+}
+.mobile-screen-body::-webkit-scrollbar { display: none; }
+
+/* Safe-area helpers — additive padding so existing breathing room stays. */
+.topbar.safe-area-top { padding-top: calc(env(safe-area-inset-top, 0px) + 12px); }
+.tabbar.safe-area-bottom,
+.safe-area-bottom    { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0px); }
+
+/* Drill-down slide animation */
+@keyframes drill-in {
+  from { transform: translateX(8%); opacity: 0; }
+  to   { transform: translateX(0);   opacity: 1; }
+}
+.drill-in {
+  animation: drill-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+}
+
+.tap-surface {
+  transition: transform 120ms ease-out, background-color 120ms ease-out;
+}
+.tap-surface:active {
+  transform: scale(0.98);
+  background-color: var(--c-primary-soft);
+}
+
+/* App-shell shape ─────────────────────────────────────────────────────── */
+.app-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.app-shell-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Topbar (kept for VouchersList / BillDetail; Dashboard rolls its own) */
+.topbar {
+  background: var(--c-bg-surface);
+  padding: 12px var(--pad);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--c-border-soft);
+}
+.topbar-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-soft);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  transition: background 120ms;
+}
+.topbar-icon-btn:active { background: var(--c-primary-soft); }
+.topbar-title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.topbar-title h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variation-settings: "opsz" 30;
+  letter-spacing: -0.02em;
+}
+.topbar-title .sub {
+  font-size: 11px;
+  color: var(--c-text-mute);
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+
+/* Voucher list (legacy from earlier iteration — kept for Sales drill) */
+.chip-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px var(--pad);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.chip-row::-webkit-scrollbar { display: none; }
+
+.chip {
+  flex-shrink: 0;
+  padding: 7px 14px;
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 120ms;
+}
+.chip.active {
+  background: var(--c-primary);
+  color: #fff;
+  border-color: var(--c-primary);
+}
+
+.voucher-list {
+  background: var(--c-bg-surface);
+  margin: 4px var(--pad) 0;
+  border-radius: var(--r-card);
+  border: 1px solid var(--c-border-soft);
+  overflow: hidden;
+}
+.voucher-row {
+  display: flex;
+  align-items: center;
+  padding: 14px;
+  border-bottom: 1px solid var(--c-border-soft);
+  cursor: pointer;
+}
+.voucher-row:last-child { border-bottom: none; }
+.voucher-row .vr-main { flex: 1; min-width: 0; }
+.voucher-row .vr-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--c-text-mute);
+  font-weight: 500;
+}
+.voucher-row .vr-meta .vr-num { color: var(--c-text); font-weight: 600; }
+.voucher-row .vr-name {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--c-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.voucher-row .vr-amount {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  margin-left: 12px;
+  white-space: nowrap;
+}
+
+/* Bill detail (legacy) */
+.detail-card {
+  background: var(--c-bg-surface);
+  margin: 12px var(--pad);
+  border-radius: var(--r-card);
+  border: 1px solid var(--c-border-soft);
+  padding: 16px;
+}
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 13px;
+}
+.detail-row .dr-key { color: var(--c-text-soft); }
+.detail-row .dr-val { color: var(--c-text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.detail-row.total {
+  border-top: 1px dashed var(--c-border);
+  padding-top: 14px;
+  margin-top: 6px;
+}
+.detail-row.total .dr-key,
+.detail-row.total .dr-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--c-border-soft);
+}
+.detail-item:last-child { border-bottom: none; }
+.detail-item .di-main { flex: 1; min-width: 0; }
+.detail-item .di-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--c-text);
+}
+.detail-item .di-meta {
+  font-size: 11px;
+  color: var(--c-text-mute);
+  margin-top: 2px;
+}
+.detail-item .di-amount {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  margin-left: 12px;
+}
+
+/* ─── Tab bar (editorial-light, translucent with backdrop blur) ──────── */
+.tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--tabbar-h);
+  background: rgba(242, 237, 226, 0.82);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border-top: 1px solid var(--c-border);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 10px);
+  z-index: 50;
+}
+
+.tabbar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+  gap: 4px;
+  color: var(--c-text-mute);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  transition: color 120ms;
+  -webkit-tap-highlight-color: transparent;
+}
+.tabbar-item .tabbar-icon {
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+}
+.tabbar-item.active {
+  color: var(--c-primary);
+}
+
+.empty {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--c-text-mute);
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* ─── Dark mode structural overrides ──────────────────────────────── */
+[data-mobile-theme="dark"] .tabbar {
+  background: rgba(14, 11, 8, 0.85);
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-mobile-theme="dark"] .topbar {
+  background: var(--c-bg-surface);
+  border-bottom-color: var(--c-border);
+}
+
+[data-mobile-theme="dark"] .topbar-icon-btn:active {
+  background: var(--c-primary-soft);
+}
+
+[data-mobile-theme="dark"] .chip {
+  background: var(--c-bg-surface);
+  border-color: var(--c-border);
+  color: var(--c-text-soft);
+}
+
+[data-mobile-theme="dark"] .chip.active {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+  color: #FFF4EA;
+}
+
+[data-mobile-theme="dark"] .voucher-list {
+  background: var(--c-bg-surface);
+  border-color: var(--c-border);
+}
+
+[data-mobile-theme="dark"] .voucher-row {
+  border-bottom-color: var(--c-border);
+}
+
+[data-mobile-theme="dark"] .detail-card {
+  background: var(--c-bg-surface);
+  border-color: var(--c-border);
+}
