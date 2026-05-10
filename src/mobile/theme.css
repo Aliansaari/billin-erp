@@ -53,6 +53,14 @@
   --gap:            12px;
 
   --tabbar-h:       88px;
+  --c-tabbar-bg:    rgba(242, 237, 226, 0.82);
+  --c-hero-from:    #1F1B17;
+  --c-hero-mid:     #1A1612;
+  --c-hero-to:      #0F0C09;
+  --c-hero-glow:    rgba(181, 66, 28, 0.18);
+  --c-drawer-bg:    var(--c-bg-surface);
+  --c-drawer-glow:  rgba(196, 78, 24, 0.06);
+  --c-drawer-glow2: transparent;
 
   /* Single font across the whole mobile app — Source Sans 3, matching the
      desktop. The "Variable" suffix is the family the @fontsource-variable
@@ -102,7 +110,121 @@
   --shadow-elev:    0 4px 16px rgba(0, 0, 0, 0.4);
   --shadow-hero:    0 20px 40px -20px rgba(0, 0, 0, 0.6);
 
+  --c-tabbar-bg:    rgba(14, 11, 8, 0.85);
+  --c-hero-from:    #2A2420;
+  --c-hero-mid:     #1E1A16;
+  --c-hero-to:      #151210;
+  --c-hero-glow:    rgba(196, 78, 24, 0.25);
+  --c-drawer-bg:    #14100C;
+  --c-drawer-glow:  rgba(196, 78, 24, 0.12);
+  --c-drawer-glow2: rgba(196, 78, 24, 0.06);
+
   color-scheme: dark;
+}
+
+/* ─── Classic style — indigo accent, cool neutral surfaces ─────────── */
+/* Avatar / accent gradient vars used by components */
+:root {
+  --c-accent-from:  #DD5527;
+  --c-accent-to:    #B43D14;
+  --c-accent-glow:  rgba(196, 78, 24, 0.3);
+}
+[data-mobile-style="classic"] {
+  --c-accent-from:  #6366F1;
+  --c-accent-to:    #4F46E5;
+  --c-accent-glow:  rgba(79, 70, 229, 0.3);
+}
+[data-mobile-style="classic"][data-mobile-theme="dark"] {
+  --c-accent-from:  #A5B4FC;
+  --c-accent-to:    #818CF8;
+  --c-accent-glow:  rgba(165, 180, 252, 0.3);
+}
+[data-mobile-style="classic"][data-mobile-theme="light"] {
+  --c-bg-page:      #E8EAF0;
+  --c-bg-app:       #F0F2F7;
+  --c-bg-surface:   #F8F9FC;
+  --c-bg-card:      #FFFFFF;
+  --c-bg-elev:      #FFFFFF;
+
+  --c-text:         #1F2937;
+  --c-text-2:       #4B5563;
+  --c-text-soft:    #6B7280;
+  --c-text-mute:    #9CA3AF;
+  --c-text-faint:   #C0C7D1;
+
+  --c-line:         #E5E7EB;
+  --c-line-2:       #F3F4F6;
+  --c-border:       #E5E7EB;
+  --c-border-soft:  #F3F4F6;
+
+  --c-primary:      #4F46E5;
+  --c-primary-hi:   #6366F1;
+  --c-primary-lo:   #4338CA;
+  --c-primary-soft: rgba(79, 70, 229, 0.08);
+  --c-primary-line: rgba(79, 70, 229, 0.18);
+
+  --c-success:      #10B981;
+  --c-success-soft: #D1FAE5;
+  --c-success-bright: #34D399;
+  --c-warning:      #F59E0B;
+  --c-warning-soft: #FEF3C7;
+  --c-error:        #EF4444;
+  --c-error-soft:   #FEE2E2;
+  --c-info:         #3B82F6;
+  --c-info-soft:    #DBEAFE;
+
+  --c-tabbar-bg:    rgba(240, 242, 247, 0.82);
+  --c-hero-from:    #1E2130;
+  --c-hero-mid:     #181B28;
+  --c-hero-to:      #0E1018;
+  --c-hero-glow:    rgba(79, 70, 229, 0.18);
+  --c-drawer-bg:    var(--c-bg-surface);
+  --c-drawer-glow:  rgba(79, 70, 229, 0.06);
+  --c-drawer-glow2: transparent;
+}
+
+[data-mobile-style="classic"][data-mobile-theme="dark"] {
+  --c-bg-page:      #0F1117;
+  --c-bg-app:       #131418;
+  --c-bg-surface:   #1C1D23;
+  --c-bg-card:      #22242B;
+  --c-bg-elev:      #2A2C34;
+
+  --c-text:         #ECEDF1;
+  --c-text-2:       #A1A4AE;
+  --c-text-soft:    #82858F;
+  --c-text-mute:    #6E717C;
+  --c-text-faint:   #4A4D57;
+
+  --c-line:         rgba(255, 255, 255, 0.08);
+  --c-line-2:       rgba(255, 255, 255, 0.05);
+  --c-border:       rgba(255, 255, 255, 0.10);
+  --c-border-soft:  rgba(255, 255, 255, 0.06);
+
+  --c-primary:      #A5B4FC;
+  --c-primary-hi:   #C7D2FE;
+  --c-primary-lo:   #818CF8;
+  --c-primary-soft: rgba(165, 180, 252, 0.10);
+  --c-primary-line: rgba(165, 180, 252, 0.22);
+
+  --c-success:      #4ADE80;
+  --c-success-soft: rgba(74, 222, 128, 0.12);
+  --c-success-bright: #4ADE80;
+  --c-warning:      #FBBF24;
+  --c-warning-soft: rgba(251, 191, 36, 0.12);
+  --c-error:        #FB7185;
+  --c-error-soft:   rgba(251, 113, 133, 0.12);
+  --c-info:         #60A5FA;
+  --c-info-soft:    rgba(96, 165, 250, 0.12);
+
+  --c-tabbar-bg:    rgba(19, 20, 24, 0.85);
+  --c-hero-from:    #252738;
+  --c-hero-mid:     #1C1E2C;
+  --c-hero-to:      #12141E;
+  --c-hero-glow:    rgba(165, 180, 252, 0.2);
+  --c-drawer-bg:    #161720;
+  --c-drawer-glow:  rgba(129, 140, 248, 0.10);
+  --c-drawer-glow2: rgba(129, 140, 248, 0.05);
 }
 
 html, body, #root {
@@ -359,7 +481,7 @@ body {
   left: 0;
   right: 0;
   height: var(--tabbar-h);
-  background: rgba(242, 237, 226, 0.82);
+  background: var(--c-tabbar-bg);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
   border-top: 1px solid var(--c-border);
@@ -405,7 +527,7 @@ body {
 
 /* ─── Dark mode structural overrides ──────────────────────────────── */
 [data-mobile-theme="dark"] .tabbar {
-  background: rgba(14, 11, 8, 0.85);
+  background: var(--c-tabbar-bg);
   border-top-color: rgba(255, 255, 255, 0.06);
 }
 

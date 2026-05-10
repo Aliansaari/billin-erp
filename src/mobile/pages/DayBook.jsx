@@ -338,8 +338,12 @@ export default function DayBook() {
             entry={entry}
             onClick={() => {
               const r = String(entry.drill_route || '');
-              const m = r.match(/\/(sales|purchase|payment|receipt)(?:\/[^/]+)?\/(\d+)/i);
-              if (m) navigate(`/vouchers/${m[1].toLowerCase()}/${m[2]}`);
+              const idMatch = r.match(/\/(\d+)\s*$/);
+              const typeMap = { Sales: 'sales', Purchase: 'purchase', Receipt: 'receipt', Payment: 'payment' };
+              const vType = typeMap[entry.voucher_type];
+              if (!vType) return;
+              if (idMatch) { navigate(`/vouchers/${vType}/${idMatch[1]}`); return; }
+              if (entry.voucher_no) navigate(`/vouchers/${vType}/search?no=${encodeURIComponent(entry.voucher_no)}`);
             }}
           />
         ))}

@@ -541,86 +541,113 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
   doc.line(M, y, pageW - M, y);
   y += 8;
 
-  /* ── Items table ────────────────────────────────────────────────── */
-  const showHsn      = profile?.show_hsn      !== false;
-  const showMrp      = profile?.show_mrp      !== false;
-  const showDiscount = profile?.show_discount !== false;
-  const showBatch    = !!profile?.show_batch;
-
-  const cols = ['#', 'Item'];
-  if (showHsn)      cols.push('HSN');
-  if (showBatch)    cols.push('Batch');
-  cols.push('Qty', 'Rate');
-  if (showMrp)      cols.push('MRP');
-  if (showDiscount) cols.push('Disc%');
-  cols.push('Amount');
-
-  const items = Array.isArray(bill.items) ? bill.items : [];
-  const body = items.map((it, i) => {
-    const row = [
-      String(i + 1),
-      esc(it.product_name || ''),
-    ];
-    if (showHsn)      row.push(esc(it.hsn_code || ''));
-    if (showBatch)    row.push(esc(it.batch_number || it.batch?.batch_number || ''));
-    row.push(fmtQty(it.quantity));
-    row.push(fmt(it.rate || it.purchase_rate));
-    if (showMrp)      row.push(fmt(it.mrp));
-    if (showDiscount) row.push((Number(it.discount_percentage || 0)).toFixed(2));
-    row.push(fmt(it.total_amount));
-    return row;
-  });
-
-  // Build column styles by index so right-align is applied to numeric
-  // columns regardless of which optional columns are present.
-  const colStyles = {};
-  let idx = 0;
-  colStyles[idx++] = { cellWidth: 22, halign: 'center' };       // #
-  colStyles[idx++] = { cellWidth: 'auto' };                      // Item
-  if (showHsn)   { colStyles[idx++] = { cellWidth: 50 }; }
-  if (showBatch) { colStyles[idx++] = { cellWidth: 60 }; }
-  colStyles[idx++] = { cellWidth: 50, halign: 'right' };         // Qty
-  colStyles[idx++] = { cellWidth: 60, halign: 'right' };         // Rate
-  if (showMrp)      { colStyles[idx++] = { cellWidth: 55, halign: 'right' }; }
-  if (showDiscount) { colStyles[idx++] = { cellWidth: 45, halign: 'right' }; }
-  colStyles[idx++] = { cellWidth: 70, halign: 'right' };         // Amount
-
-  // Theme-driven autoTable styling. Two visual modes:
-  //   - "grid"  → boxed cells (classic, boxed, wholesale themes)
-  //   - "plain" → borderless body, single rule under the header
-  //               (modern, minimal, elegant, studio)
+  /* ── Items / entries table ───────────────────────────────────────── */
+  const isPaymentDoc = docType === 'receipt' || docType === 'payment';
   const tableMode = T.table.headRule ? 'plain' : 'grid';
   const headStyles = T.table.headFill
     ? { fillColor: T.table.headFill, textColor: T.table.headText, fontStyle: 'bold', fontSize: 8.5 }
     : { fillColor: false,             textColor: T.table.headText, fontStyle: 'bold', fontSize: 8.5,
         lineColor: A, lineWidth: 0.6 };
-  const monoColumnPatch = T.table.monoNumeric
-    ? { font: 'courier', fontStyle: 'normal' }
-    : null;
-  const styledColStyles = monoColumnPatch
-    ? Object.fromEntries(Object.entries(colStyles).map(([k, v]) => [
-        k,
-        v.halign === 'right' ? { ...v, ...monoColumnPatch } : v,
-      ]))
-    : colStyles;
 
-  doc.autoTable({
-    startY: y,
-    head: [cols],
-    body: body.length ? body : [['', items.length === 0 ? '(no items)' : '', ...new Array(cols.length - 2).fill('')]],
-    theme: tableMode,
-    styles: {
-      font: T.bodyFont,
-      fontSize: 9,
-      cellPadding: 5,
-      lineColor: T.table.lineColor,
-      lineWidth: T.table.lineWidth,
-      textColor: T.table.bodyText,
-    },
-    headStyles,
-    columnStyles: styledColStyles,
-    margin: { left: M, right: M },
-  });
+  if (isPaymentDoc) {
+    const entries = Array.isArray(bill.entries) ? bill.entries
+                  : Array.isArray(bill.payment_entries) ? bill.payment_entries : [];
+    const entryCols = ['#', 'Account', 'Mode', 'Amount'];
+    const entryBody = entries.map((e, i) => [
+      String(i + 1),
+      esc(e.account_name || e.ledger_name || ''),
+      esc(e.payment_mode || ''),
+      fmt(e.amount),
+    ]);
+    if (entryBody.length === 0) {
+      entryBody.push(['1', esc(bill.party_name || 'Cash'), esc(bill.payment_mode || 'Cash'), fmt(bill.amount || bill.total_amount)]);
+    }
+    doc.autoTable({
+      startY: y,
+      head: [entryCols],
+      body: entryBody,
+      theme: tableMode,
+      styles: {
+        font: T.bodyFont, fontSize: 9, cellPadding: 5,
+        lineColor: T.table.lineColor, lineWidth: T.table.lineWidth,
+        textColor: T.table.bodyText,
+      },
+      headStyles,
+      columnStyles: {
+        0: { cellWidth: 22, halign: 'center' },
+        1: { cellWidth: 'auto' },
+        2: { cellWidth: 80 },
+        3: { cellWidth: 80, halign: 'right' },
+      },
+      margin: { left: M, right: M },
+    });
+  } else {
+    const showHsn      = profile?.show_hsn      !== false;
+    const showMrp      = profile?.show_mrp      !== false;
+    const showDiscount = profile?.show_discount !== false;
+    const showBatch    = !!profile?.show_batch;
+
+    const cols = ['#', 'Item'];
+    if (showHsn)      cols.push('HSN');
+    if (showBatch)    cols.push('Batch');
+    cols.push('Qty', 'Rate');
+    if (showMrp)      cols.push('MRP');
+    if (showDiscount) cols.push('Disc%');
+    cols.push('Amount');
+
+    const items = Array.isArray(bill.items) ? bill.items : [];
+    const body = items.map((it, i) => {
+      const row = [
+        String(i + 1),
+        esc(it.product_name || ''),
+      ];
+      if (showHsn)      row.push(esc(it.hsn_code || ''));
+      if (showBatch)    row.push(esc(it.batch_number || it.batch?.batch_number || ''));
+      row.push(fmtQty(it.quantity));
+      row.push(fmt(it.rate || it.purchase_rate));
+      if (showMrp)      row.push(fmt(it.mrp));
+      if (showDiscount) row.push((Number(it.discount_percentage || 0)).toFixed(2));
+      row.push(fmt(it.total_amount));
+      return row;
+    });
+
+    const colStyles = {};
+    let idx = 0;
+    colStyles[idx++] = { cellWidth: 22, halign: 'center' };
+    colStyles[idx++] = { cellWidth: 'auto' };
+    if (showHsn)   { colStyles[idx++] = { cellWidth: 50 }; }
+    if (showBatch) { colStyles[idx++] = { cellWidth: 60 }; }
+    colStyles[idx++] = { cellWidth: 50, halign: 'right' };
+    colStyles[idx++] = { cellWidth: 60, halign: 'right' };
+    if (showMrp)      { colStyles[idx++] = { cellWidth: 55, halign: 'right' }; }
+    if (showDiscount) { colStyles[idx++] = { cellWidth: 45, halign: 'right' }; }
+    colStyles[idx++] = { cellWidth: 70, halign: 'right' };
+
+    const monoColumnPatch = T.table.monoNumeric
+      ? { font: 'courier', fontStyle: 'normal' }
+      : null;
+    const styledColStyles = monoColumnPatch
+      ? Object.fromEntries(Object.entries(colStyles).map(([k, v]) => [
+          k,
+          v.halign === 'right' ? { ...v, ...monoColumnPatch } : v,
+        ]))
+      : colStyles;
+
+    doc.autoTable({
+      startY: y,
+      head: [cols],
+      body: body.length ? body : [['', '(no items)', ...new Array(cols.length - 2).fill('')]],
+      theme: tableMode,
+      styles: {
+        font: T.bodyFont, fontSize: 9, cellPadding: 5,
+        lineColor: T.table.lineColor, lineWidth: T.table.lineWidth,
+        textColor: T.table.bodyText,
+      },
+      headStyles,
+      columnStyles: styledColStyles,
+      margin: { left: M, right: M },
+    });
+  }
 
   y = doc.lastAutoTable.finalY + 8;
 

@@ -25,7 +25,7 @@ const SearchIcon = () => (
 
 const TABS = [
   { key: 'home',     label: 'Home',    path: '/dashboard' },
-  { key: 'sales',    label: 'Sales',   path: '/vouchers'  },
+  { key: 'sales',    label: 'Vouchers', path: '/vouchers'  },
   { key: 'stock',    label: 'Stock',   path: '/stock'     },
   { key: 'reports',  label: 'Reports', path: '/reports'   },
   { key: 'search',   label: 'Search',  path: '/search'    },

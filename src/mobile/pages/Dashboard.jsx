@@ -1,10 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import useAuthStore from '../../store/authStore';
 import ActivityRow from '../components/ActivityRow';
-import SidePanel from '../components/SidePanel';
 import {
   formatINR,
   formatGreetingDate,
@@ -63,28 +62,13 @@ function gstr1Due(now = new Date()) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { setPanelOpen } = useOutletContext();
   const user = useAuthStore((s) => s.user);
 
   const [stats, setStats]       = useState(null);
   const [insights, setInsights] = useState(null);
   const [today, setToday]       = useState([]);
   const [loading, setLoading]   = useState(true);
-  const [panelOpen, setPanelOpen] = useState(false);
-
-  // ── Swipe-right to open side panel ────────────────────────────────
-  const touchRef = useRef({ startX: 0, startY: 0 });
-  const onTouchStart = useCallback((e) => {
-    const t = e.touches[0];
-    touchRef.current = { startX: t.clientX, startY: t.clientY };
-  }, []);
-  const onTouchEnd = useCallback((e) => {
-    const t = e.changedTouches[0];
-    const dx = t.clientX - touchRef.current.startX;
-    const dy = Math.abs(t.clientY - touchRef.current.startY);
-    if (dx > 80 && dy < 60 && touchRef.current.startX < 50) {
-      setPanelOpen(true);
-    }
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,9 +150,14 @@ export default function Dashboard() {
 
   // ── Handlers ──────────────────────────────────────────────────────
   const goVouchers = (type) => navigate(`/vouchers?type=${type}`);
-  const openDayBook = (entry) => {
-    const date = entry?.entry_date || isoDate();
-    navigate(`/day-book?date=${date}`);
+  const openBillDetail = (entry) => {
+    const r = String(entry.drill_route || '');
+    const idMatch = r.match(/\/(\d+)\s*$/);
+    const typeMap = { Sales: 'sales', Purchase: 'purchase', Receipt: 'receipt', Payment: 'payment' };
+    const vType = typeMap[entry.voucher_type];
+    if (vType && idMatch) { navigate(`/vouchers/${vType}/${idMatch[1]}`); return; }
+    if (vType && entry.voucher_no) { navigate(`/vouchers/${vType}/search?no=${encodeURIComponent(entry.voucher_no)}`); return; }
+    navigate(`/day-book?date=${entry?.entry_date || isoDate()}`);
   };
 
   // ── Notifications (built from attention items) ─────────────────────
@@ -192,7 +181,7 @@ export default function Dashboard() {
   }, [notifOpen]);
 
   return (
-    <div className="dash" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    <div className="dash">
       {/* Header — fixed at top, content scrolls underneath. */}
       <div className="dash-header">
         <button className="dash-avatar" onClick={() => setPanelOpen(true)} aria-label="profile menu">
@@ -315,12 +304,11 @@ export default function Dashboard() {
           <ActivityRow
             key={entry.entry_number}
             entry={entry}
-            onClick={() => openDayBook(entry)}
+            onClick={() => openBillDetail(entry)}
           />
         ))}
       </div>
 
-      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} />
     </div>
   );
 }

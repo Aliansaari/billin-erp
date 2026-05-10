@@ -18,14 +18,13 @@
  */
 
 const { execSync } = require('child_process');
+const http = require('http');
 const os = require('os');
 
 function detectLanIp() {
   const ifaces = os.networkInterfaces();
   for (const name of Object.keys(ifaces)) {
     for (const iface of ifaces[name] || []) {
-      // IPv4, not loopback, not link-local APIPA (169.254.x.x — appears when
-      // there's no DHCP, useless for talking to the phone).
       if (
         iface.family === 'IPv4' &&
         !iface.internal &&
@@ -38,29 +37,60 @@ function detectLanIp() {
   return null;
 }
 
-const port = process.env.MOBILE_DEV_PORT || '5174';
-const lan = detectLanIp();
-
-if (!lan) {
-  console.error(
-    '✖ Could not detect a LAN IP. Connect to Wi-Fi (or Ethernet) and retry.'
-  );
-  process.exit(1);
+function probe(url, timeout) {
+  return new Promise((resolve) => {
+    const req = http.get(url, { timeout }, () => resolve(true));
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
 }
 
-const url = `http://${lan.address}:${port}/index.mobile.html`;
+async function waitForServer(url, maxWait) {
+  const start = Date.now();
+  process.stdout.write('  Waiting for dev server');
+  while (Date.now() - start < maxWait) {
+    if (await probe(url, 2000)) {
+      process.stdout.write(' ✓\n');
+      return true;
+    }
+    process.stdout.write('.');
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  process.stdout.write(' ✗\n');
+  return false;
+}
 
-console.log('');
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log(`  Live-reload URL: ${url}`);
-console.log(`  Interface:       ${lan.name}`);
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('');
-console.log('  Make sure `npm run mobile` is running in another terminal');
-console.log('  and your phone is on the same Wi-Fi.');
-console.log('');
+async function main() {
+  const port = process.env.MOBILE_DEV_PORT || '5174';
+  const lan = detectLanIp();
 
-execSync('npm run cap:ios', {
-  stdio: 'inherit',
-  env: { ...process.env, CAPACITOR_LIVE_RELOAD_URL: url },
-});
+  if (!lan) {
+    console.error(
+      '✖ Could not detect a LAN IP. Connect to Wi-Fi (or Ethernet) and retry.'
+    );
+    process.exit(1);
+  }
+
+  const url = `http://${lan.address}:${port}/index.mobile.html`;
+
+  console.log('');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`  Live-reload URL: ${url}`);
+  console.log(`  Interface:       ${lan.name}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('');
+
+  const up = await waitForServer(url, 30_000);
+  if (!up) {
+    console.log('  ⚠ Dev server not reachable yet — continuing anyway.');
+    console.log('    The app will show a retry screen until the server is up.');
+    console.log('');
+  }
+
+  execSync('npm run cap:ios', {
+    stdio: 'inherit',
+    env: { ...process.env, CAPACITOR_LIVE_RELOAD_URL: url },
+  });
+}
+
+main();

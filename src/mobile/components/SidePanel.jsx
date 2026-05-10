@@ -89,6 +89,18 @@ const I = {
       <path d="M18 6L6 18M6 6l12 12"/>
     </svg>
   ),
+  classic: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="3"/>
+      <path d="M3 9h18M9 3v18"/>
+    </svg>
+  ),
+  editorial: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4h16v16H4z"/>
+      <path d="M4 10h16M12 4v6"/>
+    </svg>
+  ),
 };
 
 function fyLabel() {
@@ -104,6 +116,8 @@ export default function SidePanel({ open, onClose }) {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const themeStyle = useThemeStore((s) => s.themeStyle);
+  const setThemeStyle = useThemeStore((s) => s.setThemeStyle);
   const appearance = useThemeStore((s) => s.appearance);
   const setAppearance = useThemeStore((s) => s.setAppearance);
   const companyList = useCompanyStore((s) => s.list);
@@ -165,6 +179,11 @@ export default function SidePanel({ open, onClose }) {
   const userRole = user?.role || 'Owner';
   const fy = fyLabel();
   const firmCount = companyList.length || 1;
+
+  const styleOptions = [
+    { key: 'classic', label: 'Classic', icon: I.classic },
+    { key: 'modern', label: 'Editorial', icon: I.editorial },
+  ];
 
   const themeOptions = [
     { key: 'light', label: 'Light', icon: I.sun },
@@ -229,6 +248,21 @@ export default function SidePanel({ open, onClose }) {
             </div>
             <div className="sp-ctx-chev">{I.chev}</div>
           </button>
+
+          {/* Style */}
+          <div className="sp-section-label">Style</div>
+          <div className="sp-theme-seg sp-theme-seg-2">
+            {styleOptions.map((s) => (
+              <button
+                key={s.key}
+                className={`sp-theme-opt${themeStyle === s.key ? ' active' : ''}`}
+                onClick={() => setThemeStyle(s.key)}
+              >
+                {s.icon}
+                {s.label}
+              </button>
+            ))}
+          </div>
 
           {/* Appearance */}
           <div className="sp-section-label">Appearance</div>

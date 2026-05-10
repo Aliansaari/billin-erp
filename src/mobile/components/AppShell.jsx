@@ -1,20 +1,34 @@
-import React from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import TabBar from './TabBar';
+import SidePanel from './SidePanel';
 
-// Shell that wraps the five primary screens (Home/Vouchers/Ledgers/Items/
-// Reports). Renders the active route via <Outlet> with the persistent
-// bottom TabBar. Drill-down screens (e.g. bill detail) sit OUTSIDE the
-// shell so they can choose whether to keep the tab bar visible — for the
-// first cut, bill detail also shows the bar (matches the mockup pattern
-// where users can jump tabs from anywhere).
 export default function AppShell() {
+  const [panelOpen, setPanelOpen] = useState(false);
+
+  const touchRef = useRef({ startX: 0, startY: 0 });
+  const onTouchStart = useCallback((e) => {
+    const t = e.touches[0];
+    touchRef.current = { startX: t.clientX, startY: t.clientY };
+  }, []);
+  const onTouchEnd = useCallback((e) => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchRef.current.startX;
+    const dy = Math.abs(t.clientY - touchRef.current.startY);
+    if (dx > 80 && dy < 60 && touchRef.current.startX < 50) {
+      setPanelOpen(true);
+    }
+  }, []);
+
   return (
-    <div className="app-shell">
-      <div className="app-shell-body">
-        <Outlet />
+    <>
+      <div className="app-shell" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        <div className="app-shell-body">
+          <Outlet context={{ setPanelOpen }} />
+        </div>
+        <TabBar />
       </div>
-      <TabBar />
-    </div>
+      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+    </>
   );
 }

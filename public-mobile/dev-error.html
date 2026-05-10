@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Connecting…</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{height:100%}
+  body{
+    height:100%;display:flex;align-items:center;justify-content:center;
+    font-family:-apple-system,system-ui,sans-serif;
+    background:#0A0806;color:#C8BCA8;
+    padding:env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+  }
+  .wrap{text-align:center;max-width:300px}
+  .spinner{
+    width:36px;height:36px;margin:0 auto 20px;
+    border:3px solid rgba(196,78,24,.2);border-top-color:#DD5527;
+    border-radius:50%;animation:spin .8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  h1{font-size:17px;font-weight:600;color:#F0E8DA;margin-bottom:6px}
+  p{font-size:13px;line-height:1.5;margin-bottom:16px}
+  .hint{font-size:11px;color:#7A6F60;margin-top:12px}
+  .status{
+    display:inline-block;padding:4px 12px;border-radius:20px;
+    font-size:12px;font-weight:500;
+    background:rgba(196,78,24,.12);color:#DD5527;
+  }
+  .status.ok{background:rgba(74,222,128,.12);color:#4ADE80}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="spinner"></div>
+  <h1>Connecting to dev server</h1>
+  <p id="msg">Waiting for Vite…</p>
+  <div class="status" id="status">retrying</div>
+  <div class="hint" id="hint">Make sure <code>npm run mobile</code> is running</div>
+</div>
+<script>
+(function(){
+  var attempt = 0;
+  var maxAttempts = 120; // 2 minutes at 1s intervals
+  var msg = document.getElementById('msg');
+  var status = document.getElementById('status');
+  var hint = document.getElementById('hint');
+
+  function tryReload(){
+    attempt++;
+    msg.textContent = 'Attempt ' + attempt + '…';
+
+    // Try to fetch the dev server's index page
+    var url = window.location.href.replace(/\/dev-error\.html.*/, '/index.mobile.html');
+    // If we're on a capacitor:// scheme, we can't fetch the dev server.
+    // Grab the URL from the hash if provided by cap-dev.js
+    if (window.location.hash && window.location.hash.length > 1) {
+      url = decodeURIComponent(window.location.hash.slice(1));
+    }
+
+    fetch(url, {mode:'no-cors',cache:'no-store'})
+      .then(function(){
+        status.textContent = 'connected';
+        status.className = 'status ok';
+        msg.textContent = 'Dev server is up — reloading…';
+        hint.textContent = '';
+        setTimeout(function(){ window.location.href = url; }, 300);
+      })
+      .catch(function(){
+        if (attempt >= maxAttempts) {
+          msg.textContent = 'Could not reach the dev server.';
+          status.textContent = 'timed out';
+          hint.textContent = 'Check that npm run mobile is running and your device is on the same Wi-Fi.';
+          return;
+        }
+        setTimeout(tryReload, 1000);
+      });
+  }
+
+  setTimeout(tryReload, 500);
+})();
+</script>
+</body>
+</html>

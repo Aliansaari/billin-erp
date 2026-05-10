@@ -25,11 +25,35 @@ function renameMobileEntry() {
   };
 }
 
+function mobileHistoryFallback() {
+  return {
+    name: 'mobile-history-fallback',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const url = req.url || '';
+        if (
+          req.method === 'GET' &&
+          !url.startsWith('/api') &&
+          !url.startsWith('/@') &&
+          !url.startsWith('/node_modules') &&
+          !url.startsWith('/src') &&
+          !url.includes('.') &&
+          req.headers.accept?.includes('text/html')
+        ) {
+          req.url = '/index.mobile.html';
+        }
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
   // Relative asset URLs so the same dist-mobile/ works under capacitor:// /
   // file:// (native shell) AND under http(s):// (browser preview).
   base: './',
-  plugins: [react(), renameMobileEntry()],
+  publicDir: 'public-mobile',
+  plugins: [react(), mobileHistoryFallback(), renameMobileEntry()],
   build: {
     outDir: 'dist-mobile',
     emptyOutDir: true,
@@ -47,8 +71,8 @@ export default defineConfig({
   server: {
     // 0.0.0.0 so the phone on the same Wi-Fi can hit the dev server.
     host: '0.0.0.0',
-    port: 5174,
-    strictPort: true,
+    port: parseInt(process.env.PORT || '5174', 10),
+    strictPort: false,
     open: '/index.mobile.html',
     proxy: {
       '/api': {

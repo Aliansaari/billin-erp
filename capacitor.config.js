@@ -19,7 +19,7 @@ const config = {
   appName: 'Billing ERP',
   webDir: 'dist-mobile',
   server: liveReloadUrl
-    ? { ...baseServer, url: liveReloadUrl, cleartext: true }
+    ? { ...baseServer, url: liveReloadUrl, cleartext: true, errorPath: 'dev-error.html' }
     : baseServer,
   // ── Keyboard ────────────────────────────────────────────────────────
   // resize: 'none' means the WebView keeps its full size when the soft

@@ -11,6 +11,8 @@ import VouchersList from './pages/VouchersList';
 import BillDetail from './pages/BillDetail';
 import DayBook from './pages/DayBook';
 import Search from './pages/Search';
+import Stock from './pages/Stock';
+import StockMovement from './pages/StockMovement';
 import SimpleScreen from './pages/SimpleScreen';
 import Outstanding from './pages/Outstanding';
 import AppShell from './components/AppShell';
@@ -23,6 +25,7 @@ function ProtectedRoute({ children }) {
 
 function MobileThemeSync() {
   const appearance = useThemeStore((s) => s.appearance);
+  const themeStyle = useThemeStore((s) => s.themeStyle);
   useEffect(() => {
     const apply = (mode) => {
       document.documentElement.setAttribute('data-mobile-theme', mode);
@@ -37,6 +40,9 @@ function MobileThemeSync() {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [appearance]);
+  useEffect(() => {
+    document.documentElement.setAttribute('data-mobile-style', themeStyle === 'modern' ? 'modern' : 'classic');
+  }, [themeStyle]);
   return null;
 }
 
@@ -63,7 +69,8 @@ export default function MobileApp() {
           <Route path="/vouchers"   element={<VouchersList />} />
           <Route path="/vouchers/:type/:id" element={<BillDetail />} />
           <Route path="/outstanding" element={<Outstanding />} />
-          <Route path="/stock"      element={<SimpleScreen title="Stock" />} />
+          <Route path="/stock"      element={<Stock />} />
+          <Route path="/stock/:id"  element={<StockMovement />} />
           <Route path="/items"      element={<SimpleScreen title="Items" />} />
           <Route path="/reports"    element={<SimpleScreen title="Reports" />} />
           <Route path="/search"     element={<Search />} />
