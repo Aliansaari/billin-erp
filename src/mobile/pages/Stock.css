@@ -46,6 +46,13 @@
 .st-icon-btn:active { background: var(--c-primary-soft); }
 .st-icon-btn.active { background: var(--c-primary-soft); color: var(--c-primary); border-color: var(--c-primary-soft); }
 
+.st-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 /* ── Search ──────────────────────────────────────────────────────────── */
 .st-search {
   display: flex;
