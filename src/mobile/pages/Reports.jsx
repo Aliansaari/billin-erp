@@ -210,7 +210,21 @@ export default function Reports() {
   const [search, setSearch] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [pinned, setPinned] = useState(loadPinned);
+  const [openCats, setOpenCats] = useState(() => new Set());
   const searchRef = useRef(null);
+
+  const toggleCat = (id) => {
+    setOpenCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const allExpanded = openCats.size === CATEGORIES.length;
+  const toggleAll = () => {
+    setOpenCats(allExpanded ? new Set() : new Set(CATEGORIES.map((c) => c.id)));
+  };
 
   const togglePin = (id, e) => {
     e.stopPropagation();
@@ -259,24 +273,42 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className={`rp-search${searchFocused ? ' rp-search--focused' : ''}`}
-           onClick={() => searchRef.current?.focus()}>
-        <span className="rp-search-icon"><SearchIcon /></span>
-        <input
-          ref={searchRef}
-          className="rp-search-input"
-          placeholder={`Search ${TOTAL_REPORTS} reports…`}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => setSearchFocused(false)}
-        />
-        {search && (
-          <button className="rp-search-clear" onClick={() => setSearch('')}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-          </button>
-        )}
+      {/* Search + expand-all */}
+      <div className="rp-search-row">
+        <div className={`rp-search${searchFocused ? ' rp-search--focused' : ''}`}
+             onClick={() => searchRef.current?.focus()}>
+          <span className="rp-search-icon"><SearchIcon /></span>
+          <input
+            ref={searchRef}
+            className="rp-search-input"
+            placeholder={`Search ${TOTAL_REPORTS} reports…`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+          />
+          {search && (
+            <button className="rp-search-clear" onClick={(e) => { e.stopPropagation(); setSearch(''); }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          )}
+        </div>
+        <button
+          className={`rp-toggle-all${allExpanded ? ' rp-toggle-all--on' : ''}`}
+          onClick={toggleAll}
+          aria-label={allExpanded ? 'Fold all categories' : 'Expand all categories'}
+          title={allExpanded ? 'Fold all' : 'Expand all'}
+        >
+          {allExpanded ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 13l5-5 5 5"/><path d="M7 19l5-5 5 5"/>
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 5l5 5 5-5"/><path d="M7 11l5 5 5-5"/>
+            </svg>
+          )}
+        </button>
       </div>
 
       {/* Search results overlay */}
@@ -323,26 +355,38 @@ export default function Reports() {
 
           {/* Categories list */}
           <div className="rp-scroll">
-            {CATEGORIES.map((cat) => (
-              <div key={cat.id}>
-                <div className="rp-cat-head">
-                  <div className="rp-cat-title-row">
-                    <div className={`rp-cat-icon rp-cat-icon--${cat.color}`}>{cat.icon}</div>
-                    <h2 className="rp-cat-title">
-                      {cat.label}
-                      {cat.labelItalic && <em> {cat.labelItalic}</em>}
-                    </h2>
-                  </div>
-                  <span className="rp-cat-count">
-                    <span className="rp-cat-num">{cat.reports.length}</span> reports
-                  </span>
+            {CATEGORIES.map((cat) => {
+              const isOpen = openCats.has(cat.id);
+              return (
+                <div key={cat.id} className={`rp-cat${isOpen ? ' rp-cat--open' : ''}`}>
+                  <button className="rp-cat-head" onClick={() => toggleCat(cat.id)}>
+                    <div className="rp-cat-title-row">
+                      <div className={`rp-cat-icon rp-cat-icon--${cat.color}`}>{cat.icon}</div>
+                      <h2 className="rp-cat-title">
+                        {cat.label}
+                        {cat.labelItalic && <em> {cat.labelItalic}</em>}
+                      </h2>
+                    </div>
+                    <div className="rp-cat-right">
+                      <span className="rp-cat-count">
+                        <span className="rp-cat-num">{cat.reports.length}</span> reports
+                      </span>
+                      <span className={`rp-cat-chev${isOpen ? ' rp-cat-chev--open' : ''}`}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                      </span>
+                    </div>
+                  </button>
+                  {isOpen && (
+                    <div className="rp-cat-body">
+                      {cat.reports.map((r) => (
+                        <ReportRow key={r.id} report={r} pinned={pinned.has(r.id)} onPin={togglePin} onTap={handleRowTap} />
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {cat.reports.map((r) => (
-                  <ReportRow key={r.id} report={r} pinned={pinned.has(r.id)} onPin={togglePin} onTap={handleRowTap} />
-                ))}
-              </div>
-            ))}
-            <div className="rp-end">— end of all {TOTAL_REPORTS} reports —</div>
+              );
+            })}
+            <div className="rp-end">— {TOTAL_REPORTS} reports · {CATEGORIES.length} categories —</div>
           </div>
         </>
       )}
