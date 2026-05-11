@@ -196,6 +196,15 @@
 .sheet-row-bal.dr { color: var(--c-warning); background: var(--c-warning-soft); }
 .sheet-row-bal.cr { color: var(--c-success); background: var(--c-success-soft); }
 
+.sheet-row-credit {
+  font-family: var(--adm-font-family);
+  font-size: 10px;
+  color: var(--c-success);
+  margin-top: 3px;
+  letter-spacing: 0.01em;
+}
+.sheet-row-credit.over { color: var(--c-error); font-weight: 600; }
+
 /* ── Form fields (ItemSheet, MoreSheet) ──────────────────────────── */
 .sf-field {
   display: flex;
@@ -236,6 +245,52 @@
 .sf-textarea {
   font-family: inherit;
   resize: none;
+}
+
+.sf-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sf-done {
+  background: var(--c-primary-soft);
+  border: 1px solid var(--c-primary-line);
+  color: var(--c-primary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sf-picker {
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--c-text);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+}
+.sf-picker-val { flex: 1; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-picker-placeholder { flex: 1; color: var(--c-text-mute); }
+.sf-picker-chev { color: var(--c-text-faint); flex-shrink: 0; }
+.sf-picker-clear {
+  font-size: 16px;
+  color: var(--c-text-mute);
+  padding: 0 6px;
+  line-height: 1;
 }
 
 .sf-grid {

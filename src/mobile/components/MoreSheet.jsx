@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
+import ReactDOM from 'react-dom';
 import './sheet.css';
 
 /* MoreSheet — bill-level options that live behind the ⋯ menu:
  * salesman, sale type, payment method, due date, remarks. Per the
  * editorial mockup, these are rarely changed mid-bill so they stay
  * out of the main scan-first scroll. */
-export default function MoreSheet({ type, values, onClose, onSave }) {
+export default function MoreSheet(props) {
+  return ReactDOM.createPortal(<MoreSheetInner {...props} />, document.body);
+}
+
+function MoreSheetInner({ type, values, onClose, onSave }) {
   const isPurchase = type === 'purchase';
   const [draft, setDraft] = useState(values || {});
 

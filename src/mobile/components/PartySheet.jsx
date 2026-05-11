@@ -1,8 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { partyAPI } from '../../api';
 import './sheet.css';
 
 export default function PartySheet({ type, onClose, onPick }) {
+  return ReactDOM.createPortal(<PartySheetInner type={type} onClose={onClose} onPick={onPick} />, document.body);
+}
+
+function PartySheetInner({ type, onClose, onPick }) {
   const [query, setQuery] = useState('');
   const [list, setList]   = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,28 +76,41 @@ export default function PartySheet({ type, onClose, onPick }) {
             <div className="sheet-empty">No {type === 'supplier' ? 'suppliers' : 'customers'} match</div>
           )}
 
-          {!loading && list.map((p) => (
-            <button
-              key={p.party_id}
-              className="sheet-row"
-              onClick={() => onPick(p)}
-            >
-              <div className={`sheet-row-avatar ${type === 'supplier' ? 'supplier' : 'customer'}`}>
-                {(p.party_name || '?').charAt(0).toUpperCase()}
-              </div>
-              <div className="sheet-row-info">
-                <div className="sheet-row-name">{p.party_name}</div>
-                <div className="sheet-row-meta">
-                  {[p.gstin, p.city, p.mobile_1].filter(Boolean).join(' · ') || '—'}
+          {!loading && list.map((p) => {
+            const bal = Number(p.current_balance) || 0;
+            const limit = Number(p.credit_limit) || 0;
+            const limitOk = !!p.credit_allowed && limit > 0;
+            const overLimit = limitOk && bal > limit;
+            return (
+              <button
+                key={p.party_id}
+                className="sheet-row"
+                onClick={() => onPick(p)}
+              >
+                <div className={`sheet-row-avatar ${type === 'supplier' ? 'supplier' : 'customer'}`}>
+                  {(p.party_name || '?').charAt(0).toUpperCase()}
                 </div>
-              </div>
-              {Number(p.current_balance) !== 0 && (
-                <div className={`sheet-row-bal ${Number(p.current_balance) > 0 ? 'dr' : 'cr'}`}>
-                  ₹{Math.abs(Number(p.current_balance)).toLocaleString('en-IN')}
+                <div className="sheet-row-info">
+                  <div className="sheet-row-name">{p.party_name}</div>
+                  <div className="sheet-row-meta">
+                    {[p.gstin, p.city, p.mobile_1].filter(Boolean).join(' · ') || '—'}
+                  </div>
+                  {limitOk && (
+                    <div className={`sheet-row-credit${overLimit ? ' over' : ''}`}>
+                      Limit ₹{limit.toLocaleString('en-IN')}
+                      {p.credit_days ? ` · ${p.credit_days}d` : ''}
+                      {overLimit ? ' · over!' : ''}
+                    </div>
+                  )}
                 </div>
-              )}
-            </button>
-          ))}
+                {bal !== 0 && (
+                  <div className={`sheet-row-bal ${bal > 0 ? 'dr' : 'cr'}`}>
+                    ₹{Math.abs(bal).toLocaleString('en-IN')}
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

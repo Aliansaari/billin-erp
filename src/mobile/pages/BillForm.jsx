@@ -65,10 +65,11 @@ export default function BillForm({ type }) {
   const [party, setParty]           = useState(null);
   const [items, setItems]           = useState([]);
   const [godownId, setGodownId]     = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState('Cash');
+  const [paidAmount, setPaidAmount] = useState('');  // empty = pay full
   const [moreOpts, setMoreOpts]     = useState({
     sale_type: 'Retail',
     salesman_name: '',
-    payment_method: 'Cash',
     due_date: '',
     remarks: '',
   });
@@ -221,6 +222,10 @@ export default function BillForm({ type }) {
       ? { supplier_id: party?.party_id || null }
       : { customer_id: party?.party_id || null, walk_in_name: party ? null : 'Walk-in' };
 
+    // Default behaviour: empty field = pay full bill (Save & pay).
+    // Number = partial payment. Zero = save unpaid (credit).
+    const paidNum = paidAmount === '' ? totals.net : (Number(paidAmount) || 0);
+
     const body = {
       godown_id: godownId,
       ...partyField,
@@ -228,7 +233,7 @@ export default function BillForm({ type }) {
       due_date: moreOpts.due_date || undefined,
       sale_type: moreOpts.sale_type || 'Retail',
       salesman_name: moreOpts.salesman_name || '',
-      payment_method: moreOpts.payment_method || 'Cash',
+      payment_method: isPurchase ? 'Credit' : paymentMethod,
       remarks: (moreOpts.remarks || '').trim(),
       gst_mode: 'product',
       bill_mode: 'items',
@@ -239,7 +244,7 @@ export default function BillForm({ type }) {
       freight_charges: 0,
       special_discount: 0,
       return_amount: 0,
-      paid_amount: 0,
+      paid_amount: isPurchase ? 0 : paidNum,
       items: items.map((i) => ({
         product_id: i.product_id || null,
         barcode: i.barcode || '',
@@ -314,6 +319,21 @@ export default function BillForm({ type }) {
             <div className="bf-party-meta">
               {party ? [party.gstin, party.city].filter(Boolean).join(' · ') : 'Walk-in / cash'}
             </div>
+            {party && (() => {
+              const bal = Number(party.current_balance) || 0;
+              const limit = Number(party.credit_limit) || 0;
+              const limitOk = !!party.credit_allowed && limit > 0;
+              const overLimit = limitOk && bal > limit;
+              const bits = [];
+              if (bal !== 0) bits.push(`Bal ₹${Math.abs(bal).toLocaleString('en-IN')} ${bal > 0 ? 'DR' : 'CR'}`);
+              if (limitOk) bits.push(`Limit ₹${limit.toLocaleString('en-IN')}`);
+              if (party.credit_days) bits.push(`${party.credit_days}d`);
+              return bits.length ? (
+                <div className={`bf-party-credit${overLimit ? ' over' : ''}`}>
+                  {bits.join(' · ')}{overLimit ? ' · over limit' : ''}
+                </div>
+              ) : null;
+            })()}
           </div>
           <div className="bf-party-chev"><ChevR /></div>
         </button>
@@ -400,8 +420,38 @@ export default function BillForm({ type }) {
           <span>Items <span className="strong">{items.length}</span> · Qty <span className="strong">{totals.qty}</span></span>
           <span>{isPurchase
             ? `Due ${moreOpts.due_date ? fmtShortDate(moreOpts.due_date) : '—'}`
-            : `Mode ${moreOpts.payment_method}`}</span>
+            : `Mode ${paymentMethod}`}</span>
         </div>
+
+        {/* Sale: payment-mode chips + paid amount; Purchase skips this */}
+        {!isPurchase && (
+          <div className="bf-pay">
+            <div className="bf-pay-chips">
+              {['Cash', 'UPI', 'Card', 'Credit'].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`bf-pay-chip${paymentMethod === m ? ' active' : ''}`}
+                  onClick={() => setPaymentMethod(m)}
+                >{m}</button>
+              ))}
+            </div>
+            <div className="bf-pay-amt">
+              <span className="bf-pay-amt-lbl">Paid</span>
+              <input
+                className="bf-pay-amt-input"
+                type="number"
+                inputMode="decimal"
+                placeholder={totals.net > 0 ? `Full ₹${formatINR(Math.round(totals.net))}` : '0'}
+                value={paidAmount}
+                onChange={(e) => setPaidAmount(e.target.value)}
+              />
+              {paidAmount !== '' && Number(paidAmount) < totals.net && (
+                <span className="bf-pay-balance">Balance ₹{formatINR(Math.max(0, totals.net - Number(paidAmount)))}</span>
+              )}
+            </div>
+          </div>
+        )}
         <div className="bf-actions">
           <button className="bf-btn-secondary" onClick={() => navigate(-1)} disabled={saving}>
             Cancel
