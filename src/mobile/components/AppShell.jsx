@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import TabBar from './TabBar';
 import SidePanel from './SidePanel';
+import './page-transition.css';
 
 // On the home screen, an edge-swipe-right opens the side panel.
 // On every other page, the same gesture goes back one step in history.
@@ -50,11 +51,19 @@ export default function AppShell() {
     }
   }, [location.pathname, navigate]);
 
+  // iOS-style page transitions: forward navigations slide in from the
+  // right, POP (back) slides out to the right. The key on .pt-stage
+  // forces React to remount on path change so the CSS animation fires.
+  const navType = useNavigationType();
+  const transitionClass = navType === 'POP' ? 'pt-stage pt-stage--back' : 'pt-stage pt-stage--forward';
+
   return (
     <>
       <div className="app-shell" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         <div className="app-shell-body">
-          <Outlet context={{ setPanelOpen }} />
+          <div key={location.pathname} className={transitionClass}>
+            <Outlet context={{ setPanelOpen }} />
+          </div>
         </div>
         <TabBar />
       </div>
