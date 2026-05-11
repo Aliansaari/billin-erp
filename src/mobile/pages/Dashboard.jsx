@@ -268,7 +268,7 @@ export default function Dashboard() {
 
       {/* Quick actions */}
       <div className="qa-grid">
-        <button className="qa-btn primary" onClick={() => goVouchers('sales')}>
+        <button className="qa-btn primary" onClick={() => navigate('/sale/new')}>
           <span className="qa-icon">{I.invoice}</span>
           <span className="qa-label">New<br/>Invoice</span>
         </button>
@@ -276,7 +276,7 @@ export default function Dashboard() {
           <span className="qa-icon">{I.receive}</span>
           <span className="qa-label">Receive<br/>Payment</span>
         </button>
-        <button className="qa-btn" onClick={() => goVouchers('purchase')}>
+        <button className="qa-btn" onClick={() => navigate('/purchase/new')}>
           <span className="qa-icon">{I.cart}</span>
           <span className="qa-label">New<br/>Purchase</span>
         </button>
