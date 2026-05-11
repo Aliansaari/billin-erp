@@ -23,6 +23,11 @@
   max-height: 86vh;
   display: flex;
   flex-direction: column;
+  /* overflow: hidden makes the rounded corners clip child content
+     AND — critically for the inner flex column — forces max-height
+     to be a hard ceiling so .sheet-body scrolls instead of pushing
+     past the sheet. */
+  overflow: hidden;
   animation: sheet-rise 300ms cubic-bezier(0.32, 0.72, 0, 1);
   position: relative;
 }
@@ -333,9 +338,11 @@
   border: 1px solid var(--c-border);
   border-radius: 10px;
   margin-bottom: 12px;
-  max-height: 200px;
+  max-height: 240px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  overscroll-behavior: contain;
 }
 .sf-results::-webkit-scrollbar { display: none; }
 .sf-result {
