@@ -83,6 +83,7 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
   }, []);
 
   const handlePickProduct = (p) => {
+    const qpb = Number(p.quantity_per_box) || 1;
     setPicked({
       product_id: p.product_id || p.id,
       product_name: p.product_name || p.name,
@@ -90,6 +91,7 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
       hsn_code: p.hsn_code || '',
       gst_rate: Number(p.gst_rate) || 0,
       unit_type: p.unit_of_measurement || 'Pcs',
+      quantity_per_box: qpb,
       mrp: Number(p.mrp) || 0,
       size: p.size_value || '',
       article_number: p.article_number || '',
@@ -102,8 +104,12 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
       : Number(p.sale_rate || 0);
     if (newRate > 0) setRate(String(newRate));
     setGstRate(String(Number(p.gst_rate) || 0));
+    // Wholesale default: 1 full box if pcs/box > 1, else 1 pc. The user
+    // can still type any quantity manually.
+    if (qpb > 1 && (quantity === '' || quantity === '1')) {
+      setQuantity(String(qpb));
+    }
     setSearchFocused(false);
-    // Close the soft keyboard
     searchRef.current?.blur();
   };
 
@@ -212,26 +218,31 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
 
           {showResults && (
             <div className="sf-results">
-              {results.map((p) => (
-                <button
-                  key={p.product_id || p.id}
-                  className="sf-result"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => handlePickProduct(p)}
-                >
-                  <div className="sf-result-name">{p.product_name || p.name}</div>
-                  <div className="sf-result-meta">
-                    {[
-                      p.barcode,
-                      p.hsn_code && `HSN ${p.hsn_code}`,
-                      isPurchase
-                        ? p.purchase_rate > 0 && `₹${Number(p.purchase_rate).toFixed(0)}`
-                        : p.sale_rate > 0 && `₹${Number(p.sale_rate).toFixed(0)}`,
-                      Number(p.current_stock) > 0 && `${p.current_stock} in stock`,
-                    ].filter(Boolean).join(' · ')}
-                  </div>
-                </button>
-              ))}
+              {results.map((p) => {
+                const qpb = Number(p.quantity_per_box) || 0;
+                const rate = isPurchase
+                  ? Number(p.purchase_rate || p.last_purchase_rate || 0)
+                  : Number(p.sale_rate || 0);
+                return (
+                  <button
+                    key={p.product_id || p.id}
+                    className="sf-result"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => handlePickProduct(p)}
+                  >
+                    <div className="sf-result-name">{p.product_name || p.name}</div>
+                    <div className="sf-result-meta">
+                      {[
+                        p.size_value && `Size ${p.size_value}`,
+                        qpb > 1 && `${qpb} pcs/box`,
+                        rate > 0 && `₹${rate.toFixed(0)}`,
+                        Number(p.current_stock) > 0 && `${Math.floor(Number(p.current_stock))} in stock`,
+                        p.hsn_code && `HSN ${p.hsn_code}`,
+                      ].filter(Boolean).join(' · ')}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
 
