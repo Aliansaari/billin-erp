@@ -142,6 +142,15 @@
   white-space: nowrap;
 }
 
+.bf-party-credit {
+  font-family: var(--adm-font-family);
+  font-size: 10px;
+  color: var(--c-success);
+  margin-top: 3px;
+  letter-spacing: 0.01em;
+}
+.bf-party-credit.over { color: var(--c-error); font-weight: 600; }
+
 .bf-party-chev {
   color: var(--c-text-faint);
   flex-shrink: 0;
@@ -349,13 +358,13 @@
 .bf-item-remove:active { background: var(--c-bg-page); color: var(--c-error); }
 
 /* ── Sticky totals ─────────────────────────────────────────────────
- * Bottom padding accounts for both the iPhone home indicator AND the
- * fixed TabBar that overlays this screen — without it, the Save/
- * Cancel actions sit behind the tab strip. */
+ * Tab bar is position: fixed at the bottom; its safe-area is already
+ * baked into --tabbar-h, so we only need that one variable plus a
+ * little breathing room. Double-counting safe-area left too much air. */
 .bf-totals {
   background: var(--c-bg-surface);
   border-top: 1px solid var(--c-border);
-  padding: 12px 14px calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 12px);
+  padding: 12px 14px calc(var(--tabbar-h) + 8px);
   flex-shrink: 0;
   position: relative;
   z-index: 5;
@@ -421,6 +430,81 @@
   justify-content: space-between;
 }
 .bf-totals-sub .strong { color: var(--c-text-2); font-weight: 600; }
+
+/* ── Payment row (sale only) ─────────────────────────────────────── */
+.bf-pay {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 12px;
+}
+
+.bf-pay-chips {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.bf-pay-chip {
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text-2);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.bf-pay-chip.active {
+  background: var(--c-primary);
+  color: #FFF4EA;
+  border-color: var(--c-primary);
+}
+
+.bf-pay-amt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  padding: 0 10px;
+  height: 32px;
+}
+.bf-pay-amt-lbl {
+  font-family: var(--adm-font-family);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-text-mute);
+  flex-shrink: 0;
+}
+.bf-pay-amt-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--c-text);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.bf-pay-amt-input::placeholder { color: var(--c-text-mute); font-size: 11px; }
+.bf-pay-balance {
+  font-family: var(--adm-font-family);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--c-warning);
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
 
 .bf-actions {
   display: flex;
