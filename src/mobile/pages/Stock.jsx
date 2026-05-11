@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
+import { Capacitor } from '@capacitor/core';
 import { productAPI } from '../../api';
 import { formatINR } from '../utils/format';
 import './Stock.css';
@@ -8,12 +9,43 @@ import './Stock.css';
 const SearchIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
 );
+const ScanIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+    <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+    <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+    <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+    <path d="M7 12h10"/>
+  </svg>
+);
 const AlertIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
 );
 const ChevR = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
 );
+
+// Match a scanned code against any of the product's known identifiers.
+// Barcodes can be stored in `barcode`, `sku`, or even slightly different
+// numeric forms (with/without leading zeros), so we normalise both sides.
+function matchProductByCode(products, raw) {
+  const code = String(raw || '').trim();
+  if (!code) return null;
+  const stripZeros = (s) => s.replace(/^0+/, '');
+  const norm = code.toLowerCase();
+  const normNoZeros = stripZeros(norm);
+
+  for (const p of products) {
+    const candidates = [
+      p.barcode, p.sku, p.product_code, p.alt_code, p.ean,
+    ].filter(Boolean).map((v) => String(v).trim().toLowerCase());
+    for (const c of candidates) {
+      if (c === norm) return p;
+      if (stripZeros(c) === normNoZeros && normNoZeros !== '') return p;
+    }
+  }
+  return null;
+}
 
 const FILTERS = [
   { key: 'all',  label: 'All' },
@@ -55,6 +87,44 @@ export default function Stock() {
     if (!searchOn && search) setSearch('');
   }, [searchOn]);
 
+  const handleScan = async () => {
+    if (!Capacitor.isNativePlatform()) {
+      Toast.show({ icon: 'fail', content: 'Scanner only works on the device build' });
+      return;
+    }
+    try {
+      const { BarcodeScanner } = await import('@capacitor-mlkit/barcode-scanning');
+      const supported = await BarcodeScanner.isSupported();
+      if (!supported.supported) {
+        Toast.show({ icon: 'fail', content: 'Scanner not supported on this device' });
+        return;
+      }
+      const perm = await BarcodeScanner.requestPermissions();
+      if (perm.camera !== 'granted' && perm.camera !== 'limited') {
+        Toast.show({ icon: 'fail', content: 'Camera permission denied' });
+        return;
+      }
+      const result = await BarcodeScanner.scan();
+      const code = result?.barcodes?.[0]?.rawValue || result?.barcodes?.[0]?.displayValue;
+      if (!code) {
+        Toast.show({ content: 'No barcode detected' });
+        return;
+      }
+      const product = matchProductByCode(products, code);
+      if (product) {
+        const id = product.product_id || product.id;
+        navigate(`/stock/${id}`);
+      } else {
+        Toast.show({ icon: 'fail', content: `No product matches "${code}"` });
+      }
+    } catch (e) {
+      const msg = e?.message || 'Scan failed';
+      if (!/cancel/i.test(msg)) {
+        Toast.show({ icon: 'fail', content: msg });
+      }
+    }
+  };
+
   const stockStatus = (p) => {
     const qty = Number(p.current_stock ?? p.stock_quantity ?? 0);
     const min = Number(p.minimum_stock_level ?? p.min_stock ?? 0);
@@ -95,13 +165,22 @@ export default function Stock() {
     <div className="st-screen">
       <div className="st-top">
         <h1 className="st-title">Stock</h1>
-        <button
-          className={`st-icon-btn${searchOn ? ' active' : ''}`}
-          onClick={() => setSearchOn((v) => !v)}
-          aria-label="Search"
-        >
-          <SearchIcon />
-        </button>
+        <div className="st-top-actions">
+          <button
+            className="st-icon-btn"
+            onClick={handleScan}
+            aria-label="Scan barcode or QR"
+          >
+            <ScanIcon />
+          </button>
+          <button
+            className={`st-icon-btn${searchOn ? ' active' : ''}`}
+            onClick={() => setSearchOn((v) => !v)}
+            aria-label="Search"
+          >
+            <SearchIcon />
+          </button>
+        </div>
       </div>
 
       {searchOn && (
