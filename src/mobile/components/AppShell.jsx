@@ -3,7 +3,10 @@ import { Outlet, useLocation } from 'react-router-dom';
 import TabBar from './TabBar';
 import SidePanel from './SidePanel';
 
-const ROOT_PATHS = new Set(['/', '/dashboard', '/vouchers', '/stock', '/reports', '/search', '/day-book', '/outstanding', '/items']);
+// Edge-swipe-to-open-panel is reserved for the home screen. On every
+// other page the native back-swipe should win uncontested, so users
+// don't get a side-panel pop AND a back-nav from the same gesture.
+const HOME_PATHS = new Set(['/', '/dashboard']);
 
 export default function AppShell() {
   const [panelOpen, setPanelOpen] = useState(false);
@@ -20,7 +23,7 @@ export default function AppShell() {
     touchRef.current = { startX: t.clientX, startY: t.clientY };
   }, []);
   const onTouchEnd = useCallback((e) => {
-    if (!ROOT_PATHS.has(location.pathname)) return;
+    if (!HOME_PATHS.has(location.pathname)) return;
     if (Date.now() - lastNavAt.current < 800) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - touchRef.current.startX;
