@@ -15,6 +15,7 @@ import Stock from './pages/Stock';
 import StockMovement from './pages/StockMovement';
 import SimpleScreen from './pages/SimpleScreen';
 import Outstanding from './pages/Outstanding';
+import Reports from './pages/Reports';
 import AppShell from './components/AppShell';
 
 function ProtectedRoute({ children }) {
@@ -72,7 +73,7 @@ export default function MobileApp() {
           <Route path="/stock"      element={<Stock />} />
           <Route path="/stock/:id"  element={<StockMovement />} />
           <Route path="/items"      element={<SimpleScreen title="Items" />} />
-          <Route path="/reports"    element={<SimpleScreen title="Reports" />} />
+          <Route path="/reports"    element={<Reports />} />
           <Route path="/search"     element={<Search />} />
         </Route>
 
