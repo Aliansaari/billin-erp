@@ -348,11 +348,14 @@
 }
 .bf-item-remove:active { background: var(--c-bg-page); color: var(--c-error); }
 
-/* ── Sticky totals ───────────────────────────────────────────────── */
+/* ── Sticky totals ─────────────────────────────────────────────────
+ * Bottom padding accounts for both the iPhone home indicator AND the
+ * fixed TabBar that overlays this screen — without it, the Save/
+ * Cancel actions sit behind the tab strip. */
 .bf-totals {
   background: var(--c-bg-surface);
   border-top: 1px solid var(--c-border);
-  padding: 12px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+  padding: 12px 14px calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 12px);
   flex-shrink: 0;
   position: relative;
   z-index: 5;
