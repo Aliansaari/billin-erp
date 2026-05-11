@@ -5,6 +5,7 @@ import { Capacitor } from '@capacitor/core';
 import '@fontsource-variable/source-sans-3';
 import App from './mobile/App';
 import './mobile/theme.css';
+import './mobile/dark-polish.css';
 
 // On iOS/Android, ask Capacitor to NEVER auto-scroll the WebView when the
 // soft keyboard appears. Together with `resize: 'none'` in
