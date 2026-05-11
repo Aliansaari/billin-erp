@@ -93,6 +93,28 @@ export default function BillForm({ type }) {
       .catch(() => { /* leave null — save will surface a clear server error */ });
   }, []);
 
+  // Lift the sticky totals above the iOS keyboard. Capacitor is configured
+  // with resize:'none' so the WebView doesn't reflow when the soft keyboard
+  // appears — the visualViewport API tells us the keyboard height instead.
+  // We mirror it into a CSS variable and the totals translates up by it.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    const apply = () => {
+      const kbd = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      root.style.setProperty('--bf-kbd-h', kbd + 'px');
+    };
+    apply();
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+      root.style.setProperty('--bf-kbd-h', '0px');
+    };
+  }, []);
+
   // Totals — naive product-mode calc that matches the desktop math for
   // the simple case (no inter-state, no inline returns). Each item ships
   // its own gst_rate; subtotal sums (qty × rate − line discount); tax
@@ -173,10 +195,14 @@ export default function BillForm({ type }) {
         } catch { /* swallow */ }
       }
       if (product) {
-        // Auto-add at quantity 1; rate defaults from product based on type.
+        // Auto-add at one full box (qpb pieces) if the product is
+        // box-tracked; otherwise 1 pc. Wholesalers scan to add a box,
+        // not a single piece — they'd lose minutes editing every scan.
         const rate = isPurchase
           ? Number(product.purchase_rate || product.last_purchase_rate || 0)
           : Number(product.sale_rate || 0);
+        const qpb = Number(product.quantity_per_box) || 1;
+        const qty = qpb > 1 ? qpb : 1;
         setItems((prev) => [...prev, {
           product_id: product.product_id || product.id,
           barcode: product.barcode || code,
@@ -184,7 +210,8 @@ export default function BillForm({ type }) {
           hsn_code: product.hsn_code || '',
           gst_rate: Number(product.gst_rate) || 0,
           unit_type: product.unit_of_measurement || 'Pcs',
-          quantity: 1,
+          quantity_per_box: qpb,
+          quantity: qty,
           rate,
           mrp: Number(product.mrp) || 0,
           discount_percentage: 0,
@@ -193,7 +220,12 @@ export default function BillForm({ type }) {
           category_id: product.category_id || null,
           category_name: product.category_name || '',
         }]);
-        Toast.show({ icon: 'success', content: `Added ${product.product_name}` });
+        Toast.show({
+          icon: 'success',
+          content: qpb > 1
+            ? `Added ${product.product_name} — 1 box (${qpb} pcs)`
+            : `Added ${product.product_name}`,
+        });
       } else {
         // Open the manual sheet pre-filled so the user can complete the row
         setEditingIdx(-1);
@@ -260,7 +292,7 @@ export default function BillForm({ type }) {
         mrp: Number(i.mrp) || 0,
         discount_percentage: Number(i.discount_percentage) || 0,
         gst_rate: Number(i.gst_rate) || 0,
-        quantity_per_box: 1,
+        quantity_per_box: Number(i.quantity_per_box) || 1,
       })),
     };
 
@@ -445,6 +477,15 @@ export default function BillForm({ type }) {
                 placeholder={totals.net > 0 ? `Full ₹${formatINR(Math.round(totals.net))}` : '0'}
                 value={paidAmount}
                 onChange={(e) => setPaidAmount(e.target.value)}
+                onFocus={(e) => {
+                  // iOS soft keyboard slides over the bottom — the
+                  // Paid field then sits under the keyboard. Scroll
+                  // it (with the rest of the totals) into view a beat
+                  // after the keyboard finishes animating in.
+                  setTimeout(() => {
+                    e.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                  }, 250);
+                }}
               />
               {paidAmount !== '' && Number(paidAmount) < totals.net && (
                 <span className="bf-pay-balance">Balance ₹{formatINR(Math.max(0, totals.net - Number(paidAmount)))}</span>

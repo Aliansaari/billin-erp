@@ -360,7 +360,9 @@
 /* ── Sticky totals ─────────────────────────────────────────────────
  * Tab bar is position: fixed at the bottom; its safe-area is already
  * baked into --tabbar-h, so we only need that one variable plus a
- * little breathing room. Double-counting safe-area left too much air. */
+ * little breathing room. When the iOS keyboard is up, --bf-kbd-h is
+ * non-zero and we translate the panel up so the focused field (Paid)
+ * stays visible above the keyboard. */
 .bf-totals {
   background: var(--c-bg-surface);
   border-top: 1px solid var(--c-border);
@@ -370,6 +372,8 @@
   z-index: 5;
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
+  transform: translateY(calc(-1 * var(--bf-kbd-h, 0px)));
+  transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .bf-totals-handle {

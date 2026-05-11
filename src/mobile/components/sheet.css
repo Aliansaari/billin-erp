@@ -94,6 +94,10 @@
 
 .sheet-body {
   flex: 1;
+  /* `min-height: 0` is required for a flex child to actually shrink
+     and scroll — without it the child stretches to its content and
+     pushes the sheet past max-height instead of overflowing. */
+  min-height: 0;
   overflow-y: auto;
   padding: 4px 8px 12px;
   scrollbar-width: none;
