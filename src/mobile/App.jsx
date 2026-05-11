@@ -16,6 +16,7 @@ import StockMovement from './pages/StockMovement';
 import SimpleScreen from './pages/SimpleScreen';
 import Outstanding from './pages/Outstanding';
 import Reports from './pages/Reports';
+import BillForm from './pages/BillForm';
 import AppShell from './components/AppShell';
 
 function ProtectedRoute({ children }) {
@@ -69,6 +70,8 @@ export default function MobileApp() {
           <Route path="/day-book"   element={<DayBook />} />
           <Route path="/vouchers"   element={<VouchersList />} />
           <Route path="/vouchers/:type/:id" element={<BillDetail />} />
+          <Route path="/sale/new"      element={<BillForm type="sale" />} />
+          <Route path="/purchase/new"  element={<BillForm type="purchase" />} />
           <Route path="/outstanding" element={<Outstanding />} />
           <Route path="/stock"      element={<Stock />} />
           <Route path="/stock/:id"  element={<StockMovement />} />
