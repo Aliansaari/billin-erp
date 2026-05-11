@@ -61,6 +61,7 @@ export default function Stock() {
   const [filter, setFilter]     = useState('all');
   const [searchOn, setSearchOn] = useState(false);
   const [search, setSearch]     = useState('');
+  const [notFoundCode, setNotFoundCode] = useState(null);
   const searchRef = useRef(null);
 
   useEffect(() => {
@@ -115,7 +116,7 @@ export default function Stock() {
         const id = product.product_id || product.id;
         navigate(`/stock/${id}`);
       } else {
-        Toast.show({ icon: 'fail', content: `No product matches "${code}"` });
+        setNotFoundCode(code);
       }
     } catch (e) {
       const msg = e?.message || 'Scan failed';
@@ -269,6 +270,43 @@ export default function Stock() {
           <span className="st-footer-total">₹{formatINR(totalValue)}</span>
         </div>
       )}
+
+      {notFoundCode !== null && (
+        <NotFoundSheet
+          code={notFoundCode}
+          onClose={() => setNotFoundCode(null)}
+          onScanAgain={() => { setNotFoundCode(null); setTimeout(handleScan, 200); }}
+          onSearchInstead={() => { setNotFoundCode(null); setSearchOn(true); setTimeout(() => setSearch(notFoundCode), 50); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function NotFoundSheet({ code, onClose, onScanAgain, onSearchInstead }) {
+  return (
+    <div className="st-nf-backdrop" onClick={onClose}>
+      <div className="st-nf-sheet" onClick={(e) => e.stopPropagation()} role="dialog">
+        <div className="st-nf-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <path d="M14 14h3M14 17h3M14 21h7M17 14v7"/>
+          </svg>
+        </div>
+        <div className="st-nf-title">No matching product</div>
+        <div className="st-nf-sub">We scanned the code but couldn&rsquo;t find it in stock.</div>
+        <div className="st-nf-code">
+          <span className="st-nf-code-label">Scanned</span>
+          <span className="st-nf-code-value">{code}</span>
+        </div>
+        <div className="st-nf-actions">
+          <button className="st-nf-btn st-nf-btn--ghost" onClick={onSearchInstead}>Search instead</button>
+          <button className="st-nf-btn st-nf-btn--primary" onClick={onScanAgain}>Scan again</button>
+        </div>
+        <button className="st-nf-close" onClick={onClose} aria-label="Close">Close</button>
+      </div>
     </div>
   );
 }

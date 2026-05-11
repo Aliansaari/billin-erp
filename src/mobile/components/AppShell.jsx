@@ -1,37 +1,54 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import TabBar from './TabBar';
 import SidePanel from './SidePanel';
 
-// Edge-swipe-to-open-panel is reserved for the home screen. On every
-// other page the native back-swipe should win uncontested, so users
-// don't get a side-panel pop AND a back-nav from the same gesture.
+// On the home screen, an edge-swipe-right opens the side panel.
+// On every other page, the same gesture goes back one step in history.
+// Capacitor's WKWebView doesn't ship the native iOS swipe-back gesture
+// out of the box, so we implement it here in JS.
 const HOME_PATHS = new Set(['/', '/dashboard']);
 
 export default function AppShell() {
   const [panelOpen, setPanelOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const lastNavAt = useRef(0);
 
   useEffect(() => {
     lastNavAt.current = Date.now();
   }, [location.pathname]);
 
-  const touchRef = useRef({ startX: 0, startY: 0 });
+  const touchRef = useRef({ startX: 0, startY: 0, fromEdge: false });
   const onTouchStart = useCallback((e) => {
     const t = e.touches[0];
-    touchRef.current = { startX: t.clientX, startY: t.clientY };
+    touchRef.current = {
+      startX: t.clientX,
+      startY: t.clientY,
+      // Only count it as an edge-swipe if the touch starts within the
+      // leftmost 28px — keeps normal horizontal scrolling (carousels,
+      // chip rows) from triggering navigation.
+      fromEdge: t.clientX < 28,
+    };
   }, []);
   const onTouchEnd = useCallback((e) => {
-    if (!HOME_PATHS.has(location.pathname)) return;
-    if (Date.now() - lastNavAt.current < 800) return;
+    const { startX, startY, fromEdge } = touchRef.current;
+    if (!fromEdge) return;
+    // Ignore a swipe that fires right after a route change — a freshly
+    // mounted screen shouldn't re-trigger the gesture from the same
+    // touch sequence carried over by the previous page.
+    if (Date.now() - lastNavAt.current < 400) return;
     const t = e.changedTouches[0];
-    const dx = t.clientX - touchRef.current.startX;
-    const dy = Math.abs(t.clientY - touchRef.current.startY);
-    if (dx > 80 && dy < 60 && touchRef.current.startX < 50) {
+    const dx = t.clientX - startX;
+    const dy = Math.abs(t.clientY - startY);
+    if (dx < 70 || dy > 60) return;
+
+    if (HOME_PATHS.has(location.pathname)) {
       setPanelOpen(true);
+    } else {
+      navigate(-1);
     }
-  }, [location.pathname]);
+  }, [location.pathname, navigate]);
 
   return (
     <>
