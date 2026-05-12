@@ -10,7 +10,7 @@ import {
   CheckCircleOutlined, CloseCircleOutlined, DatabaseOutlined,
   FolderOpenOutlined, ExclamationCircleOutlined, ThunderboltOutlined,
   DownloadOutlined, HistoryOutlined, SettingOutlined,
-  SyncOutlined,
+  SyncOutlined, LockOutlined, SafetyOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -40,7 +40,7 @@ function downloadBlob(blob, filename) {
 
 function formatFilename(filename) {
   // backup_manual_2024-01-15_14-30-00.json → Jan 15, 2024  2:30 PM
-  const match = filename.match(/backup_(?:manual|auto)_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})\.json/);
+  const match = filename.match(/backup_(?:manual|auto)_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})\.(json|enc)/);
   if (!match) return filename;
   const [, yr, mo, dy, hr, mn] = match;
   return dayjs(`${yr}-${mo}-${dy}T${hr}:${mn}`).format('MMM D, YYYY  h:mm A');
@@ -95,9 +95,9 @@ export default function BackupRestore() {
       const res = await backupAPI.create();
       const cd = res.headers['content-disposition'] || '';
       const match = cd.match(/filename="?([^"]+)"?/);
-      const filename = match ? match[1] : `backup_manual_${Date.now()}.json`;
+      const filename = match ? match[1] : `backup_manual_${Date.now()}.enc`;
       downloadBlob(res.data, filename);
-      message.success('Backup created and downloaded successfully');
+      message.success('Backup created and downloaded');
       fetchData();
     } catch (err) {
       message.error('Failed to create backup');
@@ -200,11 +200,18 @@ export default function BackupRestore() {
       title: 'Type',
       dataIndex: 'type',
       key: 'type',
-      width: 90,
-      render: (type) =>
-        type === 'auto'
-          ? <Tag color="blue" icon={<ClockCircleOutlined />}>Auto</Tag>
-          : <Tag color="green" icon={<ThunderboltOutlined />}>Manual</Tag>,
+      width: 130,
+      render: (type, row) => {
+        const isEnc = row.filename?.endsWith('.enc');
+        return (
+          <Space size={4}>
+            {type === 'auto'
+              ? <Tag color="blue" icon={<ClockCircleOutlined />}>Auto</Tag>
+              : <Tag color="green" icon={<ThunderboltOutlined />}>Manual</Tag>}
+            {isEnc && <Tag color="gold" icon={<LockOutlined />}>Encrypted</Tag>}
+          </Space>
+        );
+      },
     },
     {
       title: 'Size',
@@ -400,6 +407,8 @@ export default function BackupRestore() {
                   <InputNumber min={1} max={100} style={{ width: 100 }} />
                 </Form.Item>
 
+                <Divider style={{ margin: '16px 0' }} />
+
                 <Form.Item>
                   <Button
                     type="primary"
@@ -445,14 +454,30 @@ export default function BackupRestore() {
                 </Space>
               </Card>
 
+              <Card
+                title={<><SafetyOutlined /> Security</>}
+                bordered={false}
+                size="small"
+                style={{ marginBottom: 16 }}
+              >
+                <Space>
+                  <LockOutlined style={{ color: '#21604C', fontSize: 18 }} />
+                  <div>
+                    <Text strong style={{ color: '#21604C' }}>AES-256 Encrypted</Text>
+                    <div style={{ fontSize: 11, color: '#64748b' }}>All backups are encrypted automatically</div>
+                  </div>
+                </Space>
+              </Card>
+
               <Card title="How it works" bordered={false} size="small">
                 <Paragraph style={{ fontSize: 13, color: '#555' }}>
                   Automatic backups run on the server in the background. Backup files are stored
-                  in <Text code>server/backups/</Text> and can be downloaded from the Backup History tab.
+                  locally and can be downloaded from the Backup History tab.
                   The server checks every 60 seconds whether a scheduled backup is due.
                 </Paragraph>
                 <Paragraph style={{ fontSize: 13, color: '#555', marginBottom: 0 }}>
                   Manual backups download the file directly to your browser.
+                  All backups are encrypted — your data is always protected.
                 </Paragraph>
               </Card>
             </Space>
@@ -480,14 +505,14 @@ export default function BackupRestore() {
               />
               <Space direction="vertical" style={{ width: '100%' }}>
                 <Upload
-                  accept=".json"
+                  accept=".json,.enc"
                   beforeUpload={(file) => { setUploadFile(file); return false; }}
                   onRemove={() => setUploadFile(null)}
                   maxCount={1}
                   fileList={uploadFile ? [{ uid: '-1', name: uploadFile.name, status: 'done' }] : []}
                 >
                   <Button icon={<FolderOpenOutlined />} block>
-                    Select Backup File (.json)
+                    Select Backup File (.json / .enc)
                   </Button>
                 </Upload>
 
@@ -729,6 +754,7 @@ export default function BackupRestore() {
           )}
         </Space>
       </Modal>
+
         </div>
       </div>
 

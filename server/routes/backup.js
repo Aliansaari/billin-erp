@@ -10,10 +10,10 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 500 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/json' || file.originalname.endsWith('.json'))
+    if (file.mimetype === 'application/json' || file.originalname.endsWith('.json') || file.originalname.endsWith('.enc'))
       cb(null, true);
     else
-      cb(new Error('Only JSON backup files are accepted'));
+      cb(new Error('Only backup files (.json or .enc) are accepted'));
   },
 });
 

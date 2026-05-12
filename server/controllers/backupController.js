@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs').promises;
+const crypto = require('crypto');
 const multer = require('multer');
 const {
   sequelize, Role, User, Party, Category, Product,
@@ -22,11 +23,100 @@ const SETTINGS_FILE = path.join(BACKUPS_DIR, 'backup-settings.json');
 // stray ENOENT/permission glitch doesn't crash the whole boot.
 try { fs.mkdirSync(BACKUPS_DIR, { recursive: true }); } catch {}
 
+// ── AES-256-GCM backup encryption (ALWAYS ON, ZERO CONFIG) ────────────────
+//
+// Like Tally / Vyapar — the user clicks "Backup", gets an encrypted
+// file, restores it on any machine running this app. No passwords, no
+// prompts, completely invisible to the customer.
+//
+// HOW IT WORKS:
+//   The encryption key is derived from an app-level secret baked into
+//   this source file. After obfuscation (Layer 1: javascript-obfuscator
+//   with control-flow-flattening + RC4 string array), the key is buried
+//   deep in mangled code. A competitor who gets the .enc file sees
+//   binary gibberish; even if they decompile the app, extracting the
+//   key requires reversing heavy obfuscation.
+//
+//   Same key in every installation → backups are portable.
+//   Customer remembers ZERO extra passwords.
+//
+//   Key derivation: PBKDF2-SHA512, 100 000 iterations, 32-byte AES key
+//   Cipher:         AES-256-GCM (authenticated — detects tampering)
+//   File format:    { encrypted:true, v:1, salt, iv, tag, data }
+//   Salt + IV are random per backup → identical data ≠ identical output.
+//
+
+const PBKDF2_ITERATIONS = 100_000;
+const KEY_LENGTH  = 32;  // 256 bits
+const IV_LENGTH   = 12;  // GCM standard
+const SALT_LENGTH = 32;
+
+// ── App-level encryption secret ───────────────────────────────────────────
+// This is the "Tally approach" — a proprietary key embedded in code that
+// ships obfuscated. It's NOT a user password; the user never sees or
+// types this. Changing it invalidates all existing backups, so treat it
+// as permanent once you ship v1.
+//
+// The string is intentionally ugly/random to survive obfuscator transforms
+// and to be impossible to guess.
+const _ERP_BACKUP_KEY = 'sB!9$kL#nR@2xVp&7mWq*4YfDj^8Tz+GcE6hA3uN';
+
+function deriveKey(salt) {
+  return crypto.pbkdf2Sync(_ERP_BACKUP_KEY, salt, PBKDF2_ITERATIONS, KEY_LENGTH, 'sha512');
+}
+
+function encryptBackup(jsonString) {
+  const salt = crypto.randomBytes(SALT_LENGTH);
+  const iv   = crypto.randomBytes(IV_LENGTH);
+  const key  = deriveKey(salt);
+
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(jsonString, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  return JSON.stringify({
+    encrypted: true,
+    v: 1,
+    salt: salt.toString('base64'),
+    iv:  iv.toString('base64'),
+    tag: tag.toString('base64'),
+    data: encrypted.toString('base64'),
+  });
+}
+
+function decryptBackup(envelope) {
+  if (typeof envelope === 'string') envelope = JSON.parse(envelope);
+
+  const salt = Buffer.from(envelope.salt, 'base64');
+  const iv   = Buffer.from(envelope.iv,   'base64');
+  const tag  = Buffer.from(envelope.tag,  'base64');
+  const data = Buffer.from(envelope.data, 'base64');
+  const key  = deriveKey(salt);
+
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+
+  try {
+    const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch (e) {
+    if (/Unsupported state|unable to authenticate/i.test(e.message)) {
+      throw new Error('Backup file is corrupted or was created by a different application');
+    }
+    throw e;
+  }
+}
+
+/** Check whether a parsed object is an encrypted backup envelope */
+function isEncryptedBackup(obj) {
+  return obj && obj.encrypted === true && obj.salt && obj.iv && obj.tag && obj.data;
+}
+
 // ── Safe-filename validator ───────────────────────────────────────────────────
 // Blocks path traversal (../), absolute paths, and stray separators that would
 // let a request escape the backups directory via path.join. ONLY the basename
 // (no directory component) is accepted.
-const SAFE_FILENAME_RE = /^backup_[A-Za-z0-9._-]+\.json$/;
+const SAFE_FILENAME_RE = /^backup_[A-Za-z0-9._-]+\.(json|enc)$/;
 function isSafeBackupFilename(name) {
   if (typeof name !== 'string') return false;
   // Reject anything that introduces a path component or null byte.
@@ -110,7 +200,7 @@ function generateFilename(type = 'manual') {
 async function getBackupFiles() {
   if (!(await pathExists(BACKUPS_DIR))) return [];
   const entries = await fsp.readdir(BACKUPS_DIR);
-  const matches = entries.filter(f => f.startsWith('backup_') && f.endsWith('.json'));
+  const matches = entries.filter(f => f.startsWith('backup_') && (f.endsWith('.json') || f.endsWith('.enc')));
   // Parallel stat calls — on spinning disks serial stat is the bottleneck,
   // and Promise.all lets the OS issue them concurrently.
   const files = await Promise.all(matches.map(async f => {
@@ -251,21 +341,20 @@ async function performRestore(backupData) {
 
 // ── Exported controller functions ─────────────────────────────────────────────
 
-/** POST /api/backup/create  — create backup, save to disk, stream to browser */
+/** POST /api/backup/create — create encrypted backup, save to disk, download */
 exports.createBackup = async (req, res) => {
   try {
     const { data, totalRecords } = await collectAllData();
     const payload = buildBackupPayload(data, totalRecords, 'manual');
-    const filename = generateFilename('manual');
+    const fileContent = encryptBackup(JSON.stringify(payload, null, 2));
+    const filename = generateFilename('manual').replace(/\.json$/, '.enc');
     const filepath = path.join(BACKUPS_DIR, filename);
 
-    // Async write — a multi-MB backup can block the event loop for
-    // hundreds of ms if done synchronously, stalling every other request.
-    await fsp.writeFile(filepath, JSON.stringify(payload, null, 2));
+    await fsp.writeFile(filepath, fileContent);
     const settings = await getSettings();
     await applyRetentionPolicy(settings.maxBackups || 10);
 
-    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.sendFile(filepath);
   } catch (err) {
@@ -325,14 +414,15 @@ exports.deleteBackup = async (req, res) => {
 };
 
 /** POST /api/backup/restore
- *  Body: multipart file upload  OR  { filename: 'backup_xxx.json' }
+ *  Body: multipart file upload  OR  { filename: 'backup_xxx.enc' }
+ *  Decryption is automatic — uses the app-level key. No user password.
  */
 exports.restoreBackup = async (req, res) => {
   try {
-    let backupPayload;
+    let rawContent;
 
     if (req.file) {
-      backupPayload = JSON.parse(req.file.buffer.toString('utf8'));
+      rawContent = req.file.buffer.toString('utf8');
     } else if (req.body && req.body.filename) {
       const { filename } = req.body;
       if (!isSafeBackupFilename(filename))
@@ -342,9 +432,26 @@ exports.restoreBackup = async (req, res) => {
         return res.status(400).json({ error: 'Invalid filename' });
       if (!(await pathExists(filepath)))
         return res.status(404).json({ error: 'Backup file not found' });
-      backupPayload = JSON.parse(await fsp.readFile(filepath, 'utf8'));
+      rawContent = await fsp.readFile(filepath, 'utf8');
     } else {
       return res.status(400).json({ error: 'Provide a backup file or filename' });
+    }
+
+    let backupPayload;
+    const parsed = JSON.parse(rawContent);
+
+    if (isEncryptedBackup(parsed)) {
+      try {
+        const decrypted = decryptBackup(parsed);
+        backupPayload = JSON.parse(decrypted);
+      } catch (e) {
+        return res.status(400).json({
+          error: 'This backup file is corrupted or was not created by Billing ERP.',
+        });
+      }
+    } else {
+      // Legacy plain JSON backup (from before encryption existed)
+      backupPayload = parsed;
     }
 
     if (!backupPayload.version || !backupPayload.data)
@@ -392,12 +499,16 @@ exports.runAutoBackup = async () => {
   try {
     const { data, totalRecords } = await collectAllData();
     const payload = buildBackupPayload(data, totalRecords, 'auto');
-    const filename = generateFilename('auto');
-    const filepath = path.join(BACKUPS_DIR, filename);
+    const plainJson = JSON.stringify(payload, null, 2);
 
-    await fsp.writeFile(filepath, JSON.stringify(payload, null, 2));
+    const fileContent = encryptBackup(plainJson);
+    const filename = generateFilename('auto').replace(/\.json$/, '.enc');
 
     const settings = await getSettings();
+    const filepath = path.join(BACKUPS_DIR, filename);
+
+    await fsp.writeFile(filepath, fileContent);
+
     settings.lastBackup = new Date().toISOString();
     settings.lastBackupStatus = 'success';
     settings.lastBackupFile = filename;
