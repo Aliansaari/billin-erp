@@ -1,9 +1,9 @@
-/* ── ScanSheet — half camera / half product card ───────────────────── */
+/* ── ScanSheet — half camera / half running scan list ─────────────── */
 
-/* When MLKit's startScan() is active, the WebView's body needs to be
+/* When MLKit's startScan() is active, the WebView's body must be
    transparent so the native camera preview shows through. We hide
-   every direct body child EXCEPT our .ss-root overlay (and antd-mobile
-   portals like Toast/Modal which we render later). */
+   every root-level child EXCEPT our .ss-root overlay and antd-mobile
+   portals (Toast/Modal). */
 body.scan-active {
   background: transparent !important;
 }
@@ -15,8 +15,6 @@ body.scan-active .adm-toast-wrap,
 body.scan-active .adm-mask {
   visibility: visible;
 }
-/* The .pf-screen / .bf-screen / .vf-screen wrappers normally paint a
-   page background; force them transparent while the camera is up. */
 body.scan-active #root,
 body.scan-active .app-shell,
 body.scan-active .app-shell-body,
@@ -32,17 +30,16 @@ body.scan-active .pt-stage {
   flex-direction: column;
   font-family: var(--adm-font-family);
   color: #F5EDE0;
-  /* The top half is transparent (camera shows) so don't paint here. */
 }
 
-/* ── Top half: camera + viewfinder ────────────────────────────────── */
+/* ── Top: camera + viewfinder ─────────────────────────────────────── */
 .ss-camera {
-  flex: 1.05;
+  flex: 0.85;
+  min-height: 280px;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Subtle vignette so the viewfinder pops; mostly transparent though */
   background:
     radial-gradient(ellipse 90% 70% at 50% 50%, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0.35) 100%);
 }
@@ -68,15 +65,50 @@ body.scan-active .pt-stage {
   z-index: 2;
 }
 
+/* Floating scan-count chip — top right of the camera area */
+.ss-count-chip {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  right: 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  z-index: 2;
+  animation: ss-chip-pop 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes ss-chip-pop {
+  from { transform: scale(0.7); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+.ss-count-num {
+  font-size: 16px;
+  font-weight: 700;
+  color: #F5EDE0;
+  font-variant-numeric: tabular-nums;
+}
+.ss-count-lbl {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(245, 237, 224, 0.7);
+}
+
 .ss-frame {
-  width: min(260px, 70%);
+  width: min(240px, 65%);
   aspect-ratio: 1 / 1;
   position: relative;
 }
 .ss-corner {
   position: absolute;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: 3px solid var(--c-primary, #DD5527);
   border-radius: 4px;
 }
@@ -98,7 +130,7 @@ body.scan-active .pt-stage {
 }
 @keyframes ss-scan {
   from { transform: translateY(0); }
-  to   { transform: translateY(calc(min(260px, 70vw) - 4px)); }
+  to   { transform: translateY(calc(min(240px, 65vw) - 4px)); }
 }
 
 .ss-hint {
@@ -108,33 +140,43 @@ body.scan-active .pt-stage {
   right: 0;
   text-align: center;
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.01em;
-  color: rgba(245, 237, 224, 0.9);
+  color: rgba(245, 237, 224, 0.92);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
   padding: 0 16px;
 }
+.ss-hint--warn { color: var(--c-warning); }
 .ss-hint-error { color: #FB7185; }
 
-/* ── Bottom half: product card ────────────────────────────────────── */
-.ss-card {
-  flex: 1;
+/* ── Bottom: scrollable list + sticky commit bar ──────────────────── */
+.ss-list-wrap {
+  flex: 1.15;
+  min-height: 0;
   background: var(--c-bg-surface);
   color: var(--c-text);
   border-top-left-radius: 22px;
   border-top-right-radius: 22px;
   box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.30);
-  padding: 18px 18px max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px));
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  overflow: hidden;
+}
+
+.ss-list {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  padding: 8px 14px 8px;
+  scrollbar-width: none;
 }
+.ss-list::-webkit-scrollbar { display: none; }
 
 .ss-empty {
-  flex: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -154,97 +196,87 @@ body.scan-active .pt-stage {
   margin-top: 4px;
 }
 
-.ss-unknown {
-  flex: 1;
+.ss-line {
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--c-line-2);
+  animation: ss-line-in 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.ss-line:last-child { border-bottom: none; }
+@keyframes ss-line-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+.ss-line-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  padding: 14px;
-  gap: 4px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
 }
-.ss-unknown-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--c-warning);
-}
-.ss-unknown-code {
-  font-family: var(--adm-font-family);
-  font-size: 13px;
+
+.ss-line-body { flex: 1; min-width: 0; }
+.ss-line-name {
+  font-size: 13.5px;
   font-weight: 700;
   color: var(--c-text);
-  padding: 4px 10px;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ss-line-meta {
+  font-size: 10.5px;
+  color: var(--c-text-mute);
+  letter-spacing: 0.01em;
+  margin: 1px 0 4px;
+}
+
+.ss-line-qty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ss-qty-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  color: var(--c-text);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+.ss-qty-btn:active { background: var(--c-primary-soft); }
+
+.ss-qty-input {
+  width: 52px;
+  height: 26px;
   background: var(--c-bg-page);
   border: 1px solid var(--c-border);
   border-radius: 6px;
-  margin: 4px 0;
-  letter-spacing: 0.02em;
-}
-.ss-unknown-sub {
-  font-size: 11.5px;
-  color: var(--c-text-mute);
-  line-height: 1.4;
-  max-width: 280px;
-}
-.ss-unknown-dismiss {
-  margin-top: 8px;
-  padding: 8px 16px;
-  background: var(--c-bg-page);
-  border: 1px solid var(--c-border);
-  border-radius: 10px;
+  text-align: center;
   font-family: inherit;
   font-size: 13px;
-  font-weight: 600;
-  color: var(--c-text);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.ss-product {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.ss-product-name {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--c-text);
-  letter-spacing: -0.015em;
-  line-height: 1.2;
-}
-.ss-product-meta {
-  font-size: 11px;
-  color: var(--c-text-mute);
-  letter-spacing: 0.01em;
-}
-
-.ss-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.ss-field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-.ss-label {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--c-text-mute);
-}
-.ss-input {
-  height: 44px;
-  background: var(--c-bg-page);
-  border: 1px solid var(--c-border);
-  border-radius: 10px;
-  padding: 0 12px;
-  font-family: inherit;
-  font-size: 14px;
   font-weight: 700;
   color: var(--c-text);
   outline: none;
@@ -252,44 +284,87 @@ body.scan-active .pt-stage {
   -webkit-appearance: none;
   appearance: none;
 }
-.ss-input:focus {
-  border-color: var(--c-primary-line);
-  box-shadow: 0 0 0 3px var(--c-primary-soft);
+.ss-qty-input::-webkit-outer-spin-button,
+.ss-qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
-.ss-total-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 8px 2px 0;
-  border-top: 1px dashed var(--c-border);
-  margin-top: 2px;
+.ss-line-rate {
+  font-size: 11px;
+  color: var(--c-text-mute);
+  font-variant-numeric: tabular-nums;
+  margin-left: 2px;
 }
-.ss-total-label {
-  font-size: 10px;
+.ss-line-total {
+  margin-left: auto;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.ss-line-remove {
+  background: none;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--c-text-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.ss-line-remove:active { background: var(--c-bg-page); color: var(--c-error); }
+
+/* ── Sticky commit bar ────────────────────────────────────────────── */
+.ss-commit-bar {
+  flex-shrink: 0;
+  padding: 10px 14px max(10px, calc(env(safe-area-inset-bottom, 0px) + 10px));
+  border-top: 1px solid var(--c-border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--c-bg-surface);
+}
+
+.ss-commit-summary {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ss-commit-label {
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--c-text-mute);
 }
-.ss-total-amt {
-  font-family: inherit;
-  font-size: 18px;
+.ss-commit-amt {
+  font-size: 16px;
   font-weight: 700;
   color: var(--c-text);
   letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;
 }
 
-.ss-add {
-  height: 50px;
+.ss-commit-btn {
+  flex: 1;
+  min-width: 0;
+  height: 48px;
   border-radius: 12px;
   border: none;
   background: linear-gradient(155deg, var(--c-primary-hi) 0%, var(--c-primary-lo) 100%);
   color: #FFF4EA;
   font-family: inherit;
   font-weight: 700;
-  font-size: 14.5px;
+  font-size: 14px;
   letter-spacing: -0.005em;
   cursor: pointer;
   display: flex;
@@ -300,15 +375,14 @@ body.scan-active .pt-stage {
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
   box-shadow:
-    0 8px 24px -8px var(--c-primary-soft),
+    0 6px 18px -6px var(--c-primary-soft),
     inset 0 1px 0 rgba(255, 255, 255, 0.25),
     inset 0 -1px 0 rgba(0, 0, 0, 0.15);
-  margin-top: 4px;
   transition: transform 120ms;
 }
-.ss-add:active { transform: scale(0.98); }
-.ss-add:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
-.ss-add::before {
+.ss-commit-btn:active { transform: scale(0.98); }
+.ss-commit-btn:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+.ss-commit-btn::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
