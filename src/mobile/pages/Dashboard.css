@@ -249,10 +249,10 @@
 }
 
 .hero-amount {
-  font-variation-settings: "opsz" 144, "SOFT" 100;
-  font-weight: 300;
+  font-family: var(--adm-font-family);
+  font-weight: 700;
   font-size: 46px;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.03em;
   line-height: 1;
   margin-bottom: 6px;
   position: relative;
@@ -317,9 +317,10 @@
 }
 
 .hero-box-value {
-  font-weight: 400;
+  font-family: var(--adm-font-family);
+  font-weight: 700;
   font-size: 22px;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.02em;
   color: var(--c-bg-surface);
   line-height: 1;
   font-variant-numeric: tabular-nums;

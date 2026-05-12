@@ -108,7 +108,7 @@
   border-radius: 50%;
   background: var(--dir-grad);
   color: #FFF4EA;
-  font-family: 'Fraunces', 'Georgia', serif;
+  font-family: var(--adm-font-family);
   font-style: italic;
   font-weight: 500;
   font-size: 14px;
@@ -151,8 +151,7 @@
 }
 
 .vf-hero-title {
-  font-family: 'Fraunces', 'Georgia', serif;
-  font-variation-settings: "opsz" 30;
+  font-family: var(--adm-font-family);
   font-weight: 400;
   font-size: 16px;
   letter-spacing: -0.015em;
@@ -168,11 +167,10 @@
 }
 
 .vf-hero-input {
-  font-family: 'Fraunces', 'Georgia', serif;
-  font-variation-settings: "opsz" 144;
-  font-weight: 400;
+  font-family: var(--adm-font-family);
+  font-weight: 700;
   font-size: 52px;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.035em;
   line-height: 1;
   color: var(--c-text);
   background: transparent;
@@ -232,8 +230,7 @@
 }
 
 .vf-section-title {
-  font-family: 'Fraunces', 'Georgia', serif;
-  font-variation-settings: "opsz" 30;
+  font-family: var(--adm-font-family);
   font-weight: 400;
   font-size: 15px;
   letter-spacing: -0.02em;
@@ -263,7 +260,7 @@
 .vf-empty {
   padding: 28px 16px;
   text-align: center;
-  font-family: 'Fraunces', 'Georgia', serif;
+  font-family: var(--adm-font-family);
   font-style: italic;
   font-weight: 300;
   font-size: 13px;
@@ -368,13 +365,13 @@
 }
 
 .vf-bill-amount {
-  font-family: 'Fraunces', 'Georgia', serif;
-  font-variation-settings: "opsz" 30;
-  font-weight: 500;
+  font-family: var(--adm-font-family);
+  font-weight: 700;
   font-size: 14px;
   color: var(--c-text);
-  letter-spacing: -0.025em;
+  letter-spacing: -0.015em;
   line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 .vf-bill-amount .cur { font-size: 11px; opacity: 0.55; margin-right: 1px; }
 
@@ -424,12 +421,12 @@
 .vf-summary-label .strong { color: var(--c-text-2); font-weight: 600; }
 
 .vf-summary-value {
-  font-family: 'Fraunces', 'Georgia', serif;
-  font-variation-settings: "opsz" 30;
-  font-weight: 500;
+  font-family: var(--adm-font-family);
+  font-weight: 700;
   font-size: 16px;
   color: var(--c-text);
-  letter-spacing: -0.025em;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
 }
 .vf-summary-value .cur { font-size: 12px; opacity: 0.55; margin-right: 1px; }
 
