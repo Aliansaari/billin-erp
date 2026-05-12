@@ -127,9 +127,14 @@
 /* ── Content ────────────────────────────────────────────────────── */
 .pf-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  /* Keep the iOS rubber-band scroll inside this area so pulling
+     content past the edge doesn't move the whole "page" along
+     with it — the header and footer stay locked. */
+  overscroll-behavior: contain;
 }
 .pf-content::-webkit-scrollbar { display: none; }
 

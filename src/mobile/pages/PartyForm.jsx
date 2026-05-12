@@ -276,7 +276,21 @@ export default function PartyForm({ type }) {
             <div key={s.key} className={`pf-section ${sectionState}`.trim()}>
               <button
                 className="pf-section-head"
-                onClick={() => setOpenSection(isOpen ? '' : s.key)}
+                onClick={(e) => {
+                  const next = isOpen ? '' : s.key;
+                  setOpenSection(next);
+                  // When opening a section, scroll its head into view at
+                  // the TOP of the content area so the body has room to
+                  // reveal below it. Without this, tapping a section near
+                  // the bottom of the screen expands fields off-screen,
+                  // which felt like the page "jumped".
+                  if (next) {
+                    const head = e.currentTarget;
+                    requestAnimationFrame(() => {
+                      head.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                  }
+                }}
               >
                 <div className="pf-section-num">
                   {s.complete ? <CheckIcon /> : (idx + 1)}
