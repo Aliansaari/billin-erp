@@ -182,8 +182,9 @@ export default function BillForm({ type }) {
       Toast.show({ icon: 'fail', content: 'Scanner only works on the device build' });
       return;
     }
+    let BarcodeScanner;
     try {
-      const { BarcodeScanner } = await import('@capacitor-mlkit/barcode-scanning');
+      ({ BarcodeScanner } = await import('@capacitor-mlkit/barcode-scanning'));
       const supported = await BarcodeScanner.isSupported();
       if (!supported.supported) {
         Toast.show({ icon: 'fail', content: 'Scanner not supported' });
@@ -194,13 +195,38 @@ export default function BillForm({ type }) {
         Toast.show({ icon: 'fail', content: 'Camera permission denied' });
         return;
       }
-      const result = await BarcodeScanner.scan();
+    } catch (e) {
+      Toast.show({ icon: 'fail', content: e?.message || 'Scanner not available' });
+      return;
+    }
+
+    // Continuous scanning loop — the camera reopens after every
+    // successful add so the operator can rip through a stack of items
+    // without tapping Scan again. To stop: dismiss the camera (back
+    // button) — the scan() rejection breaks us out of the loop.
+    // Unknown barcodes also break the loop so the operator can fill
+    // the manual sheet without dropping back into a camera.
+    let added = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let result;
+      try {
+        result = await BarcodeScanner.scan();
+      } catch (e) {
+        // User cancelled — that's the exit. If they cancelled BEFORE
+        // any item was added, stay quiet; if they added items, confirm.
+        if (added > 0) {
+          Toast.show({ icon: 'success', content: `Added ${added} item${added === 1 ? '' : 's'}` });
+        }
+        return;
+      }
       const code = result?.barcodes?.[0]?.rawValue || result?.barcodes?.[0]?.displayValue;
       if (!code) {
         Toast.show({ content: 'No barcode detected' });
-        return;
+        continue; // re-open the scanner — the operator likely missed
       }
-      // Try server lookup first; fall back to local search.
+
+      // Resolve to a product
       let product = null;
       try {
         const r = await productAPI.getByBarcode(code);
@@ -212,10 +238,8 @@ export default function BillForm({ type }) {
           product = list[0] || null;
         } catch { /* swallow */ }
       }
+
       if (product) {
-        // Auto-add at one full box (qpb pieces) if the product is
-        // box-tracked; otherwise 1 pc. Wholesalers scan to add a box,
-        // not a single piece — they'd lose minutes editing every scan.
         const rate = isPurchase
           ? Number(product.purchase_rate || product.last_purchase_rate || 0)
           : Number(product.sale_rate || 0);
@@ -238,21 +262,26 @@ export default function BillForm({ type }) {
           category_id: product.category_id || null,
           category_name: product.category_name || '',
         }]);
+        added += 1;
         Toast.show({
           icon: 'success',
           content: qpb > 1
-            ? `Added ${product.product_name} — 1 box (${qpb} pcs)`
-            : `Added ${product.product_name}`,
+            ? `${added}. ${product.product_name} — 1 box (${qpb} pcs)`
+            : `${added}. ${product.product_name}`,
+          duration: 900,
         });
+        // Loop back into BarcodeScanner.scan() — the camera reopens
+        // immediately so the operator can scan the next item.
       } else {
-        // Open the manual sheet pre-filled so the user can complete the row
+        // Unknown code — bail out of the loop so the manual sheet can
+        // open with the keyboard. Re-entering the camera after this
+        // would block the manual entry the operator now needs.
+        if (added > 0) {
+          Toast.show({ icon: 'success', content: `Added ${added} item${added === 1 ? '' : 's'}` });
+        }
         setEditingIdx(-1);
         setItemOpen({ barcode: code });
-      }
-    } catch (e) {
-      const msg = e?.message || 'Scan failed';
-      if (!/cancel/i.test(msg)) {
-        Toast.show({ icon: 'fail', content: msg });
+        return;
       }
     }
   };
