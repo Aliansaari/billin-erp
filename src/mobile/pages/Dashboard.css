@@ -345,6 +345,26 @@
   margin-bottom: 24px;
 }
 
+/* Horizontal carousel variant — used when the row has more than 4
+   tiles. Each tile gets a fixed width and the row scrolls sideways. */
+.qa-scroll {
+  display: flex;
+  gap: 8px;
+  margin: 0 calc(-1 * var(--pad)) 24px;
+  padding: 0 var(--pad);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  scroll-padding-left: var(--pad);
+}
+.qa-scroll::-webkit-scrollbar { display: none; }
+.qa-scroll .qa-btn {
+  flex-shrink: 0;
+  width: 88px;
+  scroll-snap-align: start;
+}
+
 .qa-btn {
   background: var(--c-bg-surface);
   border: 1px solid var(--c-border);

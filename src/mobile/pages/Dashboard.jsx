@@ -22,7 +22,12 @@ const I = {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></svg>
   ),
   receive: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+    /* Down-arrow into a tray — "money in / receipt". */
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+  ),
+  send: (
+    /* Up-arrow out of a tray — "money out / payment". */
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21V9M7 14l5-5 5 5"/><path d="M5 3h14"/></svg>
   ),
   cart: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
@@ -266,19 +271,25 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Quick actions */}
-      <div className="qa-grid">
+      {/* Quick actions — horizontally scrollable now that we have
+          5+ buttons. Each tile keeps a fixed width so the row swipes
+          like a carousel. */}
+      <div className="qa-scroll">
         <button className="qa-btn primary" onClick={() => navigate('/sale/new')}>
           <span className="qa-icon">{I.invoice}</span>
           <span className="qa-label">New<br/>Invoice</span>
         </button>
-        <button className="qa-btn" onClick={() => goVouchers('receipt')}>
+        <button className="qa-btn" onClick={() => navigate('/receipt/new')}>
           <span className="qa-icon">{I.receive}</span>
-          <span className="qa-label">Receive<br/>Payment</span>
+          <span className="qa-label">Receipt</span>
         </button>
         <button className="qa-btn" onClick={() => navigate('/purchase/new')}>
           <span className="qa-icon">{I.cart}</span>
           <span className="qa-label">New<br/>Purchase</span>
+        </button>
+        <button className="qa-btn" onClick={() => navigate('/payment/new')}>
+          <span className="qa-icon">{I.send}</span>
+          <span className="qa-label">Payment</span>
         </button>
         <button className="qa-btn" onClick={() => Toast.show({ content: 'Coming soon' })}>
           <span className="qa-icon">{I.userPlus}</span>
