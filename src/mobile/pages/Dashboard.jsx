@@ -300,7 +300,7 @@ export default function Dashboard() {
           <span className="qa-label">Add<br/>Customer</span>
         </button>
         <button className="qa-btn" onClick={() => navigate('/supplier/new')}>
-          <span className="qa-icon">{I.truck}</span>
+          <span className="qa-icon">{I.userPlus}</span>
           <span className="qa-label">Add<br/>Supplier</span>
         </button>
       </div>
