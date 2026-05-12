@@ -315,6 +315,21 @@
   border-color: var(--dir);
   color: var(--dir);
 }
+/* Selected, but no amount allocated yet (waiting on the hero input). */
+.vf-check--selected {
+  border-color: var(--dir);
+  background: var(--dir-soft);
+}
+
+/* User-unchecked bill — visibly de-emphasised so the operator can see
+   it's been excluded from the allocation FIFO. */
+.vf-bill--dim {
+  opacity: 0.55;
+}
+.vf-bill--dim .vf-bill-num,
+.vf-bill--dim .vf-bill-amount {
+  color: var(--c-text-mute);
+}
 
 .vf-bill-info { flex: 1; min-width: 0; }
 
