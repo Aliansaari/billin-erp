@@ -68,10 +68,17 @@ module.exports = (sequelize) => {
       type: DataTypes.DECIMAL(5, 2),
       defaultValue: 0,
     },
+    // ITEM-LEVEL discount only. The bill-level (bottom) trade discount
+    // is pro-rata allocated into `taxable_amount` at write time but is
+    // NOT added back into this column. For total effective discount per
+    // line use: (rate × quantity) − taxable_amount.
     discount_amount: {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0,
     },
+    // Net of both item-level discount AND bill-level (trade) discount
+    // share. Authoritative source for realized line revenue — prefer
+    // this over (rate × qty − discount_amount) in reports/profit calcs.
     taxable_amount: {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0,
