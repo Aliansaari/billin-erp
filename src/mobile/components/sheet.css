@@ -53,8 +53,7 @@
   justify-content: space-between;
 }
 .sheet-title {
-  font-family: 'Fraunces', 'Georgia', serif;
-  font-variation-settings: "opsz" 30;
+  font-family: var(--adm-font-family);
   font-weight: 400;
   font-size: 19px;
   letter-spacing: -0.025em;
@@ -118,7 +117,7 @@
 .sheet-loading {
   padding: 32px 16px;
   text-align: center;
-  font-family: 'Fraunces', 'Georgia', serif;
+  font-family: var(--adm-font-family);
   font-style: italic;
   font-weight: 300;
   font-size: 13px;
@@ -160,7 +159,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Fraunces', 'Georgia', serif;
+  font-family: var(--adm-font-family);
   font-style: italic;
   font-weight: 500;
   font-size: 14px;
