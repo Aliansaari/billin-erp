@@ -354,7 +354,8 @@ export default function PrintSettings() {
   const isThermal = draft.format === 'thermal';
 
   return (
-    <div className="ms-shell settings-pane-fill">
+    <div className="ms-shell settings-pane-fill print-settings-page">
+      <style>{PRINT_STYLES}</style>
       <header className="ms-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <h1 className="ms-page-title">Print</h1>
@@ -365,7 +366,8 @@ export default function PrintSettings() {
         <Space>
           <Button icon={<ReloadOutlined />} onClick={loadProfiles}>Reload</Button>
           <Button type="primary" icon={<PlusOutlined />}
-            onClick={() => newProfile(filterDoc || 'sales')}>
+            onClick={() => newProfile(filterDoc || 'sales')}
+            className="print-new-profile-btn">
             New Profile
           </Button>
         </Space>
@@ -404,20 +406,17 @@ export default function PrintSettings() {
                 <div
                   key={p.profile_id}
                   onClick={() => selectProfile(p)}
-                  style={{
-                    padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
-                    background: active ? 'var(--accent-bg, rgba(79,70,229,0.08))' : 'transparent',
-                    border: active ? '1px solid var(--accent, #4F46E5)' : '1px solid transparent',
-                    marginBottom: 4,
-                  }}
+                  className={`print-profile-item ${active ? 'is-active' : ''} ${p.is_default ? 'is-default' : ''}`}
                 >
-                  <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {p.is_default ? <StarFilled style={{ color: '#F59E0B' }} /> : <StarOutlined style={{ opacity: 0.3 }} />}
-                    {p.name}
+                  <div className="print-profile-item-row">
+                    {p.is_default
+                      ? <StarFilled className="print-profile-star is-on" />
+                      : <StarOutlined className="print-profile-star" />}
+                    <span className="print-profile-name">{p.name}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
-                    <Tag color="default" style={{ marginRight: 4 }}>{p.format.toUpperCase()}</Tag>
-                    {DOC_TYPES.find(d => d.v === p.doc_type)?.l || p.doc_type}
+                  <div className="print-profile-meta">
+                    <span className="print-profile-format">{p.format.toUpperCase()}</span>
+                    <span className="print-profile-doctype">{DOC_TYPES.find(d => d.v === p.doc_type)?.l || p.doc_type}</span>
                   </div>
                 </div>
               );
@@ -726,7 +725,7 @@ export default function PrintSettings() {
                       <label style={{ display: 'block', marginBottom: 10, fontSize: 13, fontWeight: 600 }}>
                         {isThermal ? 'Thermal receipt style' : 'Visual theme'}
                       </label>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div className="print-theme-grid">
                         {(isThermal ? THERMAL_STYLES : THEMES).map(t => {
                           const key = isThermal ? 'thermal_style' : 'theme';
                           const active = draft[key] === t.v;
@@ -739,33 +738,17 @@ export default function PrintSettings() {
                                   set('accent_color', t.swatch);
                                 }
                               }}
-                              style={{
-                                padding: 14, borderRadius: 10, cursor: 'pointer',
-                                border: active ? '2px solid var(--accent, #4F46E5)' : '1px solid var(--border, #e5e7eb)',
-                                background: active ? 'var(--accent-bg, rgba(79,70,229,0.06))' : 'transparent',
-                                transition: 'all 0.15s ease',
-                              }}
+                              className={`print-theme-card ${active ? 'is-active' : ''}`}
                             >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <div className="print-theme-card-head">
                                 {t.swatch && (
-                                  <span style={{ width: 16, height: 16, borderRadius: 4, background: t.swatch, display: 'inline-block' }} />
+                                  <span className="print-theme-swatch" style={{ background: t.swatch }} />
                                 )}
-                                <b style={{ fontSize: 14 }}>{t.l}</b>
-                                {t.isNew && (
-                                  <span style={{
-                                    fontSize: 9, fontWeight: 700, letterSpacing: 0.6,
-                                    padding: '1px 6px', borderRadius: 4,
-                                    background: 'var(--accent-bg, rgba(79,70,229,0.12))',
-                                    color: 'var(--accent, #4F46E5)',
-                                    textTransform: 'uppercase',
-                                  }}>
-                                    New
-                                  </span>
-                                )}
+                                <b className="print-theme-name">{t.l}</b>
+                                {t.isNew && <span className="print-theme-new">NEW</span>}
+                                {active && <span className="print-theme-active-check">✓</span>}
                               </div>
-                              <div style={{ fontSize: 12, color: 'var(--fg-secondary, #666)', lineHeight: 1.4 }}>
-                                {t.d}
-                              </div>
+                              <div className="print-theme-desc">{t.d}</div>
                             </div>
                           );
                         })}
@@ -943,3 +926,170 @@ export default function PrintSettings() {
     </div>
   );
 }
+
+const PRINT_STYLES = `
+.print-settings-page {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+/* Override the narrow 880px max-width from ModuleSettings.css —
+   Print is a 3-column workspace (profiles + editor + live preview)
+   and needs the full pane width to breathe. */
+.print-settings-page .ms-page-body-inner {
+  max-width: none !important;
+  padding: 24px clamp(16px, 2vw, 28px) 32px !important;
+}
+.print-new-profile-btn.ant-btn-primary {
+  background: linear-gradient(135deg, #0F172A 0%, #1e293b 100%) !important;
+  border-color: #0F172A !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.4) !important;
+}
+.print-new-profile-btn.ant-btn-primary:hover {
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
+}
+
+/* ── Profile sidebar list ─────────────────────────────── */
+.print-profile-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  position: relative;
+}
+.print-profile-item:hover {
+  background: var(--bg-muted, #f8fafc);
+}
+.print-profile-item.is-active {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.15);
+  box-shadow: inset 3px 0 0 #0F172A;
+  padding-left: 14px;
+}
+.print-profile-item-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 4px;
+}
+.print-profile-star {
+  font-size: 13px;
+  color: #cbd5e1;
+  flex-shrink: 0;
+}
+.print-profile-star.is-on {
+  color: #f59e0b;
+}
+.print-profile-name {
+  font-weight: 600; font-size: 13.5px;
+  color: var(--fg-primary, #0F172A);
+  letter-spacing: -0.1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.print-profile-meta {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px;
+  color: var(--fg-tertiary, #94a3b8);
+  margin-left: 21px;
+}
+.print-profile-format {
+  display: inline-block;
+  padding: 1px 7px;
+  background: var(--bg-muted, #f1f5f9);
+  border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.06));
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg-secondary, #64748b);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+.print-profile-doctype {
+  font-size: 11.5px;
+  color: var(--fg-secondary, #64748b);
+}
+
+/* ── Theme cards grid ──────────────────────────────── */
+.print-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.print-theme-card {
+  position: relative;
+  padding: 14px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  border: 1.5px solid var(--border-subtle, rgba(15, 23, 42, 0.08));
+  background: var(--bg-panel, #fff);
+  transition: all 0.18s ease;
+  overflow: hidden;
+}
+.print-theme-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 3px;
+  background: transparent;
+  transition: background 0.18s ease;
+}
+.print-theme-card:hover {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: var(--bg-muted, #fafbfc);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.08);
+}
+.print-theme-card.is-active {
+  border-color: #0F172A;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.025) 0%, var(--bg-panel, #fff) 100%);
+  box-shadow: 0 4px 14px -6px rgba(15, 23, 42, 0.18);
+}
+.print-theme-card.is-active::before {
+  background: linear-gradient(90deg, #0F172A, #475569);
+}
+.print-theme-card-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 6px;
+}
+.print-theme-swatch {
+  width: 18px; height: 18px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 1px 2px rgba(15, 23, 42, 0.15);
+}
+.print-theme-name {
+  font-size: 14px; font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--fg-primary, #0F172A);
+  flex: 1;
+}
+.print-theme-new {
+  display: inline-block;
+  padding: 1px 7px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  border-radius: 4px;
+  text-transform: uppercase;
+  box-shadow: 0 2px 4px -1px rgba(99, 102, 241, 0.4);
+}
+.print-theme-active-check {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #0F172A;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.print-theme-desc {
+  font-size: 12px;
+  color: var(--fg-secondary, #64748b);
+  line-height: 1.5;
+}
+`;

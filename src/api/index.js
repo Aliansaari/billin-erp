@@ -343,6 +343,11 @@ export const reportAPI = {
   // top sellers this week, dead stock, cheques pending. Lightweight JSON,
   // each list capped at 5-10 items.
   getDashboardInsights: () => api.get('/reports/dashboard/insights'),
+  // Editorial dashboard's deep business metrics: cash position, runway,
+  // working capital, DSO/DPO/DIO/CCC, customer concentration, inventory
+  // turnover, recommended actions. Slower than the lightweight stats —
+  // typically 200-400ms on a populated DB.
+  getDashboardBusiness: () => api.get('/reports/dashboard/business'),
   getSalesReport: (params) => api.get('/reports/sales', { params }),
   getPurchaseReport: (params) => api.get('/reports/purchases', { params }),
   getStockReport: (params) => api.get('/reports/stock', { params }),

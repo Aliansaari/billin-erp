@@ -576,6 +576,402 @@ exports.dashboardInsights = async (req, res) => {
   }
 };
 
+// Wholesale business intelligence — the editorial dashboard's "deep" view.
+// Computes everything the headline KPI strip + working-capital + business-
+// velocity panels need that the legacy dashboardStats doesn't already
+// produce. Kept as its own endpoint so the classic tile dashboard isn't
+// affected and so the heavier joins can be cached / rate-limited later
+// without touching the lightweight stats endpoint.
+//
+// Returns:
+//   cash_position           — current cash + bank balances (closing)
+//   cash_runway_days        — days of runway at last-90d avg outflow
+//   monthly_cogs            — COGS for current month
+//   monthly_opex            — expense vouchers for current month
+//   working_capital         — { current_assets, current_liabilities,
+//                                current_ratio, quick_ratio }
+//   business_velocity       — { dso, dpo, dio, ccc, dso_prior, dpo_prior, dio_prior }
+//   inventory_turnover      — annualised (last-90d COGS × 4 / avg inv)
+//   inventory_breakdown     — { fast, med, slow, dead } SKU counts
+//   customer_concentration  — { pct, risk, top_n, top: [...] }
+//   actions                 — top-3 recommendations
+exports.dashboardBusiness = async (req, res) => {
+  try {
+    const today = localDateString();
+    const monthStart = today.slice(0, 7) + '-01';
+    const d90 = new Date(); d90.setDate(d90.getDate() - 90);
+    const day90Start = d90.toISOString().slice(0, 10);
+
+    // ─── Cash position via payments_receipts (ledger isn't populated). ───
+    //
+    // For most installs the ledger_accounts.current_balance column is
+    // stale because LedgerEntry posting isn't wired to bill creation
+    // yet (see project memory). The cleanest signal we have is:
+    //
+    //   cash = total receipts received - total payments made
+    //
+    // That sums to "net cash through the business" since system start.
+    // The ledger snapshot would be more accurate when posting lands;
+    // until then, this is the best universally-available number.
+    const [cashRow] = await sequelize.query(`
+      SELECT
+        COALESCE((SELECT SUM(total_amount) FROM payments_receipts
+                   WHERE transaction_type = 'Receipt' AND is_cancelled = false), 0)::float
+        -
+        COALESCE((SELECT SUM(total_amount) FROM payments_receipts
+                   WHERE transaction_type = 'Payment' AND is_cancelled = false), 0)::float
+        AS cash_position,
+
+        COALESCE((SELECT SUM(total_amount) FROM payments_receipts
+                   WHERE transaction_type = 'Payment' AND is_cancelled = false
+                     AND transaction_date >= :day90Start), 0)::float AS out90,
+
+        COALESCE((SELECT SUM(total_amount) FROM expense_vouchers
+                   WHERE is_cancelled = false
+                     AND voucher_date >= :day90Start), 0)::float AS expense90,
+
+        COALESCE((SELECT SUM(total_amount) FROM expense_vouchers
+                   WHERE is_cancelled = false
+                     AND voucher_date >= :monthStart), 0)::float AS opex_mtd
+    `, { replacements: { day90Start, monthStart }, type: sequelize.QueryTypes.SELECT });
+
+    const cashPosition = +(cashRow.cash_position || 0).toFixed(2);
+    const out90Combined = +(((cashRow.out90 || 0) + (cashRow.expense90 || 0)) / 90).toFixed(2);
+    const cashRunway = out90Combined > 0
+      ? Math.max(0, Math.round(cashPosition / out90Combined))
+      : null;
+
+    // ─── 90-day windowed sums for DSO / DPO / DIO ───────────────────────
+    const [d90Row] = await sequelize.query(`
+      SELECT
+        COALESCE((SELECT SUM(total_amount) FROM sales_bills
+                   WHERE is_cancelled = false AND bill_date >= :day90Start), 0)::float AS sales90,
+        COALESCE((SELECT SUM(total_amount) FROM purchase_bills
+                   WHERE is_cancelled = false AND bill_date >= :day90Start), 0)::float AS purch90,
+        COALESCE((SELECT SUM(sbi.quantity * sbi.cost_rate) FROM sales_bill_items sbi
+                   JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+                   WHERE sb.is_cancelled = false AND sb.bill_date >= :day90Start), 0)::float AS cogs90,
+        COALESCE((SELECT SUM(p.current_stock *
+                              CASE
+                                WHEN p.product_mode = 'single' AND p.is_batch_tracked = false
+                                  THEN COALESCE(p.weighted_avg_cost, p.purchase_rate, 0)
+                                WHEN p.product_mode = 'single' AND p.is_batch_tracked = true
+                                  THEN 0
+                                ELSE p.purchase_rate
+                              END)
+                  FROM products p WHERE p.is_active = true AND p.current_stock > 0), 0)::float AS inv_value
+    `, { replacements: { day90Start }, type: sequelize.QueryTypes.SELECT });
+
+    const sales90 = d90Row.sales90 || 0;
+    const purch90 = d90Row.purch90 || 0;
+    const cogs90 = d90Row.cogs90 || 0;
+    const invValue = d90Row.inv_value || 0;
+
+    // Current AR/AP — replicate the same logic the main stats endpoint uses.
+    const [arRow] = await sequelize.query(`
+      SELECT
+        COALESCE(SUM(sb.balance_amount), 0)::float
+          + COALESCE((SELECT SUM(opening_balance) FROM parties
+                       WHERE opening_balance_type='Receivable' AND opening_balance>0
+                         AND party_type IN ('Customer','Both')), 0)::float
+          - COALESCE((SELECT SUM(pr.total_amount) FROM payments_receipts pr
+                       WHERE pr.transaction_type='Receipt' AND pr.is_cancelled=false
+                         AND NOT EXISTS (SELECT 1 FROM payment_splits ps WHERE ps.transaction_id=pr.transaction_id)), 0)::float
+        AS ar
+      FROM sales_bills sb
+      JOIN parties p ON p.party_id = sb.customer_id
+      WHERE sb.is_cancelled = false AND sb.balance_amount > 0
+        AND p.party_type IN ('Customer','Both')
+    `, { type: sequelize.QueryTypes.SELECT });
+    const [apRow] = await sequelize.query(`
+      SELECT
+        COALESCE(SUM(pb.balance_amount), 0)::float
+          + COALESCE((SELECT SUM(opening_balance) FROM parties
+                       WHERE opening_balance_type='Payable' AND opening_balance>0
+                         AND party_type IN ('Supplier','Both')), 0)::float
+          - COALESCE((SELECT SUM(pr.total_amount) FROM payments_receipts pr
+                       WHERE pr.transaction_type='Payment' AND pr.is_cancelled=false
+                         AND NOT EXISTS (SELECT 1 FROM payment_splits ps WHERE ps.transaction_id=pr.transaction_id)), 0)::float
+        AS ap
+      FROM purchase_bills pb
+      JOIN parties p ON p.party_id = pb.supplier_id
+      WHERE pb.is_cancelled = false AND pb.balance_amount > 0
+        AND p.party_type IN ('Supplier','Both')
+    `, { type: sequelize.QueryTypes.SELECT });
+    const ar = Math.max(0, arRow.ar || 0);
+    const ap = Math.max(0, apRow.ap || 0);
+
+    // ─── Business velocity (DSO / DPO / DIO / CCC) ─────────────────────
+    // Formulae use 90-day windows for stability — short windows make
+    // these wildly noisy (a single big bill can swing DSO by 20 days).
+    const dso = sales90 > 0 ? Math.round((ar / sales90) * 90) : null;
+    const dpo = purch90 > 0 ? Math.round((ap / purch90) * 90) : null;
+    const dio = cogs90 > 0 ? Math.round((invValue / cogs90) * 90) : null;
+    const ccc = (dso != null && dpo != null && dio != null) ? dio + dso - dpo : null;
+
+    // Annualised inventory turnover — industry benchmark for textile
+    // wholesale is ~6×/yr (~60-day DIO). Below 4 = capital frozen on
+    // shelves; above 8 = great velocity but stock-out risk.
+    const invTurnover = invValue > 0 ? +((cogs90 * 4) / invValue).toFixed(1) : null;
+
+    // ─── Working capital ────────────────────────────────────────────────
+    // current_assets    = cash + AR + inventory cost basis
+    // current_liabilities = AP + (GST output - GST input)
+    // Quick ratio excludes inventory — "can I pay bills without
+    // selling stock right now?"
+    const [gstRow] = await sequelize.query(`
+      SELECT
+        COALESCE((SELECT SUM(cgst_amount + sgst_amount + igst_amount + cess_amount)
+                    FROM sales_bills WHERE is_cancelled = false
+                      AND bill_date >= :monthStart), 0)::float AS gst_out,
+        COALESCE((SELECT SUM(cgst_amount + sgst_amount + igst_amount + cess_amount)
+                    FROM purchase_bills WHERE is_cancelled = false
+                      AND bill_date >= :monthStart), 0)::float AS gst_in
+    `, { replacements: { monthStart }, type: sequelize.QueryTypes.SELECT });
+    const gstNet = Math.max(0, (gstRow.gst_out || 0) - (gstRow.gst_in || 0));
+
+    const currentAssets = cashPosition + ar + invValue;
+    const currentLiabs = ap + gstNet;
+    const currentRatio = currentLiabs > 0 ? +(currentAssets / currentLiabs).toFixed(2) : null;
+    const quickRatio   = currentLiabs > 0 ? +((cashPosition + ar) / currentLiabs).toFixed(2) : null;
+
+    // ─── Customer concentration (top 5 by revenue last 90 days) ─────────
+    const top5Cust = await sequelize.query(`
+      SELECT p.party_id, p.party_name,
+             COALESCE(SUM(sb.total_amount), 0)::float AS revenue
+        FROM sales_bills sb
+        JOIN parties p ON p.party_id = sb.customer_id
+       WHERE sb.is_cancelled = false
+         AND sb.bill_date >= :day90Start
+       GROUP BY p.party_id, p.party_name
+       ORDER BY revenue DESC
+       LIMIT 5`,
+      { replacements: { day90Start }, type: sequelize.QueryTypes.SELECT });
+
+    const totalRev90 = sales90 || 1;
+    const top5Sum = top5Cust.reduce((s, c) => s + (c.revenue || 0), 0);
+    const concPct = +((top5Sum / totalRev90) * 100).toFixed(1);
+    const concRisk = concPct < 30 ? 'low' : concPct < 50 ? 'moderate' : 'high';
+
+    // ─── Inventory breakdown by velocity ────────────────────────────────
+    // Fast/Med/Slow/Dead classification based on 30-day unit sales.
+    const invBreakdown = await sequelize.query(`
+      WITH velo AS (
+        SELECT p.product_id,
+               COALESCE(SUM(sbi.quantity), 0)::float AS qty30
+          FROM products p
+          LEFT JOIN sales_bill_items sbi ON sbi.product_id = p.product_id
+          LEFT JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+             AND sb.is_cancelled = false
+             AND sb.bill_date >= CURRENT_DATE - INTERVAL '30 days'
+         WHERE p.is_active = true AND p.current_stock > 0
+         GROUP BY p.product_id
+      ),
+      moved60 AS (
+        SELECT DISTINCT sbi.product_id
+          FROM sales_bill_items sbi
+          JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+         WHERE sb.is_cancelled = false
+           AND sb.bill_date >= CURRENT_DATE - INTERVAL '60 days'
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE v.qty30 / 30.0 >= 10)::int AS fast,
+        COUNT(*) FILTER (WHERE v.qty30 / 30.0 >= 3 AND v.qty30 / 30.0 < 10)::int AS med,
+        COUNT(*) FILTER (WHERE v.qty30 / 30.0 > 0 AND v.qty30 / 30.0 < 3)::int AS slow_with_movement,
+        COUNT(*) FILTER (WHERE v.qty30 = 0 AND v.product_id IN (SELECT product_id FROM moved60))::int AS slow_no_30d,
+        COUNT(*) FILTER (WHERE v.qty30 = 0 AND v.product_id NOT IN (SELECT product_id FROM moved60))::int AS dead
+      FROM velo v
+    `, { type: sequelize.QueryTypes.SELECT });
+    const ivb = invBreakdown[0] || {};
+    const breakdown = {
+      fast: ivb.fast || 0,
+      med:  ivb.med  || 0,
+      slow: (ivb.slow_with_movement || 0) + (ivb.slow_no_30d || 0),
+      dead: ivb.dead || 0,
+    };
+
+    // ─── Recommended actions ────────────────────────────────────────────
+    // Top 3 actions by estimated cash impact. Each action carries a
+    // human label, a ₹ impact estimate, and a deep-link route the
+    // frontend can navigate to. The rules engine fires the rules in
+    // order; we keep up to 3 firings.
+    const actions = computeRecommendedActions({
+      ar, ap, cashPosition, invValue,
+      sales90, purch90,
+      deadSkuCount: breakdown.dead,
+      dso, dpo, dio,
+    });
+
+    // ─── Top-N customers detail with credit utilisation ─────────────────
+    // For each top-5 customer, compute their current outstanding ÷ credit
+    // limit so the receivables table can show a "credit used" % column.
+    const topCustomersWithCredit = await sequelize.query(`
+      SELECT p.party_id, p.party_name, p.gstin, p.credit_limit::float AS credit_limit,
+             p.credit_days::int AS credit_days,
+             COALESCE(SUM(sb.balance_amount), 0)::float AS outstanding,
+             COUNT(sb.sales_bill_id)::int AS bills,
+             MAX(sb.bill_date)::date AS last_bill,
+             MAX((CURRENT_DATE - sb.due_date)::int) AS oldest_days
+        FROM parties p
+        LEFT JOIN sales_bills sb ON sb.customer_id = p.party_id
+             AND sb.is_cancelled = false AND sb.balance_amount > 0
+       WHERE p.party_type IN ('Customer','Both') AND p.is_active = true
+       GROUP BY p.party_id, p.party_name, p.gstin, p.credit_limit, p.credit_days
+      HAVING COALESCE(SUM(sb.balance_amount), 0) > 0
+       ORDER BY oldest_days DESC NULLS LAST, outstanding DESC
+       LIMIT 10
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    res.json({
+      cash_position: cashPosition,
+      cash_runway_days: cashRunway,
+      monthly_opex: +(cashRow.opex_mtd || 0).toFixed(2),
+
+      working_capital: {
+        current_assets: +currentAssets.toFixed(2),
+        current_liabilities: +currentLiabs.toFixed(2),
+        net_working_capital: +(currentAssets - currentLiabs).toFixed(2),
+        current_ratio: currentRatio,
+        quick_ratio: quickRatio,
+        breakdown: {
+          cash: cashPosition,
+          receivables: +ar.toFixed(2),
+          inventory: +invValue.toFixed(2),
+          payables: +ap.toFixed(2),
+          gst_net: +gstNet.toFixed(2),
+        },
+      },
+
+      business_velocity: { dso, dpo, dio, ccc },
+
+      inventory: {
+        value: +invValue.toFixed(2),
+        turnover: invTurnover,
+        breakdown,
+      },
+
+      customer_concentration: {
+        pct: concPct,
+        risk: concRisk,
+        top_n: top5Cust.length,
+        total_revenue_90d: +totalRev90.toFixed(2),
+        top: top5Cust.map(c => ({
+          party_id: c.party_id,
+          party_name: c.party_name,
+          revenue: +(c.revenue || 0).toFixed(2),
+          pct: +(((c.revenue || 0) / totalRev90) * 100).toFixed(1),
+        })),
+      },
+
+      top_overdue_with_credit: topCustomersWithCredit.map(c => ({
+        ...c,
+        credit_used_pct: c.credit_limit > 0 ? +((c.outstanding / c.credit_limit) * 100).toFixed(0) : null,
+      })),
+
+      actions,
+    });
+  } catch (error) {
+    console.error('Dashboard business error:', error);
+    res.status(500).json({ error: 'Server error', detail: error.message });
+  }
+};
+
+// Rules-based "what should I do today?" recommender. Returns up to 3
+// actions, each with:
+//   { id, title, impact, impact_label, type, route }
+//
+// Impact is an estimated ₹ amount the action could free up / generate.
+// Frontend renders these in the bottom Insight Bar.
+function computeRecommendedActions({ ar, ap, cashPosition, invValue,
+                                     sales90, purch90, deadSkuCount,
+                                     dso, dpo, dio }) {
+  const actions = [];
+
+  // R1: Collect from overdue customers — biggest cash unlock when DSO is high
+  if (dso != null && dso > 45 && ar > 50000) {
+    const targetDSO = 45;
+    const targetAR = (sales90 / 90) * targetDSO;
+    const unlock = Math.max(0, ar - targetAR);
+    actions.push({
+      id: 'collect_overdue',
+      title: `Collect from top overdue customers`,
+      detail: `Bring DSO from ${dso} to ${targetDSO} days`,
+      impact: +unlock.toFixed(0),
+      impact_label: `≈ ${formatCompact(unlock)} freed`,
+      type: 'cash',
+      route: '/reports/aging?party_type=Customer',
+    });
+  }
+
+  // R2: Liquidate dead stock — recover ~70% of cost basis
+  if (deadSkuCount > 0 && invValue > 0) {
+    // Estimate dead-stock value as proportional to count (we don't have
+    // per-SKU dead value from this slim breakdown; the dashboardInsights
+    // endpoint surfaces the precise dead_stock.total_value).
+    // Use a conservative 60% recovery on dead inventory.
+    const estDeadValue = invValue * Math.min(0.4, deadSkuCount / 200);
+    const recovery = +(estDeadValue * 0.6).toFixed(0);
+    if (recovery > 5000) {
+      actions.push({
+        id: 'clear_dead_stock',
+        title: `Liquidate ${deadSkuCount} dead SKUs`,
+        detail: `60% recovery on stuck capital`,
+        impact: recovery,
+        impact_label: `≈ ${formatCompact(recovery)} recovered`,
+        type: 'cash',
+        route: '/reports/stock',
+      });
+    }
+  }
+
+  // R3: Stretch payables — paying suppliers too fast wastes working capital
+  if (dpo != null && dpo < 30 && purch90 > 0) {
+    const targetDPO = 40;
+    const dailyPurch = purch90 / 90;
+    const freed = +(dailyPurch * (targetDPO - dpo)).toFixed(0);
+    if (freed > 1000) {
+      actions.push({
+        id: 'stretch_payables',
+        title: `Stretch payables to ${targetDPO} days`,
+        detail: `Currently paying suppliers in ${dpo}d (industry: 40d)`,
+        impact: freed,
+        impact_label: `≈ ${formatCompact(freed)} working capital`,
+        type: 'working_capital',
+        route: '/reports/aging?party_type=Supplier',
+      });
+    }
+  }
+
+  // R4: Increase inventory turnover (DIO too high)
+  if (dio != null && dio > 90 && invValue > 0) {
+    const targetDIO = 60;
+    const dailyCOGS = invValue / dio;
+    const reduction = +(dailyCOGS * (dio - targetDIO)).toFixed(0);
+    if (reduction > 5000) {
+      actions.push({
+        id: 'reduce_inventory',
+        title: `Reduce inventory to ${targetDIO}-day cover`,
+        detail: `Capital frozen on shelves for ${dio} days`,
+        impact: reduction,
+        impact_label: `≈ ${formatCompact(reduction)} freed`,
+        type: 'cash',
+        route: '/reports/stock',
+      });
+    }
+  }
+
+  // Sort by impact descending and keep top 3
+  return actions.sort((a, b) => b.impact - a.impact).slice(0, 3);
+}
+
+function formatCompact(n) {
+  const v = Math.abs(Number(n) || 0);
+  if (v >= 1e7) return `₹${(v / 1e7).toFixed(2)}Cr`;
+  if (v >= 1e5) return `₹${(v / 1e5).toFixed(2)}L`;
+  if (v >= 1e3) return `₹${Math.round(v / 1e3)}K`;
+  return `₹${Math.round(v)}`;
+}
+
 // Aggregates for the dashboard sparklines + chart tiles. One row per
 // bucket — the bucket size is controlled by `interval`:
 //

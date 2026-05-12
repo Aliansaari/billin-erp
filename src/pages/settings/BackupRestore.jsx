@@ -190,9 +190,9 @@ export default function BackupRestore() {
       dataIndex: 'filename',
       key: 'filename',
       render: (filename, row) => (
-        <Space direction="vertical" size={0}>
-          <Text strong style={{ fontSize: 14 }}>{formatFilename(filename)}</Text>
-          <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace' }}>{filename}</Text>
+        <Space direction="vertical" size={2}>
+          <Text strong style={{ fontSize: 14, color: 'var(--fg-primary, #0F172A)' }}>{formatFilename(filename)}</Text>
+          <span className="bkp-filename">{filename}</span>
         </Space>
       ),
     },
@@ -235,32 +235,23 @@ export default function BackupRestore() {
       key: 'actions',
       width: 160,
       render: (_, row) => (
-        <Space>
-          <Tooltip title="Download">
-            <Button
-              size="small"
-              icon={<DownloadOutlined />}
-              onClick={() => handleDownload(row.filename)}
-            />
+        <div className="bkp-row-actions">
+          <Tooltip title="Download backup">
+            <button type="button" className="bkp-icon-btn" onClick={() => handleDownload(row.filename)} aria-label="Download">
+              <DownloadOutlined />
+            </button>
           </Tooltip>
-          <Tooltip title="Restore this backup">
-            <Button
-              size="small"
-              icon={<SyncOutlined />}
-              type="primary"
-              ghost
-              onClick={() => setRestoreTarget({ filename: row.filename })}
-            />
+          <Tooltip title="Restore from this backup">
+            <button type="button" className="bkp-icon-btn bkp-icon-btn-accent" onClick={() => setRestoreTarget({ filename: row.filename })} aria-label="Restore">
+              <SyncOutlined />
+            </button>
           </Tooltip>
-          <Tooltip title="Delete">
-            <Button
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => setDeleteTarget(row.filename)}
-            />
+          <Tooltip title="Delete backup">
+            <button type="button" className="bkp-icon-btn bkp-icon-btn-danger" onClick={() => setDeleteTarget(row.filename)} aria-label="Delete">
+              <DeleteOutlined />
+            </button>
           </Tooltip>
-        </Space>
+        </div>
       ),
     },
   ];
@@ -281,24 +272,15 @@ export default function BackupRestore() {
       children: (
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
 
-          {/* Action row */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          {/* Action row — primary backup button moved to page header; this is just summary + refresh */}
+          <div className="bkp-list-head">
             <div>
-              <Title level={5} style={{ margin: 0 }}>Saved Backups</Title>
-              <Text type="secondary">{backups.length} backup{backups.length !== 1 ? 's' : ''} · {totalSize} total</Text>
+              <div className="bkp-list-head-title">Saved backups</div>
+              <div className="bkp-list-head-sub">
+                {backups.length} backup{backups.length !== 1 ? 's' : ''} · {totalSize} total
+              </div>
             </div>
-            <Space>
-              <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>Refresh</Button>
-              <Button
-                type="primary"
-                icon={<CloudDownloadOutlined />}
-                loading={creatingBackup}
-                onClick={handleCreateBackup}
-                size="large"
-              >
-                Create Backup Now
-              </Button>
-            </Space>
+            <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>Refresh</Button>
           </div>
 
           {backups.length === 0 && !loading && (
@@ -592,90 +574,75 @@ export default function BackupRestore() {
   ];
 
   return (
-    <div className="ms-shell settings-pane-fill">
-      <header className="ms-page-header">
-        <h1 className="ms-page-title">Backup &amp; Recovery</h1>
-        <p className="ms-page-sub">
-          Create, schedule, and restore full database backups — all data included. The Danger Zone
-          at the bottom permanently deletes data by category.
-        </p>
+    <div className="ms-shell settings-pane-fill bkp-page">
+      <style>{BKP_STYLES}</style>
+
+      <header className="ms-page-header bkp-header">
+        <div>
+          <h1 className="ms-page-title">Backup &amp; Recovery</h1>
+          <p className="ms-page-sub">
+            Encrypted backups of your entire database — schedule them, restore them, or wipe data when starting fresh.
+          </p>
+        </div>
+        <Button
+          type="primary"
+          size="large"
+          icon={<CloudDownloadOutlined />}
+          loading={creatingBackup}
+          onClick={handleCreateBackup}
+          className="bkp-primary-btn"
+        >
+          Backup now
+        </Button>
       </header>
 
       <div className="ms-page-body">
         <div className="ms-page-body-inner">
-      {/* Stats row — uses theme tokens so the cards adapt to dark mode
-          instead of staying pastel-light against a dark page. */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent-border)', borderRadius: 12 }}>
-            <Statistic
-              title="Total Backups"
-              value={backups.length}
-              prefix={<DatabaseOutlined style={{ color: 'var(--accent)' }} />}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ background: 'var(--success-bg)', border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
-            <Statistic
-              title="Storage Used"
-              value={totalSize}
-              prefix={<FolderOpenOutlined style={{ color: 'var(--success)' }} />}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ background: 'var(--warning-bg)', border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
-            <Statistic
-              title="Last Backup"
-              value={lastBackupTime}
-              prefix={<ClockCircleOutlined style={{ color: 'var(--warning)' }} />}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ background: settings.enabled ? 'var(--success-bg)' : 'var(--bg-muted)', border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
-            <Statistic
-              title="Auto-Backup"
-              value={settings.enabled ? `${(settings.frequency || 'daily').charAt(0).toUpperCase() + (settings.frequency || 'daily').slice(1)}` : 'Disabled'}
-              prefix={
-                settings.enabled
-                  ? <CheckCircleOutlined style={{ color: 'var(--success)' }} />
-                  : <CloseCircleOutlined style={{ color: 'var(--fg-tertiary)' }} />
-              }
-            />
-          </Card>
-        </Col>
-      </Row>
+      {/* Stats row — premium card style */}
+      <div className="bkp-stats">
+        <StatTile
+          tone="indigo"
+          icon={<DatabaseOutlined />}
+          label="Total backups"
+          value={backups.length}
+        />
+        <StatTile
+          tone="emerald"
+          icon={<FolderOpenOutlined />}
+          label="Storage used"
+          value={totalSize}
+        />
+        <StatTile
+          tone="amber"
+          icon={<ClockCircleOutlined />}
+          label="Last backup"
+          value={lastBackupTime}
+        />
+        <StatTile
+          tone={settings.enabled ? 'teal' : 'slate'}
+          icon={settings.enabled ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+          label="Auto-backup"
+          value={settings.enabled ? `${(settings.frequency || 'daily').charAt(0).toUpperCase() + (settings.frequency || 'daily').slice(1)}` : 'Disabled'}
+        />
+      </div>
 
       {/* Main content tabs */}
-      <Card bordered={false} style={{ borderRadius: 12 }}>
+      <Card bordered={false} className="bkp-tabs-card">
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
       </Card>
 
       {/* ── Danger zone — destructive, password-gated bulk cleanup ── */}
-      <div
-        style={{
-          marginTop: 24,
-          padding: '20px 24px',
-          background: 'linear-gradient(0deg, rgba(239, 68, 68, 0.04), rgba(239, 68, 68, 0.04)), var(--bg-panel)',
-          border: '1px solid rgba(239, 68, 68, 0.30)',
-          borderRadius: 12,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <ExclamationCircleOutlined style={{ color: '#b91c1c', fontSize: 16 }} />
-              <span style={{ fontWeight: 700, fontSize: 13, color: '#b91c1c', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                Danger zone
-              </span>
+      <div className="bkp-danger">
+        <div className="bkp-danger-inner">
+          <div className="bkp-danger-icon"><ExclamationCircleOutlined /></div>
+          <div className="bkp-danger-text">
+            <div className="bkp-danger-eyebrow">Danger Zone</div>
+            <div className="bkp-danger-title">Delete data permanently</div>
+            <div className="bkp-danger-sub">
+              Wipe sales, purchases, payments, products, parties, and more — by category. Requires admin password confirmation.
             </div>
-            <Text style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>
-              Permanently delete sales, purchases, payments, products, parties, and more — by category, with admin password confirmation.
-            </Text>
           </div>
-          <Button danger icon={<DeleteOutlined />} onClick={() => setCleanupOpen(true)}>
+          <Button danger icon={<DeleteOutlined />} onClick={() => setCleanupOpen(true)} className="bkp-danger-btn">
             Clean / reset…
           </Button>
         </div>
@@ -778,3 +745,247 @@ export default function BackupRestore() {
     </div>
   );
 }
+
+// ── Premium stat tile (replaces Ant Statistic for visual consistency) ────────
+function StatTile({ tone, icon, label, value }) {
+  return (
+    <div className={`bkp-stat bkp-stat-${tone}`}>
+      <div className="bkp-stat-icon">{icon}</div>
+      <div className="bkp-stat-meta">
+        <div className="bkp-stat-label">{label}</div>
+        <div className="bkp-stat-value">{value}</div>
+      </div>
+    </div>
+  );
+}
+
+const BKP_STYLES = `
+.bkp-page {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.bkp-header {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  gap: 16px; flex-wrap: wrap;
+}
+.bkp-primary-btn.ant-btn-primary {
+  background: linear-gradient(135deg, #0F172A 0%, #1e293b 100%) !important;
+  border-color: #0F172A !important;
+  border-radius: 10px !important;
+  height: 42px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 6px 16px -6px rgba(15, 23, 42, 0.4) !important;
+  transition: all 0.18s ease !important;
+}
+.bkp-primary-btn.ant-btn-primary:hover {
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -8px rgba(15, 23, 42, 0.5) !important;
+}
+
+/* ── Stat tiles ───────────────────────────────────────── */
+.bkp-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+@media (max-width: 980px) { .bkp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .bkp-stats { grid-template-columns: 1fr; } }
+.bkp-stat {
+  display: flex; gap: 14px; align-items: center;
+  padding: 18px 20px;
+  background: var(--bg-panel, #fff);
+  border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.06));
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition: all 0.2s ease;
+}
+.bkp-stat:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px -8px rgba(15, 23, 42, 0.08);
+  border-color: var(--border, rgba(15, 23, 42, 0.10));
+}
+.bkp-stat-icon {
+  flex: 0 0 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 11px;
+  font-size: 20px;
+}
+.bkp-stat-indigo  .bkp-stat-icon { background: linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(99, 102, 241, 0.06)); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.18); }
+.bkp-stat-emerald .bkp-stat-icon { background: linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(16, 185, 129, 0.06)); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.18); }
+.bkp-stat-amber   .bkp-stat-icon { background: linear-gradient(135deg, rgba(245, 158, 11, 0.14), rgba(245, 158, 11, 0.06)); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.18); }
+.bkp-stat-teal    .bkp-stat-icon { background: linear-gradient(135deg, rgba(20, 184, 166, 0.14), rgba(20, 184, 166, 0.06)); color: #14b8a6; border: 1px solid rgba(20, 184, 166, 0.18); }
+.bkp-stat-slate   .bkp-stat-icon { background: var(--bg-muted, #f1f5f9); color: var(--fg-tertiary, #94a3b8); border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.06)); }
+.bkp-stat-meta { flex: 1; min-width: 0; }
+.bkp-stat-label {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--fg-tertiary, #94a3b8);
+  margin-bottom: 4px;
+}
+.bkp-stat-value {
+  font-size: 22px; font-weight: 700;
+  color: var(--fg-primary, #0F172A);
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+/* ── Tabs card ────────────────────────────────────────── */
+.bkp-tabs-card.ant-card {
+  border-radius: 16px !important;
+  border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.06)) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03) !important;
+}
+.bkp-tabs-card .ant-tabs-nav::before { border-bottom-color: var(--border-subtle, rgba(15, 23, 42, 0.08)) !important; }
+.bkp-tabs-card .ant-tabs-tab {
+  font-weight: 500 !important;
+  padding: 14px 0 !important;
+}
+.bkp-tabs-card .ant-tabs-tab-active .ant-tabs-tab-btn {
+  font-weight: 600 !important;
+  color: #0F172A !important;
+}
+.bkp-tabs-card .ant-tabs-ink-bar { background: #0F172A !important; height: 2px !important; }
+
+/* ── Danger zone — premium treatment ─────────────────── */
+.bkp-danger {
+  margin-top: 22px;
+  padding: 0;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.04), rgba(220, 38, 38, 0.02));
+  border: 1px solid rgba(239, 68, 68, 0.20);
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+}
+.bkp-danger::before {
+  content: '';
+  position: absolute; top: 0; left: 0; bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, #ef4444, #b91c1c);
+}
+.bkp-danger-inner {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 22px 18px 26px;
+  flex-wrap: wrap;
+}
+.bkp-danger-icon {
+  flex: 0 0 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.14), rgba(239, 68, 68, 0.06));
+  color: #dc2626;
+  font-size: 22px;
+  border: 1px solid rgba(239, 68, 68, 0.20);
+}
+.bkp-danger-text { flex: 1; min-width: 200px; }
+.bkp-danger-eyebrow {
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: #dc2626;
+  margin-bottom: 2px;
+}
+.bkp-danger-title {
+  font-size: 15px; font-weight: 600;
+  color: var(--fg-primary, #0F172A);
+  margin-bottom: 2px;
+}
+.bkp-danger-sub {
+  font-size: 12.5px; color: var(--fg-secondary, #64748b);
+  line-height: 1.5;
+}
+.bkp-danger-btn.ant-btn {
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  height: 36px !important;
+}
+
+/* ── List head (refresh row) ─────────────────────────── */
+.bkp-list-head {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+.bkp-list-head-title {
+  font-size: 16px; font-weight: 700; letter-spacing: -0.2px;
+  color: var(--fg-primary, #0F172A);
+}
+.bkp-list-head-sub {
+  font-size: 12.5px; color: var(--fg-tertiary, #94a3b8);
+  margin-top: 2px;
+}
+
+/* ── Filename monospace (replaces ugly Courier fallback) ── */
+.bkp-filename {
+  font-family: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--fg-tertiary, #94a3b8);
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+
+/* ── Action icon buttons in rows ─────────────────────── */
+.bkp-row-actions {
+  display: inline-flex; gap: 6px; align-items: center;
+}
+.bkp-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  background: var(--bg-panel, #fff);
+  border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.08));
+  border-radius: 8px;
+  color: var(--fg-secondary, #64748b);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+.bkp-icon-btn:hover {
+  border-color: rgba(15, 23, 42, 0.18);
+  color: var(--fg-primary, #0F172A);
+  background: var(--bg-muted, #f8fafc);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px -2px rgba(15, 23, 42, 0.10);
+}
+.bkp-icon-btn-accent {
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.20);
+  color: #6366f1;
+}
+.bkp-icon-btn-accent:hover {
+  background: rgba(99, 102, 241, 0.10);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: #4f46e5;
+}
+.bkp-icon-btn-danger {
+  background: rgba(239, 68, 68, 0.04);
+  border-color: rgba(239, 68, 68, 0.18);
+  color: #dc2626;
+}
+.bkp-icon-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #b91c1c;
+}
+
+/* ── Polish the inner table ──────────────────────────── */
+.bkp-tabs-card .ant-table-thead > tr > th {
+  background: var(--bg-muted, #f8fafc) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--fg-secondary, #64748b) !important;
+  border-bottom-color: var(--border-subtle, rgba(15, 23, 42, 0.06)) !important;
+}
+.bkp-tabs-card .ant-table-tbody > tr > td {
+  border-bottom-color: var(--border-subtle, rgba(15, 23, 42, 0.05)) !important;
+}
+.bkp-tabs-card .ant-table-tbody > tr:hover > td {
+  background: var(--bg-muted, #f8fafc) !important;
+}
+`;

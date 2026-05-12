@@ -53,6 +53,7 @@ router.get('/stock-by-color',     requirePermission('reports.view'),  operationa
 router.get('/dashboard', reportController.dashboardStats);
 router.get('/dashboard/series', reportController.dashboardSeries);
 router.get('/dashboard/insights', reportController.dashboardInsights);
+router.get('/dashboard/business', reportController.dashboardBusiness);
 
 router.get('/sales',             requirePermission('reports.view'),  reportController.salesReport);
 router.get('/purchases',         requirePermission('reports.view'),  reportController.purchaseReport);
