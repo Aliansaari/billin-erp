@@ -75,10 +75,12 @@
 /* ── Content ────────────────────────────────────────────────────── */
 .vf-content {
   flex: 1;
+  overflow-x: hidden;     /* lock x — see PartyForm.css for the explainer */
   overflow-y: auto;
   padding: 0 18px 16px;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 .vf-content::-webkit-scrollbar { display: none; }
 

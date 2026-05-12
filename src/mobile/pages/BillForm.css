@@ -60,10 +60,12 @@
 /* ── Content ───────────────────────────────────────────────────────── */
 .bf-content {
   flex: 1;
+  overflow-x: hidden;     /* lock x — see PartyForm.css for the explainer */
   overflow-y: auto;
   padding: 0 14px 12px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  overscroll-behavior: contain;
 }
 .bf-content::-webkit-scrollbar { display: none; }
 
