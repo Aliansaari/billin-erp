@@ -29,6 +29,64 @@ function MoreSheetInner({ type, values, onClose, onSave }) {
         </div>
 
         <div className="sheet-body sheet-body--form">
+          {/* Purchase: paperwork strip — supplier bill, vehicle, LR,
+              transport name. The desktop carries these as separate
+              header fields; on mobile they live behind ⋯. */}
+          {isPurchase && (
+            <>
+              <label className="sf-field">
+                <span className="sf-label">Supplier bill #</span>
+                <input
+                  className="sf-input"
+                  placeholder="e.g. 4521"
+                  value={draft.supplier_bill_number || ''}
+                  onChange={set('supplier_bill_number')}
+                  autoCorrect="off"
+                  autoCapitalize="characters"
+                  spellCheck="false"
+                />
+              </label>
+              <div className="sf-grid">
+                <label className="sf-field">
+                  <span className="sf-label">Vehicle #</span>
+                  <input
+                    className="sf-input"
+                    placeholder="MH12-AB-8821"
+                    value={draft.vehicle_number || ''}
+                    onChange={set('vehicle_number')}
+                    autoCorrect="off"
+                    autoCapitalize="characters"
+                    spellCheck="false"
+                  />
+                </label>
+                <label className="sf-field">
+                  <span className="sf-label">LR #</span>
+                  <input
+                    className="sf-input"
+                    placeholder="9921"
+                    value={draft.lr_number || ''}
+                    onChange={set('lr_number')}
+                    autoCorrect="off"
+                    autoCapitalize="characters"
+                    spellCheck="false"
+                  />
+                </label>
+              </div>
+              <label className="sf-field">
+                <span className="sf-label">Transport name</span>
+                <input
+                  className="sf-input"
+                  placeholder="Optional"
+                  value={draft.transport_name || ''}
+                  onChange={set('transport_name')}
+                  autoCorrect="off"
+                  autoCapitalize="words"
+                  spellCheck="false"
+                />
+              </label>
+            </>
+          )}
+
           {!isPurchase && (
             <label className="sf-field">
               <span className="sf-label">Sale type</span>
