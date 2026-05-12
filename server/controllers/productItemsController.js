@@ -173,11 +173,16 @@ async function _itemsList(req, side) {
   }
   const whereSql = where.join(' AND ');
 
-  // Per-line profit on sales side: (rate − cost_rate) × qty − discount_amount.
-  // Falls back to 0 when cost_rate is null (item with no cost recorded).
+  // Per-line profit on sales side: taxable_amount − cost_rate × qty.
+  // `taxable_amount` is already net of BOTH item-level AND bill-level
+  // (trade) discount — see salesController.js PASS 2 where the bottom
+  // bill discount is pro-rata allocated across lines before storage.
+  // Using rate × qty − discount_amount would miss the bill-discount
+  // share (discount_amount stores ONLY the item-level component) and
+  // overstate profit on any bill with a bottom discount.
   // Purchase side: line_value = rate × qty (raw before discount/tax).
   const profitOrLineValue = isSales
-    ? `((COALESCE(i.rate, 0) - COALESCE(i.cost_rate, 0)) * COALESCE(i.quantity, 0) - COALESCE(i.discount_amount, 0))::float`
+    ? `(COALESCE(i.taxable_amount, 0) - COALESCE(i.cost_rate, 0) * COALESCE(i.quantity, 0))::float`
     : `(COALESCE(i.purchase_rate, 0) * COALESCE(i.quantity, 0))::float`;
   const profitColAlias = isSales ? 'profit' : 'line_value';
   const costRateSelect = isSales ? `COALESCE(i.cost_rate, 0)::float AS cost_rate,` : '';
@@ -252,7 +257,7 @@ async function _itemsList(req, side) {
       COALESCE(SUM(i.total_amount), 0)::float           AS total_value
       ${isSales
         ? `, COALESCE(SUM(i.cost_rate * i.quantity), 0)::float                                        AS total_cost
-           , COALESCE(SUM((${rateCol} - COALESCE(i.cost_rate, 0)) * i.quantity - i.discount_amount), 0)::float AS total_profit`
+           , COALESCE(SUM(i.taxable_amount - i.cost_rate * i.quantity), 0)::float                     AS total_profit`
         : ''}
       FROM ${itemTbl} i
       JOIN ${billTbl} b ON b.${billPK} = i.${billPK}
@@ -321,9 +326,10 @@ function _normalise(r, isSales) {
   if (isSales) {
     out.cost_rate = r2(r.cost_rate);
     out.profit    = r2(r.profit);
-    // Profit % on the line's rate × qty (sale value), to keep it
-    // comparable across products of different magnitudes.
-    const lineRevenue = (Number(r.rate) || 0) * (Number(r.quantity) || 0);
+    // Profit % uses realized revenue (taxable_amount — net of item
+    // and bill-level discount), not gross rate × qty. Gross would
+    // understate the margin on any bill with a bottom discount.
+    const lineRevenue = Number(r.taxable_amount) || 0;
     out.profit_pct = lineRevenue > 0 ? r2((Number(r.profit) / lineRevenue) * 100) : null;
   } else {
     out.line_value = r2(r.line_value);
