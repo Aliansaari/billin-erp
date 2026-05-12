@@ -478,20 +478,47 @@ export default function VoucherForm({ type }) {
           ))}
         </div>
 
-        {/* Bank picker / cheque fields when relevant */}
-        {mode !== 'Cash' && banks.length > 0 && (
-          <select
-            className="vf-bank-select"
-            value={bankId || ''}
-            onChange={(e) => setBankId(Number(e.target.value))}
-          >
-            {banks.map((b) => (
-              <option key={b.ledger_id || b.id} value={b.ledger_id || b.id}>
-                {b.ledger_name || b.name}
-              </option>
-            ))}
-          </select>
-        )}
+        {/* Bank picker — only when the mode is non-cash. If the firm
+            only has one bank ledger, we render it as a static info row
+            (no useless dropdown chrome); multi-bank firms get a real
+            picker with balance preview alongside the name. */}
+        {mode !== 'Cash' && banks.length > 0 && (() => {
+          const pick = banks.find((b) => (b.ledger_id || b.id) === bankId) || banks[0];
+          const bal = Number(pick.balance) || 0;
+          if (banks.length === 1) {
+            return (
+              <div className="vf-bank-info">
+                <span className="vf-bank-info-icon">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 21h18M5 21V10l7-6 7 6v11M9 9h6"/>
+                  </svg>
+                </span>
+                <span className="vf-bank-info-name">{pick.ledger_name || pick.name}</span>
+                <span className="vf-bank-info-bal">₹{formatINR(bal)}</span>
+              </div>
+            );
+          }
+          return (
+            <label className="vf-bank-select-wrap">
+              <span className="vf-bank-select-text">
+                {pick.ledger_name || pick.name}
+                <span className="vf-bank-select-bal"> · ₹{formatINR(bal)}</span>
+              </span>
+              <svg className="vf-bank-select-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+              <select
+                className="vf-bank-select-native"
+                value={bankId || ''}
+                onChange={(e) => setBankId(Number(e.target.value))}
+              >
+                {banks.map((b) => (
+                  <option key={b.ledger_id || b.id} value={b.ledger_id || b.id}>
+                    {(b.ledger_name || b.name)} · ₹{formatINR(Number(b.balance) || 0)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          );
+        })()}
         {mode === 'Cheque' && (
           <div className="vf-cheque-row">
             <input
