@@ -196,11 +196,11 @@ body.scan-active .pt-stage {
   margin-top: 4px;
 }
 
+/* Row layout: 3 stacked sections so nothing gets clipped. Head
+   (number + name + ✕) → variant chips (wrap freely) → controls
+   (qty stepper + rate + total). */
 .ss-line {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 4px;
+  padding: 10px 4px 12px;
   border-bottom: 1px solid var(--c-line-2);
   animation: ss-line-in 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
@@ -208,6 +208,13 @@ body.scan-active .pt-stage {
 @keyframes ss-line-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0);   }
+}
+
+.ss-line-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 6px;
 }
 
 .ss-line-num {
@@ -222,35 +229,93 @@ body.scan-active .pt-stage {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 1px;
   font-variant-numeric: tabular-nums;
 }
 
-.ss-line-body { flex: 1; min-width: 0; }
 .ss-line-name {
-  font-size: 13.5px;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
   font-weight: 700;
   color: var(--c-text);
   letter-spacing: -0.01em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ss-line-meta {
-  font-size: 10.5px;
-  color: var(--c-text-mute);
-  letter-spacing: 0.01em;
-  margin: 1px 0 4px;
+  line-height: 1.25;
+  /* Wrap freely — long product names shouldn't get cut off. */
+  white-space: normal;
+  word-break: break-word;
 }
 
-.ss-line-qty {
+.ss-line-remove {
+  background: none;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--c-text-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+.ss-line-remove:active { background: var(--c-bg-page); color: var(--c-error); }
+
+/* Variant chips — small label-value pills that wrap onto multiple
+   rows if there are many. Operator sees Size/ART/HSN/GST/MRP/Box
+   without anything truncating. */
+.ss-line-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding-left: 32px;          /* aligns with name, past the num circle */
+  margin-bottom: 8px;
+}
+.ss-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border-soft);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ss-chip-label {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-mute);
+}
+.ss-chip-val {
+  font-weight: 600;
+  color: var(--c-text-2);
+}
+
+/* Controls row — qty stepper + rate + total in a single line. */
+.ss-line-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 32px;
+  flex-wrap: wrap;
+}
+
+.ss-qty-group {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
+
 .ss-qty-btn {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
   background: var(--c-bg-page);
   border: 1px solid var(--c-border);
@@ -269,8 +334,8 @@ body.scan-active .pt-stage {
 .ss-qty-btn:active { background: var(--c-primary-soft); }
 
 .ss-qty-input {
-  width: 52px;
-  height: 26px;
+  width: 56px;
+  height: 28px;
   background: var(--c-bg-page);
   border: 1px solid var(--c-border);
   border-radius: 6px;
@@ -289,38 +354,40 @@ body.scan-active .pt-stage {
   -webkit-appearance: none;
   margin: 0;
 }
+.ss-qty-unit {
+  font-size: 10px;
+  color: var(--c-text-mute);
+  letter-spacing: 0.04em;
+}
 
-.ss-line-rate {
-  font-size: 11px;
+.ss-rate-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ss-rate-text {
+  font-size: 11.5px;
   color: var(--c-text-mute);
   font-variant-numeric: tabular-nums;
-  margin-left: 2px;
+  white-space: nowrap;
 }
+.ss-box-text {
+  font-size: 10px;
+  color: var(--c-primary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .ss-line-total {
   margin-left: auto;
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--c-text);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-
-.ss-line-remove {
-  background: none;
-  border: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  color: var(--c-text-faint);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  letter-spacing: -0.015em;
   flex-shrink: 0;
-  margin-top: 0;
-  -webkit-tap-highlight-color: transparent;
 }
-.ss-line-remove:active { background: var(--c-bg-page); color: var(--c-error); }
 
 /* ── Sticky commit bar ────────────────────────────────────────────── */
 .ss-commit-bar {

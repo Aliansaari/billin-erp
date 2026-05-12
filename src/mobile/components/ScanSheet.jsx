@@ -247,20 +247,49 @@ function ScanSheetInner({ type, onAdd, onClose }) {
             const q = Number(l.quantity) || 0;
             const r = Number(l.rate) || 0;
             const total = q * r;
+            const qpb = Number(l.quantity_per_box) || 1;
+            const boxes = qpb > 1 ? Math.floor(q / qpb) : 0;
+            const loose = qpb > 1 ? q % qpb : 0;
+            const boxLabel = qpb > 1
+              ? (loose === 0
+                  ? `${boxes} box${boxes === 1 ? '' : 'es'}`
+                  : `${boxes} + ${loose}`)
+              : null;
+            // Variant chips — show every detail the operator wants to
+            // verify mid-scan. Each goes on its own line/wrap so nothing
+            // gets clipped.
+            const chips = [
+              l.size && { k: 'size', label: 'Size', val: l.size },
+              l.article_number && { k: 'art', label: 'ART', val: l.article_number },
+              l.hsn_code && { k: 'hsn', label: 'HSN', val: l.hsn_code },
+              l.gst_rate > 0 && { k: 'gst', label: 'GST', val: `${l.gst_rate}%` },
+              l.mrp > 0 && { k: 'mrp', label: 'MRP', val: `₹${formatINR(l.mrp)}` },
+              qpb > 1 && { k: 'qpb', label: 'Box', val: `${qpb} pcs` },
+            ].filter(Boolean);
             return (
               <div key={l._key + ':' + idx} className="ss-line">
-                <div className="ss-line-num">{idx + 1}</div>
-                <div className="ss-line-body">
+                <div className="ss-line-head">
+                  <div className="ss-line-num">{idx + 1}</div>
                   <div className="ss-line-name">{l.product_name}</div>
-                  <div className="ss-line-meta">
-                    {[
-                      l.size,
-                      l.article_number && `ART-${l.article_number}`,
-                      l.mrp > 0 && `MRP ₹${formatINR(l.mrp)}`,
-                    ].filter(Boolean).join(' · ') || '—'}
+                  <button className="ss-line-remove" onClick={() => removeLine(idx)} aria-label="Remove">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+                {chips.length > 0 && (
+                  <div className="ss-line-chips">
+                    {chips.map((c) => (
+                      <span key={c.k} className="ss-chip">
+                        <span className="ss-chip-label">{c.label}</span>
+                        <span className="ss-chip-val">{c.val}</span>
+                      </span>
+                    ))}
                   </div>
-                  <div className="ss-line-qty">
-                    <button className="ss-qty-btn" onClick={() => bumpQty(idx, -(l.quantity_per_box || 1))} aria-label="Decrease">−</button>
+                )}
+
+                <div className="ss-line-controls">
+                  <div className="ss-qty-group">
+                    <button className="ss-qty-btn" onClick={() => bumpQty(idx, -qpb)} aria-label="Decrease">−</button>
                     <input
                       className="ss-qty-input"
                       type="number"
@@ -268,14 +297,15 @@ function ScanSheetInner({ type, onAdd, onClose }) {
                       value={l.quantity}
                       onChange={(e) => setQty(idx, e.target.value)}
                     />
-                    <button className="ss-qty-btn" onClick={() => bumpQty(idx, (l.quantity_per_box || 1))} aria-label="Increase">+</button>
-                    <span className="ss-line-rate">× ₹{formatINR(r)}</span>
-                    <span className="ss-line-total">₹{formatINR(Math.round(total))}</span>
+                    <button className="ss-qty-btn" onClick={() => bumpQty(idx, qpb)} aria-label="Increase">+</button>
+                    <span className="ss-qty-unit">{l.unit_type || 'pcs'}</span>
                   </div>
+                  <div className="ss-rate-block">
+                    <span className="ss-rate-text">× ₹{formatINR(r)}</span>
+                    {boxLabel && <span className="ss-box-text">{boxLabel}</span>}
+                  </div>
+                  <div className="ss-line-total">₹{formatINR(Math.round(total))}</div>
                 </div>
-                <button className="ss-line-remove" onClick={() => removeLine(idx)} aria-label="Remove">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                </button>
               </div>
             );
           })}
