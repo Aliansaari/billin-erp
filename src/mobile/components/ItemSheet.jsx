@@ -331,9 +331,7 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
             </label>
           </div>
 
-          {/* Purchase only: pcs / box. Drives the stock accounting
-              "boxes vs loose pieces" math on the server. Hidden on sale
-              since selling rarely cares about the master carton. */}
+          {/* Purchase only: pcs / box paired with MRP. */}
           {isPurchase && (
             <div className="sf-grid">
               <label className="sf-field">
@@ -349,20 +347,14 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
                 />
               </label>
               <label className="sf-field">
-                <span className="sf-label">Boxes</span>
+                <span className="sf-label">MRP</span>
                 <input
                   className="sf-input"
-                  type="text"
-                  readOnly
-                  value={(() => {
-                    const q = Number(quantity) || 0;
-                    const b = Number(qpb) || 1;
-                    if (b <= 0) return '—';
-                    const boxes = Math.floor(q / b);
-                    const loose = q % b;
-                    return loose === 0 ? `${boxes} box${boxes === 1 ? '' : 'es'}` : `${boxes} + ${loose}`;
-                  })()}
-                  style={{ color: 'var(--c-text-mute)' }}
+                  type="number"
+                  inputMode="decimal"
+                  value={mrp}
+                  onChange={(e) => setMrp(e.target.value)}
+                  placeholder="0.00"
                 />
               </label>
             </div>
@@ -394,19 +386,23 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
             </div>
           )}
 
-          {/* Purchase only: MRP + Sale rate (which drives Margin%). */}
+          {/* Purchase only: Margin% (auto) → Sale rate → GST%.
+              Operator types purchase rate above, sees margin update
+              live as they fill Sale rate, then sets GST. */}
           {isPurchase && (
             <>
               <div className="sf-grid">
                 <label className="sf-field">
-                  <span className="sf-label">MRP</span>
+                  <span className="sf-label">Margin %</span>
                   <input
                     className="sf-input"
-                    type="number"
-                    inputMode="decimal"
-                    value={mrp}
-                    onChange={(e) => setMrp(e.target.value)}
-                    placeholder="0.00"
+                    type="text"
+                    readOnly
+                    value={margin ? `${margin.toFixed(2)}%` : '—'}
+                    style={{
+                      color: margin < 0 ? 'var(--c-error)' : (margin >= 10 ? 'var(--c-success)' : 'var(--c-text-2)'),
+                      fontWeight: 600,
+                    }}
                   />
                 </label>
                 <label className="sf-field">
@@ -423,19 +419,6 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
               </div>
               <div className="sf-grid">
                 <label className="sf-field">
-                  <span className="sf-label">Margin %</span>
-                  <input
-                    className="sf-input"
-                    type="text"
-                    readOnly
-                    value={margin ? `${margin.toFixed(2)}%` : '—'}
-                    style={{
-                      color: margin < 0 ? 'var(--c-error)' : (margin >= 10 ? 'var(--c-success)' : 'var(--c-text-2)'),
-                      fontWeight: 600,
-                    }}
-                  />
-                </label>
-                <label className="sf-field">
                   <span className="sf-label">GST %</span>
                   <input
                     className="sf-input"
@@ -445,6 +428,7 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
                     onChange={(e) => setGstRate(e.target.value)}
                   />
                 </label>
+                <span /> {/* spacer to keep grid alignment */}
               </div>
             </>
           )}
