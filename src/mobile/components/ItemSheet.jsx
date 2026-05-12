@@ -28,10 +28,16 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
   const [rate, setRate]         = useState(init.rate != null ? String(init.rate) : '');
   const [discPct, setDiscPct]   = useState(init.discount_percentage != null ? String(init.discount_percentage) : '0');
   const [gstRate, setGstRate]   = useState(init.gst_rate != null ? String(init.gst_rate) : '0');
-  // Purchase-only: MRP and our intended sale price. Margin% is
-  // derived from purchase_rate (`rate`) and `saleRate` on the fly.
+  // Purchase-only: MRP, sale price, and margin%. The user can type
+  // EITHER margin OR sale rate — typing one re-derives the other from
+  // the current purchase rate, so the operator works in whichever
+  // unit they think in (margin for buying decisions, sale rate for
+  // displayed price).
   const [mrp, setMrp]           = useState(init.mrp != null ? String(init.mrp) : '');
   const [saleRate, setSaleRate] = useState(init.sale_rate != null ? String(init.sale_rate) : '');
+  const [marginInput, setMarginInput] = useState(
+    init.margin_percentage != null ? String(init.margin_percentage) : ''
+  );
   // Variant identifiers — shown for both sale + purchase so the
   // operator can pin down the right SKU or stamp a new one.
   const [size, setSize]               = useState(init.size || '');
@@ -122,7 +128,15 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
     setGstRate(String(Number(p.gst_rate) || 0));
     if (isPurchase) {
       if (Number(p.mrp) > 0) setMrp(String(p.mrp));
-      if (Number(p.sale_rate) > 0) setSaleRate(String(p.sale_rate));
+      const pr = Number(p.purchase_rate || p.last_purchase_rate || 0);
+      const sr = Number(p.sale_rate || 0);
+      if (sr > 0) setSaleRate(String(sr));
+      // Seed marginInput from master if both rates are known.
+      if (pr > 0 && sr > 0) {
+        setMarginInput((((sr - pr) / pr) * 100).toFixed(2));
+      } else {
+        setMarginInput('');
+      }
     }
     // Pre-fill pcs/box from master if the user hasn't already set a value.
     if (qpb === '1' || !qpb) setQpb(String(qpbFromMaster));
@@ -153,11 +167,36 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
   const taxable = gross - lineDisc;
   const tax = taxable * gst / 100;
   const total = taxable + tax;
-  // Margin = (sale − purchase) / purchase × 100. Negative if user
-  // sets sale below cost (we let them — the warning is on display).
-  const margin = (isPurchase && r > 0 && saleRateN > 0)
-    ? ((saleRateN - r) / r) * 100
-    : 0;
+  // Margin% for save + display. Prefer the user-typed value if
+  // present (so we don't lose precision typed in marginInput), else
+  // derive from purchase + sale rates.
+  const margin = marginInput !== ''
+    ? (Number(marginInput) || 0)
+    : (isPurchase && r > 0 && saleRateN > 0)
+      ? ((saleRateN - r) / r) * 100
+      : 0;
+
+  // Typing margin recomputes sale_rate from the current purchase rate.
+  // Typing sale_rate recomputes margin. Both update each other so the
+  // operator can work in whichever number they think in.
+  const onMarginChange = (val) => {
+    setMarginInput(val);
+    const m = Number(val);
+    if (Number.isFinite(m) && r > 0) {
+      const sr = r * (1 + m / 100);
+      setSaleRate(sr ? sr.toFixed(2) : '');
+    }
+  };
+  const onSaleRateChange = (val) => {
+    setSaleRate(val);
+    const sr = Number(val);
+    if (Number.isFinite(sr) && r > 0) {
+      const m = ((sr - r) / r) * 100;
+      setMarginInput(Number.isFinite(m) ? m.toFixed(2) : '');
+    } else if (val === '') {
+      setMarginInput('');
+    }
+  };
 
   const valid = (picked || productQuery.trim().length > 0) && q > 0 && r >= 0;
 
@@ -396,12 +435,14 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
                   <span className="sf-label">Margin %</span>
                   <input
                     className="sf-input"
-                    type="text"
-                    readOnly
-                    value={margin ? `${margin.toFixed(2)}%` : '—'}
+                    type="number"
+                    inputMode="decimal"
+                    value={marginInput}
+                    onChange={(e) => onMarginChange(e.target.value)}
+                    placeholder="0"
                     style={{
-                      color: margin < 0 ? 'var(--c-error)' : (margin >= 10 ? 'var(--c-success)' : 'var(--c-text-2)'),
-                      fontWeight: 600,
+                      color: margin < 0 ? 'var(--c-error)' : (margin >= 10 ? 'var(--c-success)' : 'var(--c-text)'),
+                      fontWeight: marginInput !== '' ? 600 : 400,
                     }}
                   />
                 </label>
@@ -412,7 +453,7 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
                     type="number"
                     inputMode="decimal"
                     value={saleRate}
-                    onChange={(e) => setSaleRate(e.target.value)}
+                    onChange={(e) => onSaleRateChange(e.target.value)}
                     placeholder="0.00"
                   />
                 </label>
