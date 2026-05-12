@@ -36,6 +36,10 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
   // operator can pin down the right SKU or stamp a new one.
   const [size, setSize]               = useState(init.size || '');
   const [articleNumber, setArticleNumber] = useState(init.article_number || '');
+  // Pieces / box — drives the stock-accounting box math on the server.
+  // Editable on purchase so the operator can correct a supplier who
+  // sent a different carton size than what's in the master.
+  const [qpb, setQpb] = useState(init.quantity_per_box != null ? String(init.quantity_per_box) : '1');
 
   const searchRef = useRef(null);
 
@@ -91,7 +95,7 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
   }, []);
 
   const handlePickProduct = (p) => {
-    const qpb = Number(p.quantity_per_box) || 1;
+    const qpbFromMaster = Number(p.quantity_per_box) || 1;
     setPicked({
       product_id: p.product_id || p.id,
       product_name: p.product_name || p.name,
@@ -99,7 +103,7 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
       hsn_code: p.hsn_code || '',
       gst_rate: Number(p.gst_rate) || 0,
       unit_type: p.unit_of_measurement || 'Pcs',
-      quantity_per_box: qpb,
+      quantity_per_box: qpbFromMaster,
       mrp: Number(p.mrp) || 0,
       size: p.size_value || '',
       article_number: p.article_number || '',
@@ -116,15 +120,15 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
       : Number(p.sale_rate || 0);
     if (newRate > 0) setRate(String(newRate));
     setGstRate(String(Number(p.gst_rate) || 0));
-    // Purchase: also pre-fill MRP + sale_rate from the product master so
-    // the operator can review-and-adjust rather than retype.
     if (isPurchase) {
       if (Number(p.mrp) > 0) setMrp(String(p.mrp));
       if (Number(p.sale_rate) > 0) setSaleRate(String(p.sale_rate));
     }
-    // Wholesale default: 1 full box if pcs/box > 1, else 1 pc.
-    if (qpb > 1 && (quantity === '' || quantity === '1')) {
-      setQuantity(String(qpb));
+    // Pre-fill pcs/box from master if the user hasn't already set a value.
+    if (qpb === '1' || !qpb) setQpb(String(qpbFromMaster));
+    // Wholesale default: 1 full box of pieces if qpb > 1.
+    if (qpbFromMaster > 1 && (quantity === '' || quantity === '1')) {
+      setQuantity(String(qpbFromMaster));
     }
     setSearchFocused(false);
     searchRef.current?.blur();
@@ -166,7 +170,7 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
       hsn_code: picked?.hsn_code || '',
       gst_rate: gst,
       unit_type: picked?.unit_type || 'Pcs',
-      quantity_per_box: picked?.quantity_per_box || 1,
+      quantity_per_box: Number(qpb) || picked?.quantity_per_box || 1,
       mrp: mrpN,
       sale_rate: saleRateN,         // purchase-only — sale handler ignores
       margin_percentage: margin,    // purchase-only
@@ -326,6 +330,43 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
               />
             </label>
           </div>
+
+          {/* Purchase only: pcs / box. Drives the stock accounting
+              "boxes vs loose pieces" math on the server. Hidden on sale
+              since selling rarely cares about the master carton. */}
+          {isPurchase && (
+            <div className="sf-grid">
+              <label className="sf-field">
+                <span className="sf-label">Pcs / box</span>
+                <input
+                  className="sf-input"
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  value={qpb}
+                  onChange={(e) => setQpb(e.target.value)}
+                  placeholder="1"
+                />
+              </label>
+              <label className="sf-field">
+                <span className="sf-label">Boxes</span>
+                <input
+                  className="sf-input"
+                  type="text"
+                  readOnly
+                  value={(() => {
+                    const q = Number(quantity) || 0;
+                    const b = Number(qpb) || 1;
+                    if (b <= 0) return '—';
+                    const boxes = Math.floor(q / b);
+                    const loose = q % b;
+                    return loose === 0 ? `${boxes} box${boxes === 1 ? '' : 'es'}` : `${boxes} + ${loose}`;
+                  })()}
+                  style={{ color: 'var(--c-text-mute)' }}
+                />
+              </label>
+            </div>
+          )}
 
           {/* Sale only: Discount %. Purchase doesn't typically carry line-disc. */}
           {!isPurchase && (
