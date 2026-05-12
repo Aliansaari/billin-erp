@@ -95,17 +95,32 @@ export default function VoucherForm({ type }) {
       .catch(() => {});
   }, []);
 
-  // When party changes, fetch their unpaid bills.
+  // When party changes, fetch their unpaid bills and auto-select all of
+  // them at their full balances. This matches how the desktop operator
+  // works at peak speed — most receipts ARE the full outstanding; the
+  // operator only deselects when paying short. Sets the hero amount
+  // to the total outstanding so the field doesn't sit at 0.
   useEffect(() => {
-    if (!party) { setBills([]); setAllocs({}); return; }
+    if (!party) { setBills([]); setAllocs({}); setAmount(''); return; }
     paymentAPI.getUnpaidBills({ party_id: party.party_id, type: billType })
       .then((r) => {
         const rows = Array.isArray(r.data) ? r.data : (r.data?.data || r.data?.bills || []);
         setBills(rows);
-        setAllocs({});
+        const next = {};
+        let total = 0;
+        for (const b of rows) {
+          const id = b[billKey];
+          const bal = Number(b.balance_amount) || 0;
+          if (bal > 0) {
+            next[id] = +bal.toFixed(2);
+            total += bal;
+          }
+        }
+        setAllocs(next);
+        setAmount(total > 0 ? String(+total.toFixed(2)) : '');
       })
-      .catch(() => { setBills([]); setAllocs({}); });
-  }, [party, billType]);
+      .catch(() => { setBills([]); setAllocs({}); setAmount(''); });
+  }, [party, billType, billKey]);
 
   const partyOutstanding = useMemo(
     () => bills.reduce((s, b) => s + Number(b.balance_amount || 0), 0),
@@ -120,6 +135,40 @@ export default function VoucherForm({ type }) {
   const amountN = Number(amount) || 0;
   const allocatedCount = Object.values(allocs).filter((v) => Number(v) > 0).length;
   const remaining = Math.max(0, amountN - allocatedTotal);
+
+  // Typing in the hero re-runs FIFO so allocations stay consistent.
+  // The amount is also clamped to the party's total outstanding —
+  // operators should never be able to over-pay against open bills.
+  const onAmountChange = (raw) => {
+    if (raw === '') {
+      setAmount('');
+      setAllocs({});
+      return;
+    }
+    let n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) n = 0;
+    if (partyOutstanding > 0 && n > partyOutstanding) {
+      n = partyOutstanding;
+    }
+    setAmount(n === 0 ? '0' : String(+n.toFixed(2)));
+    // Re-run FIFO across the oldest bills first.
+    let left = n;
+    const next = {};
+    const sorted = [...bills].sort(
+      (a, b) => new Date(a.bill_date) - new Date(b.bill_date),
+    );
+    for (const b of sorted) {
+      if (left <= 0) break;
+      const id = b[billKey];
+      const bal = Number(b.balance_amount) || 0;
+      const give = Math.min(bal, left);
+      if (give > 0) {
+        next[id] = +give.toFixed(2);
+        left -= give;
+      }
+    }
+    setAllocs(next);
+  };
 
   const setAlloc = (billId, val) => {
     setAllocs((prev) => {
@@ -324,7 +373,15 @@ export default function VoucherForm({ type }) {
               inputMode="decimal"
               placeholder="0"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => onAmountChange(e.target.value)}
+              onFocus={(e) => {
+                // After the iOS keyboard finishes animating (~250 ms)
+                // the footer has translated up and may cover the hero;
+                // scroll it into view so it lands above the footer.
+                setTimeout(() => {
+                  try { e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+                }, 280);
+              }}
             />
           </div>
           {party && quickPills.length > 0 && (
@@ -334,13 +391,13 @@ export default function VoucherForm({ type }) {
                   key={v}
                   type="button"
                   className="vf-quick-pill"
-                  onClick={() => setAmount(String((amountN || 0) + v))}
+                  onClick={() => onAmountChange(String((amountN || 0) + v))}
                 >+ ₹{v >= 100000 ? `${v / 100000}L` : `${v / 1000}k`}</button>
               ))}
               <button
                 type="button"
                 className="vf-quick-pill vf-quick-full"
-                onClick={() => setAmount(String(partyOutstanding))}
+                onClick={() => onAmountChange(String(partyOutstanding))}
               >All ₹{partyOutstanding >= 100000 ? `${(partyOutstanding / 100000).toFixed(2)}L` : formatINR(partyOutstanding)}</button>
             </div>
           )}
