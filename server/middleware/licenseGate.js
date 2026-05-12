@@ -40,6 +40,12 @@ function gate(req, res, next) {
   // always serve so the frontend can render the activation screen.
   if (!req.path.startsWith('/api/')) return next();
 
+  // Dev-only escape hatch — set BILLING_ERP_BYPASS_LICENSE=1 to skip
+  // the gate entirely. Used for local mobile-app debugging where the
+  // license is bound to a different machine fingerprint and we just
+  // want the API to work. Never set in production.
+  if (process.env.BILLING_ERP_BYPASS_LICENSE === '1') return next();
+
   if (BYPASS_PATHS.has(req.path)) return next();
 
   // /api/license/* and /api/setup/* prefixes are fully exempt — the

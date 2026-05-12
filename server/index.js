@@ -98,6 +98,11 @@ app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 // 10.x.x.x has THREE octets after "10" while 192.168.x.x has only TWO
 // after "192.168". Spelled out fully here for clarity.
 const PRIVATE_IP_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})(?::\d+)?$/i;
+// Capacitor (iOS) and Ionic (Android) WebViews send Origin like
+// "capacitor://localhost" or "ionic://localhost" — neither matches an
+// http(s) regex. Allow them so the mobile companion app can talk to a
+// LAN backend.
+const NATIVE_WEBVIEW_RE = /^(?:capacitor|ionic):\/\/localhost$/i;
 const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 const LEGACY_ORIGIN = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -113,6 +118,7 @@ app.use(cors({
     if (!origin) return cb(null, true);                                  // curl / native app / same-origin
     if (origin === LEGACY_ORIGIN) return cb(null, true);
     if (PRIVATE_IP_RE.test(origin)) return cb(null, true);
+    if (NATIVE_WEBVIEW_RE.test(origin)) return cb(null, true);
     if (EXTRA_ORIGINS.includes(origin)) return cb(null, true);
     return cb(null, false);
   },
