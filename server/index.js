@@ -2182,18 +2182,47 @@ async function startServer() {
               WHERE table_name = 'cheques' AND column_name = 'source_payment_id'
             ) THEN
               ALTER TABLE cheques ADD COLUMN source_payment_id INTEGER
-                REFERENCES payments_receipts(transaction_id);
+                REFERENCES payments_receipts(transaction_id) ON DELETE CASCADE;
             END IF;
             IF NOT EXISTS (
               SELECT 1 FROM information_schema.columns
               WHERE table_name = 'cheques' AND column_name = 'source_payment_split_id'
             ) THEN
               ALTER TABLE cheques ADD COLUMN source_payment_split_id INTEGER
-                REFERENCES payment_splits(split_id);
+                REFERENCES payment_splits(split_id) ON DELETE CASCADE;
             END IF;
             CREATE UNIQUE INDEX IF NOT EXISTS cheques_source_split_uniq
               ON cheques(source_payment_split_id)
               WHERE source_payment_split_id IS NOT NULL;
+            -- Upgrade legacy installs whose FKs were created without
+            -- ON DELETE CASCADE. The cleanup-data flow and any
+            -- payment-cancellation path would otherwise fail with
+            -- "violates foreign key constraint cheques_source_*_fkey".
+            -- A cheque is the instrument that recorded the payment;
+            -- if the payment row is deleted the cheque is meaningless,
+            -- so CASCADE is the correct rule.
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              WHERE t.relname = 'cheques' AND c.conname = 'cheques_source_payment_split_id_fkey'
+                AND c.confdeltype <> 'c'  -- not CASCADE
+            ) THEN
+              ALTER TABLE cheques DROP CONSTRAINT cheques_source_payment_split_id_fkey;
+              ALTER TABLE cheques ADD CONSTRAINT cheques_source_payment_split_id_fkey
+                FOREIGN KEY (source_payment_split_id) REFERENCES payment_splits(split_id)
+                ON DELETE CASCADE;
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              WHERE t.relname = 'cheques' AND c.conname = 'cheques_source_payment_id_fkey'
+                AND c.confdeltype <> 'c'
+            ) THEN
+              ALTER TABLE cheques DROP CONSTRAINT cheques_source_payment_id_fkey;
+              ALTER TABLE cheques ADD CONSTRAINT cheques_source_payment_id_fkey
+                FOREIGN KEY (source_payment_id) REFERENCES payments_receipts(transaction_id)
+                ON DELETE CASCADE;
+            END IF;
           END IF;
         END $$;
       `);
