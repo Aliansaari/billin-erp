@@ -18,6 +18,7 @@ import Outstanding from './pages/Outstanding';
 import Reports from './pages/Reports';
 import BillForm from './pages/BillForm';
 import VoucherForm from './pages/VoucherForm';
+import PartyForm from './pages/PartyForm';
 import AppShell from './components/AppShell';
 
 function ProtectedRoute({ children }) {
@@ -75,6 +76,8 @@ export default function MobileApp() {
           <Route path="/purchase/new"  element={<BillForm type="purchase" />} />
           <Route path="/receipt/new"   element={<VoucherForm type="Receipt" />} />
           <Route path="/payment/new"   element={<VoucherForm type="Payment" />} />
+          <Route path="/customer/new"  element={<PartyForm type="Customer" />} />
+          <Route path="/supplier/new"  element={<PartyForm type="Supplier" />} />
           <Route path="/outstanding" element={<Outstanding />} />
           <Route path="/stock"      element={<Stock />} />
           <Route path="/stock/:id"  element={<StockMovement />} />
