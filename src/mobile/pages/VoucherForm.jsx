@@ -67,6 +67,7 @@ export default function VoucherForm({ type }) {
   const [party, setParty]         = useState(null);
   const [bills, setBills]         = useState([]);
   const [allocs, setAllocs]       = useState({}); // {bill_id: amount}
+  const [selected, setSelected]   = useState(() => new Set());
   const [amount, setAmount]       = useState('');
   const [mode, setMode]           = useState(isReceipt ? 'Cash' : 'UPI');
   const [banks, setBanks]         = useState([]);
@@ -95,32 +96,55 @@ export default function VoucherForm({ type }) {
       .catch(() => {});
   }, []);
 
-  // When party changes, fetch their unpaid bills and auto-select all of
-  // them at their full balances. This matches how the desktop operator
-  // works at peak speed — most receipts ARE the full outstanding; the
-  // operator only deselects when paying short. Sets the hero amount
-  // to the total outstanding so the field doesn't sit at 0.
+  // When party changes, fetch unpaid bills and mark ALL of them as
+  // selected by default. Amount stays empty — the operator types it.
+  // As they type, FIFO walks the selected bills oldest-first. If they
+  // uncheck a bill, that bill is skipped and the next selected one
+  // gets the money instead.
   useEffect(() => {
-    if (!party) { setBills([]); setAllocs({}); setAmount(''); return; }
+    if (!party) {
+      setBills([]); setAllocs({}); setSelected(new Set()); setAmount('');
+      return;
+    }
     paymentAPI.getUnpaidBills({ party_id: party.party_id, type: billType })
       .then((r) => {
         const rows = Array.isArray(r.data) ? r.data : (r.data?.data || r.data?.bills || []);
         setBills(rows);
-        const next = {};
-        let total = 0;
+        // Pre-select every bill with a positive balance.
+        const sel = new Set();
         for (const b of rows) {
-          const id = b[billKey];
-          const bal = Number(b.balance_amount) || 0;
-          if (bal > 0) {
-            next[id] = +bal.toFixed(2);
-            total += bal;
-          }
+          if (Number(b.balance_amount) > 0) sel.add(b[billKey]);
         }
-        setAllocs(next);
-        setAmount(total > 0 ? String(+total.toFixed(2)) : '');
+        setSelected(sel);
+        setAllocs({});
+        setAmount('');
       })
-      .catch(() => { setBills([]); setAllocs({}); setAmount(''); });
+      .catch(() => {
+        setBills([]); setAllocs({}); setSelected(new Set()); setAmount('');
+      });
   }, [party, billType, billKey]);
+
+  // FIFO across the SELECTED bills only. Re-runs whenever amount or
+  // selection changes, and on initial bill load.
+  const recompute = (amt, selSet, billList) => {
+    let left = Number(amt) || 0;
+    const next = {};
+    const sorted = [...billList].sort(
+      (a, b) => new Date(a.bill_date) - new Date(b.bill_date),
+    );
+    for (const b of sorted) {
+      if (left <= 0) break;
+      const id = b[billKey];
+      if (!selSet.has(id)) continue;
+      const bal = Number(b.balance_amount) || 0;
+      const give = Math.min(bal, left);
+      if (give > 0) {
+        next[id] = +give.toFixed(2);
+        left -= give;
+      }
+    }
+    return next;
+  };
 
   const partyOutstanding = useMemo(
     () => bills.reduce((s, b) => s + Number(b.balance_amount || 0), 0),
@@ -136,9 +160,9 @@ export default function VoucherForm({ type }) {
   const allocatedCount = Object.values(allocs).filter((v) => Number(v) > 0).length;
   const remaining = Math.max(0, amountN - allocatedTotal);
 
-  // Typing in the hero re-runs FIFO so allocations stay consistent.
-  // The amount is also clamped to the party's total outstanding —
-  // operators should never be able to over-pay against open bills.
+  // Typing in the hero re-runs FIFO across the SELECTED bills and
+  // clamps the amount to the sum of selected balances (so the operator
+  // can never overpay).
   const onAmountChange = (raw) => {
     if (raw === '') {
       setAmount('');
@@ -147,83 +171,45 @@ export default function VoucherForm({ type }) {
     }
     let n = Number(raw);
     if (!Number.isFinite(n) || n < 0) n = 0;
-    if (partyOutstanding > 0 && n > partyOutstanding) {
-      n = partyOutstanding;
-    }
-    setAmount(n === 0 ? '0' : String(+n.toFixed(2)));
-    // Re-run FIFO across the oldest bills first.
-    let left = n;
-    const next = {};
-    const sorted = [...bills].sort(
-      (a, b) => new Date(a.bill_date) - new Date(b.bill_date),
+    const selectedCap = bills.reduce(
+      (s, b) => s + (selected.has(b[billKey]) ? Number(b.balance_amount || 0) : 0),
+      0,
     );
-    for (const b of sorted) {
-      if (left <= 0) break;
-      const id = b[billKey];
-      const bal = Number(b.balance_amount) || 0;
-      const give = Math.min(bal, left);
-      if (give > 0) {
-        next[id] = +give.toFixed(2);
-        left -= give;
-      }
-    }
-    setAllocs(next);
+    if (selectedCap > 0 && n > selectedCap) n = selectedCap;
+    setAmount(n === 0 ? '0' : String(+n.toFixed(2)));
+    setAllocs(recompute(n, selected, bills));
   };
 
-  const setAlloc = (billId, val) => {
-    setAllocs((prev) => {
-      const next = { ...prev };
-      const n = Number(val) || 0;
-      if (n <= 0) delete next[billId];
-      else next[billId] = n;
+  const toggleSelected = (bill) => {
+    const id = bill[billKey];
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      // Recompute allocs against the new selection. Also clamp the
+      // amount if the unchecked bill made the selection cap shrink
+      // below the typed amount.
+      const cap = bills.reduce(
+        (s, b) => s + (next.has(b[billKey]) ? Number(b.balance_amount || 0) : 0),
+        0,
+      );
+      const amtNow = Number(amount) || 0;
+      const newAmt = amtNow > cap ? cap : amtNow;
+      if (newAmt !== amtNow) setAmount(newAmt === 0 ? '' : String(+newAmt.toFixed(2)));
+      setAllocs(recompute(newAmt, next, bills));
       return next;
     });
   };
 
-  const toggleAlloc = (bill) => {
-    const id = bill[billKey];
-    const balance = Number(bill.balance_amount) || 0;
-    if (allocs[id] != null) {
-      setAlloc(id, 0);
-      return;
-    }
-    // First-tap = allocate full bill balance up to whatever's left of the
-    // typed amount. If amount hasn't been entered, just queue the bill balance
-    // and bump the amount.
-    const free = amountN > 0 ? Math.max(0, amountN - allocatedTotal) : balance;
-    const give = amountN > 0 ? Math.min(balance, free) : balance;
-    if (give > 0) {
-      setAlloc(id, give);
-      if (amountN === 0) setAmount(String(balance));
-    } else {
-      // amount fully consumed — allow allocation anyway (user can adjust)
-      setAlloc(id, balance);
-      setAmount(String(amountN + balance));
-    }
-  };
-
-  // FIFO auto-fill — distribute the typed amount across oldest bills first.
+  // Manual "fill the typed amount across selected bills now" — most
+  // operators won't need it (amount-typing already re-runs FIFO) but
+  // it's a reassurance button matching the mockup.
   const autoFill = () => {
     if (amountN <= 0) {
       Toast.show({ content: 'Enter an amount first' });
       return;
     }
-    let left = amountN;
-    const next = {};
-    const sorted = [...bills].sort(
-      (a, b) => new Date(a.bill_date) - new Date(b.bill_date),
-    );
-    for (const b of sorted) {
-      if (left <= 0) break;
-      const id = b[billKey];
-      const bal = Number(b.balance_amount) || 0;
-      const give = Math.min(bal, left);
-      if (give > 0) {
-        next[id] = +give.toFixed(2);
-        left -= give;
-      }
-    }
-    setAllocs(next);
+    setAllocs(recompute(amountN, selected, bills));
   };
 
   const handleSave = async () => {
@@ -419,18 +405,32 @@ export default function VoucherForm({ type }) {
                 const id = b[billKey];
                 const balance = Number(b.balance_amount) || 0;
                 const allocated = Number(allocs[id]) || 0;
+                const isSelected  = selected.has(id);
                 const isAllocated = allocated > 0;
-                const isFull = allocated >= balance - 0.01;
+                const isFull = isAllocated && allocated >= balance - 0.01;
+                const isPartial = isAllocated && !isFull;
                 const age = daysSince(b.bill_date);
                 const ageClass = age >= 60 ? 'crit' : age >= 30 ? 'warn' : '';
+                // Check state:
+                //   filled gradient + tick → bill paying in full
+                //   coloured ring + minus  → bill paying partial
+                //   coloured ring (empty)  → selected but waiting on amount
+                //   muted ring             → user unchecked it
+                const checkCls = isFull
+                  ? ' vf-check--full'
+                  : isPartial
+                    ? ' vf-check--partial'
+                    : isSelected
+                      ? ' vf-check--selected'
+                      : '';
                 return (
                   <div
                     key={id}
-                    className={`vf-bill${isAllocated ? ' vf-bill--alloc' : ''}`}
-                    onClick={() => toggleAlloc(b)}
+                    className={`vf-bill${isAllocated ? ' vf-bill--alloc' : ''}${!isSelected ? ' vf-bill--dim' : ''}`}
+                    onClick={() => toggleSelected(b)}
                   >
-                    <div className={`vf-check${isAllocated ? (isFull ? ' vf-check--full' : ' vf-check--partial') : ''}`}>
-                      {isAllocated && (isFull ? <CheckIcon /> : <PartialIcon />)}
+                    <div className={`vf-check${checkCls}`}>
+                      {isFull ? <CheckIcon /> : (isPartial ? <PartialIcon /> : null)}
                     </div>
                     <div className="vf-bill-info">
                       <div className="vf-bill-row1">
