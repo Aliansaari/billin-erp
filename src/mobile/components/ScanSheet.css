@@ -1,0 +1,318 @@
+/* ── ScanSheet — half camera / half product card ───────────────────── */
+
+/* When MLKit's startScan() is active, the WebView's body needs to be
+   transparent so the native camera preview shows through. We hide
+   every direct body child EXCEPT our .ss-root overlay (and antd-mobile
+   portals like Toast/Modal which we render later). */
+body.scan-active {
+  background: transparent !important;
+}
+body.scan-active > * {
+  visibility: hidden;
+}
+body.scan-active .ss-root,
+body.scan-active .adm-toast-wrap,
+body.scan-active .adm-mask {
+  visibility: visible;
+}
+/* The .pf-screen / .bf-screen / .vf-screen wrappers normally paint a
+   page background; force them transparent while the camera is up. */
+body.scan-active #root,
+body.scan-active .app-shell,
+body.scan-active .app-shell-body,
+body.scan-active .pt-stage {
+  background: transparent !important;
+}
+
+.ss-root {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--adm-font-family);
+  color: #F5EDE0;
+  /* The top half is transparent (camera shows) so don't paint here. */
+}
+
+/* ── Top half: camera + viewfinder ────────────────────────────────── */
+.ss-camera {
+  flex: 1.05;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Subtle vignette so the viewfinder pops; mostly transparent though */
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 50%, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+.ss-close {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #F5EDE0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+  z-index: 2;
+}
+
+.ss-frame {
+  width: min(260px, 70%);
+  aspect-ratio: 1 / 1;
+  position: relative;
+}
+.ss-corner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--c-primary, #DD5527);
+  border-radius: 4px;
+}
+.ss-corner--tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+.ss-corner--tr { top: 0; right: 0; border-left: none;  border-bottom: none; }
+.ss-corner--bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+.ss-corner--br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+.ss-scanline {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent, var(--c-primary, #DD5527), transparent);
+  box-shadow: 0 0 12px rgba(221, 85, 39, 0.6);
+  animation: ss-scan 1.6s ease-in-out infinite alternate;
+}
+@keyframes ss-scan {
+  from { transform: translateY(0); }
+  to   { transform: translateY(calc(min(260px, 70vw) - 4px)); }
+}
+
+.ss-hint {
+  position: absolute;
+  bottom: 14px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(245, 237, 224, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  padding: 0 16px;
+}
+.ss-hint-error { color: #FB7185; }
+
+/* ── Bottom half: product card ────────────────────────────────────── */
+.ss-card {
+  flex: 1;
+  background: var(--c-bg-surface);
+  color: var(--c-text);
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.30);
+  padding: 18px 18px max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.ss-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px 16px;
+}
+.ss-empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-text);
+  letter-spacing: -0.015em;
+}
+.ss-empty-sub {
+  font-size: 12px;
+  color: var(--c-text-mute);
+  margin-top: 4px;
+}
+
+.ss-unknown {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 14px;
+  gap: 4px;
+}
+.ss-unknown-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-warning);
+}
+.ss-unknown-code {
+  font-family: var(--adm-font-family);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text);
+  padding: 4px 10px;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  margin: 4px 0;
+  letter-spacing: 0.02em;
+}
+.ss-unknown-sub {
+  font-size: 11.5px;
+  color: var(--c-text-mute);
+  line-height: 1.4;
+  max-width: 280px;
+}
+.ss-unknown-dismiss {
+  margin-top: 8px;
+  padding: 8px 16px;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ss-product {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ss-product-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-text);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.ss-product-meta {
+  font-size: 11px;
+  color: var(--c-text-mute);
+  letter-spacing: 0.01em;
+}
+
+.ss-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.ss-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.ss-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--c-text-mute);
+}
+.ss-input {
+  height: 44px;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-text);
+  outline: none;
+  font-variant-numeric: tabular-nums;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ss-input:focus {
+  border-color: var(--c-primary-line);
+  box-shadow: 0 0 0 3px var(--c-primary-soft);
+}
+
+.ss-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 8px 2px 0;
+  border-top: 1px dashed var(--c-border);
+  margin-top: 2px;
+}
+.ss-total-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--c-text-mute);
+}
+.ss-total-amt {
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-text);
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-add {
+  height: 50px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(155deg, var(--c-primary-hi) 0%, var(--c-primary-lo) 100%);
+  color: #FFF4EA;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 14.5px;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow:
+    0 8px 24px -8px var(--c-primary-soft),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+  margin-top: 4px;
+  transition: transform 120ms;
+}
+.ss-add:active { transform: scale(0.98); }
+.ss-add:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+.ss-add::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, transparent 100%);
+  pointer-events: none;
+}

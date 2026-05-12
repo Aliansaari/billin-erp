@@ -15,6 +15,7 @@ import { formatINR } from '../utils/format';
 import PartySheet from '../components/PartySheet';
 import ItemSheet from '../components/ItemSheet';
 import MoreSheet from '../components/MoreSheet';
+import ScanSheet from '../components/ScanSheet';
 import './BillForm.css';
 
 const BackIcon = () => (
@@ -74,6 +75,7 @@ export default function BillForm({ type }) {
     remarks: '',
   });
   const [partyOpen, setPartyOpen]   = useState(false);
+  const [scanOpen, setScanOpen]     = useState(false);
   const [itemOpen, setItemOpen]     = useState(false);
   const [moreOpen, setMoreOpen]     = useState(false);
   const [editingIdx, setEditingIdx] = useState(-1);
@@ -484,7 +486,7 @@ export default function BillForm({ type }) {
 
         {/* Scan + Manual */}
         <div className="bf-add-row">
-          <button className="bf-scan-btn" onClick={handleScan}>
+          <button className="bf-scan-btn" onClick={() => setScanOpen(true)}>
             <ScanIcon />
             Scan barcode
           </button>
@@ -655,6 +657,14 @@ export default function BillForm({ type }) {
           values={moreOpts}
           onClose={() => setMoreOpen(false)}
           onSave={(v) => { setMoreOpts(v); setMoreOpen(false); }}
+        />
+      )}
+
+      {scanOpen && (
+        <ScanSheet
+          type={type}
+          onClose={() => setScanOpen(false)}
+          onAdd={(line) => setItems((prev) => [...prev, line])}
         />
       )}
     </div>
