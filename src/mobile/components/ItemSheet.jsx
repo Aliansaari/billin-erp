@@ -32,6 +32,10 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
   // derived from purchase_rate (`rate`) and `saleRate` on the fly.
   const [mrp, setMrp]           = useState(init.mrp != null ? String(init.mrp) : '');
   const [saleRate, setSaleRate] = useState(init.sale_rate != null ? String(init.sale_rate) : '');
+  // Variant identifiers — shown for both sale + purchase so the
+  // operator can pin down the right SKU or stamp a new one.
+  const [size, setSize]               = useState(init.size || '');
+  const [articleNumber, setArticleNumber] = useState(init.article_number || '');
 
   const searchRef = useRef(null);
 
@@ -103,6 +107,10 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
       category_name: p.category_name || '',
     });
     setProductQuery(p.product_name || p.name);
+    // Pre-fill variant fields from the master so the operator doesn't
+    // retype size/article on every line. They can still override.
+    if (p.size_value && !size) setSize(p.size_value);
+    if (p.article_number && !articleNumber) setArticleNumber(p.article_number);
     const newRate = isPurchase
       ? Number(p.purchase_rate || p.last_purchase_rate || 0)
       : Number(p.sale_rate || 0);
@@ -162,8 +170,8 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
       mrp: mrpN,
       sale_rate: saleRateN,         // purchase-only — sale handler ignores
       margin_percentage: margin,    // purchase-only
-      size: picked?.size || '',
-      article_number: picked?.article_number || '',
+      size: (size || picked?.size || '').trim(),
+      article_number: (articleNumber || picked?.article_number || '').trim(),
       category_id: picked?.category_id || categoryId || null,
       category_name: picked?.category_name || '',
       quantity: q,
@@ -264,6 +272,35 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
               })}
             </div>
           )}
+
+          {/* Size + Article # — variant pins. Shown for both sale and
+              purchase. Pre-fills from the product master on pick. */}
+          <div className="sf-grid">
+            <label className="sf-field">
+              <span className="sf-label">Size</span>
+              <input
+                className="sf-input"
+                placeholder="M, 32, XL…"
+                value={size}
+                onChange={(e) => setSize(e.target.value)}
+                autoCorrect="off"
+                autoCapitalize="characters"
+                spellCheck="false"
+              />
+            </label>
+            <label className="sf-field">
+              <span className="sf-label">Article #</span>
+              <input
+                className="sf-input"
+                placeholder="ART-2841"
+                value={articleNumber}
+                onChange={(e) => setArticleNumber(e.target.value)}
+                autoCorrect="off"
+                autoCapitalize="characters"
+                spellCheck="false"
+              />
+            </label>
+          </div>
 
           {/* Quantity + Rate */}
           <div className="sf-grid">
