@@ -151,6 +151,48 @@
 }
 .bf-party-credit.over { color: var(--c-error); font-weight: 600; }
 
+/* ── Transport row (purchase only) ──────────────────────────────── */
+.bf-transport {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  margin: 4px 0 4px;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border-soft);
+  border-radius: 11px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+  font-family: inherit;
+  color: var(--c-text);
+  transition: background 120ms;
+}
+.bf-transport:active { background: var(--c-bg-surface); }
+
+.bf-transport-icon {
+  color: var(--c-text-mute);
+  display: flex;
+  flex-shrink: 0;
+}
+
+.bf-transport-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--adm-font-family);
+  font-size: 11px;
+  color: var(--c-text-2);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bf-transport-placeholder {
+  color: var(--c-text-mute);
+  font-style: italic;
+}
+
 .bf-party-chev {
   color: var(--c-text-faint);
   flex-shrink: 0;

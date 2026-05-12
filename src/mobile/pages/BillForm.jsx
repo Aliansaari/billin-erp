@@ -276,6 +276,45 @@ export default function BillForm({ type }) {
     // Number = partial payment. Zero = save unpaid (credit).
     const paidNum = paidAmount === '' ? totals.net : (Number(paidAmount) || 0);
 
+    // Purchase items carry MRP / sale_rate / margin and ship the unit
+    // cost under `purchase_rate` (server contract). Sale items use the
+    // simpler shape — rate is the selling price.
+    const items_payload = isPurchase
+      ? items.map((i) => ({
+          product_id: i.product_id || null,
+          barcode: i.barcode || '',
+          category_id: i.category_id || null,
+          category_name: i.category_name || '',
+          product_name: i.product_name,
+          size: i.size || '',
+          article_number: i.article_number || '',
+          hsn_code: i.hsn_code || '',
+          quantity: Number(i.quantity) || 0,
+          quantity_per_box: Number(i.quantity_per_box) || 1,
+          purchase_rate: Number(i.rate) || 0,
+          margin_percentage: Number(i.margin_percentage) || 0,
+          sale_rate: Number(i.sale_rate) || 0,
+          mrp: Number(i.mrp) || 0,
+          gst_rate: Number(i.gst_rate) || 0,
+        }))
+      : items.map((i) => ({
+          product_id: i.product_id || null,
+          barcode: i.barcode || '',
+          category_id: i.category_id || null,
+          category_name: i.category_name || '',
+          product_name: i.product_name,
+          size: i.size || '',
+          article_number: i.article_number || '',
+          hsn_code: i.hsn_code || '',
+          unit_type: i.unit_type || 'Pcs',
+          quantity: Number(i.quantity) || 0,
+          rate: Number(i.rate) || 0,
+          mrp: Number(i.mrp) || 0,
+          discount_percentage: Number(i.discount_percentage) || 0,
+          gst_rate: Number(i.gst_rate) || 0,
+          quantity_per_box: Number(i.quantity_per_box) || 1,
+        }));
+
     const body = {
       godown_id: godownId,
       ...partyField,
@@ -295,23 +334,15 @@ export default function BillForm({ type }) {
       special_discount: 0,
       return_amount: 0,
       paid_amount: isPurchase ? 0 : paidNum,
-      items: items.map((i) => ({
-        product_id: i.product_id || null,
-        barcode: i.barcode || '',
-        category_id: i.category_id || null,
-        category_name: i.category_name || '',
-        product_name: i.product_name,
-        size: i.size || '',
-        article_number: i.article_number || '',
-        hsn_code: i.hsn_code || '',
-        unit_type: i.unit_type || 'Pcs',
-        quantity: Number(i.quantity) || 0,
-        rate: Number(i.rate) || 0,
-        mrp: Number(i.mrp) || 0,
-        discount_percentage: Number(i.discount_percentage) || 0,
-        gst_rate: Number(i.gst_rate) || 0,
-        quantity_per_box: Number(i.quantity_per_box) || 1,
-      })),
+      // Purchase-only: supplier bill #, transport, vehicle, LR. Sale
+      // ignores these — the desktop sale form doesn't carry them either.
+      ...(isPurchase && {
+        supplier_bill_number: moreOpts.supplier_bill_number || '',
+        transport_name: moreOpts.transport_name || '',
+        vehicle_number: moreOpts.vehicle_number || '',
+        lr_number: moreOpts.lr_number || '',
+      }),
+      items: items_payload,
     };
 
     setSaving(true);
@@ -388,6 +419,34 @@ export default function BillForm({ type }) {
           <div className="bf-party-chev"><ChevR /></div>
         </button>
 
+        {/* Transport row — purchase only. Single tappable strip that
+            opens the More sheet (where the four paperwork fields live). */}
+        {isPurchase && (
+          <button className="bf-transport" onClick={() => setMoreOpen(true)}>
+            <span className="bf-transport-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 3h15v13H1zM16 8h4l3 3v5h-7"/>
+                <circle cx="5.5" cy="18.5" r="2.5"/>
+                <circle cx="18.5" cy="18.5" r="2.5"/>
+              </svg>
+            </span>
+            <span className="bf-transport-text">
+              {(() => {
+                const bits = [
+                  moreOpts.supplier_bill_number && `Bill ${moreOpts.supplier_bill_number}`,
+                  moreOpts.vehicle_number,
+                  moreOpts.lr_number && `LR ${moreOpts.lr_number}`,
+                  moreOpts.transport_name,
+                ].filter(Boolean);
+                return bits.length
+                  ? bits.join(' · ')
+                  : <span className="bf-transport-placeholder">Tap to add bill #, vehicle, LR…</span>;
+              })()}
+            </span>
+            <ChevR />
+          </button>
+        )}
+
         {/* Items header */}
         <div className="bf-items-head">
           <span className="bf-items-label">Items <span className="acc">· {items.length}</span></span>
@@ -415,7 +474,12 @@ export default function BillForm({ type }) {
             const lineDisc = (Number(it.discount_percentage) || 0) * gross / 100;
             const lineTotal = gross - lineDisc;
             const variant = isPurchase
-              ? [it.size, it.article_number && `ART-${it.article_number}`, it.mrp > 0 && `MRP ₹${formatINR(it.mrp)}`].filter(Boolean).join(' · ')
+              ? [
+                  it.size,
+                  it.article_number && `ART-${it.article_number}`,
+                  it.mrp > 0 && `MRP ₹${formatINR(it.mrp)}`,
+                  Number(it.margin_percentage) ? `MG ${Number(it.margin_percentage).toFixed(0)}%` : null,
+                ].filter(Boolean).join(' · ')
               : [it.size, it.article_number && `ART-${it.article_number}`, it.gst_rate > 0 && `GST ${it.gst_rate}%`].filter(Boolean).join(' · ');
             return (
               <div key={idx} className="bf-item" onClick={() => handleEditItem(idx)}>
@@ -463,7 +527,24 @@ export default function BillForm({ type }) {
           <div className="bf-totals-breakdown">
             <div>Sub <span className="strong">₹{formatINR(totals.sub)}</span></div>
             <div>GST <span className="strong">₹{formatINR(totals.tax)}</span></div>
-            {totals.disc > 0 && <div>Disc <span className="strong">−₹{formatINR(totals.disc)}</span></div>}
+            {!isPurchase && totals.disc > 0 && (
+              <div>Disc <span className="strong">−₹{formatINR(totals.disc)}</span></div>
+            )}
+            {isPurchase && (() => {
+              // Avg margin = total profit / total cost × 100, weighted
+              // by line value. Mirrors the desktop's bottom-panel pill.
+              let cost = 0, profit = 0;
+              for (const it of items) {
+                const q = Number(it.quantity) || 0;
+                const pr = Number(it.rate) || 0;
+                const sr = Number(it.sale_rate) || 0;
+                cost += q * pr;
+                if (sr > 0) profit += q * (sr - pr);
+              }
+              if (cost <= 0) return null;
+              const avgMg = (profit / cost) * 100;
+              return <div>Avg MG <span className="strong">{avgMg.toFixed(0)}%</span></div>;
+            })()}
           </div>
         </div>
         <div className="bf-totals-sub">

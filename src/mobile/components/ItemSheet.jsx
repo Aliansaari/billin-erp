@@ -28,6 +28,10 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
   const [rate, setRate]         = useState(init.rate != null ? String(init.rate) : '');
   const [discPct, setDiscPct]   = useState(init.discount_percentage != null ? String(init.discount_percentage) : '0');
   const [gstRate, setGstRate]   = useState(init.gst_rate != null ? String(init.gst_rate) : '0');
+  // Purchase-only: MRP and our intended sale price. Margin% is
+  // derived from purchase_rate (`rate`) and `saleRate` on the fly.
+  const [mrp, setMrp]           = useState(init.mrp != null ? String(init.mrp) : '');
+  const [saleRate, setSaleRate] = useState(init.sale_rate != null ? String(init.sale_rate) : '');
 
   const searchRef = useRef(null);
 
@@ -104,8 +108,13 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
       : Number(p.sale_rate || 0);
     if (newRate > 0) setRate(String(newRate));
     setGstRate(String(Number(p.gst_rate) || 0));
-    // Wholesale default: 1 full box if pcs/box > 1, else 1 pc. The user
-    // can still type any quantity manually.
+    // Purchase: also pre-fill MRP + sale_rate from the product master so
+    // the operator can review-and-adjust rather than retype.
+    if (isPurchase) {
+      if (Number(p.mrp) > 0) setMrp(String(p.mrp));
+      if (Number(p.sale_rate) > 0) setSaleRate(String(p.sale_rate));
+    }
+    // Wholesale default: 1 full box if pcs/box > 1, else 1 pc.
     if (qpb > 1 && (quantity === '' || quantity === '1')) {
       setQuantity(String(qpb));
     }
@@ -125,11 +134,18 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
   const r = Number(rate) || 0;
   const dp = Number(discPct) || 0;
   const gst = Number(gstRate) || 0;
+  const mrpN = Number(mrp) || 0;
+  const saleRateN = Number(saleRate) || 0;
   const gross = q * r;
   const lineDisc = gross * dp / 100;
   const taxable = gross - lineDisc;
   const tax = taxable * gst / 100;
   const total = taxable + tax;
+  // Margin = (sale − purchase) / purchase × 100. Negative if user
+  // sets sale below cost (we let them — the warning is on display).
+  const margin = (isPurchase && r > 0 && saleRateN > 0)
+    ? ((saleRateN - r) / r) * 100
+    : 0;
 
   const valid = (picked || productQuery.trim().length > 0) && q > 0 && r >= 0;
 
@@ -142,13 +158,16 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
       hsn_code: picked?.hsn_code || '',
       gst_rate: gst,
       unit_type: picked?.unit_type || 'Pcs',
-      mrp: picked?.mrp || 0,
+      quantity_per_box: picked?.quantity_per_box || 1,
+      mrp: mrpN,
+      sale_rate: saleRateN,         // purchase-only — sale handler ignores
+      margin_percentage: margin,    // purchase-only
       size: picked?.size || '',
       article_number: picked?.article_number || '',
       category_id: picked?.category_id || categoryId || null,
       category_name: picked?.category_name || '',
       quantity: q,
-      rate: r,
+      rate: r,                       // sale_rate for sales, purchase_rate for purchases
       discount_percentage: dp,
     });
   };
@@ -271,28 +290,86 @@ function ItemSheetInner({ type, initial, onClose, onSave }) {
             </label>
           </div>
 
-          <div className="sf-grid">
-            <label className="sf-field">
-              <span className="sf-label">Discount %</span>
-              <input
-                className="sf-input"
-                type="number"
-                inputMode="decimal"
-                value={discPct}
-                onChange={(e) => setDiscPct(e.target.value)}
-              />
-            </label>
-            <label className="sf-field">
-              <span className="sf-label">GST %</span>
-              <input
-                className="sf-input"
-                type="number"
-                inputMode="decimal"
-                value={gstRate}
-                onChange={(e) => setGstRate(e.target.value)}
-              />
-            </label>
-          </div>
+          {/* Sale only: Discount %. Purchase doesn't typically carry line-disc. */}
+          {!isPurchase && (
+            <div className="sf-grid">
+              <label className="sf-field">
+                <span className="sf-label">Discount %</span>
+                <input
+                  className="sf-input"
+                  type="number"
+                  inputMode="decimal"
+                  value={discPct}
+                  onChange={(e) => setDiscPct(e.target.value)}
+                />
+              </label>
+              <label className="sf-field">
+                <span className="sf-label">GST %</span>
+                <input
+                  className="sf-input"
+                  type="number"
+                  inputMode="decimal"
+                  value={gstRate}
+                  onChange={(e) => setGstRate(e.target.value)}
+                />
+              </label>
+            </div>
+          )}
+
+          {/* Purchase only: MRP + Sale rate (which drives Margin%). */}
+          {isPurchase && (
+            <>
+              <div className="sf-grid">
+                <label className="sf-field">
+                  <span className="sf-label">MRP</span>
+                  <input
+                    className="sf-input"
+                    type="number"
+                    inputMode="decimal"
+                    value={mrp}
+                    onChange={(e) => setMrp(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </label>
+                <label className="sf-field">
+                  <span className="sf-label">Sale rate</span>
+                  <input
+                    className="sf-input"
+                    type="number"
+                    inputMode="decimal"
+                    value={saleRate}
+                    onChange={(e) => setSaleRate(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </label>
+              </div>
+              <div className="sf-grid">
+                <label className="sf-field">
+                  <span className="sf-label">Margin %</span>
+                  <input
+                    className="sf-input"
+                    type="text"
+                    readOnly
+                    value={margin ? `${margin.toFixed(2)}%` : '—'}
+                    style={{
+                      color: margin < 0 ? 'var(--c-error)' : (margin >= 10 ? 'var(--c-success)' : 'var(--c-text-2)'),
+                      fontWeight: 600,
+                    }}
+                  />
+                </label>
+                <label className="sf-field">
+                  <span className="sf-label">GST %</span>
+                  <input
+                    className="sf-input"
+                    type="number"
+                    inputMode="decimal"
+                    value={gstRate}
+                    onChange={(e) => setGstRate(e.target.value)}
+                  />
+                </label>
+              </div>
+            </>
+          )}
 
           <div className="sf-preview">
             <div className="sf-preview-row">
