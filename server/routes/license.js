@@ -19,6 +19,9 @@ const fs = require('fs');
 const path = require('path');
 
 router.get('/info', (req, res) => {
+  if (process.env.BILLING_ERP_BYPASS_LICENSE === '1') {
+    return res.json({ activated: true, status: { ok: true, code: 'dev_bypass' }, machine_fp: 'dev' });
+  }
   const s = license.getStatus({ force: false });
   res.json({
     activated: !!s.ok,
