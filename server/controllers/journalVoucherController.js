@@ -30,7 +30,7 @@ async function nextVoucherNumber(date, transaction) {
   const prefix = nextVoucherNumberPrefix(date);
   const last = await JournalVoucher.findOne({
     where: { voucher_number: { [Op.like]: `${prefix}-%` } },
-    order: [['voucher_number', 'DESC']],
+    order: [['id', 'DESC']],
     transaction,
   });
   let seq = 1;
@@ -82,7 +82,7 @@ function normalizeLines(rawLines) {
   if (!Array.isArray(rawLines) || rawLines.length < 2) {
     throw new Error('At least 2 lines required.');
   }
-  return rawLines.map((ln, i) => {
+  const lines = rawLines.map((ln, i) => {
     const debit  = Number(ln.debit  || 0);
     const credit = Number(ln.credit || 0);
     if (!ln.ledger_id) throw new Error(`Line ${i + 1}: ledger is required.`);
@@ -91,6 +91,13 @@ function normalizeLines(rawLines) {
     if (debit === 0 && credit === 0) throw new Error(`Line ${i + 1}: amount required.`);
     return { ledgerAccountId: Number(ln.ledger_id), debit, credit, partyId: ln.party_id || null };
   });
+  // SER-9: early balance check so we return 400 before opening a transaction.
+  const dr = lines.reduce((s, l) => s + l.debit,  0);
+  const cr = lines.reduce((s, l) => s + l.credit, 0);
+  if (Math.abs(dr - cr) > 0.005) {
+    throw new Error(`Journal is unbalanced — debits ${dr.toFixed(2)} ≠ credits ${cr.toFixed(2)}.`);
+  }
+  return lines;
 }
 
 exports.create = async (req, res) => {
@@ -108,6 +115,13 @@ exports.create = async (req, res) => {
     const totalDr = lines.reduce((s, l) => s + l.debit, 0);
     const totalCr = lines.reduce((s, l) => s + l.credit, 0);
 
+    // W2: advisory lock key 907 = journal vouchers. Serialises concurrent
+    // creates so two requests on the same date don't both read seq N and
+    // both try to insert JV-YYYYMMDD-N+1. Auto-released on commit/rollback.
+    const companyKey = req.companyId || 0;
+    await sequelize.query('SELECT pg_advisory_xact_lock(:company, :key)', {
+      replacements: { company: companyKey, key: 907 }, transaction: t,
+    });
     const voucherNumber = await nextVoucherNumber(voucher_date, t);
     const jv = await JournalVoucher.create({
       voucher_number: voucherNumber,
@@ -157,9 +171,12 @@ exports.update = async (req, res) => {
     // Reverse the original posting, then post the new one. Posting Service
     // is idempotent per (source_type, source_id, reversal=null), so a
     // reversal first guarantees the new post passes the duplicate check.
+    // SER-6: use the ORIGINAL voucher date so the reversal cancels within
+    // the same accounting period as the original entry.
     await reverseVoucher({
       sourceType: 'journal_voucher', sourceId: jv.id,
       reason: 'JV edited', userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: jv.voucher_date,
     });
 
     // Audit M4: when the voucher_date changes, the existing voucher_number
@@ -168,6 +185,13 @@ exports.update = async (req, res) => {
     // string — would fan one voucher across two date-prefixed buckets.
     // Regenerate the number using the new date's prefix so the
     // reference_number always aligns with entry_date.
+    // W2: take the same advisory lock as create so a concurrent edit that
+    // changes the voucher_date doesn't collide with a concurrent create on
+    // the new date.
+    const companyKeyU = req.companyId || 0;
+    await sequelize.query('SELECT pg_advisory_xact_lock(:company, :key)', {
+      replacements: { company: companyKeyU, key: 907 }, transaction: t,
+    });
     let nextNumber = jv.voucher_number;
     const datesDiffer = voucher_date && String(voucher_date) !== String(jv.voucher_date).slice(0, 10);
     if (datesDiffer) {

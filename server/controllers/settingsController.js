@@ -228,6 +228,15 @@ exports.updateUser = async (req, res) => {
 
     const adminRoleId = await getAdminRoleId();
     const isSelfEdit = req.user.user_id === user.user_id;
+
+    // SER-1 fix: prevent privilege self-escalation. A user editing their own
+    // account must never be allowed to change their own role — any role_id in
+    // the body is silently stripped. Only an admin editing a DIFFERENT user
+    // may change that user's role_id.
+    if (isSelfEdit && Object.prototype.hasOwnProperty.call(data, 'role_id')) {
+      delete data.role_id;
+    }
+
     const isDemotingFromAdmin =
       user.role_id === adminRoleId &&
       Object.prototype.hasOwnProperty.call(data, 'role_id') &&

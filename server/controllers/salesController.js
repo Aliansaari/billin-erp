@@ -7,7 +7,7 @@ const idempotencyCache = require('../utils/idempotencyCache');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
-const { buildSalesBillVouchers } = require('../services/voucherBuilders');
+const { buildSalesBillVouchers, buildSalesReturnVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite, getDefaultGodownId } = require('../utils/godownStock');
 const {
@@ -17,7 +17,7 @@ const {
 } = require('../services/productColorStockService');
 const { applyBatchStockDelta, getBatchStock } = require('../utils/batchStock');
 const { ProductBatch, ProductColor } = require('../models');
-const { denyIfGodownInaccessible } = require('../middleware/godownScope');
+const { denyIfGodownInaccessible, scopeWhereByGodown } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
 const { computeCostRateForSale } = require('../utils/displayCost');
 const { consumeFIFO, isFifoMode, recordSaleConsumption, reverseConsumptionForBill } = require('../utils/costLayers');
@@ -100,6 +100,7 @@ exports.getAll = async (req, res) => {
     // offset; "99999999" is a DoS vector. sanitizePagination caps at 500 rows.
     const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
     const where = { is_cancelled: false };
+    scopeWhereByGodown(where, req.user);
 
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (customer_id) where.customer_id = customer_id;
@@ -378,6 +379,12 @@ async function createInlineReturn({ customer_id, billDate, items, reason, isInte
         const newStock = await applyGodownStockDelta({
           product_id: it.product_id, godown_id, delta: +parseFloat(it.quantity), t,
         });
+        // SER-4 fix: also restore batch-level stock for batch-tracked products
+        if (it.batch_id) {
+          await applyBatchStockDelta({
+            batch_id: it.batch_id, godown_id, delta: +parseFloat(it.quantity), t,
+          });
+        }
         await StockLedger.create({
           product_id: it.product_id,
           godown_id,
@@ -394,6 +401,21 @@ async function createInlineReturn({ customer_id, billDate, items, reason, isInte
           created_by: req.user.user_id,
         }, { transaction: t });
       }
+    }
+  }
+
+  // ── Double-entry posting (CRIT-2 fix) ────────────────────────────────
+  // The return bill and all items are now persisted; re-fetch with the
+  // customer association so buildSalesReturnVouchers can resolve the
+  // party ledger without a separate query.
+  {
+    const refreshed = await SalesReturnBill.findByPk(returnBill.sales_return_id, {
+      include: [{ model: Party, as: 'customer' }],
+      transaction: t,
+    });
+    const vouchers = await buildSalesReturnVouchers(refreshed, { transaction: t });
+    for (const v of vouchers) {
+      await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
     }
   }
 
@@ -559,9 +581,11 @@ exports.create = async (req, res) => {
       const qty  = parseFloat(item.quantity);
       const rate = parseFloat(item.rate);
       const itemDiscPct = parseFloat(item.discount_percentage || 0);
-      if (!isFinite(qty) || qty < 0) {
+      // W15: qty > 0 required — a zero-quantity line has no stock or financial
+      // impact and would silently pollute the invoice with a dummy row.
+      if (!isFinite(qty) || qty <= 0) {
         if (!t.finished) await t.rollback();
-        return res.status(400).json({ error: `Quantity must be a non-negative number (got "${item.quantity}" for "${item.product_name || 'item'}").` });
+        return res.status(400).json({ error: `Quantity must be greater than zero (got "${item.quantity}" for "${item.product_name || 'item'}").` });
       }
       if (!isFinite(rate) || rate < 0) {
         if (!t.finished) await t.rollback();
@@ -1176,6 +1200,11 @@ exports.update = async (req, res) => {
     if (!existingBill) { await t.rollback(); return res.status(404).json({ error: 'Bill not found' }); }
     if (existingBill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Cannot edit a cancelled bill' }); }
 
+    // SER-7: bill_number is server-generated and must never be overwritten by
+    // a client PUT body. Strip it so the spread into existingBill.update() cannot
+    // silently clobber the sequential number.
+    delete billData.bill_number;
+
     // Resolve target godown for this edit. If the body specifies one,
     // validate it; if not, retain the existing bill's godown. Same
     // permission gate as create — the user must have access to the
@@ -1275,9 +1304,11 @@ exports.update = async (req, res) => {
       const qty  = parseFloat(item.quantity);
       const rate = parseFloat(item.rate);
       const itemDiscPct = parseFloat(item.discount_percentage || 0);
-      if (!isFinite(qty) || qty < 0) {
+      // W15: qty > 0 required — a zero-quantity line has no stock or financial
+      // impact and would silently pollute the invoice with a dummy row.
+      if (!isFinite(qty) || qty <= 0) {
         if (!t.finished) await t.rollback();
-        return res.status(400).json({ error: `Quantity must be a non-negative number (got "${item.quantity}" for "${item.product_name || 'item'}").` });
+        return res.status(400).json({ error: `Quantity must be greater than zero (got "${item.quantity}" for "${item.product_name || 'item'}").` });
       }
       if (!isFinite(rate) || rate < 0) {
         if (!t.finished) await t.rollback();
@@ -1632,13 +1663,17 @@ exports.update = async (req, res) => {
     // ── Double-entry: reverse old, post new ──
     // Both source types (sales_bill + the optional sales_bill_receipt for
     // paid_amount) need reversing so a re-post is idempotent.
+    // SER-6: date reversals to the ORIGINAL bill date so they cancel within
+    // the same accounting period as the original entries.
     await reverseVoucher({
       sourceType: 'sales_bill', sourceId: existingBill.sales_bill_id,
       reason: 'Sales bill edited', userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: existingBill.bill_date,
     });
     await reverseVoucher({
       sourceType: 'sales_bill_receipt', sourceId: existingBill.sales_bill_id,
       reason: 'Sales bill edited', userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: existingBill.bill_date,
     });
     {
       const refreshed = await SalesBill.findByPk(existingBill.sales_bill_id, {

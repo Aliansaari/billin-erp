@@ -417,6 +417,26 @@ exports.submit = async (req, res) => {
         product_id: it.product_id, godown_id: transfer.from_godown_id,
         delta: -parseFloat(it.quantity), t,
       });
+      // SER-12: consume FIFO layers at source on Draft→Submit path,
+      // identical to the direct In-Transit create path (lines 298-313).
+      // Without this, cost_layers_consumed stays NULL and receive() falls
+      // back to a single layer at transfer rate instead of true FIFO cost.
+      if (await isFifoMode(t, it.product_id)) {
+        const fifoR = await consumeFIFO({
+          product_id: it.product_id, godown_id: transfer.from_godown_id,
+          qty: +parseFloat(it.quantity), t,
+        });
+        await sequelize.query(
+          `UPDATE stock_transfer_items SET cost_layers_consumed = :cl::jsonb WHERE item_id = :iid`,
+          {
+            replacements: {
+              cl: JSON.stringify((fifoR.consumedRows || []).map(r => ({ qty: r.qty, rate: r.rate }))),
+              iid: it.item_id,
+            },
+            transaction: t,
+          },
+        );
+      }
       if (isBatched) {
         await applyBatchStockDelta({
           product_id: it.product_id, batch_id: it.batch_id,

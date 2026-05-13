@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { User, Role, companyContext } = require('../models');
 const Company = require('../models/Company');
 const { getCompanyConnection } = require('../services/companyConnections');
+const tokenBlacklist = require('../utils/tokenBlacklist');
 
 /**
  * authenticateToken
@@ -42,6 +43,14 @@ const authenticateToken = async (req, res, next) => {
       expired: !!expired,
     });
   }
+
+  // SER-2: reject tokens that were explicitly revoked via /auth/logout.
+  if (decoded.jti && tokenBlacklist.isRevoked(decoded.jti)) {
+    return res.status(401).json({ error: 'Session expired — please sign in again', expired: true });
+  }
+
+  // Expose decoded payload so the logout handler can blacklist the jti.
+  req.tokenDecoded = decoded;
 
   // Resolve the company. Legacy tokens (issued before multi-company)
   // have no company_id claim — fall back to the primary company so

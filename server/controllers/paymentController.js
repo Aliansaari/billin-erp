@@ -640,6 +640,11 @@ exports.update = async (req, res) => {
 exports.getUnpaidBills = async (req, res) => {
   try {
     const { party_id, type } = req.query;
+    // W3: missing party_id would make Sequelize ignore the customer_id /
+    // supplier_id clause and return ALL unpaid bills across all parties.
+    if (!party_id) {
+      return res.status(400).json({ error: 'party_id is required.' });
+    }
     const baseWhere = { payment_status: { [Op.ne]: 'Paid' }, is_cancelled: false, balance_amount: { [Op.gt]: 0 } };
 
     if (type === 'Sales' || type === 'Receipt') {

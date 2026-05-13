@@ -4,6 +4,7 @@ const { User, Role, companyContext } = require('../models');
 const Company = require('../models/Company');
 const { getCompanyConnection } = require('../services/companyConnections');
 const { recordFailure, recordSuccess } = require('../middleware/loginRateLimit');
+const tokenBlacklist = require('../utils/tokenBlacklist');
 
 // A default admin/admin seed is convenient for first-run but dangerous to
 // leave in production. The controller flags `must_change_password` whenever
@@ -76,7 +77,7 @@ exports.login = async (req, res) => {
         await user.update({ last_login: new Date() });
 
         const mustChangePassword =
-          user.username === 'admin' && password === DEFAULT_ADMIN_PASSWORD;
+          password === DEFAULT_ADMIN_PASSWORD;
 
         // JWT carries company_id so the auth middleware on every
         // subsequent request routes the connection automatically.
@@ -88,6 +89,7 @@ exports.login = async (req, res) => {
         // the full-privilege token directly against /api/parties etc.
         const token = jwt.sign(
           {
+            jti: tokenBlacklist.generateJti(),
             user_id: user.user_id,
             username: user.username,
             role: user.Role.role_name,
@@ -138,6 +140,11 @@ exports.getProfile = async (req, res) => {
 // Returns { ok: true } on success; 401 with a generic message otherwise so
 // timing / response shape doesn't leak whether the user account is valid.
 exports.verifyPassword = async (req, res) => {
+  // W17: reuse the login rate-limiter by populating req.body.username from
+  // the JWT so recordFailure/recordSuccess key on the same per-user-per-IP
+  // bucket as the login endpoint. Without this, repeated wrong guesses on
+  // verify-password (used for confirming destructive actions) are unlimited.
+  req.body.username = req.user.username;
   try {
     const { password } = req.body;
     if (!password || typeof password !== 'string') {
@@ -145,12 +152,15 @@ exports.verifyPassword = async (req, res) => {
     }
     const user = await User.findByPk(req.user.user_id);
     if (!user || !user.is_active) {
+      recordFailure(req);
       return res.status(401).json({ error: 'Invalid password' });
     }
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
+      recordFailure(req);
       return res.status(401).json({ error: 'Invalid password' });
     }
+    recordSuccess(req);
     res.json({ ok: true });
   } catch (error) {
     console.error('Verify password error:', error);
@@ -237,10 +247,11 @@ exports.switchCompany = async (req, res) => {
         await user.update({ last_login: new Date() });
 
         const mustChangePassword =
-          user.username === 'admin' && password === DEFAULT_ADMIN_PASSWORD;
+          password === DEFAULT_ADMIN_PASSWORD;
 
         const token = jwt.sign(
           {
+            jti: tokenBlacklist.generateJti(),
             user_id: user.user_id,
             username: user.username,
             role: user.Role.role_name,
@@ -323,6 +334,7 @@ exports.changePassword = async (req, res) => {
     try {
       refreshedToken = jwt.sign(
         {
+          jti: tokenBlacklist.generateJti(),
           user_id: req.user.user_id,
           username: req.user.username,
           role: req.user.Role?.role_name || req.user.role,
@@ -379,6 +391,17 @@ exports.changePassword = async (req, res) => {
 // hardening is still possible by setting the DEVELOPER_PASSWORD env var,
 // which takes precedence over this default.
 const DEFAULT_DEV_PASSWORD = 'DragonStone@2911';
+
+exports.logout = (req, res) => {
+  // req.tokenDecoded is set by auth middleware (jti + exp from the verified JWT).
+  // Blacklist the token so any subsequent request with it is rejected even if
+  // the JWT's own signature is still mathematically valid.
+  const { jti, exp } = req.tokenDecoded || {};
+  if (jti && exp) {
+    tokenBlacklist.add(jti, exp);
+  }
+  res.json({ message: 'Logged out successfully' });
+};
 
 exports.verifyDeveloperPassword = async (req, res) => {
   try {
