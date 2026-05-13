@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { PaymentReceipt, PaymentSplit, Party, SalesBill, PurchaseBill, Cheque } = require('../models');
-const { generateTransactionNumber, sanitizePagination } = require('../utils/helpers');
+const { generateTransactionNumber, sanitizePagination, safeTrailingNumber, escapeLike } = require('../utils/helpers');
 const { recalculatePartyBalance, getPartyOutstanding, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPaymentReceiptVouchers } = require('../services/voucherBuilders');
@@ -57,7 +57,8 @@ exports.getAll = async (req, res) => {
     if (from_date && to_date) where.transaction_date = { [Op.between]: [from_date, to_date] };
     if (party_id) where.party_id = party_id;
     if (search) {
-      where[Op.or] = [{ transaction_number: { [Op.iLike]: `%${search}%` } }];
+      // Audit P3-D — escape LIKE wildcards.
+      where[Op.or] = [{ transaction_number: { [Op.iLike]: `%${escapeLike(search)}%` } }];
     }
 
     const { count, rows } = await PaymentReceipt.findAndCountAll({
@@ -106,9 +107,16 @@ exports.create = async (req, res) => {
     // the lock auto-releases on commit/rollback, so no cleanup is needed.
     // The key is stable per transaction_type (Payment ≠ Receipt) so Payment and
     // Receipt creations don't needlessly block each other.
+    //
+    // Audit P2-B — advisory locks live in the Postgres CLUSTER (not the
+    // database), so a single key would serialise Company A's saves against
+    // Company B's saves on multi-tenant installs sharing one cluster. The
+    // two-arg form pg_advisory_xact_lock(companyId, docKey) gives every
+    // company its own lock space.
     const lockKey = prefix === 'PAY' ? 901 : 902;
-    await sequelize.query('SELECT pg_advisory_xact_lock(:key)', {
-      replacements: { key: lockKey }, transaction: t,
+    const companyKey = req.companyId || 0;
+    await sequelize.query('SELECT pg_advisory_xact_lock(:company, :key)', {
+      replacements: { company: companyKey, key: lockKey }, transaction: t,
     });
 
     // ── Lock the party row (Fix #16) ──────────────────────────────────────────
@@ -123,16 +131,61 @@ exports.create = async (req, res) => {
       return res.status(404).json({ error: 'Party not found' });
     }
 
+    // Audit P3-B — schema-validate bill_allocations before we trust them.
+    // Pre-fix, a tampered client could POST garbage (wrong types, negative
+    // amounts, unknown bill_types) and the downstream parseAllocs would
+    // silently coerce / drop. Reject loudly so bugs surface during dev/QA.
+    if (data.bill_allocations !== undefined && data.bill_allocations !== null) {
+      if (!Array.isArray(data.bill_allocations)) {
+        await t.rollback();
+        return res.status(400).json({ error: 'bill_allocations must be an array.' });
+      }
+      for (let i = 0; i < data.bill_allocations.length; i++) {
+        const a = data.bill_allocations[i];
+        if (!a || typeof a !== 'object') {
+          await t.rollback();
+          return res.status(400).json({ error: `bill_allocations[${i}] must be an object.` });
+        }
+        if (!Number.isFinite(Number(a.bill_id)) || Number(a.bill_id) <= 0) {
+          await t.rollback();
+          return res.status(400).json({ error: `bill_allocations[${i}].bill_id must be a positive integer.` });
+        }
+        if (!['Sales', 'Purchase'].includes(a.bill_type)) {
+          await t.rollback();
+          return res.status(400).json({ error: `bill_allocations[${i}].bill_type must be 'Sales' or 'Purchase'.` });
+        }
+        const amt = parseFloat(a.amount);
+        if (!Number.isFinite(amt) || amt < 0) {
+          await t.rollback();
+          return res.status(400).json({ error: `bill_allocations[${i}].amount must be a non-negative number.` });
+        }
+      }
+    }
+
     // Pre-lock every bill the user is allocating against, so the remaining-balance
     // check and update below happen atomically against whatever the current row
     // state is (another cancel/receipt on the same bill can't slip in between).
+    //
+    // Cross-party ownership check (audit C5): each allocation's bill MUST belong
+    // to the same party as the payment. Without this, a hostile client can POST
+    // bill_allocations referencing a different customer's bill_id; reconcile
+    // silently degrades to FIFO and the per-bill validator below leaks the
+    // OTHER party's bill_number + balance in the error message.
     const allocations = data.bill_allocations || [];
     for (const alloc of allocations) {
       if (!alloc.bill_id || !alloc.amount || parseFloat(alloc.amount) <= 0) continue;
       if (alloc.bill_type === 'Sales') {
-        await SalesBill.findByPk(alloc.bill_id, { lock: t.LOCK.UPDATE, transaction: t });
+        const bill = await SalesBill.findByPk(alloc.bill_id, { lock: t.LOCK.UPDATE, transaction: t });
+        if (bill && bill.customer_id !== data.party_id) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Bill allocation references a bill that does not belong to the selected party.' });
+        }
       } else if (alloc.bill_type === 'Purchase') {
-        await PurchaseBill.findByPk(alloc.bill_id, { lock: t.LOCK.UPDATE, transaction: t });
+        const bill = await PurchaseBill.findByPk(alloc.bill_id, { lock: t.LOCK.UPDATE, transaction: t });
+        if (bill && bill.supplier_id !== data.party_id) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Bill allocation references a bill that does not belong to the selected party.' });
+        }
       }
     }
 
@@ -143,7 +196,7 @@ exports.create = async (req, res) => {
       order: [['transaction_id', 'DESC']],
       transaction: t,
     });
-    const lastNum = last ? parseInt(last.transaction_number.split('-').pop()) : 0;
+    const lastNum = safeTrailingNumber(last && last.transaction_number);
     data.transaction_number = generateTransactionNumber(prefix, lastNum);
     data.created_by = req.user.user_id;
 
@@ -169,6 +222,22 @@ exports.create = async (req, res) => {
       });
     }
     // ─────────────────────────────────────────────────────────────────────────
+
+    // Audit P3-C — payment splits must sum to the receipt total. The
+    // voucher builder already throws on mismatch and rolls the txn back,
+    // but that error reads "split total X ≠ receipt total Y" — confusing
+    // for a cashier. Catch it here with a clean message so the operator
+    // can correct the split before re-saving.
+    if (Array.isArray(splits) && splits.length > 0) {
+      const splitSum = splits.reduce((s, sp) => s + (parseFloat(sp.amount) || 0), 0);
+      if (Math.abs(splitSum - paymentAmt) > 0.01) {
+        await t.rollback();
+        return res.status(400).json({
+          error: `Payment split total ₹${splitSum.toFixed(2)} does not match the receipt total ₹${paymentAmt.toFixed(2)}. Please adjust the split amounts.`,
+          field: 'splits',
+        });
+      }
+    }
 
     const payment = await PaymentReceipt.create(data, { transaction: t });
 
@@ -378,6 +447,192 @@ exports.cancel = async (req, res) => {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
     console.error('Cancel payment error:', error);
+    res.status(500).json({ error: 'Server error: ' + error.message });
+  }
+};
+
+// ── Update (edit) a payment / receipt ────────────────────────────────────
+//
+// Implemented as atomic cancel-then-recreate in a single transaction so the
+// "fix the typo" workflow doesn't leave the books in a half-edited state if
+// either step fails. The new payment gets a fresh transaction_number; we
+// preserve the original date by default and capture the link to the original
+// in `cancellation_reason` for the audit trail.
+//
+// Why not in-place mutation? Cheque rows, vouchers, and bill allocations
+// are all derived from the original payment's data — reversing them and
+// re-issuing matches the cancel + create code paths exactly, so we get the
+// same correctness guarantees without a separate edit pipeline.
+//
+// (Audit C4 — "no edit endpoint" was rated CRITICAL because it forced
+// cancel+recreate cycles through the non-idempotent reconcile bug. With
+// reconcile now idempotent (audit C1/C2 fixes in balanceHelper.js), the
+// cancel-and-recreate path is safe; this endpoint just makes it atomic
+// and exposes a clean PUT verb to the frontend.)
+exports.update = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const oldId = req.params.id;
+    const original = await PaymentReceipt.findByPk(oldId, {
+      transaction: t, lock: t.LOCK.UPDATE,
+    });
+    if (!original) { await t.rollback(); return res.status(404).json({ error: 'Transaction not found' }); }
+    if (original.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Cannot edit a cancelled transaction; create a new one instead.' }); }
+    if (original.source === 'auto_from_bill') {
+      await t.rollback();
+      return res.status(400).json({
+        error: `This ${original.transaction_type.toLowerCase()} was auto-generated from bill ${original.reference_bill_number || '#' + original.source_bill_id}. Edit the source bill instead.`,
+      });
+    }
+
+    // ── Step 1: cancel the original (mirrors exports.cancel body) ──
+    await original.update({
+      is_cancelled: true,
+      cancelled_by: req.user?.user_id || null,
+      cancelled_on: new Date(),
+      cancellation_reason: `Edited (replaced by new ${original.transaction_type.toLowerCase()})`,
+    }, { transaction: t });
+    await reconcileBillsForParty(original.party_id, t);
+    await recalculatePartyBalance(original.party_id, t);
+    await reverseVoucher({
+      sourceType: 'payment_receipt', sourceId: original.transaction_id,
+      reason: 'Payment edited',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
+
+    // ── Step 2: create the replacement (mirrors exports.create body) ──
+    const { splits, ...data } = req.body;
+    data.transaction_type = data.transaction_type || original.transaction_type;
+    data.party_id = data.party_id || original.party_id;
+    const prefix = data.transaction_type === 'Payment' ? 'PAY' : 'REC';
+    const lockKey = prefix === 'PAY' ? 901 : 902;
+    // Audit P2-B — per-company advisory lock (see exports.create).
+    const companyKey = req.companyId || 0;
+    await sequelize.query('SELECT pg_advisory_xact_lock(:company, :key)', {
+      replacements: { company: companyKey, key: lockKey }, transaction: t,
+    });
+
+    const party = await Party.findByPk(data.party_id, {
+      lock: t.LOCK.UPDATE, transaction: t,
+    });
+    if (!party) { await t.rollback(); return res.status(404).json({ error: 'Party not found' }); }
+
+    // Cross-party ownership check (audit C5).
+    const allocations = data.bill_allocations || [];
+    for (const alloc of allocations) {
+      if (!alloc.bill_id || !alloc.amount || parseFloat(alloc.amount) <= 0) continue;
+      if (alloc.bill_type === 'Sales') {
+        const bill = await SalesBill.findByPk(alloc.bill_id, { lock: t.LOCK.UPDATE, transaction: t });
+        if (bill && bill.customer_id !== data.party_id) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Bill allocation references a bill that does not belong to the selected party.' });
+        }
+      } else if (alloc.bill_type === 'Purchase') {
+        const bill = await PurchaseBill.findByPk(alloc.bill_id, { lock: t.LOCK.UPDATE, transaction: t });
+        if (bill && bill.supplier_id !== data.party_id) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Bill allocation references a bill that does not belong to the selected party.' });
+        }
+      }
+    }
+
+    const last = await PaymentReceipt.findOne({
+      where: { transaction_type: data.transaction_type },
+      order: [['transaction_id', 'DESC']],
+      transaction: t,
+    });
+    const lastNum = safeTrailingNumber(last && last.transaction_number);
+    data.transaction_number = generateTransactionNumber(prefix, lastNum);
+    data.created_by = req.user.user_id;
+
+    if (!data.payment_method && Array.isArray(splits) && splits.length > 0) {
+      const distinctModes = [...new Set(splits.map((s) => s.payment_mode).filter(Boolean))];
+      if (distinctModes.length === 1) data.payment_method = distinctModes[0];
+    }
+
+    const outstanding = await getPartyOutstanding(data.party_id, data.transaction_type, t);
+    const paymentAmt  = parseFloat(data.total_amount) || 0;
+    if (paymentAmt > outstanding + 0.01) {
+      await t.rollback();
+      const fmt = (n) => '₹' + parseFloat(n).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+      return res.status(400).json({
+        error: `${data.transaction_type === 'Payment' ? 'Payment' : 'Receipt'} amount ${fmt(paymentAmt)} exceeds outstanding balance of ${fmt(outstanding)}.`,
+      });
+    }
+
+    const payment = await PaymentReceipt.create(data, { transaction: t });
+
+    const createdSplits = [];
+    if (splits && splits.length > 0) {
+      for (const split of splits) {
+        const ps = await PaymentSplit.create({ transaction_id: payment.transaction_id, ...split }, { transaction: t });
+        createdSplits.push(ps);
+      }
+    }
+
+    for (const ps of createdSplits) {
+      if (ps.payment_mode !== 'Cheque' || !ps.cheque_number) continue;
+      const isInward = data.transaction_type === 'Receipt';
+      const chequeDate = ps.cheque_date || data.transaction_date;
+      const isPdc = String(chequeDate) > String(data.transaction_date);
+      const inwardImmediate = isInward && !isPdc;
+      await Cheque.create({
+        direction: isInward ? 'INWARD' : 'OUTWARD',
+        cheque_number: ps.cheque_number,
+        cheque_date: chequeDate,
+        amount: ps.amount,
+        party_id: payment.party_id,
+        bank_ledger_id: ps.bank_ledger_id,
+        status: inwardImmediate ? 'DEPOSITED' : 'PENDING',
+        is_pdc: isPdc,
+        instrument_date: data.transaction_date,
+        deposit_date: inwardImmediate ? data.transaction_date : null,
+        source_payment_id: payment.transaction_id,
+        source_payment_split_id: ps.split_id,
+        created_by: req.user?.user_id || null,
+      }, { transaction: t });
+    }
+
+    for (const alloc of allocations) {
+      if (!alloc.bill_id || !alloc.amount || parseFloat(alloc.amount) <= 0) continue;
+      const allocAmt = parseFloat(alloc.amount);
+      const Model = alloc.bill_type === 'Sales' ? SalesBill
+                  : alloc.bill_type === 'Purchase' ? PurchaseBill
+                  : null;
+      if (!Model) continue;
+      const bill = await Model.findByPk(alloc.bill_id, { transaction: t });
+      if (!bill) continue;
+      const currentBalance = parseFloat(bill.balance_amount) || 0;
+      if (allocAmt > currentBalance + 0.01) {
+        await t.rollback();
+        return res.status(400).json({
+          error: `Allocation of ₹${allocAmt.toFixed(2)} for bill ${bill.bill_number} exceeds its remaining balance of ₹${currentBalance.toFixed(2)}`,
+        });
+      }
+    }
+
+    await reconcileBillsForParty(data.party_id, t);
+    await recalculatePartyBalance(data.party_id, t);
+
+    {
+      const refreshed = await PaymentReceipt.findByPk(payment.transaction_id, {
+        include: [{ model: Party, as: 'party' }, { model: PaymentSplit, as: 'splits' }],
+        transaction: t,
+      });
+      const vouchers = await buildPaymentReceiptVouchers(refreshed, { transaction: t });
+      for (const v of vouchers) {
+        await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
+      }
+    }
+
+    await t.commit();
+    const result = await PaymentReceipt.findByPk(payment.transaction_id, {
+      include: [{ model: Party, as: 'party' }, { model: PaymentSplit, as: 'splits' }],
+    });
+    res.json(result);
+  } catch (error) {
+    if (!t.finished) { try { await t.rollback(); } catch (_) {} }
+    console.error('Update payment error:', error);
     res.status(500).json({ error: 'Server error: ' + error.message });
   }
 };

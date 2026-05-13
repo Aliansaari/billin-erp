@@ -2,12 +2,18 @@
  * Per-company connection pool.
  * ────────────────────────────
  *
- * Caches one Sequelize instance + its model bag per company. The cache
- * never evicts (small offices have <10 companies; the connection
- * overhead is trivial). Each connection is created lazily on first
- * use; the schema migration runs against the new connection before
- * the first request can hit it, so the per-company DB always has the
- * right tables.
+ * Caches one Sequelize instance + its model bag per company. Each
+ * connection is created lazily on first use; the schema migration runs
+ * against the new connection before the first request can hit it, so
+ * the per-company DB always has the right tables.
+ *
+ * Audit P2-C — entries that haven't been touched for IDLE_EVICTION_MS
+ * are closed by a periodic sweeper. Without eviction, a long-running
+ * LAN host that switches between companies over weeks would hold 30
+ * connections × N companies open against the cluster, eventually
+ * hitting Postgres `max_connections=100` (default) and freezing. The
+ * master/primary connection is exempt — every request needs it to look
+ * up the Company directory and per-route auth.
  *
  * Two key entry points:
  *
@@ -42,7 +48,17 @@ const masterSequelize = databaseModule.masterSequelize || databaseModule;
 const { defineModels, masterModels, companyContext } = require('../models');
 const { runCompanySchemaMigrations } = require('./companySchemaMigrations');
 
-const POOL = new Map();   // companyId -> { sequelize, models, ready }
+const POOL = new Map();   // companyId -> { sequelize, models, ready, company, lastUsedAt, isPrimary }
+
+// How long a per-company connection can sit idle before the sweeper
+// closes it. 30 minutes is comfortably longer than the inactivity gap
+// between operator actions on a busy day (so we don't churn) but short
+// enough that a forgotten / archived company doesn't tie up its slots
+// indefinitely. Tunable via env for stress testing.
+const IDLE_EVICTION_MS = Number(process.env.DB_COMPANY_IDLE_EVICTION_MS || 30 * 60 * 1000);
+const SWEEPER_INTERVAL_MS = Number(process.env.DB_COMPANY_SWEEPER_INTERVAL_MS || 5 * 60 * 1000);
+
+let _sweeperHandle = null;
 
 function buildSequelize(dbName) {
   return new Sequelize(
@@ -59,7 +75,7 @@ function buildSequelize(dbName) {
         // we expect each company to have ~5-10 active users at most.
         max:     Number(process.env.DB_POOL_MAX || 30),
         min:     Number(process.env.DB_POOL_MIN || 1),
-        acquire: Number(process.env.DB_POOL_ACQUIRE || 10000),
+        acquire: Number(process.env.DB_POOL_ACQUIRE || 35000),
         idle:    Number(process.env.DB_POOL_IDLE || 10000),
         evict:   Number(process.env.DB_POOL_EVICT || 1000),
       },
@@ -94,6 +110,7 @@ async function getCompanyConnection(companyId) {
   // Cache hit.
   const cached = POOL.get(id);
   if (cached) {
+    cached.lastUsedAt = Date.now();
     await cached.ready;
     return cached;
   }
@@ -108,9 +125,11 @@ async function getCompanyConnection(companyId) {
   // DB install works exactly as before. Master models were already
   // associated at module load.
   let sequelize, models;
+  let isPrimary = false;
   if (company.is_primary || company.db_name === (process.env.DB_NAME || 'billing_erp')) {
     sequelize = masterSequelize;
     models = masterModels;
+    isPrimary = true;
   } else {
     sequelize = buildSequelize(company.db_name);
     models = defineModels(sequelize);
@@ -138,10 +157,41 @@ async function getCompanyConnection(companyId) {
     throw e;
   });
 
-  const entry = { sequelize, models, ready, company };
+  const entry = { sequelize, models, ready, company, lastUsedAt: Date.now(), isPrimary };
   POOL.set(id, entry);
+  // Start the idle sweeper on first use, not at module load — keeps the
+  // background tick out of unit-test boots that import this file.
+  ensureSweeperStarted();
   await ready;
   return entry;
+}
+
+// Periodic sweeper: closes the Sequelize instance for any non-primary
+// company entry that hasn't been touched for IDLE_EVICTION_MS. The
+// master/primary entry is exempt (every request loads Company from it).
+async function sweepIdleConnections() {
+  const cutoff = Date.now() - IDLE_EVICTION_MS;
+  for (const [id, entry] of POOL.entries()) {
+    if (entry.isPrimary) continue;
+    if (entry.lastUsedAt > cutoff) continue;
+    POOL.delete(id);
+    try {
+      await entry.sequelize.close();
+      console.log(`[connection-pool] evicted idle company ${id} (idle ${Math.round((Date.now() - entry.lastUsedAt) / 60000)}m)`);
+    } catch (e) {
+      console.error(`[connection-pool] failed to close company ${id}:`, e.message);
+    }
+  }
+}
+
+function ensureSweeperStarted() {
+  if (_sweeperHandle) return;
+  _sweeperHandle = setInterval(() => {
+    sweepIdleConnections().catch((e) => console.error('[connection-pool] sweeper error:', e.message));
+  }, SWEEPER_INTERVAL_MS);
+  // Don't keep the event loop alive just for the sweeper — graceful
+  // shutdown should still work.
+  if (typeof _sweeperHandle.unref === 'function') _sweeperHandle.unref();
 }
 
 /**
@@ -158,12 +208,20 @@ function getPoolStats() {
 /**
  * Drop a cached connection — used by the Manage Companies page when
  * a company is renamed / archived so subsequent connections get a
- * fresh entry. Doesn't actually close the underlying pool because
- * in-flight requests might still be using it; Sequelize's idle
- * eviction will clean it up.
+ * fresh entry. Closes the underlying Sequelize instance (unless this
+ * is the master/primary, which is shared with every request).
+ * Audit P2-C: pre-fix this only deleted the cache entry, leaving the
+ * connection pool open against the cluster — a leak.
  */
 function invalidateCompany(companyId) {
-  POOL.delete(Number(companyId));
+  const id = Number(companyId);
+  const entry = POOL.get(id);
+  POOL.delete(id);
+  if (entry && !entry.isPrimary) {
+    entry.sequelize.close().catch((e) => {
+      console.error(`[connection-pool] invalidateCompany ${id} close failed:`, e.message);
+    });
+  }
 }
 
 module.exports = {

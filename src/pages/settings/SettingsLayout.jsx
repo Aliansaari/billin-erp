@@ -46,7 +46,10 @@ const SETTINGS_GROUPS = [
   {
     label: 'People',
     items: [
-      { path: 'users', icon: <UserOutlined />, label: 'Users', perm: 'settings.manage_users' },
+      // My Account — every logged-in user can reach this. perm:null means
+      // no extra check beyond authentication.
+      { path: 'account', icon: <UserOutlined />, label: 'My Account', perm: null },
+      { path: 'users',   icon: <UserOutlined />, label: 'Users',      perm: 'settings.manage_users' },
     ],
   },
   {

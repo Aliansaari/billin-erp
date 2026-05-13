@@ -3,7 +3,7 @@ import { Input, DatePicker, Select, Button, InputNumber, message, Checkbox, Moda
 import {
   CheckOutlined, MinusOutlined,
 } from '@ant-design/icons';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
@@ -34,6 +34,10 @@ const parseDateInput = (str) => {
 export default function ReceiptEntry() {
   const navigate = useNavigate();
   const location = useLocation();
+  // Edit mode — when /receipt/edit/:id is the route, load the receipt and
+  // switch the save action to paymentAPI.update() (Audit C4 endpoint).
+  const { id: editId } = useParams();
+  const isEdit = !!editId;
   // Preselect payload from the Sales List "Record receipt" menu — arrives as
   // { party_id, bill_id }. We auto-pick the party once the parties list loads
   // and scroll/highlight the specific bill if present.
@@ -116,6 +120,59 @@ export default function ReceiptEntry() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parties, preselect]);
 
+  // Edit mode load — when /receipt/edit/:id, hydrate the form from the
+  // existing receipt so the operator can adjust fields and re-save.
+  // Re-uses the same handlePartyChange + checkedBills state machinery
+  // the create-flow uses; on Save we route to paymentAPI.update() instead
+  // of create(). The cancelled-or-auto guards on the backend (audit C4)
+  // also surface as 400s if a stale tab tries to edit an auto-receipt.
+  const editLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!isEdit) return;
+    if (editLoadedRef.current) return;
+    if (!parties.length) return;
+    editLoadedRef.current = true;
+    (async () => {
+      try {
+        const { data: r } = await paymentAPI.getById(editId);
+        if (r.is_cancelled) {
+          message.error('This receipt is cancelled. Create a new one instead of editing.');
+          navigate('/payments');
+          return;
+        }
+        if (r.source === 'auto_from_bill') {
+          message.error('Auto-receipts are managed by the source bill. Edit the bill instead.');
+          navigate('/payments');
+          return;
+        }
+        // Hydrate header fields.
+        setDate(dayjs(r.transaction_date));
+        setPayNo(r.transaction_number || '');
+        // Pick the primary split if there are multiple modes (rare).
+        const split = (r.splits || [])[0] || {};
+        setPayMode(split.payment_mode || r.payment_method || 'Cash');
+        setBankLedgerId(split.bank_ledger_id || r.bank_ledger_id || null);
+        if (split.cheque_date) setChequeDate(dayjs(split.cheque_date));
+        setPayAmt(parseFloat(r.total_amount) || 0);
+        // Trigger party flow so bills load and we can re-tick allocations.
+        await handlePartyChange(r.party_id);
+        // The allocations on the saved receipt are restored after the
+        // unpaid-bills list arrives. We let handlePartyChange resolve first,
+        // then a follow-up effect (below) re-ticks based on r.bill_allocations.
+        if (Array.isArray(r.bill_allocations)) {
+          // Store the saved allocations on a ref so the bills-loaded effect
+          // can pick them up exactly once.
+          savedAllocsRef.current = r.bill_allocations;
+        }
+      } catch (e) {
+        message.error(e.response?.data?.error || 'Failed to load receipt');
+        navigate('/payments');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, editId, parties]);
+  const savedAllocsRef = useRef(null);
+
   const handlePartyChange = async (partyId) => {
     const party = parties.find(p => p.party_id === partyId);
     setSelectedParty(party);
@@ -123,11 +180,35 @@ export default function ReceiptEntry() {
     setPayAmt(null);
     try {
       const { data } = await paymentAPI.getUnpaidBills({ party_id: partyId, type: 'Sales' });
-      const rows = (data || []).map(b => ({
-        ...b,
-        checked: true,
-        dueDays: b.bill_date ? dayjs().diff(dayjs(b.bill_date), 'day') : 0,
-      }));
+      // Audit L4 — in edit mode, re-tick only the bills that were previously
+      // allocated by this receipt (read from savedAllocsRef.current). New-
+      // receipt flow keeps the default-check-all behaviour. Allocations
+      // store amounts; we also pin those amounts as the "tick value" so
+      // the operator sees what was originally allocated.
+      const savedAllocs = savedAllocsRef.current; // Map[bill_id => amount] or array
+      const isEditFlow = isEdit && Array.isArray(savedAllocs) && savedAllocs.length > 0;
+      const allocLookup = {};
+      if (isEditFlow) {
+        for (const a of savedAllocs) {
+          if (a && a.bill_id) {
+            allocLookup[Number(a.bill_id)] = parseFloat(a.amount) || 0;
+          }
+        }
+        // Consume so a subsequent party-change doesn't re-apply old allocs.
+        savedAllocsRef.current = null;
+      }
+      const rows = (data || []).map(b => {
+        const hadAlloc = isEditFlow ? allocLookup[Number(b.sales_bill_id)] : undefined;
+        return {
+          ...b,
+          // In edit mode: tick only the bills the original receipt allocated.
+          checked: isEditFlow ? hadAlloc > 0 : true,
+          // Surface the original allocation amount so the operator can see
+          // how the receipt was distributed before changing it.
+          alloc_amount: hadAlloc || 0,
+          dueDays: b.bill_date ? dayjs().diff(dayjs(b.bill_date), 'day') : 0,
+        };
+      });
       // Remaining opening balance row — only shown when the party has a
       // Receivable opening balance with some still unpaid. Two guards:
       //   1. opening_balance_type must be 'Receivable'
@@ -260,7 +341,7 @@ export default function ReceiptEntry() {
     submittingRef.current = true;
     setLoading(true);
     try {
-      const { data: result } = await paymentAPI.create({
+      const body = {
         transaction_type:    'Receipt',
         transaction_date:    date.format('YYYY-MM-DD'),
         party_id:            selectedParty.party_id,
@@ -282,17 +363,28 @@ export default function ReceiptEntry() {
             : {}),
         }],
         bill_allocations,
-      });
-      message.success(`Receipt ${result.transaction_number} saved! ✓`);
-      handleReset();
-      refreshNextNumber();
+      };
+      const { data: result } = isEdit
+        ? await paymentAPI.update(editId, body)
+        : await paymentAPI.create(body);
+      message.success(
+        isEdit
+          ? `Receipt updated → new number ${result.transaction_number} (original cancelled in audit trail). ✓`
+          : `Receipt ${result.transaction_number} saved! ✓`,
+      );
+      if (isEdit) {
+        navigate('/payments');
+      } else {
+        handleReset();
+        refreshNextNumber();
+      }
     } catch (e) {
       message.error(e.response?.data?.error || 'Failed to save receipt');
     } finally {
       setLoading(false);
       submittingRef.current = false;
     }
-  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, chequeDate, checkedBills, selectedInvNos, billsWithAlloc]);
+  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, chequeDate, checkedBills, selectedInvNos, billsWithAlloc, isEdit, editId, navigate]);
 
   handleSaveRef.current = handleSave;
 

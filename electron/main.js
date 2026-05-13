@@ -274,7 +274,14 @@ async function createWindow() {
   mainWindow.on('close',  saveState);
 
   mainWindow.setMenuBarVisibility(false);
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  // Always launch maximised. The width/height/x/y above act as the
+  // "restore-down" bounds — i.e. what the user gets back when they click
+  // the restore button next to the X. Calling maximize() BEFORE show()
+  // avoids the brief windowed-then-maximised flicker on Windows.
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.maximize();
+    mainWindow.show();
+  });
 
   // Pipe the renderer's console messages back to Electron stdout so a
   // blank-screen JS error is visible in the launch terminal even when

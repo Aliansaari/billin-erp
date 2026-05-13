@@ -26,12 +26,14 @@ const {
 const {
   getLedgerStatement, resolveLedgerForParty,
 } = require('../services/ledgerStatementService');
+const { escapeLike } = require('../utils/helpers');
 
 exports.listAccounts = async (req, res) => {
   try {
     const { search, exclude_party_ledgers } = req.query || {};
     const where = { is_active: true };
-    if (search) where.ledger_name = { [Op.iLike]: `%${search}%` };
+    // Audit P3-D — escape LIKE wildcards.
+    if (search) where.ledger_name = { [Op.iLike]: `%${escapeLike(search)}%` };
     // The COA Ledger picker passes ?exclude_party_ledgers=1 — Customer /
     // Supplier Statement own the party-side surface, the COA picker shows
     // only the chart-of-accounts entries (Sales A/c, Bank, Office Rent,

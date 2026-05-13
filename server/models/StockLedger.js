@@ -69,6 +69,20 @@ module.exports = (sequelize) => {
     remarks: {
       type: DataTypes.TEXT,
     },
+    // Audit H5 — when a sale/purchase/return is cancelled or edited, we
+    // write a paired reversing row instead of destroying the original.
+    // The reversal row's `is_reversal_of_ledger_id` points back at the
+    // original it cancels. To find currently-active (unreversed) rows
+    // for a given bill, filter to those without a row pointing here:
+    //   WHERE NOT EXISTS (SELECT 1 FROM stock_ledger r
+    //                      WHERE r.is_reversal_of_ledger_id = s.ledger_id)
+    // Plain audit-trail readers (Stock Movement timeline) ignore this
+    // column and show every row chronologically.
+    is_reversal_of_ledger_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: { model: 'stock_ledger', key: 'ledger_id' },
+    },
     created_by: {
       type: DataTypes.INTEGER,
       references: { model: 'users', key: 'user_id' },

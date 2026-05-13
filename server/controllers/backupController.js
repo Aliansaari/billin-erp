@@ -419,6 +419,31 @@ exports.deleteBackup = async (req, res) => {
  */
 exports.restoreBackup = async (req, res) => {
   try {
+    // Audit C20 — restore is the most destructive endpoint in the app:
+    // performRestore() TRUNCATEs every domain table (sales, parties,
+    // products, etc.) before re-inserting from the backup. Require fresh
+    // re-auth via the operator's CURRENT password (not just the bearer
+    // token) so a stolen session can't trigger a destructive restore
+    // without also having the live credential. Mirrors the cleanup-data
+    // confirmation in settingsController.
+    const bcrypt = require('bcryptjs');
+    const { User } = require('../models');
+    const supplied = req.body && req.body.confirm_password;
+    if (!supplied || typeof supplied !== 'string') {
+      return res.status(400).json({
+        error: 'Restore requires confirm_password (operator must re-enter their password).',
+        field: 'confirm_password',
+      });
+    }
+    const userRow = await User.findByPk(req.user.user_id);
+    if (!userRow) {
+      return res.status(401).json({ error: 'User session is no longer valid; sign in again.' });
+    }
+    const validPwd = await bcrypt.compare(supplied, userRow.password_hash);
+    if (!validPwd) {
+      return res.status(401).json({ error: 'Confirmation password is incorrect.' });
+    }
+
     let rawContent;
 
     if (req.file) {

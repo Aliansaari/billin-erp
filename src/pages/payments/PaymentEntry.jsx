@@ -3,7 +3,7 @@ import { Input, DatePicker, Select, Button, InputNumber, message, Checkbox, Moda
 import {
   CheckOutlined, MinusOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
@@ -33,6 +33,10 @@ const parseDateInput = (str) => {
 
 export default function PaymentEntry() {
   const navigate = useNavigate();
+  // Edit mode — /payment/edit/:id route param triggers an edit-load.
+  // On save we call paymentAPI.update() (audit C4 endpoint) instead of create().
+  const { id: editId } = useParams();
+  const isEdit = !!editId;
   const [parties, setParties]             = useState([]);
   const [selectedParty, setSelectedParty] = useState(null);
   const [bills, setBills]                 = useState([]);
@@ -95,6 +99,52 @@ export default function PaymentEntry() {
     } catch (_) {}
   };
 
+  // Edit-mode load (mirrors ReceiptEntry). Hydrates header fields, then
+  // routes through handlePartyChange so unpaid-bills get loaded. The
+  // operator can adjust the form and Save — paymentAPI.update() cancels
+  // the original (preserving the audit trail) and creates a replacement
+  // in one transaction.
+  const editLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!isEdit) return;
+    if (editLoadedRef.current) return;
+    if (!parties.length) return;
+    editLoadedRef.current = true;
+    (async () => {
+      try {
+        const { data: r } = await paymentAPI.getById(editId);
+        if (r.is_cancelled) {
+          message.error('This payment is cancelled. Create a new one instead of editing.');
+          navigate('/payments');
+          return;
+        }
+        if (r.source === 'auto_from_bill') {
+          message.error('Auto-payments are managed by the source bill. Edit the bill instead.');
+          navigate('/payments');
+          return;
+        }
+        setDate(dayjs(r.transaction_date));
+        setPayNo(r.transaction_number || '');
+        const split = (r.splits || [])[0] || {};
+        setPayMode(split.payment_mode || r.payment_method || 'Cash');
+        setBankLedgerId(split.bank_ledger_id || r.bank_ledger_id || null);
+        if (split.cheque_date) setChequeDate(dayjs(split.cheque_date));
+        setPayAmt(parseFloat(r.total_amount) || 0);
+        // Audit L4 — stash saved allocations for handlePartyChange to
+        // re-tick only those bills (instead of default-check-all).
+        if (Array.isArray(r.bill_allocations)) {
+          savedAllocsRef.current = r.bill_allocations;
+        }
+        await handlePartyChange(r.party_id);
+      } catch (e) {
+        message.error(e.response?.data?.error || 'Failed to load payment');
+        navigate('/payments');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, editId, parties]);
+  const savedAllocsRef = useRef(null);
+
   const handlePartyChange = async (partyId) => {
     const party = parties.find(p => p.party_id === partyId);
     setSelectedParty(party);
@@ -102,11 +152,28 @@ export default function PaymentEntry() {
     setPayAmt(null);
     try {
       const { data } = await paymentAPI.getUnpaidBills({ party_id: partyId, type: 'Purchase' });
-      const rows = (data || []).map(b => ({
-        ...b,
-        checked: true,
-        dueDays: b.bill_date ? dayjs().diff(dayjs(b.bill_date), 'day') : 0,
-      }));
+      // Audit L4 — same re-tick-only-previously-allocated pattern as
+      // ReceiptEntry (see comment there for the rationale).
+      const savedAllocs = savedAllocsRef.current;
+      const isEditFlow = isEdit && Array.isArray(savedAllocs) && savedAllocs.length > 0;
+      const allocLookup = {};
+      if (isEditFlow) {
+        for (const a of savedAllocs) {
+          if (a && a.bill_id) {
+            allocLookup[Number(a.bill_id)] = parseFloat(a.amount) || 0;
+          }
+        }
+        savedAllocsRef.current = null;
+      }
+      const rows = (data || []).map(b => {
+        const hadAlloc = isEditFlow ? allocLookup[Number(b.purchase_bill_id)] : undefined;
+        return {
+          ...b,
+          checked: isEditFlow ? hadAlloc > 0 : true,
+          alloc_amount: hadAlloc || 0,
+          dueDays: b.bill_date ? dayjs().diff(dayjs(b.bill_date), 'day') : 0,
+        };
+      });
       // Remaining opening balance row — Payable side. Same two guards as
       // ReceiptEntry, mirrored for opening_balance_type === 'Payable'.
       const billsTotal    = rows.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
@@ -235,7 +302,7 @@ export default function PaymentEntry() {
     submittingRef.current = true;
     setLoading(true);
     try {
-      const { data: result } = await paymentAPI.create({
+      const body = {
         transaction_type:    'Payment',
         transaction_date:    date.format('YYYY-MM-DD'),
         party_id:            selectedParty.party_id,
@@ -259,17 +326,28 @@ export default function PaymentEntry() {
             : {}),
         }],
         bill_allocations,
-      });
-      message.success(`Payment ${result.transaction_number} saved! ✓`);
-      handleReset();
-      refreshNextNumber();
+      };
+      const { data: result } = isEdit
+        ? await paymentAPI.update(editId, body)
+        : await paymentAPI.create(body);
+      message.success(
+        isEdit
+          ? `Payment updated → new number ${result.transaction_number} (original cancelled in audit trail). ✓`
+          : `Payment ${result.transaction_number} saved! ✓`,
+      );
+      if (isEdit) {
+        navigate('/payments');
+      } else {
+        handleReset();
+        refreshNextNumber();
+      }
     } catch (e) {
       message.error(e.response?.data?.error || 'Failed to save payment');
     } finally {
       setLoading(false);
       submittingRef.current = false;
     }
-  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, chequeDate, checkedBills, selectedInvNos, billsWithAlloc]);
+  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, chequeDate, checkedBills, selectedInvNos, billsWithAlloc, isEdit, editId, navigate]);
 
   handleSaveRef.current = handleSave;
 

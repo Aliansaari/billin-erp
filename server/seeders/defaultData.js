@@ -1,6 +1,51 @@
 const bcrypt = require('bcryptjs');
-const { Role, User, BarcodeSettings, SystemSettings, LedgerAccount, PrintProfile, Party, Godown } = require('../models');
+const { Role, User, BarcodeSettings, SystemSettings, LedgerAccount, PrintProfile, Party, Godown, IndianState } = require('../models');
 const { ROLES } = require('../utils/rolePerms');
+
+// 36 Indian states + union territories with their GST state codes (the
+// 2-digit GSTIN prefix). Reference: https://en.wikipedia.org/wiki/List_of_state_and_union_territory_capitals_in_India
+// sort_order keeps states alphabetical first, then UTs alphabetical, so the
+// dropdown looks natural without runtime sorting.
+const INDIAN_STATES_SEED = [
+  // States (alphabetical)
+  { state_name: 'Andhra Pradesh',     gst_code: '28', is_union_territory: false, sort_order: 1  },
+  { state_name: 'Arunachal Pradesh',  gst_code: '12', is_union_territory: false, sort_order: 2  },
+  { state_name: 'Assam',              gst_code: '18', is_union_territory: false, sort_order: 3  },
+  { state_name: 'Bihar',              gst_code: '10', is_union_territory: false, sort_order: 4  },
+  { state_name: 'Chhattisgarh',       gst_code: '22', is_union_territory: false, sort_order: 5  },
+  { state_name: 'Goa',                gst_code: '30', is_union_territory: false, sort_order: 6  },
+  { state_name: 'Gujarat',            gst_code: '24', is_union_territory: false, sort_order: 7  },
+  { state_name: 'Haryana',            gst_code: '06', is_union_territory: false, sort_order: 8  },
+  { state_name: 'Himachal Pradesh',   gst_code: '02', is_union_territory: false, sort_order: 9  },
+  { state_name: 'Jharkhand',          gst_code: '20', is_union_territory: false, sort_order: 10 },
+  { state_name: 'Karnataka',          gst_code: '29', is_union_territory: false, sort_order: 11 },
+  { state_name: 'Kerala',             gst_code: '32', is_union_territory: false, sort_order: 12 },
+  { state_name: 'Madhya Pradesh',     gst_code: '23', is_union_territory: false, sort_order: 13 },
+  { state_name: 'Maharashtra',        gst_code: '27', is_union_territory: false, sort_order: 14 },
+  { state_name: 'Manipur',            gst_code: '14', is_union_territory: false, sort_order: 15 },
+  { state_name: 'Meghalaya',          gst_code: '17', is_union_territory: false, sort_order: 16 },
+  { state_name: 'Mizoram',            gst_code: '15', is_union_territory: false, sort_order: 17 },
+  { state_name: 'Nagaland',           gst_code: '13', is_union_territory: false, sort_order: 18 },
+  { state_name: 'Odisha',             gst_code: '21', is_union_territory: false, sort_order: 19 },
+  { state_name: 'Punjab',             gst_code: '03', is_union_territory: false, sort_order: 20 },
+  { state_name: 'Rajasthan',          gst_code: '08', is_union_territory: false, sort_order: 21 },
+  { state_name: 'Sikkim',             gst_code: '11', is_union_territory: false, sort_order: 22 },
+  { state_name: 'Tamil Nadu',         gst_code: '33', is_union_territory: false, sort_order: 23 },
+  { state_name: 'Telangana',          gst_code: '36', is_union_territory: false, sort_order: 24 },
+  { state_name: 'Tripura',            gst_code: '16', is_union_territory: false, sort_order: 25 },
+  { state_name: 'Uttar Pradesh',      gst_code: '09', is_union_territory: false, sort_order: 26 },
+  { state_name: 'Uttarakhand',        gst_code: '05', is_union_territory: false, sort_order: 27 },
+  { state_name: 'West Bengal',        gst_code: '19', is_union_territory: false, sort_order: 28 },
+  // Union Territories (alphabetical, sorted after states)
+  { state_name: 'Andaman and Nicobar Islands',            gst_code: '35', is_union_territory: true, sort_order: 50 },
+  { state_name: 'Chandigarh',                             gst_code: '04', is_union_territory: true, sort_order: 51 },
+  { state_name: 'Dadra and Nagar Haveli and Daman and Diu', gst_code: '26', is_union_territory: true, sort_order: 52 },
+  { state_name: 'Delhi',                                  gst_code: '07', is_union_territory: true, sort_order: 53 },
+  { state_name: 'Jammu and Kashmir',                      gst_code: '01', is_union_territory: true, sort_order: 54 },
+  { state_name: 'Ladakh',                                 gst_code: '38', is_union_territory: true, sort_order: 55 },
+  { state_name: 'Lakshadweep',                            gst_code: '31', is_union_territory: true, sort_order: 56 },
+  { state_name: 'Puducherry',                             gst_code: '34', is_union_territory: true, sort_order: 57 },
+];
 
 async function seedDefaultData() {
   // ── Roles ──
@@ -78,6 +123,18 @@ async function seedDefaultData() {
       backup_frequency: 'Daily',
     },
   });
+
+  // ── Indian States reference table ──
+  // Idempotent: findOrCreate keyed on state_name. Once a row exists we leave
+  // it alone — operators who renamed a state (e.g. "Pondicherry" → "Puducherry"
+  // legacy data) get to keep their override. New states added in future
+  // releases are inserted on next boot without disturbing existing rows.
+  for (const s of INDIAN_STATES_SEED) {
+    await IndianState.findOrCreate({
+      where: { state_name: s.state_name },
+      defaults: s,
+    });
+  }
 
   // ── Default Ledger Accounts ──
   const defaultLedgers = [

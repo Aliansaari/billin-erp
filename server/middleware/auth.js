@@ -89,9 +89,45 @@ const authenticateToken = async (req, res, next) => {
         return res.status(401).json({ error: 'Invalid or inactive user' });
       }
 
+      // Audit P2-G — defence-in-depth against cross-company token reuse.
+      // A token issued for Company A's user_id=3 will land us inside
+      // Company B's DB connection if the JWT's company_id claim is B
+      // (already correctly handled above) — but it will THEN look up
+      // user_id=3 in Company B's users table. If the user_ids happen to
+      // collide, that's a different user. Verifying the username claim
+      // matches the loaded user row catches that mismatch.
+      if (decoded.username && user.username && decoded.username !== user.username) {
+        return res.status(401).json({ error: 'Token does not match the current company\'s user record. Please sign in again.' });
+      }
+
       req.user = user;
       req.companyId = companyId;
       req.companyDb = connection;
+
+      // Audit C17 — enforce must_change_password server-side. The login
+      // / switch-company endpoints stamp this flag on the JWT when the
+      // user is using a known default password. Until they POST a new
+      // password to /auth/change-password, only the password-rotation,
+      // profile, and logout endpoints are reachable. Without this guard
+      // the JWT remains FULL-PRIVILEGE and a savvy attacker who skipped
+      // the React redirect can call /api/parties etc. directly.
+      if (decoded.must_change_password === true) {
+        const allowedWhileLocked = new Set([
+          '/api/auth/change-password',
+          '/api/auth/profile',
+          '/api/auth/logout',
+        ]);
+        // req.path is relative to the mount point ('/api'); req.originalUrl
+        // is the full incoming URL — strip the query so the comparison is
+        // path-only.
+        const cleanPath = (req.originalUrl || req.url || '').split('?')[0];
+        if (!allowedWhileLocked.has(cleanPath)) {
+          return res.status(403).json({
+            error: 'You must change your password before using the system. POST your new password to /api/auth/change-password.',
+            must_change_password: true,
+          });
+        }
+      }
 
       // Keep the ALS context alive for the entire request. Without the
       // pending Promise, the .run() callback would resolve as soon as

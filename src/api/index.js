@@ -323,6 +323,11 @@ export const paymentAPI = {
   getAll: (params) => api.get('/payments', { params }),
   getById: (id) => api.get(`/payments/${id}`),
   create: (data) => api.post('/payments', data),
+  // Audit C4 — atomic edit endpoint. Backend cancels the original receipt,
+  // reverses its vouchers, and creates a replacement inside a single
+  // transaction. New transaction_number is minted; the cancelled row stays
+  // in the audit trail with cancellation_reason "Edited".
+  update: (id, data) => api.put(`/payments/${id}`, data),
   cancel: (id) => api.post(`/payments/${id}/cancel`),
   getUnpaidBills: (params) => api.get('/payments/unpaid-bills', { params }),
   // Preview the next auto-generated transaction number for the type.
@@ -433,6 +438,31 @@ export const settingsAPI = {
   // Payload is { categories, password, confirmation } — backend re-verifies admin's
    // password and requires the user to type "DELETE" before wiping data.
   cleanupData: (payload) => api.post('/settings/cleanup', payload),
+
+  // ── Self-service profile (My Account) ──
+  getMyProfile: () => api.get('/settings/profile'),
+  updateMyProfile: (data) => api.put('/settings/profile', data),
+
+  // ── Branding asset uploads. Pass a File from <input type="file">. ──
+  uploadLogo: (file) => {
+    const fd = new FormData(); fd.append('file', file);
+    return api.post('/settings/branding/logo', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  uploadSignature: (file) => {
+    const fd = new FormData(); fd.append('file', file);
+    return api.post('/settings/branding/signature', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  // Image URLs the <img> tag can render. axios baseURL contains '/api',
+  // so we return a relative path including '/api/' so it works whether
+  // the React app is served from the same origin or via the Vite proxy.
+  logoUrl:      () => `/api/settings/branding/logo?t=${Date.now()}`,
+  signatureUrl: () => `/api/settings/branding/signature?t=${Date.now()}`,
+  removeLogo:      () => api.delete('/settings/branding/logo'),
+  removeSignature: () => api.delete('/settings/branding/signature'),
 };
 
 // Backup & Restore
@@ -639,6 +669,14 @@ export const godownAPI = {
   delete:     (id) => api.delete(`/godowns/${id}`),
 };
 
+// Indian states reference list — backs the state-picker dropdowns on
+// Company Profile + onboarding wizard. List is server-driven so an
+// admin can edit the table directly; falls back to the built-in
+// INDIAN_STATES const in useIndianStates if the server is unreachable.
+export const statesAPI = {
+  list: () => api.get('/states'),
+};
+
 // Per-user report favorites. The hub page + the nav dropdown both
 // read from a Zustand store that calls these endpoints and caches
 // the resulting id list — so consumers should hit the store, not
@@ -696,6 +734,13 @@ export const companyAPI = {
   create:  (data) => api.post('/companies', data),
   update:  (id, data) => api.patch(`/companies/${id}`, data),
   archive: (id) => api.delete(`/companies/${id}`),
+  // Irreversible hard-delete. Drops the per-company PostgreSQL DB +
+  // master row + branding files. Server requires { confirm_name } to
+  // match the company's name exactly — type it in the modal.
+  hardDelete: (id, confirm_name) => api.post(`/companies/${id}/hard-delete`, { confirm_name }),
+  // Download an encrypted backup of a specific company. Works for any
+  // company regardless of which one the caller is currently in.
+  backup: (id) => api.post(`/companies/${id}/backup`, {}, { responseType: 'blob', timeout: 300000 }),
   // Master cap — Developer Settings reads/writes via these.
   getMaxCap: () => api.get('/companies/settings/max-cap'),
   setMaxCap: (n) => api.put('/companies/settings/max-cap', { dev_max_companies: n }),

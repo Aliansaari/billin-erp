@@ -60,6 +60,9 @@ const LoanAccountFactory = require('./LoanAccount');
 const ChequeFactory = require('./Cheque');
 const ExpenseVoucherFactory = require('./ExpenseVoucher');
 const ExpenseVoucherItemFactory = require('./ExpenseVoucherItem');
+const CostLayerFactory = require('./CostLayer');
+const SaleLineLayerConsumptionFactory = require('./SaleLineLayerConsumption');
+const IndianStateFactory = require('./IndianState');
 
 /**
  * Define all models + associations on a given Sequelize instance.
@@ -110,6 +113,9 @@ function defineModels(sequelize) {
   const Cheque = ChequeFactory(sequelize);
   const ExpenseVoucher = ExpenseVoucherFactory(sequelize);
   const ExpenseVoucherItem = ExpenseVoucherItemFactory(sequelize);
+  const CostLayer = CostLayerFactory(sequelize);
+  const SaleLineLayerConsumption = SaleLineLayerConsumptionFactory(sequelize);
+  const IndianState = IndianStateFactory(sequelize);
 
   // ── Associations ──
   
@@ -463,6 +469,9 @@ function defineModels(sequelize) {
     Cheque,
     ExpenseVoucher,
     ExpenseVoucherItem,
+    CostLayer,
+    SaleLineLayerConsumption,
+    IndianState,
   };
 }
 
@@ -575,6 +584,9 @@ module.exports = {
   Cheque: makeProxy('Cheque'),
   ExpenseVoucher: makeProxy('ExpenseVoucher'),
   ExpenseVoucherItem: makeProxy('ExpenseVoucherItem'),
+  CostLayer: makeProxy('CostLayer'),
+  SaleLineLayerConsumption: makeProxy('SaleLineLayerConsumption'),
+  IndianState: makeProxy('IndianState'),
 
   // Multi-tenant escape hatches — used by the connection pool +
   // middleware. Don't import these from controllers; stick with the

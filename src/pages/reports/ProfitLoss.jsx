@@ -129,6 +129,12 @@ export default function ProfitLoss() {
 
   const [data, setData]    = useState(null);
   const [loading, setLoad] = useState(true);
+  // Audit P2-O — distinct error state. Pre-fix, a 500 from the server
+  // only flashed a toast; the table fell through to the empty-state
+  // ("no expense activity"), which looked indistinguishable from a
+  // genuinely empty period. The banner below tells the operator the
+  // server failed and offers a retry.
+  const [loadError, setLoadError] = useState(null);
 
   // Period state — defaults to current FY once the hook resolves, unless
   // we were navigated to with explicit ?from_date/to_date (drill).
@@ -175,11 +181,17 @@ export default function ProfitLoss() {
   const loadData = useCallback(() => {
     if (!from || !to) return;
     setLoad(true);
+    setLoadError(null);
     const params = { from_date: from, to_date: to };
     if (showComparative) params.comparative = 'auto';
     reportAPI.profitLoss(params)
-      .then((r) => setData(r.data))
-      .catch((e) => message.error(e.response?.data?.error || 'Failed to load Profit & Loss'))
+      .then((r) => { setData(r.data); setLoadError(null); })
+      .catch((e) => {
+        const msg = e.response?.data?.error || e.message || 'Failed to load Profit & Loss';
+        message.error(msg);
+        setLoadError(msg);
+        setData(null);
+      })
       .finally(() => setLoad(false));
   }, [from, to, showComparative]);
 

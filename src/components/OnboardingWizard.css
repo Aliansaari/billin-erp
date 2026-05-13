@@ -1,0 +1,250 @@
+/* OnboardingWizard — fullscreen first-run setup overlay.
+ *
+ * Sits above everything (z-index over Layout's sidebar). Uses a dark scrim
+ * matching the app theme so dismissing visually pulls the user back into
+ * the underlying Home page. The inner card is centred with a max-width so
+ * it doesn't sprawl on a 4K display. */
+
+.ob-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;       /* above EntityFormModal (1100) and the AntD message stack */
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  animation: ob-fade 180ms ease-out;
+}
+
+@keyframes ob-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.ob-shell {
+  width: 100%;
+  max-width: 880px;
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  background: var(--bg-panel, #0f172a);
+  border: 1px solid var(--border, #1e293b);
+  border-radius: 14px;
+  padding: 28px 32px 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  color: var(--fg-primary, #e2e8f0);
+}
+
+.ob-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.ob-head-title h3 {
+  color: var(--fg-primary, #e2e8f0);
+  margin-bottom: 2px !important;
+}
+
+.ob-skip {
+  font-size: 13px;
+  color: var(--fg-tertiary, #94a3b8);
+  padding: 0;
+  height: auto;
+}
+
+.ob-skip:hover {
+  color: var(--fg-secondary, #cbd5e1);
+}
+
+.ob-intro {
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  background: var(--bg-app, #0b1220);
+  border: 1px solid var(--border-subtle, #1e293b);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--fg-secondary, #cbd5e1);
+  line-height: 1.5;
+}
+
+.ob-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle, #1e293b);
+}
+
+.ob-foot-step {
+  font-size: 12px;
+  color: var(--fg-tertiary, #94a3b8);
+  letter-spacing: 0.4px;
+}
+
+/* ── Keyboard hints ──────────────────────────────────────────────────
+   Visible strip below the footer buttons so an operator who's never
+   used the wizard before knows the F-key contract. Mirrors the lower
+   ActionStrip pattern from the bill forms. */
+.ob-kbd-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  justify-content: center;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-subtle, #1e293b);
+  font-size: 11.5px;
+  color: var(--fg-tertiary, #94a3b8);
+}
+.ob-kbd-hints kbd,
+.ob-kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin: 0 2px;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--fg-secondary, #cbd5e1);
+  background: var(--bg-app, #0b1220);
+  border: 1px solid var(--border-subtle, #1e293b);
+  border-radius: 3px;
+  line-height: 1.3;
+}
+.ob-kbd-on {
+  /* F1 chip on the primary button — inverted for contrast against the
+     accent-coloured button. */
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #fff;
+}
+
+/* ── Theme step cards ─────────────────────────────────────────────── */
+.ob-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary, #94a3b8);
+  margin: 0 0 8px;
+}
+.ob-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.ob-pick-card {
+  text-align: left;
+  padding: 14px 14px 12px;
+  border-radius: 8px;
+  background: var(--bg-app, #0b1220);
+  border: 1px solid var(--border, #1e293b);
+  cursor: pointer;
+  transition: all 0.12s;
+  font-family: inherit;
+  color: var(--fg-primary, #e2e8f0);
+}
+.ob-pick-card:hover {
+  border-color: var(--accent, #06b6d4);
+}
+.ob-pick-card.is-active {
+  border-color: var(--accent, #06b6d4);
+  background: rgba(6, 182, 212, 0.08);
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.12);
+}
+.ob-pick-card-sm {
+  padding: 10px 12px 10px;
+}
+.ob-pick-swatch {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.ob-pick-swatch > span {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.ob-pick-ico {
+  font-size: 20px;
+  margin-bottom: 6px;
+  color: var(--accent, #06b6d4);
+}
+.ob-pick-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.ob-pick-desc {
+  font-size: 11.5px;
+  color: var(--fg-tertiary, #94a3b8);
+  line-height: 1.4;
+}
+
+/* Branding step — preview blocks and action rows. */
+.ob-asset-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ob-asset-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--fg-primary, #e2e8f0);
+}
+
+.ob-asset-preview {
+  padding: 10px;
+  background: var(--bg-app, #0b1220);
+  border: 1px solid var(--border-subtle, #1e293b);
+  border-radius: 6px;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.ob-asset-preview img {
+  max-width: 180px;
+  max-height: 80px;
+  display: block;
+}
+
+.ob-asset-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* AntD Steps in dark mode — drives the connector + tail colour so completed
+   steps read as "done" and the active step pops in accent without us needing
+   to write a full theme override. */
+.ob-shell .ant-steps-item-finish .ant-steps-item-icon,
+.ob-shell .ant-steps-item-finish .ant-steps-item-icon > .ant-steps-icon {
+  background: transparent;
+  border-color: var(--accent, #06b6d4);
+  color: var(--accent, #06b6d4);
+}
+
+.ob-shell .ant-steps-item-finish > .ant-steps-item-container > .ant-steps-item-tail::after {
+  background: var(--accent, #06b6d4);
+}
+
+.ob-shell .ant-steps-item-process .ant-steps-item-icon {
+  background: var(--accent, #06b6d4);
+  border-color: var(--accent, #06b6d4);
+}
+
+.ob-shell .ant-steps-item-title {
+  color: var(--fg-secondary, #cbd5e1) !important;
+}
+
+.ob-shell .ant-steps-item-finish .ant-steps-item-title {
+  color: var(--fg-primary, #e2e8f0) !important;
+}

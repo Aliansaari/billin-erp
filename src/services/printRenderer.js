@@ -6,7 +6,20 @@
  * The HTML produced is self-contained (inline CSS, no external assets except
  * optional logo URL) so it can be fed straight to Electron's silent print or
  * dumped into an iframe for window.print() fallback.
+ *
+ * Data sources:
+ *   - bill     = the loaded document (sale/purchase/return/receipt/payment)
+ *   - profile  = per-doctype print profile (font, paper, toggles, etc.)
+ *   - company  = system_settings row — structured address / banking /
+ *                statutory IDs / branding paths. See printContext.js for
+ *                the helpers that turn raw columns into render-ready strings.
  */
+
+import {
+  buildAddressLines, buildContactLine, buildStatutoryLines,
+  hasBankDetails, buildBankRows,
+  getSignatureUrl, getInvoiceFooter,
+} from './printContext';
 
 /* ── utility fmtters ────────────────────────────────────────────────── */
 
@@ -72,26 +85,85 @@ const renderHeader = (profile, company, doc) => {
   const logo = profile?.show_logo && company?.logo_path
     ? `<img src="${esc(company.logo_path)}" alt="logo" class="logo" />`
     : '';
+  // Multi-line address from the structured onboarding columns (with legacy
+  // company_address fallback handled inside buildAddressLines).
+  const addressLines = buildAddressLines(company);
+  const addressHtml = addressLines.length
+    ? `<div class="hdr-sub">${addressLines.map(esc).join('<br/>')}</div>`
+    : '';
+  // Phone / email / website on one quiet line below the address.
+  const contactLine = buildContactLine(company);
+  const contactHtml = contactLine
+    ? `<div class="hdr-sub">${esc(contactLine)}</div>`
+    : '';
+  // GSTIN/PAN on row 1, TAN/CIN/MSME/Drug/FSSAI on row 2 — whichever are set.
+  const statHtml = buildStatutoryLines(company)
+    .map(line => `<div class="hdr-sub">${esc(line)}</div>`)
+    .join('');
   return `
     <div class="hdr" style="text-align:${align}">
       ${logo}
       <div class="hdr-name">${title}</div>
-      ${company?.company_address ? `<div class="hdr-sub">${esc(company.company_address)}</div>` : ''}
-      ${company?.gstin ? `<div class="hdr-sub">GSTIN: ${esc(company.gstin)}${company?.pan_number ? ' · PAN: ' + esc(company.pan_number) : ''}</div>` : ''}
+      ${addressHtml}
+      ${contactHtml}
+      ${statHtml}
       ${profile?.header_html ? `<div class="hdr-extra">${profile.header_html}</div>` : ''}
       <div class="doc-type">${esc((profile?.doc_label || '').trim() || DOC_LABEL[doc.__doctype] || 'DOCUMENT')}${doc.__copyLabel ? ` · ${esc(doc.__copyLabel)}` : ''}</div>
     </div>
   `;
 };
 
-const renderFooter = (profile) => {
+const renderFooter = (profile, company, opts = {}) => {
   const parts = [];
-  if (profile?.bank_details) parts.push(`<div class="fb-bank"><b>Bank Details:</b><br/>${profile.bank_details.replace(/\n/g, '<br/>')}</div>`);
+
+  // ── Bank block ──
+  // Prefer the structured banking columns from system_settings; fall back to
+  // the legacy free-text profile.bank_details so older profiles still print.
+  if (hasBankDetails(company)) {
+    const rows = buildBankRows(company);
+    const inner = rows
+      .map(([k, v]) => `<div><b>${esc(k)}:</b> ${esc(v)}</div>`)
+      .join('');
+    // QR (data URL pre-computed in printer.js so this renderer stays sync).
+    // Sits to the RIGHT of the bank rows so the printout reads "details
+    // here, scan to pay there" — natural eye-flow on a customer copy.
+    const qrHtml = opts.upiQrDataUrl
+      ? `<div class="fb-qr">
+           <img src="${esc(opts.upiQrDataUrl)}" alt="UPI QR" />
+           <div class="fb-qr-cap">Scan to pay (UPI)</div>
+         </div>`
+      : '';
+    parts.push(
+      `<div class="fb-bank">
+        <div class="fb-bank-rows"><b>Bank Details</b>${inner}</div>
+        ${qrHtml}
+      </div>`
+    );
+  } else if (profile?.bank_details) {
+    // Legacy: free-text bank block on the profile (still works for installs
+    // that haven't moved their banking info into Company Profile yet).
+    parts.push(`<div class="fb-bank"><b>Bank Details:</b><br/>${profile.bank_details.replace(/\n/g, '<br/>')}</div>`);
+  }
+
   if (profile?.terms_and_conditions) parts.push(`<div class="fb-tc"><b>Terms &amp; Conditions:</b><br/>${profile.terms_and_conditions.replace(/\n/g, '<br/>')}</div>`);
+
+  // Company-wide invoice footer (system_settings.invoice_footer) — distinct
+  // from the per-profile footer_html. Renders just above signature.
+  const invoiceFooter = getInvoiceFooter(company);
+  if (invoiceFooter) parts.push(`<div class="fb-legal">${esc(invoiceFooter)}</div>`);
   if (profile?.footer_html) parts.push(`<div class="fb-extra">${profile.footer_html}</div>`);
-  const sig = profile?.show_signature
-    ? `<div class="fb-sig"><div class="sig-line"></div><div>${esc(profile.signature_label || 'Authorised Signatory')}</div></div>`
-    : '';
+
+  // ── Signature ──
+  // If the company has uploaded a signature image, render it above the line;
+  // otherwise fall back to the empty-line placeholder for hand-signing.
+  let sig = '';
+  if (profile?.show_signature) {
+    const sigUrl = getSignatureUrl(company);
+    const sigImg = sigUrl
+      ? `<img src="${esc(sigUrl)}" alt="signature" class="fb-sig-img" />`
+      : '';
+    sig = `<div class="fb-sig">${sigImg}<div class="sig-line"></div><div>${esc(profile.signature_label || 'Authorised Signatory')}</div></div>`;
+  }
   return `<div class="fb">${parts.join('')}${sig}</div>`;
 };
 
@@ -436,8 +508,19 @@ const baseCSS = (profile) => `
     border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 4px 0; margin-top: 3mm; }
   .tot-words { margin-top: 2mm; font-style: italic; font-size: .9em; }
   .fb { margin-top: 8mm; display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; font-size: .85em; }
-  .fb-bank, .fb-tc, .fb-extra { grid-column: 1 / -1; }
+  .fb-bank, .fb-tc, .fb-extra, .fb-legal { grid-column: 1 / -1; }
+  /* Bank-with-QR layout: rows on the left, QR on the right (only when a UPI
+     QR is present; otherwise the rows take full width). */
+  .fb-bank { display: flex; gap: 6mm; align-items: flex-start; justify-content: space-between; }
+  .fb-bank-rows { flex: 1; line-height: 1.4; }
+  .fb-bank-rows > b { display: block; margin-bottom: 1mm; }
+  .fb-qr { text-align: center; flex: 0 0 auto; }
+  .fb-qr img { width: 28mm; height: 28mm; display: block; }
+  .fb-qr-cap { font-size: .75em; color: #444; margin-top: 1mm; letter-spacing: .3px; }
+  .fb-legal { font-size: .82em; font-style: italic; color: #333; text-align: center;
+              border-top: 1px dashed #d1d5db; padding-top: 2mm; }
   .fb-sig { grid-column: 2; text-align: center; margin-top: 16mm; }
+  .fb-sig-img { max-height: 14mm; max-width: 50mm; display: block; margin: 0 auto 1mm; }
   .sig-line { border-top: 1px solid #000; margin-bottom: 2mm; }
   @media print {
     .page { page-break-after: always; }
@@ -750,7 +833,7 @@ const thermalCSS = (profile) => {
 
 /* ── renderers per format ───────────────────────────────────────────── */
 
-function renderA4(bill, profile, company) {
+function renderA4(bill, profile, company, opts = {}) {
   const items = bill.items || [];
   // Doc subtitle exposed to CSS via data-doc on the bill-meta block. The
   // cashmemo theme reads it through `content: attr(data-doc)` to render
@@ -777,14 +860,14 @@ function renderA4(bill, profile, company) {
       </div>
       ${items.length ? renderItemsTable(items, profile) : ''}
       ${bill.total_amount != null ? renderTotals(bill, profile) : ''}
-      ${renderFooter(profile)}
+      ${renderFooter(profile, company, opts)}
     </div>
   `;
 }
 
-function renderA5(bill, profile, company) {
+function renderA5(bill, profile, company, opts) {
   // A5 is identical structure but smaller default font + single-column totals
-  return renderA4(bill, profile, company);
+  return renderA4(bill, profile, company, opts);
 }
 
 /* Simple style — matches the classic POS credit-memo print: a tabular
@@ -822,11 +905,17 @@ function renderThermalSimple(bill, profile, company) {
       </tr>
     `;
   }).join('');
+  // Thermal: structured address but compact — collapse multi-line into a
+  // single comma-joined line so a 58mm/80mm receipt doesn't burn 4 lines
+  // on the header. Still falls back to the legacy blob inside buildAddressLines.
+  const thermalAddr = buildAddressLines(company).join(', ');
   return `
     <div class="page">
       <div class="hdr">
         <div class="hdr-name">${esc(profile?.header_title || company?.company_name || 'Shop')}</div>
-        ${company?.company_address ? `<div class="hdr-sub">${esc(company.company_address)}</div>` : ''}
+        ${thermalAddr ? `<div class="hdr-sub">${esc(thermalAddr)}</div>` : ''}
+        ${company?.gstin ? `<div class="hdr-sub">GSTIN: ${esc(company.gstin)}</div>` : ''}
+        ${company?.company_phone ? `<div class="hdr-sub">Ph: ${esc(company.company_phone)}</div>` : ''}
         <div class="doc-type">${esc(DOC_LABEL[bill.__doctype] || 'BILL')}${bill.__copyLabel ? ` - ${esc(bill.__copyLabel)}` : ''}</div>
       </div>
       <div class="s-meta">
@@ -951,12 +1040,16 @@ function renderThermal(bill, profile, company) {
       <td class="it-qty">${fmtMoney(it.total_amount, profile)}</td>
     </tr>
   `).join('');
+  // Thermal address: collapse the structured columns into a single line for
+  // the narrow paper. Same fallback chain as renderThermalSimple.
+  const thermalAddr2 = buildAddressLines(company).join(', ');
   return `
     <div class="page">
       <div class="hdr">
         <div class="hdr-name">${esc(profile?.header_title || company?.company_name || 'Shop')}</div>
-        ${company?.company_address ? `<div class="hdr-sub">${esc(company.company_address)}</div>` : ''}
+        ${thermalAddr2 ? `<div class="hdr-sub">${esc(thermalAddr2)}</div>` : ''}
         ${company?.gstin ? `<div class="hdr-sub">GSTIN: ${esc(company.gstin)}</div>` : ''}
+        ${company?.company_phone ? `<div class="hdr-sub">Ph: ${esc(company.company_phone)}</div>` : ''}
         <div class="doc-type">${esc(DOC_LABEL[bill.__doctype] || 'BILL')}${bill.__copyLabel ? ` - ${esc(bill.__copyLabel)}` : ''}</div>
       </div>
       <div class="meta-row"><span>${esc(bill.bill_number || bill.transaction_number || '')}</span><span>${esc(fmtDate(bill.bill_date || bill.transaction_date))}</span></div>
@@ -994,7 +1087,7 @@ function renderThermal(bill, profile, company) {
 
 /* ── top-level: produce a full HTML document ────────────────────────── */
 
-export function renderBillHTML({ bill, profile, company, docType }) {
+export function renderBillHTML({ bill, profile, company, docType, upiQrDataUrl }) {
   // Tag the bill object so header/footer know what doc it is without a
   // separate parameter thread through every partial.
   const tagged = { ...bill, __doctype: docType };
@@ -1009,7 +1102,11 @@ export function renderBillHTML({ bill, profile, company, docType }) {
     profile.format === 'thermal' ? renderThermal :
     profile.format === 'a5'      ? renderA5 :
                                    renderA4;
-  const pages = labels.map(lbl => render({ ...tagged, __copyLabel: lbl }, profile, company)).join('');
+  // Pass the pre-computed UPI-QR data URL through to the A4/A5 renderers
+  // via opts so the footer can embed it next to the bank rows. Thermal
+  // skips it — too narrow to fit a usable QR.
+  const opts = { upiQrDataUrl };
+  const pages = labels.map(lbl => render({ ...tagged, __copyLabel: lbl }, profile, company, opts)).join('');
 
   // Page size directives for browser print fallback. Electron silent print
   // uses IPC-supplied dimensions, so @page is best-effort for the iframe.

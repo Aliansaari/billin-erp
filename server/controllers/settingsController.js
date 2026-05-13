@@ -1,5 +1,34 @@
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
 const { SystemSettings, BarcodeSettings, User, Role } = require('../models');
+const fmt = require('../utils/indianIdFormats');
+
+// Where uploaded logos / signatures live on disk. Set by server boot
+// (see server/utils/paths.js). Each company writes into its own
+// subdirectory so multi-tenant installs can't cross-load each other's
+// branding.
+const UPLOADS_DIR = process.env.BILLING_ERP_UPLOADS_DIR || path.join(require('os').homedir(), '.billing-erp', 'uploads');
+const BRANDING_DIR = path.join(UPLOADS_DIR, 'branding');
+try { fs.mkdirSync(BRANDING_DIR, { recursive: true }); } catch { /* race-safe noop */ }
+
+// Whitelist of acceptable image MIME types for the logo + signature
+// uploads. Anything else is rejected at the multer fileFilter so we
+// never write executable content to disk.
+const ALLOWED_BRANDING_MIME = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml',
+]);
+
+// Strip every character that could escape the branding directory or
+// collide with another file. Final form: timestamp-randomtail.ext, so
+// two operators uploading "logo.png" at the same second still get
+// distinct files.
+function _safeBrandingFilename(originalName, prefix) {
+  const ext = (path.extname(originalName || '') || '.png').toLowerCase().replace(/[^a-z0-9.]/g, '');
+  const safeExt = ext.length <= 6 ? ext : '.png';
+  const tail = Math.random().toString(16).slice(2, 8);
+  return `${prefix}-${Date.now()}-${tail}${safeExt}`;
+}
 
 // Find the role_id for 'Admin' (cached after first lookup).
 let ADMIN_ROLE_ID_CACHE = null;
@@ -39,6 +68,53 @@ exports.getSystemSettings = async (req, res) => {
 exports.updateSystemSettings = async (req, res) => {
   try {
     let settings = await SystemSettings.findByPk(1);
+    // Whitelist cogs_method so a tampered client can't pass garbage that
+    // PG would reject AFTER the rest of the update succeeded.
+    if (req.body.cogs_method && !['weighted_avg', 'fifo'].includes(req.body.cogs_method)) {
+      return res.status(400).json({ error: "cogs_method must be 'weighted_avg' or 'fifo'" });
+    }
+
+    // Onboarding-tier format validators (Indian ID + contact fields).
+    // Each helper accepts empty/null as valid, so the operator can
+    // leave optional fields blank. Failures return 400 with a clean
+    // human-readable message so the frontend can show it inline.
+    const fieldChecks = [
+      ['gstin',             fmt.validateGstin],
+      ['pan_number',        fmt.validatePan],
+      ['tan_number',        fmt.validateTan],
+      ['cin_number',        fmt.validateCin],
+      ['company_pincode',   fmt.validatePincode],
+      ['company_email',     fmt.validateEmail],
+      ['company_phone',     fmt.validateMobile],
+      ['company_phone_2',   fmt.validateMobile],
+      ['company_state',     fmt.validateState],
+      ['bank_ifsc',         fmt.validateIfsc],
+      ['bank_account_number', fmt.validateBankAccount],
+      ['bank_upi_id',       fmt.validateUpi],
+    ];
+    for (const [field, check] of fieldChecks) {
+      if (req.body[field] !== undefined && req.body[field] !== '') {
+        const r = check(req.body[field]);
+        if (!r.ok) return res.status(400).json({ error: r.error, field });
+      }
+    }
+    // Normalise mobiles to digits-only so downstream consumers (print
+    // templates, WhatsApp share) see a consistent form.
+    if (req.body.company_phone) {
+      const r = fmt.validateMobile(req.body.company_phone);
+      if (r.normalized) req.body.company_phone = r.normalized;
+    }
+    if (req.body.company_phone_2) {
+      const r = fmt.validateMobile(req.body.company_phone_2);
+      if (r.normalized) req.body.company_phone_2 = r.normalized;
+    }
+    // Uppercase IDs that are case-insensitive — operators type lowercase
+    // but the printed invoice + GSTR-1 expect uppercase.
+    ['gstin', 'pan_number', 'tan_number', 'cin_number', 'bank_ifsc'].forEach((k) => {
+      if (req.body[k] && typeof req.body[k] === 'string') {
+        req.body[k] = req.body[k].trim().toUpperCase();
+      }
+    });
     if (!settings) {
       settings = await SystemSettings.create({ setting_id: 1, ...req.body });
     } else {
@@ -48,6 +124,12 @@ exports.updateSystemSettings = async (req, res) => {
     // dev_lan_max_clients flips take effect on the very next request,
     // not on the next minute boundary.
     try { require('../middleware/lanGate').invalidateLanGateCache(); } catch {}
+    // Audit H6 — bust the costLayers in-memory cache so a FIFO/weighted-avg
+    // flip from this endpoint takes effect on the very next sale, not 30 s
+    // later when the cache naturally expires.
+    if (req.body.cogs_method) {
+      try { require('../utils/costLayers').refreshCogsCache(); } catch {}
+    }
     res.json({ data: settings });
   } catch (error) {
     console.error('Settings update error:', error);
@@ -92,8 +174,15 @@ exports.getUsers = async (req, res) => {
 exports.createUser = async (req, res) => {
   try {
     const { password, password_hash, ...data } = req.body;
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    // Audit P3-G — unify with the change-password rule (>=8 chars + common-
+    // default block). Previously this accepted 6+ chars and any value,
+    // which let an admin seed a brand-new user with a weaker password than
+    // the one their target must rotate to on first login.
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    if (/^(admin|admin123|password|123456|qwerty)$/i.test(password)) {
+      return res.status(400).json({ error: 'Please choose a stronger password — avoid common defaults' });
     }
     if (!data.username || !data.username.trim()) {
       return res.status(400).json({ error: 'Username is required' });
@@ -184,8 +273,12 @@ exports.updateUser = async (req, res) => {
     }
 
     if (password) {
-      if (password.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      // Audit P3-G — match the change-password rule.
+      if (password.length < 8) {
+        return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      }
+      if (/^(admin|admin123|password|123456|qwerty)$/i.test(password)) {
+        return res.status(400).json({ error: 'Please choose a stronger password — avoid common defaults' });
       }
       data.password_hash = await bcrypt.hash(password, 10);
     }
@@ -565,5 +658,175 @@ exports.cleanupData = async (req, res) => {
     }
     console.error('Cleanup error:', error);
     res.status(500).json({ error: error.message || 'Cleanup failed' });
+  }
+};
+
+// ── Branding asset uploads (logo + signature) ──────────────────────
+//
+// Both endpoints accept ONE file (field name 'file') via multer's
+// memory storage, validate the MIME type, write to BRANDING_DIR with
+// a safe filename, then store the RELATIVE filename on the
+// system_settings row. The frontend renders <img src="/api/settings/branding/<filename>" />
+// so the asset lives behind auth — no public URL.
+//
+// Old asset is left on disk on replace (cheap garbage; an admin can
+// clear the folder if disk space matters). Removing the old file
+// would race with print jobs still rendering against it.
+
+exports.uploadBrandingAsset = (assetKind /* 'logo' | 'signature' */) => async (req, res) => {
+  if (!['logo', 'signature'].includes(assetKind)) {
+    return res.status(400).json({ error: 'Unknown asset kind.' });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded. Send as multipart/form-data with field "file".' });
+  }
+  if (!ALLOWED_BRANDING_MIME.has(req.file.mimetype)) {
+    return res.status(400).json({
+      error: `File type ${req.file.mimetype} not allowed. Use PNG, JPEG, GIF, WebP, or SVG.`,
+    });
+  }
+  if (req.file.size > 5 * 1024 * 1024) {
+    return res.status(400).json({ error: 'File too large (max 5 MB).' });
+  }
+  try {
+    const filename = _safeBrandingFilename(req.file.originalname, assetKind);
+    const fullPath = path.join(BRANDING_DIR, filename);
+    // Re-resolve and verify the resulting path is still within
+    // BRANDING_DIR before writing. Defence-in-depth against any future
+    // change to _safeBrandingFilename that lets a separator slip in.
+    const resolved = path.resolve(fullPath);
+    if (!resolved.startsWith(path.resolve(BRANDING_DIR) + path.sep)) {
+      return res.status(400).json({ error: 'Invalid filename.' });
+    }
+    await fs.promises.writeFile(resolved, req.file.buffer);
+    // Persist only the BASENAME on the settings row — the GET endpoint
+    // reconstructs the full path against BRANDING_DIR. Storing the
+    // absolute path would break if BRANDING_DIR ever moves (Electron
+    // install folder relocation, OS reinstall, etc.).
+    const settings = await SystemSettings.findByPk(1);
+    if (!settings) return res.status(500).json({ error: 'Settings row missing.' });
+    const column = assetKind === 'logo' ? 'logo_path' : 'signature_path';
+    await settings.update({ [column]: filename });
+    res.json({ ok: true, filename, [column]: filename });
+  } catch (error) {
+    console.error('uploadBrandingAsset error:', error);
+    res.status(500).json({ error: 'Upload failed.' });
+  }
+};
+
+// GET /api/settings/branding/:kind — serves the stored logo OR
+// signature inline. Kept behind auth (no public assets).
+exports.getBrandingAsset = (assetKind) => async (req, res) => {
+  if (!['logo', 'signature'].includes(assetKind)) {
+    return res.status(400).json({ error: 'Unknown asset kind.' });
+  }
+  try {
+    const settings = await SystemSettings.findByPk(1);
+    const column = assetKind === 'logo' ? 'logo_path' : 'signature_path';
+    const filename = settings && settings[column];
+    if (!filename) return res.status(404).json({ error: 'No file uploaded yet.' });
+    // Path-traversal guard on the filename read from the DB. A garbage
+    // value (set via direct SQL, restore, etc.) cannot escape BRANDING_DIR.
+    if (/[\\/]|\.\./.test(filename) || filename.includes('\0')) {
+      return res.status(400).json({ error: 'Stored filename is unsafe.' });
+    }
+    const fullPath = path.resolve(path.join(BRANDING_DIR, filename));
+    if (!fullPath.startsWith(path.resolve(BRANDING_DIR) + path.sep)) {
+      return res.status(400).json({ error: 'Stored filename resolves outside the branding directory.' });
+    }
+    if (!fs.existsSync(fullPath)) return res.status(404).json({ error: 'File missing on disk.' });
+    res.sendFile(fullPath);
+  } catch (error) {
+    console.error('getBrandingAsset error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// DELETE /api/settings/branding/:kind — clears the column. Doesn't
+// remove the file from disk (see comment on uploadBrandingAsset).
+exports.removeBrandingAsset = (assetKind) => async (req, res) => {
+  if (!['logo', 'signature'].includes(assetKind)) {
+    return res.status(400).json({ error: 'Unknown asset kind.' });
+  }
+  try {
+    const settings = await SystemSettings.findByPk(1);
+    if (!settings) return res.status(404).json({ error: 'Settings row missing.' });
+    const column = assetKind === 'logo' ? 'logo_path' : 'signature_path';
+    await settings.update({ [column]: null });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ── Self-service profile (My Account) ──────────────────────────────
+//
+// Three endpoints — all gated by authenticateToken only (no extra
+// permission check; every logged-in user can view + edit their own
+// profile and rotate their own password).
+//
+// SECURITY: an attacker with a stolen JWT could only edit THEIR OWN
+// profile via these endpoints — the controller pins everything to
+// req.user.user_id. They can't change role_id, custom_permissions,
+// or allowed_godowns (those are administrative).
+
+exports.getMyProfile = async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.user_id, {
+      include: [{ model: Role }],
+      attributes: { exclude: ['password_hash'] },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    res.json({
+      user_id:        user.user_id,
+      username:       user.username,
+      full_name:      user.full_name,
+      email:          user.email,
+      mobile_number:  user.mobile_number,
+      role_name:      user.Role?.role_name || null,
+      last_login:     user.last_login,
+      created_date:   user.created_date,
+      allowed_godowns: user.allowed_godowns,
+      // Effective permission set (custom override OR role default) so
+      // the My Account read-only "what I can do" section can render.
+      permissions:    user.custom_permissions || user.Role?.permissions_json || {},
+    });
+  } catch (error) {
+    console.error('getMyProfile error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.updateMyProfile = async (req, res) => {
+  try {
+    // Only the four self-service columns are writable here. role_id,
+    // is_active, custom_permissions, allowed_godowns are admin-only.
+    const allowed = ['full_name', 'email', 'mobile_number'];
+    const safe = {};
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) safe[k] = req.body[k];
+    }
+    if (safe.full_name !== undefined) {
+      const t = String(safe.full_name).trim();
+      if (t.length === 0) return res.status(400).json({ error: 'Full name cannot be empty.', field: 'full_name' });
+      if (t.length > 100) return res.status(400).json({ error: 'Full name too long (max 100 chars).', field: 'full_name' });
+      safe.full_name = t;
+    }
+    if (safe.email !== undefined && safe.email !== '') {
+      const r = fmt.validateEmail(safe.email);
+      if (!r.ok) return res.status(400).json({ error: r.error, field: 'email' });
+    }
+    if (safe.mobile_number !== undefined && safe.mobile_number !== '') {
+      const r = fmt.validateMobile(safe.mobile_number);
+      if (!r.ok) return res.status(400).json({ error: r.error, field: 'mobile_number' });
+      safe.mobile_number = r.normalized;
+    }
+    const user = await User.findByPk(req.user.user_id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    await user.update(safe);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('updateMyProfile error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 };

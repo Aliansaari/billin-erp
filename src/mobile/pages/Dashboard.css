@@ -50,6 +50,7 @@
   position: relative;
   z-index: 10;
 }
+.dash-header-spacer { display: none; }
 
 .dash-brand-wrap {
   flex: 1;
@@ -873,16 +874,40 @@
     inset 0 -1px 0 rgba(0, 0, 0, 0.20);
 }
 
-/* Activity rows — editorial card container + flat dividers, classic colors. */
-[data-mobile-style="classic"] .act-row {
-  background: none;
+/* Activity rows — left accent bar via ::before, light surface card. */
+[data-mobile-style="classic"] .act-list {
+  background: transparent;
   border: none;
-  border-bottom: 1px solid var(--c-border-soft);
-  border-radius: 0;
-  margin-bottom: 0;
-  padding: 12px 16px;
+  padding: 0;
 }
-[data-mobile-style="classic"] .act-row:last-child { border-bottom: none; }
+[data-mobile-style="classic"] .act-row {
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  position: relative;
+  overflow: hidden;
+}
+[data-mobile-style="classic"] .act-row:last-child { border-bottom: 1px solid var(--c-line); margin-bottom: 0; }
+[data-mobile-style="classic"] .act-bar { display: none; }
+[data-mobile-style="classic"] .act-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--c-text-faint);
+}
+[data-mobile-style="classic"] .act-row:has(.act-amount.in)::before,
+[data-mobile-style="classic"] .act-row:has(.act-side-label.cr)::before {
+  background: var(--c-success);
+}
+[data-mobile-style="classic"] .act-row:has(.act-side-label.dr)::before {
+  background: var(--c-warning);
+}
 [data-mobile-style="classic"] .act-side-label.cr {
   color: var(--c-success);
   background: var(--c-success-soft);
