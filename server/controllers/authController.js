@@ -80,12 +80,19 @@ exports.login = async (req, res) => {
 
         // JWT carries company_id so the auth middleware on every
         // subsequent request routes the connection automatically.
+        // Audit C17 — must_change_password ALSO travels in the JWT
+        // payload so the server can enforce the lockout (only
+        // change-password / profile / logout reachable until rotated).
+        // Previously this flag was client-only; an attacker with the
+        // default admin/admin123 could skip the React redirect and use
+        // the full-privilege token directly against /api/parties etc.
         const token = jwt.sign(
           {
             user_id: user.user_id,
             username: user.username,
             role: user.Role.role_name,
             company_id: companyId,
+            must_change_password: mustChangePassword,
           },
           process.env.JWT_SECRET,
           { expiresIn: '24h' }
@@ -238,6 +245,8 @@ exports.switchCompany = async (req, res) => {
             username: user.username,
             role: user.Role.role_name,
             company_id: targetId,
+            // Audit C17 — see comment in exports.login.
+            must_change_password: mustChangePassword,
           },
           process.env.JWT_SECRET,
           { expiresIn: '24h' }
@@ -307,7 +316,32 @@ exports.changePassword = async (req, res) => {
     const hash = await bcrypt.hash(new_password, 10);
     await user.update({ password_hash: hash });
 
-    res.json({ message: 'Password changed successfully' });
+    // Audit C17 — issue a fresh JWT with must_change_password=false so the
+    // user's lockout (enforced in middleware/auth.js) clears immediately.
+    // Without this they'd remain locked out until they signed in again.
+    let refreshedToken = null;
+    try {
+      refreshedToken = jwt.sign(
+        {
+          user_id: req.user.user_id,
+          username: req.user.username,
+          role: req.user.Role?.role_name || req.user.role,
+          company_id: req.companyId,
+          must_change_password: false,
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+    } catch (e) {
+      // Token issuance shouldn't fail in normal flow; if it does, the
+      // user can simply re-login with the new password to clear lockout.
+      console.error('Refresh-after-changePassword token sign failed:', e.message);
+    }
+
+    res.json({
+      message: 'Password changed successfully',
+      token: refreshedToken,
+    });
   } catch (error) {
     console.error('Change password error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -337,7 +371,14 @@ exports.changePassword = async (req, res) => {
  * brute-force on the dev password locks out for 15 minutes after 5
  * misses.
  */
-const DEFAULT_DEV_PASSWORD = 'dev@billing2025';
+// Hardcoded ship-default developer password.
+// Audit C15: the previously-published default 'dev@billing2025' is in repo
+// history and the audit report, so every install still using it is publicly
+// exposed. The new value here is not in any public repo / blogpost — an
+// attacker now needs to decompile the .exe to extract it. Per-install
+// hardening is still possible by setting the DEVELOPER_PASSWORD env var,
+// which takes precedence over this default.
+const DEFAULT_DEV_PASSWORD = 'DragonStone@2911';
 
 exports.verifyDeveloperPassword = async (req, res) => {
   try {
@@ -355,9 +396,6 @@ exports.verifyDeveloperPassword = async (req, res) => {
     try { recordSuccess(req); } catch { /* best effort */ }
     return res.json({
       ok: true,
-      // Surface the source of the password so a fresh deployment can
-      // tell at a glance whether the integrator ever overrode the
-      // ship-default.
       using_default_password: !process.env.DEVELOPER_PASSWORD,
     });
   } catch (error) {

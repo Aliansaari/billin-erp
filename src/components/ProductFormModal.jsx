@@ -37,6 +37,11 @@ const EMPTY = {
   sale_rate: '',
   mrp: '',
   is_batch_tracked: false,
+  // Per-product costing override (audit H6). 'inherit' = use company-wide
+  // SystemSettings.cogs_method. 'weighted_avg' / 'fifo' force the method
+  // for this SKU regardless of the company default. New products default
+  // to 'inherit' so the company-wide policy applies to them.
+  costing_method: 'inherit',
   opening_stock: '',
   opening_stock_rate: '',
   opening_stock_date: dayjs(),
@@ -339,6 +344,32 @@ export default function ProductFormModal({ open, onCancel, onSaved, defaultName 
             </div>
           </Field>
         )}
+
+        {/* Audit H6 — per-product costing method override. Three-way pill
+            mirrors how the rest of this form uses pill toggles. */}
+        <Field
+          label="Costing method"
+          span="full"
+          help="Determines how Cost of Goods Sold is calculated for sales of this item. 'Inherit' uses the company-wide default in Settings → Defaults. Override only for items where the per-item method should differ (e.g. high-value rate-volatile items on FIFO while everything else is weighted-average)."
+        >
+          <div className="efm-pills" role="tablist">
+            <button
+              type="button"
+              className={form.costing_method === 'inherit' ? 'on' : ''}
+              onClick={() => set('costing_method')('inherit')}
+            >Inherit</button>
+            <button
+              type="button"
+              className={form.costing_method === 'weighted_avg' ? 'on' : ''}
+              onClick={() => set('costing_method')('weighted_avg')}
+            >Weighted Avg</button>
+            <button
+              type="button"
+              className={form.costing_method === 'fifo' ? 'on' : ''}
+              onClick={() => set('costing_method')('fifo')}
+            >FIFO</button>
+          </div>
+        </Field>
       </Section>
 
       {/* ── 4. Opening Stock ───────────────────────────────────── */}

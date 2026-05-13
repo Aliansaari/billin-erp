@@ -1,7 +1,7 @@
 const { Op, fn, col, literal } = require('sequelize');
 const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, PurchaseReturnBillItem, SystemSettings, ProductGodownStock } = require('../models');
-const { sanitizePagination } = require('../utils/helpers');
+const { sanitizePagination, escapeLike } = require('../utils/helpers');
 const { aggregateAging } = require('../utils/aging');
 const { fetchBatchAggregate, computeDisplayCost, attachDisplayCost } = require('../utils/displayCost');
 
@@ -1498,15 +1498,17 @@ exports.stockReport = async (req, res) => {
       if (stock_status === 'neg') where.current_stock = { [Op.lt]: 0 };
     }
     if (search) {
+      // Audit P3-D — escape LIKE wildcards.
+      const s = escapeLike(search);
       where[Op.or] = [
-        { product_name:   { [Op.iLike]: `%${search}%` } },
-        { barcode:        { [Op.iLike]: `%${search}%` } },
-        { article_number: { [Op.iLike]: `%${search}%` } },
+        { product_name:   { [Op.iLike]: `%${s}%` } },
+        { barcode:        { [Op.iLike]: `%${s}%` } },
+        { article_number: { [Op.iLike]: `%${s}%` } },
         // Category name match. The Category include is added below; the
         // $assoc.column$ syntax tells Sequelize to qualify against that
         // join (subQuery: false is set on the include so the WHERE pushes
         // into the outer query).
-        { '$Category.category_name$': { [Op.iLike]: `%${search}%` } },
+        { '$Category.category_name$': { [Op.iLike]: `%${s}%` } },
       ];
     }
 
@@ -1950,11 +1952,37 @@ function _sendWorkbook(res, wb, filename) {
 
 exports.exportSalesReport = async (req, res) => {
   try {
-    const { from_date, to_date, customer_id, payment_status } = req.query;
+    // Audit C1 — pre-fix this destructure ignored `search`, so the export
+    // produced every bill in the date range while the screen showed only
+    // the search-filtered subset. Mirror the salesReport() filter set.
+    const { from_date, to_date, customer_id, payment_status, search } = req.query;
     const where = { is_cancelled: false };
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (customer_id) where.customer_id = customer_id;
     if (payment_status) where.payment_status = payment_status;
+
+    // Same search-to-IDs resolution as salesReport() so the export's filter
+    // set is always identical to the on-screen one.
+    const trimmedSearch = (search || '').toString().trim();
+    if (trimmedSearch) {
+      const like = `%${trimmedSearch}%`;
+      const numericRaw = parseFloat(trimmedSearch.replace(/,/g, ''));
+      const numeric = Number.isFinite(numericRaw) ? numericRaw : null;
+      const conds = [
+        'sb.bill_number ILIKE :like',
+        'c.party_name ILIKE :like',
+      ];
+      if (numeric !== null) conds.push('sb.total_amount = :numeric');
+      const idRows = await sequelize.query(
+        `SELECT sb.sales_bill_id
+           FROM sales_bills sb
+           LEFT JOIN parties c ON c.party_id = sb.customer_id
+          WHERE (${conds.join(' OR ')})`,
+        { replacements: { like, numeric: numeric ?? 0 }, type: sequelize.QueryTypes.SELECT },
+      );
+      const ids = idRows.map((r) => r.sales_bill_id);
+      where.sales_bill_id = { [Op.in]: ids.length ? ids : [-1] };
+    }
 
     const rows = await SalesBill.findAll({
       where,
@@ -2001,19 +2029,22 @@ exports.exportSalesReport = async (req, res) => {
       payment_status: r.payment_status,
     }));
 
-    // Totals row
+    // Totals row. Audit C2 — round each summed value to 2dp so a 500-bill
+    // export doesn't display 12,34,567.1999999... while the on-screen
+    // summary (server-aggregated, already rounded) shows 12,34,567.20.
     if (rows.length) {
+      const sumRound = (key) => +(rows.reduce((s, r) => s + toMoney(r[key]), 0)).toFixed(2);
       const totalRow = ws.addRow({
         bill_number: `TOTAL (${rows.length})`,
-        sub_total:       rows.reduce((s, r) => s + toMoney(r.sub_total), 0),
-        discount_amount: rows.reduce((s, r) => s + toMoney(r.discount_amount), 0),
-        cgst_amount:     rows.reduce((s, r) => s + toMoney(r.cgst_amount), 0),
-        sgst_amount:     rows.reduce((s, r) => s + toMoney(r.sgst_amount), 0),
-        igst_amount:     rows.reduce((s, r) => s + toMoney(r.igst_amount), 0),
-        cess_amount:     rows.reduce((s, r) => s + toMoney(r.cess_amount), 0),
-        total_amount:    rows.reduce((s, r) => s + toMoney(r.total_amount), 0),
-        paid_amount:     rows.reduce((s, r) => s + toMoney(r.paid_amount), 0),
-        balance_amount:  rows.reduce((s, r) => s + toMoney(r.balance_amount), 0),
+        sub_total:       sumRound('sub_total'),
+        discount_amount: sumRound('discount_amount'),
+        cgst_amount:     sumRound('cgst_amount'),
+        sgst_amount:     sumRound('sgst_amount'),
+        igst_amount:     sumRound('igst_amount'),
+        cess_amount:     sumRound('cess_amount'),
+        total_amount:    sumRound('total_amount'),
+        paid_amount:     sumRound('paid_amount'),
+        balance_amount:  sumRound('balance_amount'),
       });
       totalRow.font = { bold: true };
     }
@@ -2027,11 +2058,33 @@ exports.exportSalesReport = async (req, res) => {
 
 exports.exportPurchaseReport = async (req, res) => {
   try {
-    const { from_date, to_date, supplier_id, payment_status } = req.query;
+    // Audit C1 — same search-filter parity fix as exportSalesReport.
+    const { from_date, to_date, supplier_id, payment_status, search } = req.query;
     const where = { is_cancelled: false };
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (supplier_id) where.supplier_id = supplier_id;
     if (payment_status) where.payment_status = payment_status;
+
+    const trimmedSearch = (search || '').toString().trim();
+    if (trimmedSearch) {
+      const like = `%${trimmedSearch}%`;
+      const numericRaw = parseFloat(trimmedSearch.replace(/,/g, ''));
+      const numeric = Number.isFinite(numericRaw) ? numericRaw : null;
+      const conds = [
+        'pb.bill_number ILIKE :like',
+        's.party_name ILIKE :like',
+      ];
+      if (numeric !== null) conds.push('pb.total_amount = :numeric');
+      const idRows = await sequelize.query(
+        `SELECT pb.purchase_bill_id
+           FROM purchase_bills pb
+           LEFT JOIN parties s ON s.party_id = pb.supplier_id
+          WHERE (${conds.join(' OR ')})`,
+        { replacements: { like, numeric: numeric ?? 0 }, type: sequelize.QueryTypes.SELECT },
+      );
+      const ids = idRows.map((r) => r.purchase_bill_id);
+      where.purchase_bill_id = { [Op.in]: ids.length ? ids : [-1] };
+    }
 
     const rows = await PurchaseBill.findAll({
       where,
@@ -2081,17 +2134,19 @@ exports.exportPurchaseReport = async (req, res) => {
     }));
 
     if (rows.length) {
+      // Audit C2 — round each summed value to 2dp.
+      const sumRound = (key) => +(rows.reduce((s, r) => s + toMoney(r[key]), 0)).toFixed(2);
       const totalRow = ws.addRow({
         bill_number: `TOTAL (${rows.length})`,
-        sub_total:       rows.reduce((s, r) => s + toMoney(r.sub_total), 0),
-        discount_amount: rows.reduce((s, r) => s + toMoney(r.discount_amount), 0),
-        cgst_amount:     rows.reduce((s, r) => s + toMoney(r.cgst_amount), 0),
-        sgst_amount:     rows.reduce((s, r) => s + toMoney(r.sgst_amount), 0),
-        igst_amount:     rows.reduce((s, r) => s + toMoney(r.igst_amount), 0),
-        cess_amount:     rows.reduce((s, r) => s + toMoney(r.cess_amount), 0),
-        total_amount:    rows.reduce((s, r) => s + toMoney(r.total_amount), 0),
-        paid_amount:     rows.reduce((s, r) => s + toMoney(r.paid_amount), 0),
-        balance_amount:  rows.reduce((s, r) => s + toMoney(r.balance_amount), 0),
+        sub_total:       sumRound('sub_total'),
+        discount_amount: sumRound('discount_amount'),
+        cgst_amount:     sumRound('cgst_amount'),
+        sgst_amount:     sumRound('sgst_amount'),
+        igst_amount:     sumRound('igst_amount'),
+        cess_amount:     sumRound('cess_amount'),
+        total_amount:    sumRound('total_amount'),
+        paid_amount:     sumRound('paid_amount'),
+        balance_amount:  sumRound('balance_amount'),
       });
       totalRow.font = { bold: true };
     }
@@ -2114,10 +2169,12 @@ exports.exportStockReport = async (req, res) => {
     }
     if (stock_status === 'out') where.current_stock = { [Op.lte]: 0 };
     if (search) {
+      // Audit P3-D — escape LIKE wildcards.
+      const s = escapeLike(search);
       where[Op.or] = [
-        { product_name: { [Op.iLike]: `%${search}%` } },
-        { barcode: { [Op.iLike]: `%${search}%` } },
-        { article_number: { [Op.iLike]: `%${search}%` } },
+        { product_name: { [Op.iLike]: `%${s}%` } },
+        { barcode: { [Op.iLike]: `%${s}%` } },
+        { article_number: { [Op.iLike]: `%${s}%` } },
       ];
     }
 
@@ -2148,12 +2205,28 @@ exports.exportStockReport = async (req, res) => {
     ];
     ws.getRow(1).font = { bold: true };
 
+    // Audit C3 — pick cost basis the same way stockReport() does:
+    //   single, non-batch  → weighted_avg_cost (fallback purchase_rate)
+    //   single, batch      → 0 here (batch contribution is intentional gap;
+    //                                a future per-batch aggregate would add it)
+    //   variant            → purchase_rate (latest landed)
+    // Pre-fix the export ALWAYS used purchase_rate, so weighted-average
+    // installs saw the dashboard "Stock Value" diverge from the exported total.
+    const resolveCost = (p) => {
+      if (p.product_mode === 'single' && !p.is_batch_tracked) {
+        return toMoney(p.weighted_avg_cost ?? p.purchase_rate);
+      }
+      if (p.product_mode === 'single' && p.is_batch_tracked) {
+        return 0;
+      }
+      return toMoney(p.purchase_rate);
+    };
     let totalPV = 0, totalSV = 0;
     products.forEach(p => {
       const cs = toMoney(p.current_stock);
-      const pr = toMoney(p.purchase_rate);
+      const cost = resolveCost(p);
       const sr = toMoney(p.sale_rate);
-      const pv = cs * pr;
+      const pv = cs * cost;
       const sv = cs * sr;
       totalPV += pv;
       totalSV += sv;
@@ -2168,7 +2241,7 @@ exports.exportStockReport = async (req, res) => {
         quantity_per_box: toMoney(p.quantity_per_box),
         minimum_stock_level: toMoney(p.minimum_stock_level),
         current_stock: cs,
-        purchase_rate: pr,
+        purchase_rate: cost,
         sale_rate: sr,
         mrp: toMoney(p.mrp),
         stock_value_p: +pv.toFixed(2),
@@ -2371,10 +2444,20 @@ async function _agingReconciliation(partyType, asOf) {
   // by an amount that never appeared on the party-ledger side,
   // surfacing as a drift on the reconciliation banner (the long-
   // standing -₹85 in the seed data was a single ₹85 cash sale).
+  // Under post-fix semantics (audit C1/C2), bill.paid_amount is the
+  // immutable at-billing snapshot — it does NOT include receipts allocated
+  // later. The banner formula needs ALL money applied to the bill
+  // (at-billing + reconciled receipts), which is exactly
+  //   total_amount - return_amount - balance_amount
+  // (sales) or
+  //   total_amount - balance_amount
+  // (purchase, no return). Deriving from those three columns keeps the
+  // banner correct regardless of how reconcile splits the cash across
+  // paid_amount vs balance_amount.
   const [billRow] = await sequelize.query(
     isCustomer
       ? `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
-                COALESCE(SUM(b.paid_amount), 0)::float paid_in_bills
+                COALESCE(SUM(b.total_amount - b.return_amount - b.balance_amount), 0)::float paid_in_bills
            FROM sales_bills b
            JOIN parties p ON p.party_id = b.customer_id
           WHERE b.is_cancelled = false
@@ -2382,7 +2465,7 @@ async function _agingReconciliation(partyType, asOf) {
             AND b.bill_date <= :as_of
             AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`
       : `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
-                COALESCE(SUM(b.paid_amount), 0)::float paid_in_bills
+                COALESCE(SUM(b.total_amount - b.balance_amount), 0)::float paid_in_bills
            FROM purchase_bills b
            JOIN parties p ON p.party_id = b.supplier_id
            JOIN ledger_accounts la ON la.ledger_id = p.ledger_account_id

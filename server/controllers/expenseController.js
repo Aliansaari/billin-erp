@@ -20,7 +20,7 @@ const {
 } = require('../models');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildExpenseVoucher } = require('../services/expenseVoucherService');
-const { sanitizePagination } = require('../utils/helpers');
+const { sanitizePagination, escapeLike } = require('../utils/helpers');
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -217,10 +217,12 @@ exports.getAll = async (req, res) => {
     if (party_id) where.party_id = party_id;
     if (payment_mode) where.payment_mode = payment_mode;
     if (search) {
+      // Audit P3-D — escape LIKE wildcards.
+      const s = escapeLike(search);
       where[Op.or] = [
-        { voucher_number:   { [Op.iLike]: `%${search}%` } },
-        { reference_number: { [Op.iLike]: `%${search}%` } },
-        { narration:        { [Op.iLike]: `%${search}%` } },
+        { voucher_number:   { [Op.iLike]: `%${s}%` } },
+        { reference_number: { [Op.iLike]: `%${s}%` } },
+        { narration:        { [Op.iLike]: `%${s}%` } },
       ];
     }
 

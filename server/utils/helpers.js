@@ -12,6 +12,49 @@ function generateTransactionNumber(prefix, lastNumber) {
 }
 
 /**
+ * Safely extract the trailing numeric segment of a bill/transaction number.
+ * Audit P2-J — `parseInt('12-AMD')` returns 12, so legacy Tally imports
+ * with non-numeric suffixes (e.g. INV-50/A) would poison the counter:
+ *   last_bill = "INV-50/A"  → parseInt("A") = NaN  (already fine)
+ *   last_bill = "INV-12-AMD"→ parseInt("AMD") = NaN  (fine)
+ *   last_bill = "INV-50A"   → split('-').pop() = "50A" → parseInt = 50  ← problem
+ *
+ * This helper only accepts a tail that's PURELY digits — anything else
+ * returns 0 so the next call falls back to allocating from 1 (the
+ * advisory lock + caller's ORDER BY ensures no collision happens at
+ * runtime; this only matters if a stray import row has a weird suffix).
+ */
+function safeTrailingNumber(numberStr) {
+  if (!numberStr) return 0;
+  const tail = String(numberStr).split('-').pop();
+  if (!/^\d+$/.test(tail)) return 0;
+  const parsed = parseInt(tail, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Escape SQL LIKE wildcards in user-supplied search strings (audit P3-D).
+ *
+ * Sequelize parameterises the query so SQL INJECTION is not the concern —
+ * but `%` and `_` are still LIKE wildcards. A user typing `%` as their
+ * search term turns an indexed `ILIKE '%X%'` lookup into a full-table
+ * scan (every row matches), which is a cheap DoS vector on the larger
+ * tables (50k+ bills, hundreds of thousands of stock_ledger rows).
+ *
+ * Use:
+ *   const safe = escapeLike(req.query.search);
+ *   where[Op.iLike] = `%${safe}%`;
+ *
+ * Backslash is the default LIKE escape character in Postgres; we also
+ * escape the backslash itself so a literal backslash in the search term
+ * doesn't accidentally escape the next character.
+ */
+function escapeLike(s) {
+  if (s == null) return '';
+  return String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+/**
  * Round `n` to `decimals` places using "round half away from zero" —
  * the convention followed by Tally Prime and required by Indian GST:
  *   1.5   →  2      -1.5   → -2
@@ -31,7 +74,16 @@ function generateTransactionNumber(prefix, lastNumber) {
  *    inputs like 1.005 (actually stored as 1.00499999999…).
  */
 function roundTo(n, decimals = 2) {
-  if (!isFinite(n) || n === 0) return 0;
+  // Audit P3-A — surface NaN/Infinity loudly via a stack-trace log so
+  // upstream bugs are visible during dev/QA, but still return 0 in
+  // production so a stray NaN doesn't 500 a customer's bill save. The
+  // log is the actionable signal — every line of money math that ever
+  // produces NaN now leaves a breadcrumb in the server console.
+  if (n === 0) return 0;
+  if (!Number.isFinite(n)) {
+    console.error('[roundTo] non-finite input:', n, '\n', new Error().stack);
+    return 0;
+  }
   const factor = Math.pow(10, decimals);
   const sign = n < 0 ? -1 : 1;
   return sign * Math.round(Math.abs(n) * factor + 1e-10) / factor;
@@ -92,6 +144,8 @@ function sanitizePagination(rawPage, rawLimit, { defaultLimit = 50, maxLimit = 5
 module.exports = {
   generateBillNumber,
   generateTransactionNumber,
+  safeTrailingNumber,
+  escapeLike,
   roundOff,
   roundTo,
   calculateGST,

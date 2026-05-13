@@ -511,18 +511,19 @@ export default function PurchaseBillForm() {
       const loadedCgstPct = parseFloat(data.cgst_pct)||0;
       const loadedSgstPct = parseFloat(data.sgst_pct)||0;
       const loadedIgstPct = parseFloat(data.igst_pct)||0;
-      const loadedCgstAmt = parseFloat(data.cgst_amount)||0;
-      const loadedSgstAmt = parseFloat(data.sgst_amount)||0;
-      const loadedIgstAmt = parseFloat(data.igst_amount)||0;
       setCgstPct(loadedCgstPct);
       setSgstPct(loadedSgstPct);
       setIgstPct(loadedIgstPct);
       setDiscAmtVal(parseFloat(data.discount_amount)||0);
-      // Heuristic (mirrors SalesBillForm): if the bill has any bill-level
-      // GST (pct or amount), it was stored bill-wise — flip the form's
-      // mode so the totals match how the bill was originally saved.
-      if (loadedCgstPct > 0 || loadedSgstPct > 0 || loadedIgstPct > 0
-          || loadedCgstAmt > 0 || loadedSgstAmt > 0 || loadedIgstAmt > 0) {
+      // Mode detection on edit-load: ONLY the *_pct columns are
+      // mode-discriminative. Backend stores cgst_amount/sgst_amount/igst_amount
+      // on every bill (product-mode bills carry the sum of per-line GST in
+      // those header columns), so checking *_amt would falsely flip every
+      // product-mode bill to 'bill' mode on edit. With pct=0 forced by the
+      // flip, the next save would compute totalCgst = base × 0 / 100 = 0 and
+      // silently destroy the GST. Bill-wise mode is the ONLY path that writes
+      // non-zero pct values.
+      if (loadedCgstPct > 0 || loadedSgstPct > 0 || loadedIgstPct > 0) {
         setGstMode('bill');
       }
       // Restore amount-mode if this bill was saved as a single synthetic line.

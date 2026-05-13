@@ -12,18 +12,72 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING(200),
       defaultValue: 'My Company',
     },
+    // Legacy free-text address. Kept for backward-compat — older
+    // invoice templates print this if the structured address fields
+    // below are empty. New installs should fill the structured fields
+    // and leave this blank; the migration leaves existing values alone.
     company_address: {
       type: DataTypes.TEXT,
     },
+    // ── Structured address (audit: onboarding completeness) ───────────
+    // Needed because GST place-of-supply resolution looks at the state;
+    // the legacy single-textarea couldn't be parsed reliably.
+    company_address_line_1: { type: DataTypes.STRING(200) },
+    company_address_line_2: { type: DataTypes.STRING(200) },
+    company_city:           { type: DataTypes.STRING(80)  },
+    company_state:          { type: DataTypes.STRING(80)  },
+    company_pincode:        { type: DataTypes.STRING(10)  },
+    company_country:        { type: DataTypes.STRING(80), defaultValue: 'India' },
+    // ── Contact ───────────────────────────────────────────────────────
+    company_phone:   { type: DataTypes.STRING(20)  },
+    company_phone_2: { type: DataTypes.STRING(20)  },
+    company_email:   { type: DataTypes.STRING(120) },
+    company_website: { type: DataTypes.STRING(200) },
+    // ── Tax registrations ─────────────────────────────────────────────
     gstin: {
       type: DataTypes.STRING(15),
     },
     pan_number: {
       type: DataTypes.STRING(10),
     },
+    // TAN — used when the firm deducts TDS on payments. 10 chars: 4 letters
+    // + 5 digits + 1 letter (e.g. ABCD12345E). Printed on TDS certificates.
+    tan_number: { type: DataTypes.STRING(10) },
+    // CIN — Corporate Identification Number, mandatory for Pvt Ltd / LLP /
+    // OPC. 21 chars: e.g. L17110MH1973PLC019786. Printed on the invoice
+    // footer per Companies Act §12.
+    cin_number: { type: DataTypes.STRING(21) },
+    // MSME / Udyam registration number. Format: UDYAM-XX-NN-NNNNNNN.
+    // Printed on invoices so the buyer knows they must pay within
+    // 45 days under the MSMED Act.
+    msme_udyam: { type: DataTypes.STRING(30) },
+    // Sector-specific licenses, free-text up to 50 chars. Pharma firms
+    // print Drug License on invoices; food shops print FSSAI; everyone
+    // else leaves these blank.
+    drug_license:  { type: DataTypes.STRING(50) },
+    fssai_license: { type: DataTypes.STRING(50) },
+    // ── Banking (printed on invoices as "Pay via NEFT/UPI") ───────────
+    bank_name:           { type: DataTypes.STRING(120) },
+    bank_account_holder: { type: DataTypes.STRING(120) },
+    bank_account_number: { type: DataTypes.STRING(30)  },
+    bank_ifsc:           { type: DataTypes.STRING(11)  },
+    bank_branch:         { type: DataTypes.STRING(120) },
+    // UPI VPA (e.g. company@hdfcbank). The print template uses this to
+    // generate a UPI QR code on each invoice — customer scans, pays.
+    bank_upi_id:         { type: DataTypes.STRING(80)  },
+    // ── Branding ──────────────────────────────────────────────────────
     logo_path: {
       type: DataTypes.STRING(255),
     },
+    // Authorized signatory image (filesystem path, set via the upload
+    // endpoint). Printed in the signature box at the bottom-right of
+    // the invoice; falls back to plain "For <Company Name>" text when
+    // absent.
+    signature_path: { type: DataTypes.STRING(255) },
+    // Free-text footer printed under the bank details on every invoice.
+    // Typical content: "All disputes subject to <City> jurisdiction",
+    // return policy summary, etc.
+    invoice_footer: { type: DataTypes.TEXT },
     financial_year_start: {
       type: DataTypes.DATEONLY,
     },
@@ -136,6 +190,20 @@ module.exports = (sequelize) => {
     allow_negative_stock: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
+    },
+    // Audit H6 — COGS / cost-snapshot method. 'weighted_avg' is the
+    // legacy default (single-mode products use products.weighted_avg_cost,
+    // updated incrementally per purchase). 'fifo' makes sales consume
+    // from cost_layers in oldest-first order; the snapshot cost_rate
+    // on the sale line is the weighted-average rate of the consumed
+    // layers — which IS true FIFO COGS over time.
+    //
+    // Customers MUST not flip this mid-month; a switch during an active
+    // period would produce mixed-method P&L. Recommended: flip only at
+    // the start of a financial year, after a clean stock-take.
+    cogs_method: {
+      type: DataTypes.ENUM('weighted_avg', 'fifo'),
+      defaultValue: 'weighted_avg',
     },
     // When false, the Sales Bill form hides the Itemised/Amount-only mode
     // toggle and only itemised bills are creatable. Default ON because the

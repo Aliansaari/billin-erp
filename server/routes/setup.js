@@ -32,6 +32,16 @@ router.post('/test-connection', express.json({ limit: '8kb' }), async (req, res)
 
 router.post('/provision', express.json({ limit: '8kb' }), async (req, res) => {
   try {
+    // Audit C19 — marker file says setup is done? Refuse before touching
+    // Postgres. Provision itself ALSO probes the master DB for user rows
+    // (defense-in-depth in case the marker file was deleted), but the
+    // route-level check is the cheap fast-path.
+    if (setup.isSetupComplete()) {
+      return res.status(409).json({
+        ok: false,
+        error: 'Setup has already been completed on this machine. Re-provisioning is not allowed.',
+      });
+    }
     const r = await setup.provision(req.body || {});
     res.json(r);
   } catch (e) {

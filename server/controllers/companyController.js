@@ -227,6 +227,176 @@ exports.softDelete = async (req, res) => {
   }
 };
 
+/*
+ * backupCompany — create + stream an encrypted backup file for a
+ * specific company by id, regardless of which company the caller's
+ * session is currently routed to.
+ *
+ * Why this exists: the delete-company modal offers a "Back up first"
+ * button. The standard /api/backup/create endpoint always backs up the
+ * caller's active company, so backing up a non-active company would
+ * normally require switching to it first (and a password prompt). This
+ * endpoint sidesteps that by running the existing collectAllData() flow
+ * inside a temporary companyContext.run() scoped to the target — same
+ * mechanism the request middleware uses, just one-shot per call.
+ *
+ * Permission: Super Admin / Admin (same gate as create / delete).
+ */
+exports.backupCompany = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const row = await Company.findByPk(id);
+    if (!row) return res.status(404).json({ error: 'Company not found' });
+
+    const { getCompanyConnection, companyContext } = require('../services/companyConnections');
+    let dest;
+    try {
+      dest = await getCompanyConnection(id);
+    } catch (e) {
+      return res.status(500).json({ error: 'Could not connect to company database: ' + e.message });
+    }
+
+    // Re-use the existing backup pipeline from backupController. We don't
+    // want to duplicate the collectAllData logic here — it touches every
+    // model and would drift. Instead, run the backup controller's create
+    // path inside a companyContext.run scoped to this company's models.
+    const backupCtrl = require('./backupController');
+    return companyContext.run(
+      { sequelize: dest.sequelize, models: dest.models, companyId: id },
+      () => backupCtrl.createBackup(req, res),
+    );
+  } catch (e) {
+    console.error('[companies] backupCompany:', e.message);
+    res.status(500).json({ error: 'Backup failed: ' + e.message });
+  }
+};
+
+/*
+ * hardDelete — irreversibly drop a company.
+ *
+ * Three things happen, in order:
+ *   1. The per-company PostgreSQL database is DROPPED (cluster-level
+ *      command via the master pg client — bills, ledger entries, audit
+ *      trail, all gone).
+ *   2. The branding upload folder (if any) is recursively removed so we
+ *      don't leak logo / signature PNGs.
+ *   3. The row in master.companies is destroy()'d so the company stops
+ *      appearing in the picker.
+ *
+ * Confirmation: the client MUST POST `{ confirm_name }` with a value
+ * that matches the company's `name` exactly (trimmed). This prevents
+ * "DELETE /api/companies/3" via a stray script from nuking the firm's
+ * books — the human in the loop has to type the name into the modal.
+ *
+ * Refusals (400):
+ *   • Primary company (would leave nothing to log into).
+ *   • Active company in this request — caller must switch away first.
+ *   • Name confirmation mismatch.
+ *
+ * Permission: same gate as create/update — Super Admin or Admin role.
+ * In future this could be narrowed to dev-mode-only on the server side,
+ * but we already enforce dev-mode at the UI layer for visibility.
+ */
+exports.hardDelete = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const row = await Company.findByPk(id);
+    if (!row) return res.status(404).json({ error: 'Company not found' });
+
+    if (row.is_primary) {
+      return res.status(400).json({
+        error: 'The primary company cannot be deleted. Promote another company first.',
+      });
+    }
+
+    // Name confirmation — must match exactly (trimmed, case-sensitive).
+    const confirmName = String(req.body?.confirm_name || '').trim();
+    if (!confirmName || confirmName !== String(row.name || '').trim()) {
+      return res.status(400).json({
+        error: 'Type the company name exactly to confirm deletion.',
+      });
+    }
+
+    // Refuse if THIS request is currently routed to that company.
+    // companyContext is set by the per-request middleware; if the
+    // operator is acting "inside" the company they're trying to delete,
+    // they'd nuke the same DB they're connected through. Make them
+    // switch to a different company first.
+    const { companyContext } = require('../services/companyConnections');
+    const ctx = companyContext.getStore();
+    if (ctx && Number(ctx.companyId) === id) {
+      return res.status(400).json({
+        error: 'Switch to a different company before deleting this one.',
+      });
+    }
+
+    const dbName = row.db_name;
+
+    // 1) Close any pooled connection to this company so the DROP isn't
+    //    blocked by "database is being accessed by other users".
+    try {
+      const { invalidateCompany } = require('../services/companyConnections');
+      invalidateCompany(id);
+    } catch (e) {
+      console.error('[hardDelete] invalidateCompany:', e.message);
+    }
+
+    // Wait briefly for the close() to finish — invalidateCompany returns
+    // synchronously but the underlying sequelize.close() is async.
+    await new Promise((r) => setTimeout(r, 250));
+
+    // 2) Drop the per-company database. WITH (FORCE) terminates any
+    //    lingering backends so a stale idle session can't block us.
+    //    PG 13+ supports the FORCE option; older clusters fall back.
+    if (dbName && dbName.startsWith('billing_erp_co_')) {
+      const admin = new Client({
+        host: DB_HOST, port: DB_PORT,
+        user: DB_USER, password: DB_PASSWORD,
+        database: 'postgres',
+      });
+      await admin.connect();
+      try {
+        try {
+          await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+        } catch {
+          // Fallback for pre-PG13 — terminate sessions, then DROP.
+          await admin.query(
+            `SELECT pg_terminate_backend(pid) FROM pg_stat_activity ` +
+            `WHERE datname = $1 AND pid <> pg_backend_pid()`,
+            [dbName],
+          );
+          await admin.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+        }
+      } finally {
+        await admin.end().catch(() => {});
+      }
+    }
+
+    // 3) Remove the branding folder (logos / signatures). Best-effort —
+    //    a missing folder is fine; a permission error logs but doesn't
+    //    fail the request because the more important step (DROP DATABASE)
+    //    has already succeeded.
+    try {
+      const path = require('path');
+      const fs = require('fs');
+      const dir = path.join(__dirname, '..', 'uploads', 'branding', String(id));
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    } catch (e) {
+      console.error('[hardDelete] branding cleanup:', e.message);
+    }
+
+    // 4) Drop the row from master.companies.
+    await row.destroy();
+
+    res.json({ ok: true, deleted: { company_id: id, name: row.name } });
+  } catch (e) {
+    console.error('[companies] hardDelete:', e.message);
+    res.status(500).json({ error: 'Server error deleting company: ' + e.message });
+  }
+};
+
 // Read / write the master cap. Used by Developer Settings.
 exports.getMaxCompaniesCap = async (req, res) => {
   try {

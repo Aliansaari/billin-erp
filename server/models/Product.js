@@ -151,6 +151,31 @@ module.exports = (sequelize) => {
       type: DataTypes.DECIMAL(14, 4),
       allowNull: true,
     },
+    // Audit H6 — per-product costing override. Three values:
+    //   'inherit'      — use SystemSettings.cogs_method (the default,
+    //                    company-wide choice). 99% of products land here.
+    //   'weighted_avg' — force weighted-average for this SKU regardless
+    //                    of the company default. Useful for low-value
+    //                    consumables where layer tracking is overkill.
+    //   'fifo'         — force FIFO for this SKU regardless of company
+    //                    default. Useful for high-value or rate-volatile
+    //                    items where the operator wants exact lot
+    //                    consumption even if the rest of the company is
+    //                    on weighted-average.
+    //
+    // The resolver getEffectiveCogsMethod() at server/utils/costLayers.js
+    // checks this column FIRST and falls back to the company setting only
+    // when the value is 'inherit'.
+    //
+    // Switching this on a product MID-period can drift cost reports
+    // briefly (the per-line cost_rate snapshot is frozen at sale time,
+    // but layers consumed differ between methods). Best practice is to
+    // change it on a quiet day or at a stock-take.
+    costing_method: {
+      type: DataTypes.ENUM('inherit', 'weighted_avg', 'fifo'),
+      defaultValue: 'inherit',
+      allowNull: false,
+    },
     // Convenience snapshot of the most recent purchase line's rate and
     // date. Not used for cost calculations (weighted_avg_cost is the
     // basis); shown on Product detail / movement views so the operator

@@ -44,6 +44,11 @@
 // still produce A4 — better than the broken thermal printToPDF flow.
 
 import dayjs from 'dayjs';
+import {
+  buildAddressLines, buildContactLine, buildStatutoryLines,
+  hasBankDetails, buildBankRows,
+  buildUpiQrDataUrl, getInvoiceFooter,
+} from '../services/printContext';
 
 const PT_PER_MM = 2.834645669;
 
@@ -423,19 +428,30 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
 
   const subColor = T.headerBlock ? [240, 240, 240] : [80, 80, 80];
   doc.setFont(T.bodyFont, 'normal').setFontSize(9).setTextColor(subColor[0], subColor[1], subColor[2]);
-  if (company?.company_address) {
-    // When centering, the address gets the full inner page width so a
-    // long line of "City · State · PIN" doesn't truncate awkwardly.
-    const addrW = isCenterTitle ? pageW - 2 * M : pageW - 2 * M - 160;
-    const addrLines = doc.splitTextToSize(company.company_address, addrW);
-    for (const ln of addrLines) {
+  // Structured address (from system_settings columns), one DB row per visual
+  // line. Falls back to the legacy company_address blob inside the helper.
+  // When centering, the address gets the full inner page width so a
+  // long line of "City, State PIN" doesn't truncate awkwardly.
+  const addrW = isCenterTitle ? pageW - 2 * M : pageW - 2 * M - 160;
+  const addrLines = buildAddressLines(company);
+  for (const raw of addrLines) {
+    // Long lines still wrap if they overflow the available width.
+    const wrapped = doc.splitTextToSize(raw, addrW);
+    for (const ln of wrapped) {
       doc.text(ln, subX, y, subOpts);
       y += 11;
     }
   }
-  if (company?.gstin) {
-    const taxLine = `GSTIN: ${company.gstin}` + (company?.pan_number ? ` | PAN: ${company.pan_number}` : '');
-    doc.text(taxLine, subX, y, subOpts);
+  // Phone / email / website on a single quiet line below the address.
+  const contactLine = buildContactLine(company);
+  if (contactLine) {
+    doc.text(contactLine, subX, y, subOpts);
+    y += 11;
+  }
+  // Statutory IDs (GSTIN/PAN row, then TAN/CIN/MSME/Drug/FSSAI row).
+  const statLines = buildStatutoryLines(company);
+  for (const ln of statLines) {
+    doc.text(ln, subX, y, subOpts);
     y += 11;
   }
 
@@ -755,25 +771,49 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
     y += 11;
   }
 
-  /* ── Footer (bank / terms / signature) ──────────────────────────── */
+  /* ── Footer (bank / terms / signature / QR) ─────────────────────── */
   const footerY = pageH - M - 60;
   doc.setDrawColor(220).setLineWidth(0.4);
   doc.line(M, footerY, pageW - M, footerY);
 
-  const bankText = profile?.bank_details ? String(profile.bank_details) : '';
+  // Pre-compute the UPI QR data URL when both the profile toggle and the
+  // company's bank_upi_id are set. doc.addImage works synchronously once
+  // we have the data URL, so we await before the layout work below.
+  const upiQrDataUrl = profile?.show_qr_upi
+    ? await buildUpiQrDataUrl({ company, bill, size: 200 })
+    : null;
+
   const tcText   = profile?.terms_and_conditions ? String(profile.terms_and_conditions) : '';
   let ftY = footerY + 14;
-  if (bankText) {
+
+  /* Bank block — prefer structured columns from system_settings; fall back
+   * to profile.bank_details for legacy installs. */
+  const bankRows = hasBankDetails(company) ? buildBankRows(company)
+                  : (profile?.bank_details ? null : []);
+  if (bankRows && bankRows.length) {
     doc.setFont(T.bodyFont, 'bold').setFontSize(8.5).setTextColor(80);
     doc.text('Bank Details', M, ftY);
     doc.setFont(T.bodyFont, 'normal').setFontSize(8).setTextColor(100);
-    const lines = doc.splitTextToSize(bankText, pageW / 2 - M - 10);
+    let by = ftY + 11;
+    // Tighter spacing + label : value format — fits 6 rows in the same
+    // height the legacy 3-line free-text block was using.
+    for (const [k, v] of bankRows.slice(0, 6)) {
+      doc.text(`${k}: ${v}`, M, by);
+      by += 9.5;
+    }
+  } else if (profile?.bank_details) {
+    // Legacy free-text path.
+    doc.setFont(T.bodyFont, 'bold').setFontSize(8.5).setTextColor(80);
+    doc.text('Bank Details', M, ftY);
+    doc.setFont(T.bodyFont, 'normal').setFontSize(8).setTextColor(100);
+    const lines = doc.splitTextToSize(String(profile.bank_details), pageW / 2 - M - 10);
     let by = ftY + 11;
     for (const ln of lines.slice(0, 3)) {
       doc.text(ln, M, by);
       by += 10;
     }
   }
+
   if (tcText) {
     doc.setFont(T.bodyFont, 'bold').setFontSize(8.5).setTextColor(80);
     doc.text('Terms & Conditions', M, ftY + 38);
@@ -786,16 +826,57 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
     }
   }
 
+  /* UPI QR — sits between the bank block (left) and signature (right).
+   * 50pt square (~17.6mm) is large enough to scan reliably yet small enough
+   * to leave room for the signature block. Skipped when no data URL was
+   * generated (no bank_upi_id or toggle off). */
+  if (upiQrDataUrl) {
+    const qrSize = 50;
+    const qrX = pageW / 2 - qrSize / 2;
+    const qrY = ftY;
+    try {
+      doc.addImage(upiQrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+      doc.setFont(T.bodyFont, 'normal').setFontSize(7).setTextColor(110);
+      doc.text('Scan to pay (UPI)', qrX + qrSize / 2, qrY + qrSize + 8, { align: 'center' });
+    } catch { /* bad data URL — skip rather than fail the whole PDF */ }
+  }
+
   // Signature block on the right.
   if (profile?.show_signature !== false) {
     const sigW = 130;
     const sigX = pageW - M - sigW;
     doc.setFont(T.bodyFont, 'normal').setFontSize(9).setTextColor(60);
     doc.text('For ' + (profile?.header_title || company?.company_name || ''), sigX + sigW, ftY, { align: 'right' });
+
+    /* If the company has uploaded a signature image, drop it in above the
+     * line. We can't await an http fetch here (jsPDF wants a data URL),
+     * so this is a best-effort: caller can pre-load the image into
+     * company.signature_data_url if they want it embedded. Otherwise the
+     * blank line + label still renders correctly for hand-signing. */
+    if (company?.signature_data_url) {
+      try {
+        const sigImgW = 90, sigImgH = 24;
+        doc.addImage(company.signature_data_url, 'PNG',
+          pageW - M - sigImgW, footerY + 18, sigImgW, sigImgH);
+      } catch { /* ignore */ }
+    }
     doc.setDrawColor(120).setLineWidth(0.4);
     doc.line(sigX, footerY + 48, pageW - M, footerY + 48);
     doc.setFontSize(8).setTextColor(110);
     doc.text(profile?.signature_label || 'Authorised Signatory', pageW - M, footerY + 58, { align: 'right' });
+  }
+
+  /* Company-wide invoice footer — small italic line just above the page
+   * number row. Distinct from per-profile terms_and_conditions. */
+  const invoiceFooterText = getInvoiceFooter(company);
+  if (invoiceFooterText) {
+    doc.setFont(T.bodyFont, 'italic').setFontSize(7.5).setTextColor(130);
+    const lines = doc.splitTextToSize(invoiceFooterText, pageW - 2 * M);
+    let ify = pageH - 24;
+    for (const ln of lines.slice(0, 2)) {
+      doc.text(ln, pageW / 2, ify, { align: 'center' });
+      ify += 9;
+    }
   }
 
   /* ── Page number footers ────────────────────────────────────────── */

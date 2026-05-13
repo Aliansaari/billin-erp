@@ -35,13 +35,37 @@ const BYPASS_PATHS = new Set([
   '/api/license/machine-fingerprint',
 ]);
 
+// Detect whether we're running inside a packaged Electron build. Electron's
+// `app.isPackaged` is the canonical check; outside Electron (raw `node
+// server/index.js`) we're definitionally in dev. Cached because this is
+// called on every request.
+let _isPackagedCache = null;
+function isPackagedBuild() {
+  if (_isPackagedCache !== null) return _isPackagedCache;
+  try {
+    const { app } = require('electron');
+    _isPackagedCache = !!(app && app.isPackaged);
+  } catch {
+    _isPackagedCache = false;       // not running under Electron at all
+  }
+  return _isPackagedCache;
+}
+
 function gate(req, res, next) {
-  // Dev-only escape hatch — set BILLING_ERP_BYPASS_LICENSE=1 to skip
   // Dev-only escape hatch — set BILLING_ERP_BYPASS_LICENSE=1 to skip
   // the gate entirely. Used for local mobile-app debugging where the
   // license is bound to a different machine fingerprint and we just
-  // want the API to work. Never set in production.
-  if (process.env.BILLING_ERP_BYPASS_LICENSE === '1') return next();
+  // want the API to work.
+  //
+  // Audit P2-H — the bypass is honored ONLY in non-packaged builds
+  // (raw `node server/index.js` or Electron in dev mode). In a packaged
+  // .exe `app.isPackaged === true`, the env var is ignored. This stops
+  // a LAN admin (or anyone with shell on the host) from setting the
+  // env var on a customer install and skipping the licensing layer
+  // entirely.
+  if (process.env.BILLING_ERP_BYPASS_LICENSE === '1' && !isPackagedBuild()) {
+    return next();
+  }
 
   // Only gate /api/* — static assets and the SPA index.html should
   // always serve so the frontend can render the activation screen.

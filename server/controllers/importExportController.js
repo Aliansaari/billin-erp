@@ -2,6 +2,7 @@ const ExcelJS = require('exceljs');
 const { Op, col } = require('sequelize');
 const sequelize = require('../config/database');
 const { computeCostRateForSale } = require('../utils/displayCost');
+const { escapeLike } = require('../utils/helpers');
 const {
   Party, Product, Category, StockLedger,
   SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, PaymentReceipt,
@@ -127,10 +128,12 @@ exports.exportToExcel = async (req, res) => {
         const where = { party_type: { [Op.in]: ['Customer', 'Both'] } };
         if (status) where.party_status = status;
         if (search) {
+          // Audit P3-D — escape LIKE wildcards.
+          const s = escapeLike(search);
           where[Op.or] = [
-            { party_name: { [Op.iLike]: `%${search}%` } },
-            { mobile_1:   { [Op.like]:  `%${search}%` } },
-            { gstin:      { [Op.iLike]: `%${search}%` } },
+            { party_name: { [Op.iLike]: `%${s}%` } },
+            { mobile_1:   { [Op.like]:  `%${s}%` } },
+            { gstin:      { [Op.iLike]: `%${s}%` } },
           ];
         }
         data = await Party.findAll({ where, raw: true });
@@ -157,10 +160,12 @@ exports.exportToExcel = async (req, res) => {
         const where = { party_type: { [Op.in]: ['Supplier', 'Both'] } };
         if (status) where.party_status = status;
         if (search) {
+          // Audit P3-D — escape LIKE wildcards.
+          const s = escapeLike(search);
           where[Op.or] = [
-            { party_name: { [Op.iLike]: `%${search}%` } },
-            { mobile_1:   { [Op.like]:  `%${search}%` } },
-            { gstin:      { [Op.iLike]: `%${search}%` } },
+            { party_name: { [Op.iLike]: `%${s}%` } },
+            { mobile_1:   { [Op.like]:  `%${s}%` } },
+            { gstin:      { [Op.iLike]: `%${s}%` } },
           ];
         }
         data = await Party.findAll({ where, raw: true });
@@ -189,10 +194,12 @@ exports.exportToExcel = async (req, res) => {
         }
         if (stock_status === 'out') where.current_stock = { [Op.lte]: 0 };
         if (search) {
+          // Audit P3-D — escape LIKE wildcards.
+          const s = escapeLike(search);
           where[Op.or] = [
-            { product_name:    { [Op.iLike]: `%${search}%` } },
-            { barcode:         { [Op.iLike]: `%${search}%` } },
-            { article_number:  { [Op.iLike]: `%${search}%` } },
+            { product_name:    { [Op.iLike]: `%${s}%` } },
+            { barcode:         { [Op.iLike]: `%${s}%` } },
+            { article_number:  { [Op.iLike]: `%${s}%` } },
           ];
         }
         data = await Product.findAll({

@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import {
   Card, Button, Modal, Form, Input, Select, ColorPicker, Tag, Space, Tooltip,
-  Typography, Empty, message, Popconfirm,
+  Typography, Empty, message, Popconfirm, Steps,
 } from 'antd';
 import {
   BankOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined,
-  CheckOutlined, LockOutlined, ExclamationCircleOutlined,
+  CheckOutlined, LockOutlined, ExclamationCircleOutlined, CloudDownloadOutlined,
+  SwapOutlined, WarningFilled,
 } from '@ant-design/icons';
-import { companyAPI } from '../../api';
+import { companyAPI, authAPI } from '../../api';
 import useCompanyStore from '../../store/companyStore';
 import useDevModeStore from '../../store/devModeStore';
+import useAuthStore from '../../store/authStore';
+import './CompanyList.css';
 
 const { Title, Text } = Typography;
 
@@ -39,10 +42,35 @@ export default function CompanyList() {
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  // Hard-delete confirmation state. `deleting` is the row being deleted
+  // (modal is open when truthy); `confirmText` is what the operator typed,
+  // matched against deleting.name to enable the Delete button.
+  //
+  // Active-company case: when the operator tries to delete the company
+  // they're currently logged into, we need to switch them away first
+  // (the server refuses to drop the DB its own request is routed
+  // through). switchTargetId + switchPassword power that prerequisite
+  // step; the main "Delete forever" button stays disabled until both
+  // are filled AND the name confirmation matches.
+  const [deleting, setDeleting] = useState(null);
+  const [confirmText, setConfirmText] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [switchTargetId, setSwitchTargetId] = useState(null);
+  const [switchPassword, setSwitchPassword] = useState('');
+  // Backup-before-delete state. `backupStatus` drives the visual feedback
+  // on the Backup step:
+  //   'idle'    — button enabled, no message
+  //   'busy'    — spinning, "Downloading..."
+  //   'done'    — green tick, filename shown
+  //   'error'   — red, retry button
+  const [backupStatus, setBackupStatus] = useState('idle');
+  const [backupFilename, setBackupFilename] = useState(null);
   const [createForm] = Form.useForm();
   const [editForm]   = Form.useForm();
 
   const setListInStore = useCompanyStore((s) => s.setList);
+  const pickCo          = useCompanyStore((s) => s.pick);
+  const activeCompanyId = useCompanyStore((s) => s.currentId);
   const devUnlocked    = useDevModeStore((s) => s.unlocked);
   const previewAsUser  = useDevModeStore((s) => s.previewAsUser);
   const effectiveDev   = devUnlocked && !previewAsUser;
@@ -105,6 +133,132 @@ export default function CompanyList() {
       reload();
     } catch (e) {
       message.error('Restore failed');
+    }
+  };
+
+  // Close the delete modal and clear all step-state. Called from Cancel,
+  // the X button, AND the success path (so reopening for a different
+  // company starts fresh).
+  const closeDeleteModal = () => {
+    setDeleting(null);
+    setConfirmText('');
+    setSwitchTargetId(null);
+    setSwitchPassword('');
+    setBackupStatus('idle');
+    setBackupFilename(null);
+  };
+
+  // Trigger a per-company backup download. Works for any company id
+  // (the server temporarily routes to that company's DB regardless of
+  // the caller's active session).
+  const handleBackup = async () => {
+    if (!deleting) return;
+    setBackupStatus('busy');
+    try {
+      const res = await companyAPI.backup(deleting.company_id);
+      // The response is a Blob (axios responseType: 'blob'). Pull the
+      // filename out of the Content-Disposition header so the download
+      // matches whatever the server named the file.
+      const cd = res.headers?.['content-disposition'] || '';
+      const m = /filename="?([^";]+)"?/.exec(cd);
+      const slug = String(deleting.name || 'company').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const today = new Date().toISOString().slice(0, 10);
+      const filename = (m && m[1]) || `${slug}-backup-${today}.enc`;
+
+      // Save via the Electron bridge when available (writes to Downloads
+      // folder), or fall back to a browser blob download for web.
+      const ab = await res.data.arrayBuffer();
+      if (window.electronAPI?.saveBlobToDownloads) {
+        const r = await window.electronAPI.saveBlobToDownloads({ fileName: filename, bytes: new Uint8Array(ab) });
+        if (r?.error) throw new Error(r.error);
+      } else {
+        const url = URL.createObjectURL(new Blob([ab], { type: 'application/octet-stream' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+      setBackupFilename(filename);
+      setBackupStatus('done');
+      message.success('Backup downloaded');
+    } catch (e) {
+      console.error('[backup] failed:', e);
+      setBackupStatus('error');
+      const apiMsg = e.response?.data?.error;
+      message.error(apiMsg || 'Backup failed — check server logs');
+    }
+  };
+
+  // Irreversible delete — drops the per-company PG database AND the
+  // master row. Server requires confirm_name to match exactly; we ALSO
+  // gate the button on a client-side typed-name match so the request
+  // is never even sent unless the operator typed it correctly.
+  //
+  // Active-company case: the server refuses to drop the DB its own
+  // request is routed through (we'd be sawing off the branch we're
+  // sitting on). So we first call authAPI.switchCompany to move the
+  // session over to another company, hot-swap the auth store, THEN
+  // fire the delete. Failure of the switch step aborts cleanly with
+  // a clear message — the original delete never goes out.
+  const handleHardDelete = async () => {
+    if (!deleting) return;
+    if (confirmText.trim() !== deleting.name.trim()) {
+      message.error('Type the company name exactly to confirm.');
+      return;
+    }
+    const isActive = Number(deleting.company_id) === Number(activeCompanyId);
+    if (isActive && (!switchTargetId || !switchPassword)) {
+      message.error('Pick a company to switch to and enter your password first.');
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      // Step 1 (active-company case only): switch the session to a
+      // different company. authAPI.switchCompany returns a fresh JWT
+      // bound to the new company_id, plus the (same) user row.
+      if (isActive) {
+        try {
+          const res = await authAPI.switchCompany(switchTargetId, switchPassword);
+          const { token, user, must_change_password } = res.data || {};
+          if (!token || !user) throw new Error('Switch response malformed');
+          useAuthStore.getState().login(user, token, !!must_change_password);
+          pickCo(switchTargetId);
+          // Give the new JWT a moment to settle into axios's interceptor
+          // before the delete fires.
+          await new Promise((r) => setTimeout(r, 100));
+        } catch (e) {
+          const status = e.response?.status;
+          const apiMsg = e.response?.data?.error;
+          let msg = apiMsg || 'Could not switch company before deleting';
+          if (status === 401) msg = 'Password is wrong — switch step failed.';
+          message.error({ content: msg, duration: 6 });
+          return;
+        }
+      }
+
+      // Step 2: delete the original company.
+      await companyAPI.hardDelete(deleting.company_id, confirmText.trim());
+      message.success(`"${deleting.name}" permanently deleted`);
+      try { localStorage.removeItem(`onboarding_dismissed_v1::${deleting.company_id}`); } catch {}
+      closeDeleteModal();
+      reload();
+    } catch (e) {
+      // Surface enough information to debug without DevTools. A 404 here
+      // almost always means the backend server hasn't been restarted to
+      // register the new /hard-delete route — the most common cause of
+      // a generic "Could not delete" report.
+      const status = e.response?.status;
+      const apiMsg = e.response?.data?.error;
+      let msg = apiMsg;
+      if (!msg) {
+        if (status === 404) msg = 'Endpoint not found — restart the backend server to register the new delete route.';
+        else if (status === 401 || status === 403) msg = 'You don\'t have permission to delete companies (need Admin or Super Admin role).';
+        else if (status) msg = `Delete failed (HTTP ${status})`;
+        else msg = 'Delete failed — server unreachable.';
+      }
+      message.error({ content: msg, duration: 6 });
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -223,6 +377,37 @@ export default function CompanyList() {
                     <Button size="small" danger icon={<DeleteOutlined />}>Archive</Button>
                   </Popconfirm>
                 )}
+                {/* Delete-permanently — irreversible. Hidden on the
+                 *  primary company (server also refuses). The currently-
+                 *  active company is still deletable but the modal will
+                 *  ask the operator to switch to a different company
+                 *  first (we can't drop the DB the active session is
+                 *  routed through). */}
+                {!c.is_primary && (
+                  <Tooltip title={
+                    Number(c.company_id) === Number(activeCompanyId)
+                      ? "Permanently delete this company. You'll be switched to another company first."
+                      : 'Permanently delete this company. Drops its database and all its bills, ledger entries, and audit trail. Cannot be undone.'
+                  }>
+                    <Button
+                      size="small"
+                      danger
+                      type="text"
+                      icon={<DeleteOutlined />}
+                      onClick={() => {
+                        setDeleting(c);
+                        setConfirmText('');
+                        setSwitchTargetId(null);
+                        setSwitchPassword('');
+                        setBackupStatus('idle');
+                        setBackupFilename(null);
+                      }}
+                      style={{ color: '#dc2626' }}
+                    >
+                      Delete
+                    </Button>
+                  </Tooltip>
+                )}
               </div>
             </Card>
           );
@@ -265,6 +450,244 @@ export default function CompanyList() {
             <Input placeholder="#21604C" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* ── Hard-delete confirmation modal ─────────────────────────── */}
+      <Modal
+        title={null}
+        closable={false}
+        open={!!deleting}
+        onCancel={closeDeleteModal}
+        footer={(() => {
+          const isActive = deleting && Number(deleting.company_id) === Number(activeCompanyId);
+          const nameOk = deleting && confirmText.trim() === deleting.name.trim();
+          const switchOptionsExist = deleting && list.some((c) =>
+            c.is_active && !c.db_dropped_at && Number(c.company_id) !== Number(deleting.company_id));
+          const switchOk = !isActive || (switchTargetId && switchPassword);
+          const switchBlocked = isActive && !switchOptionsExist;
+          return [
+            <Button key="cancel" size="large" onClick={closeDeleteModal}>
+              Cancel
+            </Button>,
+            <Button
+              key="delete"
+              danger
+              type="primary"
+              size="large"
+              loading={deleteBusy}
+              disabled={!nameOk || !switchOk || switchBlocked}
+              onClick={handleHardDelete}
+              icon={<DeleteOutlined />}
+            >
+              {isActive ? 'Switch & delete forever' : 'Delete forever'}
+            </Button>,
+          ];
+        })()}
+        destroyOnClose
+        width={620}
+        className="company-delete-modal"
+        styles={{
+          body: { padding: 0 },
+          content: { padding: 0 },
+        }}
+      >
+        {deleting && (() => {
+          const isActive = Number(deleting.company_id) === Number(activeCompanyId);
+          const switchOptions = list
+            .filter((c) => c.is_active && !c.db_dropped_at && Number(c.company_id) !== Number(deleting.company_id))
+            .map((c) => ({ value: c.company_id, label: c.name + (c.is_primary ? ' (Primary)' : '') }));
+          // Step progress — visually indicates how many gates the operator
+          // still has to clear. Always:
+          //   1. Back up   (optional but recommended; "done" when downloaded)
+          //   2. Switch    (required only on active-company case)
+          //   3. Confirm   (always required)
+          const stepsCount = isActive ? 3 : 2;
+          let currentStep = 0;
+          if (backupStatus === 'done') currentStep = 1;
+          if (isActive && switchTargetId && switchPassword) currentStep = 2;
+          if (!isActive && backupStatus !== 'idle') currentStep = 1;
+          const nameOk = confirmText.trim() === deleting.name.trim();
+          if (nameOk) currentStep = stepsCount - 1;
+
+          return (
+            <div className="cdm-body">
+              {/* ── Header banner ── */}
+              <div className="cdm-header">
+                <div className="cdm-header-icon">
+                  <WarningFilled />
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="cdm-header-title">
+                    Permanently delete <b>{deleting.name}</b>?
+                  </div>
+                  <div className="cdm-header-sub">
+                    This action is <b>irreversible</b>. Once you confirm,{' '}
+                    every bill, ledger entry, payment, batch, audit trail and
+                    uploaded logo/signature is gone for good.
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Progress ── */}
+              <div className="cdm-steps">
+                <Steps
+                  size="small"
+                  current={currentStep}
+                  items={[
+                    { title: 'Back up' },
+                    ...(isActive ? [{ title: 'Switch session' }] : []),
+                    { title: 'Confirm' },
+                  ]}
+                />
+              </div>
+
+              <div className="cdm-content">
+                {/* ── Step 1: Backup ── */}
+                <section className="cdm-step">
+                  <div className="cdm-step-head">
+                    <span className="cdm-step-num">1</span>
+                    <div>
+                      <div className="cdm-step-title">Back up first (recommended)</div>
+                      <div className="cdm-step-desc">
+                        Download an encrypted <code>.enc</code> snapshot of{' '}
+                        <b>{deleting.name}</b>. You can restore it later via{' '}
+                        Settings → Backup &amp; Recovery if you change your mind.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="cdm-step-body">
+                    {backupStatus === 'idle' && (
+                      <Button
+                        icon={<CloudDownloadOutlined />}
+                        onClick={handleBackup}
+                      >
+                        Download backup
+                      </Button>
+                    )}
+                    {backupStatus === 'busy' && (
+                      <Button loading disabled>Preparing backup…</Button>
+                    )}
+                    {backupStatus === 'done' && (
+                      <div className="cdm-backup-done">
+                        <CheckOutlined style={{ color: '#10b981' }} />
+                        <span style={{ marginLeft: 6 }}>
+                          Saved to Downloads: <code>{backupFilename}</code>
+                        </span>
+                        <Button
+                          type="link"
+                          size="small"
+                          onClick={handleBackup}
+                          style={{ marginLeft: 8, padding: 0 }}
+                        >
+                          Download again
+                        </Button>
+                      </div>
+                    )}
+                    {backupStatus === 'error' && (
+                      <Button danger icon={<CloudDownloadOutlined />} onClick={handleBackup}>
+                        Backup failed — retry
+                      </Button>
+                    )}
+                  </div>
+                </section>
+
+                {/* ── Step 2: Switch (active company only) ── */}
+                {isActive && (
+                  <section className="cdm-step">
+                    <div className="cdm-step-head">
+                      <span className="cdm-step-num">2</span>
+                      <div>
+                        <div className="cdm-step-title">
+                          Switch your session to another company
+                        </div>
+                        <div className="cdm-step-desc">
+                          You're currently signed into <b>{deleting.name}</b>. We'll
+                          move your session to a different company before dropping its
+                          database — your password is required to confirm the switch.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="cdm-step-body">
+                      {switchOptions.length === 0 ? (
+                        <div className="cdm-empty">
+                          <Text type="danger">No other active companies available.</Text>
+                          <div style={{ fontSize: 12, color: 'var(--fg-secondary, #64748b)', marginTop: 4 }}>
+                            Create another company or restore an archived one first.
+                          </div>
+                        </div>
+                      ) : (
+                        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                          <div>
+                            <div className="cdm-field-label">Switch to</div>
+                            <Select
+                              value={switchTargetId}
+                              onChange={setSwitchTargetId}
+                              placeholder="Pick a company"
+                              options={switchOptions}
+                              suffixIcon={<SwapOutlined />}
+                              style={{ width: '100%' }}
+                              size="large"
+                            />
+                          </div>
+                          <div>
+                            <div className="cdm-field-label">Your password</div>
+                            <Input.Password
+                              value={switchPassword}
+                              onChange={(e) => setSwitchPassword(e.target.value)}
+                              placeholder="••••••••"
+                              autoComplete="current-password"
+                              size="large"
+                            />
+                          </div>
+                        </Space>
+                      )}
+                    </div>
+                  </section>
+                )}
+
+                {/* ── Step 3 (or 2 for non-active): Confirm name ── */}
+                <section className="cdm-step cdm-step-final">
+                  <div className="cdm-step-head">
+                    <span className="cdm-step-num cdm-step-num-final">
+                      {isActive ? '3' : '2'}
+                    </span>
+                    <div>
+                      <div className="cdm-step-title">
+                        Confirm by typing the company name
+                      </div>
+                      <div className="cdm-step-desc">
+                        We require an exact match — this is your last chance to back out.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="cdm-step-body">
+                    <div className="cdm-confirm-row">
+                      <div className="cdm-confirm-target">
+                        <code>{deleting.name}</code>
+                      </div>
+                      <Input
+                        value={confirmText}
+                        onChange={(e) => setConfirmText(e.target.value)}
+                        placeholder={`Type "${deleting.name}" exactly`}
+                        size="large"
+                        status={confirmText && !nameOk ? 'error' : undefined}
+                        onPressEnter={() => {
+                          const switchOk = !isActive || (switchTargetId && switchPassword);
+                          if (nameOk && switchOk) handleHardDelete();
+                        }}
+                      />
+                    </div>
+                    {confirmText && !nameOk && (
+                      <div className="cdm-confirm-hint">
+                        Doesn't match — type the name exactly as shown above (including any spaces and capitalisation).
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* ── Edit modal ─────────────────────────────────────────────── */}

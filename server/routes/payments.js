@@ -11,6 +11,7 @@ router.get('/next-number',   requirePermission('payments.create'), paymentContro
 router.get('/unpaid-bills',  requirePermission('payments.view'),   paymentController.getUnpaidBills);
 router.get('/:id',           requirePermission('payments.view'),   paymentController.getById);
 router.post('/',             requirePermission('payments.create'), paymentController.create);
+router.put('/:id',           requirePermission('payments.create'), paymentController.update);
 router.post('/:id/cancel',   requirePermission('payments.delete'), paymentController.cancel);
 
 module.exports = router;

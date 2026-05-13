@@ -1,11 +1,13 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import useAuthStore from './store/authStore';
+import useCompanyStore from './store/companyStore';
 import { partyAPI } from './api';
 import { refreshFinancialYear } from './hooks/useFinancialYear';
 import { useMultiWarehouseEnabled } from './hooks/useSystemSettings';
 import { useGlobalShortcuts, SHORTCUTS_LIST } from './hooks/useKeyboardShortcuts';
 import AppLayout from './components/Layout/AppLayout';
+import OnboardingWizard, { shouldShowOnboarding } from './components/OnboardingWizard';
 import RoleRoute from './components/RoleRoute';
 import { GlobalSearchModal } from './components/GlobalSearch';
 // DatePopup + MenuPopup providers are mounted in main.jsx (above this
@@ -91,6 +93,7 @@ import LoanStatement       from './pages/loans/LoanStatement';
 import LoanSchedule        from './pages/loans/LoanSchedule';
 import ImportV2 from './pages/settings/ImportV2';
 import CompanyProfile from './pages/settings/CompanyProfile';
+import MyAccount from './pages/settings/MyAccount';
 import UserManagement from './pages/settings/UserManagement';
 import GodownList from './pages/settings/GodownList';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
@@ -176,6 +179,48 @@ function PrivateRoute({ children }) {
     return <Navigate to="/change-password" replace />;
   }
   return children;
+}
+
+/* OnboardingGate — sits above AppLayout once the user is past the
+ * password-rotation gate. Checks whether the firm has set up Company
+ * Profile yet; if not, surfaces the wizard as an overlay that the
+ * underlying app stays interactive beneath (the wizard captures focus
+ * via its modal overlay). Once dismissed or finished, the overlay
+ * disappears and the user is on whatever route they navigated to.
+ *
+ * Re-runs the detection on EVERY company switch (companyStore.currentId
+ * changes), so creating a brand-new company and switching to it
+ * surfaces the wizard for that company even if a prior company was
+ * already dismissed. */
+function OnboardingGate({ children }) {
+  const [show, setShow] = React.useState(false);
+  const [checked, setChecked] = React.useState(false);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const mustChangePassword = useAuthStore((s) => s.mustChangePassword);
+  // Subscribing to currentId triggers a re-run of the effect below when
+  // the operator switches companies via the topbar pill.
+  const currentCompanyId = useCompanyStore((s) => s.currentId);
+
+  React.useEffect(() => {
+    // Only probe once per mount, and only when the user is fully signed in
+    // (past both auth and the must_change_password gate). Without these
+    // guards the wizard would flash briefly on the login page on a fresh
+    // boot before redirecting elsewhere.
+    if (!isAuthenticated || mustChangePassword) return;
+    let cancelled = false;
+    setChecked(false);
+    shouldShowOnboarding(currentCompanyId).then((v) => {
+      if (!cancelled) { setShow(v); setChecked(true); }
+    });
+    return () => { cancelled = true; };
+  }, [isAuthenticated, mustChangePassword, currentCompanyId]);
+
+  return (
+    <>
+      {children}
+      {checked && show && <OnboardingWizard onComplete={() => setShow(false)} />}
+    </>
+  );
 }
 
 function ShortcutsOverlay({ visible, onClose }) {
@@ -427,7 +472,7 @@ export default function App() {
         <Route path="/license" element={<LicenseActivation />} />
         <Route path="/login" element={<Login />} />
         <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
-        <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
+        <Route path="/" element={<PrivateRoute><OnboardingGate><AppLayout /></OnboardingGate></PrivateRoute>}>
           {/*
             / is the Command Center (Home) — greeting, global search, quick
             actions, KPI strip. The deep 9-up Dashboard moved to /dashboard
@@ -490,6 +535,10 @@ export default function App() {
           {/* Payments */}
           <Route path="payment/new" element={<RoleRoute perm="payments.create"><PaymentEntry /></RoleRoute>} />
           <Route path="receipt/new" element={<RoleRoute perm="payments.create"><ReceiptEntry /></RoleRoute>} />
+          {/* Edit-existing routes — same component, different mode. Component
+              reads :id from useParams and switches to update() instead of create(). */}
+          <Route path="payment/edit/:id" element={<RoleRoute perm="payments.create"><PaymentEntry /></RoleRoute>} />
+          <Route path="receipt/edit/:id" element={<RoleRoute perm="payments.create"><ReceiptEntry /></RoleRoute>} />
           <Route path="payments"    element={<RoleRoute perm="payments.view"><PaymentList /></RoleRoute>} />
 
           {/* Expenses — Indirect / Direct expense bookings with full
@@ -589,6 +638,8 @@ export default function App() {
           <Route path="settings" element={<SettingsLayout />}>
             <Route index                      element={<Navigate to="/settings/company" replace />} />
             <Route path="company"             element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />
+            {/* My Account — every logged-in user can reach this; no permission gate. */}
+            <Route path="account"             element={<PrivateRoute><MyAccount /></PrivateRoute>} />
             <Route path="users"               element={<RoleRoute perm="settings.manage_users"><UserManagement /></RoleRoute>} />
             <Route path="barcode"             element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
             <Route path="modules"             element={<RoleRoute perm="settings.manage_company"><ModuleSettings /></RoleRoute>} />

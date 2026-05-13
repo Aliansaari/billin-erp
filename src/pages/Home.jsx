@@ -273,8 +273,11 @@ export default function Home() {
       .filter(Boolean);
   }, [cfg.actions]);
 
-  const firstName = (user?.full_name || '').split(' ')[0] || 'there';
-  const greeting  = greetingFor(now.hour());
+  // Use the full name as typed by the user (My Account → Full Name).
+  // Earlier we sliced this to the first token for the "Hi, Ali" feel, but
+  // people put their full legal name in there and expect to see it.
+  const displayName = (user?.full_name || '').trim() || 'there';
+  const greeting    = greetingFor(now.hour());
 
   /* Time string. Tabular numerals keep the column widths stable across
    * digit changes so the colon never jiggles. Seconds are opt-in via
@@ -323,6 +326,11 @@ export default function Home() {
        *           visual signature. */}
       <main className="cc-middle">
         <header className="cc-greeting">
+          {cfg.showGreeting && (
+            <div className="cc-eyebrow">
+              {greeting}, {displayName}
+            </div>
+          )}
           {cfg.showHeadline && (
             <h1 className="cc-headline">What would you like to do?</h1>
           )}
