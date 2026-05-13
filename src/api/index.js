@@ -333,7 +333,11 @@ export const paymentAPI = {
 
 // Reports
 export const reportAPI = {
-  getDashboard: () => api.get('/reports/dashboard'),
+  // All four dashboard endpoints accept optional { from, to, period } query
+  // params so the page can refetch when the user clicks 7D/30D/90D/FY. The
+  // server filters by these when provided; endpoints that haven't been wired
+  // yet simply ignore the unknown keys, so passing is always safe.
+  getDashboard: (params) => api.get('/reports/dashboard', { params }),
   // Aggregates for sparklines + chart tiles. Pass `interval=day|week|month`
   // and `periods=N` to control bucket size and how many trailing buckets
   // come back. Same response shape regardless of interval — each row has
@@ -342,12 +346,12 @@ export const reportAPI = {
   // Actionable insights for the dashboard — top overdue parties, bills due soon,
   // top sellers this week, dead stock, cheques pending. Lightweight JSON,
   // each list capped at 5-10 items.
-  getDashboardInsights: () => api.get('/reports/dashboard/insights'),
+  getDashboardInsights: (params) => api.get('/reports/dashboard/insights', { params }),
   // Editorial dashboard's deep business metrics: cash position, runway,
   // working capital, DSO/DPO/DIO/CCC, customer concentration, inventory
   // turnover, recommended actions. Slower than the lightweight stats —
   // typically 200-400ms on a populated DB.
-  getDashboardBusiness: () => api.get('/reports/dashboard/business'),
+  getDashboardBusiness: (params) => api.get('/reports/dashboard/business', { params }),
   getSalesReport: (params) => api.get('/reports/sales', { params }),
   getPurchaseReport: (params) => api.get('/reports/purchases', { params }),
   getStockReport: (params) => api.get('/reports/stock', { params }),

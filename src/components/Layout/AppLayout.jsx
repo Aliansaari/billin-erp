@@ -28,33 +28,62 @@ export default function AppLayout() {
   const menuOrientation = useThemeStore((s) => s.menuOrientation);
   const isHorizontal = menuOrientation === 'horizontal';
 
-  // User preference for sidebar collapse. Auto-collapse on small viewports
-  // OVERRIDES this preference but doesn't overwrite it — once the window
-  // grows back above the breakpoint, the user's saved choice returns.
-  const userPreferredCollapsed = (() => {
+  // User preference for sidebar collapse — read from localStorage ONCE on
+  // mount and kept in state. Reading on every render (previous IIFE approach)
+  // combined with the localStorage-write effect below caused a re-render loop
+  // during the AntD Sider's width transition: localStorage write → next render
+  // re-read → useEffect dep flip → setCollapsed → animation restart → flicker.
+  const [userPreferredCollapsed, setUserPreferredCollapsed] = useState(() => {
     try { return localStorage.getItem(SIDEBAR_KEY) === 'true'; }
     catch { return false; }
-  })();
+  });
 
-  // Track viewport width so we can auto-collapse / auto-hide the sidebar.
-  // Using innerWidth (not matchMedia) keeps the calculation in one place
-  // and avoids two listeners when the window is resized.
-  const [vw, setVw] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1400));
+  // Track viewport width via matchMedia rather than a raw resize listener.
+  // matchMedia only fires when the breakpoint actually crosses, which avoids
+  // the rapid-fire callbacks a continuous resize would cause (e.g. when the
+  // sidebar animation briefly perturbs scrollbar visibility) — that fast
+  // re-fire was visible as a blinking sidebar in some setups.
+  const matchesQuery = (q) => typeof window !== 'undefined' && window.matchMedia(q).matches;
+  const COLLAPSE_Q = `(max-width: ${COLLAPSE_BREAKPOINT - 1}px)`;
+  const HIDE_Q     = `(max-width: ${HIDE_BREAKPOINT - 1}px)`;
+  const [autoCollapsed, setAutoCollapsed] = useState(() => matchesQuery(COLLAPSE_Q));
+  const [autoHidden,    setAutoHidden]    = useState(() => matchesQuery(HIDE_Q));
   useEffect(() => {
-    const onResize = () => setVw(window.innerWidth);
-    window.addEventListener('resize', onResize, { passive: true });
-    return () => window.removeEventListener('resize', onResize);
+    const mqCollapse = window.matchMedia(COLLAPSE_Q);
+    const mqHide     = window.matchMedia(HIDE_Q);
+    const onCollapse = (e) => setAutoCollapsed(e.matches);
+    const onHide     = (e) => setAutoHidden(e.matches);
+    mqCollapse.addEventListener('change', onCollapse);
+    mqHide.addEventListener('change', onHide);
+    return () => {
+      mqCollapse.removeEventListener('change', onCollapse);
+      mqHide.removeEventListener('change', onHide);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const autoCollapsed = vw < COLLAPSE_BREAKPOINT;
-  const autoHidden    = vw < HIDE_BREAKPOINT;
 
   // Collapsed state shown to Sidebar. Auto-collapse wins; otherwise the
-  // user's persisted preference stands.
+  // user's persisted preference stands. Effect only depends on autoCollapsed
+  // (not on userPreferredCollapsed) so user toggles flow through the
+  // explicit handler below without bouncing through this effect.
   const [collapsed, setCollapsed] = useState(() => userPreferredCollapsed);
   useEffect(() => {
     if (autoCollapsed) setCollapsed(true);
     else setCollapsed(userPreferredCollapsed);
-  }, [autoCollapsed, userPreferredCollapsed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoCollapsed]);
+
+  // Single entry point for collapse toggles (passed to Sidebar). Updates the
+  // visible collapse state AND the persisted preference together — except
+  // when auto-collapse is active, in which case we don't overwrite the user's
+  // saved preference so it comes back when the window grows.
+  const setCollapsedSticky = (next) => {
+    setCollapsed(next);
+    if (!autoCollapsed) {
+      setUserPreferredCollapsed(next);
+      try { localStorage.setItem(SIDEBAR_KEY, String(next)); } catch {}
+    }
+  };
 
   // Mobile-overlay: when vw < HIDE_BREAKPOINT the sidebar is taken out of
   // the layout flow entirely and rendered as a slide-in panel triggered
@@ -63,14 +92,6 @@ export default function AppLayout() {
   // sitting open over the new page.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   useEffect(() => { setMobileNavOpen(false); }, [location.pathname]);
-
-  // Persist user preference, NOT the auto-collapsed state. Otherwise
-  // resizing once would silently flip the sticky preference for next
-  // boot.
-  useEffect(() => {
-    if (autoCollapsed) return;
-    localStorage.setItem(SIDEBAR_KEY, String(collapsed));
-  }, [collapsed, autoCollapsed]);
 
   // Global ESC-back when on a report page that was opened from the
   // /reports hub. The hub sets sessionStorage 'reports_hub_back' = '1'
@@ -149,6 +170,11 @@ export default function AppLayout() {
     // never scroll, so it joins the full-page list rather than rendering
     // inside the padded card frame.
     '/',
+    // Editorial Dashboard — sticky topbar (Dashboard heading + period
+    // controls + date picker) pins flush against the viewport edges.
+    // Without full-page treatment, main's margin + padding leave visible
+    // gaps above and on both sides of the topbar.
+    '/dashboard',
     // Home settings — sticky title + restore-defaults button stay fixed
     // at the top of the Content while the toggle sections scroll below.
     // Without /settings/home in the full-page list, the whole app-level
@@ -239,9 +265,12 @@ export default function AppLayout() {
   const pageKey = '/' + (location.pathname.split('/')[1] || '');
 
   // Horizontal mode: stack TopNav + Content vertically.
+  // `height: 100dvh` (not minHeight) clamps the shell to the viewport so the
+  // TopNav stays pinned and only the <Content> body scrolls — without this,
+  // a tall page grows the outer Layout and the browser scrolls everything.
   if (isHorizontal) {
     return (
-      <Layout className="app-layout-horizontal" style={{ minHeight: '100dvh', flexDirection: 'column' }}>
+      <Layout className="app-layout-horizontal" style={{ height: '100dvh', flexDirection: 'column' }}>
         <TopNav />
         <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Content style={{
@@ -288,7 +317,7 @@ export default function AppLayout() {
   // covers the page so a tap outside dismisses the menu.
   return (
     <Layout className={`erp-app-layout${autoHidden ? ' is-mobile' : ''}${mobileNavOpen ? ' nav-open' : ''}`}
-            style={{ minHeight: '100dvh' }}>
+            style={{ height: '100dvh' }}>
       {autoHidden && (
         <button
           type="button"
@@ -306,7 +335,7 @@ export default function AppLayout() {
           aria-hidden="true"
         />
       )}
-      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
+      <Sidebar collapsed={collapsed} setCollapsed={setCollapsedSticky} />
       <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <Content style={{
           margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
