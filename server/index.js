@@ -106,6 +106,15 @@ const NATIVE_WEBVIEW_RE = /^(?:capacitor|ionic):\/\/localhost$/i;
 const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 const LEGACY_ORIGIN = process.env.CLIENT_URL || 'http://localhost:5173';
+// Audit P2-E — strict-mode CORS. By default we allow any RFC1918 origin so
+// every LAN client (Electron / browser / mobile) on the office subnet works
+// out of the box. For installs that need a tighter perimeter (or a hostile
+// LAN where a peer device might be compromised), set CORS_STRICT=1 and put
+// the exact origins you want to allow in CORS_EXTRA_ORIGINS. Loopback and
+// the dev Vite origin are still permitted under strict mode so the install
+// itself works.
+const CORS_STRICT = process.env.CORS_STRICT === '1';
+const LOOPBACK_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i;
 app.use(cors({
   credentials: true,
   // Returning `cb(null, false)` for an unknown origin tells the cors
@@ -117,21 +126,56 @@ app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);                                  // curl / native app / same-origin
     if (origin === LEGACY_ORIGIN) return cb(null, true);
-    if (PRIVATE_IP_RE.test(origin)) return cb(null, true);
+    if (LOOPBACK_RE.test(origin)) return cb(null, true);
     if (NATIVE_WEBVIEW_RE.test(origin)) return cb(null, true);
     if (EXTRA_ORIGINS.includes(origin)) return cb(null, true);
+    if (!CORS_STRICT && PRIVATE_IP_RE.test(origin)) return cb(null, true);
     return cb(null, false);
   },
 }));
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Audit C21 — body parser sizing. Pre-fix this was express.json({ limit: '50mb' })
+// applied BEFORE auth on every route. Login + setup routes that take only a
+// username/password could be hit with 50 MB of JSON 5× before the rate-limiter
+// fired (rate-limit runs AFTER body parsing) — trivial OOM DoS surface.
+//
+// Two-tier defence:
+//   1. Path-aware content-length pre-check BEFORE the body parser runs at all
+//      — rejects oversized payloads on /api/auth/* and /api/setup/* without
+//      reading a single byte off the wire. Stops the OOM-DoS class.
+//   2. 1 MB global parser limit (down from 50 MB) — comfortably above any
+//      normal POST payload (a bill with 500 line items at ~500 bytes each is
+//      ~250 KB), but 50× smaller than the prior limit. The few endpoints
+//      with explicit local limits (license activate 128 KB, license
+//      deactivate 4 KB, setup 8 KB) declare their own express.json() inline.
+app.use((req, res, next) => {
+  const len = parseInt(req.headers['content-length'] || '0', 10);
+  // Skip the check when there's no body or content-length is absent (GET, etc.)
+  if (!len) return next();
+  // Tighten on the password / login surfaces — these only ever take a few
+  // hundred bytes of credentials. 4 KB is generous.
+  if (req.path && (req.path.startsWith('/api/auth/') || req.path.startsWith('/api/setup/'))) {
+    if (len > 4 * 1024) {
+      return res.status(413).json({ error: 'Request body too large for this endpoint.' });
+    }
+  }
+  next();
+});
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Uploads directory — see server/utils/paths.js for the asar-aware
 // resolution. The require below also creates the dir as a side-effect.
 const fs = require('fs');
 const { UPLOADS_DIR } = require('./utils/paths');
 process.env.BILLING_ERP_UPLOADS_DIR = UPLOADS_DIR;
+
+// Audit P2-M — global per-IP rate-limiter caps total request volume so
+// a leaked JWT (or an unauth attacker against public endpoints) can't
+// scrape the database at line speed. Mounted before any route, exempts
+// /health and /license/info inside itself.
+const { globalRateLimit } = require('./middleware/globalRateLimit');
+app.use(globalRateLimit);
 
 // LAN gate — enforces dev_lan_enabled + dev_lan_max_clients from
 // system_settings. Mounted before the API routes so a denied client
@@ -182,6 +226,7 @@ app.use('/api/tally', require('./routes/tally'));
 app.use('/api/backup', require('./routes/backup'));
 app.use('/api/print', require('./routes/print'));
 app.use('/api/godowns', require('./routes/godowns'));
+app.use('/api/states', require('./routes/states'));
 app.use('/api/stock-transfers', require('./routes/stockTransfers'));
 app.use('/api/batches', require('./routes/batches'));
 app.use('/api/user/favorites', require('./routes/userFavorites'));
@@ -227,17 +272,20 @@ const SERVER_VERSION = require('../package.json').version || '0.0.0';
  * the same network already knows. */
 app.get('/api/health', async (req, res) => {
   let dbOk = true;
-  let dbError = null;
   try {
     await sequelize.authenticate();
   } catch (e) {
     dbOk = false;
-    dbError = e.message;
+    // Audit P3-H — log the real error server-side but DON'T leak the
+    // pg error verbatim in the response. Pre-fix, the unauthenticated
+    // endpoint returned raw error text including hostname / username /
+    // file paths — useful reconnaissance for an attacker probing the
+    // LAN. A generic "degraded" is enough for the SPA's health badge.
+    console.error('[/api/health] DB authenticate failed:', e.message);
   }
   res.json({
     status: dbOk ? 'ok' : 'degraded',
     db: dbOk,
-    db_error: dbError,
     version: SERVER_VERSION,
     timestamp: new Date().toISOString(),
   });
@@ -940,6 +988,138 @@ async function startServer() {
         ON purchase_bill_items (purchase_bill_id);
       CREATE INDEX IF NOT EXISTS idx_stock_ledger_product_date
         ON stock_ledger (product_id, transaction_date);
+
+      -- Audit H5 -- is_reversal_of_ledger_id column for paired-reversal
+      -- audit trail. A reversal row points back at the original it
+      -- cancels; queries find "currently-active" originals via NOT
+      -- EXISTS on this column. Nullable for legacy rows. Indexed for
+      -- the reverse-lookup the helper does.
+      DO $stockledger_reversal$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='stock_ledger' AND column_name='is_reversal_of_ledger_id') THEN
+          ALTER TABLE stock_ledger ADD COLUMN is_reversal_of_ledger_id INTEGER NULL
+            REFERENCES stock_ledger(ledger_id) ON DELETE SET NULL;
+        END IF;
+      END $stockledger_reversal$;
+      CREATE INDEX IF NOT EXISTS idx_stock_ledger_reversal_of
+        ON stock_ledger (is_reversal_of_ledger_id)
+        WHERE is_reversal_of_ledger_id IS NOT NULL;
+
+      -- Audit H6 -- cogs_method on system_settings. ENUM type may not
+      -- exist on legacy installs, so create it idempotently. Default to
+      -- weighted_avg so existing behaviour is preserved on flip-day.
+      DO $cogs_method$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_system_settings_cogs_method') THEN
+          CREATE TYPE enum_system_settings_cogs_method AS ENUM ('weighted_avg', 'fifo');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='cogs_method') THEN
+          ALTER TABLE system_settings ADD COLUMN cogs_method enum_system_settings_cogs_method DEFAULT 'weighted_avg';
+        END IF;
+      END $cogs_method$;
+
+      -- Audit H6 L2 -- cost_layers_consumed JSONB on stock_transfer_items
+      -- for FIFO cost-layer continuity across godowns.
+      DO $st_items_cost_layers$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='stock_transfer_items' AND column_name='cost_layers_consumed') THEN
+          ALTER TABLE stock_transfer_items ADD COLUMN cost_layers_consumed JSONB NULL;
+        END IF;
+      END $st_items_cost_layers$;
+
+      -- Audit H6 -- per-product costing override. ENUM with 3 values:
+      -- inherit / weighted_avg / fifo. Default inherit so existing
+      -- products keep using the company-wide cogs_method.
+      DO $product_costing_method$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_products_costing_method') THEN
+          CREATE TYPE enum_products_costing_method AS ENUM ('inherit', 'weighted_avg', 'fifo');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='products' AND column_name='costing_method') THEN
+          ALTER TABLE products ADD COLUMN costing_method enum_products_costing_method NOT NULL DEFAULT 'inherit';
+        END IF;
+      END $product_costing_method$;
+
+      -- Onboarding completeness -- structured company address, contact,
+      -- banking, tax-IDs, branding columns on system_settings. All
+      -- nullable so existing rows survive. Idempotent IF NOT EXISTS
+      -- guards on every column.
+      DO $company_profile_columns$ BEGIN
+        -- Structured address
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_address_line_1') THEN
+          ALTER TABLE system_settings ADD COLUMN company_address_line_1 VARCHAR(200);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_address_line_2') THEN
+          ALTER TABLE system_settings ADD COLUMN company_address_line_2 VARCHAR(200);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_city') THEN
+          ALTER TABLE system_settings ADD COLUMN company_city VARCHAR(80);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_state') THEN
+          ALTER TABLE system_settings ADD COLUMN company_state VARCHAR(80);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_pincode') THEN
+          ALTER TABLE system_settings ADD COLUMN company_pincode VARCHAR(10);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_country') THEN
+          ALTER TABLE system_settings ADD COLUMN company_country VARCHAR(80) DEFAULT 'India';
+        END IF;
+        -- Contact
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_phone') THEN
+          ALTER TABLE system_settings ADD COLUMN company_phone VARCHAR(20);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_phone_2') THEN
+          ALTER TABLE system_settings ADD COLUMN company_phone_2 VARCHAR(20);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_email') THEN
+          ALTER TABLE system_settings ADD COLUMN company_email VARCHAR(120);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='company_website') THEN
+          ALTER TABLE system_settings ADD COLUMN company_website VARCHAR(200);
+        END IF;
+        -- Tax registrations
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='tan_number') THEN
+          ALTER TABLE system_settings ADD COLUMN tan_number VARCHAR(10);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='cin_number') THEN
+          ALTER TABLE system_settings ADD COLUMN cin_number VARCHAR(21);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='msme_udyam') THEN
+          ALTER TABLE system_settings ADD COLUMN msme_udyam VARCHAR(30);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='drug_license') THEN
+          ALTER TABLE system_settings ADD COLUMN drug_license VARCHAR(50);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='fssai_license') THEN
+          ALTER TABLE system_settings ADD COLUMN fssai_license VARCHAR(50);
+        END IF;
+        -- Banking
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='bank_name') THEN
+          ALTER TABLE system_settings ADD COLUMN bank_name VARCHAR(120);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='bank_account_holder') THEN
+          ALTER TABLE system_settings ADD COLUMN bank_account_holder VARCHAR(120);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='bank_account_number') THEN
+          ALTER TABLE system_settings ADD COLUMN bank_account_number VARCHAR(30);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='bank_ifsc') THEN
+          ALTER TABLE system_settings ADD COLUMN bank_ifsc VARCHAR(11);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='bank_branch') THEN
+          ALTER TABLE system_settings ADD COLUMN bank_branch VARCHAR(120);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='bank_upi_id') THEN
+          ALTER TABLE system_settings ADD COLUMN bank_upi_id VARCHAR(80);
+        END IF;
+        -- Branding
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='signature_path') THEN
+          ALTER TABLE system_settings ADD COLUMN signature_path VARCHAR(255);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='system_settings' AND column_name='invoice_footer') THEN
+          ALTER TABLE system_settings ADD COLUMN invoice_footer TEXT;
+        END IF;
+      END $company_profile_columns$;
       CREATE INDEX IF NOT EXISTS idx_payments_receipts_party_date
         ON payments_receipts (party_id, transaction_date);
 
@@ -1139,49 +1319,61 @@ async function startServer() {
       -- DOUBLED back. After the user re-imported with the fixed importer,
       -- the values stored were already correct; halving them once more was
       -- the bug. Idempotent via tally_halving_reverted.
-      UPDATE sales_bill_items sbi
-         SET cgst_amount = sbi.cgst_amount * 2,
-             sgst_amount = sbi.sgst_amount * 2,
-             igst_amount = sbi.igst_amount * 2
-        FROM sales_bills sb
-       WHERE sbi.sales_bill_id = sb.sales_bill_id
-         AND COALESCE(sb.tally_correction_applied, false) = true
-         AND COALESCE(sb.tally_halving_reverted,   false) = false;
+      --
+      -- Audit C25 — wrap in a single DO $$ block + advisory lock so two
+      -- concurrent server boots can't both pass the WHERE (tally_halving_
+      -- reverted=false) and double the GST 4× instead of 2×. The DO block
+      -- runs as one implicit transaction; pg_advisory_xact_lock serialises
+      -- across boots and auto-releases on block end. Lock key 8801 is
+      -- arbitrary but distinct from the bill-number locks (901-903).
+      DO $tally_revert$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(8801);
 
-      UPDATE purchase_bill_items pbi
-         SET cgst_amount = pbi.cgst_amount * 2,
-             sgst_amount = pbi.sgst_amount * 2,
-             igst_amount = pbi.igst_amount * 2
-        FROM purchase_bills pb
-       WHERE pbi.purchase_bill_id = pb.purchase_bill_id
-         AND COALESCE(pb.tally_correction_applied, false) = true
-         AND COALESCE(pb.tally_halving_reverted,   false) = false;
+        UPDATE sales_bill_items sbi
+           SET cgst_amount = sbi.cgst_amount * 2,
+               sgst_amount = sbi.sgst_amount * 2,
+               igst_amount = sbi.igst_amount * 2
+          FROM sales_bills sb
+         WHERE sbi.sales_bill_id = sb.sales_bill_id
+           AND COALESCE(sb.tally_correction_applied, false) = true
+           AND COALESCE(sb.tally_halving_reverted,   false) = false;
 
-      UPDATE sales_bills SET
-        cgst_amount = cgst_amount * 2,
-        sgst_amount = sgst_amount * 2,
-        igst_amount = igst_amount * 2,
-        cgst_pct    = cgst_pct * 2,
-        sgst_pct    = sgst_pct * 2,
-        igst_pct    = igst_pct * 2,
-        total_amount   = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0))::numeric, 2),
-        balance_amount = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0) - COALESCE(paid_amount, 0))::numeric, 2),
-        tally_halving_reverted = true
-      WHERE COALESCE(tally_correction_applied, false) = true
-        AND COALESCE(tally_halving_reverted,   false) = false;
+        UPDATE purchase_bill_items pbi
+           SET cgst_amount = pbi.cgst_amount * 2,
+               sgst_amount = pbi.sgst_amount * 2,
+               igst_amount = pbi.igst_amount * 2
+          FROM purchase_bills pb
+         WHERE pbi.purchase_bill_id = pb.purchase_bill_id
+           AND COALESCE(pb.tally_correction_applied, false) = true
+           AND COALESCE(pb.tally_halving_reverted,   false) = false;
 
-      UPDATE purchase_bills SET
-        cgst_amount = cgst_amount * 2,
-        sgst_amount = sgst_amount * 2,
-        igst_amount = igst_amount * 2,
-        cgst_pct    = cgst_pct * 2,
-        sgst_pct    = sgst_pct * 2,
-        igst_pct    = igst_pct * 2,
-        total_amount   = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0))::numeric, 2),
-        balance_amount = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0) - COALESCE(paid_amount, 0))::numeric, 2),
-        tally_halving_reverted = true
-      WHERE COALESCE(tally_correction_applied, false) = true
-        AND COALESCE(tally_halving_reverted,   false) = false;
+        UPDATE sales_bills SET
+          cgst_amount = cgst_amount * 2,
+          sgst_amount = sgst_amount * 2,
+          igst_amount = igst_amount * 2,
+          cgst_pct    = cgst_pct * 2,
+          sgst_pct    = sgst_pct * 2,
+          igst_pct    = igst_pct * 2,
+          total_amount   = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0))::numeric, 2),
+          balance_amount = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0) - COALESCE(paid_amount, 0))::numeric, 2),
+          tally_halving_reverted = true
+        WHERE COALESCE(tally_correction_applied, false) = true
+          AND COALESCE(tally_halving_reverted,   false) = false;
+
+        UPDATE purchase_bills SET
+          cgst_amount = cgst_amount * 2,
+          sgst_amount = sgst_amount * 2,
+          igst_amount = igst_amount * 2,
+          cgst_pct    = cgst_pct * 2,
+          sgst_pct    = sgst_pct * 2,
+          igst_pct    = igst_pct * 2,
+          total_amount   = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0))::numeric, 2),
+          balance_amount = ROUND((sub_total + (cgst_amount + sgst_amount + igst_amount) * 2 + COALESCE(round_off, 0) - COALESCE(discount_amount, 0) - COALESCE(paid_amount, 0))::numeric, 2),
+          tally_halving_reverted = true
+        WHERE COALESCE(tally_correction_applied, false) = true
+          AND COALESCE(tally_halving_reverted,   false) = false;
+      END $tally_revert$;
 
       -- Widen discount_percentage so it can store 4-decimal precision.
       -- The column was DECIMAL(5, 2), which silently truncates a computed
@@ -2194,6 +2386,16 @@ async function startServer() {
             CREATE UNIQUE INDEX IF NOT EXISTS cheques_source_split_uniq
               ON cheques(source_payment_split_id)
               WHERE source_payment_split_id IS NOT NULL;
+            -- Audit P3-E -- partial unique on (bank, number, direction) for
+            -- active (non-cancelled) cheques. Two cheques with the same
+            -- number CAN exist across banks (different cheque-books), but
+            -- the same (bank, number, direction) combination is a real
+            -- duplicate. Excludes CANCELLED so a re-issued cheque after a
+            -- cancellation does not collide. CREATE INDEX IF NOT EXISTS
+            -- makes this idempotent across boots.
+            CREATE UNIQUE INDEX IF NOT EXISTS cheques_bank_number_dir_active_uniq
+              ON cheques(bank_ledger_id, cheque_number, direction)
+              WHERE status <> 'CANCELLED' AND cheque_number IS NOT NULL AND cheque_number <> '';
             -- Upgrade legacy installs whose FKs were created without
             -- ON DELETE CASCADE. The cleanup-data flow and any
             -- payment-cancellation path would otherwise fail with
@@ -2321,6 +2523,12 @@ async function startServer() {
       importWorker.recoverOrphans()
         .then(() => importWorker.start())
         .catch((e) => console.error('[importJobWorker] failed to start:', e.message));
+      // Audit H6 — backfill cost_layers for products with stock but no
+      // layers. Idempotent (skips combos that already have a layer); safe
+      // to run on every boot. New installs are no-ops.
+      require('./utils/costLayers').backfillCostLayers()
+        .then((r) => { if (r && r.backfilled > 0) console.log(`[cost-layers] backfilled ${r.backfilled} (product, godown) baseline layer(s)`); })
+        .catch((e) => console.error('[cost-layers] backfill failed:', e.message));
     });
 
     // Graceful shutdown — drain in-flight requests on SIGTERM/SIGINT so

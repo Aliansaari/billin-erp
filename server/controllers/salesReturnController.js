@@ -5,9 +5,10 @@ const {
   SalesBill, SalesBillItem,
   Party, Product, StockLedger, SystemSettings, Godown, ProductBatch,
 } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
-const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike } = require('../utils/helpers');
+const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
+const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
 const { applyColorStockDelta } = require('../services/productColorStockService');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesReturnVouchers } = require('../services/voucherBuilders');
@@ -175,9 +176,11 @@ exports.getAll = async (req, res) => {
     if (customer_id) where.customer_id = customer_id;
     if (refund_status) where.refund_status = refund_status;
     if (search) {
+      // Audit P3-D — escape LIKE wildcards.
+      const s = escapeLike(search);
       where[Op.or] = [
-        { return_number: { [Op.iLike]: `%${search}%` } },
-        { reference_bill_number: { [Op.iLike]: `%${search}%` } },
+        { return_number: { [Op.iLike]: `%${s}%` } },
+        { reference_bill_number: { [Op.iLike]: `%${s}%` } },
       ];
     }
 
@@ -476,7 +479,14 @@ exports.create = async (req, res) => {
     // standalone POSTs both row-lock different rows (or no row, on a
     // fresh table) and emit duplicate return_numbers — the inline-
     // return path was hardened earlier; this path was not.
-    await sequelize.query('SELECT pg_advisory_xact_lock(904)', { transaction: t });
+    // Audit P2-B — per-company two-arg form so multi-tenant installs
+    // don't serialise across companies on a shared cluster.
+    {
+      const companyKey = req.companyId || 0;
+      await sequelize.query('SELECT pg_advisory_xact_lock(:company, :key)', {
+        replacements: { company: companyKey, key: 904 }, transaction: t,
+      });
+    }
 
     // Lock the latest return row for race-free number generation (same pattern
     // as salesController.create — concurrent POSTs can otherwise both read
@@ -653,6 +663,11 @@ exports.create = async (req, res) => {
       }
     }
 
+    // Audit P2-A — reconcile before recalc so the credit note flows
+    // against any open bills for this customer.
+    if (billData.customer_id) {
+      await reconcileBillsForParty(billData.customer_id, t);
+    }
     await recalculatePartyBalance(billData.customer_id, t);
 
     // ── Double-entry posting ──
@@ -773,9 +788,14 @@ exports.update = async (req, res) => {
         }
       }
     }
-    await StockLedger.destroy({
-      where: { reference_id: existing.sales_return_id, transaction_type: 'Sales Return' },
-      transaction: t,
+    // Audit H5 — reversal pattern for edits.
+    await writeStockLedgerReversal({
+      referenceId: existing.sales_return_id,
+      transactionType: 'Sales Return',
+      reason: `Sales Return ${existing.bill_number || '#' + existing.sales_return_id} edited`,
+      userId: req.user?.user_id,
+      t,
+      skipIdempotencyCheck: true,
     });
     await SalesReturnBillItem.destroy({ where: { sales_return_id: id }, transaction: t });
 
@@ -900,10 +920,18 @@ exports.update = async (req, res) => {
       }
     }
 
+    // Audit P2-A — reconcile + recalc for both old and new customer
+    // when the return's customer is changed.
     const oldCustomer = existing.customer_id;
     const newCustomer = billData.customer_id || oldCustomer;
-    if (oldCustomer) await recalculatePartyBalance(oldCustomer, t);
-    if (newCustomer && newCustomer !== oldCustomer) await recalculatePartyBalance(newCustomer, t);
+    if (oldCustomer) {
+      await reconcileBillsForParty(oldCustomer, t);
+      await recalculatePartyBalance(oldCustomer, t);
+    }
+    if (newCustomer && newCustomer !== oldCustomer) {
+      await reconcileBillsForParty(newCustomer, t);
+      await recalculatePartyBalance(newCustomer, t);
+    }
 
     // ── Double-entry: reverse old, post new ──
     await reverseVoucher({
@@ -1013,9 +1041,13 @@ exports.cancel = async (req, res) => {
         }
       }
     }
-    await StockLedger.destroy({
-      where: { reference_id: bill.sales_return_id, transaction_type: 'Sales Return' },
-      transaction: t,
+    // Audit H5 — paired reversing entries instead of destroy.
+    await writeStockLedgerReversal({
+      referenceId: bill.sales_return_id,
+      transactionType: 'Sales Return',
+      reason: `Sales Return ${bill.bill_number || '#' + bill.sales_return_id} cancelled`,
+      userId: req.user?.user_id,
+      t,
     });
 
     const { reason: cancellationReason } = req.body || {};
@@ -1028,7 +1060,10 @@ exports.cancel = async (req, res) => {
       refund_status: 'Pending',
     }, { transaction: t });
 
-    if (bill.customer_id) await recalculatePartyBalance(bill.customer_id, t);
+    if (bill.customer_id) {
+      await reconcileBillsForParty(bill.customer_id, t);
+      await recalculatePartyBalance(bill.customer_id, t);
+    }
 
     await reverseVoucher({
       sourceType: 'sales_return_bill', sourceId: bill.sales_return_id,

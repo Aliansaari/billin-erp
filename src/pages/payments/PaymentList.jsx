@@ -274,6 +274,21 @@ export default function PaymentList() {
             id: 'new-receipt', key: 'F6', label: 'New Receipt',
             onAction: () => navigate('/receipt/new'),
           },
+          // Edit — opens the entry form in edit mode. Backend's PUT
+          // endpoint (audit C4) does atomic cancel-then-recreate so the
+          // edit is safe even though it generates a new transaction
+          // number. Auto-receipts and cancelled rows can't be edited.
+          {
+            id: 'edit', key: 'F4', label: 'Edit',
+            disabled: isMulti || !single || singleCancelled || single?.source === 'auto_from_bill',
+            onAction: () => {
+              if (!single) return;
+              const path = single.transaction_type === 'Receipt'
+                ? `/receipt/edit/${single.transaction_id}`
+                : `/payment/edit/${single.transaction_id}`;
+              navigate(path);
+            },
+          },
           {
             id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',
             disabled: !activeRow,

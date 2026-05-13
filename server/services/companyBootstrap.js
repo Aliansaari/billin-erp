@@ -90,6 +90,18 @@ async function syncMasterSchema() {
     );
     INSERT INTO master_settings (setting_id) VALUES (1) ON CONFLICT DO NOTHING;
   `);
+
+  // Audit P3-F — at most one row can have is_primary=true at a time.
+  // Pre-fix, the Company model just had `is_primary: BOOLEAN DEFAULT false`
+  // with no constraint, so a second row flipped to true would silently
+  // break Company.findOne({ where: { is_primary: true } }) (which returns
+  // an arbitrary row out of the two). The partial unique enforces the
+  // invariant at the database. Idempotent CREATE IF NOT EXISTS.
+  await masterSequelize.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_one_primary
+      ON companies (is_primary)
+      WHERE is_primary = true;
+  `);
 }
 
 /**

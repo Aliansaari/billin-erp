@@ -71,13 +71,20 @@ function _config(kind) {
 }
 
 // Auto-receipts use a transaction_number derived from the bill_number
-// + the current epoch so a cancel-then-resync cycle on the same bill
-// doesn't trip the UNIQUE constraint on transaction_number. The `-AR`
-// suffix marks the row's lineage; the lookup keyed on
+// + the current epoch + a random tail so a cancel-then-resync cycle on
+// the same bill doesn't trip the UNIQUE constraint on transaction_number.
+// The `-AR` suffix marks the row's lineage; the lookup keyed on
 // (source='auto_from_bill', source_bill_id) is what re-syncs use to
 // locate the live row deterministically — NOT the transaction_number.
+//
+// Audit P2-K — previously this used just `Date.now()` for the suffix,
+// which collides on millisecond ties (rapid cancel→recreate on a fast
+// machine, or parallel restock workers). Adding a 4-char random tail
+// gives 65k entropy per millisecond — the collision probability is
+// effectively zero even under adversarial load.
 function _autoTxNumber(billNumber) {
-  return `${billNumber}-AR-${Date.now()}`;
+  const rand = Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
+  return `${billNumber}-AR-${Date.now()}-${rand}`;
 }
 
 // Bring the auto-receipt row + allocation into the desired state
@@ -441,9 +448,12 @@ async function checkIntegrity() {
 
     // Bill side: outstanding + paid_in_bills, restricted to non-cash
     // parties whose ledger sits in the right sub_group.
+    // paid_in_bills derived from total - return - balance so the value
+    // reflects ALL money applied (at-billing + reconciled receipts), not
+    // just the immutable at-billing snapshot in paid_amount.
     const billSql = isCustomer
       ? `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
-                COALESCE(SUM(b.paid_amount),    0)::float paid_in_bills
+                COALESCE(SUM(b.total_amount - b.return_amount - b.balance_amount), 0)::float paid_in_bills
            FROM sales_bills b
            JOIN parties p ON p.party_id = b.customer_id
           WHERE b.is_cancelled = false
@@ -451,7 +461,7 @@ async function checkIntegrity() {
             AND b.bill_date <= :as_of
             AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`
       : `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
-                COALESCE(SUM(b.paid_amount),    0)::float paid_in_bills
+                COALESCE(SUM(b.total_amount - b.balance_amount), 0)::float paid_in_bills
            FROM purchase_bills b
            JOIN parties p ON p.party_id = b.supplier_id
            JOIN ledger_accounts la ON la.ledger_id = p.ledger_account_id

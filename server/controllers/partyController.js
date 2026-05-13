@@ -4,7 +4,7 @@ const { Party, SalesBill, PurchaseBill, PaymentReceipt, SalesReturnBill, Purchas
 const { postPartyOpeningJV } = require('../models/Party');
 const { reverseVoucher } = require('../services/ledgerPostingService');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
-const { sanitizePagination } = require('../utils/helpers');
+const { sanitizePagination, escapeLike } = require('../utils/helpers');
 
 // Aging bucket boundaries come from SystemSettings so admins can tune what
 // counts as "Watchful / Chase / Critical" for their business. Falls back to
@@ -62,11 +62,14 @@ exports.getAll = async (req, res) => {
     else if (party_type === 'Both')     where.party_type = 'Both';
     if (status) where.party_status = status;
     if (search) {
+      // Audit P3-D — escape % / _ wildcards so a search like "%" doesn't
+      // bypass indexes and full-table-scan the parties table.
+      const s = escapeLike(search);
       where[Op.or] = [
-        { party_name: { [Op.iLike]: `%${search}%` } },
-        { mobile_1: { [Op.like]: `%${search}%` } },
-        { mobile_2: { [Op.like]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
+        { party_name: { [Op.iLike]: `%${s}%` } },
+        { mobile_1: { [Op.like]: `%${s}%` } },
+        { mobile_2: { [Op.like]: `%${s}%` } },
+        { email: { [Op.iLike]: `%${s}%` } },
       ];
     }
     if (balance_status === 'Receivable') where.current_balance = { [Op.gt]: 0 };
@@ -105,6 +108,15 @@ exports.getById = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
+  // Audit C26 — wrap in a transaction. Party.create triggers an afterCreate
+  // hook that does THREE additional inserts: LedgerAccount.create,
+  // Party.update (to back-fill ledger_account_id), and postPartyOpeningJV
+  // (which inserts a Dr+Cr pair into ledger_entries for the opening
+  // balance). Pre-fix, if any of those failed (e.g. seeded "Opening Balance
+  // Equity" ledger missing), the parties row was already committed, leaving
+  // a dangling party with no ledger account or out-of-balance opening JV.
+  // The transaction commits all-or-nothing.
+  const t = await sequelize.transaction();
   try {
     // Whitelist input — don't let clients seed current_balance, party_id, or
     // tamper with created_by. Server sets created_by from the auth token, and
@@ -119,6 +131,7 @@ exports.create = async (req, res) => {
     // into Sundry Debtors/Creditors. Frontend (PartyForm) shows the same
     // message as inline validation; this is the server-side guard.
     if (isReservedCashName(safe.party_name)) {
+      await t.rollback();
       return res.status(400).json({
         error: 'The name "Cash" is reserved. Use the system Cash party instead.',
         field: 'party_name',
@@ -130,9 +143,13 @@ exports.create = async (req, res) => {
         ? -Math.abs(data.opening_balance)
         : Math.abs(data.opening_balance);
     }
-    const party = await Party.create(data);
+    const party = await Party.create(data, { transaction: t });
+    await t.commit();
     res.status(201).json(party);
   } catch (error) {
+    if (!t.finished) {
+      try { await t.rollback(); } catch (_) { /* already finished */ }
+    }
     console.error('Create party error:', error);
     if (error.name === 'SequelizeUniqueConstraintError') {
       return res.status(400).json({ error: 'Party with this information already exists' });
@@ -884,11 +901,14 @@ exports.getCustomers = async (req, res) => {
     where.party_type = { [Op.in]: ['Customer', 'Both'] };
     if (status) where.party_status = status;
     if (search) {
+      // Audit P3-D — escape % / _ wildcards so a search like "%" doesn't
+      // bypass indexes and full-table-scan the parties table.
+      const s = escapeLike(search);
       where[Op.or] = [
-        { party_name: { [Op.iLike]: `%${search}%` } },
-        { mobile_1: { [Op.like]: `%${search}%` } },
-        { mobile_2: { [Op.like]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
+        { party_name: { [Op.iLike]: `%${s}%` } },
+        { mobile_1: { [Op.like]: `%${s}%` } },
+        { mobile_2: { [Op.like]: `%${s}%` } },
+        { email: { [Op.iLike]: `%${s}%` } },
       ];
     }
     if (balance_status === 'Receivable') where.current_balance = { [Op.gt]: 0 };
@@ -921,11 +941,14 @@ exports.getSuppliers = async (req, res) => {
     where.party_type = { [Op.in]: ['Supplier', 'Both'] };
     if (status) where.party_status = status;
     if (search) {
+      // Audit P3-D — escape % / _ wildcards so a search like "%" doesn't
+      // bypass indexes and full-table-scan the parties table.
+      const s = escapeLike(search);
       where[Op.or] = [
-        { party_name: { [Op.iLike]: `%${search}%` } },
-        { mobile_1: { [Op.like]: `%${search}%` } },
-        { mobile_2: { [Op.like]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
+        { party_name: { [Op.iLike]: `%${s}%` } },
+        { mobile_1: { [Op.like]: `%${s}%` } },
+        { mobile_2: { [Op.like]: `%${s}%` } },
+        { email: { [Op.iLike]: `%${s}%` } },
       ];
     }
     if (balance_status === 'Receivable') where.current_balance = { [Op.gt]: 0 };

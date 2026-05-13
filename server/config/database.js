@@ -20,7 +20,13 @@ const { Sequelize } = require('sequelize');
  * Both values are env-tuneable so a small shop (5 PCs) can lower it
  * and a big one (40 PCs) can raise it without a code change.
  *
- * acquire 10 s   — fail fast instead of feeling frozen for 30 s
+ * acquire 35 s  — Audit P2-N: must be LONGER than statement_timeout
+ *                 (default 30 s) so a slow report hitting its query
+ *                 timeout yields its connection back to the pool BEFORE
+ *                 a queued request gives up. Pre-fix this was 10 s, so
+ *                 a single 30-s report would starve every other LAN
+ *                 client (they got SequelizeConnectionAcquireTimeoutError
+ *                 after 10 s even though the system was about to recover).
  * idle    10 s   — close idle conns quickly so we don't keep dozens
  *                  open during quiet periods
  * evict    1 s   — sweep dead/stale conns every second
@@ -37,7 +43,7 @@ const masterSequelize = new Sequelize(
     pool: {
       max: Number(process.env.DB_POOL_MAX || 30),
       min: Number(process.env.DB_POOL_MIN || 2),
-      acquire: Number(process.env.DB_POOL_ACQUIRE || 10000),
+      acquire: Number(process.env.DB_POOL_ACQUIRE || 35000),
       idle: Number(process.env.DB_POOL_IDLE || 10000),
       evict: Number(process.env.DB_POOL_EVICT || 1000),
     },

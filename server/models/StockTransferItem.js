@@ -65,6 +65,18 @@ module.exports = (sequelize) => {
       allowNull: true,
       references: { model: 'product_batches', key: 'batch_id' },
     },
+    // Audit H6 L2 — FIFO cost-layer continuity across godowns.
+    // When stock leaves the source godown we consume FIFO and snapshot
+    // the consumed (qty, rate) pairs here. On RECEIVE at destination
+    // we create matching layers at destination so the cost trail
+    // survives the transfer instead of falling back to weighted-avg.
+    // Empty / null when cogs_method != 'fifo' or when the transfer
+    // pre-dated this feature. Schema:
+    //   [{ "qty": "5.000", "rate": "100.0000" }, ...]
+    cost_layers_consumed: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+    },
   }, {
     tableName: 'stock_transfer_items',
     timestamps: false,

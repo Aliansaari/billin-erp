@@ -662,6 +662,62 @@ async function computeProfitLoss(from, to) {
   buckets.indirect_income.total  = r2(buckets.indirect_income.total);
   buckets.indirect_expense.total = r2(buckets.indirect_expense.total);
 
+  // Audit C23 — ledger-empty fallback. If the period has bills but the
+  // Sales/Purchase ledger sub_groups show ₹0 (voucher-posting hasn't
+  // fired for those bills, e.g. fresh install or a migration window),
+  // fall back to bill-aggregate sums so the P&L reports non-zero numbers
+  // an operator can verify against. The response includes a `fallback_in_use`
+  // flag so the frontend can render an explanatory banner.
+  let fallback_in_use = false;
+  let fallback_reason = null;
+  if (buckets.sales_accounts.gross === 0 && buckets.purchase_accounts.gross === 0) {
+    const [billCheck] = await sequelize.query(
+      `SELECT
+         COALESCE((SELECT SUM(total_amount)::float FROM sales_bills
+                    WHERE is_cancelled = false AND bill_date BETWEEN :from AND :to), 0) AS sales_total,
+         COALESCE((SELECT SUM(total_amount)::float FROM purchase_bills
+                    WHERE is_cancelled = false AND bill_date BETWEEN :from AND :to), 0) AS purchase_total,
+         COALESCE((SELECT SUM(total_amount)::float FROM sales_return_bills
+                    WHERE is_cancelled = false AND bill_date BETWEEN :from AND :to), 0) AS sales_return_total,
+         COALESCE((SELECT SUM(total_amount)::float FROM purchase_return_bills
+                    WHERE is_cancelled = false AND bill_date BETWEEN :from AND :to), 0) AS purchase_return_total`,
+      { replacements: { from, to }, type: sequelize.QueryTypes.SELECT },
+    );
+    if ((billCheck.sales_total || 0) > 0 || (billCheck.purchase_total || 0) > 0) {
+      // Bills exist but ledger is silent — vouchers weren't posted. Use
+      // bill aggregates as a best-effort substitute so the P&L isn't
+      // misleadingly ₹0.
+      fallback_in_use = true;
+      fallback_reason = 'Ledger entries are empty for Sales/Purchase in this period; showing bill aggregates instead. Run "Recalculate ledgers" in Admin Tools to repost vouchers and remove this fallback.';
+      buckets.sales_accounts.gross   = r2(billCheck.sales_total);
+      buckets.sales_accounts.returns = r2(billCheck.sales_return_total);
+      buckets.sales_accounts.net     = r2(buckets.sales_accounts.gross - buckets.sales_accounts.returns);
+      buckets.sales_accounts.lines.push({
+        ledger_id: null, ledger_name: 'Sales (bill aggregate)', ledger_group: 'Income',
+        sub_group: SALES_ACCOUNTS_SUB, kind: 'sale', amount: buckets.sales_accounts.gross, fallback: true,
+      });
+      if (buckets.sales_accounts.returns > 0) {
+        buckets.sales_accounts.lines.push({
+          ledger_id: null, ledger_name: 'Sales Returns (bill aggregate)', ledger_group: 'Income',
+          sub_group: SALES_ACCOUNTS_SUB, kind: 'return', amount: buckets.sales_accounts.returns, fallback: true,
+        });
+      }
+      buckets.purchase_accounts.gross   = r2(billCheck.purchase_total);
+      buckets.purchase_accounts.returns = r2(billCheck.purchase_return_total);
+      buckets.purchase_accounts.net     = r2(buckets.purchase_accounts.gross - buckets.purchase_accounts.returns);
+      buckets.purchase_accounts.lines.push({
+        ledger_id: null, ledger_name: 'Purchases (bill aggregate)', ledger_group: 'Expenses',
+        sub_group: PURCHASE_ACCOUNTS_SUB, kind: 'purchase', amount: buckets.purchase_accounts.gross, fallback: true,
+      });
+      if (buckets.purchase_accounts.returns > 0) {
+        buckets.purchase_accounts.lines.push({
+          ledger_id: null, ledger_name: 'Purchase Returns (bill aggregate)', ledger_group: 'Expenses',
+          sub_group: PURCHASE_ACCOUNTS_SUB, kind: 'return', amount: buckets.purchase_accounts.returns, fallback: true,
+        });
+      }
+    }
+  }
+
   // 3. Stock — opening (period_start − 1 day) and closing (period_end).
   const fromD = new Date(from + 'T00:00:00Z');
   fromD.setUTCDate(fromD.getUTCDate() - 1);
@@ -795,6 +851,10 @@ async function computeProfitLoss(from, to) {
       net_profit:   netProfit,
       stock_adjustment: tbStockDelta,    // closing − opening (informational)
     },
+    // Audit C23 — surfaced so the frontend can show a banner explaining
+    // that ledger postings are absent and bill aggregates are being used.
+    fallback_in_use,
+    fallback_reason,
     reconciliation: {
       // I1 — column equality
       total_debit:  debit.total,

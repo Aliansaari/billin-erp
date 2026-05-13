@@ -5,9 +5,10 @@ const {
   PurchaseBill, PurchaseBillItem,
   Party, Product, StockLedger, SystemSettings, Godown, ProductBatch,
 } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
-const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike } = require('../utils/helpers');
+const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
+const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
 const { applyColorStockDelta } = require('../services/productColorStockService');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPurchaseReturnVouchers } = require('../services/voucherBuilders');
@@ -130,9 +131,11 @@ exports.getAll = async (req, res) => {
     if (supplier_id) where.supplier_id = supplier_id;
     if (refund_status) where.refund_status = refund_status;
     if (search) {
+      // Audit P3-D — escape LIKE wildcards.
+      const s = escapeLike(search);
       where[Op.or] = [
-        { return_number: { [Op.iLike]: `%${search}%` } },
-        { reference_bill_number: { [Op.iLike]: `%${search}%` } },
+        { return_number: { [Op.iLike]: `%${s}%` } },
+        { reference_bill_number: { [Op.iLike]: `%${s}%` } },
       ];
     }
 
@@ -383,9 +386,13 @@ exports.create = async (req, res) => {
     // Advisory key 906 = purchase returns. Same rationale as the other
     // bill-number allocations — row-level FOR UPDATE didn't serialise
     // concurrent INSERTs so two clients could mint the same return_number.
-    await sequelize.query('SELECT pg_advisory_xact_lock(:key)', {
-      replacements: { key: 906 }, transaction: t,
-    });
+    // Audit P2-B — per-company two-arg form.
+    {
+      const companyKey = req.companyId || 0;
+      await sequelize.query('SELECT pg_advisory_xact_lock(:company, :key)', {
+        replacements: { company: companyKey, key: 906 }, transaction: t,
+      });
+    }
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.purchase_return_prefix?.trim() || 'PR';
     const allowNeg = settings?.allow_negative_stock || false;
@@ -570,6 +577,11 @@ exports.create = async (req, res) => {
       }
     }
 
+    // Audit P2-A — reconcile before recalc so the debit note flows
+    // against any open bills for this supplier.
+    if (billData.supplier_id) {
+      await reconcileBillsForParty(billData.supplier_id, t);
+    }
     await recalculatePartyBalance(billData.supplier_id, t);
 
     // Recompute weighted_avg_cost for every single-mode product whose
@@ -708,9 +720,14 @@ exports.update = async (req, res) => {
         }
       }
     }
-    await StockLedger.destroy({
-      where: { reference_id: existing.purchase_return_id, transaction_type: 'Purchase Return' },
-      transaction: t,
+    // Audit H5 — reversal pattern for edits.
+    await writeStockLedgerReversal({
+      referenceId: existing.purchase_return_id,
+      transactionType: 'Purchase Return',
+      reason: `Purchase Return ${existing.bill_number || '#' + existing.purchase_return_id} edited`,
+      userId: req.user?.user_id,
+      t,
+      skipIdempotencyCheck: true,
     });
     await PurchaseReturnBillItem.destroy({ where: { purchase_return_id: id }, transaction: t });
 
@@ -860,10 +877,17 @@ exports.update = async (req, res) => {
       await recomputeWeightedAvgFromLedger({ product_id: pid, t });
     }
 
+    // Audit P2-A — reconcile + recalc for both old and new supplier.
     const oldSupplier = existing.supplier_id;
     const newSupplier = billData.supplier_id || oldSupplier;
-    await recalculatePartyBalance(newSupplier, t);
-    if (newSupplier !== oldSupplier) await recalculatePartyBalance(oldSupplier, t);
+    if (newSupplier) {
+      await reconcileBillsForParty(newSupplier, t);
+      await recalculatePartyBalance(newSupplier, t);
+    }
+    if (newSupplier !== oldSupplier && oldSupplier) {
+      await reconcileBillsForParty(oldSupplier, t);
+      await recalculatePartyBalance(oldSupplier, t);
+    }
 
     // ── Double-entry: reverse old, post new ──
     await reverseVoucher({
@@ -938,15 +962,20 @@ exports.cancel = async (req, res) => {
         }
       }
     }
-    await StockLedger.destroy({
-      where: { reference_id: bill.purchase_return_id, transaction_type: 'Purchase Return' },
-      transaction: t,
+    // Audit H5 — paired reversing entries instead of destroy. The wac
+    // recompute below replays Purchase Return rows; the original out-leg
+    // and the reversal in-leg cancel out, restoring wac to pre-return state.
+    await writeStockLedgerReversal({
+      referenceId: bill.purchase_return_id,
+      transactionType: 'Purchase Return',
+      reason: `Purchase Return ${bill.bill_number || '#' + bill.purchase_return_id} cancelled`,
+      userId: req.user?.user_id,
+      t,
     });
 
-    // Recompute wac for every touched single-mode product. The Purchase
-    // Return ledger row(s) are gone; the helper walks the remaining
-    // history (Purchase, Opening, Adjustment) and produces the correct
-    // wac as if the return had never happened.
+    // Recompute wac for every touched single-mode product. The original
+    // Purchase Return rows + paired reversals net to zero contribution;
+    // the helper produces the correct wac as if the return had never happened.
     for (const pid of returnCancelTouchedProductIds) {
       await recomputeWeightedAvgFromLedger({ product_id: pid, t });
     }
@@ -961,7 +990,10 @@ exports.cancel = async (req, res) => {
       refund_status: 'Pending',
     }, { transaction: t });
 
-    if (bill.supplier_id) await recalculatePartyBalance(bill.supplier_id, t);
+    if (bill.supplier_id) {
+      await reconcileBillsForParty(bill.supplier_id, t);
+      await recalculatePartyBalance(bill.supplier_id, t);
+    }
 
     await reverseVoucher({
       sourceType: 'purchase_return_bill', sourceId: bill.purchase_return_id,

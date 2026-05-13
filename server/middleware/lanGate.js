@@ -79,14 +79,22 @@ function invalidateLanGateCache() {
 function clientIdFor(req) {
   const auth = req.headers?.authorization || '';
   if (auth.startsWith('Bearer ')) {
-    try {
-      const payload = jwt.verify(auth.slice(7), process.env.JWT_SECRET || 'dev-secret-change-me');
-      // Token + user_id makes each "session" a distinct client even if
-      // two staff log in from the same PC at different times. The JTI
-      // would be cleaner but we don't issue one — using the iat (issued
-      // at) as a session-stable per-token discriminator is good enough.
-      return `user:${payload.user_id}:${payload.iat || 0}`;
-    } catch { /* invalid token — fall through to IP */ }
+    // Audit C16 — must use the same JWT_SECRET as middleware/auth.js. The
+    // previous OR-fallback to 'dev-secret-change-me' meant that if
+    // JWT_SECRET was ever unset, an attacker could forge tokens signed
+    // with the well-known string and pass this gate. Drop the fallback;
+    // if JWT_SECRET is missing, refuse to verify and treat the request
+    // as anonymous (falls through to IP-based client id).
+    if (process.env.JWT_SECRET) {
+      try {
+        const payload = jwt.verify(auth.slice(7), process.env.JWT_SECRET);
+        // Token + user_id makes each "session" a distinct client even if
+        // two staff log in from the same PC at different times. The JTI
+        // would be cleaner but we don't issue one — using the iat (issued
+        // at) as a session-stable per-token discriminator is good enough.
+        return `user:${payload.user_id}:${payload.iat || 0}`;
+      } catch { /* invalid token — fall through to IP */ }
+    }
   }
   const ip = (req.ip || req.connection?.remoteAddress || 'unknown').toString();
   return `ip:${ip}`;

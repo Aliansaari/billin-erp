@@ -1,0 +1,204 @@
+/* CompanyList — delete-company confirmation modal.
+ *
+ * Three-step layout to make an irreversible operation feel deliberate
+ * rather than scary. Each step is visually distinct, the destructive
+ * action is gated behind a typed-name match, and the operator gets one
+ * last chance to grab a backup before pulling the trigger.
+ */
+
+.company-delete-modal .ant-modal-content {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.cdm-body {
+  background: var(--bg-panel, #0f172a);
+  color: var(--fg-primary, #e2e8f0);
+}
+
+/* ── Header banner ─────────────────────────────────────────────────── */
+.cdm-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 22px 24px 18px;
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.12) 0%, rgba(220, 38, 38, 0.04) 100%);
+  border-bottom: 1px solid rgba(220, 38, 38, 0.22);
+}
+
+.cdm-header-icon {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(220, 38, 38, 0.18);
+  color: #dc2626;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.cdm-header-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--fg-primary, #f8fafc);
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+
+.cdm-header-sub {
+  font-size: 13px;
+  color: var(--fg-secondary, #cbd5e1);
+  line-height: 1.5;
+}
+
+.cdm-header-sub b {
+  color: #fca5a5;
+}
+
+/* ── Steps progress ───────────────────────────────────────────────── */
+.cdm-steps {
+  padding: 16px 24px 0;
+  background: var(--bg-app, #0b1220);
+}
+
+.cdm-steps .ant-steps-item-title {
+  font-size: 12px !important;
+  color: var(--fg-secondary, #cbd5e1) !important;
+}
+
+/* ── Content ──────────────────────────────────────────────────────── */
+.cdm-content {
+  padding: 18px 24px 24px;
+  background: var(--bg-app, #0b1220);
+}
+
+.cdm-step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-subtle, #1e293b);
+}
+
+.cdm-step:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.cdm-step-final .cdm-step-num {
+  background: rgba(220, 38, 38, 0.18);
+  color: #fca5a5;
+  border: 1px solid rgba(220, 38, 38, 0.32);
+}
+
+.cdm-step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.cdm-step-num {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--bg-panel, #1e293b);
+  color: var(--fg-secondary, #cbd5e1);
+  border: 1px solid var(--border, #334155);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.cdm-step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-primary, #f1f5f9);
+  margin-bottom: 2px;
+}
+
+.cdm-step-desc {
+  font-size: 12px;
+  color: var(--fg-tertiary, #94a3b8);
+  line-height: 1.5;
+}
+
+.cdm-step-body {
+  margin-left: 32px;
+  margin-top: 4px;
+}
+
+.cdm-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary, #94a3b8);
+  margin-bottom: 4px;
+}
+
+.cdm-empty {
+  padding: 10px 12px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.22);
+  border-radius: 6px;
+}
+
+.cdm-backup-done {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.cdm-backup-done code {
+  font-size: 11.5px;
+  padding: 0 4px;
+}
+
+/* ── Confirm input ────────────────────────────────────────────────── */
+.cdm-confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cdm-confirm-target {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  background: var(--bg-panel, #1e293b);
+  border: 1px solid var(--border, #334155);
+  border-radius: 6px;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 13px;
+  color: var(--fg-primary, #f1f5f9);
+  white-space: nowrap;
+}
+
+.cdm-confirm-target code {
+  background: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+.cdm-confirm-hint {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: #f87171;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────── */
+.company-delete-modal .ant-modal-footer {
+  padding: 14px 24px;
+  background: var(--bg-panel, #0f172a);
+  border-top: 1px solid var(--border-subtle, #1e293b);
+  margin-top: 0;
+}

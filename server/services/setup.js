@@ -145,6 +145,64 @@ async function testConnection({ host, port, user, password }) {
  */
 async function provision({ host, port, user, password, masterDbName }) {
   const dbName = masterDbName || 'billing_erp_master';
+
+  // Audit C19 — the marker-file check (isSetupComplete() in setup.js:234)
+  // is the primary guard against re-provisioning, but a missing/corrupted
+  // <home>/.billing-erp/config.json would let the unauthenticated provision
+  // endpoint run again and clobber JWT_SECRET. Defense-in-depth: ALSO
+  // probe the master DB; if it has user rows, the install has already
+  // been bootstrapped and we refuse to overwrite. Combined with the
+  // marker-file guard at the route level, an attacker on the LAN can no
+  // longer factory-reset a working install by deleting one file.
+  {
+    const probeClient = new Client({
+      host:     host || 'localhost',
+      port:     Number(port || 5432),
+      user:     user || 'postgres',
+      password: password || '',
+      database: 'postgres',
+      connectionTimeoutMillis: 5000,
+    });
+    try {
+      await probeClient.connect();
+      const exists = await probeClient.query(
+        `SELECT 1 FROM pg_database WHERE datname = $1`,
+        [dbName],
+      );
+      if (exists.rows.length > 0) {
+        // Master DB exists — check whether it has been bootstrapped
+        // (any users row means yes). If yes, refuse to provision again.
+        await probeClient.end();
+        const masterClient = new Client({
+          host:     host || 'localhost',
+          port:     Number(port || 5432),
+          user:     user || 'postgres',
+          password: password || '',
+          database: dbName,
+          connectionTimeoutMillis: 5000,
+        });
+        try {
+          await masterClient.connect();
+          const tableCheck = await masterClient.query(
+            `SELECT 1 FROM information_schema.tables WHERE table_name = 'users' LIMIT 1`,
+          );
+          if (tableCheck.rows.length > 0) {
+            const userRows = await masterClient.query('SELECT 1 FROM users LIMIT 1');
+            if (userRows.rows.length > 0) {
+              throw new Error(
+                `Master database "${dbName}" already contains user data. Refusing to re-provision (would clobber JWT_SECRET and orphan all sessions). If this is genuinely a fresh install, drop the database manually first.`,
+              );
+            }
+          }
+        } finally {
+          try { await masterClient.end(); } catch {}
+        }
+      }
+    } finally {
+      try { await probeClient.end(); } catch {}
+    }
+  }
+
   const client = new Client({
     host:     host || 'localhost',
     port:     Number(port || 5432),

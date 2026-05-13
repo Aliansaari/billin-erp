@@ -18,6 +18,7 @@
 import { salesAPI, purchaseAPI, salesReturnAPI, purchaseReturnAPI, paymentAPI, settingsAPI, printAPI } from '../api';
 import { renderBillHTML } from './printRenderer';
 import { buildBillPdf } from '../utils/billPdf';
+import { buildUpiQrDataUrl, fetchAsDataUrl, getSignatureUrl } from './printContext';
 import { message } from 'antd';
 
 let _companyCache = null;
@@ -83,7 +84,13 @@ export async function printDocument({ docType, id, bill: presetBill, profileId, 
     const profile = (await resolveProfile(docType, profileId)) || fallbackProfile(docType);
     const company = await loadCompany();
 
-    const html = renderBillHTML({ bill, profile, company, docType });
+    // Pre-compute the UPI QR data URL so renderBillHTML can stay sync.
+    // Gated on both the profile toggle and the company having a UPI ID.
+    const upiQrDataUrl = profile?.show_qr_upi
+      ? await buildUpiQrDataUrl({ company, bill })
+      : null;
+
+    const html = renderBillHTML({ bill, profile, company, docType, upiQrDataUrl });
 
     // Preview mode: always use the visible iframe route, skip silent.
     if (preview) return openPreview(html);
@@ -229,8 +236,16 @@ export async function exportBillPDF({ docType, id, bill: presetBill, profileId, 
     if (!bill) { message.error('Could not load document'); return null; }
 
     const profile = (await resolveProfile(docType, profileId)) || fallbackProfile(docType);
-    const company = await loadCompany();
+    const baseCompany = await loadCompany();
     const fileName = pdfFileName(bill);
+
+    // Pre-fetch the signature image as a data URL so jsPDF's addImage can
+    // embed it inline (jsPDF can't load remote URLs synchronously). Falls
+    // back to the blank signature line when no file or fetch fails. Done
+    // here rather than in buildBillPdf so the renderer stays pure-jsPDF.
+    const sigUrl = getSignatureUrl(baseCompany);
+    const signature_data_url = sigUrl ? await fetchAsDataUrl(sigUrl) : null;
+    const company = { ...baseCompany, signature_data_url };
 
     // Build the PDF in the renderer with jsPDF — same engine that powers
     // the working Customer / Supplier Statement exports. The Electron

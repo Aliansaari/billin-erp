@@ -1,6 +1,32 @@
 /*
  * Weighted-average cost helpers for single-mode products.
  *
+ * COSTING MODEL HONESTY (audit H6):
+ *   This system is NOT a FIFO costing system. The "FIFO" word appears in
+ *   the codebase only for two unrelated mechanics:
+ *     · BATCH PICKING — when batch tracking is on, the picker shows the
+ *       oldest unconsumed batch first (FEFO if expiry exists, else FIFO
+ *       by manufacture date). Each batch carries its OWN frozen
+ *       purchase_rate, so margin per batch is honest.
+ *     · RECEIPT/PAYMENT ALLOCATION — reconcileBillsForParty applies
+ *       on-account receipts to the oldest unpaid bills first. This is
+ *       FIFO across BILLS, not across cost layers.
+ *
+ *   For COGS / margin reports specifically:
+ *     · single-mode products → WEIGHTED-AVERAGE (this file)
+ *     · single-mode + batch-tracked → per-batch frozen rate
+ *     · variant-mode products → latest landed rate (overwritten on each
+ *       purchase) — closer to LIFO under inflation
+ *
+ *   Do NOT describe the system as "FIFO COGS" in customer-facing docs,
+ *   marketing, or sales material — under inflation, weighted-average lags
+ *   FIFO and overstates margin (vs. true FIFO). If a customer requires
+ *   FIFO COGS, the answer is honest: "we do not currently offer FIFO; we
+ *   use weighted-average / per-batch / latest-landed depending on product
+ *   mode." A FIFO implementation would need a cost_layers table with
+ *   stock_in_layer / stock_out_layer rows, consume in order, and snapshot
+ *   cost per line at sale time from the consumed layer's rate.
+ *
  * Variant-mode products keep using products.purchase_rate (overwritten on
  * each purchase) because differing rates create new variant rows — there
  * is no compounding cost to maintain. Single-mode products instead carry

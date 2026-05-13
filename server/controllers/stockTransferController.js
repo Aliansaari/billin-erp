@@ -36,6 +36,7 @@ const {
 } = require('../models');
 const { applyGodownStockDelta, getGodownStock } = require('../utils/godownStock');
 const { applyBatchStockDelta, getBatchStock } = require('../utils/batchStock');
+const { consumeFIFO, addCostLayer, isFifoMode } = require('../utils/costLayers');
 const { scopeWhereByGodownEither, denyIfGodownInaccessible } = require('../middleware/godownScope');
 const { generateBillNumber } = require('../utils/helpers');
 
@@ -272,7 +273,7 @@ exports.create = async (req, res) => {
         ? (it.batch_id || null)
         : null;
       const lineAmount = parseFloat(it.quantity || 0) * parseFloat(it.rate || 0);
-      await StockTransferItem.create({
+      const newItem = await StockTransferItem.create({
         transfer_id: transfer.transfer_id,
         product_id:  it.product_id,
         barcode:     product?.barcode || it.barcode || null,
@@ -290,6 +291,26 @@ exports.create = async (req, res) => {
           product_id: it.product_id, godown_id: from_godown_id,
           delta: -parseFloat(it.quantity), t,
         });
+        // Audit H6 L2 — consume FIFO at source godown; stash the consumed
+        // (qty, rate) pairs on the item so the destination receive can
+        // recreate matching layers there. In weighted_avg mode this is a
+        // no-op (layers don't drive costing).
+        if (await isFifoMode(t, it.product_id)) {
+          const fifoR = await consumeFIFO({
+            product_id: it.product_id, godown_id: from_godown_id,
+            qty: +parseFloat(it.quantity), t,
+          });
+          await sequelize.query(
+            `UPDATE stock_transfer_items SET cost_layers_consumed = :cl::jsonb WHERE item_id = :iid`,
+            {
+              replacements: {
+                cl: JSON.stringify((fifoR.consumedRows || []).map(r => ({ qty: r.qty, rate: r.rate }))),
+                iid: newItem.item_id,
+              },
+              transaction: t,
+            },
+          );
+        }
         // Per-batch decrement at source — keeps product_batch_stock in
         // step with the godown-level total. NB: product_batch_stock
         // never gets a row CREATED on the Out leg (the batch must
@@ -466,6 +487,44 @@ exports.receive = async (req, res) => {
         product_id: it.product_id, godown_id: transfer.to_godown_id,
         delta: +parseFloat(it.quantity), t,
       });
+      // Audit H6 L2 — recreate matching cost layers at destination from
+      // the consumed-source-layers snapshot taken on dispatch. Each
+      // (qty, rate) pair becomes a fresh layer at destination, dated NOW
+      // so the destination's FIFO ordering naturally puts them after any
+      // pre-existing layers there. If the snapshot is missing (legacy
+      // transfer or transfer happened in weighted_avg mode), fall back
+      // to a single weighted-avg layer at the transfer rate.
+      if (await isFifoMode(t)) {
+        const consumed = Array.isArray(it.cost_layers_consumed) ? it.cost_layers_consumed : [];
+        if (consumed.length > 0) {
+          for (const cl of consumed) {
+            await addCostLayer({
+              product_id: it.product_id,
+              godown_id: transfer.to_godown_id,
+              qty: +parseFloat(cl.qty),
+              rate: +parseFloat(cl.rate),
+              source_type: 'Adjustment',
+              source_id: transfer.transfer_id,
+              acquired_at: new Date(),
+              t,
+            });
+          }
+        } else {
+          // No snapshot — synthesize one layer at the transfer rate.
+          // Better than nothing; the destination at least gets a layer
+          // with a sensible rate (the item's recorded transfer rate).
+          await addCostLayer({
+            product_id: it.product_id,
+            godown_id: transfer.to_godown_id,
+            qty: +parseFloat(it.quantity),
+            rate: +parseFloat(it.rate || 0),
+            source_type: 'Adjustment',
+            source_id: transfer.transfer_id,
+            acquired_at: new Date(),
+            t,
+          });
+        }
+      }
       // Per-batch increment at destination — UPSERT pattern via
       // applyBatchStockDelta (which findOrCreate's the
       // (product, batch, godown) row when this destination has never

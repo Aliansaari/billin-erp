@@ -1,7 +1,9 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, SalesBillDraft, SalesReturnBill, SalesReturnBillItem, Party, Product, StockLedger, SystemSettings, Godown } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber } = require('../utils/helpers');
+const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
+const idempotencyCache = require('../utils/idempotencyCache');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
@@ -18,6 +20,7 @@ const { ProductBatch, ProductColor } = require('../models');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
 const { computeCostRateForSale } = require('../utils/displayCost');
+const { consumeFIFO, isFifoMode, recordSaleConsumption, reverseConsumptionForBill } = require('../utils/costLayers');
 
 // Per-line batch validation for sales / sales-return / sales edits.
 // Centralised so the stock-out (sale) and stock-in (sales return) paths
@@ -106,10 +109,12 @@ exports.getAll = async (req, res) => {
       // so "ansari" or "98765" in the search box matches the bills the user
       // expects. The $customer.field$ syntax tells Sequelize to reference
       // the included Party association rather than the SalesBill column.
+      // Audit P3-D — escape LIKE wildcards in user-supplied search.
+      const s = escapeLike(search);
       where[Op.or] = [
-        { bill_number: { [Op.iLike]: `%${search}%` } },
-        { '$customer.party_name$': { [Op.iLike]: `%${search}%` } },
-        { '$customer.mobile_1$':  { [Op.iLike]: `%${search}%` } },
+        { bill_number: { [Op.iLike]: `%${s}%` } },
+        { '$customer.party_name$': { [Op.iLike]: `%${s}%` } },
+        { '$customer.mobile_1$':  { [Op.iLike]: `%${s}%` } },
       ];
     }
 
@@ -255,8 +260,11 @@ async function createInlineReturn({ customer_id, billDate, items, reason, isInte
   // (key 904 = sales_returns) blocks any other sales-return creator until
   // this transaction commits, so the lookup below always sees the freshly
   // inserted row from a competitor. Auto-released on commit/rollback.
-  await sequelize.query('SELECT pg_advisory_xact_lock(:key)', {
-    replacements: { key: 904 }, transaction: t,
+  // Audit P2-B — per-company two-arg form so multi-tenant installs don't
+  // serialise across companies on a shared cluster.
+  const companyKey = (req && req.companyId) || 0;
+  await sequelize.query('SELECT pg_advisory_xact_lock(:company, :key)', {
+    replacements: { company: companyKey, key: 904 }, transaction: t,
   });
   const settings = await SystemSettings.findByPk(1, { transaction: t });
   const prefix = settings?.sales_return_prefix?.trim() || 'SR';
@@ -393,9 +401,29 @@ async function createInlineReturn({ customer_id, billDate, items, reason, isInte
 }
 
 exports.create = async (req, res) => {
+  // Audit P2-L — idempotency cache lookup. If the client retried after
+  // a network blip, the previous attempt may have committed; return the
+  // already-created bill instead of double-inserting. Cache is per-server
+  // (in-memory, ~60s TTL) — fine for typical retry windows.
+  const idemKey = req.body && req.body.idempotency_key;
+  if (idemKey) {
+    const cachedBillId = idempotencyCache.get('sales_create', idemKey);
+    if (cachedBillId) {
+      try {
+        const existing = await SalesBill.findByPk(cachedBillId, {
+          include: [
+            { model: SalesBillItem, as: 'items' },
+            { model: Party, as: 'customer', attributes: ['party_name', 'mobile_1', 'gstin'] },
+          ],
+        });
+        if (existing) return res.status(201).json(existing);
+      } catch { /* fall through to create — cache hit but DB read failed */ }
+    }
+  }
+
   const t = await sequelize.transaction();
   try {
-    let { items, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, draft_id, inline_return, ...billData } = req.body;
+    let { items, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, draft_id, inline_return, idempotency_key, ...billData } = req.body;
 
     // ── AMOUNT-ONLY MODE ─────────────────────────────────────────────
     // For service / on-account / quick-charge bills the operator enters
@@ -468,16 +496,21 @@ exports.create = async (req, res) => {
     // window. Sales-return / purchase / payment creators use different
     // keys so they don't needlessly block each other. Auto-released on
     // commit/rollback.
-    await sequelize.query('SELECT pg_advisory_xact_lock(:key)', {
-      replacements: { key: 903 }, transaction: t,
-    });
+    // Audit P2-B — two-arg form (companyId, docKey) so multi-tenant
+    // installs on a shared cluster don't serialise across companies.
+    {
+      const companyKey = req.companyId || 0;
+      await sequelize.query('SELECT pg_advisory_xact_lock(:company, :key)', {
+        replacements: { company: companyKey, key: 903 }, transaction: t,
+      });
+    }
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const prefix = settings?.sales_bill_prefix?.trim() || '';
     const lastBill = await SalesBill.findOne({
       order: [['sales_bill_id', 'DESC']],
       transaction: t,
     });
-    const lastNum = lastBill ? parseInt(lastBill.bill_number.split('-').pop()) : 0;
+    const lastNum = safeTrailingNumber(lastBill && lastBill.bill_number);
     billData.bill_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
     billData.sales_person = billData.sales_person || req.user.user_id;
@@ -598,6 +631,30 @@ exports.create = async (req, res) => {
     // Bill-wise mode is unaffected — its rates come from the operator.
     const interState = billWise ? false : await _resolveInterState(billData, t);
 
+    // Server-side gst_rate snapshot from the product master (audit C4).
+    // The client supplies items[].gst_rate verbatim, so a tampered API
+    // call could send gst_rate:0 for an 18% product → bill saves with
+    // zero GST while stock still deducts and ledger still posts.
+    // Snapshot from Product.gst_rate by product_id so the operator can't
+    // override the master rate via the API. Amount-mode lines (product_id=null)
+    // keep the request's rate — there's no master to read from.
+    const productIdsForSnapshot = [
+      ...new Set(processedItems.map(it => it.product_id).filter(Boolean)),
+    ];
+    if (productIdsForSnapshot.length > 0) {
+      const masterProducts = await Product.findAll({
+        where: { product_id: { [Op.in]: productIdsForSnapshot } },
+        attributes: ['product_id', 'gst_rate'],
+        transaction: t,
+      });
+      const masterRateById = new Map(masterProducts.map(p => [p.product_id, parseFloat(p.gst_rate) || 0]));
+      for (const it of processedItems) {
+        if (it.product_id && masterRateById.has(it.product_id)) {
+          it.gst_rate = masterRateById.get(it.product_id);
+        }
+      }
+    }
+
     for (const it of processedItems) {
       const lineBase = +(it._postItemTaxable * (1 - billDiscRatio)).toFixed(2);
       it.taxable_amount = lineBase;
@@ -622,10 +679,39 @@ exports.create = async (req, res) => {
     // and keep the two rounding paths (item-wise via calculateGST, bill-wise
     // here) consistent — previously toFixed(2) used banker's rounding in V8
     // and drifted by 1 paisa vs. Tally on exact .xxx5 amounts.
+    //
+    // Audit P2-D — allocate the bill-wise totals pro-rata back to each line
+    // so per-line cgst/sgst/igst columns reflect each item's contribution.
+    // Pre-fix, every line in bill-wise mode stored ₹0 GST on the items table,
+    // so the HSN-wise GST summary on the invoice print (a B2B requirement
+    // under GST law) and per-line analytics reported zero tax. Last-line
+    // residual absorbs rounding so Σ lines == header.
     if (billWise) {
       totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
       totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
       totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
+      // Pro-rata allocation across lines.
+      if (processedItems.length > 0 && taxableTotal > 0) {
+        let allocCgst = 0, allocSgst = 0, allocIgst = 0;
+        for (let i = 0; i < processedItems.length; i++) {
+          const it = processedItems[i];
+          const ratio = it.taxable_amount / taxableTotal;
+          if (i < processedItems.length - 1) {
+            it.cgst_amount = roundTo(totalCgst * ratio, 2);
+            it.sgst_amount = roundTo(totalSgst * ratio, 2);
+            it.igst_amount = roundTo(totalIgst * ratio, 2);
+          } else {
+            // Last line absorbs the residual so Σ items = header exactly.
+            it.cgst_amount = +(totalCgst - allocCgst).toFixed(2);
+            it.sgst_amount = +(totalSgst - allocSgst).toFixed(2);
+            it.igst_amount = +(totalIgst - allocIgst).toFixed(2);
+          }
+          it.total_amount = +(it.taxable_amount + it.cgst_amount + it.sgst_amount + it.igst_amount).toFixed(2);
+          allocCgst += it.cgst_amount;
+          allocSgst += it.sgst_amount;
+          allocIgst += it.igst_amount;
+        }
+      }
     }
 
     const { roundedAmount, roundOffValue } = roundOff(
@@ -795,9 +881,34 @@ exports.create = async (req, res) => {
         if (err) { await t.rollback(); return res.status(400).json({ error: err }); }
       }
 
-      const costRate = await computeCostRateForSale({
-        product, batch_id: batchId || null, t,
-      });
+      // Audit H6 — when SystemSettings.cogs_method='fifo', consume from
+      // cost_layers FIFO-style and snapshot the weighted-avg rate of the
+      // consumed layers as this line's cost_rate. Otherwise fall back to
+      // the legacy computeCostRateForSale (weighted-avg / batch / variant
+      // depending on product mode).
+      let costRate;
+      let fifoConsumedRows = null;
+      if (item.product_id && await isFifoMode(t, item.product_id)) {
+        const fifoResult = await consumeFIFO({
+          product_id: item.product_id,
+          godown_id: billData.godown_id,
+          qty: +parseFloat(item.quantity),
+          t,
+        });
+        costRate = fifoResult.consumedRate;
+        fifoConsumedRows = fifoResult.consumedRows;
+        // If FIFO returns 0 (no layers, shortfall fell back to wac=0),
+        // do one more fallback to the product's purchase_rate so the
+        // sale line doesn't record ₹0 cost just because the layers are
+        // empty AND wac is zero (fresh import / first sale).
+        if (!costRate && product) {
+          costRate = +parseFloat(product.weighted_avg_cost || product.purchase_rate || 0);
+        }
+      } else {
+        costRate = await computeCostRateForSale({
+          product, batch_id: batchId || null, t,
+        });
+      }
 
       // Defensive log: a batch-tracked single-mode product saving with
       // no batch_id means computeCostRateForSale fell back to wac. The
@@ -807,7 +918,7 @@ exports.create = async (req, res) => {
         console.warn(`[salesController.create] batch-tracked product ${product.product_id} saved without batch_id on bill ${bill.sales_bill_id}; cost_rate fell back to wac.`);
       }
 
-      await SalesBillItem.create({
+      const newItem = await SalesBillItem.create({
         sales_bill_id: bill.sales_bill_id,
         ...item,
         batch_id: batchId,
@@ -815,6 +926,17 @@ exports.create = async (req, res) => {
         // profit reports can't be manipulated by a tampered API call.
         cost_rate: costRate,
       }, { transaction: t });
+
+      // Audit H6 v2 — record per-layer consumption trail for exact
+      // reversal on cancel/edit. Only fires in FIFO mode (other modes
+      // don't touch layers).
+      if (fifoConsumedRows && fifoConsumedRows.length > 0) {
+        await recordSaleConsumption({
+          sales_bill_item_id: newItem.item_id,
+          consumedRows: fifoConsumedRows,
+          t,
+        });
+      }
 
       // Deduct stock at the BILL'S godown (not the global aggregate). The
       // pre-check uses getGodownStock so the per-godown current_stock
@@ -928,7 +1050,12 @@ exports.create = async (req, res) => {
 
     // Recalculate customer balance from scratch — runs AFTER inline return
     // so the recompute sees both the new sale and the new return rows.
+    // Audit P2-A — also re-run reconcile so any pre-existing on-account
+    // receipts for this customer get FIFO-applied to the new bill
+    // (previously a new bill always showed "full balance owing" even when
+    // the customer had been paying advances for months).
     if (billData.customer_id) {
+      await reconcileBillsForParty(billData.customer_id, t);
       await recalculatePartyBalance(billData.customer_id, t);
     }
 
@@ -968,6 +1095,11 @@ exports.create = async (req, res) => {
     }
 
     await t.commit();
+
+    // Audit P2-L — cache by idempotency_key so a retry returns this bill.
+    if (idempotency_key) {
+      idempotencyCache.set('sales_create', idempotency_key, bill.sales_bill_id);
+    }
 
     const result = await SalesBill.findByPk(bill.sales_bill_id, {
       include: [
@@ -1091,11 +1223,33 @@ exports.update = async (req, res) => {
       transaction: t,
     });
 
-    // Step 2: Delete old stock ledger rows for this bill (keeps statement clean)
-    await StockLedger.destroy({
-      where: { reference_id: existingBill.sales_bill_id, transaction_type: 'Sales' },
-      transaction: t,
+    // Step 2 — Audit H5: write paired reversal entries for the existing
+    // ledger rows instead of destroying them. The Stock Movement page
+    // can then reconstruct the lifecycle (sold → unsold → resold) for
+    // every edit. Net effect on SUM(quantity_in - quantity_out) is zero
+    // because the reversal swaps qty_in <-> qty_out; the new entries
+    // (written by Step 5+) re-record the post-edit state. Total rows
+    // tripled per edit (original + reversal + new) — verbose but honest.
+    //
+    // skipIdempotencyCheck=true: edit can fire multiple times on the same
+    // bill (every Save re-edits); we want each edit to write its own
+    // reversal pair. The helper uses is_reversal_of_ledger_id to find
+    // only the currently-active rows, so it never re-reverses.
+    await writeStockLedgerReversal({
+      referenceId: existingBill.sales_bill_id,
+      transactionType: 'Sales',
+      reason: `Bill ${existingBill.bill_number} edited`,
+      userId: req.user?.user_id,
+      t,
+      skipIdempotencyCheck: true,
     });
+
+    // Audit H6 v2 — exact FIFO layer reversal BEFORE we destroy items.
+    // We need the consumption rows to be queryable via the existing
+    // SalesBillItem rows; once items are destroyed the CASCADE on
+    // sale_line_layer_consumptions would remove the consumption rows
+    // and the layer qty would never be restored. Order matters.
+    await reverseConsumptionForBill({ sales_bill_id: id, t });
 
     // Step 3: Delete old items
     await SalesBillItem.destroy({ where: { sales_bill_id: id }, transaction: t });
@@ -1180,6 +1334,24 @@ exports.update = async (req, res) => {
     // Same inter-state resolution as create() — see comment there.
     const interState2 = billWise ? false : await _resolveInterState(billData, t);
 
+    // Server-side gst_rate snapshot — same as create() (audit C4).
+    const productIdsForSnapshot2 = [
+      ...new Set(processedItems.map(it => it.product_id).filter(Boolean)),
+    ];
+    if (productIdsForSnapshot2.length > 0) {
+      const masterProducts2 = await Product.findAll({
+        where: { product_id: { [Op.in]: productIdsForSnapshot2 } },
+        attributes: ['product_id', 'gst_rate'],
+        transaction: t,
+      });
+      const masterRateById2 = new Map(masterProducts2.map(p => [p.product_id, parseFloat(p.gst_rate) || 0]));
+      for (const it of processedItems) {
+        if (it.product_id && masterRateById2.has(it.product_id)) {
+          it.gst_rate = masterRateById2.get(it.product_id);
+        }
+      }
+    }
+
     for (const it of processedItems) {
       const lineBase = +(it._postItemTaxable * (1 - billDiscRatio2)).toFixed(2);
       it.taxable_amount = lineBase;
@@ -1201,6 +1373,27 @@ exports.update = async (req, res) => {
       totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
       totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
       totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
+      // Audit P2-D — allocate bill-wise totals pro-rata across lines.
+      if (processedItems.length > 0 && taxableTotal > 0) {
+        let allocCgst = 0, allocSgst = 0, allocIgst = 0;
+        for (let i = 0; i < processedItems.length; i++) {
+          const it = processedItems[i];
+          const ratio = it.taxable_amount / taxableTotal;
+          if (i < processedItems.length - 1) {
+            it.cgst_amount = roundTo(totalCgst * ratio, 2);
+            it.sgst_amount = roundTo(totalSgst * ratio, 2);
+            it.igst_amount = roundTo(totalIgst * ratio, 2);
+          } else {
+            it.cgst_amount = +(totalCgst - allocCgst).toFixed(2);
+            it.sgst_amount = +(totalSgst - allocSgst).toFixed(2);
+            it.igst_amount = +(totalIgst - allocIgst).toFixed(2);
+          }
+          it.total_amount = +(it.taxable_amount + it.cgst_amount + it.sgst_amount + it.igst_amount).toFixed(2);
+          allocCgst += it.cgst_amount;
+          allocSgst += it.sgst_amount;
+          allocIgst += it.igst_amount;
+        }
+      }
     }
 
     const { roundedAmount, roundOffValue } = roundOff(
@@ -1333,16 +1526,43 @@ exports.update = async (req, res) => {
         });
         if (err) { await t.rollback(); return res.status(400).json({ error: err }); }
       }
-      const costRate = await computeCostRateForSale({
-        product, batch_id: batchIdU || null, t,
-      });
+      // Audit H6 — same FIFO/wac branch as create() on the edit path.
+      // Per-layer consumption recording fires below if FIFO mode is on.
+      let costRate;
+      let fifoConsumedRowsU = null;
+      if (item.product_id && await isFifoMode(t, item.product_id)) {
+        const fifoResult = await consumeFIFO({
+          product_id: item.product_id,
+          godown_id: billData.godown_id,
+          qty: +parseFloat(item.quantity),
+          t,
+        });
+        costRate = fifoResult.consumedRate;
+        fifoConsumedRowsU = fifoResult.consumedRows;
+        if (!costRate && product) {
+          costRate = +parseFloat(product.weighted_avg_cost || product.purchase_rate || 0);
+        }
+      } else {
+        costRate = await computeCostRateForSale({
+          product, batch_id: batchIdU || null, t,
+        });
+      }
 
-      await SalesBillItem.create({
+      const newItemU = await SalesBillItem.create({
         sales_bill_id: id,
         ...item,
         batch_id: batchIdU,
         cost_rate: costRate,
       }, { transaction: t });
+
+      // Audit H6 v2 — record consumption trail on edit-re-create too.
+      if (fifoConsumedRowsU && fifoConsumedRowsU.length > 0) {
+        await recordSaleConsumption({
+          sales_bill_item_id: newItemU.item_id,
+          consumedRows: fifoConsumedRowsU,
+          t,
+        });
+      }
 
       if (product) {
         // Audit H7: lock the PGS row before the pre-check.
@@ -1395,10 +1615,19 @@ exports.update = async (req, res) => {
       }
     }
 
+    // Audit P2-A — reconcile before recalc on every touched party so
+    // bill balances re-flow against the now-edited total. Reconcile is
+    // idempotent post-Tier 1 fix, so this is cheap to call.
     const oldCustomerId = existingBill.customer_id;
     const newCustomerId = billData.customer_id;
-    if (oldCustomerId) await recalculatePartyBalance(oldCustomerId, t);
-    if (newCustomerId && newCustomerId !== oldCustomerId) await recalculatePartyBalance(newCustomerId, t);
+    if (oldCustomerId) {
+      await reconcileBillsForParty(oldCustomerId, t);
+      await recalculatePartyBalance(oldCustomerId, t);
+    }
+    if (newCustomerId && newCustomerId !== oldCustomerId) {
+      await reconcileBillsForParty(newCustomerId, t);
+      await recalculatePartyBalance(newCustomerId, t);
+    }
 
     // ── Double-entry: reverse old, post new ──
     // Both source types (sales_bill + the optional sales_bill_receipt for
@@ -1526,11 +1755,24 @@ exports.cancel = async (req, res) => {
       transaction: t,
     });
 
-    // Remove stock ledger entries for this bill (bill is cancelled, so entries should be gone too)
-    await StockLedger.destroy({
-      where: { reference_id: bill.sales_bill_id, transaction_type: 'Sales' },
-      transaction: t,
+    // Audit H5 — preserve audit trail: append paired reversing entries
+    // instead of destroying. Stock totals net to zero (originals already
+    // restored via applyGodownStockDelta above); the Stock Movement page
+    // can show "sold then unsold" lifecycle for cancelled bills.
+    await writeStockLedgerReversal({
+      referenceId: bill.sales_bill_id,
+      transactionType: 'Sales',
+      reason: `Bill ${bill.bill_number} cancelled`,
+      userId: req.user?.user_id,
+      t,
     });
+
+    // Audit H6 v2 — exact FIFO layer reversal. Walks
+    // sale_line_layer_consumptions for this bill and adds the consumed
+    // qty back to exactly the originating layer (not the most-recent
+    // layer like v1 did). No-op when cogs_method='weighted_avg' since
+    // no consumption rows were recorded in the first place.
+    await reverseConsumptionForBill({ sales_bill_id: bill.sales_bill_id, t });
 
     // Zero out monetary fields + record who/when/why for the audit trail.
     const { reason: cancellationReason } = req.body || {};

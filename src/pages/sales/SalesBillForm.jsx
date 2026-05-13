@@ -576,19 +576,18 @@ export default function SalesBillForm() {
       const loadedCgstPct = parseFloat(data.cgst_pct)||0;
       const loadedSgstPct = parseFloat(data.sgst_pct)||0;
       const loadedIgstPct = parseFloat(data.igst_pct)||0;
-      const loadedCgstAmt = parseFloat(data.cgst_amount)||0;
-      const loadedSgstAmt = parseFloat(data.sgst_amount)||0;
-      const loadedIgstAmt = parseFloat(data.igst_amount)||0;
       setCgstPct(loadedCgstPct);
       setSgstPct(loadedSgstPct);
       setIgstPct(loadedIgstPct);
-      // Heuristic: if the bill has any bill-level GST (pct or amount), it
-      // was stored bill-wise — flip the form's mode so the edit view
-      // recomputes the total the same way the bill was originally saved.
-      // Native product-wise bills leave all of these at 0 and keep the
-      // user's localStorage preference.
-      if (loadedCgstPct > 0 || loadedSgstPct > 0 || loadedIgstPct > 0
-          || loadedCgstAmt > 0 || loadedSgstAmt > 0 || loadedIgstAmt > 0) {
+      // Mode detection on edit-load: ONLY the *_pct columns are
+      // mode-discriminative. Backend stores cgst_amount/sgst_amount/igst_amount
+      // on every bill (product-mode bills carry the sum of per-line GST in
+      // those header columns), so checking *_amt would falsely flip every
+      // product-mode bill to 'bill' mode on edit. With pct=0 forced by the
+      // flip, the next save would compute totalCgst = base × 0 / 100 = 0 and
+      // silently destroy the GST. Bill-wise mode is the ONLY path that writes
+      // non-zero pct values.
+      if (loadedCgstPct > 0 || loadedSgstPct > 0 || loadedIgstPct > 0) {
         setGstMode('bill');
       }
       setDiscAmtVal(parseFloat(data.discount_amount)||0);
@@ -1294,7 +1293,14 @@ export default function SalesBillForm() {
     : +(taxableAmt*(igstPct||0)/100).toFixed(2);
   const effectiveGST= +(cgst+sgst).toFixed(2);
   const totalGST    = +(effectiveGST+igstAmt).toFixed(2);
+  // Mirror the backend total formula exactly. Earlier this missed the
+  // `- splDisc` subtraction that the backend performs at salesController.js:631,
+  // so any bill with special_discount > 0 was displayed at one total but saved
+  // at a smaller total — the operator saw ₹X on screen and the books recorded
+  // ₹X−special_discount. The "Paid + Return ≤ total" validators would also
+  // accept payments above the actual saved total.
   const rawTotal    = taxableAmt+totalGST
+    -parseFloat(splDisc||0)
     +parseFloat(otherChr||0)
     +parseFloat(freightChr||0);
   // Tally rounds every voucher to the nearest rupee and records the
@@ -1386,6 +1392,17 @@ export default function SalesBillForm() {
     // round-trip would create a duplicate bill (duplicate stock outflow, wrong
     // customer balance, wrong GST totals).
     if(submittingRef.current) return;
+    // Audit P2-L — idempotency key against network blips. If the operator
+    // hits Save and the response is dropped (Wi-Fi flake, server restart
+    // mid-write), they might retry; without this, the server can't tell
+    // it's the same logical attempt and creates a duplicate. The server
+    // looks up this key in its short-lived (~60s) in-memory cache and
+    // returns the previously-created bill instead of double-inserting.
+    // Stored on the ref so a true second user action (different bill)
+    // mints a new key.
+    const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try{
       const vals=await form.validateFields();
       // Mode-specific validation
@@ -1516,6 +1533,8 @@ export default function SalesBillForm() {
         // If this form was recalled from a draft, pass the draft_id so the
         // backend deletes it inside the bill-creation transaction (race-safe).
         draft_id: recalledDraftId || undefined,
+        // Audit P2-L — see handleSave header.
+        idempotency_key: idempotencyKey,
         // Inline return: paired SalesReturnBill created in same txn.
         inline_return: hasInlineReturn ? {
           items: inlineReturnItems.map(i => ({
@@ -3016,9 +3035,24 @@ export default function SalesBillForm() {
                     <InputNumber keyboard={false} min={0} max={roundedTotal} placeholder="0.00"
                       style={{width:'100%'}}
                       className="sbf-ret-amount-in"
-                      // Disable manual edit when inline-return items are
-                      // present — the field is driven by the modal's total.
-                      disabled={inlineReturnItems.length > 0}/>
+                      // Disabled when:
+                      //   - inline-return items are present (field is driven by the modal's total), OR
+                      //   - the selected customer is a credit (non-cash) party.
+                      // Audit C24 — walk-in `return_amount` for credit customers
+                      // skips the ledger and silently drifts Sundry Debtors. The
+                      // server rejects it (salesController.js Audit M1 guard);
+                      // we disable the field here too so the operator never tries.
+                      // Cash-counter sales (no party / system Cash party) keep
+                      // the legacy walk-in path.
+                      disabled={
+                        inlineReturnItems.length > 0 ||
+                        (selectedParty && !selectedParty.is_system_cash)
+                      }
+                      title={
+                        (selectedParty && !selectedParty.is_system_cash)
+                          ? 'Use the Return button → opens the inline-return modal which posts a credit-note voucher. Walk-in return is only allowed on cash sales.'
+                          : undefined
+                      }/>
                   </Form.Item>
                 </div>
                 {paymentMethod === 'Cash' && (

@@ -118,7 +118,7 @@ export default function TopNav() {
       ),
       disabled: true,
     },
-    { key: 'profile',  icon: <UserOutlined />,    label: 'My Profile' },
+    { key: 'profile',  icon: <UserOutlined />,    label: 'My Account', onClick: () => navigate('/settings/account') },
     { key: 'change-password', icon: <LockOutlined />, label: 'Change Password', onClick: () => navigate('/change-password') },
     { key: 'settings', icon: <SettingOutlined />, label: 'Settings', onClick: () => navigate('/settings/company') },
     { type: 'divider' },

@@ -1,8 +1,8 @@
 const { Op, col, fn, literal } = require('sequelize');
 const sequelize = require('../config/database');
-const { Product, Category, StockLedger, ProductBatch, ProductColor } = require('../models');
+const { Product, Category, StockLedger, ProductBatch, ProductColor, SystemSettings } = require('../models');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
-const { sanitizePagination } = require('../utils/helpers');
+const { sanitizePagination, escapeLike } = require('../utils/helpers');
 const { attachDisplayCost, fetchBatchAggregate } = require('../utils/displayCost');
 const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
 
@@ -57,7 +57,22 @@ const PRODUCT_UPDATABLE_FIELDS = [
   // 'single' uses color_label (free text on this row); 'multi' uses
   // child rows in product_colors.
   'color_mode', 'color_label',
+  // Audit H6 — per-product costing override. Validated below as one of
+  // 'inherit' / 'weighted_avg' / 'fifo'.
+  'costing_method',
 ];
+
+// Allowed values for per-product costing override; mirrored from the
+// ENUM type on the products table. Validated at the controller so a
+// bad value returns a clean 400 instead of a Sequelize/Postgres error.
+const COSTING_METHODS = new Set(['inherit', 'weighted_avg', 'fifo']);
+
+function validateCostingMethod(data) {
+  if (data.costing_method !== undefined && !COSTING_METHODS.has(data.costing_method)) {
+    return `costing_method must be one of: ${[...COSTING_METHODS].join(', ')}`;
+  }
+  return null;
+}
 
 exports.getAll = async (req, res) => {
   try {
@@ -67,19 +82,22 @@ exports.getAll = async (req, res) => {
     const where = { is_active: true };
 
     if (search) {
+      // Audit P3-D — escape % / _ wildcards so a search like "%" doesn't
+      // turn the indexed iLike into a full-table scan.
+      const s = escapeLike(search);
       if (name_exact === 'true') {
         // Variant picker: exact product-name match — needed to escape the 200-row cap
         // when the substring `%PLAZO%` would pull in hundreds of unrelated rows.
-        where.product_name = { [Op.iLike]: search };
+        where.product_name = { [Op.iLike]: s };
       } else if (name_only === 'true') {
         // Sales/purchase form: search only by product name — no article/barcode noise
-        where.product_name = { [Op.iLike]: `%${search}%` };
+        where.product_name = { [Op.iLike]: `%${s}%` };
       } else {
         // Product management page: full search across name, barcode, article
         where[Op.or] = [
-          { product_name: { [Op.iLike]: `%${search}%` } },
-          { barcode: { [Op.iLike]: `%${search}%` } },
-          { article_number: { [Op.iLike]: `%${search}%` } },
+          { product_name: { [Op.iLike]: `%${s}%` } },
+          { barcode: { [Op.iLike]: `%${s}%` } },
+          { article_number: { [Op.iLike]: `%${s}%` } },
         ];
       }
     }
@@ -500,6 +518,8 @@ exports.create = async (req, res) => {
     for (const k of PRODUCT_UPDATABLE_FIELDS) {
       if (req.body[k] !== undefined) safe[k] = req.body[k];
     }
+    const cmErr = validateCostingMethod(safe);
+    if (cmErr) { await t.rollback(); return res.status(400).json({ error: cmErr }); }
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
 
     // Check for existing product with same specs
@@ -591,6 +611,8 @@ exports.update = async (req, res) => {
     for (const k of PRODUCT_UPDATABLE_FIELDS) {
       if (req.body[k] !== undefined) safe[k] = req.body[k];
     }
+    const cmErr = validateCostingMethod(safe);
+    if (cmErr) { await t.rollback(); return res.status(400).json({ error: cmErr }); }
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
     const product = await Product.findByPk(req.params.id, { transaction: t });
     if (!product) { await t.rollback(); return res.status(404).json({ error: 'Product not found' }); }
@@ -668,6 +690,24 @@ exports.update = async (req, res) => {
 
       // Net delta the opening edit applies to PGS.
       const netDelta = +(newOpeningQty - oldQty).toFixed(2);
+      // Audit H1 — same negative-stock guard as Stock Adjustment. Decreasing
+      // opening on a product that has already been sold against would push
+      // the per-godown stock negative; gate behind allow_negative_stock so
+      // the global setting is respected here too.
+      if (netDelta < 0) {
+        const sysSettings = await SystemSettings.findByPk(1, { transaction: t });
+        const allowNegative = sysSettings?.allow_negative_stock || false;
+        if (!allowNegative) {
+          const currentGodownStock = parseFloat(product.current_stock || 0);
+          const projected = +(currentGodownStock + netDelta).toFixed(2);
+          if (projected < 0) {
+            await t.rollback();
+            return res.status(400).json({
+              error: `Reducing opening stock by ${Math.abs(netDelta)} would take current stock below zero (projected: ${projected}). Enable "Allow negative stock" in Settings or sell back / restock first.`,
+            });
+          }
+        }
+      }
       if (Math.abs(netDelta) > 0.0049) {
         await applyGodownStockDelta({
           product_id: req.params.id,
@@ -769,7 +809,28 @@ exports.adjust = async (req, res) => {
       const oldStock = parseFloat(product.current_stock || 0);
       const stockDiff = +(newStock - oldStock).toFixed(2);
 
-      // Only create a ledger entry + delta when the stock actually changes
+      // Audit C2 — negative-stock guard. The Adjust path previously bypassed
+      // the global allow_negative_stock setting that sales/purchase honor.
+      // Operator could "fix" a count from 30 → -10 even with the setting OFF.
+      if (stockDiff !== 0) {
+        const sysSettings = await SystemSettings.findByPk(1, { transaction: t });
+        const allowNegative = sysSettings?.allow_negative_stock || false;
+        if (!allowNegative && newStock < 0) {
+          await t.rollback();
+          return res.status(400).json({
+            error: `Adjusted stock (${newStock}) would go negative. Enable "Allow negative stock" in Settings to permit this.`,
+          });
+        }
+      }
+
+      // Only create a ledger entry + delta when the stock actually changes.
+      // Audit C1 — the previous code applied the delta TWICE: once via
+      // adjustGodownId at line 775-780 and again via the same defaultGodownId
+      // (both came from getDefaultGodownId — same row) at the orphaned
+      // applyGodownStockDelta call below. The StockLedger.create literal also
+      // had a duplicate `godown_id` key (silently kept the second value).
+      // Result: every Stock Adjustment doubled. Now: single helper call,
+      // single ledger row, no orphan defaultGodownId.
       if (stockDiff !== 0) {
         const adjustGodownId = await getDefaultGodownId({ t });
         await applyGodownStockDelta({
@@ -784,7 +845,6 @@ exports.adjust = async (req, res) => {
 
         const today = new Date().toISOString().split('T')[0];
         const dateLabel = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-        const defaultGodownId = await getDefaultGodownId({ t });
 
         await StockLedger.create({
           product_id: product.product_id,
@@ -799,20 +859,7 @@ exports.adjust = async (req, res) => {
           godown_id: adjustGodownId,
           remarks: `Adjusted on ${dateLabel}`,
           created_by: req.user?.user_id,
-          godown_id: defaultGodownId,
         }, { transaction: t });
-
-        // Apply the same delta to the per-godown stock row so the
-        // sales controller's "Available at this godown" check stays
-        // consistent with products.current_stock.
-        if (defaultGodownId) {
-          await applyGodownStockDelta({
-            product_id: product.product_id,
-            godown_id: defaultGodownId,
-            delta: stockDiff,
-            t,
-          });
-        }
       }
     }
 
@@ -855,13 +902,28 @@ exports.getLowStock = async (req, res) => {
 exports.getStockMovement = async (req, res) => {
   try {
     const { id } = req.params;
-    const { from_date, to_date } = req.query;
+    const { from_date, to_date, include_reversals } = req.query;
 
     const sequelizeDb = require('../config/database');
 
     const where = { product_id: id };
     if (from_date && to_date) {
       where.transaction_date = { [Op.between]: [from_date, to_date] };
+    }
+    // Audit L3 — by default, hide reversal pairs. A bill that's been
+    // edited 3 times would otherwise show 9 stock_ledger rows (3 sets
+    // of original+reversal+new) for one product, drowning the
+    // operator in noise. The pair contributes ₹0 to stock totals, so
+    // hiding it loses no math — just visual clutter.
+    // `?include_reversals=1` shows everything for auditors.
+    if (include_reversals !== '1') {
+      // Hide both reversal rows (those with is_reversal_of_ledger_id set)
+      // AND the originals they reverse (those with a child row pointing
+      // back at them). Net effect: only currently-active rows remain.
+      where[Op.and] = sequelizeDb.literal(
+        `("StockLedger"."is_reversal_of_ledger_id" IS NULL ` +
+        `  AND NOT EXISTS (SELECT 1 FROM stock_ledger r WHERE r.is_reversal_of_ledger_id = "StockLedger".ledger_id))`,
+      );
     }
 
     const movements = await StockLedger.findAll({

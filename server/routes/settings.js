@@ -1,10 +1,20 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const settingsController = require('../controllers/settingsController');
 const { authenticateToken } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 
 router.use(authenticateToken);
+
+// Multer for branding asset uploads. Memory storage so the controller
+// can validate MIME + size BEFORE writing to disk. 5 MB cap matches
+// the controller's secondary check; multer rejects oversize uploads
+// upfront so we don't buffer huge files.
+const brandingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+});
 
 // Reads exposed to anyone who can access Settings at all. Writes gated to
 // the specific sub-permission.
@@ -12,6 +22,37 @@ router.get('/system',       requirePermission('settings.view'),            setti
 router.put('/system',       requirePermission('settings.manage_company'),  settingsController.updateSystemSettings);
 router.get('/barcode',      requirePermission('settings.view'),            settingsController.getBarcodeSettings);
 router.put('/barcode',      requirePermission('settings.barcode'),         settingsController.updateBarcodeSettings);
+
+// Branding asset upload / fetch / clear. Logo is the company logo on
+// invoices; signature is the authorized-signatory image at the bottom
+// of bills. Both are size-capped at 5 MB and image-MIME only.
+router.post('/branding/logo',
+  requirePermission('settings.manage_company'),
+  brandingUpload.single('file'),
+  settingsController.uploadBrandingAsset('logo'));
+router.get('/branding/logo',
+  requirePermission('settings.view'),
+  settingsController.getBrandingAsset('logo'));
+router.delete('/branding/logo',
+  requirePermission('settings.manage_company'),
+  settingsController.removeBrandingAsset('logo'));
+
+router.post('/branding/signature',
+  requirePermission('settings.manage_company'),
+  brandingUpload.single('file'),
+  settingsController.uploadBrandingAsset('signature'));
+router.get('/branding/signature',
+  requirePermission('settings.view'),
+  settingsController.getBrandingAsset('signature'));
+router.delete('/branding/signature',
+  requirePermission('settings.manage_company'),
+  settingsController.removeBrandingAsset('signature'));
+
+// Self-service profile (My Account). Every authenticated user can read
+// and update their own row — no extra permission, but the controller
+// pins to req.user.user_id so they can't touch anyone else.
+router.get('/profile',  settingsController.getMyProfile);
+router.put('/profile',  settingsController.updateMyProfile);
 
 // User management is the most sensitive surface — Super Admin only.
 router.get('/users',        requirePermission('settings.manage_users'),    settingsController.getUsers);

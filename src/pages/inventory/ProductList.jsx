@@ -859,6 +859,26 @@ export default function ProductList() {
                 </Form.Item>
               </EntityFormModal.Field>
             )}
+
+            {/* Audit H6 — per-product costing override. 'Inherit' uses the
+                company default set in Settings → Defaults. Override only
+                when this specific item should diverge from the policy. */}
+            <EntityFormModal.Field
+              label="Costing Method"
+              span="full"
+              help="How COGS is calculated when this item is sold. 'Inherit' (default) follows the company-wide setting in Settings → Defaults. Override to force a specific method for this SKU."
+            >
+              <Form.Item name="costing_method" noStyle initialValue="inherit">
+                <Select
+                  options={[
+                    { value: 'inherit',      label: 'Inherit (use company default)' },
+                    { value: 'weighted_avg', label: 'Weighted Average' },
+                    { value: 'fifo',         label: 'FIFO (First-In, First-Out)' },
+                  ]}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            </EntityFormModal.Field>
           </EntityFormModal.Section>
 
           {(singleColorEnabled || multiColorEnabled) && (

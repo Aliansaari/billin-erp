@@ -569,10 +569,13 @@ async function _reconcile(isCustomer, asOf, subGroup) {
   // a half-saved entry) inflates bill_outstanding by an amount that
   // never appears on the party-ledger side, surfacing as a drift on
   // the reconciliation banner.
+  // Under post-fix semantics, bill.paid_amount is the immutable at-billing
+  // snapshot. The banner needs ALL money applied to the bill (at-billing +
+  // reconciled receipts) — derive it from total - return - balance.
   const [billRow] = await sequelize.query(
     isCustomer
       ? `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
-                COALESCE(SUM(b.paid_amount),    0)::float paid_in_bills
+                COALESCE(SUM(b.total_amount - b.return_amount - b.balance_amount), 0)::float paid_in_bills
            FROM sales_bills b
            JOIN parties p ON p.party_id = b.customer_id
           WHERE b.is_cancelled = false
@@ -580,7 +583,7 @@ async function _reconcile(isCustomer, asOf, subGroup) {
             AND b.bill_date <= :as_of
             AND (p.is_system_cash IS NULL OR p.is_system_cash = false)`
       : `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
-                COALESCE(SUM(b.paid_amount),    0)::float paid_in_bills
+                COALESCE(SUM(b.total_amount - b.balance_amount), 0)::float paid_in_bills
            FROM purchase_bills b
            JOIN parties p ON p.party_id = b.supplier_id
            JOIN ledger_accounts la ON la.ledger_id = p.ledger_account_id

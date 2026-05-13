@@ -18,11 +18,19 @@ const license = require('../services/license');
 const fs = require('fs');
 const path = require('path');
 
+// Same gate as middleware/licenseGate.js: bypass only honored in dev (non-
+// packaged) builds. Audit P2-H — closes the env-var bypass attack on
+// shipping .exe installs.
+function _isPackagedBuild() {
+  try { const { app } = require('electron'); return !!(app && app.isPackaged); }
+  catch { return false; }
+}
+
 router.get('/info', (req, res) => {
   // Dev-only escape hatch — when BILLING_ERP_BYPASS_LICENSE=1, report
   // the install as activated so the frontend skips the activation
   // screen. Matches the licenseGate bypass in middleware/licenseGate.js.
-  if (process.env.BILLING_ERP_BYPASS_LICENSE === '1') {
+  if (process.env.BILLING_ERP_BYPASS_LICENSE === '1' && !_isPackagedBuild()) {
     return res.json({
       activated: true,
       status: { ok: true, code: 'bypassed', expires_at: '2099-12-31', customer_name: 'Developer (bypass)' },
@@ -62,7 +70,13 @@ router.post('/activate', express.json({ limit: '128kb' }), (req, res) => {
  */
 router.post('/deactivate', express.json({ limit: '4kb' }), (req, res) => {
   const supplied = req.body && req.body.developer_password;
-  const expected = process.env.DEVELOPER_PASSWORD || 'dev@billing2025';
+  // Hardcoded ship-default — same as authController.SHIPPED_DEFAULT_DEV_PASSWORD.
+  // Audit C15: the previously-published default 'dev@billing2025' is in repo
+  // history and the audit report, so every install using it is exposed. New
+  // value here is not in any public repo / blogpost. An integrator can still
+  // override per-install via DEVELOPER_PASSWORD env var if they want extra
+  // hardening; absent that, this default applies.
+  const expected = process.env.DEVELOPER_PASSWORD || 'DragonStone@2911';
   if (!supplied || supplied !== expected) {
     return res.status(401).json({ ok: false, message: 'developer password required' });
   }

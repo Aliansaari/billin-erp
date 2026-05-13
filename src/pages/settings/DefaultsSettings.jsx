@@ -42,6 +42,8 @@ export default function DefaultsSettings() {
         aging_bucket_1_days:     s.aging_bucket_1_days ?? 30,
         aging_bucket_2_days:     s.aging_bucket_2_days ?? 60,
         aging_bucket_3_days:     s.aging_bucket_3_days ?? 90,
+        // Audit H6 — company-wide default for Cost of Goods Sold.
+        cogs_method:             s.cogs_method || 'weighted_avg',
       });
     } catch (error) {
       console.error('DefaultsSettings load error:', error);
@@ -146,6 +148,38 @@ export default function DefaultsSettings() {
                         <span style={{ fontWeight: 500 }}>Bill-wise</span>
                         <div className="ms-row-desc" style={{ marginLeft: 24 }}>
                           Enter CGST%, SGST%, IGST% manually on the whole bill total.
+                        </div>
+                      </Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </div>
+              </div>
+
+              {/* Audit H6 — company-wide Cost of Goods Sold method. Per-product
+                  override is on the Product form; this is the default that
+                  inheriting products follow. Change only at the start of a
+                  financial year, after a clean stock-take. */}
+              <div className="ms-row-stacked">
+                <div className="ms-row-label">Cost of Goods Sold method (default)</div>
+                <div className="ms-row-desc">
+                  Drives how COGS is calculated when items are sold. Each product can override this in its own form;
+                  most products should be set to "Inherit" so they follow this default.
+                  <br/><b>Important:</b> change this at the start of a financial year after a stock-take — flipping mid-period
+                  produces mixed-method P&L that's hard to audit.
+                </div>
+                <div className="ms-row-stacked-control" style={{ marginTop: 10 }}>
+                  <Form.Item name="cogs_method" noStyle>
+                    <Radio.Group>
+                      <Radio value="weighted_avg">
+                        <span style={{ fontWeight: 500 }}>Weighted Average</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>
+                          One running average cost per product, recomputed on every purchase. Smooths rate changes — simple, fast, fine for most steady-price businesses. This is the safe default.
+                        </div>
+                      </Radio>
+                      <Radio value="fifo">
+                        <span style={{ fontWeight: 500 }}>FIFO (First-In, First-Out)</span>
+                        <div className="ms-row-desc" style={{ marginLeft: 24 }}>
+                          Sales consume the oldest purchase lots first; each sale's cost is the exact rate of the consumed lot. Matches accounting standard AS-2 (India) and produces audit-clean inventory valuations. Best for rate-volatile businesses (textiles, electronics, commodities).
                         </div>
                       </Radio>
                     </Radio.Group>
