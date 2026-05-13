@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import { DatePicker } from 'antd';
 import { reportAPI } from '../api';
 import './dashboard-editorial.css';
 
@@ -27,39 +28,77 @@ export default function Dashboard() {
   const [insights, setInsights] = useState(null);
   const [aging, setAging]       = useState(null);
   const [business, setBusiness] = useState(null);
-  const [period, setPeriod]     = useState('30D');   // 7D | 30D | 90D | FY
+  const [period, setPeriod]     = useState('30D');   // 7D | 30D | 90D | FY | CUSTOM
+  const [customRange, setCustomRange] = useState(null); // [dayjs, dayjs] when period === 'CUSTOM'
+
+  // Derive the trend interval from the active period — short windows
+  // bucket by day, 90D rolls up to weeks, FY (or wide custom) to months,
+  // so the trend chart's x-axis stays readable instead of cramming 365
+  // daily ticks. Returned alongside a `bucketCount` driving slice/labels.
+  const trendBucket = useMemo(() => {
+    if (period === 'CUSTOM' && customRange?.[0] && customRange?.[1]) {
+      const spanDays = customRange[1].diff(customRange[0], 'day') + 1;
+      if (spanDays <= 60)  return { interval: 'day',   count: spanDays };
+      if (spanDays <= 180) return { interval: 'week',  count: Math.min(52, Math.ceil(spanDays / 7)) };
+      return { interval: 'month', count: Math.min(36, Math.ceil(spanDays / 30)) };
+    }
+    if (period === 'FY')  return { interval: 'month', count: 12 };
+    if (period === '90D') return { interval: 'week',  count: 13 };
+    if (period === '30D') return { interval: 'day',   count: 30 };
+    return { interval: 'day', count: 7 };
+  }, [period, customRange]);
   const [loading, setLoading]   = useState(true);
   const [lastSyncAt, setLastSyncAt] = useState(null);
 
   useEffect(() => {
-    load();
+    load(period);
     // Auto-refresh strategy:
     //   • 5 min — refresh stats + business metrics (these change slowly)
-    //   • 60 s  — could refresh today's bill counts but keeping it
-    //             simple with the 5-min cadence for now.
     // Tab not visible? Pause the polling. Resume on focus.
     let alive = true;
-    const tick = () => { if (alive && !document.hidden) load(); };
+    const tick = () => { if (alive && !document.hidden) load(period); };
     const id = setInterval(tick, 5 * 60 * 1000);
-    const onFocus = () => { if (alive) load(); };
+    const onFocus = () => { if (alive) load(period); };
     window.addEventListener('focus', onFocus);
     return () => {
       alive = false;
       clearInterval(id);
       window.removeEventListener('focus', onFocus);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [period, customRange]);
 
-  async function load() {
+  async function load(currentPeriod = period) {
     setLoading(true);
     try {
+      // Translate the period chip into concrete from/to dates + a `periods`
+      // length for the day-bucket series. Sent as query params on every
+      // dashboard request so the backend can filter; if a particular endpoint
+      // ignores them today, future-proof now beats wiring it twice later.
+      const today = dayjs();
+      let from, to = today, periodsLen;
+      if (currentPeriod === 'CUSTOM' && customRange?.[0] && customRange?.[1]) {
+        from = customRange[0];
+        to   = customRange[1];
+        periodsLen = Math.max(to.diff(from, 'day') + 1, 1);
+      } else if (currentPeriod === 'FY') {
+        const y = today.month() < 3 ? today.year() - 1 : today.year();
+        from = dayjs(`${y}-04-01`);
+        periodsLen = Math.max(today.diff(from, 'day') + 1, 1);
+      } else {
+        const days = currentPeriod === '7D' ? 7 : currentPeriod === '30D' ? 30 : 90;
+        from = today.subtract(days - 1, 'day');
+        periodsLen = days;
+      }
+      const dateParams = { from: from.format('YYYY-MM-DD'), to: to.format('YYYY-MM-DD'), period: currentPeriod };
       const [stRes, sRes, iRes, aRes, bRes] = await Promise.allSettled([
-        reportAPI.getDashboard(),
-        reportAPI.getDashboardSeries({ interval: 'day', periods: 90 }),
-        reportAPI.getDashboardInsights(),
-        reportAPI.getAging({ party_type: 'Customer' }),
-        reportAPI.getDashboardBusiness(),
+        reportAPI.getDashboard(dateParams),
+        // Trend series — interval / count chosen per period so the chart
+        // x-axis stays readable. 7D & 30D = daily, 90D = weekly buckets,
+        // FY (or >180-day custom) = monthly buckets.
+        reportAPI.getDashboardSeries({ interval: trendBucket.interval, periods: trendBucket.count, ...dateParams }),
+        reportAPI.getDashboardInsights(dateParams),
+        reportAPI.getAging({ party_type: 'Customer', ...dateParams }),
+        reportAPI.getDashboardBusiness(dateParams),
       ]);
       if (stRes.status === 'fulfilled') setStats(stRes.value.data || null);
       if (sRes.status  === 'fulfilled') setSeries(sRes.value.data?.series || []);
@@ -85,10 +124,17 @@ export default function Dashboard() {
 
   return (
     <div className="ed-dashboard">
-      <TopBar period={period} setPeriod={setPeriod} lastSyncAt={lastSyncAt} onReload={load} />
+      <TopBar
+        period={period}
+        setPeriod={(p) => { setPeriod(p); if (p !== 'CUSTOM') setCustomRange(null); }}
+        customRange={customRange}
+        setCustomRange={(r) => { setCustomRange(r); setPeriod(r ? 'CUSTOM' : '30D'); }}
+        onReload={() => load(period)}
+      />
       <PageHeader stats={stats} insights={insights} aging={aging} business={business} />
       <KpiStrip stats={stats} series={series} insights={insights} business={business} />
-      <MoneyMovementRow stats={stats} series={series} business={business} period={period} />
+      <MoneyMovementRow stats={stats} series={series} business={business} period={period} bucket={trendBucket} />
+      <SalesPurchaseTrendRow stats={stats} series={series} period={period} bucket={trendBucket} />
       <InsightBar tone="primary" insight={buildPrimaryInsight({ stats, insights, aging, business })} />
       <ReceivablesSection aging={aging} insights={insights} business={business} navigate={navigate} />
       <SalesIntelligenceRow insights={insights} business={business} stats={stats} />
@@ -101,35 +147,15 @@ export default function Dashboard() {
 /* ═══════════════════════════════════════════════════════════════════════
  *  TOP BAR
  * ═══════════════════════════════════════════════════════════════════════ */
-function TopBar({ period, setPeriod, lastSyncAt, onReload }) {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 30000);
-    return () => clearInterval(t);
-  }, []);
-
-  const synced = lastSyncAt ? humanAgo(lastSyncAt) : 'just now';
+function TopBar({ period, setPeriod, customRange, setCustomRange, onReload }) {
   const periods = ['7D', '30D', '90D', 'FY'];
-  const range = computeDateRange(period);
 
   return (
-    <div className="ed-topbar">
-      <div className="ed-breadcrumb">
-        <span>Overview</span>
-        <span className="ed-sep">/</span>
-        <span className="ed-here">Dashboard</span>
+    <div className="ed-topbar rpt-page-hd">
+      <div className="rpt-title">
+        <h1>Dashboard</h1>
       </div>
-      <div className="ed-live">
-        <span className="ed-live-dot" />
-        live · synced {synced}
-      </div>
-      <div className="ed-topbar-controls">
-        <div className="ed-ctrl-pill ed-ctrl-pill-date">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
-          </svg>
-          {range.label}
-        </div>
+      <div className="rpt-hd-ctrl">
         <div className="ed-ctrl-group">
           {periods.map((p) => (
             <button
@@ -142,6 +168,15 @@ function TopBar({ period, setPeriod, lastSyncAt, onReload }) {
             </button>
           ))}
         </div>
+        <DatePicker.RangePicker
+          className={`ed-range-picker${period === 'CUSTOM' ? ' is-active' : ''}`}
+          value={period === 'CUSTOM' ? customRange : null}
+          onChange={(val) => setCustomRange(val && val[0] && val[1] ? val : null)}
+          format="DD MMM YY"
+          placeholder={['Custom from', 'Custom to']}
+          allowClear
+          size="small"
+        />
         <button type="button" className="ed-ctrl-pill" onClick={onReload} title="Refresh data">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
@@ -190,26 +225,43 @@ function PageHeader({ stats, insights, aging }) {
   return (
     <header className="ed-page-head">
       <div className="ed-page-head-left">
-        <h1 className="ed-page-title">
-          {greeting}, <em>{firstName}</em>
-        </h1>
-        <div className="ed-page-sub">{subtitle}</div>
+        <InsightBanner {...subtitle} />
       </div>
       <div className="ed-quick-stats">
-        <QStat label="Bills today" value={billsToday} sub={`${todaySales} sale · ${todayPurch} purch`} />
-        <QStat label="Open bills" value={openSales + openPurch} sub={`${openSales} AR · ${openPurch} AP`} />
-        <QStat label="Avg ticket" value={formatINR(avgTicket, { compact: true })} sub="MTD" mono />
-        <QStat label="Stock value" value={formatINR(stats?.stock_value?.purchase || 0, { compact: true })} sub={`${stats?.low_stock_count || 0} low`} mono />
+        <QStat tone="primary" icon="invoice" label="Bills today"  value={billsToday} sub={`${todaySales} sale · ${todayPurch} purch`} />
+        <QStat tone="warn"    icon="folder"  label="Open bills"   value={openSales + openPurch} sub={`${openSales} AR · ${openPurch} AP`} />
+        <QStat tone="info"    icon="ticket"  label="Avg ticket"   value={formatINR(avgTicket, { compact: true })} sub="month to date" mono cur />
+        <QStat tone="pos"     icon="box"     label="Stock value"  value={formatINR(stats?.stock_value?.purchase || 0, { compact: true })} sub={`${stats?.low_stock_count || 0} low stock`} mono cur />
       </div>
     </header>
   );
 }
 
-function QStat({ label, value, sub, mono }) {
+function QStat({ tone = 'idle', icon, label, value, sub, mono, cur }) {
+  const Icon = () => {
+    if (icon === 'invoice') return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+    );
+    if (icon === 'folder') return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    );
+    if (icon === 'ticket') return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><line x1="13" y1="5" x2="13" y2="7"/><line x1="13" y1="11" x2="13" y2="13"/><line x1="13" y1="17" x2="13" y2="19"/></svg>
+    );
+    if (icon === 'box') return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+    );
+    return null;
+  };
   return (
-    <div className="ed-qstat">
-      <div className="ed-qstat-label">{label}</div>
-      <div className={`ed-qstat-val${mono ? ' ed-tab' : ''}`}>{value}</div>
+    <div className={`ed-qstat ed-qstat--${tone}`}>
+      <div className="ed-qstat-head">
+        <span className="ed-qstat-icon"><Icon /></span>
+        <span className="ed-qstat-label">{label}</span>
+      </div>
+      <div className={`ed-qstat-val${mono ? ' ed-tab' : ''}`}>
+        {cur && <span className="ed-qstat-cur">₹</span>}{value}
+      </div>
       <div className="ed-qstat-sub">{sub}</div>
     </div>
   );
@@ -331,10 +383,16 @@ function Sparkline({ values, tone }) {
 /* ═══════════════════════════════════════════════════════════════════════
  *  MONEY MOVEMENT — Cash Flow Chart (60%) + P&L MTD (40%)
  * ═══════════════════════════════════════════════════════════════════════ */
-function MoneyMovementRow({ stats, series, period }) {
-  // Slice series to the selected period
-  const days = period === '7D' ? 7 : period === '30D' ? 30 : period === '90D' ? 90 : 90;
-  const slice = (series || []).slice(-days);
+function MoneyMovementRow({ stats, series, period, bucket }) {
+  // Slice series to the selected period. The trend-bucket prop is shared
+  // with SalesPurchaseTrendRow so the cash-flow chart aggregates at the
+  // same granularity (day/week/month) and the legend text stays in sync.
+  const interval = bucket?.interval || 'day';
+  const count    = bucket?.count    || (period === '7D' ? 7 : period === '30D' ? 30 : period === '90D' ? 13 : 12);
+  const slice    = (series || []).slice(-count);
+  const periodLabel = interval === 'month' ? `Last ${count} months`
+                    : interval === 'week'  ? `Last ${count} weeks`
+                    : `Last ${count} days`;
 
   const received = sum(slice, 'receipts');
   const paid = sum(slice, 'payments');
@@ -355,7 +413,7 @@ function MoneyMovementRow({ stats, series, period }) {
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
             <div className="ed-panel-title">Cash <em>movement</em></div>
-            <div className="ed-panel-meta">Last {days} days</div>
+            <div className="ed-panel-meta">{periodLabel}</div>
           </div>
         </div>
         <div className="ed-chart-wrap">
@@ -365,7 +423,7 @@ function MoneyMovementRow({ stats, series, period }) {
             <Csum tone="net" label="Net flow" value={net} delta={null} signed />
             <Csum tone="bal" label="Cash now" value={stats?.cash_position || 0} delta={null} />
           </div>
-          <CashFlowChart series={slice} />
+          <CashFlowChart series={slice} interval={interval} />
           <div className="ed-chart-legend">
             <span className="ed-legend-item">
               <span className="ed-legend-swatch" style={{ background: 'var(--ed-pos)' }} />
@@ -399,14 +457,16 @@ function MoneyMovementRow({ stats, series, period }) {
   );
 }
 
-function Csum({ tone, label, value, delta, signed }) {
+function Csum({ tone, label, value, delta, signed, raw }) {
   const sign = signed && value > 0 ? '+' : (signed && value < 0 ? '−' : '');
-  const display = formatINR(Math.abs(value), { compact: true });
+  const display = raw
+    ? Math.abs(Math.round(value)).toLocaleString('en-IN')
+    : formatINR(Math.abs(value), { compact: true });
   return (
     <div className={`ed-csum ed-csum-${tone}`}>
       <div className="ed-csum-label">{label}</div>
       <div className={`ed-csum-val ed-csum-val-${tone}`}>
-        <span className="ed-cur">₹</span>{sign}{display}
+        {!raw && <span className="ed-cur">₹</span>}{sign}{display}
       </div>
       {delta != null && (
         <div className="ed-csum-delta">
@@ -417,8 +477,11 @@ function Csum({ tone, label, value, delta, signed }) {
   );
 }
 
-function CashFlowChart({ series }) {
+function CashFlowChart({ series, interval = 'day' }) {
   const W = 800, H = 200, P = 8;
+  const wrapRef = useRef(null);
+  const [hover, setHover] = useState(null);
+
   if (!series || series.length < 2) {
     return (
       <div className="ed-chart-svg-wrap">
@@ -441,10 +504,32 @@ function CashFlowChart({ series }) {
     vals.map((v, i) => `L ${xAt(i)} ${yAt(v)}`).join(' ') +
     ` L ${xAt(n - 1)} ${H - P} Z`;
 
-  const xLabels = pickXLabels(series, 5);
+  const xLabels = pickXLabels(series, 5, interval);
+
+  const onMove = (e) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const xRel = (e.clientX - rect.left) / rect.width;
+    const i = Math.max(0, Math.min(n - 1, Math.round(xRel * (n - 1))));
+    setHover({ i, x_pct: (xAt(i) / W) * 100 });
+  };
+  const onLeave = () => setHover(null);
+
+  const hi = hover?.i ?? null;
+  const hoverRow = hi != null ? series[hi] : null;
+  const hoverDate = hoverRow ? (hoverRow.d || hoverRow.date) : null;
+  const dateFmt = interval === 'month' ? 'MMM YYYY'
+                : interval === 'week'  ? '[Week of] D MMM'
+                : 'D MMM YYYY';
 
   return (
-    <div className="ed-chart-svg-wrap">
+    <div
+      ref={wrapRef}
+      className="ed-chart-svg-wrap"
+      onMouseMove={onMove}
+      onMouseLeave={onLeave}
+    >
       <svg viewBox={`0 0 ${W} ${H}`} className="ed-chart-svg" preserveAspectRatio="none">
         <defs>
           <linearGradient id="ed-grad-pos" x1="0" y1="0" x2="0" y2="1">
@@ -462,10 +547,234 @@ function CashFlowChart({ series }) {
         <path d={linePath(receipts)} fill="none" stroke="var(--ed-pos)" strokeWidth="1.6" strokeLinejoin="round" />
         {/* payments line */}
         <path d={linePath(payments)} fill="none" stroke="var(--ed-neg)" strokeWidth="1.4" strokeLinejoin="round" />
+        {/* hover guide + dots */}
+        {hi != null && (
+          <>
+            <line x1={xAt(hi)} x2={xAt(hi)} y1={P} y2={H - P}
+              stroke="var(--ed-ink-3)" strokeOpacity="0.35" strokeWidth="0.8" strokeDasharray="2 3" />
+            <circle cx={xAt(hi)} cy={yAt(receipts[hi])} r="5" fill="var(--ed-pos)" fillOpacity="0.18" />
+            <circle cx={xAt(hi)} cy={yAt(receipts[hi])} r="3" fill="var(--ed-pos)" />
+            <circle cx={xAt(hi)} cy={yAt(payments[hi])} r="5" fill="var(--ed-neg)" fillOpacity="0.18" />
+            <circle cx={xAt(hi)} cy={yAt(payments[hi])} r="3" fill="var(--ed-neg)" />
+          </>
+        )}
         {/* terminal dots */}
         <circle cx={xAt(n - 1)} cy={yAt(receipts[n - 1])} r="3" fill="var(--ed-pos)" />
         <circle cx={xAt(n - 1)} cy={yAt(payments[n - 1])} r="3" fill="var(--ed-neg)" />
       </svg>
+      {hi != null && hoverDate && (
+        <div
+          className="ed-chart-tip ed-chart-tip--dual"
+          style={{ left: `${hover.x_pct}%`, top: '12%' }}
+        >
+          <div className="ed-chart-tip-date">{dayjs(hoverDate).format(dateFmt)}</div>
+          <div className="ed-chart-tip-val">
+            <span className="ed-chart-tip-swatch" style={{ background: 'var(--ed-pos)' }} />
+            Received <strong>₹{formatINR(receipts[hi], { compact: true })}</strong>
+          </div>
+          <div className="ed-chart-tip-val">
+            <span className="ed-chart-tip-swatch" style={{ background: 'var(--ed-neg)' }} />
+            Paid out <strong>₹{formatINR(payments[hi], { compact: true })}</strong>
+          </div>
+        </div>
+      )}
+      <div className="ed-chart-x-labels">
+        {xLabels.map((l, i) => <span key={i}>{l}</span>)}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *  SALES + PURCHASE TREND — two separate panels side-by-side, each with
+ *  its own summary cells, single-series area chart, and footer total.
+ *  Same panel chrome as the Cash movement / P&L row.
+ * ═══════════════════════════════════════════════════════════════════════ */
+function SalesPurchaseTrendRow({ stats, series, period, bucket }) {
+  const interval = bucket?.interval || 'day';
+  const count    = bucket?.count    || (period === '7D' ? 7 : period === '30D' ? 30 : period === '90D' ? 13 : 12);
+  const slice    = (series || []).slice(-count);
+  const prevSlice = (series || []).slice(-count * 2, -count);
+  const periodLabel = interval === 'month' ? `Last ${count} months`
+                    : interval === 'week'  ? `Last ${count} weeks`
+                    : `Last ${count} days`;
+
+  // Sales aggregates
+  const totalSales      = sum(slice, 'sales');
+  const salesCount      = sum(slice, 'sales_count');
+  const avgSalesBill    = salesCount ? totalSales / salesCount : 0;
+  const peakSales       = slice.reduce((m, s) => Math.max(m, Number(s.sales || 0)), 0);
+  const prevSalesTotal  = sum(prevSlice, 'sales');
+  const salesDelta      = prevSalesTotal ? ((totalSales - prevSalesTotal) / prevSalesTotal) * 100 : null;
+
+  // Purchase aggregates
+  const totalPurchases   = sum(slice, 'purchases');
+  const purchasesCount   = sum(slice, 'purchases_count');
+  const avgPurchBill     = purchasesCount ? totalPurchases / purchasesCount : 0;
+  const peakPurchases    = slice.reduce((m, s) => Math.max(m, Number(s.purchases || 0)), 0);
+  const prevPurchTotal   = sum(prevSlice, 'purchases');
+  const purchDelta       = prevPurchTotal ? ((totalPurchases - prevPurchTotal) / prevPurchTotal) * 100 : null;
+
+  return (
+    <section className="ed-row-charts ed-row-charts--equal">
+      {/* Sales panel */}
+      <div className="ed-panel">
+        <div className="ed-panel-head">
+          <div className="ed-panel-title-row">
+            <div className="ed-panel-title">Sales <em>trend</em></div>
+            <div className="ed-panel-meta">{periodLabel}</div>
+          </div>
+        </div>
+        <div className="ed-chart-wrap">
+          <div className="ed-chart-summary">
+            <Csum tone="pos" label="Total"     value={totalSales}    delta={salesDelta} />
+            <Csum tone="net" label="Bills"     value={salesCount}    delta={null} raw />
+            <Csum tone="bal" label="Avg ticket" value={avgSalesBill} delta={null} />
+            <Csum tone="pos" label="Peak day"  value={peakSales}     delta={null} />
+          </div>
+          <TrendChart series={slice} field="sales" tone="pos" interval={interval} />
+          <div className="ed-chart-legend">
+            <span className="ed-legend-item">
+              <span className="ed-legend-swatch" style={{ background: 'var(--ed-pos)' }} />
+              Sales <span className="ed-legend-value">{formatINR(totalSales, { compact: true, withCur: true })}</span>
+              <span className="ed-legend-meta">· {salesCount} bills</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Purchase panel */}
+      <div className="ed-panel">
+        <div className="ed-panel-head">
+          <div className="ed-panel-title-row">
+            <div className="ed-panel-title">Purchase <em>trend</em></div>
+            <div className="ed-panel-meta">{periodLabel}</div>
+          </div>
+        </div>
+        <div className="ed-chart-wrap">
+          <div className="ed-chart-summary">
+            <Csum tone="warn" label="Total"     value={totalPurchases} delta={purchDelta} />
+            <Csum tone="net"  label="Bills"     value={purchasesCount} delta={null} raw />
+            <Csum tone="bal"  label="Avg ticket" value={avgPurchBill}  delta={null} />
+            <Csum tone="warn" label="Peak day"  value={peakPurchases}  delta={null} />
+          </div>
+          <TrendChart series={slice} field="purchases" tone="warn" interval={interval} />
+          <div className="ed-chart-legend">
+            <span className="ed-legend-item">
+              <span className="ed-legend-swatch" style={{ background: 'var(--ed-warn)' }} />
+              Purchases <span className="ed-legend-value">{formatINR(totalPurchases, { compact: true, withCur: true })}</span>
+              <span className="ed-legend-meta">· {purchasesCount} bills</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* Generic single-series area chart with hover tooltip.
+ * `tone` ∈ { pos | warn | neg | accent } chooses the line + gradient.
+ * On mouse-move we snap to the nearest data index, draw a vertical
+ * guide + emphasised dot, and float a tooltip pill with the bucket
+ * date + value. Touch users still get the terminal-dot summary. */
+function TrendChart({ series, field, tone = 'pos', interval = 'day' }) {
+  const W = 800, H = 200, P = 8;
+  const wrapRef = useRef(null);
+  const [hover, setHover] = useState(null); // { i, x_pct, y_pct }
+
+  if (!series || series.length < 2) {
+    return (
+      <div className="ed-chart-svg-wrap">
+        <div className="ed-chart-empty">Not enough data in this period</div>
+      </div>
+    );
+  }
+
+  const values = series.map((s) => Number(s[field] || 0));
+  const max = Math.max(1, ...values);
+  const n = series.length;
+
+  const xAt = (i) => P + (i * (W - P * 2)) / (n - 1);
+  const yAt = (v) => H - P - (v / max) * (H - P * 2);
+
+  const linePath = values.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i)} ${yAt(v)}`).join(' ');
+  const areaPath =
+    `M ${xAt(0)} ${H - P} ` +
+    values.map((v, i) => `L ${xAt(i)} ${yAt(v)}`).join(' ') +
+    ` L ${xAt(n - 1)} ${H - P} Z`;
+
+  const xLabels = pickXLabels(series, 5, interval);
+  const stroke = `var(--ed-${tone})`;
+  const gradId = `ed-grad-trend-${field}-${tone}`;
+
+  const onMove = (e) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const xRel = (e.clientX - rect.left) / rect.width;
+    const i = Math.max(0, Math.min(n - 1, Math.round(xRel * (n - 1))));
+    setHover({
+      i,
+      x_pct: (xAt(i) / W) * 100,
+      y_pct: (yAt(values[i]) / H) * 100,
+    });
+  };
+  const onLeave = () => setHover(null);
+
+  const hi = hover?.i ?? null;
+  const hoverRow = hi != null ? series[hi] : null;
+  const hoverVal = hi != null ? values[hi] : null;
+  const hoverDate = hoverRow ? (hoverRow.d || hoverRow.date) : null;
+  const dateFmt = interval === 'month' ? 'MMM YYYY'
+                : interval === 'week'  ? '[Week of] D MMM'
+                : 'D MMM YYYY';
+
+  return (
+    <div
+      ref={wrapRef}
+      className="ed-chart-svg-wrap"
+      onMouseMove={onMove}
+      onMouseLeave={onLeave}
+    >
+      <svg viewBox={`0 0 ${W} ${H}`} className="ed-chart-svg" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={stroke} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[0.25, 0.5, 0.75].map((t) => (
+          <line key={t} x1={P} x2={W - P} y1={P + (H - P * 2) * t} y2={P + (H - P * 2) * t}
+            stroke="var(--ed-line)" strokeDasharray="2 4" strokeWidth="0.6" />
+        ))}
+        <path d={areaPath} fill={`url(#${gradId})`} />
+        <path d={linePath} fill="none" stroke={stroke} strokeWidth="1.7" strokeLinejoin="round" />
+        {hi != null && (
+          <>
+            <line x1={xAt(hi)} x2={xAt(hi)} y1={P} y2={H - P}
+              stroke={stroke} strokeOpacity="0.4" strokeWidth="0.8" strokeDasharray="2 3" />
+            <circle cx={xAt(hi)} cy={yAt(values[hi])} r="5" fill={stroke} fillOpacity="0.18" />
+            <circle cx={xAt(hi)} cy={yAt(values[hi])} r="3.2" fill={stroke} />
+          </>
+        )}
+        <circle cx={xAt(n - 1)} cy={yAt(values[n - 1])} r="3.5" fill={stroke} />
+      </svg>
+      {hi != null && hoverDate && (
+        <div
+          className={`ed-chart-tip ed-chart-tip--${tone}`}
+          style={{
+            left:  `${hover.x_pct}%`,
+            top:   `${hover.y_pct}%`,
+          }}
+        >
+          <div className="ed-chart-tip-date">{dayjs(hoverDate).format(dateFmt)}</div>
+          <div className="ed-chart-tip-val">
+            <span className="ed-chart-tip-swatch" />
+            {field === 'sales' ? 'Sales' : field === 'purchases' ? 'Purchases' : field}
+            <strong>₹{formatINR(hoverVal, { compact: true })}</strong>
+          </div>
+        </div>
+      )}
       <div className="ed-chart-x-labels">
         {xLabels.map((l, i) => <span key={i}>{l}</span>)}
       </div>
@@ -1144,13 +1453,9 @@ function firstNameFromAuth() {
 function formatINR(n, { compact = false, withCur = false } = {}) {
   const v = Number(n) || 0;
   const cur = withCur ? '₹' : '';
-  if (compact) {
-    const abs = Math.abs(v);
-    if (abs >= 1e7) return `${cur}${(v / 1e7).toFixed(2)}Cr`;
-    if (abs >= 1e5) return `${cur}${(v / 1e5).toFixed(2)}L`;
-    if (abs >= 1e3) return `${cur}${Math.round(v / 1e3)}K`;
-    return `${cur}${Math.round(v)}`;
-  }
+  // `compact` flag intentionally ignored — operators wanted exact figures
+  // everywhere on the dashboard (no K / L / Cr abbreviations). Indian-style
+  // grouping (lakh/crore separators) keeps long numbers readable.
   return cur + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(v);
 }
 
@@ -1184,14 +1489,20 @@ function humanAgo(t) {
   return `${hr}h ago`;
 }
 
-function pickXLabels(series, n) {
+function pickXLabels(series, n, interval = 'day') {
   if (!series || series.length === 0) return [];
   const step = Math.max(1, Math.floor((series.length - 1) / (n - 1)));
   const out = [];
+  // Choose a format that fits the bucket size so weekly/monthly charts
+  // don't repeat the same "1 Apr" tick. Week → "D MMM" (start-of-week
+  // date); Month → "MMM YY". The series rows expose the bucket start
+  // as either `d` (older endpoints) or `date` (newer ones) — accept
+  // either so we never silently render empty x-axis ticks.
+  const fmt = interval === 'month' ? 'MMM YY' : 'D MMM';
   for (let i = 0; i < n; i++) {
     const idx = Math.min(series.length - 1, i * step);
-    const d = series[idx]?.d;
-    if (d) out.push(dayjs(d).format('D MMM'));
+    const d = series[idx]?.d || series[idx]?.date;
+    if (d) out.push(dayjs(d).format(fmt));
   }
   return out;
 }
@@ -1224,45 +1535,97 @@ function guessCategoryTone(name, idx) {
   return cats[idx % cats.length];
 }
 
+/* Built as a structured insight banner — left accent bar, status icon,
+ * bold headline + muted detail, secondary stat chips on the right. Far
+ * easier to scan than a wrapping sentence, and the tone (alert / warn /
+ * ok) drives the colour palette through .ed-insight-banner--{tone}. */
 function buildSituationalSubtitle({ stats, insights, aging }) {
-  if (!stats) return 'Loading…';
-  const overdue60 = (aging?.grand?.b3 || 0) + (aging?.grand?.b4 || 0);
+  if (!stats) return { tone: 'idle', icon: 'spinner', headline: 'Loading…', detail: '' };
+
+  const overdue60      = (aging?.grand?.b3 || 0) + (aging?.grand?.b4 || 0);
   const overdue60Count = countPartiesInBucket(aging, 'b3') + countPartiesInBucket(aging, 'b4');
-  const cash = stats?.cash_position ?? null;
   const ar = stats?.receivables?.total || 0;
   const ap = stats?.payables?.total || 0;
 
-  // Priority 1: overdue alarm
+  // Priority 1 — overdue alarm
   if (overdue60 > 0) {
-    return (
-      <>
-        You have <span className="ed-alert">{overdue60Count} customer{overdue60Count === 1 ? '' : 's'}</span>
-        {' '}over 60 days past due totalling <span className="ed-strong">₹{formatINR(overdue60, { compact: true })}</span>.
-        {' '}{ar > ap
-          ? <>Receivables (<span className="ed-strong">₹{formatINR(ar, { compact: true })}</span>) outweigh payables.</>
-          : <>Payables (<span className="ed-strong">₹{formatINR(ap, { compact: true })}</span>) outweigh receivables.</>}
-      </>
-    );
+    return {
+      tone: 'alert',
+      icon: 'alert',
+      headline: `${overdue60Count} customer${overdue60Count === 1 ? '' : 's'} over 60 days past due`,
+      detail: <>Totalling <strong>₹{formatINR(overdue60, { compact: true })}</strong>. {ar > ap
+        ? <>Receivables exceed payables.</>
+        : <>Payables exceed receivables.</>}</>,
+      chips: [
+        { k: 'AR', label: 'Receivables', value: `₹${formatINR(ar, { compact: true })}` },
+        { k: 'AP', label: 'Payables',    value: `₹${formatINR(ap, { compact: true })}` },
+      ],
+    };
   }
 
-  // Priority 2: dead stock
+  // Priority 2 — dead stock
   const deadValue = insights?.dead_stock?.total_value || 0;
   if (deadValue > 50000) {
-    return (
-      <>
-        <span className="ed-strong">₹{formatINR(deadValue, { compact: true })}</span> of stock has had zero sales in 60 days
-        {' '}({insights?.dead_stock?.count || 0} SKUs). Consider clearance pricing to free working capital.
-      </>
-    );
+    return {
+      tone: 'warn',
+      icon: 'box',
+      headline: `₹${formatINR(deadValue, { compact: true })} stuck in dead stock`,
+      detail: <>{insights?.dead_stock?.count || 0} SKUs · zero sales in 60 days. Consider clearance pricing.</>,
+      chips: [
+        { k: 'SKU',  label: 'SKUs',  value: insights?.dead_stock?.count || 0 },
+        { k: 'VAL',  label: 'Value', value: `₹${formatINR(deadValue, { compact: true })}` },
+      ],
+    };
   }
 
-  // Priority 3: healthy
+  // Priority 3 — healthy
+  return {
+    tone: 'ok',
+    icon: 'check',
+    headline: 'All key metrics within healthy ranges',
+    detail: 'Receivables and payables are balanced — focus on growth.',
+    chips: [
+      { k: 'AR', label: 'Receivables', value: `₹${formatINR(ar, { compact: true })}` },
+      { k: 'AP', label: 'Payables',    value: `₹${formatINR(ap, { compact: true })}` },
+    ],
+  };
+}
+
+/* Banner renderer — keeps PageHeader JSX clean and the styling all in
+ * one place. `tone` drives the colour theme; icons are inline SVGs so
+ * we don't pull in an icon dep just for these three states. */
+function InsightBanner({ tone, icon, headline, detail, chips }) {
+  if (!headline) return null;
+  const Icon = () => {
+    if (icon === 'alert') return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    );
+    if (icon === 'box') return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+    );
+    if (icon === 'check') return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    );
+    return null;
+  };
   return (
-    <>
-      All key metrics within healthy ranges. Receivables <span className="ed-strong">₹{formatINR(ar, { compact: true })}</span>
-      {' '}· Payables <span className="ed-strong">₹{formatINR(ap, { compact: true })}</span>
-      {' '}· Focus on growth.
-    </>
+    <div className={`ed-insight-banner ed-insight-banner--${tone}`}>
+      <div className="ed-insight-banner-icon"><Icon /></div>
+      <div className="ed-insight-banner-body">
+        <div className="ed-insight-banner-headline">{headline}</div>
+        {detail && <div className="ed-insight-banner-detail">{detail}</div>}
+      </div>
+      {chips && chips.length > 0 && (
+        <div className="ed-insight-banner-chips">
+          {chips.map((c) => (
+            <div key={c.k} className="ed-insight-banner-chip">
+              <span className="ed-insight-banner-chip-label">{c.label}</span>
+              <span className="ed-insight-banner-chip-value">{c.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
