@@ -50,7 +50,6 @@
   position: relative;
   z-index: 10;
 }
-.dash-header-spacer { display: none; }
 
 .dash-brand-wrap {
   flex: 1;
