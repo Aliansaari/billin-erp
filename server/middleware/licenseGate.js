@@ -36,15 +36,16 @@ const BYPASS_PATHS = new Set([
 ]);
 
 function gate(req, res, next) {
-  // Only gate /api/* — static assets and the SPA index.html should
-  // always serve so the frontend can render the activation screen.
-  if (!req.path.startsWith('/api/')) return next();
-
+  // Dev-only escape hatch — set BILLING_ERP_BYPASS_LICENSE=1 to skip
   // Dev-only escape hatch — set BILLING_ERP_BYPASS_LICENSE=1 to skip
   // the gate entirely. Used for local mobile-app debugging where the
   // license is bound to a different machine fingerprint and we just
   // want the API to work. Never set in production.
   if (process.env.BILLING_ERP_BYPASS_LICENSE === '1') return next();
+
+  // Only gate /api/* — static assets and the SPA index.html should
+  // always serve so the frontend can render the activation screen.
+  if (!req.path.startsWith('/api/')) return next();
 
   if (BYPASS_PATHS.has(req.path)) return next();
 
