@@ -99,12 +99,12 @@ const CATEGORIES = [
     icon: <IconClock />,
     color: 'outstanding',
     reports: [
-      { id: 'bills-receivable',    name: 'Bills Receivable',    desc: 'Unpaid customer bills · bill-level',     isNew: true,  route: '/outstanding' },
-      { id: 'bills-payable',       name: 'Bills Payable',       desc: 'Unpaid supplier bills · bill-level',     isNew: true,  route: '/outstanding' },
-      { id: 'customer-outstanding',name: 'Customer Outstanding',desc: 'By customer · bucket aging',             isNew: false, route: '/outstanding' },
-      { id: 'receivables-aging',   name: 'Receivables Aging',   desc: '0-30 / 30-60 / 60-90 / 90+',           isNew: true,  route: '/outstanding' },
-      { id: 'supplier-outstanding',name: 'Supplier Outstanding',desc: 'By supplier · overdue balances',        isNew: false, route: '/outstanding' },
-      { id: 'payables-aging',      name: 'Payables Aging',      desc: '0-30 / 30-60 / 60-90 / 90+',           isNew: false, route: '/outstanding' },
+      { id: 'bills-receivable',    name: 'Bills Receivable',    desc: 'Unpaid customer bills · bill-level',     isNew: true,  route: '/reports/bills-receivable' },
+      { id: 'bills-payable',       name: 'Bills Payable',       desc: 'Unpaid supplier bills · bill-level',     isNew: true,  route: '/reports/bills-payable' },
+      { id: 'customer-outstanding',name: 'Customer Outstanding',desc: 'By customer · bucket aging',             isNew: false, route: '/outstanding?type=Customer' },
+      { id: 'receivables-aging',   name: 'Receivables Aging',   desc: '0-30 / 30-60 / 60-90 / 90+',           isNew: true,  route: '/outstanding?type=Customer' },
+      { id: 'supplier-outstanding',name: 'Supplier Outstanding',desc: 'By supplier · overdue balances',        isNew: false, route: '/outstanding?type=Supplier' },
+      { id: 'payables-aging',      name: 'Payables Aging',      desc: '0-30 / 30-60 / 60-90 / 90+',           isNew: false, route: '/outstanding?type=Supplier' },
     ],
   },
   {
@@ -129,9 +129,9 @@ const CATEGORIES = [
     reports: [
       { id: 'sales-report',        name: 'Sales Report',        desc: 'Date / customer · full detail',      isNew: false, route: '/reports/sales' },
       { id: 'customer-statement',  name: 'Customer Statement',  desc: 'Per-customer · ledger view',         isNew: false, route: '/reports/customer-statement' },
-      { id: 'sales-by-item',       name: 'Sales by Item',       desc: 'Product-wise sales quantity & value', isNew: true, route: null },
+      { id: 'sales-by-item',       name: 'Sales by Item',       desc: 'Product-wise sales quantity & value', isNew: true, route: '/reports/sales-by-item' },
       { id: 'salesman-report',     name: 'Salesman Report',     desc: 'Performance by sales person',        isNew: false, route: null },
-      { id: 'sales-return',        name: 'Sales Return',        desc: 'Credit notes · return summary',      isNew: false, route: null },
+      { id: 'sales-return',        name: 'Sales Return',        desc: 'Credit notes · return summary',      isNew: false, route: '/reports/sales-return' },
     ],
   },
   {
@@ -143,8 +143,8 @@ const CATEGORIES = [
     reports: [
       { id: 'purchase-report',    name: 'Purchase Report',    desc: 'By supplier / item · full detail',  isNew: false, route: '/reports/purchases' },
       { id: 'supplier-statement', name: 'Supplier Statement', desc: 'Per-supplier · ledger view',        isNew: false, route: '/reports/supplier-statement' },
-      { id: 'purchase-by-item',   name: 'Purchase by Item',   desc: 'Product-wise purchase qty & value', isNew: true,  route: null },
-      { id: 'purchase-return',    name: 'Purchase Return',    desc: 'Debit notes · return summary',      isNew: false, route: null },
+      { id: 'purchase-by-item',   name: 'Purchase by Item',   desc: 'Product-wise purchase qty & value', isNew: true,  route: '/reports/purchase-by-item' },
+      { id: 'purchase-return',    name: 'Purchase Return',    desc: 'Debit notes · return summary',      isNew: false, route: '/reports/purchase-return' },
     ],
   },
   {
@@ -154,16 +154,16 @@ const CATEGORIES = [
     icon: <IconBuilding />,
     color: 'financial',
     reports: [
-      { id: 'profit-loss',       name: 'Profit & Loss',         desc: 'Revenue minus expenses',                isNew: false, route: null },
-      { id: 'balance-sheet',     name: 'Balance Sheet',         desc: 'Assets · liabilities · equity',        isNew: false, route: null },
-      { id: 'trial-balance',     name: 'Trial Balance',         desc: 'Group / sub-group ledger balances',     isNew: false, route: null },
+      { id: 'profit-loss',       name: 'Profit & Loss',         desc: 'Revenue minus expenses',                isNew: false, route: '/reports/profit-loss' },
+      { id: 'balance-sheet',     name: 'Balance Sheet',         desc: 'Assets · liabilities · equity',        isNew: false, route: '/reports/balance-sheet' },
+      { id: 'trial-balance',     name: 'Trial Balance',         desc: 'Group / sub-group ledger balances',     isNew: false, route: '/reports/trial-balance' },
       { id: 'day-book',          name: 'Day Book',              desc: 'Chronological voucher list',            isNew: false, route: '/day-book' },
       { id: 'ledger-statement',  name: 'Ledger Statement',      desc: 'Account-wise transaction history',      isNew: false, route: '/reports/ledger' },
-      { id: 'cash-flow',         name: 'Cash Flow Statement',   desc: 'Operating · investing · financing',     isNew: true,  route: null },
+      { id: 'cash-flow',         name: 'Cash Flow Statement',   desc: 'Operating · investing · financing',     isNew: true,  route: '/reports/cash-flow' },
       { id: 'account-summary',   name: 'Account Summary',       desc: 'Opening · transactions · closing',      isNew: false, route: '/reports/monthly' },
-      { id: 'gst-summary',       name: 'GST Summary',           desc: 'Tax collected & paid · by rate',        isNew: false, route: null },
-      { id: 'gstr1',             name: 'GSTR-1',                desc: 'Outward supplies · filing view',        isNew: false, route: null },
-      { id: 'gstr3b',            name: 'GSTR-3B',               desc: 'Summary return · ITC vs liability',     isNew: false, route: null },
+      { id: 'gst-summary',       name: 'GST Summary',           desc: 'Tax collected & paid · by rate',        isNew: false, route: '/reports/gst-summary' },
+      { id: 'gstr1',             name: 'GSTR-1',                desc: 'Outward supplies · filing view',        isNew: false, route: '/reports/gstr1' },
+      { id: 'gstr3b',            name: 'GSTR-3B',               desc: 'Summary return · ITC vs liability',     isNew: false, route: '/reports/gstr3b' },
     ],
   },
   {
@@ -174,10 +174,10 @@ const CATEGORIES = [
     color: 'inventory',
     reports: [
       { id: 'stock-report',    name: 'Stock Report',       desc: 'Per-product stock · inward / outward', isNew: false, route: '/stock' },
-      { id: 'smart-stock',     name: 'Smart Stock',        desc: 'Category grouped · bulk edit',         isNew: false, route: '/stock' },
-      { id: 'fast-slow',       name: 'Fast & Slow Movers', desc: 'Velocity · fast / slow / dead',        isNew: false, route: null },
+{ id: 'smart-stock',     name: 'Smart Stock',        desc: 'Category grouped · bulk edit',         isNew: false, route: '/stock' },
+      { id: 'fast-slow',       name: 'Fast & Slow Movers', desc: 'Velocity · fast / slow / dead',        isNew: false, route: '/reports/fast-slow' },
       { id: 'stock-valuation', name: 'Stock Valuation',    desc: 'Current stock value at cost / MRP',    isNew: true,  route: null },
-      { id: 'reorder-alert',   name: 'Reorder Alert',      desc: 'Items below minimum stock level',      isNew: false, route: null },
+      { id: 'reorder-alert',   name: 'Reorder Alert',      desc: 'Items below minimum stock level',      isNew: false, route: '/reports/reorder-alert' },
     ],
   },
 ];
@@ -211,6 +211,7 @@ export default function Reports() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [pinned, setPinned] = useState(loadPinned);
   const [openCats, setOpenCats] = useState(() => new Set());
+  const [expandAllOn, setExpandAllOn] = useState(false);
   const searchRef = useRef(null);
 
   const toggleCat = (id) => {
@@ -221,9 +222,12 @@ export default function Reports() {
       return next;
     });
   };
-  const allExpanded = openCats.size === CATEGORIES.length;
   const toggleAll = () => {
-    setOpenCats(allExpanded ? new Set() : new Set(CATEGORIES.map((c) => c.id)));
+    setExpandAllOn((prev) => {
+      const next = !prev;
+      setOpenCats(next ? new Set(CATEGORIES.map((c) => c.id)) : new Set());
+      return next;
+    });
   };
 
   const togglePin = (id, e) => {
@@ -294,12 +298,12 @@ export default function Reports() {
           )}
         </div>
         <button
-          className={`rp-toggle-all${allExpanded ? ' rp-toggle-all--on' : ''}`}
+          className={`rp-toggle-all${expandAllOn ? ' rp-toggle-all--on' : ''}`}
           onClick={toggleAll}
-          aria-label={allExpanded ? 'Fold all categories' : 'Expand all categories'}
-          title={allExpanded ? 'Fold all' : 'Expand all'}
+          aria-label={expandAllOn ? 'Fold all categories' : 'Expand all categories'}
+          title={expandAllOn ? 'Fold all' : 'Expand all'}
         >
-          {allExpanded ? (
+          {expandAllOn ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
               <path d="M7 13l5-5 5 5"/><path d="M7 19l5-5 5 5"/>
             </svg>

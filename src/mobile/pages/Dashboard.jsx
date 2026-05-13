@@ -190,8 +190,8 @@ export default function Dashboard() {
   }, [notifOpen]);
 
   return (
-    <div className="dash">
-      {/* Header — fixed at top, content scrolls underneath. */}
+    <div className="dash-root">
+      {/* Header — sticky, sits outside the scroll container */}
       <div className="dash-header">
         <button className="dash-avatar" onClick={() => setPanelOpen(true)} aria-label="profile menu">
           {initial}
@@ -237,8 +237,8 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-      <div className="dash-header-spacer" />
 
+    <div className="dash">
       {/* Hero card */}
       <div className="hero-card">
         <div className="hero-top" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
@@ -331,6 +331,7 @@ export default function Dashboard() {
         ))}
       </div>
 
+    </div>
     </div>
   );
 }

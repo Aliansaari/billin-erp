@@ -30,6 +30,14 @@
   padding: 0;
 }
 .sm-back:active { background: var(--c-primary-soft); }
+.sm-icon-btn {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: transparent; border: none;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--c-text-mute); cursor: pointer; flex-shrink: 0; padding: 0;
+}
+.sm-icon-btn:disabled { opacity: 0.35; pointer-events: none; }
+.sm-icon-btn:active { background: var(--c-primary-soft); }
 .sm-top-info { flex: 1; min-width: 0; }
 .sm-top-name {
   font-weight: 600;

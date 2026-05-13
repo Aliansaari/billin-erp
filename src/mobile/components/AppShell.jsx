@@ -1,38 +1,55 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import TabBar from './TabBar';
 import SidePanel from './SidePanel';
-
-const ROOT_PATHS = new Set(['/', '/dashboard', '/vouchers', '/stock', '/reports', '/search', '/day-book', '/outstanding', '/items']);
 
 export default function AppShell() {
   const [panelOpen, setPanelOpen] = useState(false);
   const location = useLocation();
-  const lastNavAt = useRef(0);
+  const navigate = useNavigate();
+
+  // Refs so the document listener (mounted once) always sees current values
+  const isHomeRef   = useRef(location.pathname === '/');
+  const navigateRef = useRef(navigate);
+  const lastNavAt   = useRef(0);
+  const touchStart  = useRef({ x: 0, y: 0 });
+  const setPanelRef = useRef(setPanelOpen);
 
   useEffect(() => {
+    const p = location.pathname;
+    isHomeRef.current = p === '/' || p === '/dashboard';
     lastNavAt.current = Date.now();
   }, [location.pathname]);
+  useEffect(() => { navigateRef.current = navigate; },     [navigate]);
+  useEffect(() => { setPanelRef.current = setPanelOpen; }, [setPanelOpen]);
 
-  const touchRef = useRef({ startX: 0, startY: 0 });
-  const onTouchStart = useCallback((e) => {
-    const t = e.touches[0];
-    touchRef.current = { startX: t.clientX, startY: t.clientY };
-  }, []);
-  const onTouchEnd = useCallback((e) => {
-    if (!ROOT_PATHS.has(location.pathname)) return;
-    if (Date.now() - lastNavAt.current < 800) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - touchRef.current.startX;
-    const dy = Math.abs(t.clientY - touchRef.current.startY);
-    if (dx > 80 && dy < 60 && touchRef.current.startX < 50) {
-      setPanelOpen(true);
-    }
-  }, [location.pathname]);
+  // Capture phase so child stopPropagation can't block us
+  useEffect(() => {
+    const onStart = (e) => {
+      touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    };
+    const onEnd = (e) => {
+      const dx = e.changedTouches[0].clientX - touchStart.current.x;
+      const dy = Math.abs(e.changedTouches[0].clientY - touchStart.current.y);
+      // Must start within 80px of left edge, travel 50px+ right, stay horizontal
+      if (touchStart.current.x > 80 || dx < 50 || dy > 80) return;
+      if (isHomeRef.current) {
+        setPanelRef.current(true);
+      } else {
+        navigateRef.current(-1);
+      }
+    };
+    document.addEventListener('touchstart', onStart, { capture: true, passive: true });
+    document.addEventListener('touchend',   onEnd,   { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onStart, { capture: true });
+      document.removeEventListener('touchend',   onEnd,   { capture: true });
+    };
+  }, []); // mount once — reads values through refs
 
   return (
     <>
-      <div className="app-shell" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      <div className="app-shell">
         <div className="app-shell-body">
           <Outlet context={{ setPanelOpen }} />
         </div>

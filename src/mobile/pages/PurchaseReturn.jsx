@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
-import { reportAPI } from '../../api';
-import { formatINR } from '../utils/format';
+import { purchaseReturnAPI } from '../../api';
+import { formatINR, formatShortDate, defaultFY, isoDate } from '../utils/format';
 import { useBack } from '../utils/useBack';
 import { shareViaNative } from '../utils/sharePdf';
 import './ReportList.css';
@@ -11,11 +10,6 @@ import './ReportList.css';
 const ChevL = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M15 18l-6-6 6-6"/>
-  </svg>
-);
-const ChevR = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9 18l6-6-6-6"/>
   </svg>
 );
 const SearchIcon = () => (
@@ -40,14 +34,14 @@ const CloseIcon = () => (
   </svg>
 );
 
-export default function Outstanding() {
-  const navigate = useNavigate();
+// ── Component ─────────────────────────────────────────────────────────
+export default function PurchaseReturn() {
   const goBack = useBack('/reports');
-  const [urlParams] = useSearchParams();
+  const fy = useMemo(() => defaultFY(), []);
 
-  const mode = urlParams.get('type') === 'Supplier' ? 'Supplier' : 'Customer';
   const [rows,     setRows]    = useState([]);
   const [loading,  setLoading] = useState(true);
+  const [chip,     setChip]    = useState('all');   // 'all' | 'pending' | 'cancelled'
   const [searchOn, setSearchOn] = useState(false);
   const [search,   setSearch]  = useState('');
   const [pdfBusy,  setPdfBusy] = useState(false);
@@ -65,34 +59,45 @@ export default function Outstanding() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    reportAPI.getPartyOutstanding({ party_type: mode })
+    purchaseReturnAPI.getAll({ from_date: isoDate(fy.from), to_date: isoDate(fy.to) })
       .then((res) => {
         if (cancelled) return;
-        setRows(res.data?.data || []);
+        const data = res.data?.data || res.data || [];
+        setRows(Array.isArray(data) ? data : []);
       })
       .catch(() => {
         if (cancelled) return;
-        Toast.show({ icon: 'fail', content: 'Failed to load outstanding' });
+        Toast.show({ icon: 'fail', content: 'Failed to load purchase returns' });
         setRows([]);
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [mode]);
+  }, [fy]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return rows;
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) =>
-      (r.party_name || '').toLowerCase().includes(q) ||
-      (r.mobile_1   || '').toLowerCase().includes(q) ||
-      (r.city       || '').toLowerCase().includes(q)
-    );
-  }, [rows, search]);
+    let list = rows;
 
-  const totalOutstanding = useMemo(
-    () => filtered.reduce((s, r) => s + Math.abs(Number(r.current_balance || 0)), 0),
+    if (chip === 'pending')        list = list.filter((r) => Number(r.balance_amount || 0) > 0 && !r.is_cancelled);
+    else if (chip === 'cancelled') list = list.filter((r) => r.is_cancelled);
+
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((r) => {
+        const name = r.supplier?.party_name || r.party_name || '';
+        return name.toLowerCase().includes(q) || (r.return_number || '').toLowerCase().includes(q);
+      });
+    }
+    return list;
+  }, [rows, chip, search]);
+
+  const totalAmount = useMemo(
+    () => filtered.reduce((s, r) => s + Number(r.total_amount || 0), 0),
     [filtered],
   );
+
+  function partyName(row) {
+    return row.supplier?.party_name || row.party_name || '—';
+  }
 
   async function generatePdf() {
     if (filtered.length === 0) return null;
@@ -102,24 +107,27 @@ export default function Outstanding() {
       ]);
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-      doc.text(`${mode} Outstanding`, 40, 40);
+      doc.text('Purchase Return', 40, 40);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      doc.text(`${filtered.length} ${mode.toLowerCase()}s · Total ₹${formatINR(totalOutstanding)}`, 40, 56);
+      doc.text(`${filtered.length} return${filtered.length === 1 ? '' : 's'} · Total ₹${formatINR(totalAmount)}`, 40, 56);
       autoTable(doc, {
         startY: 72,
-        head: [['Party', 'Phone', 'City', 'Outstanding']],
+        head: [['Return #', 'Date', 'Supplier', 'Ref Bill', 'Amount', 'Refund', 'Status']],
         body: filtered.map((r) => [
-          r.party_name || '—',
-          r.mobile_1 || '—',
-          r.city || '—',
-          `₹${formatINR(Math.abs(r.current_balance || 0))}`,
+          r.return_number          || '—',
+          formatShortDate(r.return_date),
+          partyName(r),
+          r.reference_bill_number  || '—',
+          `₹${formatINR(r.total_amount   || 0)}`,
+          `₹${formatINR(r.refund_amount  || 0)}`,
+          r.is_cancelled ? 'Cancelled' : Number(r.balance_amount || 0) > 0 ? 'Pending' : 'Settled',
         ]),
         styles: { fontSize: 9, cellPadding: 4 },
         headStyles: { fillColor: [181, 66, 28], textColor: [255, 244, 234], fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [251, 248, 241] },
-        columnStyles: { 3: { halign: 'right' } },
+        columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' } },
       });
-      return { blob: doc.output('blob'), fileName: `outstanding-${mode.toLowerCase()}.pdf` };
+      return { blob: doc.output('blob'), fileName: 'purchase-return.pdf' };
     } catch (e) { console.error('PDF', e); return null; }
   }
 
@@ -142,7 +150,7 @@ export default function Outstanding() {
     try {
       const result = await generatePdf();
       if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
-      const ok = await shareViaNative(result.blob, result.fileName, `${mode} Outstanding`);
+      const ok = await shareViaNative(result.blob, result.fileName, 'Purchase Return');
       if (!ok) Toast.show({ icon: 'fail', content: 'Share failed' });
     } finally { setPdfBusy(false); }
   }
@@ -150,12 +158,6 @@ export default function Outstanding() {
   function closePdfViewer() {
     setPdfUrl(null);
     if (pdfUrlRef.current) { URL.revokeObjectURL(pdfUrlRef.current); pdfUrlRef.current = null; }
-  }
-
-  function drillInto(row) {
-    const route = mode === 'Customer' ? 'customer-statement' : 'supplier-statement';
-    const params = new URLSearchParams({ party_id: row.party_id, party_name: row.party_name || '' });
-    navigate(`/reports/${route}?${params}`);
   }
 
   return (
@@ -166,7 +168,7 @@ export default function Outstanding() {
         <button className="rl-icon-btn framed" onClick={goBack} aria-label="Back">
           <ChevL />
         </button>
-        <h1 className="rl-title">{mode} <em>outstanding</em></h1>
+        <h1 className="rl-title">Purchase <em>return</em></h1>
         <button
           className={`rl-icon-btn${searchOn ? ' active' : ''}`}
           onClick={() => setSearchOn((v) => !v)}
@@ -193,12 +195,12 @@ export default function Outstanding() {
         </button>
       </div>
 
-      {/* ── Search (collapsible) ── */}
+      {/* ── Search ── */}
       {searchOn && (
         <div className="rl-search">
           <input
             ref={searchRef}
-            placeholder={`Search ${mode.toLowerCase()} name, city…`}
+            placeholder="Search supplier or return number…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             autoCorrect="off" autoCapitalize="none" spellCheck="false"
@@ -206,45 +208,97 @@ export default function Outstanding() {
         </div>
       )}
 
+      {/* ── Filter chips ── */}
+      <div className="rl-chips">
+        {[
+          { key: 'all',       label: 'All' },
+          { key: 'pending',   label: 'Pending' },
+          { key: 'cancelled', label: 'Cancelled' },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            className={`rl-chip${chip === key ? ' active' : ''}`}
+            onClick={() => setChip(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* ── List ── */}
       <div className="rl-list">
         {loading && <SkeletonRows />}
 
         {!loading && filtered.length === 0 && (
           <div className="rl-empty">
-            {search.trim()
-              ? `No matches for "${search}"`
-              : `No outstanding ${mode.toLowerCase()} balances`}
+            {search.trim() ? `No matches for "${search}"` : 'No purchase returns found'}
           </div>
         )}
 
-        {!loading && filtered.map((row) => (
-          <div key={row.party_id} className="rl-row" onClick={() => drillInto(row)}>
-            <div className="rl-row-main">
-              <div className="rl-row-party">{row.party_name || '—'}</div>
-              <div className="rl-row-meta">
-                {row.mobile_1 && <span>{row.mobile_1}</span>}
-                {row.city && row.mobile_1 && <span className="rl-meta-dot">·</span>}
-                {row.city && <span>{row.city}</span>}
+        {!loading && filtered.map((row, i) => {
+          const cancelled = Boolean(row.is_cancelled);
+          const pending   = !cancelled && Number(row.balance_amount || 0) > 0;
+          return (
+            <div key={row.return_number || i} className="rl-row">
+              <div className="rl-row-main">
+                <div
+                  className="rl-row-party"
+                  style={cancelled ? { color: 'var(--c-text-mute)' } : undefined}
+                >
+                  {partyName(row)}
+                </div>
+                <div className="rl-row-meta">
+                  <span>{row.return_number || '—'}</span>
+                  {row.return_date && (
+                    <>
+                      <span className="rl-meta-dot">·</span>
+                      <span>{formatShortDate(row.return_date)}</span>
+                    </>
+                  )}
+                  {row.reference_bill_number && (
+                    <>
+                      <span className="rl-meta-dot">·</span>
+                      <span>Ref {row.reference_bill_number}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="rl-row-side" style={{ alignItems: 'flex-end', gap: 4 }}>
+                <div
+                  className="rl-row-amount"
+                  style={{ color: cancelled ? 'var(--c-text-mute)' : 'var(--c-primary)' }}
+                >
+                  ₹{formatINR(row.total_amount || 0)}
+                </div>
+                {cancelled && (
+                  <div style={{
+                    fontSize: 10, fontWeight: 600, color: 'var(--c-text-mute)',
+                    background: 'rgba(0,0,0,0.06)', borderRadius: 4,
+                    padding: '1px 5px', lineHeight: 1.4,
+                  }}>
+                    cancelled
+                  </div>
+                )}
+                {pending && (
+                  <div style={{
+                    fontSize: 10, fontWeight: 600, color: 'var(--c-error, #d32f2f)',
+                    background: 'rgba(211,47,47,0.08)', borderRadius: 4,
+                    padding: '1px 5px', lineHeight: 1.4,
+                  }}>
+                    pending
+                  </div>
+                )}
               </div>
             </div>
-            <div className="rl-row-side">
-              <div className="rl-row-amount" style={{ color: 'var(--c-primary)' }}>
-                ₹{formatINR(Math.abs(row.current_balance || 0))}
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', marginLeft: 6, color: 'var(--c-text-mute)', flexShrink: 0 }}>
-              <ChevR />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── Footer ── */}
       {!loading && filtered.length > 0 && (
         <div className="rl-sticky-footer">
-          <span className="rl-footer-count">{filtered.length} {mode.toLowerCase()}{filtered.length === 1 ? '' : 's'}</span>
-          <span className="rl-footer-total">₹{formatINR(totalOutstanding)}</span>
+          <span className="rl-footer-count">{filtered.length} return{filtered.length === 1 ? '' : 's'}</span>
+          <span className="rl-footer-total">₹{formatINR(totalAmount)}</span>
         </div>
       )}
 
@@ -253,17 +307,20 @@ export default function Outstanding() {
         <div className="rl-pdf-overlay">
           <div className="rl-pdf-toolbar">
             <button className="rl-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
-            <span className="rl-pdf-title">{mode} Outstanding</span>
+            <span className="rl-pdf-title">Purchase Return</span>
             <button className="rl-pdf-share" onClick={async () => {
               try {
                 const resp = await fetch(pdfUrlRef.current);
                 const blob = await resp.blob();
-                await shareViaNative(blob, `outstanding-${mode.toLowerCase()}.pdf`, `${mode} Outstanding`);
+                await shareViaNative(blob, 'purchase-return.pdf', 'Purchase Return');
               } catch { Toast.show({ icon: 'fail', content: 'Share failed' }); }
             }} aria-label="Share"><ShareIcon /></button>
           </div>
           <div className="rl-pdf-body">
-            <iframe className="rl-pdf-frame" src={pdfUrl} title="Outstanding PDF"
+            <iframe
+              className="rl-pdf-frame"
+              src={pdfUrl}
+              title="Purchase Return PDF"
               style={{ width: '612px', minHeight: '792px', transform: `scale(${window.innerWidth / 612})`, transformOrigin: 'top left' }}
             />
           </div>
@@ -276,11 +333,11 @@ export default function Outstanding() {
 function SkeletonRows() {
   return (
     <>
-      {[75, 55, 85, 60, 70].map((w, i) => (
+      {[70, 55, 80, 60, 75].map((w, i) => (
         <div key={i} className="rl-skeleton-row">
           <div style={{ flex: 1 }}>
             <div className="rl-skel" style={{ height: 13, width: `${w}%`, marginBottom: 6 }} />
-            <div className="rl-skel" style={{ height: 10, width: '40%' }} />
+            <div className="rl-skel" style={{ height: 10, width: '55%' }} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
             <div className="rl-skel" style={{ height: 14, width: 72 }} />

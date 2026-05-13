@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import { formatINR, isoDate, defaultFY } from '../utils/format';
+import { useBack } from '../utils/useBack';
+import { shareViaNative } from '../utils/sharePdf';
 import './ReportList.css';
 
 // ── Icons ──────────────────────────────────────────────────────────────
@@ -25,6 +27,22 @@ const SummaryIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
     <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+  </svg>
+);
+const PdfIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/>
+  </svg>
+);
+const ShareIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
+  </svg>
+);
+const CloseIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 6 6 18M6 6l12 12"/>
   </svg>
 );
 
@@ -53,6 +71,7 @@ const STATUS_COLORS = {
   Cancelled: { bg: '#f1f5f9', color: '#64748b' },
 };
 
+
 function prettyDate(iso) {
   if (!iso) return '';
   const d = new Date(`${iso}T00:00:00`);
@@ -63,6 +82,7 @@ function prettyDate(iso) {
 // ── Component ──────────────────────────────────────────────────────────
 export default function SalesReport() {
   const navigate = useNavigate();
+  const goBack = useBack('/reports');
   const [urlParams, setUrlParams] = useSearchParams();
 
   const fy = defaultFY();
@@ -75,7 +95,10 @@ export default function SalesReport() {
   const [searchOn, setSearchOn] = useState(false);
   const [preset,   setPreset]   = useState('fy');
   const [showKpi,  setShowKpi]  = useState(false);
+  const [pdfBusy,  setPdfBusy]  = useState(false);
+  const [pdfUrl,   setPdfUrl]   = useState(null);
   const searchRef = useRef(null);
+  const pdfUrlRef = useRef(null);
 
   // Sync URL
   useEffect(() => {
@@ -106,7 +129,19 @@ export default function SalesReport() {
         const totalAmount  = rows.reduce((s, r) => s + Number(r.total_amount  || 0), 0);
         const totalGst     = rows.reduce((s, r) => s + Number(r.cgst_amount || 0) + Number(r.sgst_amount || 0) + Number(r.igst_amount || 0), 0);
         const totalBalance = rows.reduce((s, r) => s + Number(r.balance_amount || 0), 0);
-        setSummary({ total_amount: totalAmount, bill_count: rows.length, total_gst: totalGst, total_balance: totalBalance });
+        const paidCount    = rows.filter((r) => r.payment_status === 'Paid').length;
+        const partialCount = rows.filter((r) => r.payment_status === 'Partial').length;
+        const collectionRate = rows.length > 0 ? Math.round((paidCount / rows.length) * 100) : 0;
+        setSummary({
+          total_amount: totalAmount,
+          bill_count: rows.length,
+          total_gst: totalGst,
+          total_balance: totalBalance,
+          paid_count: paidCount,
+          partial_count: partialCount,
+          unpaid_count: rows.length - paidCount - partialCount,
+          collection_rate: collectionRate,
+        });
       })
       .catch((e) => {
         if (cancelled) return;
@@ -122,6 +157,65 @@ export default function SalesReport() {
     setPreset(p.key);
     setFromDate(p.from);
     setToDate(p.to);
+  }
+
+  async function generatePdf() {
+    if (filtered.length === 0) return null;
+    try {
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import('jspdf'), import('jspdf-autotable'),
+      ]);
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+      doc.text('Sales Report', 40, 40);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      doc.text(`${prettyDate(fromDate)} – ${prettyDate(toDate)}  ·  ${filtered.length} bills  ·  ₹${formatINR(filteredTotal)}`, 40, 56);
+      autoTable(doc, {
+        startY: 72,
+        head: [['Party', 'Bill No', 'Date', 'Amount', 'Status']],
+        body: filtered.map((r) => [
+          r.customer?.party_name || r.walk_in_name || '—',
+          r.bill_number || '',
+          prettyDate(r.bill_date),
+          `₹${formatINR(r.total_amount)}`,
+          r.payment_status || '',
+        ]),
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [181, 66, 28], textColor: [255, 244, 234], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [251, 248, 241] },
+        columnStyles: { 3: { halign: 'right' } },
+      });
+      return { blob: doc.output('blob'), fileName: `sales-report-${fromDate}_${toDate}.pdf` };
+    } catch (e) { console.error('PDF', e); return null; }
+  }
+
+  async function handleViewPdf() {
+    if (filtered.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+      const url = URL.createObjectURL(result.blob);
+      pdfUrlRef.current = url;
+      setPdfUrl(url);
+    } finally { setPdfBusy(false); }
+  }
+
+  async function handleSharePdf() {
+    if (filtered.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      const ok = await shareViaNative(result.blob, result.fileName, 'Sales Report');
+      if (!ok) Toast.show({ icon: 'fail', content: 'Share failed' });
+    } finally { setPdfBusy(false); }
+  }
+
+  function closePdfViewer() {
+    setPdfUrl(null);
+    if (pdfUrlRef.current) { URL.revokeObjectURL(pdfUrlRef.current); pdfUrlRef.current = null; }
   }
 
   // Client-side search on the loaded page
@@ -146,7 +240,7 @@ export default function SalesReport() {
 
       {/* ── Topbar ── */}
       <div className="rl-top">
-        <button className="rl-icon-btn framed" onClick={() => (window.history.state?.idx > 0 ? navigate(-1) : navigate('/reports'))} aria-label="Back">
+        <button className="rl-icon-btn framed" onClick={goBack} aria-label="Back">
           <ChevL />
         </button>
         <h1 className="rl-title">Sales <em>report</em></h1>
@@ -163,6 +257,23 @@ export default function SalesReport() {
           aria-label="Search"
         >
           <SearchIcon />
+        </button>
+        <button
+          className="rl-icon-btn"
+          onClick={handleViewPdf}
+          disabled={pdfBusy || filtered.length === 0}
+          aria-label="PDF preview"
+          style={{ color: filtered.length && !pdfBusy ? 'var(--c-primary)' : undefined }}
+        >
+          <PdfIcon />
+        </button>
+        <button
+          className="rl-icon-btn"
+          onClick={handleSharePdf}
+          disabled={pdfBusy || filtered.length === 0}
+          aria-label="Share PDF"
+        >
+          <ShareIcon />
         </button>
       </div>
 
@@ -213,36 +324,40 @@ export default function SalesReport() {
         </div>
       )}
 
-      {/* ── KPI grid (collapsed by default, toggled by ⊞ button) ── */}
+      {/* ── KPI summary (toggleable via ⊞ button) ── */}
       {showKpi && summary && (
         <div className="rl-summary">
           <div className="rl-summary-grid">
             <div className="rl-summary-item">
-              <span className="rl-summary-type">Total</span>
+              <span className="rl-summary-type">Sales</span>
               <span className="rl-summary-amt">₹{formatINR(summary.total_amount)}</span>
-              <span className="rl-summary-cnt">{summary.bill_count ?? data.length} bills</span>
+              <span className="rl-summary-cnt">total invoiced</span>
             </div>
             <div className="rl-summary-item">
-              <span className="rl-summary-type">GST</span>
-              <span className="rl-summary-amt">₹{formatINR(summary.total_gst ?? 0)}</span>
-              <span className="rl-summary-cnt">collected</span>
+              <span className="rl-summary-type">GST Collected</span>
+              <span className="rl-summary-amt">₹{formatINR(summary.total_gst)}</span>
+              <span className="rl-summary-cnt">tax portion</span>
             </div>
             <div className="rl-summary-item">
-              <span className="rl-summary-type">Due</span>
-              <span className={`rl-summary-amt${summary.total_balance > 0 ? ' danger' : ''}`}>₹{formatINR(summary.total_balance ?? 0)}</span>
+              <span className="rl-summary-type">Receivable</span>
+              <span className={`rl-summary-amt${summary.total_balance > 0 ? ' danger' : ''}`}>
+                {summary.total_balance > 0 ? `₹${formatINR(summary.total_balance)}` : '—'}
+              </span>
               <span className="rl-summary-cnt">outstanding</span>
             </div>
             <div className="rl-summary-item">
-              <span className="rl-summary-type">Profit</span>
-              <span className={`rl-summary-amt${(summary.total_profit ?? 0) > 0 ? ' success' : ''}`}>₹{formatINR(summary.total_profit ?? 0)}</span>
-              <span className="rl-summary-cnt">net</span>
+              <span className="rl-summary-type">Collection</span>
+              <span className={`rl-summary-amt${summary.collection_rate >= 80 ? ' success' : summary.collection_rate < 50 ? ' danger' : ''}`}>
+                {summary.collection_rate}%
+              </span>
+              <span className="rl-summary-cnt">payment rate</span>
             </div>
           </div>
         </div>
       )}
 
       {/* ── Bill list ── */}
-      <div className="rl-list" style={filtered.length > 0 && !loading ? { paddingBottom: 56 } : {}}>
+      <div className="rl-list">
         {loading && <SkeletonRows />}
 
         {!loading && filtered.length === 0 && (
@@ -269,6 +384,28 @@ export default function SalesReport() {
           <span className="rl-footer-total">₹{formatINR(filteredTotal)}</span>
         </div>
       )}
+
+      {/* ── PDF preview overlay ── */}
+      {pdfUrl && (
+        <div className="rl-pdf-overlay">
+          <div className="rl-pdf-toolbar">
+            <button className="rl-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
+            <span className="rl-pdf-title">Sales Report</span>
+            <button className="rl-pdf-share" onClick={async () => {
+              try {
+                const resp = await fetch(pdfUrlRef.current);
+                const blob = await resp.blob();
+                await shareViaNative(blob, `sales-report-${fromDate}_${toDate}.pdf`, 'Sales Report');
+              } catch { Toast.show({ icon: 'fail', content: 'Share failed' }); }
+            }} aria-label="Share"><ShareIcon /></button>
+          </div>
+          <div className="rl-pdf-body">
+            <iframe className="rl-pdf-frame" src={pdfUrl} title="Sales Report PDF"
+              style={{ width: '612px', minHeight: '792px', transform: `scale(${window.innerWidth / 612})`, transformOrigin: 'top left' }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -286,7 +423,7 @@ function SaleBillRow({ bill, onClick }) {
         <div className="rl-row-meta">
           {bill.bill_number  && <span>{bill.bill_number}</span>}
           {bill.bill_date    && <><span className="rl-meta-dot">·</span><span>{prettyDate(bill.bill_date)}</span></>}
-          {bill.balance_amount > 0 && (
+          {Number(bill.balance_amount) > 0 && (
             <><span className="rl-meta-dot">·</span>
             <span className="rl-row-due">Due ₹{formatINR(bill.balance_amount)}</span></>
           )}
@@ -296,7 +433,6 @@ function SaleBillRow({ bill, onClick }) {
         <div className="rl-row-amount">₹{formatINR(bill.total_amount)}</div>
         <div className="rl-status" style={{ background: sc.bg, color: sc.color }}>{status}</div>
       </div>
-      <div className="rl-row-chev"><ChevR /></div>
     </div>
   );
 }
