@@ -314,6 +314,10 @@ exports.cleanupData = async (req, res) => {
       await del('DELETE FROM sales_bill_drafts');
       // Also drop payment splits / receipts tied to sales — leaving them would
       // reference bills that no longer exist, breaking ledger reports.
+      // Cheques referencing those splits/receipts must go first; on DBs where
+      // the FKs are CASCADE they'd auto-delete, but old installs predate the
+      // CASCADE upgrade so we do it explicitly. Idempotent on new schema.
+      await del("DELETE FROM cheques WHERE source_payment_id IN (SELECT transaction_id FROM payments_receipts WHERE transaction_type = 'Receipt') OR source_payment_split_id IN (SELECT s.split_id FROM payment_splits s JOIN payments_receipts r ON r.transaction_id = s.transaction_id WHERE r.transaction_type = 'Receipt')");
       await del("DELETE FROM payment_splits WHERE transaction_id IN (SELECT transaction_id FROM payments_receipts WHERE transaction_type = 'Receipt')");
       await del("DELETE FROM payments_receipts WHERE transaction_type = 'Receipt'");
       // Rebuild customer balances from remaining bills + opening balance instead
@@ -347,6 +351,9 @@ exports.cleanupData = async (req, res) => {
       // Held purchase drafts belong to the purchases scope — see sales
       // scope above for rationale (recalling stale drafts after a wipe).
       await del('DELETE FROM purchase_bill_drafts');
+      // Cheques tied to outgoing payments must be dropped before their
+      // source rows (see sales branch above for rationale).
+      await del("DELETE FROM cheques WHERE source_payment_id IN (SELECT transaction_id FROM payments_receipts WHERE transaction_type = 'Payment') OR source_payment_split_id IN (SELECT s.split_id FROM payment_splits s JOIN payments_receipts r ON r.transaction_id = s.transaction_id WHERE r.transaction_type = 'Payment')");
       await del("DELETE FROM payment_splits WHERE transaction_id IN (SELECT transaction_id FROM payments_receipts WHERE transaction_type = 'Payment')");
       await del("DELETE FROM payments_receipts WHERE transaction_type = 'Payment'");
       await del(`
@@ -437,6 +444,10 @@ exports.cleanupData = async (req, res) => {
     // ── Payments & Receipts ───────────────────────────────
     if (categories.includes('payments')) {
       await del("DELETE FROM ledger_entries WHERE source_type IN ('payment_receipt','sales_bill_receipt','purchase_bill_payment')");
+      // Cheque register entries are derived from payment_splits / receipts —
+      // wipe them first or the FK blocks the cascade on legacy schemas
+      // that lack ON DELETE CASCADE on cheques_source_*_fkey.
+      await del('DELETE FROM cheques');
       await del('DELETE FROM payment_splits');
       await del('DELETE FROM payments_receipts');
       // Rebuild party balances from remaining bills + opening balance — otherwise
@@ -492,6 +503,16 @@ exports.cleanupData = async (req, res) => {
       // product references back into a new bill.
       await del('DELETE FROM sales_bill_drafts');
       await del('DELETE FROM purchase_bill_drafts');
+      // Stock transfers reference products via their items table; drop
+      // the transfers (items CASCADE) before products or the RESTRICT
+      // on stock_transfer_items.product_id blocks the wipe.
+      await del('DELETE FROM stock_transfers');
+      // product_batches and product_colors both FK to products with
+      // RESTRICT, and product_batch_stock cascades from product_batches.
+      // All bill_items / stock_ledger rows referencing these batches /
+      // colors were already deleted above, so the chain is clear.
+      await del('DELETE FROM product_batches');
+      await del('DELETE FROM product_colors');
       await del('DELETE FROM products');
     }
 
@@ -499,6 +520,8 @@ exports.cleanupData = async (req, res) => {
     // Nuking parties cascades to everything ledger-related: opening JVs,
     // journal vouchers, and every ledger_entries row.
     if (categories.includes('parties')) {
+      // Same FK-order constraint as the payments branch.
+      await del('DELETE FROM cheques');
       await del('DELETE FROM payment_splits');
       await del('DELETE FROM payments_receipts');
       await del('DELETE FROM ledger_entries');

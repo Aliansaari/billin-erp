@@ -20,47 +20,47 @@
 
 :root,
 [data-theme="classic-light"] {
-  /* Surfaces */
-  --bg-app:        #f5f7fa;
-  --bg-panel:      #ffffff;
-  --bg-elevated:   #ffffff;
-  --bg-muted:      #f9fafb;
-  --bg-hover:      #f3f4f6;
+  /* Surfaces — cool slate base from iOS Classic v4 (teal-cyan) */
+  --bg-app:        #F4F6F8;
+  --bg-panel:      #FFFFFF;
+  --bg-elevated:   #FFFFFF;
+  --bg-muted:      #E8EDF2;
+  --bg-hover:      #E8EDF2;
   --bg-subtle:     var(--bg-muted);
-  --bg-selected:   rgba(79, 70, 229, 0.06);
+  --bg-selected:   rgba(8, 145, 168, 0.10);
 
   /* Foreground */
-  --fg-primary:    #1f2937;
-  --fg-secondary:  #6b7280;
-  --fg-tertiary:   #9ca3af;
-  --fg-inverse:    #ffffff;
+  --fg-primary:    #0A1219;
+  --fg-secondary:  #3D4D5E;
+  --fg-tertiary:   #6B7B8E;
+  --fg-inverse:    #FFFFFF;
 
-  /* Accent */
-  --accent:        #4F46E5;
-  --accent-hover:  #4338ca;
-  --accent-bg:     rgba(79, 70, 229, 0.08);
-  --accent-border: rgba(79, 70, 229, 0.20);
-  --accent-text:   #4F46E5;
+  /* Accent — teal-cyan (iOS Classic v4) */
+  --accent:        #0891A8;
+  --accent-hover:  #075C6B;
+  --accent-bg:     rgba(8, 145, 168, 0.10);
+  --accent-border: rgba(8, 145, 168, 0.22);
+  --accent-text:   #0891A8;
 
-  /* Status (kept distinguishable across all modes) */
-  --success:       #10B981;
-  --success-bg:    rgba(16, 185, 129, 0.10);
-  --warning:       #F59E0B;
-  --warning-bg:    rgba(245, 158, 11, 0.10);
-  --danger:        #EF4444;
-  --danger-bg:     rgba(239, 68, 68, 0.10);
-  --info:          #3B82F6;
-  --info-bg:       rgba(59, 130, 246, 0.10);
+  /* Status — emerald (credit) + gold (debit) from iOS Classic v4 */
+  --success:       #2D8856;
+  --success-bg:    rgba(45, 136, 86, 0.12);
+  --warning:       #C28534;
+  --warning-bg:    rgba(194, 133, 52, 0.13);
+  --danger:        #DC2626;
+  --danger-bg:     rgba(220, 38, 38, 0.10);
+  --info:          #0891A8;
+  --info-bg:       rgba(8, 145, 168, 0.10);
 
   /* Borders */
-  --border:        #e5e7eb;
-  --border-subtle: #f0f0f0;
-  --border-strong: #d1d5db;
+  --border:        #DCE3EB;
+  --border-subtle: #E8EDF2;
+  --border-strong: #BFC9D4;
 
   /* Shadows */
-  --shadow-sm:     0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md:     0 2px 8px rgba(0, 0, 0, 0.06);
-  --shadow-lg:     0 10px 30px rgba(0, 0, 0, 0.08);
+  --shadow-sm:     0 1px 2px rgba(10, 18, 25, 0.04);
+  --shadow-md:     0 2px 8px rgba(10, 18, 25, 0.06);
+  --shadow-lg:     0 10px 30px -8px rgba(8, 145, 168, 0.10), 0 2px 8px rgba(10, 18, 25, 0.04);
 
   /* Modern-only effects (zero for Classic) */
   --blur:          0px;
@@ -71,90 +71,78 @@
   --radius-md:     10px;
   --radius-lg:     14px;
 
-  /* Chrome */
-  --sidebar-bg:    #0f172a;
-  --sidebar-fg:    rgba(255, 255, 255, 0.85);
-  --sidebar-hover: rgba(255, 255, 255, 0.08);
-  --sidebar-active:#4F46E5;
-  --header-bg:     #ffffff;
-  --header-border: #e5e7eb;
+  /* Chrome — dark ink sidebar, matching dark-mode bg */
+  --sidebar-bg:    #0A1219;
+  --sidebar-fg:    rgba(232, 237, 242, 0.88);
+  --sidebar-hover: rgba(14, 175, 202, 0.08);
+  --sidebar-active:#0EAFCA;
+  --header-bg:     #FFFFFF;
+  --header-border: #E8EDF2;
 
   /* Scrollbar */
-  --scrollbar-thumb: #c1c1c1;
-  --scrollbar-thumb-hover: #a1a1a1;
+  --scrollbar-thumb: #BFC9D4;
+  --scrollbar-thumb-hover: #94A3B6;
 
   color-scheme: light;
 }
 
-/* "Graphite" Classic-Dark — pure neutral, no navy in sight.
- *
- * Generic dark modes lean cool slate-blue (hue ~220). This palette
- * deliberately steps away from that whole family. Backgrounds sit
- * at hue ~250-260 with very low saturation — a warm graphite with
- * a whisper of plum. The eye reads it as "ink on paper" rather
- * than "another Tailwind slate". Editorial dark already owns the
- * warm-brown territory, so Graphite stakes out neutral-deep-gray
- * with a subtle violet undertone — distinct from both, easy on
- * the eyes for 8+ hour sessions.
- *
- * Contrast: primary text ~12:1 (WCAG AAA), secondary ~6:1, tertiary
- * ~3.5:1. Status colours boosted to dark-mode levels (500→400 step
- * across the Tailwind ladder) so success/warning/danger remain
- * recognisable against the neutral backgrounds. */
+/* "Teal-Cyan Ink" Classic-Dark — deep ink surfaces with a teal-cyan accent,
+ * mirroring iOS Classic v4 dark mode exactly. Background sits at #0A1219
+ * with a subtle teal radial glow; accent uses the brighter #0EAFCA in dark
+ * (vs. #0891A8 in light) so it stays readable against the deep base. */
 [data-theme="classic-dark"] {
-  --bg-app:        #131418;
-  --bg-panel:      #1C1D23;
-  --bg-elevated:   #25272E;
-  --bg-muted:      #17181D;
-  --bg-hover:      #25272E;
-  --bg-selected:   rgba(165, 180, 252, 0.10);
+  --bg-app:        #0A1219;
+  --bg-panel:      #131D26;
+  --bg-elevated:   #1C2832;
+  --bg-muted:      #131D26;
+  --bg-hover:      #1C2832;
+  --bg-selected:   rgba(14, 175, 202, 0.15);
   --bg-subtle:     var(--bg-muted);
 
-  --fg-primary:    #ECEDF1;
-  --fg-secondary:  #A1A4AE;
-  --fg-tertiary:   #6E717C;
-  --fg-inverse:    #131418;
+  --fg-primary:    #E8EDF2;
+  --fg-secondary:  #94A3B6;
+  --fg-tertiary:   #6B7B8E;
+  --fg-inverse:    #0A1219;
 
-  --accent:        #A5B4FC;
-  --accent-hover:  #C7D2FE;
-  --accent-bg:     rgba(165, 180, 252, 0.10);
-  --accent-border: rgba(165, 180, 252, 0.22);
-  --accent-text:   #A5B4FC;
+  --accent:        #0EAFCA;
+  --accent-hover:  #0891A8;
+  --accent-bg:     rgba(14, 175, 202, 0.15);
+  --accent-border: rgba(14, 175, 202, 0.30);
+  --accent-text:   #0EAFCA;
 
-  --success:       #4ADE80;
-  --success-bg:    rgba(74, 222, 128, 0.12);
-  --warning:       #FBBF24;
-  --warning-bg:    rgba(251, 191, 36, 0.12);
+  --success:       #4FB082;
+  --success-bg:    rgba(45, 136, 86, 0.18);
+  --warning:       #E0A45A;
+  --warning-bg:    rgba(194, 133, 52, 0.18);
   --danger:        #FB7185;
-  --danger-bg:     rgba(251, 113, 133, 0.12);
-  --info:          #7DD3FC;
-  --info-bg:       rgba(125, 211, 252, 0.12);
+  --danger-bg:     rgba(251, 113, 133, 0.15);
+  --info:          #0EAFCA;
+  --info-bg:       rgba(14, 175, 202, 0.15);
 
-  --border:        #2D2F36;
-  --border-subtle: #21222A;
-  --border-strong: #3A3C44;
+  --border:        rgba(255, 255, 255, 0.13);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.20);
 
-  /* Softer shadows — depth, not a black halo on warm graphite. */
-  --shadow-sm:     0 1px 2px rgba(0, 0, 0, 0.45);
-  --shadow-md:     0 2px 10px rgba(0, 0, 0, 0.55);
-  --shadow-lg:     0 12px 36px rgba(0, 0, 0, 0.65);
+  --shadow-sm:     0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md:     0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 4px 16px rgba(0, 0, 0, 0.50);
+  --shadow-lg:     0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 48px -20px rgba(14, 175, 202, 0.35), 0 8px 24px rgba(0, 0, 0, 0.55);
 
   --blur:          0px;
-  --glass-tint:    rgba(28, 29, 35, 1);
+  --glass-tint:    rgba(10, 18, 25, 1);
 
   --radius-sm:     6px;
   --radius-md:     10px;
   --radius-lg:     14px;
 
-  --sidebar-bg:    #0E0F13;
-  --sidebar-fg:    rgba(236, 237, 241, 0.88);
-  --sidebar-hover: rgba(255, 255, 255, 0.06);
-  --sidebar-active:#A5B4FC;
-  --header-bg:     #1C1D23;
-  --header-border: #2D2F36;
+  --sidebar-bg:    #060B11;
+  --sidebar-fg:    rgba(232, 237, 242, 0.88);
+  --sidebar-hover: rgba(14, 175, 202, 0.08);
+  --sidebar-active:#0EAFCA;
+  --header-bg:     #131D26;
+  --header-border: rgba(255, 255, 255, 0.07);
 
-  --scrollbar-thumb: #353740;
-  --scrollbar-thumb-hover: #484A55;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
 
   color-scheme: dark;
 }

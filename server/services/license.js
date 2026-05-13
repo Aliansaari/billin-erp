@@ -102,8 +102,16 @@ function readLicenseFromDisk() {
 
   let raw, env, payload;
   try {
-    raw = fs.readFileSync(file, 'utf8');
-    env = JSON.parse(raw);
+    raw = fs.readFileSync(file, 'utf8').trim();
+    // Support both opaque format (BILLINGERP-LIC-V1:<base64>) and
+    // legacy plain-JSON format for backward compatibility.
+    if (raw.startsWith('BILLINGERP-LIC-V1:')) {
+      const b64 = raw.slice('BILLINGERP-LIC-V1:'.length);
+      const json = Buffer.from(b64, 'base64').toString('utf8');
+      env = JSON.parse(json);
+    } else {
+      env = JSON.parse(raw);
+    }
   } catch (e) {
     return { ok: false, code: 'invalid_format', detail: e.message };
   }
@@ -224,15 +232,20 @@ function computeStatusUncached() {
 
   return {
     ok: true,
-    customer_id:    payload.customer_id,
-    customer_name:  payload.customer_name,
-    license_type:   payload.license_type,
-    issued_at:      payload.issued_at,
-    expires_at:     payload.expires_at,
-    max_companies:  payload.max_companies,
-    features:       payload.features || [],
-    machine_fp:     payload.machine_fp,
-    machine_match:  !payload.machine_fp || payload.machine_fp === machineFingerprint(),
+    customer_id:      payload.customer_id,
+    customer_name:    payload.customer_name,
+    license_type:     payload.license_type,
+    issued_at:        payload.issued_at,
+    expires_at:       payload.expires_at,
+    max_companies:    payload.max_companies,
+    features:         payload.features || [],
+    machine_fp:       payload.machine_fp,
+    machine_match:    !payload.machine_fp || payload.machine_fp === machineFingerprint(),
+    // v2 granular controls (default to permissive for v1 licenses)
+    max_activations:  payload.max_activations ?? 1,
+    lan_allowed:      payload.lan_allowed !== false,
+    mobile_access:    payload.mobile_access || false,
+    modules:          payload.modules || ['all'],
   };
 }
 
@@ -251,13 +264,21 @@ function computeStatusUncached() {
 function activateFromEnvelope(envelopeText) {
   let envelope, payload;
   try {
-    envelope = JSON.parse(envelopeText);
+    const trimmed = envelopeText.trim();
+    // Support both opaque (BILLINGERP-LIC-V1:<base64>) and legacy JSON
+    if (trimmed.startsWith('BILLINGERP-LIC-V1:')) {
+      const b64 = trimmed.slice('BILLINGERP-LIC-V1:'.length);
+      const json = Buffer.from(b64, 'base64').toString('utf8');
+      envelope = JSON.parse(json);
+    } else {
+      envelope = JSON.parse(trimmed);
+    }
     if (envelope.kind !== 'license-studio.license' || envelope.v !== 1) {
       return { ok: false, code: 'invalid_format', message: 'Not a License Studio license file' };
     }
     payload = JSON.parse(envelope.payload);
   } catch (e) {
-    return { ok: false, code: 'invalid_format', message: 'License file is not valid JSON' };
+    return { ok: false, code: 'invalid_format', message: 'License file is not valid' };
   }
 
   const sig = verifySignature(envelope);

@@ -50,15 +50,11 @@ import './home.css';
 
 const fmtInt = (v) => Math.round(Number(v) || 0).toLocaleString('en-IN');
 
-/* Compact ₹ — switches to L / Cr at scale so the five KPI tiles never wrap
- * onto a second line. Operators glance at these constantly; brevity beats
- * full precision. The detail line under the value carries exact counts. */
+/* Full ₹ — show the exact rupee amount with Indian-style grouping (lakh/crore
+ * separators) instead of K / L / Cr abbreviations. Operators wanted the
+ * precise figure visible at a glance, even on the KPI tiles. */
 function fmtCompact(v) {
   const n = Number(v) || 0;
-  const abs = Math.abs(n);
-  if (abs >= 1_00_00_000) return '₹' + (n / 1_00_00_000).toFixed(2).replace(/\.?0+$/, '') + 'Cr';
-  if (abs >= 1_00_000)    return '₹' + (n / 1_00_000).toFixed(2).replace(/\.?0+$/, '') + 'L';
-  if (abs >= 1_000)       return '₹' + (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
   return '₹' + Math.round(n).toLocaleString('en-IN');
 }
 
@@ -327,12 +323,6 @@ export default function Home() {
        *           visual signature. */}
       <main className="cc-middle">
         <header className="cc-greeting">
-          {cfg.showGreeting && (
-            <div className="cc-eyebrow">
-              {greeting.toUpperCase()}, {firstName.toUpperCase()}
-            </div>
-          )}
-
           {cfg.showHeadline && (
             <h1 className="cc-headline">What would you like to do?</h1>
           )}

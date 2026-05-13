@@ -98,6 +98,11 @@ app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 // 10.x.x.x has THREE octets after "10" while 192.168.x.x has only TWO
 // after "192.168". Spelled out fully here for clarity.
 const PRIVATE_IP_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})(?::\d+)?$/i;
+// Capacitor (iOS) and Ionic (Android) WebViews send Origin like
+// "capacitor://localhost" or "ionic://localhost" — neither matches an
+// http(s) regex. Allow them so the mobile companion app can talk to a
+// LAN backend.
+const NATIVE_WEBVIEW_RE = /^(?:capacitor|ionic):\/\/localhost$/i;
 const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 const LEGACY_ORIGIN = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -113,6 +118,7 @@ app.use(cors({
     if (!origin) return cb(null, true);                                  // curl / native app / same-origin
     if (origin === LEGACY_ORIGIN) return cb(null, true);
     if (PRIVATE_IP_RE.test(origin)) return cb(null, true);
+    if (NATIVE_WEBVIEW_RE.test(origin)) return cb(null, true);
     if (EXTRA_ORIGINS.includes(origin)) return cb(null, true);
     return cb(null, false);
   },
@@ -2176,18 +2182,47 @@ async function startServer() {
               WHERE table_name = 'cheques' AND column_name = 'source_payment_id'
             ) THEN
               ALTER TABLE cheques ADD COLUMN source_payment_id INTEGER
-                REFERENCES payments_receipts(transaction_id);
+                REFERENCES payments_receipts(transaction_id) ON DELETE CASCADE;
             END IF;
             IF NOT EXISTS (
               SELECT 1 FROM information_schema.columns
               WHERE table_name = 'cheques' AND column_name = 'source_payment_split_id'
             ) THEN
               ALTER TABLE cheques ADD COLUMN source_payment_split_id INTEGER
-                REFERENCES payment_splits(split_id);
+                REFERENCES payment_splits(split_id) ON DELETE CASCADE;
             END IF;
             CREATE UNIQUE INDEX IF NOT EXISTS cheques_source_split_uniq
               ON cheques(source_payment_split_id)
               WHERE source_payment_split_id IS NOT NULL;
+            -- Upgrade legacy installs whose FKs were created without
+            -- ON DELETE CASCADE. The cleanup-data flow and any
+            -- payment-cancellation path would otherwise fail with
+            -- "violates foreign key constraint cheques_source_*_fkey".
+            -- A cheque is the instrument that recorded the payment;
+            -- if the payment row is deleted the cheque is meaningless,
+            -- so CASCADE is the correct rule.
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              WHERE t.relname = 'cheques' AND c.conname = 'cheques_source_payment_split_id_fkey'
+                AND c.confdeltype <> 'c'  -- not CASCADE
+            ) THEN
+              ALTER TABLE cheques DROP CONSTRAINT cheques_source_payment_split_id_fkey;
+              ALTER TABLE cheques ADD CONSTRAINT cheques_source_payment_split_id_fkey
+                FOREIGN KEY (source_payment_split_id) REFERENCES payment_splits(split_id)
+                ON DELETE CASCADE;
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              WHERE t.relname = 'cheques' AND c.conname = 'cheques_source_payment_id_fkey'
+                AND c.confdeltype <> 'c'
+            ) THEN
+              ALTER TABLE cheques DROP CONSTRAINT cheques_source_payment_id_fkey;
+              ALTER TABLE cheques ADD CONSTRAINT cheques_source_payment_id_fkey
+                FOREIGN KEY (source_payment_id) REFERENCES payments_receipts(transaction_id)
+                ON DELETE CASCADE;
+            END IF;
           END IF;
         END $$;
       `);

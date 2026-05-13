@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100" width="400" height="100">
+  <title>Manas</title>
+  <desc>Manas logo — primary lockup with icon and wordmark</desc>
+  <rect x="0" y="10" width="80" height="80" rx="18" fill="#0F172A"/>
+  <path d="M 19 70 L 19 32 L 40 58 L 61 32 L 61 70" stroke="#FFFFFF" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="100" y="68" font-family="-apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="52" font-weight="700" fill="#0F172A" letter-spacing="-2.5">manas</text>
+</svg>

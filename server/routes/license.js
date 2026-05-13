@@ -19,8 +19,15 @@ const fs = require('fs');
 const path = require('path');
 
 router.get('/info', (req, res) => {
+  // Dev-only escape hatch — when BILLING_ERP_BYPASS_LICENSE=1, report
+  // the install as activated so the frontend skips the activation
+  // screen. Matches the licenseGate bypass in middleware/licenseGate.js.
   if (process.env.BILLING_ERP_BYPASS_LICENSE === '1') {
-    return res.json({ activated: true, status: { ok: true, code: 'dev_bypass' }, machine_fp: 'dev' });
+    return res.json({
+      activated: true,
+      status: { ok: true, code: 'bypassed', expires_at: '2099-12-31', customer_name: 'Developer (bypass)' },
+      machine_fp: license.machineFingerprint(),
+    });
   }
   const s = license.getStatus({ force: false });
   res.json({

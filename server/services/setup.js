@@ -168,6 +168,14 @@ async function provision({ host, port, user, password, masterDbName }) {
     try { await client.end(); } catch {}
   }
 
+  // Generate a per-install JWT secret. Required by jsonwebtoken's
+  // sign/verify; without it, every login attempt throws once it
+  // gets past credential check ("secretOrPrivateKey must have a
+  // value"). Each install gets its own random secret so a token
+  // issued on machine A can't be replayed on machine B even by the
+  // same user.
+  const jwtSecret = require('crypto').randomBytes(32).toString('hex');
+
   // Persist the resolved creds so the server reads them on boot.
   const cfg = {
     db: {
@@ -179,6 +187,7 @@ async function provision({ host, port, user, password, masterDbName }) {
       // Note: per-company DB name pattern stays `billing_erp_co_<id>`,
       // baked into companyConnections.js.
     },
+    jwt_secret: jwtSecret,
     setup_completed_at: new Date().toISOString(),
   };
   saveConfig(cfg);
@@ -200,6 +209,25 @@ function applyConfigToEnv() {
   if (!process.env.DB_USER)            process.env.DB_USER         = cfg.db.user;
   if (!process.env.DB_PASSWORD)        process.env.DB_PASSWORD     = cfg.db.password;
   if (!process.env.MASTER_DB_NAME)     process.env.MASTER_DB_NAME  = cfg.db.master_db_name;
+
+  // JWT secret. If the config has one (modern setups), use it. If
+  // not (older config from before this fix), back-fill with a
+  // freshly-generated secret and re-save the config so it's stable
+  // across restarts. Without this, jwt.sign throws synchronously
+  // and login looks like "wrong password" to the user.
+  if (!process.env.JWT_SECRET) {
+    if (cfg.jwt_secret) {
+      process.env.JWT_SECRET = cfg.jwt_secret;
+    } else {
+      const fresh = require('crypto').randomBytes(32).toString('hex');
+      process.env.JWT_SECRET = fresh;
+      try {
+        cfg.jwt_secret = fresh;
+        saveConfig(cfg);
+      } catch { /* read-only filesystem etc. — env var still set for this run */ }
+    }
+  }
+
   return true;
 }
 

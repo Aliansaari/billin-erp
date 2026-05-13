@@ -38,71 +38,72 @@ const commonComponents = {
 
 // ─── Mode-specific palettes ─────────────────────────────────────────────────
 export const themeTokens = {
+  /* ─── Classic-Light — iOS Classic v4 teal-cyan palette ──
+   * Cool slate base (#F4F6F8) with teal-cyan accent (#0891A8). Status uses
+   * emerald (credit) and gold (debit) tones from the iOS mock. */
   'classic-light': {
     algorithm: antdTheme.defaultAlgorithm,
     token: {
       ...scale,
-      colorPrimary:      '#4F46E5',
-      colorSuccess:      '#10B981',
-      colorWarning:      '#F59E0B',
-      colorError:        '#EF4444',
-      colorInfo:         '#3B82F6',
-      colorBgLayout:     '#f5f7fa',
-      colorBgContainer:  '#ffffff',
-      colorBgElevated:   '#ffffff',
-      colorText:         '#1f2937',
-      colorTextSecondary:'#6b7280',
-      colorBorder:       '#e5e7eb',
-      colorBorderSecondary:'#f0f0f0',
+      colorPrimary:      '#0891A8',
+      colorSuccess:      '#2D8856',
+      colorWarning:      '#C28534',
+      colorError:        '#DC2626',
+      colorInfo:         '#0891A8',
+      colorBgLayout:     '#F4F6F8',
+      colorBgContainer:  '#FFFFFF',
+      colorBgElevated:   '#FFFFFF',
+      colorText:         '#0A1219',
+      colorTextSecondary:'#3D4D5E',
+      colorBorder:       '#DCE3EB',
+      colorBorderSecondary:'#E8EDF2',
       motion: true,
     },
     components: {
       ...commonComponents,
       Table: {
         ...commonComponents.Table,
-        headerBg:          'rgba(79,70,229,0.05)',
-        headerColor:       '#1f2937',
-        rowHoverBg:        'rgba(79,70,229,0.04)',
-        headerSortActiveBg:'rgba(79,70,229,0.08)',
+        headerBg:          'rgba(8,145,168,0.05)',
+        headerColor:       '#0A1219',
+        rowHoverBg:        'rgba(8,145,168,0.04)',
+        headerSortActiveBg:'rgba(8,145,168,0.08)',
       },
-      Card: { ...commonComponents.Card, boxShadowTertiary: '0 1px 2px rgba(0,0,0,0.03), 0 2px 4px rgba(0,0,0,0.02)' },
+      Card: { ...commonComponents.Card, boxShadowTertiary: '0 1px 2px rgba(10,18,25,0.04), 0 2px 4px rgba(10,18,25,0.02)' },
     },
   },
 
-  /* ─── Classic-Dark "Graphite" — pure neutral, no navy ──
-   * Stakes out neutral-deep-gray with a subtle violet undertone
-   * (hue ~250, very low saturation). Distinct from generic cool
-   * slate-blue (which every web app ships) AND from Editorial's
-   * warm-brown territory. See themes.css for full design notes. */
+  /* ─── Classic-Dark "Teal-Cyan Ink" — deep ink base, brighter cyan accent ──
+   * Mirrors iOS Classic v4 dark mode. Background #0A1219 with teal-cyan
+   * accent #0EAFCA (brighter than light-mode #0891A8 for readability). */
   'classic-dark': {
     algorithm: antdTheme.darkAlgorithm,
     token: {
       ...scale,
-      colorPrimary:      '#A5B4FC',
-      colorSuccess:      '#4ADE80',
-      colorWarning:      '#FBBF24',
+      colorPrimary:      '#0EAFCA',
+      colorSuccess:      '#4FB082',
+      colorWarning:      '#E0A45A',
       colorError:        '#FB7185',
-      colorInfo:         '#7DD3FC',
-      colorBgLayout:     '#131418',
-      colorBgContainer:  '#1C1D23',
-      colorBgElevated:   '#25272E',
-      colorText:         '#ECEDF1',
-      colorTextSecondary:'#A1A4AE',
-      colorBorder:       '#2D2F36',
-      colorBorderSecondary:'#21222A',
+      colorInfo:         '#0EAFCA',
+      colorBgLayout:     '#0A1219',
+      colorBgContainer:  '#131D26',
+      colorBgElevated:   '#1C2832',
+      colorText:         '#E8EDF2',
+      colorTextSecondary:'#94A3B6',
+      colorBorder:       'rgba(255, 255, 255, 0.13)',
+      colorBorderSecondary:'rgba(255, 255, 255, 0.07)',
       motion: true,
     },
     components: {
       ...commonComponents,
       Table: {
         ...commonComponents.Table,
-        headerBg:          '#17181D',
-        headerColor:       '#ECEDF1',
-        rowHoverBg:        'rgba(165, 180, 252, 0.06)',
-        headerSortActiveBg:'rgba(165, 180, 252, 0.12)',
+        headerBg:          '#0F1820',
+        headerColor:       '#E8EDF2',
+        rowHoverBg:        'rgba(14, 175, 202, 0.08)',
+        headerSortActiveBg:'rgba(14, 175, 202, 0.14)',
       },
-      Card: { ...commonComponents.Card, colorBgContainer: '#1C1D23' },
-      Menu: { ...commonComponents.Menu, darkItemBg: '#0E0F13', darkSubMenuItemBg: '#0E0F13' },
+      Card: { ...commonComponents.Card, colorBgContainer: '#131D26' },
+      Menu: { ...commonComponents.Menu, darkItemBg: '#060B11', darkSubMenuItemBg: '#060B11' },
     },
   },
 

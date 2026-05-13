@@ -18,6 +18,7 @@ import ChangePassword from './pages/ChangePassword';
 import ServerSetup, { useNeedsServerSetup } from './pages/ServerSetup';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
+import DashboardClassic from './pages/DashboardClassic';
 import CustomerList from './pages/parties/CustomerList';
 import SupplierList from './pages/parties/SupplierList';
 import ProductList from './pages/inventory/ProductList';
@@ -435,7 +436,8 @@ export default function App() {
             operator's intended starting route is gated off.
           */}
           <Route index element={<Home />} />
-          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="dashboard"          element={<Dashboard />} />
+          <Route path="dashboard/classic"  element={<DashboardClassic />} />
 
           {/* Parties */}
           <Route path="customers"    element={<RoleRoute perm="parties.view"><CustomerList /></RoleRoute>} />
