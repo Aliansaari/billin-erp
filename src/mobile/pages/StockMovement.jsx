@@ -1,12 +1,30 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { productAPI } from '../../api';
 import { formatINR, formatShortDate } from '../utils/format';
+import { shareViaNative } from '../utils/sharePdf';
 import './StockMovement.css';
+import './ReportList.css';
 
 const ChevL = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+);
+const PdfIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/>
+  </svg>
+);
+const ShareIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
+  </svg>
+);
+const CloseIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 6 6 18M6 6l12 12"/>
+  </svg>
 );
 
 const TYPE_COLORS = {
@@ -37,6 +55,9 @@ export default function StockMovement() {
   const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfUrl,  setPdfUrl]  = useState(null);
+  const pdfUrlRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +108,70 @@ export default function StockMovement() {
     return { totalIn, totalOut, closing: totalIn - totalOut };
   }, [movements]);
 
+  async function generatePdf() {
+    if (filtered.length === 0) return null;
+    const pName = product?.product_name || product?.name || 'Product';
+    const unit  = product?.unit_of_measurement || product?.unit || 'pcs';
+    try {
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import('jspdf'), import('jspdf-autotable'),
+      ]);
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+      doc.text(`Stock Movement — ${pName}`, 40, 40);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      doc.text(`${filtered.length} transactions · In ${stats.totalIn} ${unit} · Out ${stats.totalOut} ${unit} · Closing ${stats.closing} ${unit}`, 40, 56);
+      autoTable(doc, {
+        startY: 72,
+        head: [['Date', 'Type', 'Reference', 'Party', 'In', 'Out', 'Balance']],
+        body: filtered.map((m) => [
+          formatShortDate(m.transaction_date),
+          shortType(m.transaction_type),
+          m.reference_number || '—',
+          m.party_name || '—',
+          Number(m.quantity_in  || 0) || '',
+          Number(m.quantity_out || 0) || '',
+          m._balance,
+        ]),
+        styles: { fontSize: 8, cellPadding: 3 },
+        headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      });
+      const safe = pName.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+      return { blob: doc.output('blob'), fileName: `stock-movement-${safe}.pdf` };
+    } catch (e) { console.error('PDF', e); return null; }
+  }
+
+  async function handleViewPdf() {
+    if (filtered.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+      const url = URL.createObjectURL(result.blob);
+      pdfUrlRef.current = url;
+      setPdfUrl(url);
+    } finally { setPdfBusy(false); }
+  }
+
+  async function handleSharePdf() {
+    if (filtered.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      const ok = await shareViaNative(result.blob, result.fileName, 'Stock Movement');
+      if (!ok) Toast.show({ icon: 'fail', content: 'Share failed' });
+    } finally { setPdfBusy(false); }
+  }
+
+  function closePdfViewer() {
+    setPdfUrl(null);
+    if (pdfUrlRef.current) { URL.revokeObjectURL(pdfUrlRef.current); pdfUrlRef.current = null; }
+  }
+
   const name = product?.product_name || product?.name || 'Product';
   const unit = product?.unit_of_measurement || product?.unit || 'pcs';
   const purRate = Number(product?.purchase_rate ?? product?.display_cost ?? 0);
@@ -110,6 +195,23 @@ export default function StockMovement() {
           {meta.length > 0 && <div className="sm-top-meta">{meta.join(' · ')}</div>}
           <div className="sm-top-sub">{unit} · {movements.length} transactions</div>
         </div>
+        <button
+          className="sm-icon-btn"
+          onClick={handleViewPdf}
+          disabled={pdfBusy || filtered.length === 0}
+          aria-label="PDF preview"
+          style={{ color: filtered.length && !pdfBusy ? 'var(--c-primary)' : undefined }}
+        >
+          <PdfIcon />
+        </button>
+        <button
+          className="sm-icon-btn"
+          onClick={handleSharePdf}
+          disabled={pdfBusy || filtered.length === 0}
+          aria-label="Share PDF"
+        >
+          <ShareIcon />
+        </button>
       </div>
 
       {/* Product stats card */}
@@ -221,6 +323,29 @@ export default function StockMovement() {
           <div className="sm-footer-sum">
             <span className="sm-footer-in">↑ {stats.totalIn}</span>
             <span className="sm-footer-out">↓ {stats.totalOut}</span>
+          </div>
+        </div>
+      )}
+
+      {/* PDF overlay */}
+      {pdfUrl && (
+        <div className="rl-pdf-overlay">
+          <div className="rl-pdf-toolbar">
+            <button className="rl-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
+            <span className="rl-pdf-title">Stock Movement</span>
+            <button className="rl-pdf-share" onClick={async () => {
+              try {
+                const resp = await fetch(pdfUrlRef.current);
+                const blob = await resp.blob();
+                const safe = name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+                await shareViaNative(blob, `stock-movement-${safe}.pdf`, 'Stock Movement');
+              } catch { Toast.show({ icon: 'fail', content: 'Share failed' }); }
+            }} aria-label="Share"><ShareIcon /></button>
+          </div>
+          <div className="rl-pdf-body">
+            <iframe className="rl-pdf-frame" src={pdfUrl} title="Stock Movement PDF"
+              style={{ width: '612px', minHeight: '792px', transform: `scale(${window.innerWidth / 612})`, transformOrigin: 'top left' }}
+            />
           </div>
         </div>
       )}

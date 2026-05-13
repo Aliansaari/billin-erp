@@ -3,7 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { partyAPI, ledgerAPI, settingsAPI } from '../../api';
 import { formatINR, isoDate, defaultFY } from '../utils/format';
+import { useBack } from '../utils/useBack';
 import { buildStatementPdf } from '../../utils/ledgerPdf';
+import { shareViaNative } from '../utils/sharePdf';
 import './ReportList.css';
 
 // ── Icons ──────────────────────────────────────────────────────────────
@@ -22,11 +24,15 @@ const ChevDown = () => (
     <path d="M6 9l6 6 6-6"/>
   </svg>
 );
+const PdfIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/>
+  </svg>
+);
 const ShareIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-    <polyline points="16 6 12 2 8 6"/>
-    <line x1="12" y1="2" x2="12" y2="15"/>
+    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
   </svg>
 );
 const CloseIcon = () => (
@@ -48,63 +54,6 @@ async function loadCompany() {
     _companyCache = {};
   }
   return _companyCache;
-}
-
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function shareViaNative(blob, fileName, title, text) {
-  const cap = window.Capacitor;
-  const isNative = cap?.isNativePlatform?.();
-
-  if (isNative && cap.nativePromise) {
-    try {
-      const base64 = await blobToBase64(blob);
-      const saved = await cap.nativePromise('Filesystem', 'writeFile', { path: fileName, data: base64, directory: 'CACHE' });
-      await cap.nativePromise('Share', 'share', { title, text, url: saved.uri, dialogTitle: title });
-      return true;
-    } catch (e) {
-      if (e?.message?.includes('canceled') || e?.message?.includes('cancel')) return true;
-    }
-  }
-
-  if (isNative) {
-    try {
-      const [{ Filesystem, Directory }, { Share }] = await Promise.all([
-        import('@capacitor/filesystem'), import('@capacitor/share'),
-      ]);
-      const base64 = await blobToBase64(blob);
-      const saved = await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache });
-      await Share.share({ title, text, url: saved.uri, dialogTitle: title });
-      return true;
-    } catch (e) {
-      if (e?.message?.includes('canceled') || e?.message?.includes('cancel')) return true;
-    }
-  }
-
-  try {
-    const file = new File([blob], fileName, { type: 'application/pdf' });
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ title, text, files: [file] });
-      return true;
-    }
-  } catch (e) {
-    if (e?.name === 'AbortError') return true;
-  }
-
-  try {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = fileName; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-    return true;
-  } catch { return false; }
 }
 
 // ── Period presets ─────────────────────────────────────────────────────
@@ -163,6 +112,7 @@ function fmtBal(value, side) {
 // ── Component ──────────────────────────────────────────────────────────
 export default function PartyStatement({ partyType = 'Customer' }) {
   const navigate = useNavigate();
+  const goBack = useBack('/reports');
   const [urlParams, setUrlParams] = useSearchParams();
 
   const isCustomer = partyType === 'Customer';
@@ -347,6 +297,44 @@ export default function PartyStatement({ partyType = 'Customer' }) {
     if (pdfUrlRef.current) { URL.revokeObjectURL(pdfUrlRef.current); pdfUrlRef.current = null; }
   }, []);
 
+  const handleSharePdf = useCallback(async () => {
+    if (!partyId || !meta) return;
+    setPdfBusy(true);
+    try {
+      const company = await loadCompany();
+      const companyName = company?.company_name || company?.name;
+      const stmtTitle = isCustomer ? 'Customer Statement' : 'Supplier Statement';
+      const entriesForPdf = filtered.map((e) => ({
+        ...e,
+        date:    e.entry_date || e.date,
+        balance: e._runningAmt !== undefined
+          ? (e._runningSide === 'Dr' ? e._runningAmt : -e._runningAmt)
+          : (e.balance || 0),
+      }));
+      const statement = {
+        entries:         entriesForPdf,
+        period:          { from: fromDate, to: toDate },
+        opening_balance: meta.opening_balance,
+        opening_side:    meta.opening_side,
+        closing_balance: meta.closing_balance,
+        closing_side:    meta.closing_side,
+        total_debit:     meta.total_debit,
+        total_credit:    meta.total_credit,
+      };
+      const partyObj = parties.find((p) => p.party_id === partyId) || null;
+      const result = await buildStatementPdf({ title: stmtTitle, subtitle: partyName, statement, party: partyObj, companyName });
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      const safe = (partyName || 'statement').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+      const fileName = `${isCustomer ? 'customer' : 'supplier'}-statement-${safe}.pdf`;
+      const ok = await shareViaNative(result.blob, fileName, stmtTitle);
+      if (!ok) Toast.show({ icon: 'fail', content: 'Share failed' });
+    } catch {
+      Toast.show({ icon: 'fail', content: 'Share failed' });
+    } finally {
+      setPdfBusy(false);
+    }
+  }, [partyId, meta, filtered, fromDate, toDate, isCustomer, partyName, parties]);
+
   const handleShareFromViewer = useCallback(async () => {
     if (!pdfUrlRef.current) return;
     try {
@@ -368,17 +356,28 @@ export default function PartyStatement({ partyType = 'Customer' }) {
 
       {/* ── Topbar ── */}
       <div className="rl-top">
-        <button className="rl-icon-btn framed" onClick={() => (window.history.state?.idx > 0 ? navigate(-1) : navigate('/reports'))} aria-label="Back">
+        <button className="rl-icon-btn framed" onClick={goBack} aria-label="Back">
           <ChevL />
         </button>
         <h1 className="rl-title" style={{ textTransform: 'none' }}>
           {isCustomer ? <>Customer <em>statement</em></> : <>Supplier <em>statement</em></>}
         </h1>
         {partyId && (
-          <button className="rl-icon-btn" onClick={handleViewPdf} disabled={pdfBusy} aria-label="PDF / Share">
+          <button
+            className="rl-icon-btn"
+            onClick={handleViewPdf}
+            disabled={pdfBusy}
+            aria-label="PDF preview"
+            style={{ color: !pdfBusy ? 'var(--c-primary)' : undefined }}
+          >
             {pdfBusy
               ? <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-primary)' }}>…</span>
-              : <ShareIcon />}
+              : <PdfIcon />}
+          </button>
+        )}
+        {partyId && (
+          <button className="rl-icon-btn" onClick={handleSharePdf} disabled={pdfBusy} aria-label="Share PDF">
+            <ShareIcon />
           </button>
         )}
         {partyId && (
@@ -449,7 +448,7 @@ export default function PartyStatement({ partyType = 'Customer' }) {
       )}
 
       {/* ── Ledger list (padded for sticky footer) ── */}
-      <div className="rl-list" style={hasData ? { paddingBottom: 72 } : {}}>
+      <div className="rl-list">
 
         {/* Opening balance row */}
         {!loading && meta && (

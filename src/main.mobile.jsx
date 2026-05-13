@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import '@fontsource-variable/source-sans-3';
 import App from './mobile/App';
@@ -36,8 +36,8 @@ try {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <MemoryRouter initialEntries={['/']} initialIndex={0}>
       <App />
-    </BrowserRouter>
+    </MemoryRouter>
   </React.StrictMode>
 );

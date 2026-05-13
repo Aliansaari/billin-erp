@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
-import { authAPI, companyAPI, setServerUrl as saveServerUrl, getServerUrl, probeServer } from '../../api';
+import { authAPI, companyAPI, setServerUrl as saveServerUrl, getServerUrl } from '../../api';
 import useAuthStore from '../../store/authStore';
 import CompanySheet from '../components/CompanySheet';
 import './Login.css';
@@ -100,8 +100,8 @@ export default function Login() {
 
   const [serverOpen,   setServerOpen]   = useState(false);
   const [serverUrl,    setServerUrlVal] = useState(() => getServerUrl());
-  const [serverStatus, setServerStatus] = useState(null); // null | 'testing' | 'ok' | 'err'
-  const [serverErrMsg, setServerErrMsg] = useState('');
+  const [serverSaving, setServerSaving] = useState(false);
+  const [serverErr,    setServerErr]    = useState('');
 
   // Pull the last-used company id (saved post-login) so we can pre-select
   // it on next launch — saves a tap for the common single-firm case.
@@ -135,19 +135,27 @@ export default function Login() {
 
   const selectedCompany = companies.find((c) => c.company_id === selectedCompanyId);
 
-  async function handleTestServer() {
+  async function handleSaveServer() {
     const url = serverUrl.trim().replace(/\/+$/, '');
     if (!url) return;
-    setServerStatus('testing');
-    setServerErrMsg('');
+    setServerSaving(true);
+    setServerErr('');
     try {
-      await probeServer(url);
-      setServerStatus('ok');
+      const res = await fetch(`${url}/api/companies/list-public`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const json = await res.json();
       saveServerUrl(url);
-      setTimeout(() => window.location.reload(), 700);
+      const list = normalizeCompanies(json, lastUsedId);
+      setCompanies(list);
+      const initial = lastUsedId && list.find((c) => c.company_id === lastUsedId)
+        ? lastUsedId
+        : (list[0]?.company_id ?? null);
+      setSelectedCompanyId(initial);
+      setServerOpen(false);
     } catch (e) {
-      setServerStatus('err');
-      setServerErrMsg(e?.message || 'Could not reach server');
+      setServerErr(`Cannot reach server: ${e.message}`);
+    } finally {
+      setServerSaving(false);
     }
   }
 
@@ -201,6 +209,42 @@ export default function Login() {
           <h1>Welcome <em>back.</em></h1>
           <p>Sign in to continue to your firm.</p>
         </div>
+
+        {/* Inline server setup — shown prominently when no server is configured */}
+        {serverOpen && companies.length === 0 && (
+          <div className="login-server-card">
+            <div className="login-server-card-head">
+              <ServerIcon />
+              <span>Connect to server</span>
+            </div>
+            <p className="login-server-card-desc">
+              Enter your Mac's IP and port, e.g. <strong>http://192.168.1.101:3001</strong>
+            </p>
+            <div className="login-server-row">
+              <label className="login-input login-server-input">
+                <input
+                  type="url"
+                  className="login-input-text"
+                  placeholder="http://192.168.x.x:3001"
+                  value={serverUrl}
+                  onChange={(e) => { setServerUrlVal(e.target.value); setServerErr(''); }}
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck="false"
+                />
+              </label>
+              <button
+                type="button"
+                className="login-server-btn"
+                onClick={handleSaveServer}
+                disabled={!serverUrl.trim() || serverSaving}
+              >
+                {serverSaving ? <span className="login-spinner" style={{ width: 13, height: 13 }} /> : 'Connect'}
+              </button>
+            </div>
+            {serverErr && <div className="login-server-err" style={{ marginTop: 8 }}>{serverErr}</div>}
+          </div>
+        )}
 
         {/* Editorial rule */}
         <div className="editorial-rule" aria-hidden>
@@ -316,7 +360,7 @@ export default function Login() {
           {serverOpen && (
             <div className="login-server-body">
               <div className="login-server-desc">
-                Enter your server's LAN address so the app can reach the database.
+                Enter your server's LAN address (e.g. <strong>http://192.168.1.101:3001</strong>).
               </div>
               <div className="login-server-row">
                 <label className="login-input login-server-input">
@@ -325,7 +369,7 @@ export default function Login() {
                     className="login-input-text"
                     placeholder="http://192.168.x.x:3001"
                     value={serverUrl}
-                    onChange={(e) => { setServerUrlVal(e.target.value); setServerStatus(null); }}
+                    onChange={(e) => { setServerUrlVal(e.target.value); setServerErr(''); }}
                     autoCorrect="off"
                     autoCapitalize="none"
                     spellCheck="false"
@@ -333,21 +377,14 @@ export default function Login() {
                 </label>
                 <button
                   type="button"
-                  className={`login-server-btn${serverStatus === 'ok' ? ' ok' : ''}`}
-                  onClick={handleTestServer}
-                  disabled={serverStatus === 'testing' || serverStatus === 'ok'}
+                  className="login-server-btn"
+                  onClick={handleSaveServer}
+                  disabled={!serverUrl.trim() || serverSaving}
                 >
-                  {serverStatus === 'testing'
-                    ? <span className="login-spinner" style={{ width: 12, height: 12 }} />
-                    : serverStatus === 'ok' ? '✓' : 'Connect'}
+                  {serverSaving ? <span className="login-spinner" style={{ width: 13, height: 13 }} /> : 'Connect'}
                 </button>
               </div>
-              {serverStatus === 'err' && (
-                <div className="login-server-err">{serverErrMsg}</div>
-              )}
-              {serverStatus === 'ok' && (
-                <div className="login-server-ok">Connected — reloading…</div>
-              )}
+              {serverErr && <div className="login-server-err" style={{ marginTop: 8 }}>{serverErr}</div>}
             </div>
           )}
         </div>

@@ -4,6 +4,7 @@ import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import ActivityRow from '../components/ActivityRow';
 import { formatINR, isoDate } from '../utils/format';
+import { shareViaNative } from '../utils/sharePdf';
 import './DayBook.css';
 
 // ── Inline icons ──────────────────────────────────────────────────────
@@ -15,6 +16,17 @@ const SearchIcon = () => (
 );
 const PdfIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></svg>
+);
+const ShareIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
+  </svg>
+);
+const CloseIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 6 6 18M6 6l12 12"/>
+  </svg>
 );
 
 // ── Voucher type definitions ─────────────────────────────────────────
@@ -69,7 +81,10 @@ export default function DayBook() {
   const [searchOn, setSearchOn] = useState(false);
   const [search,   setSearch]   = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
+  const [pdfBusy,  setPdfBusy]  = useState(false);
+  const [pdfUrl,   setPdfUrl]   = useState(null);
   const searchRef = useRef(null);
+  const pdfUrlRef = useRef(null);
 
   // Keep URL in sync with picked range so back/forward + deep-links round-trip.
   useEffect(() => {
@@ -172,50 +187,64 @@ export default function DayBook() {
   // jsPDF + autotable are ~350KB combined and only needed on Export tap,
   // so dynamic-import them here. The first export takes ~300ms longer
   // than later ones (the chunk has to download); after that it's cached.
-  async function exportPdf() {
-    if (filtered.length === 0) {
-      Toast.show({ content: 'Nothing to export' });
-      return;
-    }
+  async function generatePdf() {
+    if (filtered.length === 0) return null;
     try {
       const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
-        import('jspdf'),
-        import('jspdf-autotable'),
+        import('jspdf'), import('jspdf-autotable'),
       ]);
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
       const title = `Day Book — ${prettyDate(fromDate)}${fromDate !== toDate ? ` – ${prettyDate(toDate)}` : ''}`;
       const subtitle = filter === 'all' ? `All vouchers (${filtered.length})` : `${filterLabel(filter)} (${filtered.length})`;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
       doc.text(title, 40, 40);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
       doc.text(subtitle, 40, 56);
       autoTable(doc, {
         startY: 72,
         head: [['Date', 'Type', 'No', 'Party / Account', 'Debit', 'Credit']],
         body: filtered.map((r) => [
-          r.entry_date,
-          r.voucher_type,
-          r.voucher_no || '',
-          r.party_or_account || '',
+          r.entry_date, r.voucher_type, r.voucher_no || '', r.party_or_account || '',
           r.debit  ? formatINR(r.debit)  : '',
           r.credit ? formatINR(r.credit) : '',
         ]),
-        styles:      { fontSize: 9, cellPadding: 4 },
-        headStyles:  { fillColor: [181, 66, 28], textColor: [255, 244, 234], fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [181, 66, 28], textColor: [255, 244, 234], fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [251, 248, 241] },
-        columnStyles: {
-          4: { halign: 'right' },
-          5: { halign: 'right' },
-        },
+        columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' } },
       });
-      const filename = `day-book-${fromDate}${fromDate !== toDate ? `_to_${toDate}` : ''}.pdf`;
-      doc.save(filename);
-      Toast.show({ icon: 'success', content: 'Exported' });
-    } catch (e) {
-      Toast.show({ icon: 'fail', content: 'Export failed' });
-    }
+      const fileName = `day-book-${fromDate}${fromDate !== toDate ? `_to_${toDate}` : ''}.pdf`;
+      return { blob: doc.output('blob'), fileName };
+    } catch (e) { console.error('PDF', e); return null; }
+  }
+
+  async function handleViewPdf() {
+    if (filtered.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+      const url = URL.createObjectURL(result.blob);
+      pdfUrlRef.current = url;
+      setPdfUrl(url);
+    } finally { setPdfBusy(false); }
+  }
+
+  async function handleSharePdf() {
+    if (filtered.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      const ok = await shareViaNative(result.blob, result.fileName, 'Day Book');
+      if (!ok) Toast.show({ icon: 'fail', content: 'Share failed' });
+    } finally { setPdfBusy(false); }
+  }
+
+  function closePdfViewer() {
+    setPdfUrl(null);
+    if (pdfUrlRef.current) { URL.revokeObjectURL(pdfUrlRef.current); pdfUrlRef.current = null; }
   }
 
   function filterLabel(key) {
@@ -246,11 +275,20 @@ export default function DayBook() {
         </button>
         <button
           className="db-icon-btn"
-          onClick={exportPdf}
-          aria-label="Export PDF"
-          style={{ color: filtered.length ? 'var(--c-primary)' : 'var(--c-text-mute)' }}
+          onClick={handleViewPdf}
+          disabled={pdfBusy || filtered.length === 0}
+          aria-label="PDF preview"
+          style={{ color: filtered.length && !pdfBusy ? 'var(--c-primary)' : undefined }}
         >
           <PdfIcon />
+        </button>
+        <button
+          className="db-icon-btn"
+          onClick={handleSharePdf}
+          disabled={pdfBusy || filtered.length === 0}
+          aria-label="Share PDF"
+        >
+          <ShareIcon />
         </button>
       </div>
 
@@ -347,13 +385,46 @@ export default function DayBook() {
             }}
           />
         ))}
-        {!loading && filtered.length > 0 && (
-          <div className="db-footer">
-            <span>{total} voucher{total === 1 ? '' : 's'}</span>
-            <span>Dr ₹{formatINR(totalDebit)} · Cr ₹{formatINR(totalCredit)}</span>
-          </div>
-        )}
       </div>
+
+      {/* Footer — outside scroll so it stays visible, above tab bar */}
+      {!loading && filtered.length > 0 && (
+        <div className="db-footer">
+          <span className="db-footer-count">{total} voucher{total === 1 ? '' : 's'}</span>
+          {filter === 'all' ? (
+            <div className="db-footer-totals">
+              <span><span className="db-footer-lbl">DR</span>₹{formatINR(totalDebit)}</span>
+              <span className="db-footer-sep">·</span>
+              <span><span className="db-footer-lbl">CR</span>₹{formatINR(totalCredit)}</span>
+            </div>
+          ) : (
+            <span className="db-footer-total">₹{formatINR(totalDebit + totalCredit)}</span>
+          )}
+        </div>
+      )}
+
+      {/* PDF preview overlay */}
+      {pdfUrl && (
+        <div className="db-pdf-overlay">
+          <div className="db-pdf-toolbar">
+            <button className="db-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
+            <span className="db-pdf-title">Day Book</span>
+            <button className="db-pdf-share" onClick={async () => {
+              try {
+                const resp = await fetch(pdfUrlRef.current);
+                const blob = await resp.blob();
+                const fileName = `day-book-${fromDate}${fromDate !== toDate ? `_to_${toDate}` : ''}.pdf`;
+                await shareViaNative(blob, fileName, 'Day Book');
+              } catch { Toast.show({ icon: 'fail', content: 'Share failed' }); }
+            }} aria-label="Share"><ShareIcon /></button>
+          </div>
+          <div className="db-pdf-body">
+            <iframe className="db-pdf-frame" src={pdfUrl} title="Day Book PDF"
+              style={{ width: '612px', minHeight: '792px', transform: `scale(${window.innerWidth / 612})`, transformOrigin: 'top left' }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* More-types bottom sheet */}
       {moreOpen && (

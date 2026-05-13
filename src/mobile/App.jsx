@@ -13,6 +13,7 @@ import DayBook from './pages/DayBook';
 import Search from './pages/Search';
 import Stock from './pages/Stock';
 import StockMovement from './pages/StockMovement';
+import StockMovementPicker from './pages/StockMovementPicker';
 import SimpleScreen from './pages/SimpleScreen';
 import Outstanding from './pages/Outstanding';
 import Reports from './pages/Reports';
@@ -24,6 +25,20 @@ import PurchaseReport from './pages/PurchaseReport';
 import MonthlySummary from './pages/MonthlySummary';
 import LedgerPage from './pages/LedgerPage';
 import PartyStatement from './pages/PartyStatement';
+import TrialBalanceMobile from './pages/TrialBalanceMobile';
+import ProfitLossMobile from './pages/ProfitLossMobile';
+import BalanceSheetMobile from './pages/BalanceSheetMobile';
+import GstSummary from './pages/GstSummary';
+import Gstr1Mobile from './pages/Gstr1Mobile';
+import Gstr3bMobile from './pages/Gstr3bMobile';
+import CashFlowMobile from './pages/CashFlowMobile';
+import BillsOutstanding from './pages/BillsOutstanding';
+import SalesReturn from './pages/SalesReturn';
+import PurchaseReturn from './pages/PurchaseReturn';
+import SalesByItem from './pages/SalesByItem';
+import PurchaseByItem from './pages/PurchaseByItem';
+import FastSlowMovers from './pages/FastSlowMovers';
+import ReorderAlert from './pages/ReorderAlert';
 import AppShell from './components/AppShell';
 
 function ProtectedRoute({ children }) {
@@ -92,8 +107,24 @@ export default function MobileApp() {
           <Route path="/reports/purchases" element={<PurchaseReport />} />
           <Route path="/reports/monthly" element={<MonthlySummary />} />
           <Route path="/reports/ledger"  element={<LedgerPage />} />
+          <Route path="/reports/stock-movement" element={<StockMovementPicker />} />
           <Route path="/reports/customer-statement" element={<PartyStatement partyType="Customer" />} />
           <Route path="/reports/supplier-statement" element={<PartyStatement partyType="Supplier" />} />
+          <Route path="/reports/bills-receivable" element={<BillsOutstanding partyType="Customer" />} />
+          <Route path="/reports/bills-payable"    element={<BillsOutstanding partyType="Supplier" />} />
+          <Route path="/reports/sales-return"     element={<SalesReturn />} />
+          <Route path="/reports/purchase-return"  element={<PurchaseReturn />} />
+          <Route path="/reports/sales-by-item"    element={<SalesByItem />} />
+          <Route path="/reports/purchase-by-item" element={<PurchaseByItem />} />
+          <Route path="/reports/fast-slow"        element={<FastSlowMovers />} />
+          <Route path="/reports/reorder-alert"    element={<ReorderAlert />} />
+          <Route path="/reports/trial-balance"  element={<TrialBalanceMobile />} />
+          <Route path="/reports/profit-loss"    element={<ProfitLossMobile />} />
+          <Route path="/reports/balance-sheet"  element={<BalanceSheetMobile />} />
+          <Route path="/reports/gst-summary"   element={<GstSummary />} />
+          <Route path="/reports/gstr1"          element={<Gstr1Mobile />} />
+          <Route path="/reports/gstr3b"         element={<Gstr3bMobile />} />
+          <Route path="/reports/cash-flow"      element={<CashFlowMobile />} />
           <Route path="/search"     element={<Search />} />
         </Route>
 

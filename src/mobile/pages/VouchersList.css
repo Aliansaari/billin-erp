@@ -173,10 +173,11 @@
 /* ── List ────────────────────────────────────────────────────────────── */
 .vl-list-wrap {
   flex: 1;
-  overflow-y: auto;
+  overflow-y: scroll;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   background: var(--c-bg-surface);
-  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 24px);
 }
 
 .vl-list-wrap .act-row {
@@ -303,6 +304,7 @@
   border-radius: 22px 22px 0 0;
   z-index: 101;
   max-height: 70vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -344,8 +346,12 @@
 }
 
 .vl-sheet-list {
-  overflow-y: auto;
+  overflow-y: scroll;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  flex: 1;
+  min-height: 0;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 32px);
 }
 
 .vl-sheet-item {
@@ -366,6 +372,7 @@
   color: var(--c-text);
   letter-spacing: -0.005em;
   font-family: inherit;
+  touch-action: pan-y;
 }
 .vl-sheet-item:active { background: var(--c-primary-soft); }
 .vl-sheet-item.active { color: var(--c-primary); }

@@ -4,50 +4,58 @@
  * ════════════════════════════════════════════════════════════════════════ */
 
 .ed-dashboard {
-  --ed-bg:        #F6F1E2;
-  --ed-paper:     #FCF8EB;
-  --ed-surface:   #F0EAD8;
-  --ed-surface-2: #E8E1CC;
+  /* Map dashboard editorial vars onto the global theme tokens so the page
+     follows whatever palette is active (classic-light/dark, modern-*). */
+  --ed-bg:        var(--bg-app);
+  --ed-paper:     var(--bg-panel);
+  --ed-surface:   var(--bg-muted);
+  --ed-surface-2: var(--bg-hover);
 
-  --ed-ink-1: #0E0C09;
-  --ed-ink-2: #28231E;
-  --ed-ink-3: #4A4138;
-  --ed-ink-4: #6B6155;
-  --ed-ink-5: #8B8074;
-  --ed-ink-6: #B5A893;
-  --ed-ink-7: #D6CAB0;
+  --ed-ink-1: var(--fg-primary);
+  --ed-ink-2: var(--fg-primary);
+  --ed-ink-3: var(--fg-secondary);
+  --ed-ink-4: var(--fg-secondary);
+  --ed-ink-5: var(--fg-tertiary);
+  --ed-ink-6: var(--fg-tertiary);
+  --ed-ink-7: var(--border-strong);
 
-  --ed-line:        rgba(14, 12, 9, 0.06);
-  --ed-line-strong: rgba(14, 12, 9, 0.12);
-  --ed-line-heavy:  rgba(14, 12, 9, 0.20);
+  --ed-line:        var(--border-subtle);
+  --ed-line-strong: var(--border);
+  --ed-line-heavy:  var(--border-strong);
 
-  --ed-accent:      #C44E18;
-  --ed-accent-soft: rgba(196, 78, 24, 0.10);
-  --ed-accent-deep: #8A3410;
+  --ed-accent:      var(--accent);
+  --ed-accent-soft: var(--accent-bg);
+  --ed-accent-deep: var(--accent-hover);
 
-  --ed-pos:      #4F8A3F;
-  --ed-pos-soft: rgba(79, 138, 63, 0.10);
+  --ed-pos:      var(--success);
+  --ed-pos-soft: var(--success-bg);
 
-  --ed-neg:      #B84A33;
-  --ed-neg-soft: rgba(184, 74, 51, 0.10);
+  --ed-neg:      var(--danger);
+  --ed-neg-soft: var(--danger-bg);
 
-  --ed-warn:      #BC8732;
-  --ed-warn-soft: rgba(188, 135, 50, 0.10);
+  --ed-warn:      var(--warning);
+  --ed-warn-soft: var(--warning-bg);
 
-  --ed-info:      #4A6B7E;
-  --ed-info-soft: rgba(74, 107, 126, 0.10);
+  --ed-info:      var(--info);
+  --ed-info-soft: var(--info-bg);
 
-  --ed-plum:      #6B4A6E;
-  --ed-plum-soft: rgba(107, 74, 110, 0.10);
+  --ed-plum:      var(--accent);
+  --ed-plum-soft: var(--accent-bg);
 
   background: var(--ed-bg);
-  min-height: 100%;
+  /* AppLayout marks /dashboard as isFullPage → Content has zero padding +
+     fixed viewport height with overflow:hidden. The dashboard owns its
+     own scroll, so the sticky topbar pins flush against the actual top
+     of the visible scroll area, with no gaps on top or sides. */
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
   color: var(--ed-ink-1);
-  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: inherit;
   font-size: 13px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
-  margin: -16px;            /* counter the app layout's padding */
+  margin: 0;
   padding: 0 0 32px;
   position: relative;
 }
@@ -98,32 +106,36 @@
 /* ────────────────────────────────────────────────────────────────────────
  *  TOP BAR (sticky)
  * ──────────────────────────────────────────────────────────────────────── */
-.ed-topbar {
-  background: rgba(246, 241, 226, 0.85);
-  border-bottom: 1px solid var(--ed-line);
-  padding: 12px 28px;
+/* Dashboard topbar piggybacks on `.rpt-page-hd` (in global.css) for its
+ * visual style — same 22px h1, padding, border, panel background as every
+ * other report page. We layer `.ed-topbar` on the same element only to add
+ * sticky positioning + z-index so the bar stays pinned while content scrolls.
+ * The dashboard root sits inside <Content> which has padding clamp(10–24px);
+ * a negative `top` matching that padding pins the bar at the true viewport
+ * edge so scrolled content never bleeds above it. */
+/* .ed-dashboard is the scroll container (isFullPage = no Content
+   padding), so top:0 pins the bar flush at the actual top edge. */
+.ed-dashboard > .ed-topbar {
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex; align-items: center; gap: 14px;
-  backdrop-filter: blur(8px);
 }
 .ed-breadcrumb {
   display: flex; align-items: center; gap: 6px;
-  font-family: 'Geist Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  color: var(--ed-ink-5);
-  letter-spacing: 0.04em;
+  font-family: inherit;
+  font-size: 20px;
+  color: var(--ed-ink-1);
+  letter-spacing: -0.015em;
 }
 .ed-sep  { color: var(--ed-ink-6); }
-.ed-here { color: var(--ed-ink-2); font-weight: 600; }
+.ed-here { color: var(--ed-ink-1); font-weight: 600; }
 .ed-live {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 9px;
   background: var(--ed-pos-soft);
   border: 1px solid rgba(79, 138, 63, 0.2);
   border-radius: 100px;
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px; font-weight: 600;
   letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--ed-pos);
@@ -149,7 +161,7 @@
   padding: 2px;
 }
 .ed-ctrl {
-  font-family: 'Geist', sans-serif;
+  font-family: inherit;
   font-size: 11.5px; font-weight: 500;
   color: var(--ed-ink-4);
   padding: 5px 11px;
@@ -166,7 +178,7 @@
   color: var(--ed-paper);
 }
 .ed-ctrl-pill {
-  font-family: 'Geist', sans-serif;
+  font-family: inherit;
   font-size: 11.5px; font-weight: 500;
   color: var(--ed-ink-3);
   padding: 6px 12px;
@@ -180,21 +192,176 @@
 }
 .ed-ctrl-pill:hover { border-color: var(--ed-line-strong); color: var(--ed-ink-1); }
 
+/* Custom date-range picker — sits beside the period pills so the operator
+   can pick any arbitrary window. The wrapper mimics .ed-ctrl-pill styling. */
+.ed-range-picker.ant-picker {
+  font-family: inherit;
+  background: var(--ed-paper);
+  border: 1px solid var(--ed-line);
+  border-radius: 7px;
+  padding: 4px 10px;
+  height: auto;
+  min-height: 28px;
+}
+.ed-range-picker.ant-picker:hover {
+  border-color: var(--ed-line-strong);
+}
+.ed-range-picker.is-active {
+  border-color: var(--ed-ink-1);
+  background: var(--ed-ink-1);
+}
+.ed-range-picker .ant-picker-input > input {
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--ed-ink-3);
+}
+.ed-range-picker.is-active .ant-picker-input > input { color: var(--ed-paper); }
+.ed-range-picker.is-active .ant-picker-range-separator,
+.ed-range-picker.is-active .ant-picker-suffix,
+.ed-range-picker.is-active .ant-picker-clear { color: var(--ed-paper); }
+.ed-range-picker .ant-picker-input > input::placeholder { color: var(--ed-ink-5); }
+
 /* ────────────────────────────────────────────────────────────────────────
  *  PAGE HEADER
  * ──────────────────────────────────────────────────────────────────────── */
 .ed-page-head {
-  padding: 28px 28px 22px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
+  padding: 10px 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
   border-bottom: 1px solid var(--ed-line);
-  flex-wrap: wrap;
 }
-.ed-page-head-left { min-width: 280px; }
+.ed-page-head-left { min-width: 0; display: flex; align-items: center; }
+
+/* ─── Insight banner — situational subtitle as a polished alert card ───
+   Sits at the top-left of the dashboard, breaking the day's most
+   important data point into: tone-coloured left bar + icon + bold
+   headline + muted detail + secondary stat chips on the right. */
+.ed-insight-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px 8px 16px;
+  background: var(--ed-paper);
+  border: 1px solid var(--ed-line);
+  border-radius: 10px;
+  width: 100%;
+  overflow: hidden;
+  min-height: 44px;
+}
+.ed-insight-banner::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  border-radius: 4px 0 0 4px;
+}
+.ed-insight-banner-icon {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.ed-insight-banner-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.ed-insight-banner-headline {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ed-ink-1);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ed-insight-banner-detail {
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--ed-ink-4);
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.ed-insight-banner-detail strong { color: var(--ed-ink-1); font-weight: 600; }
+.ed-insight-banner-chips {
+  display: flex;
+  gap: 14px;
+  flex-shrink: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--ed-line);
+  align-items: center;
+}
+.ed-insight-banner-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.ed-insight-banner-chip-label {
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ed-ink-5);
+}
+.ed-insight-banner-chip-value {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ed-ink-1);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Tone variants drive the accent bar + icon background + icon colour. */
+.ed-insight-banner--alert::before { background: var(--ed-neg); }
+.ed-insight-banner--alert .ed-insight-banner-icon {
+  background: var(--ed-neg-soft);
+  color: var(--ed-neg);
+}
+.ed-insight-banner--warn::before { background: var(--ed-warn); }
+.ed-insight-banner--warn .ed-insight-banner-icon {
+  background: var(--ed-warn-soft);
+  color: var(--ed-warn);
+}
+.ed-insight-banner--ok::before { background: var(--ed-pos); }
+.ed-insight-banner--ok .ed-insight-banner-icon {
+  background: var(--ed-pos-soft);
+  color: var(--ed-pos);
+}
+.ed-insight-banner--idle::before { background: var(--ed-ink-6); }
+.ed-insight-banner--idle .ed-insight-banner-icon {
+  background: var(--ed-surface);
+  color: var(--ed-ink-5);
+}
+
+@media (max-width: 720px) {
+  .ed-insight-banner { flex-wrap: wrap; }
+  .ed-insight-banner-chips {
+    width: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--ed-line);
+    padding-left: 0;
+    padding-top: 10px;
+    margin-left: 0;
+    margin-top: 4px;
+  }
+}
 .ed-page-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 144, "SOFT" 100;
   font-weight: 400;
   font-size: 40px;
@@ -212,43 +379,112 @@
   line-height: 1.5;
 }
 
+/* Quick stats — four compact horizontal pills. Layout: tone-coloured
+ * left bar · icon chip · (label / sub stacked) · big value on the right.
+ * Fits on a single row beside the insight banner at typical widths. */
 .ed-quick-stats {
-  display: flex;
-  gap: 28px;
-  padding-bottom: 4px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  min-width: 0;
 }
 .ed-qstat {
-  display: flex; flex-direction: column; gap: 4px;
-  min-width: 80px;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 10px 14px 10px 18px;
+  background: var(--ed-paper);
+  border: 1px solid var(--ed-line);
+  border-radius: 10px;
+  min-width: 0;
+  overflow: hidden;
+  transition: border-color 120ms;
+  min-height: 52px;
+}
+.ed-qstat:hover { border-color: var(--ed-line-strong); }
+.ed-qstat::before {
+  content: '';
+  position: absolute;
+  top: 8px; bottom: 8px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+}
+.ed-qstat-head { display: contents; }
+.ed-qstat-icon {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
 }
 .ed-qstat-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
-  font-size: 9px; font-weight: 600;
-  letter-spacing: 0.18em; text-transform: uppercase;
+  grid-column: 2;
+  grid-row: 1;
+  font-family: inherit;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ed-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+.ed-qstat-sub {
+  grid-column: 2;
+  grid-row: 2;
+  font-family: inherit;
+  font-size: 10.5px;
   color: var(--ed-ink-5);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  margin-top: 2px;
 }
 .ed-qstat-val {
-  font-family: 'Fraunces', Georgia, serif;
-  font-variation-settings: "opsz" 30;
-  font-weight: 500;
-  font-size: 20px;
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 22px;
   color: var(--ed-ink-1);
   letter-spacing: -0.025em;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+  flex-shrink: 0;
+  align-self: center;
 }
 .ed-qstat-val.ed-tab {
-  font-family: 'Geist Mono', ui-monospace, monospace;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
 }
-.ed-qstat-sub {
-  font-family: 'Geist Mono', ui-monospace, monospace;
-  font-size: 10px;
-  color: var(--ed-ink-5);
+.ed-qstat-cur {
+  font-size: 0.6em;
+  opacity: 0.55;
+  margin-right: 1px;
   font-weight: 500;
+  vertical-align: 0.18em;
 }
+
+/* Tone variants — drive top accent + icon chip background/colour. */
+.ed-qstat--primary::before { background: var(--ed-accent); }
+.ed-qstat--primary .ed-qstat-icon { background: var(--ed-accent-soft); color: var(--ed-accent); }
+.ed-qstat--warn::before { background: var(--ed-warn); }
+.ed-qstat--warn .ed-qstat-icon { background: var(--ed-warn-soft); color: var(--ed-warn); }
+.ed-qstat--info::before { background: var(--ed-info); }
+.ed-qstat--info .ed-qstat-icon { background: var(--ed-info-soft); color: var(--ed-info); }
+.ed-qstat--pos::before { background: var(--ed-pos); }
+.ed-qstat--pos .ed-qstat-icon { background: var(--ed-pos-soft); color: var(--ed-pos); }
+.ed-qstat--idle::before { background: var(--ed-ink-6); }
+.ed-qstat--idle .ed-qstat-icon { background: var(--ed-surface); color: var(--ed-ink-5); }
 
 /* ────────────────────────────────────────────────────────────────────────
  *  KPI STRIP — 5 cards
@@ -275,7 +511,7 @@
   margin-bottom: 12px;
 }
 .ed-kpi-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px; font-weight: 600;
   letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--ed-ink-5);
@@ -290,7 +526,7 @@
 .ed-mk-plum   { background: var(--ed-plum); }
 
 .ed-kpi-delta {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10.5px; font-weight: 600;
   padding: 3px 7px;
   border-radius: 4px;
@@ -304,7 +540,7 @@
 .ed-kpi-delta.warn { color: var(--ed-warn); background: var(--ed-warn-soft); }
 
 .ed-kpi-value {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 144, "SOFT" 100;
   font-weight: 400;
   font-size: 30px;
@@ -363,7 +599,7 @@
   display: flex; align-items: baseline; gap: 14px;
 }
 .ed-section-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 30;
   font-weight: 400;
   font-size: 22px;
@@ -373,13 +609,13 @@
 }
 .ed-section-title em { font-style: italic; font-weight: 300; color: var(--ed-ink-3); }
 .ed-section-sub {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10.5px;
   color: var(--ed-ink-5);
   letter-spacing: 0.04em;
 }
 .ed-section-link {
-  font-family: 'Geist', sans-serif;
+  font-family: inherit;
   font-size: 12px; font-weight: 500;
   color: var(--ed-ink-3);
   letter-spacing: -0.005em;
@@ -410,7 +646,7 @@
   display: flex; align-items: baseline; gap: 12px;
 }
 .ed-panel-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 30;
   font-weight: 400;
   font-size: 16px;
@@ -420,7 +656,7 @@
 }
 .ed-panel-title em { font-style: italic; font-weight: 300; color: var(--ed-ink-3); }
 .ed-panel-meta {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px;
   color: var(--ed-ink-5);
   letter-spacing: 0.02em;
@@ -455,15 +691,28 @@
 .ed-csum-neg { border-color: var(--ed-neg); }
 .ed-csum-net { border-color: var(--ed-ink-1); }
 .ed-csum-bal { border-color: var(--ed-accent); }
+.ed-csum-warn { border-color: var(--ed-warn); }
+.ed-csum-val-warn { color: var(--ed-warn); }
+
+/* Sales + Purchase trend row — equal-width side-by-side panels, same
+   chrome as the Cash movement / P&L row. Override the 1.7fr:1fr template
+   to balanced 1fr:1fr because both trend panels carry the same content. */
+.ed-row-charts.ed-row-charts--equal { grid-template-columns: 1fr 1fr; }
+
+.ed-legend-meta {
+  color: var(--ed-ink-5);
+  font-weight: 500;
+  margin-left: 4px;
+}
 .ed-csum-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9px; font-weight: 600;
   letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--ed-ink-5);
   margin-bottom: 5px;
 }
 .ed-csum-val {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 30;
   font-weight: 500;
   font-size: 22px;
@@ -476,7 +725,7 @@
 .ed-csum-val-pos { color: var(--ed-pos); }
 .ed-csum-val-neg { color: var(--ed-neg); }
 .ed-csum-delta {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px;
   color: var(--ed-ink-5);
 }
@@ -484,7 +733,77 @@
 .ed-chart-svg-wrap {
   position: relative;
   height: 210px;
+  cursor: crosshair;
 }
+
+/* Hover tooltip — floats over the chart at the cursor's x position,
+   anchored to the data point's y value. translate keeps the pill from
+   running off the left/right edges; the negative top lifts it above
+   the dot so the value-pill never covers the data point. */
+.ed-chart-tip {
+  position: absolute;
+  z-index: 5;
+  transform: translate(-50%, calc(-100% - 12px));
+  background: var(--ed-bg);
+  border: 1px solid var(--ed-line-strong);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--ed-ink-2);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.06);
+  min-width: 120px;
+}
+.ed-chart-tip::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 8px; height: 8px;
+  background: var(--ed-bg);
+  border-right: 1px solid var(--ed-line-strong);
+  border-bottom: 1px solid var(--ed-line-strong);
+}
+.ed-chart-tip--dual {
+  transform: translate(-50%, 0);
+  min-width: 160px;
+}
+.ed-chart-tip--dual::after { display: none; }
+.ed-chart-tip-date {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ed-ink-5);
+  margin-bottom: 4px;
+}
+.ed-chart-tip-val {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--ed-ink-3);
+  line-height: 1.4;
+}
+.ed-chart-tip-val + .ed-chart-tip-val { margin-top: 2px; }
+.ed-chart-tip-val strong {
+  margin-left: auto;
+  color: var(--ed-ink-1);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ed-chart-tip-swatch {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ed-chart-tip--pos .ed-chart-tip-swatch  { background: var(--ed-pos); }
+.ed-chart-tip--warn .ed-chart-tip-swatch { background: var(--ed-warn); }
+.ed-chart-tip--neg .ed-chart-tip-swatch  { background: var(--ed-neg); }
+.ed-chart-tip--bal .ed-chart-tip-swatch  { background: var(--ed-accent); }
 .ed-chart-svg { width: 100%; height: 100%; display: block; }
 .ed-chart-empty {
   display: flex; align-items: center; justify-content: center;
@@ -498,7 +817,7 @@
   display: flex;
   justify-content: space-between;
   margin-top: 10px;
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px;
   color: var(--ed-ink-5);
   letter-spacing: 0.04em;
@@ -517,7 +836,7 @@
 .ed-legend-item { display: flex; align-items: center; gap: 7px; }
 .ed-legend-swatch { width: 12px; height: 3px; border-radius: 2px; }
 .ed-legend-value {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 11px;
   color: var(--ed-ink-2);
   font-weight: 600;
@@ -542,7 +861,7 @@
   letter-spacing: -0.005em;
 }
 .ed-pl-row.ed-total .ed-pl-lbl {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-style: italic;
   font-variation-settings: "opsz" 14;
   font-weight: 400;
@@ -550,14 +869,14 @@
   color: var(--ed-ink-1);
 }
 .ed-pl-val {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 13px; font-weight: 500;
   color: var(--ed-ink-1);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .ed-pl-row.ed-total .ed-pl-val {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-weight: 500;
   font-size: 18px;
   letter-spacing: -0.025em;
@@ -565,7 +884,7 @@
 .ed-pl-val.ed-neg { color: var(--ed-neg); }
 .ed-pl-val.ed-pos { color: var(--ed-pos); }
 .ed-pl-pct {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10.5px;
   color: var(--ed-ink-5);
   text-align: right;
@@ -600,13 +919,13 @@
 .ed-aging-b4 { background: var(--ed-neg); }
 
 .ed-aging-bucket-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px; font-weight: 600;
   letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ed-ink-5);
 }
 .ed-aging-bucket-val {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 30;
   font-weight: 500;
   font-size: 22px;
@@ -618,7 +937,7 @@
 .ed-aging-bucket-val .ed-cur { font-size: 13px; opacity: 0.5; margin-right: 1px; font-weight: 400; }
 .ed-aging-bucket-val.ed-alert { color: var(--ed-neg); }
 .ed-aging-bucket-meta {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px;
   color: var(--ed-ink-5);
   margin-bottom: 6px;
@@ -644,7 +963,7 @@
 .ed-data-table thead th {
   text-align: left;
   padding: 10px 20px;
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px; font-weight: 600;
   letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ed-ink-5);
@@ -664,7 +983,7 @@
 .ed-data-table tbody tr { cursor: pointer; transition: background 0.1s; }
 .ed-data-table tbody tr:hover { background: var(--ed-surface); }
 .ed-data-table td.ed-num {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-variant-numeric: tabular-nums;
   text-align: right;
   font-size: 13px;
@@ -677,7 +996,7 @@
   width: 30px; height: 30px;
   border-radius: 7px;
   color: white;
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-style: italic;
   font-weight: 500;
   font-size: 13px;
@@ -698,14 +1017,14 @@
   font-size: 13px;
 }
 .ed-party-meta {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px;
   color: var(--ed-ink-5);
   margin-top: 2px;
 }
 
 .ed-age-pill {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px; font-weight: 600;
   padding: 3px 8px;
   border-radius: 4px;
@@ -719,7 +1038,7 @@
 .ed-age-pill.ed-aging-b4 { color: var(--ed-neg);  background: var(--ed-neg-soft); }
 
 .ed-credit-pill {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 11px; font-weight: 600;
   padding: 3px 8px;
   border-radius: 4px;
@@ -733,7 +1052,7 @@
 .ed-credit-neg  { color: var(--ed-neg);  background: var(--ed-neg-soft); }
 .ed-credit-over { color: var(--ed-neg);  background: var(--ed-neg-soft); box-shadow: 0 0 0 1px var(--ed-neg); animation: ed-pulse 1.6s ease-in-out infinite; }
 .ed-credit-flat { color: var(--ed-ink-5); background: var(--ed-surface); }
-.ed-credit-na   { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: var(--ed-ink-6); font-style: italic; }
+.ed-credit-na   { font-family: inherit; font-size: 10.5px; color: var(--ed-ink-6); font-style: italic; }
 
 .ed-party-avatar.ed-over-limit {
   box-shadow: 0 0 0 2px var(--ed-paper), 0 0 0 4px var(--ed-neg);
@@ -763,7 +1082,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10.5px;
   color: var(--ed-ink-4);
 }
@@ -813,7 +1132,7 @@
 }
 .ed-topc-row:last-child { border-bottom: none; }
 .ed-topc-rank {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px;
   color: var(--ed-ink-5);
   font-weight: 600;
@@ -830,7 +1149,7 @@
   white-space: nowrap;
 }
 .ed-topc-meta {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px;
   color: var(--ed-ink-5);
   margin-top: 2px;
@@ -845,7 +1164,7 @@
 }
 .ed-topc-bar { height: 100%; background: var(--ed-accent); border-radius: 2px; }
 .ed-topc-value {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 12px; font-weight: 600;
   color: var(--ed-ink-1);
   text-align: right;
@@ -884,14 +1203,14 @@
   white-space: nowrap;
 }
 .ed-prod-meta {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px;
   color: var(--ed-ink-5);
   margin-top: 2px;
 }
 .ed-prod-velocity { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .ed-vel-pill {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px; font-weight: 600;
   padding: 2px 6px;
   border-radius: 3px;
@@ -903,7 +1222,7 @@
 .ed-vel-med  { color: var(--ed-warn); background: var(--ed-warn-soft); }
 .ed-vel-slow { color: var(--ed-neg);  background: var(--ed-neg-soft); }
 .ed-prod-amt {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 11.5px; font-weight: 600;
   color: var(--ed-ink-1);
   font-variant-numeric: tabular-nums;
@@ -914,7 +1233,7 @@
 /* Concentration */
 .ed-conc-wrap { padding: 18px 22px; }
 .ed-conc-hero {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 144, "SOFT" 100;
   font-weight: 400;
   font-size: 38px;
@@ -948,7 +1267,7 @@
   display: flex;
   align-items: center;
   padding: 0 7px;
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px;
   font-weight: 600;
   color: white;
@@ -985,14 +1304,14 @@
 }
 .ed-conc-name { flex: 1; color: var(--ed-ink-2); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-conc-val {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 11px;
   font-weight: 600;
   color: var(--ed-ink-1);
   font-variant-numeric: tabular-nums;
 }
 .ed-conc-pct-row {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px;
   color: var(--ed-ink-5);
   width: 38px;
@@ -1025,14 +1344,14 @@
 .ed-wc-assets { background: var(--ed-pos-soft); border-color: rgba(79, 138, 63, 0.18); }
 .ed-wc-liab   { background: var(--ed-neg-soft); border-color: rgba(184, 74, 51, 0.18); }
 .ed-wc-tile-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9px; font-weight: 600;
   letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--ed-ink-5);
   margin-bottom: 5px;
 }
 .ed-wc-tile-val {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 30;
   font-weight: 500;
   font-size: 19px;
@@ -1043,7 +1362,7 @@
 }
 .ed-wc-tile-val .ed-cur { font-size: 11px; opacity: 0.5; margin-right: 1px; font-weight: 400; }
 .ed-wc-tile-meta {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px;
   color: var(--ed-ink-5);
 }
@@ -1057,7 +1376,7 @@
   margin-bottom: 12px;
 }
 .ed-wc-net-label {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-style: italic;
   font-variation-settings: "opsz" 30;
   font-weight: 400;
@@ -1066,7 +1385,7 @@
   letter-spacing: -0.015em;
 }
 .ed-wc-net-val {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 30;
   font-weight: 500;
   font-size: 26px;
@@ -1087,13 +1406,13 @@
 }
 .ed-ratio { display: flex; flex-direction: column; gap: 4px; }
 .ed-ratio-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px; font-weight: 600;
   letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ed-ink-5);
 }
 .ed-ratio-val {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 30;
   font-weight: 500;
   font-size: 22px;
@@ -1106,7 +1425,7 @@
 .ed-ratio-val-neg  { color: var(--ed-neg); }
 .ed-ratio-val-flat { color: var(--ed-ink-4); }
 .ed-ratio-bench {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px;
   color: var(--ed-ink-5);
 }
@@ -1145,7 +1464,7 @@
 .ed-inv-leg-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 .ed-inv-leg-name { flex: 1; }
 .ed-inv-leg-num {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10.5px;
   color: var(--ed-ink-1);
   font-weight: 600;
@@ -1160,13 +1479,13 @@
 }
 .ed-inv-met { display: flex; flex-direction: column; gap: 4px; }
 .ed-inv-met-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px; font-weight: 600;
   letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ed-ink-5);
 }
 .ed-inv-met-val {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 30;
   font-weight: 500;
   font-size: 20px;
@@ -1177,7 +1496,7 @@
 .ed-inv-met-val .ed-cur { font-size: 11px; opacity: 0.5; margin-right: 1px; font-weight: 400; }
 .ed-inv-unit { font-size: 11px; opacity: 0.55; margin-left: 2px; font-weight: 400; }
 .ed-inv-met-sub {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px;
   color: var(--ed-ink-5);
 }
@@ -1193,14 +1512,14 @@
   border: 1px solid var(--ed-line);
 }
 .ed-ccc-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px; font-weight: 600;
   letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--ed-ink-5);
   margin-bottom: 6px;
 }
 .ed-ccc-val {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 144, "SOFT" 100;
   font-weight: 400;
   font-size: 38px;
@@ -1209,7 +1528,7 @@
   margin-bottom: 4px;
 }
 .ed-ccc-formula {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 10px;
   color: var(--ed-ink-5);
   letter-spacing: 0.02em;
@@ -1237,7 +1556,7 @@
   letter-spacing: -0.005em;
 }
 .ed-effic-bench {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px;
   color: var(--ed-ink-5);
 }
@@ -1262,7 +1581,7 @@
   border-radius: 1px;
 }
 .ed-effic-detail {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 9.5px;
   color: var(--ed-ink-5);
   margin-top: 6px;
@@ -1285,7 +1604,7 @@
 }
 .ed-effic-val { flex-shrink: 0; text-align: right; min-width: 50px; }
 .ed-effic-val-num {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-variation-settings: "opsz" 30;
   font-weight: 500;
   font-size: 18px;
@@ -1320,7 +1639,7 @@
   color: var(--ed-accent);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-weight: 600;
   font-size: 14px;
 }
@@ -1330,7 +1649,7 @@
 
 .ed-insight-body { flex: 1; min-width: 0; }
 .ed-insight-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: inherit;
   font-style: normal;
   font-variation-settings: "opsz" 14;
   font-weight: 400;
@@ -1379,7 +1698,7 @@
   letter-spacing: -0.005em;
 }
 .ed-insight-action-impact {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: inherit;
   font-size: 11px;
   color: var(--ed-pos);
   font-weight: 600;
@@ -1415,12 +1734,12 @@
 }
 
 /* ────────────────────────────────────────────────────────────────────────
- *  DARK MODE PARITY — keep the cream palette as designed (the editorial
- *  dashboard is a paper-themed experience even when the rest of the app
- *  is dark). If we ever want a dark variant we'd flip the ink scale.
- *  For now: lock the palette so toggling app theme doesn't break colors.
+ *  DARK MODE — the editorial vars are mapped to global theme tokens at the
+ *  top of this file, so dark/light flips automatically. The paper-grain
+ *  noise overlay below uses `mix-blend-mode: multiply`, which paints a
+ *  visible dark blob on dark backgrounds — neutralise it there.
  * ──────────────────────────────────────────────────────────────────────── */
-[data-theme="classic-dark"] .ed-dashboard,
-[data-theme="modern-dark"]  .ed-dashboard {
-  color: var(--ed-ink-1);
+[data-theme="classic-dark"] .ed-dashboard::before,
+[data-theme="modern-dark"]  .ed-dashboard::before {
+  opacity: 0;
 }

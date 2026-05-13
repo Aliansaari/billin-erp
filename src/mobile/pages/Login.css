@@ -544,3 +544,28 @@
   font-size: 11px;
   color: #4ade80;
 }
+
+/* Prominent inline server-setup card — shown above the form when no server URL is set */
+.login-server-card {
+  margin: 0 0 4px;
+  padding: 16px;
+  background: rgba(var(--ed-accent-rgb, 33,96,76), 0.12);
+  border: 1.5px solid rgba(var(--ed-accent-rgb, 33,96,76), 0.35);
+  border-radius: 14px;
+}
+.login-server-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ed-accent);
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+.login-server-card-desc {
+  font-size: 12px;
+  color: var(--ed-fg-soft);
+  margin: 0 0 12px;
+  line-height: 1.45;
+}

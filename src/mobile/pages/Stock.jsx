@@ -4,7 +4,9 @@ import { Toast } from 'antd-mobile';
 import { Capacitor } from '@capacitor/core';
 import { productAPI } from '../../api';
 import { formatINR } from '../utils/format';
+import { shareViaNative } from '../utils/sharePdf';
 import './Stock.css';
+import './ReportList.css';
 
 const SearchIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
@@ -23,6 +25,22 @@ const AlertIcon = () => (
 );
 const ChevR = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+);
+const PdfIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/>
+  </svg>
+);
+const ShareIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
+  </svg>
+);
+const CloseIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 6 6 18M6 6l12 12"/>
+  </svg>
 );
 
 // Match a scanned code against any of the product's known identifiers.
@@ -62,7 +80,10 @@ export default function Stock() {
   const [searchOn, setSearchOn] = useState(false);
   const [search, setSearch]     = useState('');
   const [notFoundCode, setNotFoundCode] = useState(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfUrl,  setPdfUrl]  = useState(null);
   const searchRef = useRef(null);
+  const pdfUrlRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +147,69 @@ export default function Stock() {
     }
   };
 
+  async function generatePdf() {
+    if (filtered.length === 0) return null;
+    try {
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import('jspdf'), import('jspdf-autotable'),
+      ]);
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const filterLabel = FILTERS.find((f) => f.key === filter)?.label || 'All';
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+      doc.text('Stock Report', 40, 40);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      doc.text(`${filterLabel} · ${filtered.length} products · Value ₹${formatINR(totalValue)}`, 40, 56);
+      autoTable(doc, {
+        startY: 72,
+        head: [['Product', 'SKU / Barcode', 'Pur Rate', 'Sale Rate', 'Qty', 'Value']],
+        body: filtered.map((p) => {
+          const name = p.product_name || p.name || '';
+          const sku  = p.barcode || p.sku || p.product_code || '';
+          const qty  = Number(p.current_stock ?? p.stock_quantity ?? 0);
+          const unit = p.unit_of_measurement || p.unit || '';
+          const pur  = Number(p.purchase_rate ?? p.display_cost ?? 0);
+          const sale = Number(p.sale_rate ?? p.sale_price ?? 0);
+          const val  = Number(p.display_stock_value ?? 0);
+          return [name, sku, pur ? `₹${formatINR(pur)}` : '', sale ? `₹${formatINR(sale)}` : '', `${qty} ${unit}`.trim(), val ? `₹${formatINR(val)}` : ''];
+        }),
+        styles: { fontSize: 8, cellPadding: 3 },
+        headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      });
+      return { blob: doc.output('blob'), fileName: `stock-report.pdf` };
+    } catch (e) { console.error('PDF', e); return null; }
+  }
+
+  async function handleViewPdf() {
+    if (filtered.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+      const url = URL.createObjectURL(result.blob);
+      pdfUrlRef.current = url;
+      setPdfUrl(url);
+    } finally { setPdfBusy(false); }
+  }
+
+  async function handleSharePdf() {
+    if (filtered.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      const ok = await shareViaNative(result.blob, result.fileName, 'Stock Report');
+      if (!ok) Toast.show({ icon: 'fail', content: 'Share failed' });
+    } finally { setPdfBusy(false); }
+  }
+
+  function closePdfViewer() {
+    setPdfUrl(null);
+    if (pdfUrlRef.current) { URL.revokeObjectURL(pdfUrlRef.current); pdfUrlRef.current = null; }
+  }
+
   const stockStatus = (p) => {
     const qty = Number(p.current_stock ?? p.stock_quantity ?? 0);
     const min = Number(p.minimum_stock_level ?? p.min_stock ?? 0);
@@ -180,6 +264,23 @@ export default function Stock() {
             aria-label="Search"
           >
             <SearchIcon />
+          </button>
+          <button
+            className="st-icon-btn"
+            onClick={handleViewPdf}
+            disabled={pdfBusy || filtered.length === 0}
+            aria-label="PDF preview"
+            style={{ color: filtered.length && !pdfBusy ? 'var(--c-primary)' : undefined }}
+          >
+            <PdfIcon />
+          </button>
+          <button
+            className="st-icon-btn"
+            onClick={handleSharePdf}
+            disabled={pdfBusy || filtered.length === 0}
+            aria-label="Share PDF"
+          >
+            <ShareIcon />
           </button>
         </div>
       </div>
@@ -268,6 +369,27 @@ export default function Stock() {
         <div className="st-footer">
           <span className="st-footer-count">{filtered.length} product{filtered.length === 1 ? '' : 's'}</span>
           <span className="st-footer-total">₹{formatINR(totalValue)}</span>
+        </div>
+      )}
+
+      {pdfUrl && (
+        <div className="rl-pdf-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'var(--c-bg-app)', display: 'flex', flexDirection: 'column' }}>
+          <div className="rl-pdf-toolbar">
+            <button className="rl-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
+            <span className="rl-pdf-title">Stock Report</span>
+            <button className="rl-pdf-share" onClick={async () => {
+              try {
+                const resp = await fetch(pdfUrlRef.current);
+                const blob = await resp.blob();
+                await shareViaNative(blob, 'stock-report.pdf', 'Stock Report');
+              } catch { Toast.show({ icon: 'fail', content: 'Share failed' }); }
+            }} aria-label="Share"><ShareIcon /></button>
+          </div>
+          <div className="rl-pdf-body">
+            <iframe className="rl-pdf-frame" src={pdfUrl} title="Stock Report PDF"
+              style={{ width: '612px', minHeight: '792px', transform: `scale(${window.innerWidth / 612})`, transformOrigin: 'top left' }}
+            />
+          </div>
         </div>
       )}
 

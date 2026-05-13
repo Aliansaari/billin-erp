@@ -332,7 +332,8 @@
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
   background: var(--c-bg-surface);
-  padding-bottom: calc(var(--tabbar-h, 60px) + env(safe-area-inset-bottom, 0px));
+  /* tabbar (88px) + sticky footer (~52px) + safe area + breathing room */
+  padding-bottom: calc(var(--tabbar-h, 88px) + 60px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ── Bill / transaction row ───────────────────────────────────────── */
@@ -340,11 +341,12 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--c-border-soft);
   cursor: pointer;
   transition: background 120ms;
   -webkit-tap-highlight-color: transparent;
+  touch-action: pan-y;
 }
 .rl-row:active { background: var(--c-primary-soft); }
 .rl-row:last-child { border-bottom: none; }
@@ -1092,4 +1094,58 @@
   border: none;
   background: #fff;
   height: 100%;
+}
+
+/* ── PDF preview overlay ─────────────────────────────────────────────── */
+.rl-pdf-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--c-bg-app);
+  display: flex;
+  flex-direction: column;
+  animation: rl-pdf-fade 180ms ease-out;
+}
+@keyframes rl-pdf-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.rl-pdf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
+  background: var(--c-bg-surface);
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+.rl-pdf-close, .rl-pdf-share {
+  width: 38px; height: 38px;
+  border-radius: 12px;
+  background: transparent;
+  border: 1px solid var(--c-border);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--c-text);
+  cursor: pointer; padding: 0; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.rl-pdf-close:active, .rl-pdf-share:active { background: var(--c-primary-soft); }
+.rl-pdf-share { color: var(--c-primary); }
+.rl-pdf-title {
+  flex: 1;
+  font-size: 16px; font-weight: 700;
+  color: var(--c-text);
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+.rl-pdf-body {
+  flex: 1;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: #fff;
+}
+.rl-pdf-frame {
+  border: none;
+  background: #fff;
+  display: block;
 }

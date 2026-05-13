@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import { formatINR, isoDate } from '../utils/format';
+import { useBack } from '../utils/useBack';
+import { shareViaNative } from '../utils/sharePdf';
 import './ReportList.css';
 
 // ── Icons ──────────────────────────────────────────────────────────────
@@ -24,6 +26,22 @@ const ChevRSmall = () => (
 const ChevR = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9 18l6-6-6-6"/>
+  </svg>
+);
+const PdfIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/>
+  </svg>
+);
+const ShareIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
+  </svg>
+);
+const CloseIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 6 6 18M6 6l12 12"/>
   </svg>
 );
 
@@ -69,6 +87,7 @@ function monthFull(ym) {
 // ── Component ──────────────────────────────────────────────────────────
 export default function MonthlySummary() {
   const navigate = useNavigate();
+  const goBack = useBack('/reports');
   const [urlParams, setUrlParams] = useSearchParams();
 
   const initFY = fyForDate();
@@ -76,6 +95,9 @@ export default function MonthlySummary() {
   const [mode,     setMode]    = useState(() => urlParams.get('mode') || 'sales');
   const [rows,     setRows]    = useState([]);
   const [loading,  setLoading] = useState(true);
+  const [pdfBusy,  setPdfBusy] = useState(false);
+  const [pdfUrl,   setPdfUrl]  = useState(null);
+  const pdfUrlRef = useRef(null);
 
   const fy = useMemo(() => fyForDate(new Date(fyYear, 3, 1)), [fyYear]);
 
@@ -117,6 +139,62 @@ export default function MonthlySummary() {
     [rows],
   );
 
+  async function generatePdf() {
+    if (rows.length === 0) return null;
+    try {
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import('jspdf'), import('jspdf-autotable'),
+      ]);
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+      doc.text(`Monthly ${currentModeLabel} Summary — ${fyLabel(fyYear)}`, 40, 40);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      doc.text(`${rows.length} months  ·  Total: ₹${formatINR(grandTotal)}`, 40, 56);
+      autoTable(doc, {
+        startY: 72,
+        head: [['Month', 'Vouchers', 'Amount']],
+        body: rows.map((r) => {
+          const { name, year } = monthFull(r.month || '');
+          return [`${name} '${year}`, Number(r.bill_count ?? r.count ?? 0) || '', `₹${formatINR(Number(r.total_amount ?? r.net_amount ?? r.debit ?? 0))}`];
+        }),
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [55, 65, 81], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [249, 250, 251] },
+        columnStyles: { 2: { halign: 'right' } },
+      });
+      return { blob: doc.output('blob'), fileName: `monthly-${mode}-${fyYear}.pdf` };
+    } catch (e) { console.error('PDF', e); return null; }
+  }
+
+  async function handleViewPdf() {
+    if (rows.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+      const url = URL.createObjectURL(result.blob);
+      pdfUrlRef.current = url;
+      setPdfUrl(url);
+    } finally { setPdfBusy(false); }
+  }
+
+  async function handleSharePdf() {
+    if (rows.length === 0) { Toast.show({ content: 'Nothing to export' }); return; }
+    setPdfBusy(true);
+    try {
+      const result = await generatePdf();
+      if (!result) { Toast.show({ icon: 'fail', content: 'PDF failed' }); return; }
+      const ok = await shareViaNative(result.blob, result.fileName, `Monthly ${currentModeLabel} Summary`);
+      if (!ok) Toast.show({ icon: 'fail', content: 'Share failed' });
+    } finally { setPdfBusy(false); }
+  }
+
+  function closePdfViewer() {
+    setPdfUrl(null);
+    if (pdfUrlRef.current) { URL.revokeObjectURL(pdfUrlRef.current); pdfUrlRef.current = null; }
+  }
+
   function drillInto(row) {
     // Navigate to DayBook filtered to this month
     const from = row.from_date || `${row.month}-01`;
@@ -133,10 +211,27 @@ export default function MonthlySummary() {
 
       {/* ── Topbar ── */}
       <div className="rl-top">
-        <button className="rl-icon-btn framed" onClick={() => (window.history.state?.idx > 0 ? navigate(-1) : navigate('/reports'))} aria-label="Back">
+        <button className="rl-icon-btn framed" onClick={goBack} aria-label="Back">
           <ChevL />
         </button>
         <h1 className="rl-title">Monthly <em>summary</em></h1>
+        <button
+          className="rl-icon-btn"
+          onClick={handleViewPdf}
+          disabled={pdfBusy || rows.length === 0}
+          aria-label="PDF preview"
+          style={{ color: rows.length && !pdfBusy ? 'var(--c-primary)' : undefined }}
+        >
+          <PdfIcon />
+        </button>
+        <button
+          className="rl-icon-btn"
+          onClick={handleSharePdf}
+          disabled={pdfBusy || rows.length === 0}
+          aria-label="Share PDF"
+        >
+          <ShareIcon />
+        </button>
       </div>
 
       {/* ── Mode chips ── */}
@@ -234,6 +329,28 @@ export default function MonthlySummary() {
           </div>
         )}
       </div>
+
+      {/* ── PDF preview overlay ── */}
+      {pdfUrl && (
+        <div className="rl-pdf-overlay">
+          <div className="rl-pdf-toolbar">
+            <button className="rl-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
+            <span className="rl-pdf-title">Monthly {currentModeLabel}</span>
+            <button className="rl-pdf-share" onClick={async () => {
+              try {
+                const resp = await fetch(pdfUrlRef.current);
+                const blob = await resp.blob();
+                await shareViaNative(blob, `monthly-${mode}-${fyYear}.pdf`, `Monthly ${currentModeLabel} Summary`);
+              } catch { Toast.show({ icon: 'fail', content: 'Share failed' }); }
+            }} aria-label="Share"><ShareIcon /></button>
+          </div>
+          <div className="rl-pdf-body">
+            <iframe className="rl-pdf-frame" src={pdfUrl} title="Monthly Summary PDF"
+              style={{ width: '612px', minHeight: '792px', transform: `scale(${window.innerWidth / 612})`, transformOrigin: 'top left' }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

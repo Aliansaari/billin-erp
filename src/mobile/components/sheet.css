@@ -102,8 +102,9 @@
      and scroll — without it the child stretches to its content and
      pushes the sheet past max-height instead of overflowing. */
   min-height: 0;
-  overflow-y: auto;
-  padding: 4px 8px 12px;
+  overflow-y: scroll;
+  touch-action: pan-y;
+  padding: 4px 8px calc(env(safe-area-inset-bottom, 0px) + 24px);
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
@@ -140,6 +141,7 @@
   text-align: left;
   -webkit-tap-highlight-color: transparent;
   transition: background 120ms;
+  touch-action: pan-y;
 }
 .sheet-row:active { background: var(--c-bg-page); }
 .sheet-row:last-of-type { border-bottom: none; }
@@ -391,8 +393,9 @@
   border-radius: 10px;
   margin-bottom: 12px;
   max-height: 240px;
-  overflow-y: auto;
+  overflow-y: scroll;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   scrollbar-width: none;
   overscroll-behavior: contain;
 }
@@ -408,6 +411,7 @@
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  touch-action: pan-y;
 }
 .sf-result:last-of-type { border-bottom: none; }
 .sf-result:active { background: var(--c-primary-soft); }

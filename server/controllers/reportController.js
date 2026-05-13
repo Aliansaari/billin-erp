@@ -19,8 +19,18 @@ const localDateString = (d = new Date()) => {
 
 exports.dashboardStats = async (req, res) => {
   try {
-    const today = localDateString();
-    const monthStart = today.substring(0, 8) + '01';
+    // Honor optional from/to query params so the dashboard filters its
+    // "today's sales/purchases/receipts" and "monthly" aggregates to the
+    // operator-selected date range. When omitted we fall back to today +
+    // month-to-date (the legacy default behaviour).
+    const fromQ = String(req.query.from || '').slice(0, 10);
+    const toQ   = String(req.query.to   || '').slice(0, 10);
+    const today      = /^\d{4}-\d{2}-\d{2}$/.test(toQ)   ? toQ   : localDateString();
+    const monthStart = /^\d{4}-\d{2}-\d{2}$/.test(fromQ) ? fromQ : today.substring(0, 8) + '01';
+    // Date-range mode = "from" and "to" both supplied. Sales/purchases
+    // counted across the full window (not just the end-date) so the operator
+    // sees range totals when they pick a custom span.
+    const rangeMode = fromQ && toQ;
 
     // Prior-period bounds for the comparison deltas the dashboard tiles
     // render. "Today vs yesterday" + "MTD vs same window of last month" —
@@ -81,9 +91,11 @@ exports.dashboardStats = async (req, res) => {
       onAccountPaymentsRows,
       todayReceiptsRows,
     ] = await Promise.all([
-      // Today's sales
+      // Today's (or range) sales
       SalesBill.findAll({
-        where: { bill_date: today, is_cancelled: false },
+        where: rangeMode
+          ? { bill_date: { [Op.gte]: monthStart, [Op.lte]: today }, is_cancelled: false }
+          : { bill_date: today, is_cancelled: false },
         attributes: [
           [fn('COUNT', col('sales_bill_id')), 'count'],
           [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
@@ -91,9 +103,11 @@ exports.dashboardStats = async (req, res) => {
         raw: true,
       }),
 
-      // Today's purchases
+      // Today's (or range) purchases
       PurchaseBill.findAll({
-        where: { bill_date: today, is_cancelled: false },
+        where: rangeMode
+          ? { bill_date: { [Op.gte]: monthStart, [Op.lte]: today }, is_cancelled: false }
+          : { bill_date: today, is_cancelled: false },
         attributes: [
           [fn('COUNT', col('purchase_bill_id')), 'count'],
           [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
@@ -101,12 +115,12 @@ exports.dashboardStats = async (req, res) => {
         raw: true,
       }),
 
-      // Monthly sales — pull gross and GST components so we can derive true revenue
-      // (revenue excluding tax) for the profit metric. GST is collected on behalf of
-      // the tax authority, NOT income — mixing it into profit overstates margin by
-      // up to 18%. The proper P&L computation lives in financialReportsController.
+      // Monthly (or range) sales — pull gross and GST components so we can derive
+      // true revenue (revenue excluding tax) for the profit metric. GST is
+      // collected on behalf of the tax authority, NOT income — mixing it into
+      // profit overstates margin by up to 18%.
       SalesBill.findAll({
-        where: { bill_date: { [Op.gte]: monthStart }, is_cancelled: false },
+        where: { bill_date: { [Op.gte]: monthStart, [Op.lte]: today }, is_cancelled: false },
         attributes: [
           [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
           [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
@@ -117,9 +131,9 @@ exports.dashboardStats = async (req, res) => {
         raw: true,
       }),
 
-      // Monthly purchases
+      // Monthly (or range) purchases
       PurchaseBill.findAll({
-        where: { bill_date: { [Op.gte]: monthStart }, is_cancelled: false },
+        where: { bill_date: { [Op.gte]: monthStart, [Op.lte]: today }, is_cancelled: false },
         attributes: [
           [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
           [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
@@ -195,9 +209,11 @@ exports.dashboardStats = async (req, res) => {
           )
       `).then(([rows]) => rows),
 
-      // Today's receipts (money received from customers)
+      // Today's (or range) receipts — money received from customers
       PaymentReceipt.findAll({
-        where: { transaction_date: today, transaction_type: 'Receipt', is_cancelled: false },
+        where: rangeMode
+          ? { transaction_date: { [Op.gte]: monthStart, [Op.lte]: today }, transaction_type: 'Receipt', is_cancelled: false }
+          : { transaction_date: today, transaction_type: 'Receipt', is_cancelled: false },
         attributes: [
           [fn('COUNT', col('transaction_id')), 'count'],
           [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],

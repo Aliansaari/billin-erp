@@ -11,6 +11,7 @@ const liveReloadUrl = process.env.CAPACITOR_LIVE_RELOAD_URL;
 const baseServer = {
   androidScheme: 'https',
   iosScheme: 'capacitor',
+  cleartext: true,   // allow http:// LAN API calls (ATS exception for local network)
 };
 
 /** @type {import('@capacitor/cli').CapacitorConfig} */
@@ -34,6 +35,11 @@ const config = {
     Keyboard: {
       resize: 'none',
       resizeOnFullScreen: false,
+    },
+    // Route fetch/XHR through native NSURLSession instead of WebKit's fetch.
+    // This bypasses WKWebView's restrictions on HTTP connections to LAN IPs.
+    CapacitorHttp: {
+      enabled: true,
     },
   },
 };
