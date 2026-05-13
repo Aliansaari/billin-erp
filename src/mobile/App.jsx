@@ -19,6 +19,11 @@ import Reports from './pages/Reports';
 import BillForm from './pages/BillForm';
 import VoucherForm from './pages/VoucherForm';
 import PartyForm from './pages/PartyForm';
+import SalesReport from './pages/SalesReport';
+import PurchaseReport from './pages/PurchaseReport';
+import MonthlySummary from './pages/MonthlySummary';
+import LedgerPage from './pages/LedgerPage';
+import PartyStatement from './pages/PartyStatement';
 import AppShell from './components/AppShell';
 
 function ProtectedRoute({ children }) {
@@ -82,7 +87,13 @@ export default function MobileApp() {
           <Route path="/stock"      element={<Stock />} />
           <Route path="/stock/:id"  element={<StockMovement />} />
           <Route path="/items"      element={<SimpleScreen title="Items" />} />
-          <Route path="/reports"    element={<Reports />} />
+          <Route path="/reports"         element={<Reports />} />
+          <Route path="/reports/sales"   element={<SalesReport />} />
+          <Route path="/reports/purchases" element={<PurchaseReport />} />
+          <Route path="/reports/monthly" element={<MonthlySummary />} />
+          <Route path="/reports/ledger"  element={<LedgerPage />} />
+          <Route path="/reports/customer-statement" element={<PartyStatement partyType="Customer" />} />
+          <Route path="/reports/supplier-statement" element={<PartyStatement partyType="Supplier" />} />
           <Route path="/search"     element={<Search />} />
         </Route>
 

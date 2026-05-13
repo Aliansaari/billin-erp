@@ -74,6 +74,11 @@ export default defineConfig({
     port: parseInt(process.env.PORT || '5174', 10),
     strictPort: false,
     open: '/index.mobile.html',
+    fs: {
+      // Worktree symlinks back to the monorepo root; allow the parent so
+      // node_modules assets (fonts, etc.) resolve correctly.
+      allow: ['..', '../..'],
+    },
     proxy: {
       '/api': {
         target: `http://localhost:${API_PORT}`,

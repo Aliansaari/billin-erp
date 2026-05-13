@@ -130,123 +130,128 @@
   --c-accent-glow:  rgba(196, 78, 24, 0.3);
 }
 [data-mobile-style="classic"] {
-  --c-accent-from:  #6366F1;
-  --c-accent-to:    #4F46E5;
-  --c-accent-glow:  rgba(79, 70, 229, 0.3);
+  --c-accent-from:  #0EAFCA;
+  --c-accent-to:    #075C6B;
+  --c-accent-glow:  rgba(14, 175, 202, 0.40);
 }
 [data-mobile-style="classic"][data-mobile-theme="dark"] {
-  --c-accent-from:  #A5B4FC;
-  --c-accent-to:    #818CF8;
-  --c-accent-glow:  rgba(165, 180, 252, 0.3);
+  --c-accent-from:  #0EAFCA;
+  --c-accent-to:    #075C6B;
+  --c-accent-glow:  rgba(14, 175, 202, 0.50);
 }
 [data-mobile-style="classic"][data-mobile-theme="light"] {
-  --c-bg-page:      #E8EAF0;
-  --c-bg-app:       #F0F2F7;
-  --c-bg-surface:   #F8F9FC;
+  --c-bg-page:      #E8EDF2;
+  --c-bg-app:       #F4F6F8;
+  --c-bg-surface:   #FFFFFF;
   --c-bg-card:      #FFFFFF;
   --c-bg-elev:      #FFFFFF;
 
-  --c-text:         #1F2937;
-  --c-text-2:       #4B5563;
-  --c-text-soft:    #6B7280;
-  --c-text-mute:    #9CA3AF;
-  --c-text-faint:   #C0C7D1;
+  --c-text:         #0A1219;
+  --c-text-2:       #1F2A35;
+  --c-text-soft:    #3D4D5E;
+  --c-text-mute:    #6B7B8E;
+  --c-text-faint:   #94A3B6;
 
-  --c-line:         #E5E7EB;
-  --c-line-2:       #F3F4F6;
-  --c-border:       #E5E7EB;
-  --c-border-soft:  #F3F4F6;
+  --c-line:         rgba(10, 18, 25, 0.07);
+  --c-line-2:       rgba(10, 18, 25, 0.04);
+  --c-border:       rgba(10, 18, 25, 0.13);
+  --c-border-soft:  rgba(10, 18, 25, 0.07);
 
-  --c-primary:      #4F46E5;
-  --c-primary-hi:   #6366F1;
-  --c-primary-lo:   #4338CA;
-  --c-primary-soft: rgba(79, 70, 229, 0.08);
-  --c-primary-line: rgba(79, 70, 229, 0.18);
+  --c-primary:      #0891A8;
+  --c-primary-hi:   #0EAFCA;
+  --c-primary-lo:   #075C6B;
+  --c-primary-soft: rgba(8, 145, 168, 0.10);
+  --c-primary-line: rgba(8, 145, 168, 0.22);
 
-  --c-success:      #10B981;
-  --c-success-soft: #D1FAE5;
-  --c-success-bright: #34D399;
-  --c-warning:      #F59E0B;
-  --c-warning-soft: #FEF3C7;
-  --c-error:        #EF4444;
-  --c-error-soft:   #FEE2E2;
-  --c-info:         #3B82F6;
-  --c-info-soft:    #DBEAFE;
+  --c-success:      #2D8856;
+  --c-success-soft: rgba(45, 136, 86, 0.12);
+  --c-success-bright: #4FB082;
+  --c-warning:      #C28534;
+  --c-warning-soft: rgba(194, 133, 52, 0.13);
+  --c-error:        #C2362F;
+  --c-error-soft:   rgba(194, 54, 47, 0.10);
+  --c-info:         #0891A8;
+  --c-info-soft:    rgba(8, 145, 168, 0.10);
 
-  --c-tabbar-bg:    rgba(240, 242, 247, 0.82);
-  --c-hero-from:    #1E2130;
-  --c-hero-mid:     #181B28;
-  --c-hero-to:      #0E1018;
-  --c-hero-glow:    rgba(79, 70, 229, 0.18);
+  --c-tabbar-bg:    rgba(244, 246, 248, 0.92);
+  --c-hero-from:    #FFFFFF;
+  --c-hero-mid:     #FFFFFF;
+  --c-hero-to:      #FFFFFF;
+  --c-hero-glow:    rgba(8, 145, 168, 0.10);
   --c-drawer-bg:    var(--c-bg-surface);
-  --c-drawer-glow:  rgba(79, 70, 229, 0.06);
+  --c-drawer-glow:  rgba(8, 145, 168, 0.08);
   --c-drawer-glow2: transparent;
 }
 
-/* Classic Dark — "Midnight Indigo": richer surfaces with a subtle
-   blue undertone, vibrant indigo accent, and a faint warm vignette
-   so the page never reads as flat black. */
+/* Classic Dark — teal-cyan ink palette matching v4 mockup. */
 [data-mobile-style="classic"][data-mobile-theme="dark"] {
-  --c-bg-page:      #0B0D14;
-  --c-bg-app:       #0F1219;
-  --c-bg-surface:   #181B25;
-  --c-bg-card:      #1F2230;
-  --c-bg-elev:      #262A39;
+  --c-bg-page:      #0A1219;
+  --c-bg-app:       #0A1219;
+  --c-bg-surface:   #131D26;
+  --c-bg-card:      #131D26;
+  --c-bg-elev:      #1C2832;
   --c-bg-layout:    var(--c-bg-app);
 
-  --c-text:         #F4F5FA;
-  --c-text-2:       #C5C8D4;
-  --c-text-soft:    #9AA0AE;
-  --c-text-mute:    #7B8090;
-  --c-text-faint:   #565C6C;
+  --c-text:         #E8EDF2;
+  --c-text-2:       #C5D0DC;
+  --c-text-soft:    #94A3B6;
+  --c-text-mute:    #6B7B8E;
+  --c-text-faint:   #4D5E70;
 
-  --c-line:         rgba(165, 180, 252, 0.10);
-  --c-line-2:       rgba(165, 180, 252, 0.06);
-  --c-border:       rgba(165, 180, 252, 0.14);
-  --c-border-soft:  rgba(165, 180, 252, 0.08);
+  --c-line:         rgba(255, 255, 255, 0.07);
+  --c-line-2:       rgba(255, 255, 255, 0.04);
+  --c-border:       rgba(255, 255, 255, 0.13);
+  --c-border-soft:  rgba(255, 255, 255, 0.07);
 
-  --c-primary:      #818CF8;
-  --c-primary-hi:   #A5B4FC;
-  --c-primary-lo:   #6366F1;
-  --c-primary-soft: rgba(129, 140, 248, 0.14);
-  --c-primary-line: rgba(129, 140, 248, 0.30);
+  --c-primary:      #0EAFCA;
+  --c-primary-hi:   #0EAFCA;
+  --c-primary-lo:   #0891A8;
+  --c-primary-soft: rgba(14, 175, 202, 0.15);
+  --c-primary-line: rgba(14, 175, 202, 0.30);
 
-  --c-success:      #34D399;
-  --c-success-soft: rgba(52, 211, 153, 0.14);
-  --c-success-bright: #6EE7B7;
-  --c-warning:      #FBBF24;
-  --c-warning-soft: rgba(251, 191, 36, 0.14);
-  --c-error:        #FB7185;
-  --c-error-soft:   rgba(251, 113, 133, 0.14);
-  --c-info:         #60A5FA;
-  --c-info-soft:    rgba(96, 165, 250, 0.14);
+  --c-success:      #4FB082;
+  --c-success-soft: rgba(45, 136, 86, 0.18);
+  --c-success-bright: #4FB082;
+  --c-warning:      #E0A45A;
+  --c-warning-soft: rgba(194, 133, 52, 0.18);
+  --c-error:        #E0746A;
+  --c-error-soft:   rgba(224, 116, 106, 0.14);
+  --c-info:         #0EAFCA;
+  --c-info-soft:    rgba(14, 175, 202, 0.14);
 
   --shadow-card:    0 1px 0 rgba(255, 255, 255, 0.04) inset,
                     0 1px 3px rgba(0, 0, 0, 0.35),
                     0 8px 24px rgba(0, 0, 0, 0.30);
   --shadow-elev:    0 1px 0 rgba(255, 255, 255, 0.05) inset,
                     0 4px 16px rgba(0, 0, 0, 0.50);
-  --shadow-hero:    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-                    0 24px 48px -20px rgba(99, 102, 241, 0.45),
-                    0 8px 24px rgba(0, 0, 0, 0.55);
+  --shadow-hero:    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+                    0 12px 32px -10px rgba(0, 0, 0, 0.5),
+                    0 0 0 1px rgba(255, 255, 255, 0.02);
 
-  --c-tabbar-bg:    rgba(15, 18, 25, 0.72);
-  --c-hero-from:    #2A2F4A;
-  --c-hero-mid:     #1B1F30;
-  --c-hero-to:      #0F1219;
-  --c-hero-glow:    rgba(129, 140, 248, 0.35);
-  --c-drawer-bg:    #141724;
-  --c-drawer-glow:  rgba(129, 140, 248, 0.16);
-  --c-drawer-glow2: rgba(99, 102, 241, 0.08);
+  --c-tabbar-bg:    rgba(10, 18, 25, 0.92);
+  --c-hero-from:    #131D26;
+  --c-hero-mid:     #131D26;
+  --c-hero-to:      #131D26;
+  --c-hero-glow:    rgba(14, 175, 202, 0.18);
+  --c-drawer-bg:    #131D26;
+  --c-drawer-glow:  rgba(14, 175, 202, 0.16);
+  --c-drawer-glow2: rgba(7, 92, 107, 0.10);
 }
 
-/* Atmosphere: very faint vignette on the page itself so a flat black
-   background is never visible. Used by every classic-dark screen via
-   the body backdrop. */
+/* Atmosphere: page radial wash so the body never reads as flat. */
 [data-mobile-style="classic"][data-mobile-theme="dark"] body {
   background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(99, 102, 241, 0.10) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 0% 100%, rgba(129, 140, 248, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 50% at 12% 0%, rgba(8, 145, 168, 0.22) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 40% at 95% 35%, rgba(8, 145, 168, 0.13) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 45% at 5% 95%, rgba(7, 92, 107, 0.16) 0%, transparent 55%),
+    var(--c-bg-app);
+}
+
+[data-mobile-style="classic"][data-mobile-theme="light"] body {
+  background:
+    radial-gradient(ellipse 80% 50% at 12% 0%, rgba(8, 145, 168, 0.13) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 40% at 95% 35%, rgba(8, 145, 168, 0.07) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 45% at 5% 95%, rgba(7, 92, 107, 0.06) 0%, transparent 55%),
     var(--c-bg-app);
 }
 
@@ -515,6 +520,7 @@ body {
 }
 
 .tabbar-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -535,9 +541,26 @@ body {
   font-size: 22px;
   line-height: 1;
   display: flex;
+  transition: filter 120ms;
 }
 .tabbar-item.active {
   color: var(--c-primary);
+}
+.tabbar-item.active .tabbar-icon {
+  color: var(--c-primary);
+  filter: drop-shadow(0 0 6px var(--c-accent-glow));
+}
+.tabbar-item.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 3px;
+  background: var(--c-primary);
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 0 12px var(--c-accent-glow), 0 0 4px var(--c-primary-hi);
 }
 
 .empty {
@@ -588,3 +611,4 @@ body {
   background: var(--c-bg-surface);
   border-color: var(--c-border);
 }
+

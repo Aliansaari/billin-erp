@@ -201,6 +201,9 @@ export default function Dashboard() {
           <div className="dash-date">{greetingDate}</div>
         </div>
         <div className="dash-actions">
+          <button className="icon-btn" aria-label="search" onClick={() => navigate('/search')}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          </button>
           <div className="notif-wrap" ref={notifRef}>
             <button className="icon-btn" aria-label="notifications" onClick={() => setNotifOpen((v) => !v)}>
               {I.bell}
