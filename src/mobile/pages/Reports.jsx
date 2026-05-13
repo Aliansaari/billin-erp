@@ -103,8 +103,8 @@ const CATEGORIES = [
       { id: 'bills-payable',       name: 'Bills Payable',       desc: 'Unpaid supplier bills · bill-level',     isNew: true,  route: '/outstanding' },
       { id: 'customer-outstanding',name: 'Customer Outstanding',desc: 'By customer · bucket aging',             isNew: false, route: '/outstanding' },
       { id: 'receivables-aging',   name: 'Receivables Aging',   desc: '0-30 / 30-60 / 60-90 / 90+',           isNew: true,  route: '/outstanding' },
-      { id: 'supplier-outstanding',name: 'Supplier Outstanding',desc: 'By supplier · overdue balances',        isNew: false, route: null },
-      { id: 'payables-aging',      name: 'Payables Aging',      desc: '0-30 / 30-60 / 60-90 / 90+',           isNew: false, route: null },
+      { id: 'supplier-outstanding',name: 'Supplier Outstanding',desc: 'By supplier · overdue balances',        isNew: false, route: '/outstanding' },
+      { id: 'payables-aging',      name: 'Payables Aging',      desc: '0-30 / 30-60 / 60-90 / 90+',           isNew: false, route: '/outstanding' },
     ],
   },
   {
@@ -114,10 +114,10 @@ const CATEGORIES = [
     icon: <IconCal />,
     color: 'periodic',
     reports: [
-      { id: 'sales-register',    name: 'Sales Register',    desc: 'Monthly summary · sales account',    isNew: true,  route: '/vouchers' },
-      { id: 'purchase-register', name: 'Purchase Register', desc: 'Monthly summary · purchase account', isNew: false, route: '/vouchers' },
-      { id: 'receipt-register',  name: 'Receipt Register',  desc: 'Monthly summary · receipts',         isNew: false, route: '/vouchers' },
-      { id: 'payment-register',  name: 'Payment Register',  desc: 'Monthly summary · payments',         isNew: false, route: '/vouchers' },
+      { id: 'sales-register',    name: 'Sales Register',    desc: 'Monthly summary · sales account',    isNew: true,  route: '/reports/monthly?mode=sales' },
+      { id: 'purchase-register', name: 'Purchase Register', desc: 'Monthly summary · purchase account', isNew: false, route: '/reports/monthly?mode=purchase' },
+      { id: 'receipt-register',  name: 'Receipt Register',  desc: 'Monthly summary · receipts',         isNew: false, route: '/reports/monthly?mode=receipt' },
+      { id: 'payment-register',  name: 'Payment Register',  desc: 'Monthly summary · payments',         isNew: false, route: '/reports/monthly?mode=payment' },
     ],
   },
   {
@@ -127,11 +127,11 @@ const CATEGORIES = [
     icon: <IconTrend />,
     color: 'sales',
     reports: [
-      { id: 'sales-report',        name: 'Sales Report',        desc: 'Date / customer · full detail',     isNew: false, route: '/vouchers' },
-      { id: 'customer-statement',  name: 'Customer Statement',  desc: 'Per-customer · ledger view',        isNew: false, route: '/outstanding' },
-      { id: 'sales-by-item',       name: 'Sales by Item',       desc: 'Product-wise sales quantity & value',isNew: true, route: null },
-      { id: 'salesman-report',     name: 'Salesman Report',     desc: 'Performance by sales person',       isNew: false, route: null },
-      { id: 'sales-return',        name: 'Sales Return',        desc: 'Credit notes · return summary',     isNew: false, route: null },
+      { id: 'sales-report',        name: 'Sales Report',        desc: 'Date / customer · full detail',      isNew: false, route: '/reports/sales' },
+      { id: 'customer-statement',  name: 'Customer Statement',  desc: 'Per-customer · ledger view',         isNew: false, route: '/reports/customer-statement' },
+      { id: 'sales-by-item',       name: 'Sales by Item',       desc: 'Product-wise sales quantity & value', isNew: true, route: null },
+      { id: 'salesman-report',     name: 'Salesman Report',     desc: 'Performance by sales person',        isNew: false, route: null },
+      { id: 'sales-return',        name: 'Sales Return',        desc: 'Credit notes · return summary',      isNew: false, route: null },
     ],
   },
   {
@@ -141,10 +141,10 @@ const CATEGORIES = [
     icon: <IconCart />,
     color: 'purchase',
     reports: [
-      { id: 'purchase-report',    name: 'Purchase Report',    desc: 'By supplier / item · full detail', isNew: false, route: '/vouchers' },
-      { id: 'supplier-statement', name: 'Supplier Statement', desc: 'Per-supplier · ledger view',       isNew: false, route: '/outstanding' },
-      { id: 'purchase-by-item',   name: 'Purchase by Item',   desc: 'Product-wise purchase qty & value',isNew: true,  route: null },
-      { id: 'purchase-return',    name: 'Purchase Return',    desc: 'Debit notes · return summary',     isNew: false, route: null },
+      { id: 'purchase-report',    name: 'Purchase Report',    desc: 'By supplier / item · full detail',  isNew: false, route: '/reports/purchases' },
+      { id: 'supplier-statement', name: 'Supplier Statement', desc: 'Per-supplier · ledger view',        isNew: false, route: '/reports/supplier-statement' },
+      { id: 'purchase-by-item',   name: 'Purchase by Item',   desc: 'Product-wise purchase qty & value', isNew: true,  route: null },
+      { id: 'purchase-return',    name: 'Purchase Return',    desc: 'Debit notes · return summary',      isNew: false, route: null },
     ],
   },
   {
@@ -158,9 +158,9 @@ const CATEGORIES = [
       { id: 'balance-sheet',     name: 'Balance Sheet',         desc: 'Assets · liabilities · equity',        isNew: false, route: null },
       { id: 'trial-balance',     name: 'Trial Balance',         desc: 'Group / sub-group ledger balances',     isNew: false, route: null },
       { id: 'day-book',          name: 'Day Book',              desc: 'Chronological voucher list',            isNew: false, route: '/day-book' },
-      { id: 'ledger-statement',  name: 'Ledger Statement',      desc: 'Account-wise transaction history',      isNew: false, route: null },
+      { id: 'ledger-statement',  name: 'Ledger Statement',      desc: 'Account-wise transaction history',      isNew: false, route: '/reports/ledger' },
       { id: 'cash-flow',         name: 'Cash Flow Statement',   desc: 'Operating · investing · financing',     isNew: true,  route: null },
-      { id: 'account-summary',   name: 'Account Summary',       desc: 'Opening · transactions · closing',      isNew: false, route: null },
+      { id: 'account-summary',   name: 'Account Summary',       desc: 'Opening · transactions · closing',      isNew: false, route: '/reports/monthly' },
       { id: 'gst-summary',       name: 'GST Summary',           desc: 'Tax collected & paid · by rate',        isNew: false, route: null },
       { id: 'gstr1',             name: 'GSTR-1',                desc: 'Outward supplies · filing view',        isNew: false, route: null },
       { id: 'gstr3b',            name: 'GSTR-3B',               desc: 'Summary return · ITC vs liability',     isNew: false, route: null },
@@ -185,11 +185,11 @@ const CATEGORIES = [
 const TOTAL_REPORTS = CATEGORIES.reduce((n, c) => n + c.reports.length, 0);
 
 const PIN_CARDS = [
-  { id: 'purchase-report',   name: 'Purchase Report',    meta: 'By supplier / item', iconClass: 'purchase', Icon: PinIconPurchase, route: '/vouchers' },
-  { id: 'sales-report',      name: 'Sales Report',       meta: 'Date / customer',    iconClass: 'sales',    Icon: PinIconSales,    route: '/vouchers' },
-  { id: 'ledger-statement',  name: 'Ledger Statement',   meta: 'Account-wise',       iconClass: 'ledger',   Icon: PinIconLedger,   route: null },
-  { id: 'supplier-statement',name: 'Supplier Statement', meta: 'Per-supplier',       iconClass: 'supplier', Icon: PinIconSupplier, route: '/outstanding' },
-  { id: 'customer-statement',name: 'Customer Statement', meta: 'Per-customer',       iconClass: 'customer', Icon: PinIconCustomer, route: '/outstanding' },
+  { id: 'purchase-report',   name: 'Purchase Report',    meta: 'By supplier / item', iconClass: 'purchase', Icon: PinIconPurchase, route: '/reports/purchases' },
+  { id: 'sales-report',      name: 'Sales Report',       meta: 'Date / customer',    iconClass: 'sales',    Icon: PinIconSales,    route: '/reports/sales' },
+  { id: 'ledger-statement',  name: 'Ledger Statement',   meta: 'Account-wise',       iconClass: 'ledger',   Icon: PinIconLedger,   route: '/reports/ledger' },
+  { id: 'supplier-statement',name: 'Supplier Statement', meta: 'Per-supplier',       iconClass: 'supplier', Icon: PinIconSupplier, route: '/reports/supplier-statement' },
+  { id: 'customer-statement',name: 'Customer Statement', meta: 'Per-customer',       iconClass: 'customer', Icon: PinIconCustomer, route: '/reports/customer-statement' },
 ];
 
 const LS_KEY = 'reports_pinned_v1';

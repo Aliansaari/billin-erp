@@ -454,3 +454,93 @@
   margin: 0 1px;
   letter-spacing: 0;
 }
+
+/* ─── Server setup ────────────────────────────────────────────────── */
+.login-server {
+  margin-top: 20px;
+}
+
+.login-server-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  color: var(--ed-fg-mute);
+  font-size: 11px;
+  font-family: inherit;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 4px 0;
+  width: 100%;
+  justify-content: center;
+  transition: color 0.15s;
+}
+.login-server-toggle:active,
+.login-server-toggle.active { color: var(--ed-accent); }
+
+.login-server-chevron {
+  font-size: 8px;
+  opacity: 0.6;
+}
+
+.login-server-body {
+  margin-top: 12px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 12px;
+}
+
+.login-server-desc {
+  font-size: 11px;
+  color: var(--ed-fg-soft);
+  line-height: 1.5;
+  margin-bottom: 12px;
+  font-style: italic;
+}
+
+.login-server-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.login-server-input {
+  flex: 1;
+  height: 44px;
+}
+
+.login-server-btn {
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: none;
+  background: var(--ed-accent);
+  color: #FFF4EA;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 76px;
+  transition: opacity 0.15s, background 0.15s;
+}
+.login-server-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.login-server-btn.ok { background: #166534; }
+
+.login-server-err {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #f87171;
+  line-height: 1.4;
+}
+
+.login-server-ok {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #4ade80;
+}

@@ -4,7 +4,7 @@ import { Toast } from 'antd-mobile';
 import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import useCompanyStore from '../../store/companyStore';
-import { companyAPI } from '../../api';
+import { companyAPI, setServerUrl as saveServerUrl, getServerUrl } from '../../api';
 import './SidePanel.css';
 
 const I = {
@@ -89,6 +89,12 @@ const I = {
       <path d="M18 6L6 18M6 6l12 12"/>
     </svg>
   ),
+  server: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
+      <line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+    </svg>
+  ),
   classic: (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="3"/>
@@ -125,6 +131,16 @@ export default function SidePanel({ open, onClose }) {
   const setCompanyList = useCompanyStore((s) => s.setList);
 
   const [closing, setClosing] = useState(false);
+  const [serverOpen,  setServerOpen]  = useState(false);
+  const [serverUrl,   setServerUrlVal] = useState(() => getServerUrl());
+
+  function handleSaveServer() {
+    const url = serverUrl.trim().replace(/\/+$/, '');
+    if (!url) return;
+    saveServerUrl(url);
+    Toast.show({ icon: 'success', content: 'Saved — reloading…' });
+    setTimeout(() => window.location.reload(), 700);
+  }
 
   useEffect(() => {
     if (open && companyList.length === 0) {
@@ -277,6 +293,41 @@ export default function SidePanel({ open, onClose }) {
                 {t.label}
               </button>
             ))}
+          </div>
+
+          {/* Server connection */}
+          <div className="sp-section-label">Connection</div>
+          <div className="sp-nav-list">
+            <button
+              className={`sp-nav-row${serverOpen ? ' sp-nav-row-open' : ''}`}
+              onClick={() => setServerOpen((v) => !v)}
+            >
+              <div className="sp-nav-icon">{I.server}</div>
+              <span className="sp-nav-label">Server</span>
+              <span className="sp-server-url-hint">{getServerUrl() ? getServerUrl().replace(/^https?:\/\//, '') : 'not set'}</span>
+              <div className="sp-nav-chev">{I.chev}</div>
+            </button>
+            {serverOpen && (
+              <div className="sp-server-body">
+                <input
+                  className="sp-server-input"
+                  type="url"
+                  placeholder="http://192.168.x.x:3001"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrlVal(e.target.value)}
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck="false"
+                />
+                <button
+                  className="sp-server-btn"
+                  onClick={handleSaveServer}
+                  disabled={!serverUrl.trim()}
+                >
+                  Save &amp; Reload
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Settings */}

@@ -578,3 +578,51 @@
 [data-mobile-theme="dark"] .sp-close-btn {
   border-color: var(--c-border);
 }
+
+/* ── Server connection section ──────────────────────────────────── */
+.sp-server-url-hint {
+  flex: 1;
+  font-size: 11px;
+  color: var(--c-text-mute);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+.sp-server-body {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--c-border-soft);
+  background: var(--c-bg-app);
+}
+.sp-server-input {
+  flex: 1;
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--c-text);
+  outline: none;
+  min-width: 0;
+  caret-color: var(--c-primary);
+}
+.sp-server-input:focus { border-color: var(--c-primary); }
+.sp-server-btn {
+  padding: 0 14px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--c-primary);
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sp-server-btn:disabled { opacity: 0.45; }
+.sp-server-btn.ok  { background: var(--c-success, #16a34a); }
+.sp-server-btn.err { background: var(--c-danger,  #dc2626); }

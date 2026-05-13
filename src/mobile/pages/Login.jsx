@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
-import { authAPI, companyAPI } from '../../api';
+import { authAPI, companyAPI, setServerUrl as saveServerUrl, getServerUrl, probeServer } from '../../api';
 import useAuthStore from '../../store/authStore';
 import CompanySheet from '../components/CompanySheet';
 import './Login.css';
@@ -58,6 +58,14 @@ const SparkIcon = () => (
     <path d="M12 0L13.5 8.5 22 10 13.5 11.5 12 20 10.5 11.5 2 10 10.5 8.5z" />
   </svg>
 );
+const ServerIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="2" width="20" height="8" rx="2"/>
+    <rect x="2" y="14" width="20" height="8" rx="2"/>
+    <line x1="6" y1="6" x2="6.01" y2="6"/>
+    <line x1="6" y1="18" x2="6.01" y2="18"/>
+  </svg>
+);
 
 // Map server-side companyAPI.listPublic shape into what CompanySheet expects.
 // The endpoint wraps the list in { data: [...] } and ships minimal metadata
@@ -90,6 +98,11 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const usernameRef = useRef(null);
 
+  const [serverOpen,   setServerOpen]   = useState(false);
+  const [serverUrl,    setServerUrlVal] = useState(() => getServerUrl());
+  const [serverStatus, setServerStatus] = useState(null); // null | 'testing' | 'ok' | 'err'
+  const [serverErrMsg, setServerErrMsg] = useState('');
+
   // Pull the last-used company id (saved post-login) so we can pre-select
   // it on next launch — saves a tap for the common single-firm case.
   const lastUsedId = useMemo(() => {
@@ -115,10 +128,28 @@ export default function Login() {
           : (list[0]?.company_id ?? null);
         setSelectedCompanyId(initial);
       })
-      .catch(() => { /* silent — login form stays usable without it */ });
+      .catch(() => {
+        setServerOpen(true); // auto-expand server config when fetch fails (likely wrong URL)
+      });
   }, [lastUsedId]);
 
   const selectedCompany = companies.find((c) => c.company_id === selectedCompanyId);
+
+  async function handleTestServer() {
+    const url = serverUrl.trim().replace(/\/+$/, '');
+    if (!url) return;
+    setServerStatus('testing');
+    setServerErrMsg('');
+    try {
+      await probeServer(url);
+      setServerStatus('ok');
+      saveServerUrl(url);
+      setTimeout(() => window.location.reload(), 700);
+    } catch (e) {
+      setServerStatus('err');
+      setServerErrMsg(e?.message || 'Could not reach server');
+    }
+  }
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -269,6 +300,56 @@ export default function Login() {
           <button type="submit" className="login-signin" disabled={submitting}>
             {submitting ? <span className="login-spinner" /> : <>Sign in <ArrowIcon /></>}
           </button>
+        </div>
+
+        {/* Server config */}
+        <div className="login-server">
+          <button
+            type="button"
+            className={`login-server-toggle${serverOpen ? ' active' : ''}`}
+            onClick={() => setServerOpen((v) => !v)}
+          >
+            <ServerIcon />
+            <span>Server setup</span>
+            <span className="login-server-chevron">{serverOpen ? '▲' : '▼'}</span>
+          </button>
+          {serverOpen && (
+            <div className="login-server-body">
+              <div className="login-server-desc">
+                Enter your server's LAN address so the app can reach the database.
+              </div>
+              <div className="login-server-row">
+                <label className="login-input login-server-input">
+                  <input
+                    type="url"
+                    className="login-input-text"
+                    placeholder="http://192.168.x.x:3001"
+                    value={serverUrl}
+                    onChange={(e) => { setServerUrlVal(e.target.value); setServerStatus(null); }}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck="false"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className={`login-server-btn${serverStatus === 'ok' ? ' ok' : ''}`}
+                  onClick={handleTestServer}
+                  disabled={serverStatus === 'testing' || serverStatus === 'ok'}
+                >
+                  {serverStatus === 'testing'
+                    ? <span className="login-spinner" style={{ width: 12, height: 12 }} />
+                    : serverStatus === 'ok' ? '✓' : 'Connect'}
+                </button>
+              </div>
+              {serverStatus === 'err' && (
+                <div className="login-server-err">{serverErrMsg}</div>
+              )}
+              {serverStatus === 'ok' && (
+                <div className="login-server-ok">Connected — reloading…</div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer hint */}

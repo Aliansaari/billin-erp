@@ -31,26 +31,17 @@
 
 .dash > * { position: relative; z-index: 1; }
 
-/* ─── Header (fixed — stays put during overscroll bounce) ─────────── */
+/* ─── Header — invisible strip, flows naturally with the page ─────── */
 .dash-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 10;
+  position: static;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: calc(env(safe-area-inset-top, 0px) + 12px) var(--pad) 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) var(--pad) 18px 12px;
   gap: 12px;
-  background: var(--c-bg-app);
-  background-image:
-    radial-gradient(ellipse at 18% 20%, var(--c-hero-glow) 0%, transparent 45%);
+  background: transparent;
 }
-.dash-header-spacer {
-  height: calc(env(safe-area-inset-top, 0px) + 76px);
-  flex-shrink: 0;
-}
+.dash-header-spacer { display: none; }
 
 .dash-brand-wrap {
   flex: 1;
@@ -673,11 +664,6 @@
     radial-gradient(ellipse at 85% 80%, var(--c-success-soft) 0%, transparent 45%);
 }
 
-[data-mobile-theme="dark"] .dash-header {
-  background-image:
-    radial-gradient(ellipse at 18% 20%, var(--c-hero-glow) 0%, transparent 45%);
-}
-
 [data-mobile-theme="dark"] .icon-btn {
   background: var(--c-bg-card);
   border-color: var(--c-border);
@@ -737,7 +723,7 @@
 }
 
 [data-mobile-theme="dark"] .qa-btn.primary .qa-icon {
-  background: linear-gradient(155deg, #DD5527 0%, #B43D14 100%);
+  background: linear-gradient(155deg, var(--c-accent-from) 0%, var(--c-accent-to) 100%);
 }
 
 [data-mobile-theme="dark"] .act-list {
@@ -760,4 +746,186 @@
 
 [data-mobile-theme="dark"] .notif-dropdown-item:active {
   background: var(--c-primary-soft);
+}
+
+/* ─── Classic theme overrides — teal-cyan v4 ─────────────────────── */
+/* Page atmosphere — replace editorial cream/green radials with teal. */
+[data-mobile-style="classic"] .dash {
+  background-image:
+    radial-gradient(ellipse 800px 600px at 12% 0%, rgba(8, 145, 168, 0.13) 0%, transparent 55%),
+    radial-gradient(ellipse 600px 500px at 95% 35%, rgba(8, 145, 168, 0.07) 0%, transparent 55%),
+    radial-gradient(ellipse 600px 450px at 5% 90%, rgba(7, 92, 107, 0.06) 0%, transparent 55%);
+}
+[data-mobile-style="classic"][data-mobile-theme="dark"] .dash {
+  background-image:
+    radial-gradient(ellipse 800px 600px at 12% 0%, rgba(8, 145, 168, 0.22) 0%, transparent 55%),
+    radial-gradient(ellipse 600px 500px at 95% 35%, rgba(8, 145, 168, 0.13) 0%, transparent 55%),
+    radial-gradient(ellipse 600px 450px at 5% 90%, rgba(7, 92, 107, 0.16) 0%, transparent 55%);
+}
+/* No grain texture — Classic palette is clean. */
+[data-mobile-style="classic"] .dash::before { display: none; }
+
+
+/* Avatar — teal gradient with halo glow. */
+[data-mobile-style="classic"] .dash-avatar {
+  background: linear-gradient(155deg, var(--c-accent-from) 0%, var(--c-accent-to) 100%);
+  color: #fff;
+  border: none;
+  box-shadow:
+    0 10px 24px -6px rgba(7, 92, 107, 0.45),
+    0 0 0 1px rgba(14, 175, 202, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  font-style: normal;
+  font-weight: 700;
+}
+
+/* Hero card — light surface (not dark gradient). */
+[data-mobile-style="classic"] .hero-card {
+  background: var(--c-bg-surface);
+  color: var(--c-text);
+  border: 1px solid var(--c-line);
+  box-shadow: var(--shadow-hero);
+}
+[data-mobile-style="classic"] .hero-card::before {
+  background: radial-gradient(circle, var(--c-primary-soft) 0%, transparent 60%);
+  top: -100px;
+  right: -60px;
+  width: 340px;
+  height: 340px;
+}
+[data-mobile-style="classic"] .hero-card::after {
+  background-image: none;
+  background: radial-gradient(circle, rgba(7, 92, 107, 0.06) 0%, transparent 60%);
+  inset: auto;
+  bottom: -60px;
+  left: -40px;
+  width: 240px;
+  height: 240px;
+  opacity: 1;
+}
+[data-mobile-style="classic"][data-mobile-theme="dark"] .hero-card::before {
+  background: radial-gradient(circle, rgba(14, 175, 202, 0.18) 0%, transparent 60%);
+}
+[data-mobile-style="classic"][data-mobile-theme="dark"] .hero-card::after {
+  background: radial-gradient(circle, rgba(7, 92, 107, 0.20) 0%, transparent 60%);
+}
+
+[data-mobile-style="classic"] .hero-label {
+  color: var(--c-text-soft);
+}
+[data-mobile-style="classic"] .hero-label::before {
+  background: var(--c-primary);
+  box-shadow: 0 0 16px var(--c-primary-hi), 0 0 5px var(--c-primary);
+}
+[data-mobile-style="classic"] .hero-period {
+  color: var(--c-text-soft);
+  background: var(--c-primary-soft);
+}
+[data-mobile-style="classic"] .hero-amount { color: var(--c-text); }
+[data-mobile-style="classic"] .hero-amount .currency { color: var(--c-text-mute); opacity: 0.5; }
+[data-mobile-style="classic"] .hero-sub { color: var(--c-text-mute); }
+
+[data-mobile-style="classic"] .hero-box {
+  background: rgba(232, 237, 242, 0.6);
+  border: 1px solid var(--c-line);
+}
+[data-mobile-style="classic"][data-mobile-theme="dark"] .hero-box {
+  background: var(--c-bg-elev);
+  border-color: var(--c-line);
+}
+[data-mobile-style="classic"] .hero-box:active { background: var(--c-primary-soft); }
+[data-mobile-style="classic"] .hero-box-label { color: var(--c-text-soft); }
+[data-mobile-style="classic"] .hero-box-value { color: var(--c-text); }
+[data-mobile-style="classic"] .hero-box-value .currency { color: var(--c-text-mute); opacity: 0.55; }
+[data-mobile-style="classic"] .hero-box-sub { color: var(--c-text-faint); }
+
+/* Quick actions — primary tile uses teal accent gradient icon. */
+[data-mobile-style="classic"] .qa-btn {
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-line);
+}
+[data-mobile-style="classic"] .qa-btn:active { background: var(--c-primary-soft); }
+[data-mobile-style="classic"] .qa-icon {
+  background: var(--c-bg-page);
+  border-color: var(--c-line);
+  color: var(--c-text-soft);
+}
+[data-mobile-style="classic"][data-mobile-theme="dark"] .qa-icon {
+  background: var(--c-bg-elev);
+}
+[data-mobile-style="classic"] .qa-btn.primary .qa-icon {
+  background: linear-gradient(155deg, var(--c-accent-from) 0%, var(--c-accent-to) 100%);
+  color: #fff;
+  border-color: transparent;
+  box-shadow:
+    0 8px 22px -6px rgba(7, 92, 107, 0.45),
+    0 0 0 1px rgba(14, 175, 202, 0.20),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.20);
+}
+
+/* Activity rows — left accent bar via ::before, light surface card. */
+[data-mobile-style="classic"] .act-list {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+[data-mobile-style="classic"] .act-row {
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  position: relative;
+  overflow: hidden;
+}
+[data-mobile-style="classic"] .act-row:last-child { border-bottom: 1px solid var(--c-line); margin-bottom: 0; }
+[data-mobile-style="classic"] .act-bar { display: none; }
+[data-mobile-style="classic"] .act-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--c-text-faint);
+}
+[data-mobile-style="classic"] .act-row:has(.act-amount.in)::before,
+[data-mobile-style="classic"] .act-row:has(.act-side-label.cr)::before {
+  background: var(--c-success);
+}
+[data-mobile-style="classic"] .act-row:has(.act-side-label.dr)::before {
+  background: var(--c-warning);
+}
+[data-mobile-style="classic"] .act-side-label.cr {
+  color: var(--c-success);
+  background: var(--c-success-soft);
+  border: 1px solid rgba(45, 136, 86, 0.28);
+}
+[data-mobile-style="classic"][data-mobile-theme="dark"] .act-side-label.cr {
+  color: var(--c-success-bright);
+  border-color: rgba(45, 136, 86, 0.35);
+}
+[data-mobile-style="classic"] .act-side-label.dr {
+  color: var(--c-warning);
+  background: var(--c-warning-soft);
+  border: 1px solid rgba(194, 133, 52, 0.30);
+}
+[data-mobile-style="classic"][data-mobile-theme="dark"] .act-side-label.dr {
+  color: var(--c-warning);
+  border-color: rgba(194, 133, 52, 0.38);
+}
+
+/* Section title em — keep Fraunces italic (only place in Classic). */
+[data-mobile-style="classic"] .dash-section h2 em {
+  color: var(--c-text-soft);
+}
+
+/* Icon-button bell (bell + notif) on Classic. */
+[data-mobile-style="classic"] .icon-btn {
+  background: var(--c-bg-surface);
+  border: 1.5px solid var(--c-border);
+  color: var(--c-text-soft);
 }
