@@ -4,35 +4,104 @@ import { useMenuPopup } from '../components/keyboard/MenuPopup';
 import { CTRL_DIRECT } from '../components/keyboard/menuCatalog';
 import useFilteredAltMenus from './useFilteredAltMenus';
 
+/* Master cheat-sheet — every keyboard shortcut + every F-key action strip
+ * surface the operator can reach. Categorised so the help overlay can
+ * group them; flat array stays the source of truth so search/filter is
+ * trivial.
+ *
+ * Adding a shortcut? Add the row here with the correct `category` and a
+ * one-line `description`. The overlay (App.jsx → ShortcutsOverlay) reads
+ * this list directly — no separate registration step.
+ */
 export const SHORTCUTS_LIST = [
-  { keys: 'Cmd/Ctrl + K', description: 'Open global search' },
-  { keys: 'Cmd/Ctrl + Shift + N', description: 'Create new master (Customer / Supplier / Product / Category / Bank)' },
-  { keys: 'Alt + G', description: 'Open global search' },
-  { keys: 'Alt + H', description: 'Home menu' },
-  { keys: 'Alt + S', description: 'Sales menu' },
-  { keys: 'Alt + P', description: 'Purchase menu' },
-  { keys: 'Alt + E', description: 'Parties menu' },
-  { keys: 'Alt + I', description: 'Inventory menu' },
-  { keys: 'Alt + B', description: 'Bank menu' },
-  { keys: 'Alt + A', description: 'Books menu' },
-  { keys: 'Alt + R', description: 'Reports menu' },
-  { keys: 'Alt + T', description: 'Settings menu' },
-  { keys: 'Alt + D', description: 'Dashboard' },
-  { keys: 'Ctrl + Alt + C', description: 'Manage Companies' },
-  { keys: 'F9', description: 'Switch company' },
-  { keys: 'Ctrl + S', description: 'New Sale (direct)' },
-  { keys: 'Ctrl + P', description: 'New Purchase (direct)' },
-  { keys: 'Ctrl + M', description: 'New Payment (direct)' },
-  { keys: 'Ctrl + N', description: 'New Receipt (direct)' },
-  { keys: 'Ctrl + H', description: 'Home (direct)' },
-  { keys: 'Ctrl + D', description: 'Dashboard (direct)' },
-  { keys: 'F6', description: 'Receipt (money in)' },
-  { keys: 'F7', description: 'Payment (money out)' },
-  { keys: 'Ctrl + Shift + ?', description: 'Show Shortcuts Help' },
-  { keys: 'Escape', description: 'Close dialog / Cancel' },
-  { keys: 'F5', description: 'Refresh data' },
-  { keys: 'Enter', description: 'Move to next field (in forms)' },
-  { keys: 'Ctrl + Enter', description: 'Save / Submit form' },
+  // ── Global ─────────────────────────────────────────────────────────────
+  { category: 'Global',     keys: 'Alt + G',              description: 'Open global search palette',
+    note: 'Cmd+K / Ctrl+K also work — Alt+G is the cross-platform display key' },
+  { category: 'Global',     keys: 'Cmd/Ctrl + Shift + N', description: 'Open Master Chooser (Customer · Supplier · Product · Category · Bank)' },
+  { category: 'Global',     keys: 'Cmd/Ctrl + Shift + ?', description: 'Show this keyboard cheat-sheet' },
+  { category: 'Global',     keys: 'Escape',               description: 'Close modal · cancel · clear search' },
+  { category: 'Global',     keys: 'F5',                   description: 'Refresh the current page / list' },
+  { category: 'Global',     keys: 'F9',                   description: 'Open company switcher' },
+
+  // ── Top-level navigation (Alt + letter → menu popup) ───────────────────
+  { category: 'Navigation', keys: 'Alt + H',              description: 'Home' },
+  { category: 'Navigation', keys: 'Alt + D',              description: 'Dashboard' },
+  { category: 'Navigation', keys: 'Alt + S',              description: 'Sales menu' },
+  { category: 'Navigation', keys: 'Alt + P',              description: 'Purchase menu' },
+  { category: 'Navigation', keys: 'Alt + E',              description: 'Parties menu (customers · suppliers)' },
+  { category: 'Navigation', keys: 'Alt + I',              description: 'Inventory menu' },
+  { category: 'Navigation', keys: 'Alt + B',              description: 'Bank menu (banks · loans · reconcile)' },
+  { category: 'Navigation', keys: 'Alt + A',              description: 'Books menu (journals · ledgers · audit)' },
+  { category: 'Navigation', keys: 'Alt + R',              description: 'Reports hub' },
+  { category: 'Navigation', keys: 'Alt + T',              description: 'Settings (direct)' },
+  { category: 'Navigation', keys: 'Cmd/Ctrl + Alt + C',   description: 'Manage Companies' },
+
+  // ── Quick create (Ctrl + letter → one-keystroke jump) ─────────────────
+  { category: 'Quick create', keys: 'Ctrl + S',           description: 'New Sale bill' },
+  { category: 'Quick create', keys: 'Ctrl + P',           description: 'New Purchase bill' },
+  { category: 'Quick create', keys: 'Ctrl + M',           description: 'New Payment (money out)' },
+  { category: 'Quick create', keys: 'Ctrl + N',           description: 'New Receipt (money in)' },
+  { category: 'Quick create', keys: 'Ctrl + H',           description: 'Home (direct)' },
+  { category: 'Quick create', keys: 'Ctrl + D',           description: 'Dashboard (direct)' },
+  { category: 'Quick create', keys: 'F6',                 description: 'New Receipt — alternate' },
+  { category: 'Quick create', keys: 'F7',                 description: 'New Payment — alternate' },
+
+  // ── Bill form (sale / purchase / return entry) ────────────────────────
+  { category: 'Bill form',  keys: 'F1',                   description: 'Save (with optional print prompt)' },
+  { category: 'Bill form',  keys: 'Ctrl + Enter',         description: 'Save — alias for F1' },
+  { category: 'Bill form',  keys: 'F2',                   description: 'Open Date picker (Tally-style smart input)' },
+  { category: 'Bill form',  keys: 'F3',                   description: 'Toggle focus between Barcode and Items table' },
+  { category: 'Bill form',  keys: 'F4',                   description: 'Hold bill (save as draft, resume later)' },
+  { category: 'Bill form',  keys: 'F5',                   description: 'Reset form to a blank bill' },
+  { category: 'Bill form',  keys: 'F6',                   description: 'Pay — collect money for this bill' },
+  { category: 'Bill form',  keys: 'F7',                   description: 'Convert to Return / credit note' },
+  { category: 'Bill form',  keys: 'Enter',                description: 'Move to next field (form-wide)' },
+  { category: 'Bill form',  keys: 'Escape',               description: 'Back without saving (prompts if dirty)' },
+
+  // ── List pages (action strip at the bottom) ───────────────────────────
+  { category: 'List page',  keys: 'F1',                   description: 'Open the selected row' },
+  { category: 'List page',  keys: 'F2',                   description: 'Edit the selected row' },
+  { category: 'List page',  keys: 'F3',                   description: 'New row — context-aware (New Sale on Sales list, New Product on Products list, …)' },
+  { category: 'List page',  keys: 'F4',                   description: 'Find (focus the search input)' },
+  { category: 'List page',  keys: 'F5',                   description: 'Refresh the list' },
+  { category: 'List page',  keys: 'F8',                   description: 'Cancel / deactivate the selected row' },
+  { category: 'List page',  keys: 'F9',                   description: 'Print (sales / purchase / return lists)' },
+  { category: 'List page',  keys: 'F10',                  description: 'Export PDF' },
+  { category: 'List page',  keys: 'Esc',                  description: 'Back to previous view' },
+  { category: 'List page',  keys: '↑ / ↓',                description: 'Move cursor between rows' },
+
+  // ── Global search palette (⌘K / Alt+G) ────────────────────────────────
+  { category: 'Search palette', keys: '/c',               description: 'Scope to Customers' },
+  { category: 'Search palette', keys: '/s',               description: 'Scope to Suppliers' },
+  { category: 'Search palette', keys: '/p',               description: 'Scope to Products' },
+  { category: 'Search palette', keys: '/l',               description: 'Scope to Ledgers' },
+  { category: 'Search palette', keys: '/r',               description: 'Scope to Reports' },
+  { category: 'Search palette', keys: '/a',               description: 'Scope to Actions / commands' },
+  { category: 'Search palette', keys: '↑ / ↓',            description: 'Move highlight through results' },
+  { category: 'Search palette', keys: '↵',                description: 'Open the highlighted row' },
+  { category: 'Search palette', keys: 'Cmd/Ctrl + ↵',     description: 'Open the highlighted row in a new window' },
+  { category: 'Search palette', keys: 'Cmd/Ctrl + B',     description: 'Pin / unpin the highlighted row' },
+
+  // ── Master chooser (Cmd/Ctrl + Shift + N) ─────────────────────────────
+  { category: 'Master chooser', keys: 'C',                description: 'New Customer' },
+  { category: 'Master chooser', keys: 'S',                description: 'New Supplier' },
+  { category: 'Master chooser', keys: 'P',                description: 'New Product' },
+  { category: 'Master chooser', keys: 'G',                description: 'New Category (Group)' },
+  { category: 'Master chooser', keys: 'B',                description: 'New Bank' },
+];
+
+/* Ordered category list for the overlay. Categories not in this list
+   render at the bottom in alphabetical order — defensive so a new
+   category in SHORTCUTS_LIST never accidentally disappears from the
+   help overlay if someone forgets to update this constant. */
+export const SHORTCUTS_CATEGORIES = [
+  'Global',
+  'Navigation',
+  'Quick create',
+  'Bill form',
+  'List page',
+  'Search palette',
+  'Master chooser',
 ];
 
 export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {

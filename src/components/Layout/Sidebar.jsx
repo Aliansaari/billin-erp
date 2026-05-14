@@ -20,6 +20,7 @@ import {
   SunOutlined,
   MoonOutlined,
   CodeOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import DeveloperGate from '../DeveloperGate';
 import useDevModeStore from '../../store/devModeStore';
@@ -253,6 +254,11 @@ export default function Sidebar({ collapsed, setCollapsed }) {
     { key: 'profile', icon: <UserOutlined />, label: 'My Profile' },
     { key: 'change-password', icon: <LockOutlined />, label: 'Change Password', onClick: () => navigate('/change-password') },
     { key: 'settings', icon: <SettingOutlined />, label: 'Settings', onClick: () => navigate('/settings/company') },
+    // Keyboard shortcuts cheat sheet — mouse path to the overlay (App.jsx
+    // listens for 'shortcuts:open'). The Cmd/Ctrl+Shift+? keystroke still
+    // works; this is the discovery surface for operators who don't know it.
+    { key: 'shortcuts', icon: <QuestionCircleOutlined />, label: 'Keyboard shortcuts',
+      onClick: () => window.dispatchEvent(new Event('shortcuts:open')) },
     // Developer affordances appear ONLY when developer mode is unlocked
     // AND not previewing as a regular user. The locked-state dropdown
     // is intentionally identical to a normal admin's — no clue that

@@ -692,19 +692,264 @@ body {
 }
 
 /* ===== SHORTCUTS OVERLAY ===== */
+/* Backdrop — covers the whole viewport, click anywhere outside the panel
+   to dismiss. Same dim level the global search palette uses so the two
+   modals feel like siblings. */
 .erp-shortcuts-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 10000;
-  animation: fadeIn 0.2s ease-out;
+  padding: 8vh 20px 20px;
+  animation: fadeIn 0.18s ease-out;
 }
 
+/* The cheat-sheet panel — wider than the old 600 px so two-column
+   layouts fit cleanly, tall enough to show ~3 categories without
+   scrolling. */
+.erp-cheat-panel {
+  width: min(820px, 100%);
+  max-height: 84vh;
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg, 0 24px 60px rgba(0, 0, 0, 0.20));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: cheatRise 0.20s cubic-bezier(.2, .7, .2, 1);
+}
+@keyframes cheatRise {
+  from { opacity: 0; transform: translateY(-10px) scale(.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+[data-theme^="modern"] .erp-cheat-panel {
+  backdrop-filter: blur(var(--blur, 14px)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--blur, 14px)) saturate(140%);
+}
+
+/* Header — eyebrow + title on the left, esc-chip close on the right. */
+.erp-cheat-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.erp-cheat-eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent, #E26A4C);
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.erp-cheat-title {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0;
+  color: var(--fg-primary);
+}
+.erp-cheat-close {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 4px 9px;
+  color: var(--fg-tertiary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.erp-cheat-close:hover {
+  color: var(--fg-primary);
+  background: var(--bg-hover);
+}
+
+/* Search filter row — sits below the header, focused on overlay open. */
+.erp-cheat-search-wrap {
+  position: relative;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.erp-cheat-search {
+  width: 100%;
+  height: 38px;
+  padding: 0 36px 0 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg-primary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  transition: border-color .12s, background .12s;
+}
+.erp-cheat-search:focus {
+  outline: none;
+  border-color: var(--accent, var(--border-strong, var(--border)));
+  background: var(--bg-elevated);
+}
+.erp-cheat-search::placeholder {
+  color: var(--fg-tertiary);
+}
+.erp-cheat-search-clear {
+  position: absolute;
+  right: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px; height: 22px;
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  font-size: 11px;
+}
+.erp-cheat-search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+/* Body — scrolls. The header / search / footer stay anchored. */
+.erp-cheat-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* Each category. The label is a small uppercase eyebrow with a count
+   chip so the operator can see at a glance how many shortcuts fall in
+   each group. */
+.erp-cheat-section { padding: 10px 24px 6px; }
+.erp-cheat-section + .erp-cheat-section { border-top: 1px solid var(--border-subtle); }
+.erp-cheat-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 8px;
+}
+.erp-cheat-section-name {
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+}
+.erp-cheat-section-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-muted);
+  color: var(--fg-tertiary);
+}
+
+.erp-cheat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.erp-cheat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-radius: 6px;
+  transition: background .12s;
+}
+.erp-cheat-row:hover { background: var(--bg-hover); padding-left: 6px; padding-right: 6px; margin: 0 -6px; }
+.erp-cheat-row-desc {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-secondary);
+}
+.erp-cheat-row-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--fg-tertiary);
+}
+.erp-cheat-row-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+/* The keycap — a refined version of .erp-kbd specifically for the
+   cheat sheet. Mono font, slightly taller, subtle accent on hover row. */
+.erp-cheat-kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--fg-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-bottom-width: 1.5px;
+  border-radius: 5px;
+  box-shadow: 0 1px 0 var(--border);
+  line-height: 1;
+}
+.erp-cheat-plus {
+  color: var(--fg-tertiary);
+  margin: 0 2px;
+  font-size: 11px;
+  font-weight: 400;
+}
+.erp-cheat-row:hover .erp-cheat-kbd {
+  border-color: var(--border-strong, var(--accent, var(--border)));
+}
+
+.erp-cheat-empty {
+  padding: 40px 24px;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--fg-tertiary);
+  line-height: 1.6;
+}
+.erp-cheat-empty strong { color: var(--fg-primary); }
+
+/* Footer — total count on the left, "press X to open" reminder right. */
+.erp-cheat-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-muted);
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+}
+.erp-cheat-foot-tip { display: inline-flex; align-items: center; gap: 2px; }
+
+/* Legacy classes — kept for any rogue caller that still imports the
+   old overlay shape. The active cheat-sheet uses .erp-cheat-* above. */
 .erp-shortcuts-panel {
   background: var(--bg-elevated);
   color: var(--fg-primary);
@@ -717,11 +962,6 @@ body {
   overflow-y: auto;
   box-shadow: var(--shadow-lg);
 }
-[data-theme^="modern"] .erp-shortcuts-panel {
-  backdrop-filter: blur(var(--blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(140%);
-}
-
 .erp-shortcut-row {
   display: flex;
   justify-content: space-between;
