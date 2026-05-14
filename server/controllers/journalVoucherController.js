@@ -20,6 +20,7 @@ const sequelize = require('../config/database');
 const { JournalVoucher, LedgerEntry, LedgerAccount } = require('../models');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { sanitizePagination } = require('../utils/helpers');
+const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 
 function nextVoucherNumberPrefix(date) {
   const d = new Date(date);
@@ -101,6 +102,11 @@ function normalizeLines(rawLines) {
 }
 
 exports.create = async (req, res) => {
+  // Fiscal-lock guard. voucher_date is the probe (mirror of bill_date).
+  const guard = await applyFiscalLockGuard(req, res, req.body?.voucher_date);
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const { voucher_date, narration, lines: rawLines } = req.body || {};
@@ -145,6 +151,21 @@ exports.create = async (req, res) => {
     });
 
     await t.commit();
+
+    if (guard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'journal_voucher',
+        target_id:        jv.id,
+        target_label:     `JV ${jv.voucher_number || `#${jv.id}`} dated ${jv.voucher_date}`,
+        target_date:      jv.voucher_date,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate },
+      });
+    }
+
     res.status(201).json(jv);
   } catch (err) {
     if (!t.finished) await t.rollback().catch(() => {});
@@ -154,6 +175,16 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  // Lock guard on edit. Probe the earlier of old/new voucher_date.
+  const preview = await JournalVoucher.findByPk(req.params.id, { attributes: ['id', 'voucher_date', 'voucher_number', 'is_reversed'] });
+  if (!preview) return res.status(404).json({ error: 'Voucher not found' });
+  if (preview.is_reversed) return res.status(400).json({ error: 'Cannot edit a reversed voucher.' });
+  const oldDateStr = preview.voucher_date && String(preview.voucher_date).slice(0, 10);
+  const newDateStr = req.body?.voucher_date && String(req.body.voucher_date).slice(0, 10);
+  const guard = await applyFiscalLockGuard(req, res, earlierDate(oldDateStr, newDateStr));
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -222,6 +253,21 @@ exports.update = async (req, res) => {
     });
 
     await t.commit();
+
+    if (guard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       'post_close_edit',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'journal_voucher',
+        target_id:        jv.id,
+        target_label:     `JV ${jv.voucher_number || `#${jv.id}`} edited (date ${oldDateStr || '—'} → ${newDateStr || oldDateStr || '—'})`,
+        target_date:      newDateStr || oldDateStr || null,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate, old_date: oldDateStr, new_date: newDateStr || oldDateStr },
+      });
+    }
+
     res.json(jv);
   } catch (err) {
     if (!t.finished) await t.rollback().catch(() => {});
@@ -231,6 +277,14 @@ exports.update = async (req, res) => {
 };
 
 exports.remove = async (req, res) => {
+  // Lock guard on delete (reverse). Probe the JV's own date.
+  const preview = await JournalVoucher.findByPk(req.params.id, { attributes: ['id', 'voucher_date', 'voucher_number', 'is_reversed'] });
+  if (!preview) return res.status(404).json({ error: 'Voucher not found' });
+  const cancelDateStr = preview.voucher_date && String(preview.voucher_date).slice(0, 10);
+  const guard = await applyFiscalLockGuard(req, res, cancelDateStr);
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -247,6 +301,21 @@ exports.remove = async (req, res) => {
     await jv.update({ is_reversed: true }, { transaction: t });
 
     await t.commit();
+
+    if (guard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'journal_voucher',
+        target_id:        jv.id,
+        target_label:     `JV ${jv.voucher_number || `#${jv.id}`} reversed (was dated ${cancelDateStr})`,
+        target_date:      cancelDateStr,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate, action: 'delete' },
+      });
+    }
+
     res.json({ message: 'Voucher reversed.' });
   } catch (err) {
     if (!t.finished) await t.rollback().catch(() => {});

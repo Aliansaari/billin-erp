@@ -10,6 +10,8 @@ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
+import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
+import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import '../../styles/bill-entry.css';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -69,6 +71,11 @@ export default function ReceiptEntry() {
   const dirty = !!(selectedParty || payAmt);
   const confirmLeave = useUnsavedChangesWarning(dirty);
   const { openDate } = useDatePopup();
+
+  // Fiscal-lock override flow — same hook the Payment form uses.
+  const { lockModal, guardedSave } = useFiscalLockGuard({
+    onBlocked: (msg) => message.error(msg),
+  });
 
   const payAmtRef        = useRef(null);
   const partyRef         = useRef(null);
@@ -364,9 +371,9 @@ export default function ReceiptEntry() {
         }],
         bill_allocations,
       };
-      const { data: result } = isEdit
-        ? await paymentAPI.update(editId, body)
-        : await paymentAPI.create(body);
+      const result = await guardedSave(body, (b) => (
+        isEdit ? paymentAPI.update(editId, b).then(r => r.data) : paymentAPI.create(b).then(r => r.data)
+      ));
       message.success(
         isEdit
           ? `Receipt updated → new number ${result.transaction_number} (original cancelled in audit trail). ✓`
@@ -379,7 +386,8 @@ export default function ReceiptEntry() {
         refreshNextNumber();
       }
     } catch (e) {
-      message.error(e.response?.data?.error || 'Failed to save receipt');
+      if (isFiscalLockCancel(e)) return;
+      message.error(e.response?.data?.message || e.response?.data?.error || 'Failed to save receipt');
     } finally {
       setLoading(false);
       submittingRef.current = false;
@@ -703,6 +711,15 @@ export default function ReceiptEntry() {
             hidden: true, disabled: loading,
             onAction: handleSave },
         ]}
+      />
+
+      <FiscalLockOverrideModal
+        open={!!lockModal}
+        lock={lockModal?.lock}
+        billDate={date}
+        vouchTypeLabel="Receipt"
+        onConfirm={lockModal?.onConfirm}
+        onCancel={lockModal?.onCancel}
       />
     </div>
   );

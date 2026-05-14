@@ -11,8 +11,10 @@ import { useDatePopup } from '../../components/keyboard/DatePopup';
 import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { useMultiWarehouseEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
+import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import ProductFormModal from '../../components/ProductFormModal';
+import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import './purchase-bill-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -1590,7 +1592,9 @@ export default function PurchaseBillForm() {
           return;
         }
       }
-      const{data}=isEdit?await purchaseAPI.update(id,billData):await purchaseAPI.create(billData);
+      const data = await guardedSave(billData, (b) => (
+        isEdit ? purchaseAPI.update(id, b).then(r => r.data) : purchaseAPI.create(b).then(r => r.data)
+      ));
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
       invalidateFamilyCache(); // newly-created variants are now live in DB — drop cached lookups
       setRecalledDraftId(null);
@@ -1620,9 +1624,12 @@ export default function PurchaseBillForm() {
         if (isEdit) navigate('/purchases');
         else { handleReset(); setBillNumber(''); }
       }
-    }catch(e){ message.error(e.response?.data?.error||'Failed to save'); }
+    }catch(e){
+      if (isFiscalLockCancel(e)) { /* user backed out of override modal */ }
+      else { message.error(e.response?.data?.message || e.response?.data?.error || 'Failed to save'); }
+    }
     finally{ setLoading(false); submittingRef.current=false; }
-  },[form,items,discountPct,discountAmt,otherChr,freightChr,roundedTotal,isEdit,id,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct]);
+  },[form,items,discountPct,discountAmt,otherChr,freightChr,roundedTotal,isEdit,id,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct,guardedSave]);
 
   const handleReset=()=>{
     setItems([]); setEntry(EMPTY_ENTRY); setBarcodeError('');
@@ -1664,6 +1671,12 @@ export default function PurchaseBillForm() {
 
   // F2 Date popup — Tally-style smart-input popup for the bill date.
   const { openDate } = useDatePopup();
+
+  // Fiscal-lock guard — opens the override modal on a backdated save
+  // when compliance mode is on. Same hook used across all voucher forms.
+  const { lockModal, guardedSave } = useFiscalLockGuard({
+    onBlocked: (msg) => message.error(msg),
+  });
   const f2DatePopup = useCallback(() => {
     const current = form.getFieldValue('bill_date');
     openDate({
@@ -3043,6 +3056,15 @@ export default function PurchaseBillForm() {
           />
         )}
       </Modal>
+
+      <FiscalLockOverrideModal
+        open={!!lockModal}
+        lock={lockModal?.lock}
+        billDate={form.getFieldValue('bill_date')}
+        vouchTypeLabel="Purchase"
+        onConfirm={lockModal?.onConfirm}
+        onCancel={lockModal?.onCancel}
+      />
     </Form>
   );
 }

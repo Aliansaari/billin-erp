@@ -47,6 +47,8 @@ import { expenseAPI, ledgerAPI, partyAPI, bankAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
+import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 
 const { Title, Text } = Typography;
 const MONO = 'Geist Mono, ui-monospace, monospace';
@@ -121,6 +123,13 @@ export default function ExpenseEntry() {
   const dirty = !!(lines[0]?.expense_ledger_id || lines[0]?.taxable_amount);
   const confirmLeave = useUnsavedChangesWarning(dirty);
   const { openDate } = useDatePopup();
+
+  // Fiscal-lock override flow (compliance mode). Same hook as Sales /
+  // Payment / Receipt. The modal is rendered at the bottom of this
+  // component.
+  const { lockModal, guardedSave } = useFiscalLockGuard({
+    onBlocked: (msg) => message.error(msg),
+  });
 
   const partyRef = useRef(null);
   const firstAmtRef = useRef(null);
@@ -299,18 +308,20 @@ export default function ExpenseEntry() {
         paid_amount: paidAmountOverride != null ? r2(paidAmountOverride) : undefined,
         items,
       };
-      const res = isEdit
-        ? await expenseAPI.update(id, payload)
-        : await expenseAPI.create(payload);
+      const result = await guardedSave(payload, (b) => (
+        isEdit ? expenseAPI.update(id, b).then(r => r.data) : expenseAPI.create(b).then(r => r.data)
+      ));
 
       pushRecent(items.map((it) => it.expense_ledger_id));
 
       message.success(isEdit
-        ? `Expense ${res.data.voucher_number} updated.`
-        : `Expense ${res.data.voucher_number} posted.`);
+        ? `Expense ${result.voucher_number} updated.`
+        : `Expense ${result.voucher_number} posted.`);
       navigate('/expenses');
     } catch (e) {
-      message.error(e.response?.data?.error || 'Save failed.');
+      if (!isFiscalLockCancel(e)) {
+        message.error(e.response?.data?.message || e.response?.data?.error || 'Save failed.');
+      }
     }
     setSaving(false);
   };
@@ -692,6 +703,15 @@ export default function ExpenseEntry() {
           { id: 'save-alt', key: 'Ctrl+Enter', label: '', hidden: true,
             disabled: saving || isCancelled, onAction: handleSave },
         ]}
+      />
+
+      <FiscalLockOverrideModal
+        open={!!lockModal}
+        lock={lockModal?.lock}
+        billDate={voucherDate}
+        vouchTypeLabel="Expense"
+        onConfirm={lockModal?.onConfirm}
+        onCancel={lockModal?.onCancel}
       />
     </div>
   );

@@ -9,6 +9,8 @@ import dayjs from 'dayjs';
 import { journalAPI, ledgerAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
+import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
+import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 
 const { Title, Text } = Typography;
 const fmt = (v) =>
@@ -68,6 +70,11 @@ export default function JournalVoucherForm() {
   const balanced = Math.abs(totals.diff) < 0.005 && totals.dr > 0;
   const { openDate } = useDatePopup();
 
+  // Fiscal-lock guard for backdated saves.
+  const { lockModal, guardedSave } = useFiscalLockGuard({
+    onBlocked: (msg) => message.error(msg),
+  });
+
   const updateLine = (idx, patch) => {
     setLines((prev) => {
       const next = prev.slice();
@@ -93,16 +100,15 @@ export default function JournalVoucherForm() {
           credit: Number(ln.credit) || 0,
         })),
       };
-      if (isEdit) {
-        await journalAPI.update(id, payload);
-        message.success('Voucher updated.');
-      } else {
-        await journalAPI.create(payload);
-        message.success('Voucher posted.');
-      }
+      await guardedSave(payload, (b) => (
+        isEdit ? journalAPI.update(id, b) : journalAPI.create(b)
+      ));
+      message.success(isEdit ? 'Voucher updated.' : 'Voucher posted.');
       navigate('/accounts/journal');
     } catch (e) {
-      message.error(e.response?.data?.error || 'Save failed.');
+      if (!isFiscalLockCancel(e)) {
+        message.error(e.response?.data?.message || e.response?.data?.error || 'Save failed.');
+      }
     }
     setSaving(false);
   };
@@ -238,6 +244,15 @@ export default function JournalVoucherForm() {
             onAction: handleSave,
           },
         ]}
+      />
+
+      <FiscalLockOverrideModal
+        open={!!lockModal}
+        lock={lockModal?.lock}
+        billDate={voucherDate}
+        vouchTypeLabel="Journal"
+        onConfirm={lockModal?.onConfirm}
+        onCancel={lockModal?.onCancel}
       />
     </div>
   );

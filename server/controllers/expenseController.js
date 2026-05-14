@@ -21,6 +21,7 @@ const {
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildExpenseVoucher } = require('../services/expenseVoucherService');
 const { sanitizePagination, escapeLike } = require('../utils/helpers');
+const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -324,6 +325,12 @@ exports.getById = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
+  // Fiscal-lock guard — voucher_date is the probe (this controller's
+  // voucher_date is the equivalent of bill_date elsewhere).
+  const guard = await applyFiscalLockGuard(req, res, req.body?.voucher_date);
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const { header, items, party } = await normalisePayload(req.body, t);
@@ -354,6 +361,20 @@ exports.create = async (req, res) => {
 
     await t.commit();
 
+    if (guard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'expense_voucher',
+        target_id:        ev.expense_id,
+        target_label:     `Expense ${ev.voucher_number || `#${ev.expense_id}`} dated ${ev.voucher_date}`,
+        target_date:      ev.voucher_date,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate },
+      });
+    }
+
     // Return the created voucher with relations so the UI can navigate
     // straight to the detail view without an extra round-trip.
     const out = await ExpenseVoucher.findByPk(ev.expense_id, {
@@ -373,6 +394,17 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  // Fiscal-lock guard on edit. Probe with the earlier of old/new
+  // voucher_date so moves OUT of a locked FY are also gated.
+  const preview = await ExpenseVoucher.findByPk(req.params.id, { attributes: ['expense_id', 'voucher_date', 'voucher_number', 'is_cancelled'] });
+  if (!preview) return res.status(404).json({ error: 'Expense voucher not found' });
+  if (preview.is_cancelled) return res.status(400).json({ error: 'Cannot edit a cancelled voucher.' });
+  const oldDateStr = preview.voucher_date && String(preview.voucher_date).slice(0, 10);
+  const newDateStr = req.body?.voucher_date && String(req.body.voucher_date).slice(0, 10);
+  const guard = await applyFiscalLockGuard(req, res, earlierDate(oldDateStr, newDateStr));
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -414,6 +446,20 @@ exports.update = async (req, res) => {
 
     await t.commit();
 
+    if (guard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       'post_close_edit',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'expense_voucher',
+        target_id:        ev.expense_id,
+        target_label:     `Expense ${ev.voucher_number || `#${ev.expense_id}`} edited (date ${oldDateStr || '—'} → ${newDateStr || oldDateStr || '—'})`,
+        target_date:      newDateStr || oldDateStr || null,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate, old_date: oldDateStr, new_date: newDateStr || oldDateStr },
+      });
+    }
+
     const out = await ExpenseVoucher.findByPk(ev.expense_id, {
       include: [
         { model: Party,         as: 'party' },
@@ -431,6 +477,15 @@ exports.update = async (req, res) => {
 };
 
 exports.cancel = async (req, res) => {
+  // Pre-transaction fiscal-lock guard on the voucher's own date.
+  const preview = await ExpenseVoucher.findByPk(req.params.id, { attributes: ['expense_id', 'voucher_date', 'voucher_number', 'is_cancelled'] });
+  if (!preview) return res.status(404).json({ error: 'Expense voucher not found' });
+  if (preview.is_cancelled) return res.status(400).json({ error: 'Voucher is already cancelled.' });
+  const cancelDateStr = preview.voucher_date && String(preview.voucher_date).slice(0, 10);
+  const guard = await applyFiscalLockGuard(req, res, cancelDateStr);
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -457,6 +512,21 @@ exports.cancel = async (req, res) => {
     }, { transaction: t });
 
     await t.commit();
+
+    if (guard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'expense_voucher',
+        target_id:        ev.expense_id,
+        target_label:     `Expense ${ev.voucher_number || `#${ev.expense_id}`} cancelled (was dated ${cancelDateStr})`,
+        target_date:      cancelDateStr,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate, action: 'cancel' },
+      });
+    }
+
     res.json({ message: 'Voucher cancelled.', expense_id: ev.expense_id });
   } catch (err) {
     if (!t.finished) await t.rollback().catch(() => {});

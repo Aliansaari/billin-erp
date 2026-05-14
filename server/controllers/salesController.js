@@ -5,9 +5,7 @@ const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination,
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
 const idempotencyCache = require('../utils/idempotencyCache');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
-const { checkFiscalLock, logComplianceEvent, send403FromLock } = require('../utils/compliance');
-const bcrypt = require('bcryptjs');
-const { User } = require('../models');
+const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 const { resolveInterState } = require('../utils/interStateResolver');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers, buildSalesReturnVouchers } = require('../services/voucherBuilders');
@@ -446,49 +444,13 @@ exports.create = async (req, res) => {
     }
   }
 
-  // ── Fiscal-lock check (compliance mode only) ────────────────────────
-  // Reads SystemSettings; no-op when compliance is off. Returns 403 with
-  // a structured FY_LOCKED body the client can render an override modal
-  // for. Client retries with `_override_reason` (+ `_override_password`
-  // if Settings → Financial Year requires it) and we land in the success
-  // branch below.
-  const billDateForLock = req.body?.bill_date;
-  const overrideReason  = req.body?._override_reason;
-  const overridePassword = req.body?._override_password;
-  const lockResult = await checkFiscalLock(billDateForLock, req.user, { overrideReason });
-  if (!lockResult.ok) {
-    return send403FromLock(res, lockResult);
-  }
-  // If an override was supplied + the firm requires password verification,
-  // re-validate the user's password before letting the save proceed. This
-  // catches the "someone left a session unattended" attack: the role
-  // alone isn't enough; the human must prove it's them.
-  if (lockResult.status === 'soft_override_granted' || lockResult.status === 'hard_override_granted') {
-    const settings = await SystemSettings.findByPk(1);
-    if (settings?.fy_require_override_password) {
-      if (!overridePassword) {
-        return res.status(403).json({
-          error: 'FY_LOCKED',
-          requires_password: true,
-          message: 'Password required to override the fiscal lock.',
-        });
-      }
-      const dbUser = await User.findByPk(req.user.user_id);
-      const ok = dbUser && await bcrypt.compare(overridePassword, dbUser.password_hash);
-      if (!ok) {
-        return res.status(403).json({
-          error: 'FY_LOCKED',
-          requires_password: true,
-          password_invalid: true,
-          message: 'Password did not match. Try again.',
-        });
-      }
-    }
-  }
-  // Strip the override fields from the body before the rest of the
-  // controller sees them — they're not voucher columns.
-  delete req.body._override_reason;
-  delete req.body._override_password;
+  // ── Fiscal-lock guard ───────────────────────────────────────────────
+  // Centralised: probe date, lock check, optional password gate,
+  // body cleanup, structured 403. No-op when compliance mode is off.
+  // See server/utils/compliance.js → applyFiscalLockGuard.
+  const lockGuard = await applyFiscalLockGuard(req, res, req.body?.bill_date);
+  if (!lockGuard.ok) return;
+  const lockResult = lockGuard.lockResult;
 
   const t = await sequelize.transaction();
   try {
@@ -1257,7 +1219,7 @@ exports.create = async (req, res) => {
     // tells the auditor WHO broke the lock, WHEN, and WHY. Best-effort
     // (logComplianceEvent swallows errors) so a log failure can't undo
     // the successful save above.
-    if (lockResult?.status === 'soft_override_granted' || lockResult?.status === 'hard_override_granted') {
+    if (lockGuard.overrideUsed) {
       await logComplianceEvent({
         event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
         is_hard_override: lockResult.status === 'hard_override_granted',
@@ -1266,11 +1228,7 @@ exports.create = async (req, res) => {
         target_id:        bill.sales_bill_id,
         target_label:     `Sale ${bill.bill_number || `#${bill.sales_bill_id}`} dated ${bill.bill_date}`,
         target_date:      bill.bill_date,
-        // Use the trimmed value the lock check normalized; falls back to
-        // the raw client value if for any reason the lock result didn't
-        // carry it (e.g. compliance OFF path, which never enters this
-        // branch but keep it defensive).
-        reason:           lockResult.reason || overrideReason,
+        reason:           lockGuard.reason,
         metadata:         { lock_date: lockResult.lockDate },
       });
     }
@@ -1316,30 +1274,9 @@ exports.update = async (req, res) => {
 
   const oldDateStr = existing.bill_date && String(existing.bill_date).slice(0, 10);
   const newDateStr = req.body?.bill_date && String(req.body.bill_date).slice(0, 10);
-  const lockProbe  = (oldDateStr && newDateStr)
-    ? (oldDateStr <= newDateStr ? oldDateStr : newDateStr)
-    : (oldDateStr || newDateStr);
-  const overrideReason   = req.body?._override_reason;
-  const overridePassword = req.body?._override_password;
-  const lockResult = await checkFiscalLock(lockProbe, req.user, { overrideReason });
-  if (!lockResult.ok) {
-    return send403FromLock(res, lockResult);
-  }
-  if (lockResult.status === 'soft_override_granted' || lockResult.status === 'hard_override_granted') {
-    const sysSettings = await SystemSettings.findByPk(1);
-    if (sysSettings?.fy_require_override_password) {
-      if (!overridePassword) {
-        return res.status(403).json({ error: 'FY_LOCKED', requires_password: true, message: 'Password required to override the fiscal lock.' });
-      }
-      const dbUser = await User.findByPk(req.user.user_id);
-      const ok = dbUser && await bcrypt.compare(overridePassword, dbUser.password_hash);
-      if (!ok) {
-        return res.status(403).json({ error: 'FY_LOCKED', requires_password: true, password_invalid: true, message: 'Password did not match. Try again.' });
-      }
-    }
-  }
-  delete req.body._override_reason;
-  delete req.body._override_password;
+  const lockGuard = await applyFiscalLockGuard(req, res, earlierDate(oldDateStr, newDateStr));
+  if (!lockGuard.ok) return;
+  const lockResult = lockGuard.lockResult;
 
   const t = await sequelize.transaction();
   try {
@@ -1892,7 +1829,7 @@ exports.update = async (req, res) => {
     // BOTH dates in metadata so the auditor can see whether the edit
     // moved the bill INTO or OUT OF the locked period (or just
     // re-saved a backdated bill).
-    if (lockResult?.status === 'soft_override_granted' || lockResult?.status === 'hard_override_granted') {
+    if (lockGuard.overrideUsed) {
       await logComplianceEvent({
         event_type:       'post_close_edit',
         is_hard_override: lockResult.status === 'hard_override_granted',
@@ -1901,7 +1838,7 @@ exports.update = async (req, res) => {
         target_id:        existingBill.sales_bill_id,
         target_label:     `Sale ${existingBill.bill_number || `#${existingBill.sales_bill_id}`} edited (date ${oldDateStr || '—'} → ${newDateStr || oldDateStr || '—'})`,
         target_date:      newDateStr || oldDateStr || null,
-        reason:           lockResult.reason || overrideReason,
+        reason:           lockGuard.reason,
         metadata:         { lock_date: lockResult.lockDate, old_bill_date: oldDateStr, new_bill_date: newDateStr || oldDateStr },
       });
     }
@@ -1936,27 +1873,9 @@ exports.cancel = async (req, res) => {
   if (billPreview.is_cancelled) return res.status(400).json({ error: 'Bill already cancelled' });
 
   const cancelDateStr = billPreview.bill_date && String(billPreview.bill_date).slice(0, 10);
-  const overrideReason   = req.body?._override_reason;
-  const overridePassword = req.body?._override_password;
-  const lockResult = await checkFiscalLock(cancelDateStr, req.user, { overrideReason });
-  if (!lockResult.ok) {
-    return send403FromLock(res, lockResult);
-  }
-  if (lockResult.status === 'soft_override_granted' || lockResult.status === 'hard_override_granted') {
-    const sysSettings = await SystemSettings.findByPk(1);
-    if (sysSettings?.fy_require_override_password) {
-      if (!overridePassword) {
-        return res.status(403).json({ error: 'FY_LOCKED', requires_password: true, message: 'Password required to override the fiscal lock.' });
-      }
-      const dbUser = await User.findByPk(req.user.user_id);
-      const ok = dbUser && await bcrypt.compare(overridePassword, dbUser.password_hash);
-      if (!ok) {
-        return res.status(403).json({ error: 'FY_LOCKED', requires_password: true, password_invalid: true, message: 'Password did not match. Try again.' });
-      }
-    }
-  }
-  delete req.body._override_reason;
-  delete req.body._override_password;
+  const lockGuard = await applyFiscalLockGuard(req, res, cancelDateStr);
+  if (!lockGuard.ok) return;
+  const lockResult = lockGuard.lockResult;
 
   const t = await sequelize.transaction();
   try {
@@ -2101,7 +2020,7 @@ exports.cancel = async (req, res) => {
     // Compliance audit log for cancel-with-override. Same best-effort
     // pattern as create() / update() — fires only when the bill was in
     // a locked period and an override was granted.
-    if (lockResult?.status === 'soft_override_granted' || lockResult?.status === 'hard_override_granted') {
+    if (lockGuard.overrideUsed) {
       await logComplianceEvent({
         event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
         is_hard_override: lockResult.status === 'hard_override_granted',
@@ -2110,7 +2029,7 @@ exports.cancel = async (req, res) => {
         target_id:        bill.sales_bill_id,
         target_label:     `Sale ${bill.bill_number || `#${bill.sales_bill_id}`} cancelled (was dated ${cancelDateStr})`,
         target_date:      cancelDateStr,
-        reason:           lockResult.reason || overrideReason,
+        reason:           lockGuard.reason,
         metadata:         { lock_date: lockResult.lockDate, action: 'cancel' },
       });
     }
