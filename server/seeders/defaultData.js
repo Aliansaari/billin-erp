@@ -112,6 +112,9 @@ async function seedDefaultData() {
   });
 
   // ── System Settings ──
+  // FY compliance defaults: simple mode (off), no locks, no password
+  // challenge. Admin opts into the audit features from Settings →
+  // Financial Year, which walks them through picking a soft-lock date.
   await SystemSettings.findOrCreate({
     where: { setting_id: 1 },
     defaults: {
@@ -121,6 +124,10 @@ async function seedDefaultData() {
       gst_enabled: false,
       low_stock_alert_enabled: true,
       backup_frequency: 'Daily',
+      fy_compliance_mode: false,
+      fy_soft_lock_date: null,
+      fy_hard_lock_date: null,
+      fy_require_override_password: false,
     },
   });
 

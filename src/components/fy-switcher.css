@@ -1,0 +1,172 @@
+/* ===========================================================================
+ * FYSwitcher — financial-year context pill.
+ *
+ * Sibling to the company switcher (.erp-cs-*) — same height (34 px),
+ * same border treatment, same hover/open states. Adds an amber-tinted
+ * variant (.is-past) that's used while the user is viewing a past FY,
+ * so the chrome itself signals the unusual context without relying on
+ * a full-width banner alone.
+ * ========================================================================== */
+
+.fysw-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px 0 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.10));
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  color: var(--fg-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1;
+  transition: background .15s, border-color .15s, transform .08s;
+  flex-shrink: 0;
+  max-width: 180px;
+}
+.fysw-pill:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.07));
+  border-color: var(--border-strong, var(--border));
+}
+.fysw-pill:active { transform: scale(0.98); }
+.fysw-pill[aria-expanded="true"] {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--border-strong, rgba(255, 255, 255, 0.18));
+}
+
+/* Past-FY variant — amber tint on the pill so the chrome warns even
+   before the banner does. The banner itself does the explaining; the
+   pill provides the at-a-glance signal. */
+.fysw-pill.is-past {
+  background: rgba(245, 158, 11, 0.10);
+  border-color: rgba(245, 158, 11, 0.32);
+  color: #F59E0B;
+}
+.fysw-pill.is-past:hover {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+.fysw-pill.is-past .fysw-glyph,
+.fysw-pill.is-past .fysw-caret { color: #F59E0B; }
+
+.fysw-glyph {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  flex-shrink: 0;
+}
+.fysw-label {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.fysw-prefix {
+  color: var(--fg-tertiary);
+  font-weight: 500;
+  margin-right: 2px;
+}
+.fysw-pill.is-past .fysw-prefix { color: rgba(245, 158, 11, 0.65); }
+.fysw-caret {
+  font-size: 9px;
+  color: var(--fg-tertiary);
+  margin-left: 2px;
+  flex-shrink: 0;
+  transition: transform .18s cubic-bezier(.2, .7, .2, 1);
+}
+.fysw-pill[aria-expanded="true"] .fysw-caret { transform: rotate(180deg); }
+
+/* ── Collapsed (icon-only sidebar) ────────────────────────────────────── */
+.fysw-icon {
+  width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.10));
+  border-radius: 9px;
+  color: var(--fg-secondary, rgba(255, 255, 255, 0.75));
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0;
+  transition: background .15s, border-color .15s, color .15s, transform .08s;
+}
+.fysw-icon:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.07));
+  border-color: var(--border-strong, var(--border));
+  color: var(--fg-primary, #FFFFFF);
+}
+.fysw-icon:active { transform: scale(0.95); }
+.fysw-icon.is-past {
+  color: #F59E0B;
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.10);
+}
+.fysw-icon.is-past:hover {
+  background: rgba(245, 158, 11, 0.16);
+}
+
+/* Sidebar full mode: pill stretches to column width, matching the
+   .erp-cs-pill override pattern. */
+.erp-sidebar .fysw-pill {
+  display: flex;
+  width: 100%;
+  max-width: none;
+}
+
+/* ── Dropdown ─────────────────────────────────────────────────────────── */
+.fysw-dropdown .ant-dropdown-menu {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 11px !important;
+  padding: 6px !important;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.06) !important;
+  min-width: 240px !important;
+}
+.fysw-dropdown .ant-dropdown-menu-item-group-title {
+  padding: 8px 10px 4px !important;
+}
+.fysw-dropdown .ant-dropdown-menu-item {
+  border-radius: 7px !important;
+  margin: 1px 0 !important;
+  padding: 8px 10px !important;
+  font-size: 13px !important;
+  color: var(--fg-primary) !important;
+  transition: background .12s !important;
+}
+.fysw-dropdown .ant-dropdown-menu-item:hover {
+  background: var(--bg-hover) !important;
+}
+
+.fysw-dd-head {
+  font-size: 10px !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  color: var(--fg-tertiary) !important;
+  font-weight: 600 !important;
+}
+.fysw-dd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.fysw-dd-label {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+}
+.fysw-dd-sub {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--fg-tertiary);
+  margin-left: auto;
+}
+.fysw-dd-tick {
+  color: var(--accent, #34D399);
+  font-size: 12px;
+}

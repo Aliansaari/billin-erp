@@ -5,6 +5,7 @@ import {
   PrinterOutlined, ThunderboltOutlined, SwapOutlined, ApiOutlined,
   CloudServerOutlined, HomeOutlined, ControlOutlined, DashboardOutlined,
   AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -38,6 +39,9 @@ const SETTINGS_GROUPS = [
       // user who can edit the current company's profile can also see
       // the list.
       { path: 'companies', icon: <AppstoreOutlined />,    label: 'Companies',       perm: 'settings.manage_company' },
+      // Financial Year — FY config + Tally-style compliance toggle that
+      // enables soft/hard locks + override workflow + audit log.
+      { path: 'financial-year', icon: <CalendarOutlined />, label: 'Financial Year', perm: 'settings.manage_company' },
       { path: 'modules',   icon: <ThunderboltOutlined />, label: 'Features',        perm: 'settings.manage_company' },
       { path: 'defaults',  icon: <ControlOutlined />,     label: 'Defaults',        perm: 'settings.manage_company' },
       { path: 'godowns',   icon: <BankOutlined />,        label: 'Godowns',         perm: 'godowns.view', flag: 'multi_warehouse_enabled' },

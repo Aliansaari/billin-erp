@@ -4,6 +4,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import useThemeStore from '../../store/themeStore';
 import Sidebar from './Sidebar';
 import TopNav from './TopNav';
+import PastFYBanner from '../PastFYBanner';
 
 const { Content } = Layout;
 
@@ -272,6 +273,10 @@ export default function AppLayout() {
     return (
       <Layout className="app-layout-horizontal" style={{ height: '100dvh', flexDirection: 'column' }}>
         <TopNav />
+        {/* Past-FY banner — amber strip between the topnav and the page
+            body when viewingFY !== currentFY. Renders null otherwise, so
+            no reserved space in the common case. */}
+        <PastFYBanner />
         <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Content style={{
             margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
@@ -337,6 +342,9 @@ export default function AppLayout() {
       )}
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsedSticky} />
       <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        {/* Past-FY banner — amber strip above the page body when the
+            user is viewing a past FY context. Null in the common case. */}
+        <PastFYBanner />
         <Content style={{
           margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
           padding:       isFullPage ? 0 : 'clamp(10px, 2vw, 24px)',
