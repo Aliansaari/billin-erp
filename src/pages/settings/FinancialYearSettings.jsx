@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Button, DatePicker, Form, Modal, Spin, Switch, message } from 'antd';
+import { Button, DatePicker, Form, Modal, Spin, Switch, Tag, message } from 'antd';
 import {
   CalendarOutlined, SafetyOutlined, LockOutlined,
   HistoryOutlined, RightOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { settingsAPI } from '../../api';
+import { settingsAPI, complianceAPI } from '../../api';
 import { refreshFinancialYear, fyLabel } from '../../hooks/useFinancialYear';
 import './financial-year-settings.css';
 
@@ -44,6 +44,23 @@ export default function FinancialYearSettings() {
   // time, never been closed before. Stored intent is "show once, dismissable".
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardSoft, setWizardSoft] = useState(null);
+
+  // Audit log viewer — modal listing every recorded compliance event.
+  const [auditOpen, setAuditOpen]   = useState(false);
+  const [auditRows, setAuditRows]   = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  useEffect(() => {
+    if (!auditOpen) return;
+    let cancelled = false;
+    setAuditLoading(true);
+    complianceAPI.auditLog({ page_size: 100 })
+      .then(({ data }) => {
+        if (!cancelled) setAuditRows(data?.data || []);
+      })
+      .catch(() => { if (!cancelled) message.error('Failed to load audit log'); })
+      .finally(() => { if (!cancelled) setAuditLoading(false); });
+    return () => { cancelled = true; };
+  }, [auditOpen]);
 
   // Local form state — mirrors the persisted settings until saved.
   const [complianceMode, setComplianceMode]   = useState(false);
@@ -251,13 +268,13 @@ export default function FinancialYearSettings() {
             </Form.Item>
 
             <div className="fyset-form-foot">
-              <a href="#" className="fyset-link fyset-link-muted" onClick={(e) => {
-                e.preventDefault();
-                message.info('Audit log view ships in Stage 2 — coming next.');
-              }}>
+              <button
+                type="button"
+                className="fyset-link fyset-link-muted fyset-link-btn"
+                onClick={() => setAuditOpen(true)}
+              >
                 <HistoryOutlined /> View audit log
-                <span className="fyset-soon">soon</span>
-              </a>
+              </button>
             </div>
           </Form>
         ) : (
@@ -274,6 +291,58 @@ export default function FinancialYearSettings() {
           </Button>
         </div>
       </section>
+
+      {/* ── Audit log viewer ─────────────────────────────────────────── */}
+      <Modal
+        open={auditOpen}
+        onCancel={() => setAuditOpen(false)}
+        footer={null}
+        width={780}
+        title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <HistoryOutlined style={{ color: 'var(--accent)' }} />
+            Compliance audit log
+            <span style={{ fontSize: 11, color: 'var(--fg-tertiary)', fontWeight: 400, letterSpacing: '0.05em' }}>
+              · most recent first
+            </span>
+          </span>
+        }
+      >
+        {auditLoading ? (
+          <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>
+        ) : auditRows.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--fg-tertiary)' }}>
+            <strong style={{ color: 'var(--fg-secondary)' }}>No audit events yet.</strong><br/>
+            <span style={{ fontSize: 12.5 }}>Compliance toggles and lock-date changes will appear here as they happen. So will every soft / hard override on a backdated voucher.</span>
+          </div>
+        ) : (
+          <div className="fyset-audit-list">
+            {auditRows.map((r) => (
+              <div key={r.audit_log_id} className={`fyset-audit-row ${r.is_hard_override ? 'is-hard' : ''}`}>
+                <div className="fyset-audit-meta">
+                  <span className="fyset-audit-when">{dayjs(r.event_at).format('DD MMM YYYY · HH:mm')}</span>
+                  <Tag color={
+                    r.event_type === 'hard_override'      ? 'red'    :
+                    r.event_type === 'soft_override'      ? 'orange' :
+                    r.event_type === 'compliance_toggled' ? 'blue'   :
+                    'default'
+                  }>{r.event_type}</Tag>
+                </div>
+                <div className="fyset-audit-text">
+                  <div className="fyset-audit-label">{r.target_label || '(no label)'}</div>
+                  {r.reason && (
+                    <div className="fyset-audit-reason">"{r.reason}"</div>
+                  )}
+                  <div className="fyset-audit-by">
+                    by {r.user_name || 'system'}{r.user_role ? ` · ${r.user_role}` : ''}
+                    {r.target_date && <> · for {dayjs(r.target_date).format('DD MMM YYYY')}</>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
 
       {/* ── First-time enable wizard ─────────────────────────────────── */}
       <Modal

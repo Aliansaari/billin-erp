@@ -1,0 +1,82 @@
+/* ===========================================================================
+ * fiscal-lock-override-modal.css — soft / hard lock override confirmation.
+ *
+ * Tone variants:
+ *   .erp-fl-modal-soft  → amber chrome (Partial-status palette)
+ *   .erp-fl-modal-hard  → red chrome (urgent, Super-Admin-only break)
+ *
+ * Both use the same structure — title row with icon + label + subtitle,
+ * Alert banner explaining the situation, reason field, optional password
+ * field. The differences are color tokens, not layout.
+ * ========================================================================== */
+
+.erp-fl-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  font-size: 15px;
+}
+.erp-fl-icon {
+  font-size: 16px;
+}
+.erp-fl-icon.soft { color: #F59E0B; }
+.erp-fl-icon.hard { color: #EF4444; }
+
+.erp-fl-subtitle {
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  margin-left: 2px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-muted);
+}
+
+.erp-fl-alert {
+  margin: 4px 0 16px !important;
+  border-radius: 8px !important;
+}
+.erp-fl-alert .ant-alert-message {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.erp-fl-alert .ant-alert-description {
+  margin-top: 6px;
+  color: var(--fg-secondary);
+}
+
+.erp-fl-form .ant-form-item-label > label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+}
+.erp-fl-form .ant-form-item-explain-error,
+.erp-fl-form .ant-form-item-explain {
+  font-size: 11.5px !important;
+  line-height: 1.5 !important;
+}
+
+.erp-fl-required {
+  color: #EF4444;
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+/* Hard variant adds a subtle red wash on the modal backdrop so the
+   severity reads even before the user finishes reading the title. */
+.erp-fl-modal-hard .ant-modal-content {
+  box-shadow: 0 24px 60px rgba(239, 68, 68, 0.08), 0 8px 16px rgba(0, 0, 0, 0.12);
+}
+.erp-fl-modal-hard .ant-modal-header {
+  border-bottom: 2px solid rgba(239, 68, 68, 0.25);
+}
+
+/* Soft variant — gentler amber wash. */
+.erp-fl-modal-soft .ant-modal-header {
+  border-bottom: 2px solid rgba(245, 158, 11, 0.25);
+}

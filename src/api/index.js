@@ -438,6 +438,12 @@ export const notificationsAPI = {
   updateSettings: (data)                   => api.put('/notifications/settings', data),
 };
 
+// Compliance audit log — read-only API. Writes happen server-side inside
+// the operation that produced the event (settings save / voucher save).
+export const complianceAPI = {
+  auditLog: (params = {})  => api.get('/compliance/audit-log', { params }),
+};
+
 export const settingsAPI = {
   getSystem: () => api.get('/settings/system'),
   updateSystem: (data) => api.put('/settings/system', data),

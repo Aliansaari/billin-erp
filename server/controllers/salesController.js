@@ -5,6 +5,9 @@ const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination,
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
 const idempotencyCache = require('../utils/idempotencyCache');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
+const { checkFiscalLock, logComplianceEvent, send403FromLock } = require('../utils/compliance');
+const bcrypt = require('bcryptjs');
+const { User } = require('../models');
 const { resolveInterState } = require('../utils/interStateResolver');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers, buildSalesReturnVouchers } = require('../services/voucherBuilders');
@@ -442,6 +445,50 @@ exports.create = async (req, res) => {
       } catch { /* fall through to create — cache hit but DB read failed */ }
     }
   }
+
+  // ── Fiscal-lock check (compliance mode only) ────────────────────────
+  // Reads SystemSettings; no-op when compliance is off. Returns 403 with
+  // a structured FY_LOCKED body the client can render an override modal
+  // for. Client retries with `_override_reason` (+ `_override_password`
+  // if Settings → Financial Year requires it) and we land in the success
+  // branch below.
+  const billDateForLock = req.body?.bill_date;
+  const overrideReason  = req.body?._override_reason;
+  const overridePassword = req.body?._override_password;
+  const lockResult = await checkFiscalLock(billDateForLock, req.user, { overrideReason });
+  if (!lockResult.ok) {
+    return send403FromLock(res, lockResult);
+  }
+  // If an override was supplied + the firm requires password verification,
+  // re-validate the user's password before letting the save proceed. This
+  // catches the "someone left a session unattended" attack: the role
+  // alone isn't enough; the human must prove it's them.
+  if (lockResult.status === 'soft_override_granted' || lockResult.status === 'hard_override_granted') {
+    const settings = await SystemSettings.findByPk(1);
+    if (settings?.fy_require_override_password) {
+      if (!overridePassword) {
+        return res.status(403).json({
+          error: 'FY_LOCKED',
+          requires_password: true,
+          message: 'Password required to override the fiscal lock.',
+        });
+      }
+      const dbUser = await User.findByPk(req.user.user_id);
+      const ok = dbUser && await bcrypt.compare(overridePassword, dbUser.password_hash);
+      if (!ok) {
+        return res.status(403).json({
+          error: 'FY_LOCKED',
+          requires_password: true,
+          password_invalid: true,
+          message: 'Password did not match. Try again.',
+        });
+      }
+    }
+  }
+  // Strip the override fields from the body before the rest of the
+  // controller sees them — they're not voucher columns.
+  delete req.body._override_reason;
+  delete req.body._override_password;
 
   const t = await sequelize.transaction();
   try {
@@ -1202,6 +1249,26 @@ exports.create = async (req, res) => {
     // Audit P2-L — cache by idempotency_key so a retry returns this bill.
     if (idempotency_key) {
       idempotencyCache.set('sales_create', idempotency_key, bill.sales_bill_id);
+    }
+
+    // Compliance audit log — if a soft / hard override was used to save
+    // this backdated bill, record the override event with the reason
+    // the operator typed. The bill itself is the artifact; this row
+    // tells the auditor WHO broke the lock, WHEN, and WHY. Best-effort
+    // (logComplianceEvent swallows errors) so a log failure can't undo
+    // the successful save above.
+    if (lockResult?.status === 'soft_override_granted' || lockResult?.status === 'hard_override_granted') {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'sales_bill',
+        target_id:        bill.sales_bill_id,
+        target_label:     `Sale ${bill.bill_number || `#${bill.sales_bill_id}`} dated ${bill.bill_date}`,
+        target_date:      bill.bill_date,
+        reason:           overrideReason,
+        metadata:         { lock_date: lockResult.lockDate },
+      });
     }
 
     const result = await SalesBill.findByPk(bill.sales_bill_id, {
