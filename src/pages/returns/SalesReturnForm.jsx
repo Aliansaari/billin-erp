@@ -8,9 +8,11 @@ import {
 } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
+import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import { printDocument } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
+import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import confirmPrint from '../../utils/confirmPrint';
 import './return-form.css';
 
@@ -520,7 +522,9 @@ export default function SalesReturnForm() {
           quantity_per_box: parseFloat(i.quantity_per_box) || 1,
         })),
       };
-      const { data } = isEdit ? await salesReturnAPI.update(id, body) : await salesReturnAPI.create(body);
+      const data = await guardedSave(body, (b) => (
+        isEdit ? salesReturnAPI.update(id, b).then(r => r.data) : salesReturnAPI.create(b).then(r => r.data)
+      ));
       message.success(`Return ${data.return_number} ${isEdit ? 'updated' : 'saved'}!`);
       if (opts.onSaved) {
         try { opts.onSaved(data); } catch (e) { console.error('[handleSave onSaved]', e); }
@@ -528,7 +532,9 @@ export default function SalesReturnForm() {
       if (isEdit) navigate('/sales-returns');
       else { handleReset(); setReturnNo(''); }
     } catch (e) {
-      message.error(e.response?.data?.error || 'Failed to save');
+      if (!isFiscalLockCancel(e)) {
+        message.error(e.response?.data?.message || e.response?.data?.error || 'Failed to save');
+      }
     } finally {
       setLoading(false);
       submittingRef.current = false;
@@ -566,6 +572,12 @@ export default function SalesReturnForm() {
 
   // F2 Date popup — Tally-style smart-input popup for the return date.
   const { openDate } = useDatePopup();
+
+  // Fiscal-lock guard — opens the override modal when a backdated
+  // return is saved against a closed FY.
+  const { lockModal, guardedSave } = useFiscalLockGuard({
+    onBlocked: (msg) => message.error(msg),
+  });
   const f2DatePopup = useCallback(() => {
     const current = form.getFieldValue('return_date');
     openDate({
@@ -1104,6 +1116,15 @@ export default function SalesReturnForm() {
               ))}
           </div>
         </Modal>
+
+        <FiscalLockOverrideModal
+          open={!!lockModal}
+          lock={lockModal?.lock}
+          billDate={form.getFieldValue('return_date')}
+          vouchTypeLabel="Sales return"
+          onConfirm={lockModal?.onConfirm}
+          onCancel={lockModal?.onCancel}
+        />
       </div>
     </Form>
   );

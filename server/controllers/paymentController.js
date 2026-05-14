@@ -6,6 +6,7 @@ const { recalculatePartyBalance, getPartyOutstanding, reconcileBillsForParty } =
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPaymentReceiptVouchers } = require('../services/voucherBuilders');
 const { allocateForReceipt } = require('../services/billAllocationService');
+const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 
 // Returns a best-guess preview of the next transaction number for the given
 // type so the entry form can show `REC-000046` instead of "Auto-numbered"
@@ -129,6 +130,13 @@ exports.getById = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
+  // Fiscal-lock guard — backdated payments / receipts touch the same
+  // ledger lines a sale or purchase does, so they're held to the same
+  // policy. The transaction_date field is the probe.
+  const guard = await applyFiscalLockGuard(req, res, req.body?.transaction_date);
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const { splits, ...data } = req.body;
@@ -469,6 +477,24 @@ exports.create = async (req, res) => {
 
     await t.commit();
 
+    // Compliance audit log — best-effort, post-commit. The voucher
+    // itself is the artifact; this row tells the auditor WHO broke
+    // the lock, WHEN, and WHY.
+    if (guard.overrideUsed) {
+      const ttype = payment.transaction_type === 'Payment' ? 'Payment' : 'Receipt';
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      ttype === 'Payment' ? 'payment' : 'receipt',
+        target_id:        payment.transaction_id,
+        target_label:     `${ttype} ${payment.transaction_number || `#${payment.transaction_id}`} dated ${payment.transaction_date}`,
+        target_date:      payment.transaction_date,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate },
+      });
+    }
+
     const result = await PaymentReceipt.findByPk(payment.transaction_id, {
       include: [
         { model: Party, as: 'party' },
@@ -493,6 +519,18 @@ exports.create = async (req, res) => {
 };
 
 exports.cancel = async (req, res) => {
+  // Pre-transaction fiscal-lock probe — same guard the create + edit
+  // paths use, against the transaction's own date.
+  const preview = await PaymentReceipt.findByPk(req.params.id, {
+    attributes: ['transaction_id', 'transaction_date', 'transaction_number', 'transaction_type', 'is_cancelled'],
+  });
+  if (!preview) return res.status(404).json({ error: 'Transaction not found' });
+  if (preview.is_cancelled) return res.status(400).json({ error: 'Already cancelled' });
+  const cancelDate = preview.transaction_date && String(preview.transaction_date).slice(0, 10);
+  const guard = await applyFiscalLockGuard(req, res, cancelDate);
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   // Use SERIALIZABLE so concurrent cancels of receipts for the same party
   // can't see a half-cancelled state when they reconcile bill balances.
   const t = await sequelize.transaction();
@@ -560,6 +598,22 @@ exports.cancel = async (req, res) => {
     });
 
     await t.commit();
+
+    if (guard.overrideUsed) {
+      const ttype = payment.transaction_type === 'Payment' ? 'Payment' : 'Receipt';
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      ttype === 'Payment' ? 'payment' : 'receipt',
+        target_id:        payment.transaction_id,
+        target_label:     `${ttype} ${payment.transaction_number || `#${payment.transaction_id}`} cancelled (was dated ${cancelDate})`,
+        target_date:      cancelDate,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate, action: 'cancel' },
+      });
+    }
+
     res.json({ message: 'Transaction cancelled successfully' });
   } catch (error) {
     if (!t.finished) {
@@ -589,6 +643,21 @@ exports.cancel = async (req, res) => {
 // cancel-and-recreate path is safe; this endpoint just makes it atomic
 // and exposes a clean PUT verb to the frontend.)
 exports.update = async (req, res) => {
+  // Pre-transaction lock probe. Update is implemented as
+  // cancel-then-recreate, so the lock fires if EITHER the original
+  // transaction_date OR the new transaction_date sits in a locked
+  // period (rewriting history in either direction is auditable).
+  const preview = await PaymentReceipt.findByPk(req.params.id, {
+    attributes: ['transaction_id', 'transaction_date', 'transaction_number', 'transaction_type', 'is_cancelled'],
+  });
+  if (!preview) return res.status(404).json({ error: 'Transaction not found' });
+  if (preview.is_cancelled) return res.status(400).json({ error: 'Cannot edit a cancelled transaction; create a new one instead.' });
+  const oldDate = preview.transaction_date && String(preview.transaction_date).slice(0, 10);
+  const newDate = req.body?.transaction_date && String(req.body.transaction_date).slice(0, 10);
+  const guard   = await applyFiscalLockGuard(req, res, earlierDate(oldDate, newDate));
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const oldId = req.params.id;
@@ -799,6 +868,22 @@ exports.update = async (req, res) => {
     }
 
     await t.commit();
+
+    if (guard.overrideUsed) {
+      const ttype = payment.transaction_type === 'Payment' ? 'Payment' : 'Receipt';
+      await logComplianceEvent({
+        event_type:       'post_close_edit',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      ttype === 'Payment' ? 'payment' : 'receipt',
+        target_id:        payment.transaction_id,
+        target_label:     `${ttype} ${payment.transaction_number || `#${payment.transaction_id}`} edited (date ${oldDate || '—'} → ${newDate || oldDate || '—'})`,
+        target_date:      newDate || oldDate || null,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate, old_date: oldDate, new_date: newDate || oldDate, action: 'edit' },
+      });
+    }
+
     const result = await PaymentReceipt.findByPk(payment.transaction_id, {
       include: [{ model: Party, as: 'party' }, { model: PaymentSplit, as: 'splits' }],
     });

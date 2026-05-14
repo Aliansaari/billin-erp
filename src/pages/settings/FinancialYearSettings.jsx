@@ -1,13 +1,34 @@
-import React, { useEffect, useState } from 'react';
-import { Button, DatePicker, Form, Modal, Spin, Switch, Tag, message } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, DatePicker, Form, Input, Modal, Pagination, Select, Spin, Switch, Tag, message } from 'antd';
 import {
   CalendarOutlined, SafetyOutlined, LockOutlined,
-  HistoryOutlined, RightOutlined,
+  HistoryOutlined, RightOutlined, DownloadOutlined, FilterOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settingsAPI, complianceAPI } from '../../api';
 import { refreshFinancialYear, fyLabel } from '../../hooks/useFinancialYear';
 import './financial-year-settings.css';
+
+// CSV export helper — escapes a single field for RFC-4180 output. We
+// quote any field that contains comma/quote/newline so the file opens
+// cleanly in Excel/Numbers/Google Sheets without spilling cells.
+function csvField(v) {
+  if (v == null) return '';
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+const EVENT_TYPE_OPTIONS = [
+  { value: '',                      label: 'All event types' },
+  { value: 'compliance_toggled',    label: 'Compliance mode toggled' },
+  { value: 'soft_lock_set',         label: 'Soft lock changed' },
+  { value: 'hard_lock_set',         label: 'Hard lock changed' },
+  { value: 'require_password_set',  label: 'Override password requirement' },
+  { value: 'soft_override',         label: 'Soft override (backdated save)' },
+  { value: 'hard_override',         label: 'Hard override (post-ITR break)' },
+  { value: 'post_close_edit',       label: 'Edit / cancel of a closed-period voucher' },
+];
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Settings → Financial Year
@@ -45,22 +66,102 @@ export default function FinancialYearSettings() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardSoft, setWizardSoft] = useState(null);
 
-  // Audit log viewer — modal listing every recorded compliance event.
-  const [auditOpen, setAuditOpen]   = useState(false);
-  const [auditRows, setAuditRows]   = useState([]);
+  // Audit-log viewer — paginated, filterable, exportable. Enterprise
+  // deployments accumulate thousands of rows over a fiscal year; the
+  // viewer paginates server-side (page_size=50) and exposes the same
+  // filter axes the server's /audit-log endpoint accepts.
+  const [auditOpen,    setAuditOpen]    = useState(false);
+  const [auditRows,    setAuditRows]    = useState([]);
+  const [auditTotal,   setAuditTotal]   = useState(0);
+  const [auditPage,    setAuditPage]    = useState(1);
+  const [auditPageSize, setAuditPageSize] = useState(50);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [filterType,   setFilterType]   = useState('');
+  const [filterFrom,   setFilterFrom]   = useState(null);
+  const [filterTo,     setFilterTo]     = useState(null);
+  const [filterHardOnly, setFilterHardOnly] = useState(false);
+
+  const auditQuery = useMemo(() => {
+    const q = { page: auditPage, page_size: auditPageSize };
+    if (filterType)     q.event_type = filterType;
+    if (filterFrom)     q.from_date  = filterFrom.format('YYYY-MM-DD');
+    if (filterTo)       q.to_date    = filterTo.format('YYYY-MM-DD');
+    if (filterHardOnly) q.hard_only  = '1';
+    return q;
+  }, [auditPage, auditPageSize, filterType, filterFrom, filterTo, filterHardOnly]);
+
   useEffect(() => {
     if (!auditOpen) return;
     let cancelled = false;
     setAuditLoading(true);
-    complianceAPI.auditLog({ page_size: 100 })
+    complianceAPI.auditLog(auditQuery)
       .then(({ data }) => {
-        if (!cancelled) setAuditRows(data?.data || []);
+        if (cancelled) return;
+        setAuditRows(data?.data || []);
+        setAuditTotal(data?.total || 0);
       })
       .catch(() => { if (!cancelled) message.error('Failed to load audit log'); })
       .finally(() => { if (!cancelled) setAuditLoading(false); });
     return () => { cancelled = true; };
-  }, [auditOpen]);
+  }, [auditOpen, auditQuery]);
+
+  // CSV export — pulls EVERY row matching the current filters (server
+  // caps page_size at 200, so chunk through pages). Generates an
+  // RFC-4180 file and triggers a download — CA-friendly handoff.
+  const [exporting, setExporting] = useState(false);
+  const handleExportCsv = useCallback(async () => {
+    setExporting(true);
+    try {
+      const PAGE_SIZE = 200;
+      const all = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const { data } = await complianceAPI.auditLog({ ...auditQuery, page, page_size: PAGE_SIZE });
+        all.push(...(data?.data || []));
+        totalPages = data?.total_pages || 1;
+        page += 1;
+      } while (page <= totalPages);
+
+      const header = [
+        'audit_log_id', 'event_at', 'event_type', 'is_hard_override',
+        'user_id', 'user_name', 'user_role',
+        'target_type', 'target_id', 'target_label', 'target_date',
+        'reason', 'from_value', 'to_value', 'metadata',
+      ];
+      const lines = [header.join(',')];
+      for (const r of all) {
+        lines.push([
+          r.audit_log_id, r.event_at, r.event_type, r.is_hard_override ? 'true' : 'false',
+          r.user_id || '', r.user_name || '', r.user_role || '',
+          r.target_type || '', r.target_id || '', r.target_label || '', r.target_date || '',
+          r.reason || '', r.from_value ? JSON.stringify(r.from_value) : '',
+          r.to_value ? JSON.stringify(r.to_value) : '',
+          r.metadata ? JSON.stringify(r.metadata) : '',
+        ].map(csvField).join(','));
+      }
+
+      const csv = lines.join('\r\n');
+      const stamp = dayjs().format('YYYYMMDD-HHmm');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compliance-audit-${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      message.success(`Exported ${all.length} row${all.length === 1 ? '' : 's'}.`);
+    } catch (e) {
+      message.error('Failed to export audit log');
+    } finally {
+      setExporting(false);
+    }
+  }, [auditQuery]);
+
+  // Reset to page 1 whenever a filter changes.
+  useEffect(() => { setAuditPage(1); }, [filterType, filterFrom, filterTo, filterHardOnly]);
 
   // Local form state — mirrors the persisted settings until saved.
   const [complianceMode, setComplianceMode]   = useState(false);
@@ -297,50 +398,116 @@ export default function FinancialYearSettings() {
         open={auditOpen}
         onCancel={() => setAuditOpen(false)}
         footer={null}
-        width={780}
+        width={920}
         title={
           <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <HistoryOutlined style={{ color: 'var(--accent)' }} />
             Compliance audit log
             <span style={{ fontSize: 11, color: 'var(--fg-tertiary)', fontWeight: 400, letterSpacing: '0.05em' }}>
-              · most recent first
+              · {auditTotal} event{auditTotal === 1 ? '' : 's'} · most recent first
             </span>
           </span>
         }
       >
+        {/* Filter row — server-driven; changes reset to page 1 via the
+            useEffect on filter state. */}
+        <div className="fyset-audit-filters">
+          <Select
+            value={filterType}
+            onChange={setFilterType}
+            options={EVENT_TYPE_OPTIONS}
+            style={{ minWidth: 220 }}
+            size="small"
+            suffixIcon={<FilterOutlined />}
+          />
+          <DatePicker
+            value={filterFrom}
+            onChange={setFilterFrom}
+            placeholder="From"
+            format="DD MMM YYYY"
+            size="small"
+            allowClear
+          />
+          <DatePicker
+            value={filterTo}
+            onChange={setFilterTo}
+            placeholder="To"
+            format="DD MMM YYYY"
+            size="small"
+            allowClear
+          />
+          <label className="fyset-audit-hard-only">
+            <input type="checkbox" checked={filterHardOnly} onChange={(e) => setFilterHardOnly(e.target.checked)} />
+            <span>Hard overrides only</span>
+          </label>
+          <div style={{ flex: 1 }} />
+          <Button
+            icon={<DownloadOutlined />}
+            size="small"
+            onClick={handleExportCsv}
+            loading={exporting}
+            disabled={auditTotal === 0}
+          >
+            Export CSV
+          </Button>
+        </div>
+
         {auditLoading ? (
           <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>
         ) : auditRows.length === 0 ? (
           <div style={{ padding: 32, textAlign: 'center', color: 'var(--fg-tertiary)' }}>
-            <strong style={{ color: 'var(--fg-secondary)' }}>No audit events yet.</strong><br/>
-            <span style={{ fontSize: 12.5 }}>Compliance toggles and lock-date changes will appear here as they happen. So will every soft / hard override on a backdated voucher.</span>
+            <strong style={{ color: 'var(--fg-secondary)' }}>
+              {auditTotal === 0 ? 'No audit events yet.' : 'No events match the current filters.'}
+            </strong><br/>
+            <span style={{ fontSize: 12.5 }}>
+              {auditTotal === 0
+                ? 'Compliance toggles and lock-date changes will appear here as they happen. So will every soft / hard override on a backdated voucher.'
+                : 'Clear filters above to see all events.'}
+            </span>
           </div>
         ) : (
-          <div className="fyset-audit-list">
-            {auditRows.map((r) => (
-              <div key={r.audit_log_id} className={`fyset-audit-row ${r.is_hard_override ? 'is-hard' : ''}`}>
-                <div className="fyset-audit-meta">
-                  <span className="fyset-audit-when">{dayjs(r.event_at).format('DD MMM YYYY · HH:mm')}</span>
-                  <Tag color={
-                    r.event_type === 'hard_override'      ? 'red'    :
-                    r.event_type === 'soft_override'      ? 'orange' :
-                    r.event_type === 'compliance_toggled' ? 'blue'   :
-                    'default'
-                  }>{r.event_type}</Tag>
-                </div>
-                <div className="fyset-audit-text">
-                  <div className="fyset-audit-label">{r.target_label || '(no label)'}</div>
-                  {r.reason && (
-                    <div className="fyset-audit-reason">"{r.reason}"</div>
-                  )}
-                  <div className="fyset-audit-by">
-                    by {r.user_name || 'system'}{r.user_role ? ` · ${r.user_role}` : ''}
-                    {r.target_date && <> · for {dayjs(r.target_date).format('DD MMM YYYY')}</>}
+          <>
+            <div className="fyset-audit-list">
+              {auditRows.map((r) => (
+                <div key={r.audit_log_id} className={`fyset-audit-row ${r.is_hard_override ? 'is-hard' : ''}`}>
+                  <div className="fyset-audit-meta">
+                    <span className="fyset-audit-when">{dayjs(r.event_at).format('DD MMM YYYY · HH:mm')}</span>
+                    <Tag color={
+                      r.event_type === 'hard_override'      ? 'red'    :
+                      r.event_type === 'soft_override'      ? 'orange' :
+                      r.event_type === 'post_close_edit'    ? 'gold'   :
+                      r.event_type === 'compliance_toggled' ? 'blue'   :
+                      'default'
+                    }>{r.event_type}</Tag>
+                  </div>
+                  <div className="fyset-audit-text">
+                    <div className="fyset-audit-label">{r.target_label || '(no label)'}</div>
+                    {r.reason && (
+                      <div className="fyset-audit-reason">"{r.reason}"</div>
+                    )}
+                    <div className="fyset-audit-by">
+                      by {r.user_name || 'system'}{r.user_role ? ` · ${r.user_role}` : ''}
+                      {r.target_date && <> · for {dayjs(r.target_date).format('DD MMM YYYY')}</>}
+                    </div>
                   </div>
                 </div>
+              ))}
+            </div>
+
+            {auditTotal > auditPageSize && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 18 }}>
+                <Pagination
+                  current={auditPage}
+                  pageSize={auditPageSize}
+                  total={auditTotal}
+                  showSizeChanger
+                  pageSizeOptions={[20, 50, 100, 200]}
+                  onChange={(p, ps) => { setAuditPage(p); setAuditPageSize(ps); }}
+                  size="small"
+                />
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </Modal>
 

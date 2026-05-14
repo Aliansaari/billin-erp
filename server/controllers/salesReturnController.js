@@ -16,6 +16,7 @@ const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite, getDefault
 const { applyBatchStockDelta } = require('../utils/batchStock');
 const { restoreConsumption, reverseConsumptionForBillPartial } = require('../utils/costLayers');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
+const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 
 /**
  * Fields the client is NEVER allowed to set directly on a return bill.
@@ -446,6 +447,11 @@ function synthAmountLine(amount, remarks) {
 }
 
 exports.create = async (req, res) => {
+  // Fiscal-lock guard. The return_date field is the probe.
+  const guard = await applyFiscalLockGuard(req, res, req.body?.return_date);
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const {
@@ -750,6 +756,20 @@ exports.create = async (req, res) => {
 
     await t.commit();
 
+    if (guard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'sales_return',
+        target_id:        bill.sales_return_id,
+        target_label:     `Sales return ${bill.return_bill_number || `#${bill.sales_return_id}`} dated ${bill.return_date}`,
+        target_date:      bill.return_date,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate },
+      });
+    }
+
     const result = await SalesReturnBill.findByPk(bill.sales_return_id, {
       include: [
         { model: Party, as: 'customer' },
@@ -767,6 +787,16 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  // Fiscal-lock guard on edit (earlier of old/new return_date).
+  const previewRet = await SalesReturnBill.findByPk(req.params.id, { attributes: ['sales_return_id', 'return_date', 'return_bill_number', 'is_cancelled'] });
+  if (!previewRet) return res.status(404).json({ error: 'Sales return not found' });
+  if (previewRet.is_cancelled) return res.status(400).json({ error: 'Cannot edit a cancelled return' });
+  const oldDateStr = previewRet.return_date && String(previewRet.return_date).slice(0, 10);
+  const newDateStr = req.body?.return_date && String(req.body.return_date).slice(0, 10);
+  const guard = await applyFiscalLockGuard(req, res, earlierDate(oldDateStr, newDateStr));
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -1018,6 +1048,21 @@ exports.update = async (req, res) => {
     }
 
     await t.commit();
+
+    if (guard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       'post_close_edit',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'sales_return',
+        target_id:        existing.sales_return_id,
+        target_label:     `Sales return ${existing.return_bill_number || `#${existing.sales_return_id}`} edited (date ${oldDateStr || '—'} → ${newDateStr || oldDateStr || '—'})`,
+        target_date:      newDateStr || oldDateStr || null,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate, old_date: oldDateStr, new_date: newDateStr || oldDateStr },
+      });
+    }
+
     const result = await SalesReturnBill.findByPk(existing.sales_return_id, {
       include: [
         { model: Party, as: 'customer' },
@@ -1035,6 +1080,15 @@ exports.update = async (req, res) => {
 };
 
 exports.cancel = async (req, res) => {
+  // Fiscal-lock guard on cancel — probe is the return's own date.
+  const previewCancel = await SalesReturnBill.findByPk(req.params.id, { attributes: ['sales_return_id', 'return_date', 'return_bill_number', 'is_cancelled'] });
+  if (!previewCancel) return res.status(404).json({ error: 'Sales return not found' });
+  if (previewCancel.is_cancelled) return res.status(400).json({ error: 'Return already cancelled' });
+  const cancelDateStr = previewCancel.return_date && String(previewCancel.return_date).slice(0, 10);
+  const guard = await applyFiscalLockGuard(req, res, cancelDateStr);
+  if (!guard.ok) return;
+  const lockResult = guard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const bill = await SalesReturnBill.findByPk(req.params.id, {
@@ -1140,6 +1194,21 @@ exports.cancel = async (req, res) => {
     });
 
     await t.commit();
+
+    if (guard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'sales_return',
+        target_id:        bill.sales_return_id,
+        target_label:     `Sales return ${bill.return_bill_number || `#${bill.sales_return_id}`} cancelled (was dated ${cancelDateStr})`,
+        target_date:      cancelDateStr,
+        reason:           guard.reason,
+        metadata:         { lock_date: lockResult.lockDate, action: 'cancel' },
+      });
+    }
+
     res.json({ message: 'Sales return cancelled successfully' });
   } catch (error) {
     if (!t.finished) {

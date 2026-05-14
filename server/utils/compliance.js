@@ -229,8 +229,128 @@ function send403FromLock(res, lockResult) {
   });
 }
 
+/**
+ * One-shot fiscal-lock guard for voucher controllers.
+ *
+ * Reduces ~30 lines of boilerplate that every write endpoint would
+ * otherwise duplicate (probe-date extraction, lock check, override
+ * password gate, body cleanup, structured 403). Pattern:
+ *
+ *   const guard = await applyFiscalLockGuard(req, res, probeDate);
+ *   if (!guard.ok) return;
+ *   // ... do the save ...
+ *   if (guard.overrideUsed) {
+ *     await logComplianceEvent({ ..., reason: guard.reason, ... });
+ *   }
+ *
+ * The guard handles ALL of:
+ *   · Bail out 403 FY_LOCKED when the lock fires (no-perm or
+ *     requires-override).
+ *   · Demand + verify the user's password when the firm's settings
+ *     require it for overrides.
+ *   · Strip `_override_reason` / `_override_password` from req.body
+ *     so the rest of the controller never sees those private fields.
+ *   · Surface the trimmed reason + lockResult to the caller so the
+ *     audit-log event uses the cleaned value.
+ *
+ * `probeDate` is a YYYY-MM-DD string (or null). For CREATE it's
+ * req.body.<dateField>. For EDIT it should be the earlier of OLD and
+ * NEW dates (so moves OUT of a locked period are also gated). For
+ * CANCEL it's the existing voucher's own date. A null probe is a
+ * pass-through — most useful when the caller has determined the
+ * voucher type is non-date-bearing.
+ *
+ * The bcrypt + User imports are lazy so loading compliance.js for a
+ * read-only path (e.g. the audit-log list endpoint) doesn't drag in
+ * the auth machinery.
+ */
+async function applyFiscalLockGuard(req, res, probeDate) {
+  if (!probeDate) {
+    // No date to probe → no lock can apply. Still strip override
+    // fields in case the client sent them speculatively.
+    if (req && req.body) {
+      delete req.body._override_reason;
+      delete req.body._override_password;
+    }
+    return { ok: true, overrideUsed: false, lockResult: null, reason: null };
+  }
+
+  const overrideReason   = req.body?._override_reason;
+  const overridePassword = req.body?._override_password;
+
+  const lockResult = await checkFiscalLock(probeDate, req.user, { overrideReason });
+  if (!lockResult.ok) {
+    send403FromLock(res, lockResult);
+    return { ok: false };
+  }
+
+  const overrideUsed =
+    lockResult.status === 'soft_override_granted' ||
+    lockResult.status === 'hard_override_granted';
+
+  if (overrideUsed) {
+    // Password gate (per the firm's settings). Defence-in-depth on
+    // top of the role check — the human must prove identity, not
+    // just be in a session belonging to an override-capable role.
+    const settings = await SystemSettings.findByPk(1);
+    if (settings?.fy_require_override_password) {
+      if (!overridePassword) {
+        res.status(403).json({
+          error: 'FY_LOCKED',
+          requires_password: true,
+          message: 'Password required to override the fiscal lock.',
+        });
+        return { ok: false };
+      }
+      const bcrypt = require('bcryptjs');
+      const { User } = require('../models');
+      const dbUser = await User.findByPk(req.user?.user_id);
+      const verified = dbUser && await bcrypt.compare(overridePassword, dbUser.password_hash);
+      if (!verified) {
+        res.status(403).json({
+          error: 'FY_LOCKED',
+          requires_password: true,
+          password_invalid: true,
+          message: 'Password did not match. Try again.',
+        });
+        return { ok: false };
+      }
+    }
+  }
+
+  // Strip private override fields from the body before the rest of
+  // the controller sees them. They are not voucher columns.
+  delete req.body._override_reason;
+  delete req.body._override_password;
+
+  return {
+    ok:           true,
+    overrideUsed,
+    lockResult,
+    reason:       lockResult.reason || (typeof overrideReason === 'string' ? overrideReason.trim() : null),
+  };
+}
+
+/**
+ * Pick the earlier (more "past") of two YYYY-MM-DD strings. Used by
+ * EDIT paths so the lock probe catches a move INTO or OUT OF a
+ * locked period — whichever date is older is the one that fires the
+ * lock, because the lock is `bill_date <= lockDate`.
+ *
+ * Both args may be null/undefined; returns whichever is set, or
+ * null if both are empty.
+ */
+function earlierDate(a, b) {
+  const A = a ? String(a).slice(0, 10) : null;
+  const B = b ? String(b).slice(0, 10) : null;
+  if (A && B) return A <= B ? A : B;
+  return A || B || null;
+}
+
 module.exports = {
   checkFiscalLock,
   logComplianceEvent,
   send403FromLock,
+  applyFiscalLockGuard,
+  earlierDate,
 };

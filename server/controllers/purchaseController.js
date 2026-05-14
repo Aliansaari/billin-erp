@@ -18,6 +18,7 @@ const {
 } = require('../services/productColorStockService');
 const { applyWeightedAvgIncrement, recomputeWeightedAvgFromLedger } = require('../utils/weightedAvgCost');
 const { addCostLayer, cancelLayersForPurchase } = require('../utils/costLayers');
+const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 const { denyIfGodownInaccessible, scopeWhereByGodown } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
 
@@ -413,6 +414,11 @@ exports.getById = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
+  // Fiscal-lock guard — same policy as Sales. See compliance.js.
+  const lockGuard = await applyFiscalLockGuard(req, res, req.body?.bill_date);
+  if (!lockGuard.ok) return;
+  const lockResult = lockGuard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     let { items, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, draft_id, ...billData } = req.body;
@@ -1009,6 +1015,20 @@ exports.create = async (req, res) => {
 
     await t.commit();
 
+    if (lockGuard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'purchase_bill',
+        target_id:        bill.purchase_bill_id,
+        target_label:     `Purchase ${bill.bill_number || `#${bill.purchase_bill_id}`} dated ${bill.bill_date}`,
+        target_date:      bill.bill_date,
+        reason:           lockGuard.reason,
+        metadata:         { lock_date: lockResult.lockDate },
+      });
+    }
+
     // Return full bill with items for barcode printing
     const result = await PurchaseBill.findByPk(bill.purchase_bill_id, {
       include: [
@@ -1037,6 +1057,16 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  // Fiscal-lock guard on edit — see Sales update for rationale.
+  const existing = await PurchaseBill.findByPk(req.params.id, { attributes: ['purchase_bill_id', 'bill_date', 'bill_number', 'is_cancelled'] });
+  if (!existing) return res.status(404).json({ error: 'Purchase bill not found' });
+  if (existing.is_cancelled) return res.status(400).json({ error: 'Cannot edit a cancelled bill' });
+  const oldDateStr = existing.bill_date && String(existing.bill_date).slice(0, 10);
+  const newDateStr = req.body?.bill_date && String(req.body.bill_date).slice(0, 10);
+  const lockGuard = await applyFiscalLockGuard(req, res, earlierDate(oldDateStr, newDateStr));
+  if (!lockGuard.ok) return;
+  const lockResult = lockGuard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -1653,6 +1683,20 @@ exports.update = async (req, res) => {
 
     await t.commit();
 
+    if (lockGuard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       'post_close_edit',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'purchase_bill',
+        target_id:        existingBill.purchase_bill_id,
+        target_label:     `Purchase ${existingBill.bill_number || `#${existingBill.purchase_bill_id}`} edited (date ${oldDateStr || '—'} → ${newDateStr || oldDateStr || '—'})`,
+        target_date:      newDateStr || oldDateStr || null,
+        reason:           lockGuard.reason,
+        metadata:         { lock_date: lockResult.lockDate, old_bill_date: oldDateStr, new_bill_date: newDateStr || oldDateStr },
+      });
+    }
+
     const result = await PurchaseBill.findByPk(id, {
       include: [
         { model: Party, as: 'supplier', attributes: ['party_name'] },
@@ -1673,6 +1717,15 @@ exports.update = async (req, res) => {
 };
 
 exports.cancel = async (req, res) => {
+  // Pre-transaction lock guard — see Sales cancel.
+  const billPreview = await PurchaseBill.findByPk(req.params.id, { attributes: ['purchase_bill_id', 'bill_date', 'bill_number', 'is_cancelled'] });
+  if (!billPreview) return res.status(404).json({ error: 'Bill not found' });
+  if (billPreview.is_cancelled) return res.status(400).json({ error: 'Bill already cancelled' });
+  const cancelDateStr = billPreview.bill_date && String(billPreview.bill_date).slice(0, 10);
+  const lockGuard = await applyFiscalLockGuard(req, res, cancelDateStr);
+  if (!lockGuard.ok) return;
+  const lockResult = lockGuard.lockResult;
+
   const t = await sequelize.transaction();
   try {
     const bill = await PurchaseBill.findByPk(req.params.id, {
@@ -1852,6 +1905,21 @@ exports.cancel = async (req, res) => {
     });
 
     await t.commit();
+
+    if (lockGuard.overrideUsed) {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'purchase_bill',
+        target_id:        bill.purchase_bill_id,
+        target_label:     `Purchase ${bill.bill_number || `#${bill.purchase_bill_id}`} cancelled (was dated ${cancelDateStr})`,
+        target_date:      cancelDateStr,
+        reason:           lockGuard.reason,
+        metadata:         { lock_date: lockResult.lockDate, action: 'cancel' },
+      });
+    }
+
     res.json({ message: 'Bill cancelled successfully' });
   } catch (error) {
     if (!t.finished) {

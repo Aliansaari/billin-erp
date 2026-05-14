@@ -10,6 +10,8 @@ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
+import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
+import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import '../../styles/bill-entry.css';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -61,6 +63,13 @@ export default function PaymentEntry() {
   const dirty = !!(selectedParty || payAmt);
   const confirmLeave = useUnsavedChangesWarning(dirty);
   const { openDate } = useDatePopup();
+
+  // Fiscal-lock override-modal flow — opens when the server returns
+  // 403 FY_LOCKED on a backdated save. See useFiscalLockGuard for the
+  // full state-machine.
+  const { lockModal, guardedSave } = useFiscalLockGuard({
+    onBlocked: (msg) => message.error(msg),
+  });
 
   const payAmtRef     = useRef(null);
   const partyRef      = useRef(null);
@@ -327,9 +336,9 @@ export default function PaymentEntry() {
         }],
         bill_allocations,
       };
-      const { data: result } = isEdit
-        ? await paymentAPI.update(editId, body)
-        : await paymentAPI.create(body);
+      const result = await guardedSave(body, (b) => (
+        isEdit ? paymentAPI.update(editId, b).then(r => r.data) : paymentAPI.create(b).then(r => r.data)
+      ));
       message.success(
         isEdit
           ? `Payment updated → new number ${result.transaction_number} (original cancelled in audit trail). ✓`
@@ -342,12 +351,13 @@ export default function PaymentEntry() {
         refreshNextNumber();
       }
     } catch (e) {
-      message.error(e.response?.data?.error || 'Failed to save payment');
+      if (isFiscalLockCancel(e)) return;
+      message.error(e.response?.data?.message || e.response?.data?.error || 'Failed to save payment');
     } finally {
       setLoading(false);
       submittingRef.current = false;
     }
-  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, chequeDate, checkedBills, selectedInvNos, billsWithAlloc, isEdit, editId, navigate]);
+  }, [selectedParty, payAmt, netAmount, date, payMode, bankLedgerId, payNo, chequeDate, checkedBills, selectedInvNos, billsWithAlloc, isEdit, editId, navigate, guardedSave]);
 
   handleSaveRef.current = handleSave;
 
@@ -670,6 +680,15 @@ export default function PaymentEntry() {
             hidden: true, disabled: loading,
             onAction: handleSave },
         ]}
+      />
+
+      <FiscalLockOverrideModal
+        open={!!lockModal}
+        lock={lockModal?.lock}
+        billDate={date}
+        vouchTypeLabel="Payment"
+        onConfirm={lockModal?.onConfirm}
+        onCancel={lockModal?.onCancel}
       />
     </div>
   );
