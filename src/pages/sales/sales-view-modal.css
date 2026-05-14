@@ -120,18 +120,171 @@
   background: rgba(255, 255, 255, 0.18);
 }
 
-/* ── Sticky summary footer ─────────────────────────────────────────────── */
+/* ── Title block ───────────────────────────────────────────────────────── */
+/* The modal title is the bill's identity — uppercase "Sales Bill"
+   eyebrow + the bill number in big numerals + the status pill inline.
+   Tabular-nums on the number so #1017 / #1234 / #9 all align if a future
+   table column shows them side by side. */
+.erp-bill-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.erp-bill-title-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.erp-bill-title-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  font-weight: 600;
+}
+.erp-bill-title-number {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+.erp-bill-title-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  align-self: center;
+}
+.erp-bill-title-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.erp-bill-title-date {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Sticky summary footer — two-column layout ─────────────────────────── */
+/* Layout: [hero card · 38% ][ breakdown · 62% — right-aligned ]
+   The hero card uses the empty space that used to sit left of the
+   breakdown, giving the footer a focal point (the operator's primary
+   question: "what do I still need to collect?"). */
 .erp-bill-summary {
   flex-shrink: 0;
-  padding: 14px 24px 18px;
+  padding: 18px 24px 22px;
   border-top: 1px solid var(--border);
-  background: var(--bg-muted, rgba(0, 0, 0, 0.10));
-  display: flex;
-  justify-content: flex-end;
+  background: linear-gradient(180deg, rgba(255,255,255,0.012) 0%, rgba(0,0,0,0.12) 100%);
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(280px, 360px);
+  gap: 28px;
+  align-items: stretch;
 }
-.erp-bill-summary-inner {
-  width: 320px;
-  max-width: 100%;
+
+/* Hero card — the visual centrepiece of the footer. Coloured backdrop +
+   left accent border in red (when balance due) or green (when settled).
+   The amount is rendered at 30 px tabular-nums so it carries weight. */
+.erp-bill-hero {
+  position: relative;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 140px;
+  overflow: hidden;
+}
+.erp-bill-hero::before {
+  /* Left accent stripe — same color as the hero amount, drawn as a 3 px
+     border-left replacement so it stays crisp at any DPI. */
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: currentColor;
+  opacity: 0;
+}
+.erp-bill-hero-label {
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--fg-secondary);
+}
+.erp-bill-hero-amount {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  /* Slightly tightened ₹ symbol via feature setting; safe to ignore on
+     fonts that don't support it. */
+  font-feature-settings: 'tnum' 1;
+}
+.erp-bill-hero-sub {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.erp-bill-hero-sub strong {
+  font-weight: 600;
+  color: var(--fg-secondary);
+}
+.erp-bill-hero-sub-sep {
+  margin: 0 8px;
+  opacity: 0.5;
+}
+
+/* Quick-action row. Outlined buttons so they don't overpower the hero
+   amount; hover lights them up with a touch of the accent backdrop. */
+.erp-bill-hero-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.erp-bill-hero-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.003em;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s, transform .08s;
+}
+.erp-bill-hero-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong, var(--border));
+  color: var(--fg-primary);
+}
+.erp-bill-hero-btn:active { transform: scale(0.97); }
+.erp-bill-hero-btn .anticon { font-size: 12px; }
+
+/* Breakdown column — right-aligned summary rows, max 360 px so the
+   numbers line up tightly. */
+.erp-bill-breakdown {
+  align-self: end;
+  width: 100%;
 }
 
 /* Light-theme polish — the dark zebra stripes look wrong on light themes,
