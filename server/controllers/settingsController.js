@@ -718,11 +718,19 @@ exports.cleanupData = async (req, res) => {
       // on stock_transfer_items.product_id blocks the wipe.
       await del('DELETE FROM stock_transfers');
       // product_batches and product_colors both FK to products with
-      // RESTRICT, and product_batch_stock cascades from product_batches.
-      // All bill_items / stock_ledger rows referencing these batches /
-      // colors were already deleted above, so the chain is clear.
+      // RESTRICT, and product_batch_stock has an ON DELETE RESTRICT
+      // FK to product_batches (NOT cascade — an earlier comment here
+      // claimed cascade and was wrong). Wipe per-godown-per-batch
+      // stock first or the next DELETE blows up with FK violation.
+      // All bill_items / stock_ledger rows referencing these batches
+      // were already cleared by the financial wipe above.
+      await del('DELETE FROM product_batch_stock');
       await del('DELETE FROM product_batches');
       await del('DELETE FROM product_colors');
+      // cost_layers.product_id is FK NO ACTION (no cascade); explicit
+      // wipe required before products go, otherwise FIFO/weighted-avg
+      // history pins the products table.
+      await del('DELETE FROM cost_layers');
       await del('DELETE FROM products');
     }
 
