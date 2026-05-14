@@ -666,10 +666,13 @@ exports.create = async (req, res) => {
       if (!t.finished) await t.rollback();
       return res.status(400).json({ error: `Bill discount % must be between 0 and 100 (got ${billDiscPct}%).` });
     }
-    const billDiscountAmt = billData.discount_amount != null
+    // `let` (not const) so the GST-C4 reverse-compute below can refresh
+    // these after the master snapshot block runs. For exclusive bills
+    // the refresh is a no-op (values stay identical).
+    let billDiscountAmt = billData.discount_amount != null
       ? parseFloat(billData.discount_amount)
       : +(subTotal * billDiscPct / 100).toFixed(2);
-    const itemDiscountTotal = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    let itemDiscountTotal = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
     // Guard: bill-level discount cannot be negative, and cannot exceed
     // the post-item-discount base (otherwise taxableTotal turns negative
     // and every downstream GST/round-off figure is wrong).
@@ -693,15 +696,19 @@ exports.create = async (req, res) => {
     const includeChargesInTaxable = settings?.freight_other_in_taxable !== false;
     const extraTaxableAdd = includeChargesInTaxable ? roundTo(freightCharges + otherChargesV, 2) : 0;
 
-    const taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt + extraTaxableAdd).toFixed(2);
+    // `let` so GST-C4 reverse-compute can refresh after master snapshot.
+    let taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt + extraTaxableAdd).toFixed(2);
 
     // PASS 2: allocate the bill-level discount pro-rata to each line based
     // on its post-item-discount taxable amount, then compute GST on that
     // reduced base. Pro-rata allocation preserves item-level reporting
     // fidelity — every item row carries its own correct taxable & GST.
-    const postItemTotal = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
-    const billDiscRatio = postItemTotal > 0 ? billDiscountAmt / postItemTotal : 0;
-    const extraTaxableRatio = postItemTotal > 0 ? extraTaxableAdd / postItemTotal : 0;
+    // `let` so the GST-C4 reverse-compute below can refresh these after
+    // the master snapshot block adjusts subTotal / discounts. For
+    // exclusive bills (the default), the refresh is a no-op.
+    let postItemTotal = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
+    let billDiscRatio = postItemTotal > 0 ? billDiscountAmt / postItemTotal : 0;
+    let extraTaxableRatio = postItemTotal > 0 ? extraTaxableAdd / postItemTotal : 0;
 
     // Resolve intra/inter once for the whole bill — every line uses it.
     // Without this, product-mode bills to out-of-state customers stored
@@ -729,7 +736,7 @@ exports.create = async (req, res) => {
     if (productIdsForSnapshot.length > 0) {
       const masterProducts = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement', 'is_tax_inclusive'],
         transaction: t,
       });
       const masterById = new Map(masterProducts.map(p => [p.product_id, p]));
@@ -747,7 +754,63 @@ exports.create = async (req, res) => {
           // section reports the wrong UQC. Master wins; only when
           // the master leaves it blank do we keep the line value.
           if (mp.unit_of_measurement) it.unit_type = mp.unit_of_measurement;
+          // Audit GST-C4 — snapshot the tax-inclusive flag so a
+          // tampered client can't decide line-by-line whether the
+          // rate it submitted is MRP or wholesale. Master is the
+          // source of truth.
+          it._inclusive = !!mp.is_tax_inclusive;
         }
+      }
+      // GST-C4 — reverse-compute inclusive lines into taxable currency.
+      // After this block, every downstream calc (bill-level discount
+      // ratio in PASS 2, GST math, totals, ledger postings) runs
+      // unchanged — it just sees what looks like an exclusive line.
+      // The OPERATOR-FACING display rate stays as the MRP they typed
+      // (we don't touch `item.rate`).
+      //
+      // For each inclusive line at gst_rate r%:
+      //   div            = 1 + r/100
+      //   _lineTotal     /= div   (taxable gross — was inclusive)
+      //   discount_amount /= div  (taxable discount)
+      //   _postItemTaxable /= div (post-disc taxable)
+      // Per-line invariant after: qty × rate stays at MRP (display),
+      //                           taxable + GST = MRP × qty (printed total).
+      for (const it of processedItems) {
+        if (it._inclusive && it.gst_rate > 0) {
+          const div = 1 + it.gst_rate / 100;
+          it._lineTotal       = roundTo((parseFloat(it._lineTotal) || 0) / div, 2);
+          it.discount_amount  = roundTo((parseFloat(it.discount_amount) || 0) / div, 2);
+          it._postItemTaxable = roundTo((parseFloat(it._postItemTaxable) || 0) / div, 2);
+          it.taxable_amount   = it._postItemTaxable;
+        }
+      }
+      // GST-C4 — refresh every derived value that was computed BEFORE
+      // this block (subTotal, itemDiscountTotal, billDiscountAmt,
+      // taxableTotal, postItemTotal, billDiscRatio, extraTaxableRatio)
+      // so PASS 2 + the bill row + the voucher builder all see the
+      // post-reverse-compute (taxable) values. No-op when there are
+      // no inclusive lines on the bill.
+      const hasInclusive = processedItems.some(it => it._inclusive);
+      subTotal = roundTo(
+        processedItems.reduce((s, it) => s + (parseFloat(it._lineTotal) || 0), 0),
+        2,
+      );
+      if (hasInclusive) {
+        itemDiscountTotal = processedItems.reduce(
+          (s, it) => s + (parseFloat(it.discount_amount) || 0), 0,
+        );
+        // If billDiscountAmt was DERIVED from the (gross) subTotal via
+        // billDiscPct, recompute against the new (taxable) subTotal so
+        // a 10% bill discount stays 10% of taxable. If the operator
+        // supplied an absolute billData.discount_amount, that's already
+        // in the currency they intended — leave it alone.
+        if (billData.discount_amount == null && billDiscPct > 0) {
+          billDiscountAmt = +(subTotal * billDiscPct / 100).toFixed(2);
+        }
+        taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt + extraTaxableAdd).toFixed(2);
+        postItemTotal = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
+        billDiscRatio = postItemTotal > 0 ? billDiscountAmt / postItemTotal : 0;
+        extraTaxableRatio = postItemTotal > 0 ? extraTaxableAdd / postItemTotal : 0;
       }
     }
 
@@ -1596,10 +1659,11 @@ exports.update = async (req, res) => {
       if (!t.finished) await t.rollback();
       return res.status(400).json({ error: `Bill discount % must be between 0 and 100 (got ${billDiscPct2}%).` });
     }
-    const billDiscountAmt = billData.discount_amount != null
+    // `let` so GST-C4 reverse-compute below can refresh after master snapshot.
+    let billDiscountAmt = billData.discount_amount != null
       ? parseFloat(billData.discount_amount)
       : +(subTotal * billDiscPct2 / 100).toFixed(2);
-    const itemDiscountTotal2 = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
+    let itemDiscountTotal2 = processedItems.reduce((s, it) => s + (parseFloat(it.discount_amount) || 0), 0);
     const postItemBase2 = +(subTotal - itemDiscountTotal2).toFixed(2);
     if (!isFinite(billDiscountAmt) || billDiscountAmt < 0) {
       if (!t.finished) await t.rollback();
@@ -1619,13 +1683,14 @@ exports.update = async (req, res) => {
     const includeChargesInTaxableU = updSettings?.freight_other_in_taxable !== false;
     const extraTaxableAddU = includeChargesInTaxableU ? roundTo(freightChargesU + otherChargesU, 2) : 0;
 
-    const taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt + extraTaxableAddU).toFixed(2);
+    // `let` so GST-C4 reverse-compute can refresh these after master snapshot.
+    let taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt + extraTaxableAddU).toFixed(2);
 
     // PASS 2: allocate bill-level discount pro-rata so GST is on the post-
     // discount (GST-law-compliant) base for every line.
-    const postItemTotal2 = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
-    const billDiscRatio2 = postItemTotal2 > 0 ? billDiscountAmt / postItemTotal2 : 0;
-    const extraTaxableRatioU = postItemTotal2 > 0 ? extraTaxableAddU / postItemTotal2 : 0;
+    let postItemTotal2 = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
+    let billDiscRatio2 = postItemTotal2 > 0 ? billDiscountAmt / postItemTotal2 : 0;
+    let extraTaxableRatioU = postItemTotal2 > 0 ? extraTaxableAddU / postItemTotal2 : 0;
 
     // Same inter-state resolution as create() — see comment there.
     const interState2 = billWise ? false : await _resolveInterState(billData, t);
@@ -1637,7 +1702,7 @@ exports.update = async (req, res) => {
     if (productIdsForSnapshot2.length > 0) {
       const masterProducts2 = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot2 } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement', 'is_tax_inclusive'],
         transaction: t,
       });
       const masterById2 = new Map(masterProducts2.map(p => [p.product_id, p]));
@@ -1648,7 +1713,39 @@ exports.update = async (req, res) => {
           if (mp.hsn_code) it.hsn_code = mp.hsn_code;
           // GST-H5 — also snapshot unit on update (see create-path comment).
           if (mp.unit_of_measurement) it.unit_type = mp.unit_of_measurement;
+          // GST-C4 — snapshot tax-inclusive flag for update path.
+          it._inclusive = !!mp.is_tax_inclusive;
         }
+      }
+      // GST-C4 — same reverse-compute as create-path. See the detailed
+      // comment block there. We reverse the FULL line currency (lineTotal,
+      // discount, taxable) for inclusive lines and re-sum subTotal.
+      for (const it of processedItems) {
+        if (it._inclusive && it.gst_rate > 0) {
+          const div = 1 + it.gst_rate / 100;
+          it._lineTotal       = roundTo((parseFloat(it._lineTotal) || 0) / div, 2);
+          it.discount_amount  = roundTo((parseFloat(it.discount_amount) || 0) / div, 2);
+          it._postItemTaxable = roundTo((parseFloat(it._postItemTaxable) || 0) / div, 2);
+          it.taxable_amount   = it._postItemTaxable;
+        }
+      }
+      // GST-C4 — refresh derived values (mirror of create-path block).
+      const hasInclusive2 = processedItems.some(it => it._inclusive);
+      subTotal = roundTo(
+        processedItems.reduce((s, it) => s + (parseFloat(it._lineTotal) || 0), 0),
+        2,
+      );
+      if (hasInclusive2) {
+        itemDiscountTotal2 = processedItems.reduce(
+          (s, it) => s + (parseFloat(it.discount_amount) || 0), 0,
+        );
+        if (billData.discount_amount == null && billDiscPct2 > 0) {
+          billDiscountAmt = +(subTotal * billDiscPct2 / 100).toFixed(2);
+        }
+        taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt + extraTaxableAddU).toFixed(2);
+        postItemTotal2 = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
+        billDiscRatio2 = postItemTotal2 > 0 ? billDiscountAmt / postItemTotal2 : 0;
+        extraTaxableRatioU = postItemTotal2 > 0 ? extraTaxableAddU / postItemTotal2 : 0;
       }
     }
 

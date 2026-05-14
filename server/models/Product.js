@@ -52,6 +52,18 @@ module.exports = (sequelize) => {
     // code, no new row will ever pick a legacy value (the dropdown only
     // shows canonicals via /api/products/uqc-codes).
     //
+    // Audit GST-C4 — when true, the line `rate` on a sales bill is
+    // interpreted as MRP (tax-inclusive). The line math reverse-computes
+    // taxable + GST from the rate so the customer pays exactly the
+    // printed price. Pharmacy / FMCG / packaged-goods use case.
+    // Default false = today's behaviour (B2B exclusive math) — every
+    // existing product keeps working unchanged.
+    is_tax_inclusive: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+
     // Source of truth for the canonical list: server/utils/uqcCodes.js.
     unit_of_measurement: {
       type: DataTypes.ENUM(
