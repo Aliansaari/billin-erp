@@ -26,6 +26,7 @@ import { Form, DatePicker, InputNumber, Input, Select, message } from 'antd';
 import dayjs from 'dayjs';
 import { chequeAPI, bankAPI } from '../../api';
 import EntityFormModal from '../../components/EntityFormModal';
+import { inrFormatter, inrParser } from '../../utils/indianFormat';
 
 const fmtRupees = (v) => {
   const n = Number(v) || 0;
@@ -394,7 +395,7 @@ export function BounceModal({ open, onClose, onSaved, cheque }) {
                 style={{ width: '100%' }}
                 controls={false}
                 placeholder="0.00"
-                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
                 parser={(v) => v.replace(/₹\s?|,/g, '')}
               />
             </Form.Item>

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import useCompanyStore from './store/companyStore';
 import { partyAPI } from './api';
@@ -167,6 +167,38 @@ function DevModeOnlyRoute({ children }) {
   const isDev = useDeveloperMode();
   if (!isDev) return <Navigate to="/" replace />;
   return children;
+}
+
+// UI-C2 — 404 page. Plain inline component so we don't have to add a new
+// file for what's a 30-line panel. Renders inside AppLayout when matched
+// inside the authenticated tree; renders standalone for top-level matches.
+function NotFoundPage() {
+  const navigate = useNavigate();
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', minHeight: '60vh', padding: 32, textAlign: 'center',
+    }}>
+      <h1 style={{ fontSize: 64, margin: 0, lineHeight: 1 }}>404</h1>
+      <p style={{ fontSize: 18, margin: '16px 0 24px', color: 'var(--erp-fg-2, #aaa)' }}>
+        The page you're looking for doesn't exist.
+      </p>
+      <div style={{ display: 'flex', gap: 12 }}>
+        <button
+          onClick={() => navigate(-1)}
+          style={{ padding: '8px 20px', cursor: 'pointer' }}
+        >
+          ← Go back
+        </button>
+        <button
+          onClick={() => navigate('/')}
+          style={{ padding: '8px 20px', cursor: 'pointer' }}
+        >
+          Home
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function PrivateRoute({ children }) {
@@ -804,8 +836,16 @@ export default function App() {
                 CREATE button is implicitly gated by the dev_max_companies
                 cap on the server. */}
             <Route path="companies"           element={<CompanyList />} />
+            {/* UI-C2 — catch-all 404 inside the authenticated/onboarded
+                shell. Without this a typo in any sidebar link or stale
+                bookmark renders a blank <Outlet/> with no feedback. */}
+            <Route path="*"                   element={<NotFoundPage />} />
           </Route>
         </Route>
+        {/* Top-level catch-all — covers any path not matched above
+            (login, license, setup pages also fall through here when
+            already authenticated and onboarded). */}
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </>
   );

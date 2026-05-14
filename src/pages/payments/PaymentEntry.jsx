@@ -3,6 +3,7 @@ import { Input, DatePicker, Select, Button, InputNumber, message, Checkbox, Moda
 import {
   CheckOutlined, MinusOutlined,
 } from '@ant-design/icons';
+import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
@@ -386,6 +387,7 @@ export default function PaymentEntry() {
               format="DD-MM-YYYY"
               allowClear={false}
               placeholder="d-m-yy or d-m-yyyy"
+              disabledDate={disabledDateForVoucher}
             />
           </div>
         </div>
@@ -457,7 +459,7 @@ export default function PaymentEntry() {
               max={maxPayAmt || undefined}
               placeholder="Enter amount"
               style={{ width: '100%' }}
-              formatter={v => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+              formatter={v => v != null && v !== '' ? inrFormatter(v) : ''}
               parser={v => v.replace(/₹\s?|(,*)/g, '')}
             />
             {maxPayAmt > 0 && (
@@ -496,7 +498,7 @@ export default function PaymentEntry() {
                 onChange={v => setDiscAmt(v || 0)}
                 min={0}
                 style={{ width: '100%' }}
-                formatter={v => `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                formatter={v => inrFormatter(v)}
                 parser={v => v.replace(/₹\s?|(,*)/g, '')}
               />
             </div>

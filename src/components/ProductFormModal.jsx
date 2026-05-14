@@ -57,7 +57,19 @@ const REQUIRED = {
   sale_rate:      'Sale Rate is required',
 };
 
-const UNITS = ['PCS', 'KG', 'METER', 'LITER', 'BOX', 'DOZEN'];
+// Audit GST-H5 — UQC fallback used only if /api/products/uqc-codes can't be
+// fetched (fresh install, offline, etc.). Always-present codes that cover
+// 90% of retail. The real list comes from the API on modal open.
+const UQC_FALLBACK = [
+  { code: 'PCS', label: 'PIECES' },
+  { code: 'KGS', label: 'KILOGRAMS' },
+  { code: 'MTR', label: 'METRES' },
+  { code: 'LTR', label: 'LITRES' },
+  { code: 'BOX', label: 'BOX' },
+  { code: 'DOZ', label: 'DOZENS' },
+  { code: 'NOS', label: 'NUMBERS' },
+  { code: 'OTH', label: 'OTHERS' },
+];
 
 export default function ProductFormModal({ open, onCancel, onSaved, defaultName }) {
   const [form, setForm] = useState(EMPTY);
@@ -66,6 +78,10 @@ export default function ProductFormModal({ open, onCancel, onSaved, defaultName 
   const [batchTrackingEnabled, setBatchTrackingEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [initial, setInitial] = useState(EMPTY);
+  // Audit GST-H5 — full GSTN UQC list fetched from server on open. The
+  // dropdown shows `CODE — LABEL` so a clerk can scan visually; the
+  // <option value> stays the bare 3-letter code matching the DB enum.
+  const [uqcList, setUqcList] = useState(UQC_FALLBACK);
 
   // Load categories + batch-tracking flag every time the modal opens.
   // Cheap to refetch and a Settings change in another tab should
@@ -77,6 +93,12 @@ export default function ProductFormModal({ open, onCancel, onSaved, defaultName 
       const s = (data && data.data) ? data.data : data;
       setBatchTrackingEnabled(!!s?.batch_tracking_enabled);
     }).catch(() => {});
+    // UQC list — server is the source of truth. If the fetch fails, the
+    // fallback above keeps the form usable; the operator just won't see
+    // the long-tail codes (BAL, BUN, KLR, TBS, etc.).
+    productAPI.getUqcCodes()
+      .then(({ data }) => Array.isArray(data?.data) && data.data.length && setUqcList(data.data))
+      .catch(() => {});
     const fresh = { ...EMPTY, product_name: defaultName || '', opening_stock_date: dayjs() };
     setForm(fresh);
     setInitial(fresh);
@@ -297,9 +319,11 @@ export default function ProductFormModal({ open, onCancel, onSaved, defaultName 
 
       {/* ── 3. Inventory ───────────────────────────────────────── */}
       <Section label="Inventory">
-        <Field label="Unit of Measurement">
+        <Field label="Unit of Measurement" help="GSTN canonical UQC — used in GSTR-1 HSN summary">
           <select className="efm-select" value={form.unit_of_measurement} onChange={set('unit_of_measurement')}>
-            {UNITS.map((u) => <option key={u}>{u}</option>)}
+            {uqcList.map((u) => (
+              <option key={u.code} value={u.code}>{u.code} — {u.label}</option>
+            ))}
           </select>
         </Field>
 

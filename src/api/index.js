@@ -1,4 +1,9 @@
 import axios from 'axios';
+// UI-C5 — static import (was `require('antd')` inside the 403 interceptor).
+// `require` only worked because Rollup polyfilled CJS in the desktop bundle;
+// the mobile / Capacitor build would throw inside that branch, silencing
+// every permission-error toast. Static import is safe in every bundler.
+import { message as antdMessage } from 'antd';
 
 /* ── API base URL resolution ────────────────────────────────────────────
  *
@@ -172,12 +177,11 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
       try {
-        // Lazily require AntD message so this module stays usable in non-UI
-        // contexts (e.g. tests) and doesn't fail if AntD isn't mounted yet.
-        const { message } = require('antd');
+        // UI-C5 — use the statically-imported antdMessage so this works in
+        // every bundler (including the Capacitor mobile build).
         const detail = error.response?.data?.error || 'You do not have permission for that action.';
         const required = error.response?.data?.required;
-        message.error(required ? `${detail} (needs ${required})` : detail, 4);
+        antdMessage.error(required ? `${detail} (needs ${required})` : detail, 4);
       } catch { /* no toast available; caller handles */ }
     }
     return Promise.reject(error);
@@ -232,6 +236,9 @@ export const productAPI = {
   getByBarcode: (barcode) => api.get(`/products/barcode/${barcode}`),
   getBatches:   (id, params) => api.get(`/products/${id}/batches`, { params }),
   getNextBarcode: () => api.get('/products/next-barcode'),
+  // Audit GST-H5 — canonical GSTN UQC list (45 codes). Used by the
+  // Product form dropdown. Returns `{ data: [{code, label, gstn, aliases?}] }`.
+  getUqcCodes: () => api.get('/products/uqc-codes'),
   getById: (id) => api.get(`/products/${id}`),
   getLowStock: () => api.get('/products/low-stock'),
   getStockMovement: (id, params) => api.get(`/products/${id}/stock-movement`, { params }),

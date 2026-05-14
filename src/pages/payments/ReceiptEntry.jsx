@@ -3,6 +3,7 @@ import { Input, DatePicker, Select, Button, InputNumber, message, Checkbox, Moda
 import {
   CheckOutlined, MinusOutlined,
 } from '@ant-design/icons';
+import { inrFormatter, inrParser } from '../../utils/indianFormat';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
@@ -493,7 +494,7 @@ export default function ReceiptEntry() {
               max={maxPayAmt || undefined}
               placeholder="Enter amount"
               style={{ width: '100%' }}
-              formatter={v => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+              formatter={v => v != null && v !== '' ? inrFormatter(v) : ''}
               parser={v => v.replace(/₹\s?|(,*)/g, '')}
             />
             {maxPayAmt > 0 && (
@@ -532,7 +533,7 @@ export default function ReceiptEntry() {
                 onChange={v => setDiscAmt(v || 0)}
                 min={0}
                 style={{ width: '100%' }}
-                formatter={v => `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                formatter={v => inrFormatter(v)}
                 parser={v => v.replace(/₹\s?|(,*)/g, '')}
               />
             </div>
