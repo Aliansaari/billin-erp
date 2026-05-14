@@ -63,6 +63,8 @@ router.delete('/users/:id', requirePermission('settings.manage_users'),    setti
 // Reading the role list is needed by the user-management modal's role
 // dropdown, so it's gated to manage_users (not just settings.view).
 router.get('/roles',        requirePermission('settings.manage_users'),    settingsController.getRoles);
+// Audit: flip per-role capability flags (currently can_enter_backdated).
+router.patch('/roles/:role_id', requirePermission('settings.manage_users'), settingsController.updateRolePolicy);
 
 router.post('/cleanup',     requirePermission('settings.cleanup'),         settingsController.cleanupData);
 

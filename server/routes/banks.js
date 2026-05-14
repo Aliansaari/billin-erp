@@ -12,24 +12,28 @@ const { requirePermission } = require('../middleware/permissions');
 
 router.use(authenticateToken);
 
-// All bank views require accounts.view — same gate as Ledger Statement,
-// since the data is a re-shaping of the same ledger entries.
+// Audit AUTH-5 — split the read-and-write surfaces.
+//   accounts.view    → read-only access (list, statement, reconcile view)
+//   accounts.manage  → mutate (create/edit/delete bank, mark cleared)
+//
+// `hasPermission` falls back to a parent module grant when the leaf
+// doesn't exist, so existing 'accounts: true' role templates still
+// allow management — only roles that EXPLICITLY have only
+// 'accounts.view: true' will be restricted from mutations.
 //
 // Order matters: /reconciliation must be declared before
 // /:ledger_id/statement, otherwise Express's param-segment match would
 // route a path like /reconciliation as ledger_id='reconciliation' and
 // hand it to bankStatement instead.
-router.get('/',                          requirePermission('accounts.view'), bank.listBanks);
-router.get('/reconciliation',            requirePermission('accounts.view'), bank.reconciliation);
-router.get('/:ledger_id/statement',      requirePermission('accounts.view'), bank.bankStatement);
-router.post('/clear/:transaction_id',    requirePermission('accounts.view'), bank.markCleared);
-router.post('/unclear/:transaction_id',  requirePermission('accounts.view'), bank.markUncleared);
+router.get('/',                          requirePermission('accounts.view'),   bank.listBanks);
+router.get('/reconciliation',            requirePermission('accounts.view'),   bank.reconciliation);
+router.get('/:ledger_id/statement',      requirePermission('accounts.view'),   bank.bankStatement);
+router.post('/clear/:transaction_id',    requirePermission('accounts.manage'), bank.markCleared);
+router.post('/unclear/:transaction_id',  requirePermission('accounts.manage'), bank.markUncleared);
 
-// Lifecycle (create / edit / activate-deactivate / delete). Gated on
-// the same permission today; if you want a separate manage_banks perm
-// later, this is the line to change.
-router.post('/',                         requirePermission('accounts.view'), bank.createBank);
-router.patch('/:ledger_id',              requirePermission('accounts.view'), bank.updateBank);
-router.delete('/:ledger_id',             requirePermission('accounts.view'), bank.deleteBank);
+// Lifecycle (create / edit / activate-deactivate / delete).
+router.post('/',                         requirePermission('accounts.manage'), bank.createBank);
+router.patch('/:ledger_id',              requirePermission('accounts.manage'), bank.updateBank);
+router.delete('/:ledger_id',             requirePermission('accounts.manage'), bank.deleteBank);
 
 module.exports = router;

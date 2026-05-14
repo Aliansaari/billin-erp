@@ -636,8 +636,9 @@ async function insertVoucherItems({
     // by Tally XML at this version; defaults to 0. Conservative 50/50
     // CGST/SGST split for intra-state (Tally schema doesn't expose
     // inter-state at the line level here).
-    const lineGst = Math.round(taxable * gstRate / 100 * 100) / 100;
-    const halfGst = Math.round(lineGst / 2 * 100) / 100;
+    // Audit MONEY-9 — round-half-away-from-zero to match Tally + GST portal.
+    const lineGst = _roundTo(taxable * gstRate / 100, 2);
+    const halfGst = _roundTo(lineGst / 2, 2);
 
     const itemData = {
       [idCol]: billId,
@@ -650,10 +651,11 @@ async function insertVoucherItems({
       taxable_amount: taxable,
       gst_rate: gstRate,
       cgst_amount: halfGst,
-      sgst_amount: Math.round((lineGst - halfGst) * 100) / 100,
+      // Audit MONEY-9 — residual second half ensures Σ = lineGst exactly.
+      sgst_amount: _roundTo(lineGst - halfGst, 2),
       igst_amount: 0,
       cess_amount: 0,
-      total_amount: Math.round((taxable + lineGst) * 100) / 100,
+      total_amount: _roundTo(taxable + lineGst, 2),
     };
     if (kind === 'purchase') {
       // PurchaseBillItem.purchase_rate is NOT NULL. sale_rate falls back
@@ -1226,7 +1228,14 @@ async function resolveLegLedger(le, partiesByName, t) {
 }
 
 // ── pure helpers ───────────────────────────────────────────────────────
-function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+// Audit MONEY-9 — use the canonical roundTo helper (round-half-away-
+// from-zero with floating-point fudge). Pre-fix this used Math.round
+// which rounds negatives the wrong direction and misses .x05 cases
+// like 2.005 → 2.00 instead of 2.01. Tally Prime's convention is
+// half-away-from-zero (matches the GST portal); aligning here keeps
+// imported vouchers paisa-identical to manually-entered ones.
+const { roundTo: _roundTo } = require('../utils/helpers');
+function round2(n) { return _roundTo(Number(n) || 0, 2); }
 
 // "2026-04-15" → "15-Apr-2026". Used in reject reasons so the user sees
 // the same date format the rest of the app uses, regardless of how the

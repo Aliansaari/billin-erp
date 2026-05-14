@@ -706,7 +706,12 @@ exports.createLoan = async (req, res) => {
       principal:         P,
       interest_rate:     parseFloat(interest_rate) || 0,
       tenure_months:     N,
-      disbursement_date: disbursement_date || null,
+      // Audit LOAN-2 — default disbursement_date to today when the
+      // operator leaves it blank. Pre-fix this stayed NULL, and the
+      // recordEMI back-date check at line 974 became a no-op (the
+      // `&&` short-circuits when disbursement_date is falsy), letting
+      // an EMI dated 2010-01-01 silently land in a closed period.
+      disbursement_date: disbursement_date || new Date().toISOString().slice(0, 10),
       first_emi_date:    first_emi_date    || null,
       emi_amount:        emi_amount ? (parseFloat(emi_amount) || null) : null,
       emi_day:           emi_day ? parseInt(emi_day, 10) : null,
@@ -788,6 +793,16 @@ exports.updateLoan = async (req, res) => {
     if (body.name !== undefined) {
       const newName = String(body.name).trim();
       if (!newName) return res.status(400).json({ error: 'Name cannot be empty' });
+      // Audit LOAN-5 — refuse to rename a SYSTEM ledger. (Loan
+      // ledgers themselves aren't system; this guards against a
+      // crafted payload that tries to rename one of the seeded
+      // 'Interest Expense' / 'Interest Income' via this endpoint.)
+      if (acc.is_system_ledger && newName.toLowerCase() !== acc.ledger_name.toLowerCase()) {
+        return res.status(400).json({
+          error: `"${acc.ledger_name}" is a system ledger and cannot be renamed.`,
+          code: 'SYSTEM_LEDGER_RENAME_BLOCKED',
+        });
+      }
       if (newName.toLowerCase() !== acc.ledger_name.toLowerCase()) {
         const dup = await sequelize.query(
           `SELECT ledger_id FROM ledger_accounts WHERE LOWER(ledger_name) = LOWER(:n) AND ledger_id <> :id LIMIT 1`,
@@ -798,7 +813,27 @@ exports.updateLoan = async (req, res) => {
       ledgerUpd.ledger_name = newName;
     }
 
-    if (body.is_active !== undefined) ledgerUpd.is_active = !!body.is_active;
+    if (body.is_active !== undefined) {
+      // Audit LOAN-3 — refuse to deactivate a loan that still has
+      // outstanding balance. Pre-fix any non-zero amount got hidden
+      // from the upcoming-EMI dashboard while still contributing to
+      // Trial Balance — operators forgot it existed and interest
+      // accrual stopped being tracked. Pass `force: true` to override
+      // for the rare foreclosure-after-JV case.
+      if (body.is_active === false) {
+        const { getLedgerBalance } = require('../services/ledgerPostingService');
+        let bal = 0;
+        try { bal = Math.abs(await getLedgerBalance(ledgerId) || 0); } catch (e) { /* defensive */ }
+        if (bal > 1 && !body.force) {
+          return res.status(409).json({
+            error: `Cannot deactivate this loan — outstanding balance is ₹${bal.toFixed(2)}. Post a foreclosure JV to clear the residue first, OR resend with force=true to deactivate anyway.`,
+            code: 'LOAN_HAS_OUTSTANDING',
+            outstanding: bal,
+          });
+        }
+      }
+      ledgerUpd.is_active = !!body.is_active;
+    }
 
     // Audit B3 (F6) — block schedule-shape edits once any EMI has been
     // posted. Changing interest_rate/tenure_months/first_emi_date/emi_amount
@@ -928,6 +963,17 @@ exports.deleteLoan = async (req, res) => {
 //   split is used.  bank_ledger_id picks WHICH bank pays (or is paid);
 //   if absent, falls back to the legacy 'Bank Account' ledger.
 exports.recordEMI = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const ledgerId = parseInt(req.params.ledger_id, 10);
@@ -1003,17 +1049,54 @@ exports.recordEMI = async (req, res) => {
 
     // Resolve principal / interest split. If not provided, use the
     // scheduled next-due EMI from the amortization table.
+    //
+    // Audit LOAN-4 — when the caller doesn't supply explicit
+    // principal/interest, derive the split from the CURRENT
+    // outstanding and the REMAINING tenure rather than the
+    // positional schedule[paid_count]. Pre-fix, after an
+    // operator-override on a previous EMI (e.g. extra principal
+    // paid), the schedule's position N row no longer matched the
+    // real outstanding; pre-filling from schedule[N] then posted
+    // a stale interest split, and the loan never zeroed cleanly.
+    //
+    // Strategy: build a fresh schedule from (outstanding,
+    // remaining_tenure, interest_rate) and take its first row.
+    // Falls back to the legacy positional logic on any error so
+    // we never block a save just because the recompute path failed.
     let principalPart = parseFloat(body.principal);
     let interestPart  = parseFloat(body.interest);
     if (!Number.isFinite(principalPart) || !Number.isFinite(interestPart)) {
-      const sched = buildSchedule(loan);
-      const next = sched[paid_count];
-      if (!next) {
-        await t.rollback();
-        return res.status(400).json({ error: 'No further EMIs scheduled for this loan' });
+      let used = false;
+      try {
+        const { getLedgerBalance } = require('../services/ledgerPostingService');
+        const bal = Math.abs(await getLedgerBalance(ledgerId, { transaction: t }) || 0);
+        const remTenure = Math.max(0, (loan.tenure_months || 0) - paid_count);
+        if (bal > 0.005 && remTenure > 0) {
+          const liveLoan = {
+            ...loan.toJSON ? loan.toJSON() : loan,
+            principal: bal,
+            tenure_months: remTenure,
+          };
+          const liveSched = buildSchedule(liveLoan);
+          if (liveSched && liveSched.length > 0) {
+            principalPart = liveSched[0].principal;
+            interestPart  = liveSched[0].interest;
+            used = true;
+          }
+        }
+      } catch (e) {
+        console.error('[loan.recordEMI] outstanding-recompute fallback:', e.message);
       }
-      principalPart = next.principal;
-      interestPart  = next.interest;
+      if (!used) {
+        const sched = buildSchedule(loan);
+        const next = sched[paid_count];
+        if (!next) {
+          await t.rollback();
+          return res.status(400).json({ error: 'No further EMIs scheduled for this loan' });
+        }
+        principalPart = next.principal;
+        interestPart  = next.interest;
+      }
     }
     principalPart = r2(principalPart);
     interestPart  = r2(interestPart);
@@ -1021,6 +1104,33 @@ exports.recordEMI = async (req, res) => {
     if (totalEmi <= 0) {
       await t.rollback();
       return res.status(400).json({ error: 'EMI amount must be > 0' });
+    }
+
+    // Audit LOAN-1 — refuse a principal that exceeds current outstanding.
+    // Pre-fix the recordEMI accepted any principal+interest; a typo or
+    // crafted payload like {principal: 80000, interest: 0} on a loan
+    // with ₹50,000 outstanding flipped the loan-ledger balance from
+    // a payable Cr 50,000 to a "receivable" Dr 30,000, silently mis-
+    // classifying Liability → Asset on the Trial Balance. The tenure
+    // count gate at line 996 only catches "too many EMIs", not
+    // "single oversized EMI". This adds an explicit value check.
+    //
+    // Outstanding is the SIGNED loan-ledger balance whose absolute
+    // value should be repaid via principal. For taken loans the
+    // ledger sits Cr (liability), for given loans it sits Dr (asset).
+    const { getLedgerBalance } = require('../services/ledgerPostingService');
+    let currentOutstanding = 0;
+    try {
+      currentOutstanding = Math.abs(await getLedgerBalance(ledgerId, { transaction: t }) || 0);
+    } catch (e) {
+      console.error('[loan.recordEMI] outstanding probe failed:', e.message);
+    }
+    if (currentOutstanding > 0 && principalPart > currentOutstanding + 0.01) {
+      await t.rollback();
+      return res.status(409).json({
+        error: `Principal portion ₹${principalPart.toFixed(2)} exceeds the current outstanding ₹${currentOutstanding.toFixed(2)} on this loan. Reduce the principal or post a foreclosure JV to clear the residue.`,
+        code: 'LOAN_PRINCIPAL_EXCEEDS_OUTSTANDING',
+      });
     }
 
     // Resolve the cash leg. Three cases, in priority order:

@@ -246,6 +246,19 @@ exports.switchCompany = async (req, res) => {
         recordSuccess(req);
         await user.update({ last_login: new Date() });
 
+        // Audit AUTH-6 — blacklist the source-company JWT before we mint
+        // the destination-company one. Without this, a stolen Company A
+        // token stays valid for its remaining 24h even after the user
+        // switches to Company B (and may carry permissions the operator
+        // intended to leave behind).
+        try {
+          if (req.tokenDecoded && req.tokenDecoded.jti && req.tokenDecoded.exp) {
+            tokenBlacklist.add(req.tokenDecoded.jti, req.tokenDecoded.exp);
+          }
+        } catch (e) {
+          console.error('Blacklist old jti on switch-company failed:', e.message);
+        }
+
         const mustChangePassword =
           password === DEFAULT_ADMIN_PASSWORD;
 
@@ -326,6 +339,17 @@ exports.changePassword = async (req, res) => {
 
     const hash = await bcrypt.hash(new_password, 10);
     await user.update({ password_hash: hash });
+
+    // Audit AUTH-6 — blacklist the OLD jti so a stolen-but-just-rotated
+    // token cannot be reused for its remaining 24h life. The new token
+    // we're about to mint is what the user keeps using.
+    try {
+      if (req.tokenDecoded && req.tokenDecoded.jti && req.tokenDecoded.exp) {
+        tokenBlacklist.add(req.tokenDecoded.jti, req.tokenDecoded.exp);
+      }
+    } catch (e) {
+      console.error('Blacklist old jti on change-password failed:', e.message);
+    }
 
     // Audit C17 — issue a fresh JWT with must_change_password=false so the
     // user's lockout (enforced in middleware/auth.js) clears immediately.

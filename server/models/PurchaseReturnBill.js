@@ -126,6 +126,16 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING(30),
       defaultValue: 'Cash',
     },
+    // Audit MONEY-3 — bank ledger to debit on a non-cash refund
+    // received from the supplier. NULL = refund came in as physical
+    // cash via the Cash ledger (legacy default). When set, points at
+    // the bank LedgerAccount whose balance should be increased by the
+    // refund_amount. The refund voucher in voucherBuilders honors this.
+    bank_ledger_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: { model: 'ledger_accounts', key: 'ledger_id' },
+    },
     remarks: {
       type: DataTypes.TEXT,
     },

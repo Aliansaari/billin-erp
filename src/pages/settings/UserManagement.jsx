@@ -195,6 +195,24 @@ export default function UserManagement() {
   const roleById = useMemo(() => Object.fromEntries(roles.map(r => [r.role_id, r])), [roles]);
   const rolePerms = (roleId) => roleById[roleId]?.permissions_json || {};
 
+  // Audit BACKDATED-1 — flip the per-role can_enter_backdated flag.
+  // Optimistic local update with a server-error rollback so the UI
+  // feels instantaneous; on failure we re-load to recover ground truth.
+  const handleToggleRoleBackdated = async (role, nextValue) => {
+    setRoles((prev) => prev.map((r) => (r.role_id === role.role_id ? { ...r, can_enter_backdated: nextValue } : r)));
+    try {
+      await settingsAPI.updateRolePolicy(role.role_id, { can_enter_backdated: nextValue });
+      message.success(`${role.role_name}: back-dated entries ${nextValue ? 'allowed' : 'blocked'}`);
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Failed to update role policy');
+      // Re-pull on error so the UI shows DB truth.
+      try {
+        const r = await settingsAPI.getRoles();
+        setRoles(r.data.data || []);
+      } catch { /* swallow */ }
+    }
+  };
+
   const handleAdd = () => {
     setEditingUser(null);
     form.resetFields();
@@ -658,6 +676,90 @@ export default function UserManagement() {
           })}
         />
           </Card>
+
+          {/* ── Role Policies ─────────────────────────────────────────────
+           *  Per-role capability flags that gate transactional behaviour
+           *  but aren't part of the JSONB permission matrix above.
+           *  Currently exposes can_enter_backdated; future flags can
+           *  land in the same panel.
+           *  Hidden when no roles are loaded (defensive). */}
+          {roles.length > 0 && (
+            <Card
+              bordered={false}
+              style={{
+                marginTop: 12,
+                background: 'var(--bg-panel)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 10,
+              }}
+              title={
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontWeight: 600 }}>Role Policies</span>
+                  <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+                    Per-role rules that gate transactional behaviour beyond the per-user permission matrix above.
+                  </Text>
+                </div>
+              }
+            >
+              <div style={{
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                background: 'var(--bg-app)',
+                overflow: 'hidden',
+              }}>
+                {/* Header row */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1.6fr 1fr',
+                  padding: '8px 12px',
+                  background: 'var(--bg-subtle, var(--bg-panel))',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: 1.2,
+                  textTransform: 'uppercase',
+                  color: 'var(--fg-tertiary)',
+                }}>
+                  <div>Role</div>
+                  <Tooltip title="When OFF, members of this role cannot save bills / payments / vouchers / EMIs with a date earlier than today. Subject to the company-wide toggle in Settings → Defaults — if that's OFF, every role is blocked regardless.">
+                    <div style={{ cursor: 'help' }}>
+                      Allow back-dated entries
+                    </div>
+                  </Tooltip>
+                </div>
+                {roles.map((r, i) => (
+                  <div
+                    key={r.role_id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1.6fr 1fr',
+                      padding: '10px 12px',
+                      alignItems: 'center',
+                      borderBottom: i < roles.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                      fontSize: 13,
+                    }}
+                  >
+                    <div style={{ fontWeight: 500 }}>
+                      {r.role_name}
+                      {r.role_name === 'Super Admin' && (
+                        <Text type="secondary" style={{ marginLeft: 6, fontSize: 11 }}>
+                          (built-in; flag has no effect)
+                        </Text>
+                      )}
+                    </div>
+                    <div>
+                      <Switch
+                        checked={r.can_enter_backdated !== false}
+                        onChange={(checked) => handleToggleRoleBackdated(r, checked)}
+                        checkedChildren="Allowed"
+                        unCheckedChildren="Blocked"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
       </div>
 

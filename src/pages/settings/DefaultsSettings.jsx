@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Form, Input, InputNumber, Radio, message } from 'antd';
+import { Form, Input, InputNumber, Radio, Switch, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { settingsAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
@@ -44,6 +44,10 @@ export default function DefaultsSettings() {
         aging_bucket_3_days:     s.aging_bucket_3_days ?? 90,
         // Audit H6 — company-wide default for Cost of Goods Sold.
         cogs_method:             s.cogs_method || 'weighted_avg',
+        // Back-dated entry company-wide kill switch. Default true to
+        // preserve current behaviour; admin can flip to lock the books
+        // to today-or-later for every role at once.
+        allow_backdated_entries: s.allow_backdated_entries !== false,
       });
     } catch (error) {
       console.error('DefaultsSettings load error:', error);
@@ -183,6 +187,26 @@ export default function DefaultsSettings() {
                         </div>
                       </Radio>
                     </Radio.Group>
+                  </Form.Item>
+                </div>
+              </div>
+
+              {/* Back-dated entry policy — company-wide kill switch.
+                  When OFF, no user (regardless of role) can post
+                  bills / payments / vouchers / EMIs with a date
+                  before today. When ON (default), each role's
+                  can_enter_backdated capability decides; admin sets
+                  that in User Management → Roles. */}
+              <div className="ms-row-stacked">
+                <div className="ms-row-label">Allow back-dated entries</div>
+                <div className="ms-row-desc">
+                  When ON (default), users can save bills / payments / vouchers / EMIs with a date
+                  earlier than today, subject to their role's <b>Allow back-dated entries</b> capability
+                  in User Management. When OFF, every user is locked to today-or-later regardless of role.
+                </div>
+                <div className="ms-row-stacked-control" style={{ marginTop: 10 }}>
+                  <Form.Item name="allow_backdated_entries" valuePropName="checked" noStyle>
+                    <Switch checkedChildren="Allowed" unCheckedChildren="Blocked" />
                   </Form.Item>
                 </div>
               </div>

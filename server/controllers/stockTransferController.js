@@ -704,13 +704,19 @@ exports.cancel = async (req, res) => {
           }
         }
       }
-      await StockLedger.destroy({
-        where: {
-          reference_id: transfer.transfer_id,
-          reference_number: transfer.transfer_number,
-          transaction_type: 'Stock Transfer',
-        },
-        transaction: t,
+      // Audit STOCK-4 — write paired reversal entries instead of
+      // destroying the historical rows. Other modules (sales /
+      // purchase / sales-return / purchase-return cancel) follow this
+      // contract: a Stock Movement report must be able to reconstruct
+      // the lifecycle of every cancelled transaction. Silently wiping
+      // the rows breaks the audit trail.
+      const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
+      await writeStockLedgerReversal({
+        referenceId: transfer.transfer_id,
+        transactionType: 'Stock Transfer',
+        reason: `Stock Transfer ${transfer.transfer_number} cancelled`,
+        userId: req.user?.user_id,
+        t,
       });
     }
 

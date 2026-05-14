@@ -43,8 +43,11 @@
 //     placeholders this).
 
 const sequelize = require('../config/database');
+const { roundTo } = require('../utils/helpers');
 
-const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+// Audit MONEY-4 — use canonical roundTo (Tally-compatible
+// round-half-away-from-zero) instead of naive Math.round.
+const r2 = (v) => roundTo(Number(v) || 0, 2);
 
 // Bill type for allocations — `Sales` for Receipt vouchers (customer
 // receivables), `Purchase` for Payment vouchers (supplier payables).
@@ -190,18 +193,33 @@ async function applyAllocations({ receiptId, billType, plan, method, t }) {
         transaction: t,
       },
     );
-    // Decrement bill.balance_amount + recompute payment_status. Clamp at
-    // 0 so an over-allocation never produces a negative balance.
+    // Audit MONEY-1 — DO NOT mutate paid_amount. balanceHelper.js
+    // documents (lines 308-326) that paid_amount is the IMMUTABLE
+    // at-billing snapshot; reconcile derives capacity from
+    // (total - paid - return) and stores the post-receipt balance.
+    // Previously this UPDATE also did
+    //   paid_amount = LEAST(total_amount, COALESCE(paid_amount,0) + :amt)
+    // which double-counted every manual receipt against
+    // Party.current_balance (Party.current_balance subtracts BOTH the
+    // bumped paid_amount AND the receipt itself via the
+    // `- totalReceipts` term).
+    //
+    // Now we only adjust balance_amount + payment_status. The bill's
+    // paid_amount stays at whatever the bill controller stamped on
+    // create/update.
+    //
     // payment_status is a Postgres ENUM, so the CASE result needs an
     // explicit cast (text-to-enum coercion is not implicit).
     const enumType = `enum_${cfg.table}_payment_status`;
     await sequelize.query(
       `UPDATE ${cfg.table}
           SET balance_amount = GREATEST(0, COALESCE(balance_amount, 0) - :amt),
-              paid_amount    = LEAST(total_amount, COALESCE(paid_amount, 0) + :amt),
               payment_status = (CASE
                 WHEN GREATEST(0, COALESCE(balance_amount, 0) - :amt) <= 0.005 THEN 'Paid'
-                ELSE 'Partial'
+                WHEN COALESCE(paid_amount, 0) > 0
+                  OR (COALESCE(balance_amount, 0) - :amt) < COALESCE(total_amount, 0)
+                  THEN 'Partial'
+                ELSE 'Unpaid'
               END)::${enumType}
         WHERE ${cfg.pk} = :bid`,
       { replacements: { amt: r2(a.amount), bid: a.bill_id }, transaction: t },

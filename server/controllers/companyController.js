@@ -317,6 +317,37 @@ exports.hardDelete = async (req, res) => {
       });
     }
 
+    // Audit AUTH-3 — require the caller's current password before DROP
+    // DATABASE. A stolen 24h JWT (worst-case auth compromise) without
+    // the actual password can't trigger an irreversible company wipe.
+    // Mirrors backupController.restoreBackup's confirm_password gate.
+    const confirmPassword = String(req.body?.confirm_password || '');
+    if (!confirmPassword) {
+      return res.status(400).json({
+        error: 'confirm_password is required to permanently delete a company.',
+      });
+    }
+    if (!req.user || !req.user.password_hash) {
+      // Fall back to a fresh read — req.user from auth middleware excludes
+      // password_hash by default. Re-fetch with the hash for the bcrypt
+      // compare, then drop it again so it never leaves this scope.
+      try {
+        const { User } = require('../models');
+        const fresh = await User.findByPk(req.user?.user_id, {
+          attributes: ['user_id', 'password_hash'],
+        });
+        if (fresh) req.user.password_hash = fresh.password_hash;
+      } catch { /* falls through to error below */ }
+    }
+    if (!req.user || !req.user.password_hash) {
+      return res.status(401).json({ error: 'Unable to verify your password — please re-login.' });
+    }
+    const bcrypt = require('bcryptjs');
+    const passOk = await bcrypt.compare(confirmPassword, req.user.password_hash);
+    if (!passOk) {
+      return res.status(401).json({ error: 'Incorrect password — company not deleted.' });
+    }
+
     // Refuse if THIS request is currently routed to that company.
     // companyContext is set by the per-request middleware; if the
     // operator is acting "inside" the company they're trying to delete,

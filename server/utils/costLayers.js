@@ -180,10 +180,25 @@ async function reverseConsumptionForBill({ sales_bill_id, t }) {
   // Pull every consumption row tied to ANY line on this bill, with the
   // layer FK in the same shot so we can write back without a second
   // round-trip per row.
+  //
+  // Audit STOCK-3 — join cost_layers AND the source purchase_bills
+  // when the layer was sourced from a purchase. If the source purchase
+  // has been CANCELLED, the layer is now phantom — restoring qty into
+  // it would let a future FIFO sale price against a cancelled
+  // purchase's cost. Skip those rows and report them; the operator
+  // can investigate the orphaned consumption manually if needed.
   const rows = await sequelize.query(
-    `SELECT slc.consumption_id, slc.sales_bill_item_id, slc.layer_id, slc.qty_consumed
+    `SELECT slc.consumption_id, slc.sales_bill_item_id, slc.layer_id, slc.qty_consumed,
+            cl.source_type AS layer_source_type, cl.source_id AS layer_source_id,
+            CASE
+              WHEN cl.source_type = 'Purchase'
+                THEN COALESCE((SELECT pb.is_cancelled FROM purchase_bills pb
+                                WHERE pb.purchase_bill_id = cl.source_id), false)
+              ELSE false
+            END AS source_cancelled
        FROM sale_line_layer_consumptions slc
        JOIN sales_bill_items sbi ON sbi.item_id = slc.sales_bill_item_id
+       LEFT JOIN cost_layers cl ON cl.layer_id = slc.layer_id
       WHERE sbi.sales_bill_id = :bid
       FOR UPDATE OF slc`,
     {
@@ -194,7 +209,15 @@ async function reverseConsumptionForBill({ sales_bill_id, t }) {
   );
   if (rows.length === 0) return { reversed: 0 };
 
+  let skippedPhantom = 0;
   for (const row of rows) {
+    if (row.source_cancelled) {
+      // Phantom restoration would resurrect cancelled-purchase stock.
+      // Skip the qty add-back; still delete the SLC row below so the
+      // edit-path re-consume doesn't see a duplicate consumption.
+      skippedPhantom++;
+      continue;
+    }
     // Add qty back, but cap at qty_original so we don't overshoot.
     await sequelize.query(
       `UPDATE cost_layers
@@ -205,6 +228,14 @@ async function reverseConsumptionForBill({ sales_bill_id, t }) {
         replacements: { q: row.qty_consumed, lid: row.layer_id },
         transaction: t,
       },
+    );
+  }
+  if (skippedPhantom > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[reverseConsumptionForBill] bill ${sales_bill_id}: skipped restoring ` +
+      `${skippedPhantom} consumption(s) sourced from cancelled purchase ` +
+      `layers (Audit STOCK-3 phantom-stock guard).`,
     );
   }
 
@@ -240,10 +271,14 @@ async function reverseConsumptionForBill({ sales_bill_id, t }) {
 async function reverseConsumptionForBillPartial({ sales_bill_id, returnLines, t }) {
   if (!sales_bill_id) throw new Error('reverseConsumptionForBillPartial: sales_bill_id required');
   if (!t) throw new Error('reverseConsumptionForBillPartial: transaction required');
-  if (!Array.isArray(returnLines) || returnLines.length === 0) return { restored: {}, skipped: [] };
+  if (!Array.isArray(returnLines) || returnLines.length === 0) return { restored: {}, skipped: [], layersByProduct: {} };
 
   const restored = {};
   const skipped = [];
+  // Audit STOCK-2 (deep) — per-product mapping of which exact layers
+  // received which qty back. Caller persists this into
+  // sales_return_bill_items.layers_restored so cancel can invert.
+  const layersByProduct = {};
 
   for (const line of returnLines) {
     const pid = line.product_id;
@@ -276,6 +311,11 @@ async function reverseConsumptionForBillPartial({ sales_bill_id, returnLines, t 
     const eff = Math.min(qtyRet, totalSold);
     let leftToRestore = eff;
 
+    // Audit STOCK-2 (deep) — also collect a per-layer breakdown so the
+    // caller can persist it on the return-item row. Cancel then knows
+    // exactly which layers to deduct from, instead of generic FIFO.
+    const perLayer = [];
+
     // Walk SLC rows in order; restore each layer proportionally.
     for (let i = 0; i < slc.length && leftToRestore > 0.0001; i++) {
       const row = slc[i];
@@ -300,12 +340,85 @@ async function reverseConsumptionForBillPartial({ sales_bill_id, returnLines, t 
           WHERE consumption_id = :cid`,
         { replacements: { q: restoreQty, cid: row.consumption_id }, transaction: t },
       );
+      perLayer.push({ layer_id: row.layer_id, qty: restoreQty });
       leftToRestore = +(leftToRestore - restoreQty).toFixed(3);
     }
     restored[pid] = (restored[pid] || 0) + (eff - leftToRestore);
+    // Aggregate per-layer detail per product. The salesReturn controller
+    // attaches this to each return item by product_id.
+    if (perLayer.length > 0) {
+      if (!layersByProduct[pid]) layersByProduct[pid] = [];
+      layersByProduct[pid].push(...perLayer);
+    }
   }
 
-  return { restored, skipped };
+  return { restored, skipped, layersByProduct };
+}
+
+/**
+ * Audit STOCK-2 (deep) — invert the restoration captured in
+ * sales_return_bill_items.layers_restored. For each {layer_id, qty}
+ * entry, deduct qty from cost_layers.qty_remaining (clamped at 0 so
+ * a layer that's since been resold doesn't go negative). Used by
+ * salesReturnController.cancel + update to keep the FIFO queue in
+ * sync with what physical stock said before the return existed.
+ *
+ * Returns { undone: total qty deducted, layers: number of layer rows touched }.
+ */
+async function unRestoreLayers({ layersRestored, t }) {
+  if (!t) throw new Error('unRestoreLayers: transaction required');
+  if (!Array.isArray(layersRestored) || layersRestored.length === 0) {
+    return { undone: 0, layers: 0 };
+  }
+  let undone = 0, layers = 0;
+  for (const e of layersRestored) {
+    if (!e || !e.layer_id) continue;
+    const q = +parseFloat(e.qty || 0);
+    if (!Number.isFinite(q) || q <= 0) continue;
+    await sequelize.query(
+      `UPDATE cost_layers
+          SET qty_remaining = GREATEST(0, qty_remaining - :q),
+              updated_at = NOW()
+        WHERE layer_id = :lid`,
+      { replacements: { q, lid: e.layer_id }, transaction: t },
+    );
+    undone += q;
+    layers++;
+  }
+  return { undone, layers };
+}
+
+/**
+ * Audit STOCK-2 (deep) — invert a purchase-return consumption captured
+ * in purchase_return_bill_items.cost_layers_consumed. For each
+ * {layer_id, qty} entry, ADD qty back to cost_layers.qty_remaining
+ * (clamped at qty_original so we don't overshoot the original layer
+ * size). This is the cancel/update mirror for purchase returns,
+ * preserving the original cost basis of those layers on future sales.
+ *
+ * Returns { restored: total qty added, layers: number of layer rows touched }.
+ */
+async function restoreLayersFromConsumption({ layersConsumed, t }) {
+  if (!t) throw new Error('restoreLayersFromConsumption: transaction required');
+  if (!Array.isArray(layersConsumed) || layersConsumed.length === 0) {
+    return { restored: 0, layers: 0 };
+  }
+  let restored = 0, layers = 0;
+  for (const e of layersConsumed) {
+    if (!e || !e.layer_id) continue;
+    const q = +parseFloat(e.qty || 0);
+    if (!Number.isFinite(q) || q <= 0) continue;
+    await sequelize.query(
+      `UPDATE cost_layers
+          SET qty_remaining = LEAST(qty_original, qty_remaining + :q),
+              updated_at = NOW()
+        WHERE layer_id = :lid`,
+      { replacements: { q, lid: e.layer_id }, transaction: t },
+    );
+    restored += q;
+    layers++;
+  }
+  return { restored, layers };
 }
 
 /**
@@ -511,6 +624,8 @@ module.exports = {
   reverseConsumptionForBill,
   reverseConsumptionForBillPartial, // audit H6 — partial-line exact restore
   restoreConsumption,           // legacy best-effort fallback
+  unRestoreLayers,              // audit STOCK-2 deep — invert sales-return restoration
+  restoreLayersFromConsumption, // audit STOCK-2 deep — invert purchase-return consumption
   isFifoMode,
   getEffectiveCogsMethod,
   refreshCogsCache,

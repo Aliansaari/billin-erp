@@ -75,17 +75,9 @@ async function runCompanySchemaMigrations(sequelize) {
     END $$;
   `);
 
-  // FY compliance fields on system_settings + the compliance_audit_logs
-  // table. Mirrors the master block in server/index.js so an existing
-  // per-company DB picks up the new columns + table on first boot after
-  // upgrade. Same idempotent IF NOT EXISTS gates.
-  //
-  // The audit-logs TABLE is created explicitly here (not relied on
-  // Sequelize sync) because the bootstrap path doesn't call sync — it
-  // only invokes this migration runner for existing company DBs, then
-  // closes the connection. Without an explicit CREATE TABLE, the audit
-  // log writer would fail until the company pool's lazy-init sync ran
-  // on the first authed request after upgrade.
+  // FY compliance fields on system_settings — mirrors the master
+  // block in server/index.js so an existing per-company DB picks up
+  // the new columns on first boot after upgrade. Idempotent.
   await sequelize.query(`
     DO $$ BEGIN
       IF NOT EXISTS (
@@ -123,7 +115,9 @@ async function runCompanySchemaMigrations(sequelize) {
   // server/models/ComplianceAuditLog.js. JSONB columns hold the
   // before/after diff snapshots; the 4 indexes cover the common filter
   // axes used by the viewer (by date, by event_type, by user, by
-  // target).
+  // target). Created explicitly here (not via Sequelize sync) because
+  // the bootstrap path doesn't call sync — it only invokes this
+  // migration runner for existing company DBs.
   await sequelize.query(`
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM information_schema.tables
@@ -149,6 +143,26 @@ async function runCompanySchemaMigrations(sequelize) {
         CREATE INDEX idx_cal_event_at   ON compliance_audit_logs(event_at);
         CREATE INDEX idx_cal_user       ON compliance_audit_logs(user_id);
         CREATE INDEX idx_cal_target     ON compliance_audit_logs(target_type, target_id);
+      END IF;
+    END $$;
+  `);
+
+  // Back-dated entry guard columns — sync() handles a from-scratch
+  // company DB via the current model defs, but legacy company DBs
+  // that predate the model edit still need a column ADD. Idempotent.
+  await sequelize.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings'
+                       AND column_name='allow_backdated_entries') THEN
+        ALTER TABLE system_settings
+          ADD COLUMN allow_backdated_entries BOOLEAN NOT NULL DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='roles'
+                       AND column_name='can_enter_backdated') THEN
+        ALTER TABLE roles
+          ADD COLUMN can_enter_backdated BOOLEAN NOT NULL DEFAULT true;
       END IF;
     END $$;
   `);

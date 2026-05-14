@@ -5,7 +5,7 @@ const {
   SalesBill, SalesBillItem,
   Party, Product, StockLedger, SystemSettings, Godown, ProductBatch,
 } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike, splitBillWiseGst } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike, splitBillWiseGst, safeTrailingNumber } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
@@ -313,8 +313,8 @@ async function computeTotals(req, items, billData, returnMode, t, interState = f
     if (!isFinite(itemDiscPct) || itemDiscPct < 0 || itemDiscPct > 100) {
       throw new Error(`Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").`);
     }
-    const lineTotal = +(qty * rate).toFixed(2);
-    const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
+    const lineTotal = roundTo(qty * rate, 2);  // Audit MONEY-7: round-half-away-from-zero
+    const discountAmt = roundTo(lineTotal * itemDiscPct / 100, 2);  // Audit MONEY-7
     const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
     processedItems.push({
@@ -447,7 +447,20 @@ function synthAmountLine(amount, remarks) {
 }
 
 exports.create = async (req, res) => {
-  // Fiscal-lock guard. The return_date field is the probe.
+  // ── Back-dated entry policy (always-on, hard reject) ───────────────
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.return_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
+
+  // ── Fiscal-lock guard ──────────────────────────────────────────────
+  // return_date is the probe. No-op when compliance mode is off.
   const guard = await applyFiscalLockGuard(req, res, req.body?.return_date);
   if (!guard.ok) return;
   const lockResult = guard.lockResult;
@@ -528,7 +541,11 @@ exports.create = async (req, res) => {
       transaction: t,
     });
     // Return numbers may be 'SR-0001' or plain '0001'; take the trailing numeric segment.
-    const lastNum = lastBill ? parseInt((lastBill.return_number.split('-').pop() || '0')) : 0;
+    // Audit BILLS-5 — use safeTrailingNumber so legacy imports with a
+    // non-numeric suffix (e.g. "SR/2024/A") don't poison the counter:
+    // safeTrailingNumber returns 0 in that case, the advisory lock
+    // serialises writers, and the unique constraint catches collisions.
+    const lastNum = safeTrailingNumber(lastBill && lastBill.return_number);
     billData.return_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
 
@@ -711,6 +728,7 @@ exports.create = async (req, res) => {
         .map((it) => ({ product_id: it.product_id, qty_returned: +parseFloat(it.quantity) }));
       const refBillId = billData.reference_bill_id || null;
       let skippedPids = [];
+      let layersByProduct = {};
       if (refBillId) {
         const result = await reverseConsumptionForBillPartial({
           sales_bill_id: refBillId,
@@ -718,6 +736,7 @@ exports.create = async (req, res) => {
           t,
         });
         skippedPids = result.skipped || [];
+        layersByProduct = result.layersByProduct || {};
       } else {
         skippedPids = lines.map((l) => l.product_id);
       }
@@ -732,6 +751,26 @@ exports.create = async (req, res) => {
           qty: line.qty_returned,
           t,
         });
+      }
+
+      // Audit STOCK-2 (deep) — persist the per-layer restoration on
+      // each return-item row so cancel/update can invert exactly.
+      // Stored as JSONB; NULL for products that fell back to v1 (no
+      // SLC link). Reads the newly-created item rows by sales_return_id
+      // and product_id and writes the matching layers array.
+      for (const pid of Object.keys(layersByProduct)) {
+        const layers = layersByProduct[pid];
+        if (!layers || layers.length === 0) continue;
+        await SalesReturnBillItem.update(
+          { layers_restored: layers },
+          {
+            where: {
+              sales_return_id: bill.sales_return_id,
+              product_id: Number(pid),
+            },
+            transaction: t,
+          },
+        );
       }
     }
 
@@ -787,7 +826,19 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
-  // Fiscal-lock guard on edit (earlier of old/new return_date).
+  // ── Back-dated entry policy (always-on, hard reject) ───────────────
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.return_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
+
+  // ── Fiscal-lock guard on edit (earlier of old/new return_date) ───
   const previewRet = await SalesReturnBill.findByPk(req.params.id, { attributes: ['sales_return_id', 'return_date', 'return_bill_number', 'is_cancelled'] });
   if (!previewRet) return res.status(404).json({ error: 'Sales return not found' });
   if (previewRet.is_cancelled) return res.status(400).json({ error: 'Cannot edit a cancelled return' });
@@ -855,6 +906,26 @@ exports.update = async (req, res) => {
     } catch (refErr) {
       await t.rollback();
       return res.status(400).json({ error: refErr.message });
+    }
+
+    // Audit STOCK-2 (deep) — un-restore the OLD layer trail before
+    // the new items get applied below. Without this, the create-path
+    // call to reverseConsumptionForBillPartial would restore qty into
+    // layers that already received qty from this same return — a
+    // double-restore that future FIFO sales would draw against.
+    const updSettings = await SystemSettings.findByPk(1, { transaction: t });
+    const updCogsMode = updSettings?.cogs_method || 'weighted_avg';
+    if (updCogsMode === 'fifo' && existing.return_mode === 'Items') {
+      const { unRestoreLayers } = require('../utils/costLayers');
+      for (const oldItem of existing.items) {
+        if (Array.isArray(oldItem.layers_restored) && oldItem.layers_restored.length > 0) {
+          try {
+            await unRestoreLayers({ layersRestored: oldItem.layers_restored, t });
+          } catch (e) {
+            console.error('[salesReturn.update] un-restore warn:', e.message);
+          }
+        }
+      }
     }
 
     // Reverse old stock restorations at the EXISTING return's godown
@@ -1016,6 +1087,36 @@ exports.update = async (req, res) => {
       }
     }
 
+    // Audit STOCK-2 (deep) — restore the layer trail for the NEW items.
+    // The create path does this after items are inserted; mirror it
+    // here so an edited return ends up with the same per-line
+    // layers_restored JSONB as a freshly-created one.
+    if (return_mode === 'Items' && totals.processedItems.length > 0) {
+      const lines = totals.processedItems
+        .filter((it) => it.product_id)
+        .map((it) => ({ product_id: it.product_id, qty_returned: +parseFloat(it.quantity) }));
+      const refBillId = billData.reference_bill_id || existing.reference_bill_id || null;
+      if (refBillId) {
+        const result = await reverseConsumptionForBillPartial({
+          sales_bill_id: refBillId,
+          returnLines: lines,
+          t,
+        });
+        const layersByProduct = result.layersByProduct || {};
+        for (const pid of Object.keys(layersByProduct)) {
+          const layers = layersByProduct[pid];
+          if (!layers || layers.length === 0) continue;
+          await SalesReturnBillItem.update(
+            { layers_restored: layers },
+            {
+              where: { sales_return_id: existing.sales_return_id, product_id: Number(pid) },
+              transaction: t,
+            },
+          );
+        }
+      }
+    }
+
     // Audit P2-A — reconcile + recalc for both old and new customer
     // when the return's customer is changed.
     const oldCustomer = existing.customer_id;
@@ -1034,6 +1135,16 @@ exports.update = async (req, res) => {
     await reverseVoucher({
       sourceType: 'sales_return_bill', sourceId: existing.sales_return_id,
       reason: 'Sales return edited', userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: existing.return_date,
+    });
+    // Audit MONEY-2 — also reverse the refund-cash voucher (if any).
+    // buildSalesReturnVouchers re-emits a fresh one below when the
+    // edited return still carries refund_amount > 0; without this
+    // reverse, postVoucher would reject as "already posted".
+    await reverseVoucher({
+      sourceType: 'sales_return_refund', sourceId: existing.sales_return_id,
+      reason: 'Sales return edited (refund leg)',
+      userId: req.user && req.user.user_id, transaction: t,
       reversalDate: existing.return_date,
     });
     {
@@ -1114,10 +1225,16 @@ exports.cancel = async (req, res) => {
       // Cancellation pulls the restored stock back out at the return's
       // own godown. A different godown's headroom is irrelevant.
       const billGodown = bill.godown_id;
+      // Audit STOCK-6 — legacy returns from pre-godown installs have
+      // bill.godown_id = NULL. The actual cancel-apply loop below
+      // falls back to the default godown for such rows; the pre-check
+      // must use the SAME fallback or it computes haveAtGodown=0,
+      // always rejecting the cancel even when there's plenty of stock.
+      const preCheckGodown = billGodown || await getDefaultGodownId({ t });
       for (const [pid, qty] of byProduct) {
         const product = await Product.findByPk(pid, { transaction: t });
-        const haveAtGodown = billGodown
-          ? await getGodownStock({ product_id: pid, godown_id: billGodown, t, lock: true })
+        const haveAtGodown = preCheckGodown
+          ? await getGodownStock({ product_id: pid, godown_id: preCheckGodown, t, lock: true })
           : 0;
         const finalStock = +(haveAtGodown - qty).toFixed(2);
         if (finalStock < 0) {
@@ -1137,6 +1254,15 @@ exports.cancel = async (req, res) => {
         && bill.items.some(i => i.product_id)) {
       cancelGodownId = await getDefaultGodownId({ t });
     }
+    // Audit STOCK-2 (deep) — in FIFO mode the return CREATE captured a
+    // per-layer restoration trail into sales_return_bill_items
+    // .layers_restored. On cancel we deduct from those EXACT layers
+    // (preserving original cost basis on future sales). For items
+    // that fell back to v1 restoreConsumption (no SLC link), we
+    // generic-FIFO-consume as a best-effort.
+    const cogsModeForCancel = settings?.cogs_method || 'weighted_avg';
+    const { consumeFIFO, unRestoreLayers } = require('../utils/costLayers');
+
     if (bill.return_mode === 'Items') {
       for (const item of bill.items) {
         if (item.product_id && cancelGodownId) {
@@ -1159,6 +1285,26 @@ exports.cancel = async (req, res) => {
               delta: -parseFloat(item.quantity),
               transaction: t,
             });
+          }
+          // Audit STOCK-2 (deep) — exact-layer un-restore if the row
+          // captured one; fall back to FIFO consume otherwise.
+          if (cogsModeForCancel === 'fifo') {
+            try {
+              if (Array.isArray(item.layers_restored) && item.layers_restored.length > 0) {
+                await unRestoreLayers({ layersRestored: item.layers_restored, t });
+              } else {
+                await consumeFIFO({
+                  product_id: item.product_id,
+                  godown_id: cancelGodownId,
+                  qty: parseFloat(item.quantity) || 0,
+                  t,
+                });
+              }
+            } catch (e) {
+              // Log but don't fail the cancel — qty conservation is
+              // best-effort here; the godown stock is authoritative.
+              console.error('[salesReturn.cancel] FIFO un-restore warn:', e.message);
+            }
           }
         }
       }
@@ -1190,6 +1336,19 @@ exports.cancel = async (req, res) => {
     await reverseVoucher({
       sourceType: 'sales_return_bill', sourceId: bill.sales_return_id,
       reason: cancellationReason || 'Sales return cancelled',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
+
+    // Audit MONEY-2 — also reverse the refund-cash voucher that
+    // buildSalesReturnVouchers emits when refund_amount > 0 for a
+    // non-cash customer. Pre-fix this voucher was orphaned on cancel,
+    // leaving Cash CR and Customer DR posted forever — Trial Balance
+    // off by the refund amount on every cancelled refunded return.
+    // reverseVoucher is idempotent so the call is safe when no refund
+    // voucher was ever posted (e.g. no refund_amount on the return).
+    await reverseVoucher({
+      sourceType: 'sales_return_refund', sourceId: bill.sales_return_id,
+      reason: cancellationReason || 'Sales return cancelled (refund leg)',
       userId: req.user && req.user.user_id, transaction: t,
     });
 
