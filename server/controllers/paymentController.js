@@ -246,8 +246,22 @@ exports.create = async (req, res) => {
 
     // Generate transaction number — now safe because the advisory lock above
     // serializes all Payment creators (or all Receipt creators).
+    //
+    // Audit BANK-4 — must also filter by `transaction_number LIKE 'PAY-%'`
+    // (or `REC-%`) for the same reason getNextNumber() already does:
+    // auto-receipts from credit sales/purchases live in this table with
+    // transaction_type='Receipt' but a non-numbered transaction_number
+    // shaped like "1042-AR-1778779073052-04b0". Without the prefix
+    // filter, that string becomes the "latest" row, safeTrailingNumber
+    // (which only accepts purely-digit tails) returns 0, and the next
+    // manual receipt is minted as REC-000001 — colliding with the very
+    // first manual receipt ever created and trickling a duplicate-
+    // number UNIQUE violation downstream.
     const last = await PaymentReceipt.findOne({
-      where: { transaction_type: data.transaction_type },
+      where: {
+        transaction_type: data.transaction_type,
+        transaction_number: { [Op.like]: `${prefix}-%` },
+      },
       order: [['transaction_id', 'DESC']],
       transaction: t,
     });
