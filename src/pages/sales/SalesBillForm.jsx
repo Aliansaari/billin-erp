@@ -1607,27 +1607,35 @@ export default function SalesBillForm() {
         setBillNo('');
       }
     }catch(e){
-      // Server-side fiscal-lock rejection — open the override modal so
-      // the user can supply a reason (and password if required), then
-      // retry the same save with the override fields attached. The
-      // 403 body carries everything the modal needs: lock_type, lock_date,
-      // requires_password.
       const data = e?.response?.data;
-      if (e?.response?.status === 403 && data?.error === 'FY_LOCKED' && (data.requires_override || data.requires_password)) {
-        setLockModal({
-          lock: {
-            status:           data.lock_type,
-            lockDate:         data.lock_date,
-            requiresPassword: !!data.requires_password,
-            message:          data.message,
-          },
-          retryBody: body,
-          retryOpts: opts,
-        });
-        // Don't show the generic error toast — modal explains the situation.
+      // Server-side fiscal-lock rejection. Two shapes:
+      //   (a) requires_override / requires_password → operator has the
+      //       role to break the lock; open the modal so they can type a
+      //       reason (and password if required) → retry with overrides.
+      //   (b) No override-affordances → operator is genuinely blocked
+      //       (e.g. Cashier hitting a soft lock); show the friendly
+      //       message from the server, don't pop the modal.
+      if (e?.response?.status === 403 && data?.error === 'FY_LOCKED') {
+        if (data.requires_override || data.requires_password) {
+          setLockModal({
+            lock: {
+              status:           data.lock_type,
+              lockDate:         data.lock_date,
+              requiresPassword: !!data.requires_password,
+              message:          data.message,
+            },
+            retryBody: body,
+            retryOpts: opts,
+          });
+          return;
+        }
+        // Blocked-without-override case — server's `message` field is
+        // already the friendly text ("FY 2025-26 is closed. Contact an
+        // admin/accountant to backdate."), so surface that.
+        message.error(data.message || 'This date is in a closed financial year.');
         return;
       }
-      message.error(data?.error||'Failed to save');
+      message.error(data?.error || data?.message || 'Failed to save');
     }
     finally{setLoading(false); submittingRef.current=false;}
   },[form,items,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate,backTarget,selectedParty,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct]);
@@ -3617,7 +3625,7 @@ export default function SalesBillForm() {
               setLockModal({ ...lockModal, lock: { ...lockModal.lock, message: 'Password did not match. Try again.' } });
               return;
             }
-            message.error(data?.error || 'Failed to save with override');
+            message.error(data?.message || data?.error || 'Failed to save with override');
           } finally {
             setLoading(false);
           }

@@ -120,7 +120,7 @@ export default function FinancialYearSettings() {
         fy_hard_lock_date:            hardLockDate ? hardLockDate.format('YYYY-MM-DD') : null,
         fy_require_override_password: !!requireOvridPw,
       };
-      await settingsAPI.save(payload);
+      await settingsAPI.updateSystem(payload);
       // Refresh the FY/compliance store so other components pick up the
       // new state without a page reload.
       await refreshFinancialYear();

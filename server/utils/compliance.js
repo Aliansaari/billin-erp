@@ -28,7 +28,7 @@
  * ============================================================================ */
 
 const { SystemSettings, ComplianceAuditLog } = require('../models');
-const { hasPermission } = require('./perms');
+const { hasPermission } = require('../middleware/permissions');
 
 /**
  * Check whether `billDate` (YYYY-MM-DD string or Date) is permitted
