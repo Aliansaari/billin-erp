@@ -5,7 +5,7 @@ import useCompanyStore from './store/companyStore';
 import { partyAPI } from './api';
 import { refreshFinancialYear } from './hooks/useFinancialYear';
 import { useMultiWarehouseEnabled } from './hooks/useSystemSettings';
-import { useGlobalShortcuts, SHORTCUTS_LIST } from './hooks/useKeyboardShortcuts';
+import { useGlobalShortcuts, SHORTCUTS_LIST, SHORTCUTS_CATEGORIES } from './hooks/useKeyboardShortcuts';
 import AppLayout from './components/Layout/AppLayout';
 import OnboardingWizard, { shouldShowOnboarding } from './components/OnboardingWizard';
 import RoleRoute from './components/RoleRoute';
@@ -225,33 +225,139 @@ function OnboardingGate({ children }) {
   );
 }
 
+/* ShortcutsOverlay — the keyboard cheat-sheet, rendered at the root.
+ *
+ * Reads SHORTCUTS_LIST + SHORTCUTS_CATEGORIES from useKeyboardShortcuts.
+ * Groups rows by category in the order SHORTCUTS_CATEGORIES declares;
+ * any row whose category isn't in that list falls into an "Other" bucket
+ * at the end (defensive — never drops rows).
+ *
+ * A filter input at the top lets the operator narrow the list. Matches
+ * are case-insensitive against EITHER the description or the keys, so
+ * typing "F1" or "save" both jump straight to the right rows.
+ * ESC closes; backdrop click closes. */
 function ShortcutsOverlay({ visible, onClose }) {
+  const [query, setQuery] = useState('');
+  const inputRef = React.useRef(null);
+
+  // Focus the filter input the moment the overlay opens, so the user can
+  // start typing immediately. Reset query on close so reopening starts
+  // clean.
+  useEffect(() => {
+    if (visible) {
+      setTimeout(() => inputRef.current?.focus(), 30);
+    } else {
+      setQuery('');
+    }
+  }, [visible]);
+
+  // Filtered + grouped rows — recomputed only when the query changes.
+  // Matches against description AND keys so "F1" finds bill-form Save AND
+  // list-page Open, while "save" finds Ctrl+Enter + F1 together.
+  const grouped = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? SHORTCUTS_LIST.filter((s) =>
+          s.description.toLowerCase().includes(q) ||
+          s.keys.toLowerCase().includes(q) ||
+          (s.category || '').toLowerCase().includes(q))
+      : SHORTCUTS_LIST;
+    const buckets = {};
+    for (const s of filtered) {
+      const cat = s.category || 'Other';
+      (buckets[cat] ||= []).push(s);
+    }
+    // Ordered emit: declared categories first, then any leftovers
+    // alphabetically (defensive — see the constant's comment).
+    const ordered = [];
+    for (const c of SHORTCUTS_CATEGORIES) {
+      if (buckets[c]) { ordered.push([c, buckets[c]]); delete buckets[c]; }
+    }
+    for (const c of Object.keys(buckets).sort()) ordered.push([c, buckets[c]]);
+    return ordered;
+  }, [query]);
+
   if (!visible) return null;
+
+  // Splits "Cmd/Ctrl + Shift + N" into renderable parts. Keeps "/c" /
+  // "↑ / ↓" / "↵" intact (no "+" inside). Handles "Cmd/Ctrl" alternates
+  // by emitting them as a single chip so the row reads naturally.
+  const renderKeys = (keys) => {
+    const parts = keys.split('+').map((p) => p.trim());
+    return parts.map((part, j) => (
+      <React.Fragment key={j}>
+        {j > 0 && <span className="erp-cheat-plus">+</span>}
+        <kbd className="erp-cheat-kbd">{part}</kbd>
+      </React.Fragment>
+    ));
+  };
+
   return (
     <div className="erp-shortcuts-overlay" onClick={onClose}>
-      <div className="erp-shortcuts-panel" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#1f2937' }}>⌨️ Keyboard Shortcuts</h2>
-          <span onClick={onClose} style={{ cursor: 'pointer', fontSize: 20, color: '#9ca3af' }}>✕</span>
+      <div className="erp-cheat-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Keyboard shortcuts">
+        <header className="erp-cheat-head">
+          <div>
+            <div className="erp-cheat-eyebrow">Keyboard cheat sheet</div>
+            <h2 className="erp-cheat-title">Every shortcut, one place.</h2>
+          </div>
+          <button type="button" className="erp-cheat-close" onClick={onClose} aria-label="Close">esc</button>
+        </header>
+
+        <div className="erp-cheat-search-wrap">
+          <input
+            ref={inputRef}
+            type="text"
+            className="erp-cheat-search"
+            placeholder={`Filter ${SHORTCUTS_LIST.length} shortcuts — try "save", "F1", or "alt"…`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          {query && (
+            <button type="button" className="erp-cheat-search-clear" onClick={() => setQuery('')} aria-label="Clear">✕</button>
+          )}
         </div>
-        <div>
-          {SHORTCUTS_LIST.map((s, i) => (
-            <div key={i} className="erp-shortcut-row">
-              <span style={{ color: '#374151', fontSize: 14 }}>{s.description}</span>
-              <span>
-                {s.keys.split(' + ').map((k, j) => (
-                  <span key={j}>
-                    {j > 0 && <span style={{ color: '#9ca3af', margin: '0 4px' }}>+</span>}
-                    <kbd className="erp-kbd">{k}</kbd>
-                  </span>
-                ))}
-              </span>
+
+        <div className="erp-cheat-body">
+          {grouped.length === 0 ? (
+            <div className="erp-cheat-empty">
+              No shortcuts match <strong>"{query}"</strong>.<br />
+              Try a different word, or clear the filter.
             </div>
-          ))}
+          ) : (
+            grouped.map(([category, rows]) => (
+              <section key={category} className="erp-cheat-section">
+                <div className="erp-cheat-section-head">
+                  <span className="erp-cheat-section-name">{category}</span>
+                  <span className="erp-cheat-section-count">{rows.length}</span>
+                </div>
+                <ul className="erp-cheat-list">
+                  {rows.map((s, i) => (
+                    <li key={`${category}-${i}`} className="erp-cheat-row">
+                      <div className="erp-cheat-row-desc">
+                        <span>{s.description}</span>
+                        {s.note && <span className="erp-cheat-row-note">{s.note}</span>}
+                      </div>
+                      <span className="erp-cheat-row-keys">{renderKeys(s.keys)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))
+          )}
         </div>
-        <p style={{ marginTop: 20, marginBottom: 0, color: '#9ca3af', fontSize: 12, textAlign: 'center' }}>
-          Press <kbd className="erp-kbd">Esc</kbd> to close
-        </p>
+
+        <footer className="erp-cheat-foot">
+          <span>{SHORTCUTS_LIST.length} shortcuts</span>
+          <span className="erp-cheat-foot-tip">
+            Press <kbd className="erp-cheat-kbd">Cmd</kbd>
+            <span className="erp-cheat-plus">+</span>
+            <kbd className="erp-cheat-kbd">Shift</kbd>
+            <span className="erp-cheat-plus">+</span>
+            <kbd className="erp-cheat-kbd">?</kbd> anywhere to open this
+          </span>
+        </footer>
       </div>
     </div>
   );
@@ -359,6 +465,21 @@ function PartyDetailRedirect() {
 export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  // Listen for an in-app event so callers outside App.jsx (e.g. avatar
+  // dropdown items) can open the cheat-sheet without prop-drilling the
+  // setter. Mirrors the pattern GlobalSearchModal and MasterChooser use
+  // (`global-search:open`, `master-chooser:open`).
+  useEffect(() => {
+    const onOpen  = () => setShowShortcuts(true);
+    const onClose = () => setShowShortcuts(false);
+    window.addEventListener('shortcuts:open',  onOpen);
+    window.addEventListener('shortcuts:close', onClose);
+    return () => {
+      window.removeEventListener('shortcuts:open',  onOpen);
+      window.removeEventListener('shortcuts:close', onClose);
+    };
+  }, []);
   // First-launch gate: when running under file:// (Electron prod) and the
   // user hasn't picked a server URL yet, force the Server Setup screen
   // ahead of every other route. Browser clients on http(s):// implicitly

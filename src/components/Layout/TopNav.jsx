@@ -3,7 +3,7 @@ import { Dropdown, Avatar } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ThunderboltOutlined, UserOutlined, SettingOutlined, LockOutlined,
-  LogoutOutlined, SunOutlined, MoonOutlined,
+  LogoutOutlined, SunOutlined, MoonOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
@@ -124,6 +124,12 @@ export default function TopNav() {
     { key: 'profile',  icon: <UserOutlined />,    label: 'My Account', onClick: () => navigate('/settings/account') },
     { key: 'change-password', icon: <LockOutlined />, label: 'Change Password', onClick: () => navigate('/change-password') },
     { key: 'settings', icon: <SettingOutlined />, label: 'Settings', onClick: () => navigate('/settings/company') },
+    { type: 'divider' },
+    // Keyboard shortcuts — mouse path to the cheat sheet (App.jsx listens
+    // for 'shortcuts:open' and toggles the overlay). The keystroke
+    // (Cmd/Ctrl+Shift+?) still works; this is the discovery surface.
+    { key: 'shortcuts', icon: <QuestionCircleOutlined />, label: 'Keyboard shortcuts',
+      onClick: () => window.dispatchEvent(new Event('shortcuts:open')) },
     { type: 'divider' },
     { key: 'logout',   icon: <LogoutOutlined />,  label: 'Sign Out', danger: true, onClick: handleLogout },
   ];
