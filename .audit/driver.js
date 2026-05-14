@@ -348,6 +348,151 @@ async function fetchReports() {
   return reports;
 }
 
+// ─── New phases (banks, loans, expenses, cheques) ────────────────────
+
+async function createBanks() {
+  log('\n=== Phase: Bank accounts ===');
+  const wanted = [
+    { name: 'HDFC Current — Main',  sub_group: 'Bank Accounts', opening_balance: 250000, opening_balance_type: 'Debit'  },
+    { name: 'ICICI Savings — Aux',  sub_group: 'Bank Accounts', opening_balance: 100000, opening_balance_type: 'Debit'  },
+    { name: 'SBI OD A/c — Working', sub_group: 'Bank OD A/c',   opening_balance:  50000, opening_balance_type: 'Credit' },
+  ];
+  const created = [];
+  for (const b of wanted) {
+    const r = await call('POST', '/banks', b, `bank-${b.name}`);
+    if (r) { created.push({ ledger_id: r.ledger_id, name: r.name, sub_group: r.sub_group }); bump('bank'); }
+  }
+  log(`Created ${created.length}/${wanted.length} banks`);
+  return created;
+}
+
+async function createLoans(banks) {
+  log('\n=== Phase: Loan accounts + EMI cycles ===');
+  if (!banks || !banks.length) { log('  no banks yet — cannot post disbursement leg'); return []; }
+  const fundingBank = banks[0].ledger_id;
+  const wanted = [
+    { name: 'Bajaj Finance Equipment Loan', loan_type: 'taken', principal: 500000, interest_rate: 12, tenure_months: 24,
+      disbursement_date: '2026-04-10', first_emi_date: '2026-05-10', bank_ledger_id: fundingBank,
+      notes: 'Driver-generated taken loan' },
+    { name: 'Loan to Ramesh Brothers',     loan_type: 'given', principal: 100000, interest_rate: 10, tenure_months: 12,
+      disbursement_date: '2026-04-15', first_emi_date: '2026-05-15', bank_ledger_id: fundingBank,
+      notes: 'Driver-generated given loan' },
+  ];
+  const created = [];
+  for (const l of wanted) {
+    const r = await call('POST', '/loans', l, `loan-${l.name}`);
+    if (r && (r.loan_id || r.ledger_id)) { created.push({ ledger_id: r.ledger_id || r.ledger?.ledger_id, name: l.name, ...l }); bump('loan'); }
+  }
+  // Post 4 EMIs against each loan (4 + 4 = 8 EMIs, exercises PAY-H5 + LED-H2)
+  for (const loan of created) {
+    if (!loan.ledger_id) continue;
+    const emiAmt = Math.round(loan.principal / loan.tenure_months);
+    const interestPart = Math.round(loan.principal * (loan.interest_rate / 100) / 12);
+    const principalPart = Math.max(0, emiAmt - interestPart);
+    for (let m = 0; m < 4; m++) {
+      const emiDate = new Date(2026, 4 + m, 10).toISOString().slice(0, 10); // May, Jun, Jul, Aug
+      const r = await call('POST', `/loans/${loan.ledger_id}/emi`, {
+        emi_date: emiDate,
+        principal_paid: principalPart,
+        interest_paid:  interestPart,
+        payment_mode: 'Bank',
+        bank_ledger_id: fundingBank,
+      }, `emi-${loan.ledger_id}-m${m}`);
+      if (r) bump('emi');
+    }
+  }
+  log(`Created ${created.length}/${wanted.length} loans + ${stats.created.emi || 0} EMIs`);
+  return created;
+}
+
+async function createExpenses(banks, suppliers) {
+  log('\n=== Phase: Expense vouchers ===');
+  // Need expense ledgers — they're seeded as system_settings defaults.
+  // Fetch from /api/ledger/accounts (or use known IDs).
+  const ledgers = await call('GET', '/ledger/accounts', null, 'list-ledgers');
+  const expenseLedgers = (ledgers?.data || ledgers || []).filter(l => l.ledger_group === 'Expenses');
+  if (!expenseLedgers.length) { log('  no expense ledgers available'); return []; }
+
+  const bankId = banks && banks[0] && banks[0].ledger_id;
+  const created = [];
+  const N = 30;
+  for (let i = 0; i < N; i++) {
+    const ledger = expenseLedgers[i % expenseLedgers.length];
+    // Vary payment mode + supplier
+    const mode = i % 3 === 0 ? 'Bank' : (i % 3 === 1 ? 'Cash' : 'Credit');
+    const taxable = 1000 + (i * 137) % 9000;
+    const body = {
+      voucher_date: dateInFY(i % 12),
+      payment_mode: mode,
+      bank_ledger_id: mode === 'Bank' ? bankId : null,
+      party_id: mode === 'Credit' && suppliers && suppliers.length ? suppliers[i % suppliers.length].id : null,
+      narration: `Driver expense #${i + 1} — ${ledger.ledger_name}`,
+      items: [{
+        expense_ledger_id: ledger.ledger_id,
+        taxable_amount:    taxable,
+        cgst_rate:         i % 4 === 0 ? 9 : 0,
+        sgst_rate:         i % 4 === 0 ? 9 : 0,
+        igst_rate:         0,
+      }],
+    };
+    const r = await call('POST', '/expenses', body, `exp-${i}`);
+    if (r && r.expense_id) { created.push({ id: r.expense_id, total: r.total_amount }); bump('expense'); }
+  }
+  log(`Created ${created.length}/${N} expense vouchers`);
+  return created;
+}
+
+async function createCheques(banks, parties) {
+  log('\n=== Phase: Cheques (inward + outward, with lifecycle) ===');
+  if (!banks || !banks.length || !parties || !parties.length) return [];
+  const created = [];
+  const customers = parties.filter(p => p.type === 'Customer');
+  const suppliers = parties.filter(p => p.type === 'Supplier');
+  // 10 inward cheques (from customers) + 10 outward (to suppliers).
+  for (let i = 0; i < 20; i++) {
+    const isInward = i < 10;
+    const party = (isInward ? customers : suppliers)[i % (isInward ? customers.length : suppliers.length)];
+    if (!party) continue;
+    const bank = banks[i % banks.length];
+    const chequeDate = dateInFY(i % 12);
+    const body = {
+      direction: isInward ? 'INWARD' : 'OUTWARD',
+      cheque_number: `DRV-${isInward ? 'IN' : 'OUT'}-${String(i).padStart(4, '0')}`,
+      cheque_date: chequeDate,
+      amount: 500 + (i * 137) % 4500,
+      party_id: party.id,
+      bank_ledger_id: bank.ledger_id,
+      drawee_bank_name: isInward ? 'Customer Bank XYZ' : null,
+      remarks: 'Driver-generated cheque',
+    };
+    const r = await call('POST', '/cheques', body, `chq-${body.cheque_number}`);
+    if (r && (r.cheque_id || r.cheque?.cheque_id)) {
+      const id = r.cheque_id || r.cheque.cheque_id;
+      created.push({ id, ...body });
+      bump('cheque');
+      // Lifecycle: every 3rd cheque clear, every 5th bounce.
+      // Inward cheques go PENDING → DEPOSITED → CLEARED; outward go straight
+      // PENDING → CLEARED. Bounce can fire from PENDING or DEPOSITED.
+      if (i % 3 === 0) {
+        if (isInward) {
+          const dep = await call('POST', `/cheques/${id}/deposit`, {
+            deposit_date: dateInFY((i + 1) % 12),
+            bank_ledger_id: bank.ledger_id,
+          }, `chq-deposit-${id}`);
+          if (dep) bump('cheque_deposit');
+        }
+        const clr = await call('POST', `/cheques/${id}/clear`, { clearance_date: dateInFY((i + 2) % 12) }, `chq-clear-${id}`);
+        if (clr) bump('cheque_clear');
+      } else if (i % 5 === 0) {
+        const bnc = await call('POST', `/cheques/${id}/bounce`, { bounce_date: dateInFY((i + 1) % 12), bounce_charges: 250, reason: 'Insufficient funds' }, `chq-bounce-${id}`);
+        if (bnc) bump('cheque_bounce');
+      }
+    }
+  }
+  log(`Created ${created.length} cheques`);
+  return created;
+}
+
 (async () => {
   const phase = process.argv[2] || 'all';
   log(`==================== START ${phase} ====================`);
@@ -383,6 +528,23 @@ async function fetchReports() {
   if (phase === 'payments' || phase === 'all') {
     const customers = (state.parties || []).filter(p => p.type === 'Customer');
     state.payments = await createPayments(150, state.sales || [], customers);
+    saveState(state);
+  }
+  if (phase === 'banks' || phase === 'all') {
+    state.banks = await createBanks();
+    saveState(state);
+  }
+  if (phase === 'loans' || phase === 'all') {
+    state.loans = await createLoans(state.banks || []);
+    saveState(state);
+  }
+  if (phase === 'expenses' || phase === 'all') {
+    const suppliers = (state.parties || []).filter(p => p.type === 'Supplier');
+    state.expenses = await createExpenses(state.banks || [], suppliers);
+    saveState(state);
+  }
+  if (phase === 'cheques' || phase === 'all') {
+    state.cheques = await createCheques(state.banks || [], state.parties || []);
     saveState(state);
   }
   if (phase === 'reports' || phase === 'all') {
