@@ -10,6 +10,7 @@ import AppLayout from './components/Layout/AppLayout';
 import OnboardingWizard, { shouldShowOnboarding } from './components/OnboardingWizard';
 import RoleRoute from './components/RoleRoute';
 import { GlobalSearchModal } from './components/GlobalSearch';
+import MasterChooser from './components/MasterChooser';
 // DatePopup + MenuPopup providers are mounted in main.jsx (above this
 // component) so that useGlobalShortcuts called from App's body can
 // reach them via useContext.
@@ -455,6 +456,11 @@ export default function App() {
           so the login screen stays clean and the palette never tries to
           fetch parties unauthed. */}
       {isAuthenticated && <GlobalSearchModal />}
+      {/* Master chooser — Cmd/Ctrl+Shift+N opens a 5-item picker
+          (Customer · Supplier · Product · Category · Bank) that
+          navigates to the right list with ?new=1 to open its form
+          modal. Same auth gate as the search palette. */}
+      {isAuthenticated && <MasterChooser />}
       <Routes>
         {/* Manual access to Server Setup is dev-gated — once the office
             is configured, regular staff shouldn't be able to re-point

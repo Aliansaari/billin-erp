@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { authAPI, companyAPI } from '../api';
 import useCompanyStore from '../store/companyStore';
 import useAuthStore from '../store/authStore';
+import './company-switcher.css';
 
 /* ── CompanySwitcher ──────────────────────────────────────────────────
  *
@@ -218,6 +219,12 @@ export default function CompanySwitcher({ collapsed = false, alignRight = false 
     </Modal>
   );
 
+  // Avatar/initial removed — the company name + caret carry enough identity
+  // on their own, and the colored-letter chrome was reading too busy
+  // against the rest of the nav. Collapsed sidebar (no room for the name)
+  // falls back to a plain BankOutlined glyph, same icon the rest of the
+  // app uses to mean "company / accounting entity".
+
   if (collapsed) {
     return (
       <>
@@ -228,22 +235,16 @@ export default function CompanySwitcher({ collapsed = false, alignRight = false 
             trigger={['click']}
             open={ddOpen}
             onOpenChange={setDdOpen}
+            overlayClassName="erp-cs-dropdown"
           >
             <button
               type="button"
-              className="erp-company-switch-icon"
-              style={{
-                width: 36, height: 36, padding: 0,
-                borderRadius: 8,
-                border: `1px solid ${current.accent_color || 'var(--border-subtle, #e5e7eb)'}`,
-                background: (current.accent_color || '#21604C') + '20',
-                color: current.accent_color || 'var(--fg-primary)',
-                cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                margin: '0 auto',
-              }}
+              className="erp-cs-icon"
+              aria-label={`Company: ${current.name} — click to switch`}
+              aria-haspopup="true"
+              aria-expanded={ddOpen}
             >
-              <BankOutlined style={{ fontSize: 16 }} />
+              <BankOutlined />
             </button>
           </Dropdown>
         </Tooltip>
@@ -260,30 +261,17 @@ export default function CompanySwitcher({ collapsed = false, alignRight = false 
         trigger={['click']}
         open={ddOpen}
         onOpenChange={setDdOpen}
+        overlayClassName="erp-cs-dropdown"
       >
         <button
           type="button"
-          className="erp-company-switch-pill"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '6px 10px',
-            borderRadius: 8,
-            border: `1px solid ${(current.accent_color || '#21604C')}40`,
-            background: (current.accent_color || '#21604C') + '14',
-            color: 'var(--fg-primary)',
-            cursor: 'pointer',
-            fontSize: 13, fontWeight: 600,
-            width: '100%',
-            minWidth: 0,
-          }}
-          title="Switch company"
+          className="erp-cs-pill"
+          title={`Company: ${current.name} — click to switch (F9)`}
+          aria-haspopup="true"
+          aria-expanded={ddOpen}
         >
-          <BankOutlined style={{ color: current.accent_color || '#21604C', flexShrink: 0 }} />
-          <span style={{
-            flex: 1, minWidth: 0, textAlign: 'left',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>{current.name}</span>
-          <DownOutlined style={{ fontSize: 10, opacity: 0.6, flexShrink: 0 }} />
+          <span className="erp-cs-name">{current.name}</span>
+          <span className="erp-cs-caret"><DownOutlined /></span>
         </button>
       </Dropdown>
       {passwordModal}

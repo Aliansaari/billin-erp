@@ -6,15 +6,15 @@ import useFilteredAltMenus from './useFilteredAltMenus';
 
 export const SHORTCUTS_LIST = [
   { keys: 'Cmd/Ctrl + K', description: 'Open global search' },
+  { keys: 'Cmd/Ctrl + Shift + N', description: 'Create new master (Customer / Supplier / Product / Category / Bank)' },
   { keys: 'Alt + G', description: 'Open global search' },
   { keys: 'Alt + H', description: 'Home menu' },
   { keys: 'Alt + S', description: 'Sales menu' },
   { keys: 'Alt + P', description: 'Purchase menu' },
   { keys: 'Alt + E', description: 'Parties menu' },
   { keys: 'Alt + I', description: 'Inventory menu' },
-  { keys: 'Alt + M', description: 'Payments menu' },
   { keys: 'Alt + B', description: 'Bank menu' },
-  { keys: 'Alt + A', description: 'Accounts menu' },
+  { keys: 'Alt + A', description: 'Books menu' },
   { keys: 'Alt + R', description: 'Reports menu' },
   { keys: 'Alt + T', description: 'Settings menu' },
   { keys: 'Alt + D', description: 'Dashboard' },
@@ -52,6 +52,20 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         window.dispatchEvent(new Event('global-search:open'));
+        return;
+      }
+
+      // Cmd/Ctrl + Shift + N — open the master chooser. Opens a small
+      // modal listing the 5 master types you add most often (Customer,
+      // Supplier, Product, Category, Bank). Pick one → navigates to its
+      // list with ?new=1 which every list page already reads to auto-
+      // open its F3 form modal. Sits next to ⌘K in the keyboard layer
+      // because the two palettes are siblings — find existing thing
+      // vs. create new thing. Uses e.code so it survives macOS dead-key
+      // transformations on Option-modified keys.
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === 'KeyN') {
+        e.preventDefault();
+        window.dispatchEvent(new Event('master-chooser:open'));
         return;
       }
 

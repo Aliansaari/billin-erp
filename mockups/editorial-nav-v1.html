@@ -1,0 +1,2308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Navigation — v1 mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ────────────────────────────────────────────────────────────────────────
+   PAGE SHELL — the mockup's chrome, not the design itself
+   ──────────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --page-bg: #F5F4EE;
+  --page-fg: #1F1E1A;
+  --page-muted: rgba(31, 30, 26, 0.55);
+  --page-faint: rgba(31, 30, 26, 0.10);
+  --section-bg: #FFFDF7;
+  --section-border: rgba(31, 30, 26, 0.08);
+  --accent-orange: #B1472F;
+
+  /* Real nav tokens — drive the actual designed surfaces below */
+  --nav-bg: #15171A;
+  --nav-bg-overlay: rgba(255, 255, 255, 0.03);
+  --nav-fg: #F5EFE3;
+  --nav-fg-muted: rgba(245, 239, 227, 0.62);
+  --nav-fg-soft: rgba(245, 239, 227, 0.78);
+  --nav-border: rgba(255, 255, 255, 0.08);
+  --nav-border-strong: rgba(255, 255, 255, 0.14);
+  --nav-hover: rgba(255, 255, 255, 0.06);
+  --nav-active-bg: rgba(255, 255, 255, 0.05);
+  --accent: #E26A4C;
+  --accent-bg: rgba(226, 106, 76, 0.18);
+  --accent-glow: rgba(226, 106, 76, 0.32);
+  --success: #34D399;
+  --warn: #F59E0B;
+  --danger: #EF4444;
+  --role-admin: #B1472F;
+}
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--page-bg);
+  color: var(--page-fg);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-feature-settings: 'cv11', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+
+.doc {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 48px 32px 120px;
+}
+
+.doc-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 40px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--page-faint);
+}
+
+.doc-title-block { max-width: 720px; }
+
+.doc-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent-orange);
+  margin: 0 0 12px;
+}
+
+.doc-title {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 0 0 12px;
+}
+
+.doc-subtitle {
+  font-size: 15.5px;
+  line-height: 1.55;
+  color: var(--page-muted);
+  margin: 0;
+}
+
+.doc-meta {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--page-muted);
+  text-align: right;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+.doc-meta span { display: block; }
+.doc-meta b { color: var(--page-fg); font-weight: 600; }
+
+/* Section block */
+.sec {
+  margin: 56px 0;
+}
+
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.sec-no {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--page-muted);
+  letter-spacing: 0.04em;
+}
+.sec-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+.sec-sub {
+  font-size: 13.5px;
+  color: var(--page-muted);
+  margin: 0 0 24px;
+  max-width: 720px;
+  line-height: 1.6;
+}
+
+.frame {
+  background: var(--section-bg);
+  border: 1px solid var(--section-border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 10px 30px rgba(31, 30, 26, 0.04);
+}
+.frame-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--section-border);
+  background: rgba(245, 244, 238, 0.6);
+}
+.frame-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.frame-label small {
+  font-weight: 400;
+  color: var(--page-muted);
+  margin-left: 6px;
+}
+.frame-spec {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--page-muted);
+}
+.frame-body {
+  padding: 32px;
+  background: linear-gradient(180deg, #2A2925 0%, #1F1D1A 100%);
+  position: relative;
+  overflow: hidden;
+}
+.frame-body--light {
+  background: linear-gradient(180deg, #F8F5EE 0%, #F1ECE0 100%);
+}
+
+/* viewport-width simulator */
+.vp {
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  position: relative;
+}
+.vp-label {
+  position: absolute;
+  top: -18px;
+  left: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.05em;
+  background: linear-gradient(180deg, #2A2925, #2A2925);
+  padding: 0 8px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   THE NAVIGATION SURFACES — the actual design
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* ── Status strip (Tier 1) ── */
+.nav-status {
+  height: 28px;
+  background: rgba(0, 0, 0, 0.20);
+  border-bottom: 1px solid var(--nav-border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 11.5px;
+  color: rgba(245, 239, 227, 0.60);
+  gap: 14px;
+  letter-spacing: -0.003em;
+}
+.nav-status-group { display: inline-flex; align-items: center; gap: 8px; }
+.nav-status-group + .nav-status-group::before {
+  content: '';
+  width: 1px; height: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  margin-right: 6px;
+}
+.nav-status-group.right { margin-left: auto; }
+.nav-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background .12s ease;
+  font-weight: 500;
+  color: rgba(245, 239, 227, 0.78);
+}
+.nav-status-pill:hover { background: rgba(255, 255, 255, 0.06); }
+.nav-status-pill .anticon { font-size: 11px; opacity: 0.65; }
+.nav-status-pill.warn { color: var(--warn); }
+.nav-status-pill.warn:hover { background: rgba(245, 158, 11, 0.10); }
+.nav-status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+.nav-status-dot.ok { background: var(--success); box-shadow: 0 0 6px rgba(52, 211, 153, 0.6); }
+.nav-status-dot.warn { background: var(--warn); }
+.nav-status-dot.muted { background: rgba(255, 255, 255, 0.3); }
+
+/* ── Command bar (Tier 2) ── */
+.nav-bar {
+  height: 52px;
+  background: var(--nav-bg);
+  border-bottom: 1px solid var(--nav-border);
+  color: var(--nav-fg);
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.nav-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  padding: 0 16px;
+  min-width: 0;             /* lets children with min-width:0 actually shrink */
+  /* container-type on the inner (not .vp) so queries react to the EFFECTIVE
+     content width — including .centred's max-width clamp at 1820 wide
+     viewports. Without this, a centred bar at vp=1820 would test against
+     1820 even though its content is constrained to 1760. */
+  container-type: inline-size;
+}
+
+.nav-bar-inner.centred {
+  max-width: 1760px;
+  margin: 0 auto;
+}
+
+/* Zone separators */
+.nav-zone-sep {
+  width: 1px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+/* Brand */
+.nav-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background .12s ease;
+  color: var(--nav-fg);
+  flex-shrink: 0;
+}
+.nav-brand:hover { background: var(--nav-hover); }
+.nav-brand .bolt {
+  width: 22px; height: 22px;
+  display: inline-grid; place-items: center;
+  color: var(--accent);
+}
+.nav-brand .wordmark {
+  font-size: 14px; font-weight: 700;
+  letter-spacing: -0.018em;
+  color: var(--nav-fg);
+}
+
+/* Workspace card (in topbar) */
+.nav-workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 12px 0 6px;
+  border-radius: 9px;
+  border: 1px solid var(--nav-border);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+  flex-shrink: 0;
+  max-width: 200px;
+}
+.nav-workspace:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--nav-border-strong);
+}
+.nav-workspace .ws-avatar {
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #E26A4C, #B1472F);
+  color: white;
+  display: inline-grid; place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+.nav-workspace .ws-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nav-fg);
+  letter-spacing: -0.008em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-workspace .ws-caret {
+  font-size: 10px;
+  color: var(--nav-fg-muted);
+  margin-left: 4px;
+}
+
+/* Primary menu pills */
+.nav-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 1 auto;           /* can shrink; won't grow past content */
+  overflow: hidden;         /* safety net — never overlap the right cluster */
+}
+.nav-menu.gap-large { gap: 8px; }
+.nav-menu.gap-tight { gap: 2px; }
+
+.nav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: rgba(245, 239, 227, 0.62);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.003em;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  flex-shrink: 0;          /* pills don't compress individually; container query handles narrow-width strategy */
+  transition: background .12s cubic-bezier(.2,.7,.2,1), color .12s ease;
+}
+.nav-pill:hover {
+  background: var(--nav-hover);
+  color: var(--nav-fg);
+}
+.nav-pill .pill-icon {
+  display: inline-flex;
+  align-items: center;
+  width: 14px; height: 14px;
+  color: inherit;
+}
+.nav-pill .pill-icon svg { width: 14px; height: 14px; display: block; }
+.nav-pill .pill-icon svg path { fill: currentColor; }
+
+/* Active pill — proposed treatment */
+.nav-pill.is-active {
+  background: var(--nav-active-bg);
+  color: var(--nav-fg);
+  font-weight: 600;
+}
+.nav-pill.is-active::after {
+  content: '';
+  position: absolute;
+  left: 10px; right: 10px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Compact pill (no labels) */
+.nav-pill.compact {
+  width: 34px; padding: 0; justify-content: center;
+}
+.nav-pill.compact .pill-label { display: none; }
+
+/* Right cluster */
+.nav-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;           /* never compresses; pushes menu to shrink first */
+}
+/* Marker class for icons that should disappear at the narrowest container
+   widths (settings, theme) — keeps Bell + Avatar always visible. */
+.nav-iconbtn[data-optional] { /* default visible */ }
+
+/* Search trigger */
+.nav-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px 0 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(245, 239, 227, 0.62);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+  min-width: 200px;
+  max-width: 320px;
+  flex-shrink: 0;
+}
+.nav-search.wide { min-width: 260px; max-width: 300px; }
+.nav-search.compact { min-width: 150px; }
+.nav-search .search-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.nav-search:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--nav-border-strong);
+  color: var(--nav-fg);
+}
+.nav-search .search-icon {
+  width: 14px; height: 14px;
+  color: rgba(245, 239, 227, 0.5);
+  flex-shrink: 0;
+}
+.nav-search .search-label {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-search .search-kbd {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: rgba(245, 239, 227, 0.45);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+.nav-search .search-kbd kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 18px;
+  padding: 0 4px;
+  font: inherit;
+  color: rgba(245, 239, 227, 0.75);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
+  line-height: 1;
+}
+.nav-search.icon-only {
+  min-width: 0;
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+.nav-search.icon-only .search-label,
+.nav-search.icon-only .search-kbd { display: none; }
+
+/* Icon button */
+.nav-iconbtn {
+  position: relative;
+  width: 34px; height: 34px;
+  display: inline-grid; place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--nav-fg-soft);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.nav-iconbtn:hover { background: var(--nav-hover); color: var(--nav-fg); }
+.nav-iconbtn svg { width: 16px; height: 16px; }
+.nav-iconbtn svg path { fill: currentColor; }
+
+/* Badge */
+.nav-badge {
+  position: absolute;
+  top: 3px; right: 3px;
+  min-width: 16px; height: 16px;
+  padding: 0 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 8px;
+  display: inline-grid; place-items: center;
+  border: 2px solid var(--nav-bg);
+  letter-spacing: -0.02em;
+}
+
+/* Avatar */
+.nav-avatar {
+  position: relative;
+  width: 34px; height: 34px;
+  display: inline-grid; place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background .12s;
+  margin-left: 2px;
+}
+.nav-avatar:hover { background: var(--nav-hover); }
+.nav-avatar .avatar-circle {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--role-admin);
+  color: #fff;
+  display: inline-grid; place-items: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.nav-avatar .avatar-dot {
+  position: absolute;
+  bottom: 4px; right: 4px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  border: 2px solid var(--nav-bg);
+}
+
+/* ── Workspace tabs (Tier 3) ── */
+.nav-tabs {
+  height: 40px;
+  background: rgba(0, 0, 0, 0.10);
+  border-bottom: 1px solid var(--nav-border);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 2px;
+}
+.nav-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  border-radius: 8px 8px 0 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--nav-fg-muted);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.nav-tab:hover { background: var(--nav-hover); color: var(--nav-fg); }
+.nav-tab.is-active {
+  background: var(--nav-bg);
+  color: var(--nav-fg);
+  border-bottom-color: var(--accent);
+}
+.nav-tab .tab-icon { width: 13px; height: 13px; color: var(--accent); }
+.nav-tab .tab-close {
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  display: inline-grid; place-items: center;
+  font-size: 11px;
+  color: rgba(245, 239, 227, 0.4);
+  margin-left: 2px;
+}
+.nav-tab .tab-close:hover { background: rgba(255, 255, 255, 0.10); color: var(--nav-fg); }
+.nav-tab-new {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 32px; padding: 0 10px;
+  font-size: 12px;
+  color: var(--nav-fg-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.nav-tab-new:hover { background: var(--nav-hover); color: var(--nav-fg); }
+
+/* ────────────────────────────────────────────────────────────────────────
+   SIDEBAR (vertical layout)
+   ──────────────────────────────────────────────────────────────────────── */
+.sb-wrap { display: flex; gap: 32px; align-items: flex-start; }
+
+.sb {
+  background: var(--nav-bg);
+  border-right: 1px solid var(--nav-border);
+  display: flex;
+  flex-direction: column;
+  color: var(--nav-fg);
+  font-size: 13px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.20);
+}
+.sb.expanded { width: 248px; min-height: 700px; }
+.sb.collapsed { width: 56px; min-height: 700px; }
+
+/* Sidebar brand */
+.sb-brand {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--nav-border);
+  gap: 10px;
+  flex-shrink: 0;
+}
+.sb-brand .bolt {
+  width: 24px; height: 24px;
+  display: inline-grid; place-items: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.sb-brand .wordmark {
+  font-size: 15px; font-weight: 700; letter-spacing: -0.018em;
+  flex: 1;
+}
+.sb-brand .collapse-btn {
+  width: 28px; height: 28px;
+  display: inline-grid; place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--nav-fg-muted);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.sb-brand .collapse-btn:hover { background: var(--nav-hover); color: var(--nav-fg); }
+.sb.collapsed .sb-brand {
+  flex-direction: column;
+  height: auto;
+  padding: 12px 6px;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+}
+.sb.collapsed .sb-brand .wordmark { display: none; }
+
+/* Workspace card in sidebar */
+.sb-workspace {
+  margin: 12px 12px 0;
+  padding: 10px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--nav-border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.sb-workspace:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--nav-border-strong);
+}
+.sb-workspace .ws-avatar {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #E26A4C, #B1472F);
+  color: white;
+  display: inline-grid; place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+.sb-workspace .ws-body { min-width: 0; flex: 1; }
+.sb-workspace .ws-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--nav-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.008em;
+}
+.sb-workspace .ws-ctx {
+  font-size: 11px;
+  color: var(--nav-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.sb-workspace .ws-caret {
+  font-size: 10px;
+  color: var(--nav-fg-muted);
+  flex-shrink: 0;
+}
+.sb.collapsed .sb-workspace {
+  margin: 8px 6px 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  justify-content: center;
+}
+.sb.collapsed .sb-workspace .ws-body,
+.sb.collapsed .sb-workspace .ws-caret { display: none; }
+.sb.collapsed .sb-workspace .ws-avatar { width: 38px; height: 38px; font-size: 15px; }
+
+/* Search in sidebar */
+.sb-search-wrap { padding: 12px; }
+.sb-search {
+  display: flex; align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--nav-border);
+  color: var(--nav-fg-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.sb-search:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--nav-border-strong);
+  color: var(--nav-fg);
+}
+.sb-search .search-icon { width: 14px; height: 14px; color: rgba(245, 239, 227, 0.5); }
+.sb-search .search-label { font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb-search .search-kbd {
+  display: inline-flex;
+  align-items: center; gap: 2px;
+  color: rgba(245, 239, 227, 0.45);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+}
+.sb-search .search-kbd kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px; height: 18px;
+  padding: 0 4px;
+  color: rgba(245, 239, 227, 0.75);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
+  font: inherit;
+  line-height: 1;
+}
+.sb.collapsed .sb-search-wrap { padding: 8px 6px; }
+.sb.collapsed .sb-search { width: 38px; height: 38px; padding: 0; justify-content: center; }
+.sb.collapsed .sb-search .search-label,
+.sb.collapsed .sb-search .search-kbd { display: none; }
+
+/* Section labels */
+.sb-section {
+  padding: 14px 18px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: rgba(245, 239, 227, 0.42);
+}
+.sb-section:first-child { padding-top: 10px; }
+
+/* Sidebar rows */
+.sb-rows { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
+.sb-row {
+  display: flex; align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--nav-fg-soft);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.003em;
+  cursor: pointer;
+  transition: background .12s, color .12s;
+  position: relative;
+}
+.sb-row:hover { background: var(--nav-hover); color: var(--nav-fg); }
+.sb-row .row-icon {
+  width: 16px; height: 16px;
+  display: inline-grid; place-items: center;
+  color: inherit;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.sb-row .row-icon svg { width: 16px; height: 16px; }
+.sb-row .row-icon svg path { fill: currentColor; }
+.sb-row .row-label { flex: 1; }
+.sb-row .row-counter {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 239, 227, 0.85);
+  letter-spacing: -0.01em;
+}
+.sb-row.is-active {
+  background: rgba(226, 106, 76, 0.10);
+  color: var(--nav-fg);
+  font-weight: 600;
+}
+.sb-row.is-active::before {
+  content: '';
+  position: absolute;
+  left: 2px; top: 8px;
+  width: 3px; height: 22px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.sb-row.is-active .row-icon { opacity: 1; color: var(--accent); }
+.sb-row.is-active .row-counter {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+/* Collapsed sidebar rows */
+.sb.collapsed .sb-section { display: none; }
+.sb.collapsed .sb-rows { padding: 0; gap: 0; }
+.sb.collapsed .sb-row {
+  width: 42px; height: 42px;
+  margin: 0 auto;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+  border-radius: 9px;
+}
+.sb.collapsed .sb-row .row-label { display: none; }
+.sb.collapsed .sb-row .row-counter {
+  position: absolute;
+  top: 4px; right: 4px;
+  min-width: 14px; height: 14px;
+  padding: 0 3px;
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--accent);
+  color: #fff;
+  border: 2px solid var(--nav-bg);
+  border-radius: 7px;
+}
+.sb.collapsed .sb-row.is-active::before {
+  left: -2px; top: 9px; height: 24px;
+}
+.sb-divider {
+  width: 24px; height: 1px;
+  background: rgba(255, 255, 255, 0.07);
+  margin: 6px auto;
+}
+
+/* Sidebar scroll region */
+.sb-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 10px;
+}
+
+/* Sidebar footer */
+.sb-footer { flex-shrink: 0; }
+.sb-footer .sb-rows { padding: 8px 8px 0; }
+.sb-footer-divider {
+  height: 1px;
+  background: var(--nav-border);
+  margin: 6px 12px;
+}
+
+/* Theme toggle */
+.sb-theme {
+  display: flex;
+  margin: 8px 12px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 9px;
+}
+.sb-theme-opt {
+  flex: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px;
+  height: 30px;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: rgba(245, 239, 227, 0.55);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.003em;
+  cursor: pointer;
+  transition: background .2s, color .12s;
+}
+.sb-theme-opt:hover { color: var(--nav-fg); }
+.sb-theme-opt.active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--nav-fg);
+  font-weight: 600;
+}
+.sb-theme-opt svg { width: 13px; height: 13px; }
+.sb.collapsed .sb-theme { display: none; }
+
+/* Sync status (next to theme) */
+.sb-theme-row {
+  display: flex; align-items: center; gap: 8px;
+  margin: 8px 12px 0;
+}
+.sb-theme-row .sb-theme { flex: 1; margin: 0; }
+.sb-sync {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--nav-border);
+  font-size: 11px;
+  color: var(--nav-fg-muted);
+  cursor: pointer;
+}
+.sb-sync .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 6px rgba(52, 211, 153, 0.6); }
+.sb.collapsed .sb-theme-row { display: none; }
+
+/* User card */
+.sb-user {
+  display: flex; align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.sb-user:hover { background: var(--nav-hover); }
+.sb-user .avatar-wrap { position: relative; }
+.sb-user .avatar-circle {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: var(--role-admin);
+  color: #fff;
+  display: inline-grid; place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.sb-user .avatar-dot {
+  position: absolute;
+  bottom: -1px; right: -1px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--success);
+  border: 2px solid var(--nav-bg);
+}
+.sb-user .user-text { flex: 1; min-width: 0; line-height: 1.25; }
+.sb-user .user-name {
+  font-size: 13px; font-weight: 600;
+  color: var(--nav-fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sb-user .user-role {
+  font-size: 11px;
+  color: var(--nav-fg-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sb-user .user-more {
+  width: 24px; height: 24px;
+  display: inline-grid; place-items: center;
+  color: var(--nav-fg-muted);
+  font-size: 16px;
+  letter-spacing: -0.04em;
+}
+.sb.collapsed .sb-user {
+  margin: 8px 6px;
+  padding: 6px;
+  justify-content: center;
+}
+.sb.collapsed .sb-user .user-text,
+.sb.collapsed .sb-user .user-more { display: none; }
+.sb.collapsed .sb-user .avatar-circle { width: 30px; height: 30px; font-size: 12px; }
+
+/* Mini pinned reports inside Insights */
+.sb-row.is-sub {
+  padding-left: 36px;
+  height: 32px;
+  color: var(--nav-fg-muted);
+  font-weight: 400;
+  font-size: 12.5px;
+}
+.sb-row.is-sub .star {
+  width: 12px; height: 12px;
+  color: var(--accent);
+}
+.sb-toggle {
+  display: inline-grid; place-items: center;
+  width: 14px; height: 14px;
+  color: var(--nav-fg-muted);
+  font-size: 10px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   CONTAINER QUERIES — each .vp is a container; the nav-bar inside adapts
+   to its width. Without these, an 11-pill bar with a workspace card and a
+   200px search trigger overflows at any container narrower than ~1620px,
+   which is why the right cluster was previously climbing on top of the
+   menu at 1380px and 1220px viewports.
+
+   Sequence (largest → smallest container):
+     ≥ 1620   full design (verbose search, wordmark, workspace name)
+     ≤ 1620   shorten search placeholder
+     ≤ 1500   drop wordmark
+     ≤ 1380   shrink pills + workspace name + search width
+     ≤ 1240   pills go icon-only
+     ≤ 1080   search becomes icon-only
+     ≤ 900    hide non-essential right-cluster icons (theme, settings)
+   ──────────────────────────────────────────────────────────────────────── */
+
+@container (max-width: 1600px) {
+  /* First squeeze — drop the wordmark. Icon alone reads as "home" already.
+     Saves ~80 px, which is what we need to keep workspace + 11 labeled
+     pills + 260 px search comfortable in the centred 1760 container. */
+  .nav-brand .wordmark { display: none; }
+  .nav-bar-inner { gap: 10px; }
+}
+
+@container (max-width: 1480px) {
+  /* Workspace truncates to icon + caret. Pills tighten. */
+  .nav-workspace .ws-name { display: none; }
+  .nav-workspace { padding: 0 6px; }
+  .nav-search { min-width: 170px; max-width: 220px; }
+  .nav-pill { padding: 0 8px; }
+  .nav-menu { gap: 2px; }
+}
+
+@container (max-width: 1300px) {
+  /* Pills go icon-only. This is the right answer at 13" widths — 11 labeled
+     pills can't fit alongside workspace + search even with aggressive
+     compression. Hand-coded "compact" markup elsewhere in the doc also
+     renders this way, so visually the rule is a no-op there. */
+  .nav-menu .nav-pill .pill-label { display: none; }
+  .nav-menu .nav-pill {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+  }
+  .nav-pill .pill-icon svg { width: 15px; height: 15px; }
+  .nav-search { min-width: 140px; }
+}
+
+@container (max-width: 1080px) {
+  /* Search trigger collapses to a magnifier. ⌘K still opens it. */
+  .nav-search {
+    min-width: 34px;
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+  .nav-search .search-label,
+  .nav-search .search-kbd { display: none; }
+}
+
+@container (max-width: 900px) {
+  /* On very narrow containers, drop the two least-load-bearing buttons
+     so bell + avatar always stay visible. Theme/Settings remain reachable
+     via avatar dropdown and ⌘K palette. */
+  .nav-iconbtn[data-optional="true"] { display: none; }
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   STATE COMPARISON GRIDS
+   ──────────────────────────────────────────────────────────────────────── */
+.state-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 32px;
+  background: linear-gradient(180deg, #2A2925 0%, #1F1D1A 100%);
+  border-radius: 0 0 16px 16px;
+}
+.state-card {
+  background: var(--nav-bg);
+  border: 1px solid var(--nav-border);
+  border-radius: 12px;
+  padding: 32px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+}
+.state-card .state-label {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: rgba(245, 239, 227, 0.40);
+}
+.state-card .state-note {
+  font-size: 11px;
+  color: rgba(245, 239, 227, 0.55);
+  text-align: center;
+  line-height: 1.45;
+  margin-top: 4px;
+  max-width: 200px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   COMPARE: OLD vs NEW
+   ──────────────────────────────────────────────────────────────────────── */
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 32px;
+  background: linear-gradient(180deg, #2A2925 0%, #1F1D1A 100%);
+  border-radius: 0 0 16px 16px;
+}
+.compare-card {
+  background: var(--nav-bg);
+  border: 1px solid var(--nav-border);
+  border-radius: 12px;
+  padding: 28px 24px 24px;
+}
+.compare-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.compare-tag.old { color: rgba(245, 239, 227, 0.45); }
+.compare-tag.new { color: var(--accent); }
+.compare-tag::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Active-pill OLD (current solid) */
+.nav-pill.is-active-old {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(226, 106, 76, 0.25);
+}
+.nav-pill.is-active-old::after { display: none; }
+
+/* ────────────────────────────────────────────────────────────────────────
+   Color tokens
+   ──────────────────────────────────────────────────────────────────────── */
+.tokens-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 28px;
+}
+.token-card {
+  border: 1px solid var(--section-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.token-swatch { height: 56px; }
+.token-meta {
+  padding: 10px 12px;
+  background: var(--section-bg);
+}
+.token-name {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.token-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--page-muted);
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Light-mode chrome preview
+   ──────────────────────────────────────────────────────────────────────── */
+.nav-bar.light {
+  background: rgba(255, 253, 247, 0.92);
+  backdrop-filter: blur(16px);
+  border-bottom-color: rgba(31, 30, 26, 0.08);
+  color: #1F1E1A;
+}
+.nav-bar.light .nav-pill { color: rgba(31, 30, 26, 0.55); }
+.nav-bar.light .nav-pill:hover { background: rgba(31, 30, 26, 0.04); color: #1F1E1A; }
+.nav-bar.light .nav-pill.is-active {
+  background: rgba(226, 106, 76, 0.08);
+  color: #1F1E1A;
+}
+.nav-bar.light .nav-pill.is-active::after { background: var(--accent); }
+.nav-bar.light .nav-brand .wordmark { color: #1F1E1A; }
+.nav-bar.light .nav-workspace {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(31, 30, 26, 0.10);
+}
+.nav-bar.light .nav-workspace .ws-name { color: #1F1E1A; }
+.nav-bar.light .nav-workspace .ws-caret { color: rgba(31, 30, 26, 0.45); }
+.nav-bar.light .nav-search {
+  background: rgba(31, 30, 26, 0.04);
+  border-color: rgba(31, 30, 26, 0.10);
+  color: rgba(31, 30, 26, 0.55);
+}
+.nav-bar.light .nav-search:hover {
+  background: rgba(31, 30, 26, 0.06);
+  color: #1F1E1A;
+}
+.nav-bar.light .nav-search .search-kbd { color: rgba(31, 30, 26, 0.40); }
+.nav-bar.light .nav-search .search-kbd kbd {
+  background: rgba(31, 30, 26, 0.06);
+  border-color: rgba(31, 30, 26, 0.10);
+  color: rgba(31, 30, 26, 0.7);
+}
+.nav-bar.light .nav-iconbtn { color: rgba(31, 30, 26, 0.65); }
+.nav-bar.light .nav-iconbtn:hover { background: rgba(31, 30, 26, 0.06); color: #1F1E1A; }
+.nav-bar.light .nav-zone-sep { background: rgba(31, 30, 26, 0.08); }
+.nav-bar.light .nav-badge { border-color: rgba(255, 253, 247, 0.95); }
+.nav-bar.light .nav-avatar .avatar-dot { border-color: rgba(255, 253, 247, 0.95); }
+
+/* Helpers */
+.legend {
+  display: flex; gap: 24px; flex-wrap: wrap;
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--page-muted);
+}
+.legend-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.callouts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 28px;
+}
+.callout {
+  border: 1px solid var(--section-border);
+  border-radius: 12px;
+  padding: 18px;
+  background: var(--section-bg);
+}
+.callout-head {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-orange);
+  margin-bottom: 8px;
+}
+.callout-body {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--page-fg);
+}
+.callout-body code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  background: rgba(177, 71, 47, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--accent-orange);
+}
+
+/* Print */
+@media print {
+  body { background: #fff; }
+  .doc-head, .sec-head { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<!-- SVG sprite — defined once, referenced via <use> -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4.09 13.55c-.39.51-.03 1.24.61 1.24h6.3l-1.39 7.74c-.13.74.81 1.19 1.27.6L20.91 11.5c.39-.51.03-1.24-.61-1.24h-6.3l1.39-7.74c.13-.74-.81-1.19-1.39-.52z"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M12 3l9 8h-3v9h-5v-6h-2v6H6v-9H3l9-8z"/></symbol>
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></symbol>
+    <symbol id="i-sales" viewBox="0 0 24 24"><path d="M7 4h-2l-3 9v2h2l1-3h11l1 3h2v-2l-3-9h-2l3 7H4l3-7zm5 11a3 3 0 100 6 3 3 0 000-6z"/></symbol>
+    <symbol id="i-purchase" viewBox="0 0 24 24"><path d="M3 7l2-3h14l2 3v2H3V7zm0 3h18v10a1 1 0 01-1 1H4a1 1 0 01-1-1V10zm5 4v2h8v-2H8z"/></symbol>
+    <symbol id="i-parties" viewBox="0 0 24 24"><path d="M9 12a4 4 0 100-8 4 4 0 000 8zm6 1a3 3 0 100-6 3 3 0 000 6zm-6 2c-3.3 0-9 1.7-9 5v2h18v-2c0-3.3-5.7-5-9-5zm6 2c-.8 0-1.7.1-2.5.4 1.5 1 2.5 2.4 2.5 3.6v2h6v-2c0-2.7-3.5-4-6-4z"/></symbol>
+    <symbol id="i-inventory" viewBox="0 0 24 24"><path d="M20 6h-3V4a2 2 0 00-2-2H9a2 2 0 00-2 2v2H4a1 1 0 00-1 1v13a1 1 0 001 1h16a1 1 0 001-1V7a1 1 0 00-1-1zM9 4h6v2H9V4zm10 16H5V8h14v12zm-4-9H9v2h6v-2z"/></symbol>
+    <symbol id="i-payments" viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm1 16h-2v-1.3c-1.6-.3-2.9-1.4-3-3h2c.1.8 1 1.5 2 1.5s2-.5 2-1.5c0-.7-.6-1.2-2.4-1.7-2-.5-3.5-1.4-3.5-3.3 0-1.6 1.3-2.6 2.9-3V5h2v1.7c1.7.3 2.7 1.4 2.8 2.9h-2c-.1-.8-.7-1.4-1.8-1.4s-1.9.6-1.9 1.4c0 .7.6 1.2 2.4 1.7 2 .5 3.5 1.3 3.5 3.3 0 1.7-1.3 2.6-2.9 3V18z"/></symbol>
+    <symbol id="i-expenses" viewBox="0 0 24 24"><path d="M3 17l7-7 4 4 7-7v3h2V4h-7v2h3l-5 5-4-4-9 9 1.4 1.4z"/></symbol>
+    <symbol id="i-bank" viewBox="0 0 24 24"><path d="M12 2L2 7v2h20V7L12 2zM4 10v8h2v-8H4zm5 0v8h2v-8H9zm4 0v8h2v-8h-2zm5 0v8h2v-8h-2zM2 21h20v-2H2v2z"/></symbol>
+    <symbol id="i-accounts" viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2zm0 14H4V8h16v10zM6 11h4v2H6v-2zm0 4h8v2H6v-2zm10-4h2v6h-2v-6z"/></symbol>
+    <symbol id="i-reports" viewBox="0 0 24 24"><path d="M3 20h2v-2H3v2zm0-4h2v-4H3v4zm0-6h2V8H3v2zm4 10h14v-2H7v2zm0-4h14v-4H7v4zm0-10v4h14V6H7z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M19.4 13a8 8 0 000-2l2-1.5-2-3.5-2.4 1a8 8 0 00-1.7-1L15 3.5h-4l-.3 2.5a8 8 0 00-1.7 1l-2.4-1-2 3.5L6.6 11a8 8 0 000 2l-2 1.5 2 3.5 2.4-1a8 8 0 001.7 1L11 20.5h4l.3-2.5a8 8 0 001.7-1l2.4 1 2-3.5L19.4 13zM12 15a3 3 0 110-6 3 3 0 010 6z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><path d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 10-.7.7l.3.3v.8L19 20.5l1.5-1.5L15.5 14zm-6 0a4.5 4.5 0 110-9 4.5 4.5 0 010 9z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5a6 6 0 00-5-5.9V4a1 1 0 10-2 0v1.1A6 6 0 006 11v5l-2 2v1h16v-1l-2-2z"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 13a9 9 0 11-10-10c-.5 0-1 .1-1.5.2A8 8 0 0020.8 14.5 9 9 0 0121 13z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><path d="M12 7a5 5 0 100 10 5 5 0 000-10zm0-5a1 1 0 011 1v2a1 1 0 11-2 0V3a1 1 0 011-1zm0 18a1 1 0 011 1v2a1 1 0 11-2 0v-2a1 1 0 011-1zM3 12a1 1 0 011-1h2a1 1 0 110 2H4a1 1 0 01-1-1zm15 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zM5.6 5.6a1 1 0 011.4 0l1.4 1.4a1 1 0 01-1.4 1.4L5.6 7a1 1 0 010-1.4zm10.6 10.6a1 1 0 011.4 0l1.4 1.4a1 1 0 01-1.4 1.4l-1.4-1.4a1 1 0 010-1.4zm-1.4-9.2L17 5.6A1 1 0 0118.4 7l-2.2 2.2a1 1 0 01-1.4-1.4zM5.6 18.4l2.2-2.2a1 1 0 011.4 1.4L7 19.8a1 1 0 01-1.4-1.4z"/></symbol>
+    <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M15.4 7.4L14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></symbol>
+    <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M8.6 16.6L10 18l6-6-6-6-1.4 1.4L13.2 12z"/></symbol>
+    <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M7.4 8.6L6 10l6 6 6-6-1.4-1.4L12 13.2z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2l3 7 7 .8-5.5 4.7 1.7 7L12 17.7 5.8 21.5l1.7-7L2 9.8 9 9z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></symbol>
+  </defs>
+</svg>
+
+<div class="doc">
+
+  <!-- ─── DOC HEAD ─── -->
+  <header class="doc-head">
+    <div class="doc-title-block">
+      <p class="doc-eyebrow">Editorial · Navigation v1 · 2026.05.14</p>
+      <h1 class="doc-title">A nav for the next 10,000 customers.</h1>
+      <p class="doc-subtitle">
+        One navigation that scales from a 3-person shop on a 13" MacBook Air all the
+        way up to a 5,000-seat group on a 6K display. Three optional tiers; nothing
+        forced on anyone. Every variant is rendered to scale below — open this page
+        full-screen to see the system at its real size.
+      </p>
+    </div>
+    <div class="doc-meta">
+      <span>BILLING ERP</span>
+      <span><b>v1.0 · proposal</b></span>
+      <span>56 KB · no JS deps</span>
+      <span>Inter · JetBrains Mono</span>
+    </div>
+  </header>
+
+  <!-- ─── SECTION 1 — Full system, 1800+ centred ─── -->
+  <section class="sec">
+    <header class="sec-head">
+      <span class="sec-no">01</span>
+      <h2 class="sec-title">The whole system at 1800+ px (enterprise)</h2>
+    </header>
+    <p class="sec-sub">
+      All three tiers visible. The bar background spans the full viewport; the
+      content inside is clamped to <code>max-width: 1760px</code> and centred — so
+      on a 27" 5K display the nav reads as deliberate, not stretched.
+    </p>
+
+    <div class="frame">
+      <div class="frame-head">
+        <span class="frame-label">Three-tier nav <small>Status strip · Command bar · Workspace tabs</small></span>
+        <span class="frame-spec">viewport: 1880px · dark · enterprise persona</span>
+      </div>
+      <div class="frame-body" style="padding: 36px 0;">
+        <div class="vp" style="width: 1820px; max-width: 100%;">
+          <span class="vp-label">VIEWPORT 1820PX</span>
+
+          <!-- Status strip -->
+          <div class="nav-status">
+            <div class="nav-status-group">
+              <span class="nav-status-pill">
+                <svg width="11" height="11"><use href="#i-home"/></svg>
+                Acme Holdings
+                <svg width="9" height="9"><use href="#i-chev-down"/></svg>
+              </span>
+              <span class="nav-status-pill">
+                <svg width="11" height="11"><use href="#i-bank"/></svg>
+                Mumbai HQ
+                <svg width="9" height="9"><use href="#i-chev-down"/></svg>
+              </span>
+              <span class="nav-status-pill">FY 2026-27 <svg width="9" height="9"><use href="#i-chev-down"/></svg></span>
+            </div>
+            <div class="nav-status-group">
+              <span class="nav-status-pill warn">
+                <svg width="11" height="11"><use href="#i-warn"/></svg>
+                3 audits unresolved
+              </span>
+            </div>
+            <div class="nav-status-group right">
+              <span class="nav-status-pill"><span class="nav-status-dot ok"></span>Synced 2m ago</span>
+              <span class="nav-status-pill"><span class="nav-status-dot muted"></span>Online · 12ms</span>
+              <span class="nav-status-pill"><span class="nav-status-dot ok"></span>Backup 09:30</span>
+            </div>
+          </div>
+
+          <!-- Command bar -->
+          <div class="nav-bar">
+            <div class="nav-bar-inner centred">
+              <button class="nav-brand">
+                <span class="bolt"><svg width="20" height="20"><use href="#i-bolt"/></svg></span>
+                <span class="wordmark">Billing ERP</span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <button class="nav-workspace">
+                <span class="ws-avatar">A</span>
+                <span class="ws-name">Acme Co.</span>
+                <span class="ws-caret"><svg width="9" height="9"><use href="#i-chev-down"/></svg></span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <nav class="nav-menu gap-large">
+                <button class="nav-pill is-active">
+                  <span class="pill-icon"><svg><use href="#i-home"/></svg></span>
+                  <span class="pill-label">Home</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-dashboard"/></svg></span>
+                  <span class="pill-label">Dashboard</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-sales"/></svg></span>
+                  <span class="pill-label">Sales</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-purchase"/></svg></span>
+                  <span class="pill-label">Purchase</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-parties"/></svg></span>
+                  <span class="pill-label">Parties</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-inventory"/></svg></span>
+                  <span class="pill-label">Inventory</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-payments"/></svg></span>
+                  <span class="pill-label">Payments</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-expenses"/></svg></span>
+                  <span class="pill-label">Expenses</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-bank"/></svg></span>
+                  <span class="pill-label">Bank</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-accounts"/></svg></span>
+                  <span class="pill-label">Accounts</span>
+                </button>
+                <button class="nav-pill">
+                  <span class="pill-icon"><svg><use href="#i-reports"/></svg></span>
+                  <span class="pill-label">Reports</span>
+                </button>
+              </nav>
+              <div class="nav-right">
+                <button class="nav-search wide">
+                  <span class="search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span>
+                  <span class="search-label">Search anything or run a command</span>
+                  <span class="search-kbd"><kbd>⌘</kbd><kbd>K</kbd></span>
+                </button>
+                <button class="nav-iconbtn" title="Notifications">
+                  <svg><use href="#i-bell"/></svg>
+                  <span class="nav-badge">3</span>
+                </button>
+                <button class="nav-iconbtn" title="Toggle theme">
+                  <svg><use href="#i-moon"/></svg>
+                </button>
+                <button class="nav-iconbtn" title="Settings">
+                  <svg><use href="#i-settings"/></svg>
+                </button>
+                <button class="nav-avatar" title="Ali Ansari · Admin">
+                  <span class="avatar-circle">A</span>
+                  <span class="avatar-dot"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Workspace tabs -->
+          <div class="nav-tabs">
+            <div class="nav-tab is-active">
+              <span class="tab-icon"><svg width="13" height="13"><use href="#i-sales"/></svg></span>
+              Sale · INV-2026-04321
+              <span class="tab-close"><svg width="11" height="11"><use href="#i-close"/></svg></span>
+            </div>
+            <div class="nav-tab">
+              <span class="tab-icon"><svg width="13" height="13"><use href="#i-reports"/></svg></span>
+              Customer Statement
+              <span class="tab-close"><svg width="11" height="11"><use href="#i-close"/></svg></span>
+            </div>
+            <div class="nav-tab">
+              <span class="tab-icon"><svg width="13" height="13"><use href="#i-inventory"/></svg></span>
+              Stock Report
+              <span class="tab-close"><svg width="11" height="11"><use href="#i-close"/></svg></span>
+            </div>
+            <div class="nav-tab-new">
+              <svg width="12" height="12"><use href="#i-plus"/></svg>
+              New tab
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callouts">
+      <div class="callout">
+        <div class="callout-head">A · Status strip</div>
+        <div class="callout-body">
+          Workspace context (company · branch · FY), unresolved-audit count,
+          sync/online/backup state. Hidden in SMB mode — appears when <code>companies&gt;1</code>
+          or <code>auditEnabled</code>.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-head">B · Command bar</div>
+        <div class="callout-body">
+          The heart. Brand · workspace · 11 menu pills · search · bell · theme · settings · avatar.
+          Content clamped to 1760px on big screens so the bar never feels stretched.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-head">C · Workspace tabs</div>
+        <div class="callout-body">
+          Optional. Each tab preserves scroll, filter, and unsaved-form state.
+          Toggle in Settings → Workspace. Diehards never see it; analysts love it.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SECTION 2 — Command bar at 4 viewport widths ─── -->
+  <section class="sec">
+    <header class="sec-head">
+      <span class="sec-no">02</span>
+      <h2 class="sec-title">Command bar across four viewports</h2>
+    </header>
+    <p class="sec-sub">
+      Same bar, four widths. Watch how the workspace card truncates, the search
+      trigger collapses, and the menu pills go icon-only — all without wrapping
+      or overflowing. SMB persona (no status strip).
+    </p>
+
+    <!-- 1440 — Standard desktop -->
+    <div class="frame" style="margin-bottom: 24px;">
+      <div class="frame-head">
+        <span class="frame-label">Standard desktop <small>· labels + 6px gaps + full search</small></span>
+        <span class="frame-spec">viewport: 1440px</span>
+      </div>
+      <div class="frame-body" style="padding: 32px 0;">
+        <div class="vp" style="width: 1380px; max-width: 100%;">
+          <span class="vp-label">VIEWPORT 1380PX</span>
+          <div class="nav-bar">
+            <div class="nav-bar-inner">
+              <button class="nav-brand">
+                <span class="bolt"><svg width="20" height="20"><use href="#i-bolt"/></svg></span>
+                <span class="wordmark">Billing ERP</span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <button class="nav-workspace">
+                <span class="ws-avatar">A</span>
+                <span class="ws-name">Acme Co.</span>
+                <span class="ws-caret"><svg width="9" height="9"><use href="#i-chev-down"/></svg></span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <nav class="nav-menu">
+                <button class="nav-pill is-active"><span class="pill-icon"><svg><use href="#i-home"/></svg></span><span class="pill-label">Home</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-dashboard"/></svg></span><span class="pill-label">Dashboard</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-purchase"/></svg></span><span class="pill-label">Purchase</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-parties"/></svg></span><span class="pill-label">Parties</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-inventory"/></svg></span><span class="pill-label">Inventory</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-payments"/></svg></span><span class="pill-label">Payments</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-expenses"/></svg></span><span class="pill-label">Expenses</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-bank"/></svg></span><span class="pill-label">Bank</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-accounts"/></svg></span><span class="pill-label">Accounts</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-reports"/></svg></span><span class="pill-label">Reports</span></button>
+              </nav>
+              <div class="nav-right">
+                <button class="nav-search">
+                  <span class="search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span>
+                  <span class="search-label">Search anything…</span>
+                  <span class="search-kbd"><kbd>⌘</kbd><kbd>K</kbd></span>
+                </button>
+                <button class="nav-iconbtn"><svg><use href="#i-bell"/></svg><span class="nav-badge">3</span></button>
+                <button class="nav-iconbtn"><svg><use href="#i-moon"/></svg></button>
+                <button class="nav-iconbtn"><svg><use href="#i-settings"/></svg></button>
+                <button class="nav-avatar"><span class="avatar-circle">A</span><span class="avatar-dot"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1280 — Compact -->
+    <div class="frame" style="margin-bottom: 24px;">
+      <div class="frame-head">
+        <span class="frame-label">13" laptop <small>· labels, 2px gaps, search shrinks to pill</small></span>
+        <span class="frame-spec">viewport: 1280px</span>
+      </div>
+      <div class="frame-body" style="padding: 32px 0;">
+        <div class="vp" style="width: 1220px; max-width: 100%;">
+          <span class="vp-label">VIEWPORT 1220PX</span>
+          <div class="nav-bar">
+            <div class="nav-bar-inner" style="gap: 8px;">
+              <button class="nav-brand">
+                <span class="bolt"><svg width="20" height="20"><use href="#i-bolt"/></svg></span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <button class="nav-workspace" style="max-width: 110px;">
+                <span class="ws-avatar">A</span>
+                <span class="ws-name">Acme</span>
+                <span class="ws-caret"><svg width="9" height="9"><use href="#i-chev-down"/></svg></span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <nav class="nav-menu gap-tight">
+                <button class="nav-pill is-active" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-home"/></svg></span><span class="pill-label">Home</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-dashboard"/></svg></span><span class="pill-label">Dash</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-purchase"/></svg></span><span class="pill-label">Purch</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-parties"/></svg></span><span class="pill-label">Parties</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-inventory"/></svg></span><span class="pill-label">Inv</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-payments"/></svg></span><span class="pill-label">Pay</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-expenses"/></svg></span><span class="pill-label">Exp</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-bank"/></svg></span><span class="pill-label">Bank</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-accounts"/></svg></span><span class="pill-label">Acc</span></button>
+                <button class="nav-pill" style="padding: 0 10px;"><span class="pill-icon"><svg><use href="#i-reports"/></svg></span><span class="pill-label">Rep</span></button>
+              </nav>
+              <div class="nav-right">
+                <button class="nav-search compact">
+                  <span class="search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span>
+                  <span class="search-label">Search…</span>
+                  <span class="search-kbd"><kbd>⌘K</kbd></span>
+                </button>
+                <button class="nav-iconbtn"><svg><use href="#i-bell"/></svg><span class="nav-badge">3</span></button>
+                <button class="nav-iconbtn"><svg><use href="#i-moon"/></svg></button>
+                <button class="nav-iconbtn"><svg><use href="#i-settings"/></svg></button>
+                <button class="nav-avatar"><span class="avatar-circle">A</span><span class="avatar-dot"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 900 — Tablet -->
+    <div class="frame" style="margin-bottom: 24px;">
+      <div class="frame-head">
+        <span class="frame-label">Tablet / split-screen <small>· icons only, search to icon</small></span>
+        <span class="frame-spec">viewport: 900px</span>
+      </div>
+      <div class="frame-body" style="padding: 32px 0;">
+        <div class="vp" style="width: 880px; max-width: 100%;">
+          <span class="vp-label">VIEWPORT 880PX</span>
+          <div class="nav-bar">
+            <div class="nav-bar-inner" style="gap: 6px;">
+              <button class="nav-brand"><span class="bolt"><svg width="20" height="20"><use href="#i-bolt"/></svg></span></button>
+              <span class="nav-zone-sep"></span>
+              <button class="nav-workspace" style="padding: 0 8px; max-width: 60px;">
+                <span class="ws-avatar" style="width: 24px; height: 24px; font-size: 11px;">A</span>
+                <span class="ws-caret"><svg width="9" height="9"><use href="#i-chev-down"/></svg></span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <nav class="nav-menu gap-tight">
+                <button class="nav-pill is-active compact"><span class="pill-icon"><svg><use href="#i-home"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-dashboard"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-purchase"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-parties"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-inventory"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-payments"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-expenses"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-bank"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-accounts"/></svg></span></button>
+                <button class="nav-pill compact"><span class="pill-icon"><svg><use href="#i-reports"/></svg></span></button>
+              </nav>
+              <div class="nav-right">
+                <button class="nav-search icon-only"><span class="search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span></button>
+                <button class="nav-iconbtn"><svg><use href="#i-bell"/></svg><span class="nav-badge">3</span></button>
+                <button class="nav-iconbtn"><svg><use href="#i-moon"/></svg></button>
+                <button class="nav-avatar"><span class="avatar-circle">A</span><span class="avatar-dot"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Light mode bonus -->
+    <div class="frame">
+      <div class="frame-head">
+        <span class="frame-label">Light-mode chrome <small>· refined whites + frosted glass</small></span>
+        <span class="frame-spec">viewport: 1440px · modern-light</span>
+      </div>
+      <div class="frame-body frame-body--light" style="padding: 32px 0;">
+        <div class="vp" style="width: 1380px; max-width: 100%; background: rgba(255,255,255,0.4); border-color: rgba(31,30,26,0.08);">
+          <span class="vp-label" style="background: linear-gradient(180deg, #F8F5EE, #F1ECE0); color: rgba(31,30,26,0.5);">VIEWPORT 1380PX · LIGHT</span>
+          <div class="nav-bar light">
+            <div class="nav-bar-inner">
+              <button class="nav-brand">
+                <span class="bolt"><svg width="20" height="20"><use href="#i-bolt"/></svg></span>
+                <span class="wordmark">Billing ERP</span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <button class="nav-workspace">
+                <span class="ws-avatar">A</span>
+                <span class="ws-name">Acme Co.</span>
+                <span class="ws-caret"><svg width="9" height="9"><use href="#i-chev-down"/></svg></span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <nav class="nav-menu">
+                <button class="nav-pill is-active"><span class="pill-icon"><svg><use href="#i-home"/></svg></span><span class="pill-label">Home</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-dashboard"/></svg></span><span class="pill-label">Dashboard</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-purchase"/></svg></span><span class="pill-label">Purchase</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-parties"/></svg></span><span class="pill-label">Parties</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-inventory"/></svg></span><span class="pill-label">Inventory</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-payments"/></svg></span><span class="pill-label">Payments</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-expenses"/></svg></span><span class="pill-label">Expenses</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-bank"/></svg></span><span class="pill-label">Bank</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-accounts"/></svg></span><span class="pill-label">Accounts</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-reports"/></svg></span><span class="pill-label">Reports</span></button>
+              </nav>
+              <div class="nav-right">
+                <button class="nav-search">
+                  <span class="search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span>
+                  <span class="search-label">Search anything…</span>
+                  <span class="search-kbd"><kbd>⌘</kbd><kbd>K</kbd></span>
+                </button>
+                <button class="nav-iconbtn"><svg><use href="#i-bell"/></svg><span class="nav-badge">3</span></button>
+                <button class="nav-iconbtn"><svg><use href="#i-sun"/></svg></button>
+                <button class="nav-iconbtn"><svg><use href="#i-settings"/></svg></button>
+                <button class="nav-avatar"><span class="avatar-circle">A</span><span class="avatar-dot"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SECTION 3 — Sidebar (expanded + collapsed) ─── -->
+  <section class="sec">
+    <header class="sec-head">
+      <span class="sec-no">03</span>
+      <h2 class="sec-title">Vertical sidebar — expanded &amp; collapsed</h2>
+    </header>
+    <p class="sec-sub">
+      Section labels split the 11 modules into MAIN · TRANSACTIONS · FINANCE · INSIGHTS.
+      Inline counters surface pending work (Sales 12 · Purchase 3 · Payments 2).
+      Pinned reports get a permanent slot. Collapsed width drops to 56px (was 68px)
+      for more page real-estate.
+    </p>
+
+    <div class="frame">
+      <div class="frame-head">
+        <span class="frame-label">Sidebar side-by-side <small>· expanded 248px · collapsed 56px</small></span>
+        <span class="frame-spec">dark · enterprise · multi-branch</span>
+      </div>
+      <div class="frame-body" style="padding: 36px; display: flex; gap: 36px; align-items: flex-start; justify-content: center;">
+
+        <!-- Expanded -->
+        <div class="sb expanded">
+          <div class="sb-brand">
+            <span class="bolt"><svg width="22" height="22"><use href="#i-bolt"/></svg></span>
+            <span class="wordmark">Billing ERP</span>
+            <button class="collapse-btn" title="Collapse"><svg width="14" height="14"><use href="#i-chev-left"/></svg></button>
+          </div>
+          <button class="sb-workspace">
+            <span class="ws-avatar">A</span>
+            <div class="ws-body">
+              <div class="ws-name">Acme Co.</div>
+              <div class="ws-ctx">Mumbai · FY 26-27</div>
+            </div>
+            <span class="ws-caret"><svg width="10" height="10"><use href="#i-chev-down"/></svg></span>
+          </button>
+          <div class="sb-search-wrap">
+            <button class="sb-search">
+              <span class="search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span>
+              <span class="search-label">Search anything…</span>
+              <span class="search-kbd"><kbd>⌘</kbd><kbd>K</kbd></span>
+            </button>
+          </div>
+          <div class="sb-scroll">
+            <div class="sb-section">Main</div>
+            <div class="sb-rows">
+              <div class="sb-row is-active"><span class="row-icon"><svg><use href="#i-home"/></svg></span><span class="row-label">Home</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-dashboard"/></svg></span><span class="row-label">Dashboard</span></div>
+            </div>
+            <div class="sb-section">Transactions</div>
+            <div class="sb-rows">
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-sales"/></svg></span><span class="row-label">Sales</span><span class="row-counter">12</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-purchase"/></svg></span><span class="row-label">Purchase</span><span class="row-counter">3</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-parties"/></svg></span><span class="row-label">Parties</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-inventory"/></svg></span><span class="row-label">Inventory</span></div>
+            </div>
+            <div class="sb-section">Finance</div>
+            <div class="sb-rows">
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-payments"/></svg></span><span class="row-label">Payments</span><span class="row-counter">2</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-expenses"/></svg></span><span class="row-label">Expenses</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-bank"/></svg></span><span class="row-label">Banks</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-accounts"/></svg></span><span class="row-label">Accounts</span></div>
+            </div>
+            <div class="sb-section">Insights</div>
+            <div class="sb-rows">
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-reports"/></svg></span><span class="row-label">Reports</span></div>
+              <div class="sb-row is-sub"><span class="star"><svg width="12" height="12"><use href="#i-star"/></svg></span><span class="row-label">Day Book</span></div>
+              <div class="sb-row is-sub"><span class="star"><svg width="12" height="12"><use href="#i-star"/></svg></span><span class="row-label">Outstanding</span></div>
+              <div class="sb-row is-sub"><span class="star"><svg width="12" height="12"><use href="#i-star"/></svg></span><span class="row-label">Stock Report</span></div>
+              <div class="sb-row is-sub"><span class="star"><svg width="12" height="12"><use href="#i-star"/></svg></span><span class="row-label">P&amp;L Summary</span></div>
+            </div>
+          </div>
+          <div class="sb-footer">
+            <div class="sb-footer-divider"></div>
+            <div class="sb-rows">
+              <div class="sb-row" style="position: relative;">
+                <span class="row-icon"><svg><use href="#i-bell"/></svg></span>
+                <span class="row-label">Notifications</span>
+                <span class="row-counter">3</span>
+              </div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-settings"/></svg></span><span class="row-label">Settings</span></div>
+            </div>
+            <div class="sb-theme-row">
+              <div class="sb-theme">
+                <button class="sb-theme-opt"><svg><use href="#i-sun"/></svg>Light</button>
+                <button class="sb-theme-opt active"><svg><use href="#i-moon"/></svg>Dark</button>
+              </div>
+              <div class="sb-sync" title="Synced 2m ago"><span class="dot"></span></div>
+            </div>
+            <div class="sb-footer-divider"></div>
+            <div class="sb-user">
+              <div class="avatar-wrap">
+                <span class="avatar-circle">A</span>
+                <span class="avatar-dot"></span>
+              </div>
+              <div class="user-text">
+                <div class="user-name">Ali Ansari</div>
+                <div class="user-role">Admin · Mumbai HQ</div>
+              </div>
+              <div class="user-more">⋯</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Collapsed -->
+        <div class="sb collapsed">
+          <div class="sb-brand">
+            <span class="bolt"><svg width="22" height="22"><use href="#i-bolt"/></svg></span>
+            <button class="collapse-btn" title="Expand"><svg width="14" height="14"><use href="#i-chev-right"/></svg></button>
+          </div>
+          <button class="sb-workspace">
+            <span class="ws-avatar">A</span>
+          </button>
+          <div class="sb-search-wrap">
+            <button class="sb-search">
+              <span class="search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span>
+            </button>
+          </div>
+          <div class="sb-scroll">
+            <div class="sb-rows">
+              <div class="sb-row is-active"><span class="row-icon"><svg><use href="#i-home"/></svg></span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-dashboard"/></svg></span></div>
+              <div class="sb-divider"></div>
+              <div class="sb-row" style="position: relative;"><span class="row-icon"><svg><use href="#i-sales"/></svg></span><span class="row-counter">12</span></div>
+              <div class="sb-row" style="position: relative;"><span class="row-icon"><svg><use href="#i-purchase"/></svg></span><span class="row-counter">3</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-parties"/></svg></span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-inventory"/></svg></span></div>
+              <div class="sb-divider"></div>
+              <div class="sb-row" style="position: relative;"><span class="row-icon"><svg><use href="#i-payments"/></svg></span><span class="row-counter">2</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-expenses"/></svg></span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-bank"/></svg></span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-accounts"/></svg></span></div>
+              <div class="sb-divider"></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-reports"/></svg></span></div>
+            </div>
+          </div>
+          <div class="sb-footer">
+            <div class="sb-footer-divider"></div>
+            <div class="sb-rows">
+              <div class="sb-row" style="position: relative;"><span class="row-icon"><svg><use href="#i-bell"/></svg></span><span class="row-counter">3</span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-settings"/></svg></span></div>
+              <div class="sb-row"><span class="row-icon"><svg><use href="#i-moon"/></svg></span></div>
+            </div>
+            <div class="sb-footer-divider"></div>
+            <div class="sb-user">
+              <div class="avatar-wrap">
+                <span class="avatar-circle">A</span>
+                <span class="avatar-dot"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SECTION 4 — Active pill: old vs new ─── -->
+  <section class="sec">
+    <header class="sec-head">
+      <span class="sec-no">04</span>
+      <h2 class="sec-title">Active-pill: today vs proposed</h2>
+    </header>
+    <p class="sec-sub">
+      With 11 pills on the bar, today's solid-accent fill on the active item shouts.
+      The proposed treatment uses four quiet signals stacked — subtle bg, bolder
+      label, filled-style icon, and a 2px accent indicator — for a more enterprise
+      feel that doesn't fight the rest of the chrome.
+    </p>
+
+    <div class="frame">
+      <div class="frame-head">
+        <span class="frame-label">Side by side</span>
+        <span class="frame-spec">same content · two treatments</span>
+      </div>
+      <div class="compare-grid">
+        <div class="compare-card">
+          <div class="compare-tag old">Today · solid accent</div>
+          <div class="nav-bar" style="border-radius: 8px; border: 1px solid var(--nav-border);">
+            <div class="nav-bar-inner" style="padding: 0 14px;">
+              <nav class="nav-menu">
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-home"/></svg></span><span class="pill-label">Home</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-dashboard"/></svg></span><span class="pill-label">Dashboard</span></button>
+                <button class="nav-pill is-active-old"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-purchase"/></svg></span><span class="pill-label">Purchase</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-parties"/></svg></span><span class="pill-label">Parties</span></button>
+              </nav>
+            </div>
+          </div>
+          <p style="font-size: 12.5px; color: var(--nav-fg-muted); margin: 14px 4px 0; line-height: 1.5;">
+            Solid accent fill demands the eye. On a bar of 11 pills it reads as a
+            billboard — fine on a sidebar, loud on a horizontal bar.
+          </p>
+        </div>
+        <div class="compare-card">
+          <div class="compare-tag new">Proposed · 4-signal stack</div>
+          <div class="nav-bar" style="border-radius: 8px; border: 1px solid var(--nav-border);">
+            <div class="nav-bar-inner" style="padding: 0 14px;">
+              <nav class="nav-menu">
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-home"/></svg></span><span class="pill-label">Home</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-dashboard"/></svg></span><span class="pill-label">Dashboard</span></button>
+                <button class="nav-pill is-active"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-purchase"/></svg></span><span class="pill-label">Purchase</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-parties"/></svg></span><span class="pill-label">Parties</span></button>
+              </nav>
+            </div>
+          </div>
+          <p style="font-size: 12.5px; color: var(--nav-fg-muted); margin: 14px 4px 0; line-height: 1.5;">
+            5% white tint + 600 weight label + accent-tinted icon + 2px bottom
+            indicator. Information louder, chrome quieter. Linear / Stripe / Vercel
+            all do variants of this.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SECTION 5 — Pill state matrix ─── -->
+  <section class="sec">
+    <header class="sec-head">
+      <span class="sec-no">05</span>
+      <h2 class="sec-title">Pill state matrix</h2>
+    </header>
+    <p class="sec-sub">
+      Inactive · Hover · Active · Active+Hover. Each transition is 120ms
+      cubic-bezier(.2, .7, .2, 1) — responsive, never floaty.
+    </p>
+
+    <div class="frame">
+      <div class="frame-head">
+        <span class="frame-label">All four states</span>
+        <span class="frame-spec">isolated · same pill, different states</span>
+      </div>
+      <div class="state-grid">
+        <div class="state-card">
+          <div class="state-label">Inactive</div>
+          <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+          <div class="state-note">62% opacity label · transparent bg · 14px icon</div>
+        </div>
+        <div class="state-card">
+          <div class="state-label">Hover</div>
+          <button class="nav-pill" style="background: var(--nav-hover); color: var(--nav-fg);"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+          <div class="state-note">6% white bg · 100% label · 120ms ease-out</div>
+        </div>
+        <div class="state-card">
+          <div class="state-label">Active</div>
+          <button class="nav-pill is-active"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+          <div class="state-note">5% bg · 600 weight · accent icon · 2px indicator</div>
+        </div>
+        <div class="state-card">
+          <div class="state-label">Active + hover</div>
+          <button class="nav-pill is-active" style="background: rgba(255,255,255,0.10);"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+          <div class="state-note">10% bg · subtle lift on already-active item</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SECTION 6 — Personas (SMB / Mid / Enterprise) ─── -->
+  <section class="sec">
+    <header class="sec-head">
+      <span class="sec-no">06</span>
+      <h2 class="sec-title">Three personas, one design</h2>
+    </header>
+    <p class="sec-sub">
+      The chrome adapts to who's using it. SMB sees only the command bar. Mid-market
+      adds the workspace card. Enterprise unlocks the status strip plus multi-tab.
+      Auto-detected from <code>companies.length</code>, <code>auditEnabled</code>,
+      <code>multiBranch</code>; user can override in Settings.
+    </p>
+
+    <!-- SMB -->
+    <div class="frame" style="margin-bottom: 24px;">
+      <div class="frame-head">
+        <span class="frame-label">SMB <small>· single company, single branch, audit clean</small></span>
+        <span class="frame-spec">tier 2 only · brand wordmark hidden, no workspace</span>
+      </div>
+      <div class="frame-body" style="padding: 28px 0;">
+        <div class="vp" style="width: 1380px; max-width: 100%;">
+          <span class="vp-label">SMB · 1380PX</span>
+          <div class="nav-bar">
+            <div class="nav-bar-inner">
+              <button class="nav-brand">
+                <span class="bolt"><svg width="20" height="20"><use href="#i-bolt"/></svg></span>
+                <span class="wordmark">Billing ERP</span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <nav class="nav-menu">
+                <button class="nav-pill is-active"><span class="pill-icon"><svg><use href="#i-home"/></svg></span><span class="pill-label">Home</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-dashboard"/></svg></span><span class="pill-label">Dashboard</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-purchase"/></svg></span><span class="pill-label">Purchase</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-parties"/></svg></span><span class="pill-label">Parties</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-inventory"/></svg></span><span class="pill-label">Inventory</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-payments"/></svg></span><span class="pill-label">Payments</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-expenses"/></svg></span><span class="pill-label">Expenses</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-bank"/></svg></span><span class="pill-label">Bank</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-accounts"/></svg></span><span class="pill-label">Accounts</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-reports"/></svg></span><span class="pill-label">Reports</span></button>
+              </nav>
+              <div class="nav-right">
+                <button class="nav-search">
+                  <span class="search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span>
+                  <span class="search-label">Search anything…</span>
+                  <span class="search-kbd"><kbd>⌘</kbd><kbd>K</kbd></span>
+                </button>
+                <button class="nav-iconbtn"><svg><use href="#i-bell"/></svg></button>
+                <button class="nav-iconbtn"><svg><use href="#i-moon"/></svg></button>
+                <button class="nav-iconbtn"><svg><use href="#i-settings"/></svg></button>
+                <button class="nav-avatar"><span class="avatar-circle">A</span><span class="avatar-dot"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mid-market -->
+    <div class="frame" style="margin-bottom: 24px;">
+      <div class="frame-head">
+        <span class="frame-label">Mid-market <small>· 3 companies, multi-branch, audit clean</small></span>
+        <span class="frame-spec">tier 2 + workspace card · status strip still hidden</span>
+      </div>
+      <div class="frame-body" style="padding: 28px 0;">
+        <div class="vp" style="width: 1380px; max-width: 100%;">
+          <span class="vp-label">MID-MARKET · 1380PX</span>
+          <div class="nav-bar">
+            <div class="nav-bar-inner">
+              <button class="nav-brand">
+                <span class="bolt"><svg width="20" height="20"><use href="#i-bolt"/></svg></span>
+                <span class="wordmark">Billing ERP</span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <button class="nav-workspace">
+                <span class="ws-avatar">A</span>
+                <span class="ws-name">Acme Co.</span>
+                <span class="ws-caret"><svg width="9" height="9"><use href="#i-chev-down"/></svg></span>
+              </button>
+              <span class="nav-zone-sep"></span>
+              <nav class="nav-menu">
+                <button class="nav-pill is-active"><span class="pill-icon"><svg><use href="#i-home"/></svg></span><span class="pill-label">Home</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-dashboard"/></svg></span><span class="pill-label">Dashboard</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-sales"/></svg></span><span class="pill-label">Sales</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-purchase"/></svg></span><span class="pill-label">Purchase</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-parties"/></svg></span><span class="pill-label">Parties</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-inventory"/></svg></span><span class="pill-label">Inventory</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-payments"/></svg></span><span class="pill-label">Payments</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-expenses"/></svg></span><span class="pill-label">Expenses</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-bank"/></svg></span><span class="pill-label">Bank</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-accounts"/></svg></span><span class="pill-label">Accounts</span></button>
+                <button class="nav-pill"><span class="pill-icon"><svg><use href="#i-reports"/></svg></span><span class="pill-label">Reports</span></button>
+              </nav>
+              <div class="nav-right">
+                <button class="nav-search">
+                  <span class="search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span>
+                  <span class="search-label">Search anything…</span>
+                  <span class="search-kbd"><kbd>⌘</kbd><kbd>K</kbd></span>
+                </button>
+                <button class="nav-iconbtn"><svg><use href="#i-bell"/></svg><span class="nav-badge">3</span></button>
+                <button class="nav-iconbtn"><svg><use href="#i-moon"/></svg></button>
+                <button class="nav-iconbtn"><svg><use href="#i-settings"/></svg></button>
+                <button class="nav-avatar"><span class="avatar-circle">A</span><span class="avatar-dot"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Enterprise — three tiers stacked (see Section 1) -->
+    <div class="callouts" style="margin-top: 8px;">
+      <div class="callout">
+        <div class="callout-head">SMB · 1 company</div>
+        <div class="callout-body">
+          Command bar only. Workspace card hidden — there's no other company to
+          switch to. Settings shows the toggle if they later add one.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-head">Mid-market · multi-branch</div>
+        <div class="callout-body">
+          Workspace card appears with company name. Click opens the switcher with
+          companies, branches, and FY in one panel. Bell shows unread.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-head">Enterprise · multi-co</div>
+        <div class="callout-body">
+          Status strip on. Audit alerts surface. Multi-tab available. All without
+          changing what the SMB user already learned.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SECTION 7 — Color & spec tokens ─── -->
+  <section class="sec">
+    <header class="sec-head">
+      <span class="sec-no">07</span>
+      <h2 class="sec-title">Tokens &amp; spec</h2>
+    </header>
+    <p class="sec-sub">
+      Every surface reads from CSS vars — drop in your existing theme tokens and
+      the design retunes itself. No new colors required.
+    </p>
+
+    <div class="frame">
+      <div class="frame-head">
+        <span class="frame-label">Color tokens (proposed)</span>
+        <span class="frame-spec">reuses existing tokens where possible</span>
+      </div>
+      <div class="tokens-grid">
+        <div class="token-card">
+          <div class="token-swatch" style="background: #15171A;"></div>
+          <div class="token-meta">
+            <div class="token-name">--nav-bg</div>
+            <div class="token-val">#15171A</div>
+          </div>
+        </div>
+        <div class="token-card">
+          <div class="token-swatch" style="background: #E26A4C;"></div>
+          <div class="token-meta">
+            <div class="token-name">--accent</div>
+            <div class="token-val">#E26A4C</div>
+          </div>
+        </div>
+        <div class="token-card">
+          <div class="token-swatch" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08);"></div>
+          <div class="token-meta">
+            <div class="token-name">--nav-hover</div>
+            <div class="token-val">rgba(255 255 255 / .06)</div>
+          </div>
+        </div>
+        <div class="token-card">
+          <div class="token-swatch" style="background: rgba(245, 239, 227, 0.62);"></div>
+          <div class="token-meta">
+            <div class="token-name">--nav-fg-muted</div>
+            <div class="token-val">rgba(245 239 227 / .62)</div>
+          </div>
+        </div>
+        <div class="token-card">
+          <div class="token-swatch" style="background: #34D399;"></div>
+          <div class="token-meta">
+            <div class="token-name">--success (sync dot)</div>
+            <div class="token-val">#34D399</div>
+          </div>
+        </div>
+        <div class="token-card">
+          <div class="token-swatch" style="background: #F59E0B;"></div>
+          <div class="token-meta">
+            <div class="token-name">--warn (audit alerts)</div>
+            <div class="token-val">#F59E0B</div>
+          </div>
+        </div>
+        <div class="token-card">
+          <div class="token-swatch" style="background: #B1472F;"></div>
+          <div class="token-meta">
+            <div class="token-name">--role-admin (avatar)</div>
+            <div class="token-val">#B1472F</div>
+          </div>
+        </div>
+        <div class="token-card">
+          <div class="token-swatch" style="background: rgba(255, 253, 247, 0.92); border: 1px solid rgba(31, 30, 26, 0.08);"></div>
+          <div class="token-meta">
+            <div class="token-name">--nav-bg (light)</div>
+            <div class="token-val">rgba(255 253 247 / .92)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callouts" style="margin-top: 24px;">
+      <div class="callout">
+        <div class="callout-head">Typography</div>
+        <div class="callout-body">
+          Inter 13/500 for pill labels, 13/600 for active. Section labels 10.5/600
+          uppercase +0.10em letter-spacing. JetBrains Mono for ⌘K and counters.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-head">Geometry</div>
+        <div class="callout-body">
+          Bar 52 · pill 34 · sidebar 248/56 · row 38/42 · radius 8 (pills) / 9
+          (search) / 10 (workspace card) / 12 (modal popups).
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-head">Motion</div>
+        <div class="callout-body">
+          120ms ease-out for hover, 200ms for active transitions, 240ms
+          cubic-bezier(.2, .7, .2, 1) for sidebar collapse. No bouncy springs.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SECTION 8 — Sign-off ─── -->
+  <section class="sec">
+    <header class="sec-head">
+      <span class="sec-no">08</span>
+      <h2 class="sec-title">Three calls before I build</h2>
+    </header>
+    <div class="callouts">
+      <div class="callout">
+        <div class="callout-head">1 · Status strip + tabs</div>
+        <div class="callout-body">
+          Ship now (gated, off by default) or stub for v2? I lean ship-now —
+          building them later means re-touching every file.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-head">2 · Inline counters</div>
+        <div class="callout-body">
+          Wire to a new <code>/nav/counters</code> aggregate endpoint, or render
+          visually-empty for now and hook the data when ready? I lean wire-now —
+          it's the single best "alive" signal on the page.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-head">3 · Active-pill style</div>
+        <div class="callout-body">
+          Keep today's solid accent fill, or switch to the proposed 4-signal stack?
+          Section 04 has both side by side — your call.
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,138 @@
+/* ===========================================================================
+ * CompanySwitcher — clean text pill, no avatar.
+ *
+ * Two variants share styles:
+ *   .erp-cs-pill  — expanded form (sidebar full, topnav) → name + caret
+ *   .erp-cs-icon  — collapsed-sidebar form (icon only) → BankOutlined glyph
+ *
+ * An earlier version painted a colored letter-square ("A" for Acme on the
+ * company's stored accent_color) inside the pill. That read as visually
+ * noisy against the rest of the nav, so the avatar was dropped — the
+ * company name carries enough identity on its own, and the chrome stays
+ * cohesive across companies.
+ * ========================================================================== */
+
+.erp-cs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px 0 14px;          /* avatar removed → uniform padding, more left so the name doesn't kiss the border */
+  border-radius: 9px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.10));
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  color: var(--fg-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1;
+  transition: background .15s, border-color .15s, transform .08s;
+  max-width: 200px;
+  flex-shrink: 0;
+}
+/* Sidebar override — full-column width so the stacked pills (company,
+   search, bell) read as a clean left-aligned tools rail rather than a
+   short pill floating beside an empty 48 px gap. The pill stays the
+   same 34 px height and the same chrome; only its width changes. */
+.erp-sidebar .erp-cs-pill {
+  display: flex;
+  width: 100%;
+  max-width: none;
+}
+.erp-cs-pill:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.07));
+  border-color: var(--border-strong, var(--border));
+}
+.erp-cs-pill:active {
+  transform: scale(0.98);
+}
+/* Open state — neutral ring (was per-company accent before, but the user
+   asked to drop all per-company color theming from the pill chrome). */
+.erp-cs-pill[aria-expanded="true"] {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--border-strong, rgba(255, 255, 255, 0.18));
+}
+
+.erp-cs-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-weight: 600;
+}
+
+.erp-cs-caret {
+  font-size: 9px;
+  opacity: 0.55;
+  flex-shrink: 0;
+  margin-left: 2px;
+  transition: transform .18s cubic-bezier(.2, .7, .2, 1), opacity .15s;
+}
+.erp-cs-pill[aria-expanded="true"] .erp-cs-caret {
+  transform: rotate(180deg);
+  opacity: 0.9;
+}
+
+/* ── Collapsed (icon-only sidebar) ────────────────────────────────────── */
+.erp-cs-icon {
+  width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.10));
+  border-radius: 10px;
+  cursor: pointer;
+  padding: 0;
+  color: var(--fg-secondary, rgba(255, 255, 255, 0.75));
+  font-size: 16px;
+  transition: background .15s, border-color .15s, color .15s, transform .08s;
+}
+.erp-cs-icon:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.07));
+  border-color: var(--border-strong, var(--border));
+  color: var(--fg-primary, #FFFFFF);
+}
+.erp-cs-icon:active { transform: scale(0.95); }
+.erp-cs-icon[aria-expanded="true"] {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--border-strong, rgba(255, 255, 255, 0.18));
+  color: var(--fg-primary, #FFFFFF);
+}
+
+/* ── Dropdown polish ──────────────────────────────────────────────────── */
+.erp-cs-dropdown .ant-dropdown-menu {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 11px !important;
+  padding: 6px !important;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.06) !important;
+  min-width: 240px !important;
+}
+.erp-cs-dropdown .ant-dropdown-menu-item-group-title {
+  padding: 8px 10px 4px !important;
+  font-size: 10px !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  color: var(--fg-tertiary) !important;
+  font-weight: 600 !important;
+}
+.erp-cs-dropdown .ant-dropdown-menu-item {
+  border-radius: 7px !important;
+  margin: 1px 0 !important;
+  padding: 8px 10px !important;
+  font-size: 13px !important;
+  color: var(--fg-primary) !important;
+  transition: background .12s !important;
+}
+.erp-cs-dropdown .ant-dropdown-menu-item:hover {
+  background: var(--bg-hover) !important;
+}
+.erp-cs-dropdown .ant-dropdown-menu-item-divider {
+  margin: 4px 0 !important;
+  background: var(--border) !important;
+}

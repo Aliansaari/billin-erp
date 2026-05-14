@@ -336,14 +336,52 @@ body {
 }
 
 /* Theme toggle (Light / Dark) — sits above the user bar */
+/* Notification bell — sits just above the theme toggle now (was in the
+   top tools row alongside the search pill). Expanded sidebar uses a
+   left-aligned row so the bell + badge stay at the column edge near the
+   user pill below. Collapsed sidebar centres the icon. */
+.erp-sidebar-notif {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  display: flex;
+  align-items: center;
+}
+.erp-sidebar-notif.collapsed {
+  /* Symmetrical 4 px so the bell sits in the same rhythm as menu icons
+     above and theme below — matches every other collapsed-row padding. */
+  padding: 4px 6px;
+  justify-content: center;
+}
+/* Collapsed-sidebar bell sized to match the company / search icon
+   (40 px square) so the tools rail and the bottom cluster read as
+   the same rhythm — was 34 px which looked undersized next to the
+   40 px neighbours. */
+.erp-sidebar-notif.collapsed .notif-bell {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  font-size: 15px;
+}
+
 .erp-sidebar-theme {
   flex-shrink: 0;
   padding: 8px 10px 12px;
 }
 .erp-sidebar-theme.collapsed {
-  padding: 8px 6px 4px;
+  /* Symmetrical 4 px to match every other collapsed row's vertical
+     rhythm — was 8 top / 4 bottom which created an extra gap above
+     the theme button vs. below it. */
+  padding: 4px 6px;
   display: flex;
   justify-content: center;
+}
+/* Collapsed theme button to 40 px — same as company / search / bell so
+   the entire icon column reads as one consistent size. */
+.erp-sidebar-theme.collapsed .erp-sidebar-theme-btn.icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  font-size: 15px;
 }
 .erp-sidebar-theme-toggle {
   display: flex;

@@ -56,14 +56,21 @@
 }
 .erp-topnav-brand .brand-icon { font-size: 20px; }
 
-/* Brand-to-menu separator — a subtle vertical rule so the eye reads the
-   brand and the nav as two sections. */
-.erp-topnav-brand + .erp-topnav-menu::before {
-  content: '';
-  width: 1px; height: 24px;
-  margin: 0 6px 0 2px;
+/* Zone separator — subtle vertical rule between Brand · Workspace · Menu.
+   Originally a pseudo-element on .erp-topnav-menu, now an explicit <span>
+   emitted from TopNav so we can place one between brand+workspace AND
+   between workspace+menu without the adjacent-sibling selector breaking
+   when the workspace renders null (single-company install). */
+.erp-topnav-rule {
+  width: 1px;
+  height: 22px;
+  margin: 0 4px;
   background: rgba(255, 255, 255, 0.10);
+  flex-shrink: 0;
 }
+/* When CompanySwitcher returns null, two rules end up adjacent — collapse
+   the duplicate so the bar doesn't show a double divider on single-co. */
+.erp-topnav-rule + .erp-topnav-rule { display: none; }
 
 /* ── Menu (content-sized, never stretches) ──────────────────────────── */
 .erp-topnav-menu {

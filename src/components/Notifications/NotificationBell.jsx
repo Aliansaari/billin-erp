@@ -121,11 +121,38 @@ export default function NotificationBell({ align = 'right' } = {}) {
 
   // Recompute anchor whenever the bell opens or the viewport size
   // changes. The portaled panel reads these coords each render.
+  //
+  // Direction (up vs down) is decided per-open based on which side has
+  // more room — the bell used to live in the topbar (always plenty of
+  // room below) but now sits at the bottom of the sidebar too, where
+  // opening downward shoves the panel off-screen. The threshold is
+  // 360 px (typical panel height of ~5 unread cards + header + footer);
+  // if "below" can't fit it but "above" can, we flip.
   useLayoutEffect(() => {
     if (!open || !bellRef.current) return;
     const update = () => {
       const r = bellRef.current?.getBoundingClientRect();
-      if (r) setAnchor({ top: r.bottom + 8, left: r.left, right: window.innerWidth - r.right, bellWidth: r.width });
+      if (!r) return;
+      const spaceBelow = window.innerHeight - r.bottom - 12;
+      const spaceAbove = r.top - 12;
+      const openUp    = spaceBelow < 360 && spaceAbove > spaceBelow;
+      if (openUp) {
+        setAnchor({
+          bottom: window.innerHeight - r.top + 8,
+          left:   r.left,
+          right:  window.innerWidth - r.right,
+          bellWidth: r.width,
+          direction: 'up',
+        });
+      } else {
+        setAnchor({
+          top:    r.bottom + 8,
+          left:   r.left,
+          right:  window.innerWidth - r.right,
+          bellWidth: r.width,
+          direction: 'down',
+        });
+      }
     };
     update();
     window.addEventListener('resize', update);
@@ -149,11 +176,12 @@ export default function NotificationBell({ align = 'right' } = {}) {
   // Panel position style — portal mounts at body, so we anchor it
   // with viewport coords measured off the bell. align decides whether
   // the panel extends right-from-left edge or left-from-right edge.
-  const panelStyle = anchor ? (
-    align === 'left'
-      ? { top: anchor.top, left: anchor.left }
-      : { top: anchor.top, right: anchor.right }
-  ) : null;
+  // direction (set in the effect above) decides whether we anchor the
+  // top edge below the bell or the bottom edge above it.
+  const panelStyle = anchor ? {
+    ...(anchor.direction === 'up' ? { bottom: anchor.bottom } : { top: anchor.top }),
+    ...(align === 'left' ? { left: anchor.left } : { right: anchor.right }),
+  } : null;
 
   return (
     <div className="notif-wrap" ref={wrapRef}>
