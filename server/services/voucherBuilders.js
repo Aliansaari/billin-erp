@@ -433,27 +433,57 @@ async function buildSalesReturnVouchers(ret, opts = {}) {
   if (roundOff > 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: roundOff, credit: 0 });
   else if (roundOff < 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: -roundOff });
 
+  const refundAmount = r2(ret.refund_amount);
+  const vouchers = [];
+
   if (!isCashCustomer) {
     const partyLedger = await getPartyLedger(customer, t);
     if (!partyLedger) {
       throw new Error(`buildSalesReturnVouchers: customer #${customer.party_id} has no ledger account`);
     }
     lines.push({ ledgerAccountId: partyLedger.ledger_id, debit: 0, credit: totalAmount, partyId: customer.party_id });
+
+    vouchers.push({
+      voucherType: 'Journal',
+      sourceType:  'sales_return_bill',
+      sourceId:    ret.sales_return_id,
+      voucherDate: ret.return_date,
+      referenceNumber: ret.return_number,
+      lines,
+      narration: `Sales return from ${customer.party_name}`,
+    });
+
+    // CRIT-3 fix: if cash was handed back to the customer, post a separate
+    // refund-payment journal so the Cash ledger is credited.
+    // DR Customer (reduces what we owe them) / CR Cash (cash out of till).
+    if (refundAmount > 0) {
+      vouchers.push({
+        voucherType: 'Payment',
+        sourceType:  'sales_return_refund',
+        sourceId:    ret.sales_return_id,
+        voucherDate: ret.return_date,
+        referenceNumber: ret.return_number,
+        lines: [
+          { ledgerAccountId: partyLedger.ledger_id, debit: refundAmount, credit: 0, partyId: customer.party_id },
+          { ledgerAccountId: cash.ledger_id,         debit: 0, credit: refundAmount },
+        ],
+        narration: `Refund paid to ${customer.party_name} against ${ret.return_number}`,
+      });
+    }
   } else {
     lines.push({ ledgerAccountId: cash.ledger_id, debit: 0, credit: totalAmount });
+    vouchers.push({
+      voucherType: 'Journal',
+      sourceType:  'sales_return_bill',
+      sourceId:    ret.sales_return_id,
+      voucherDate: ret.return_date,
+      referenceNumber: ret.return_number,
+      lines,
+      narration: 'Cash sales return',
+    });
   }
 
-  return [{
-    voucherType: 'Journal',  // credit notes don't fit cleanly in the existing enum
-    sourceType:  'sales_return_bill',
-    sourceId:    ret.sales_return_id,
-    voucherDate: ret.return_date,
-    referenceNumber: ret.return_number,
-    lines,
-    narration: isCashCustomer
-      ? 'Cash sales return'
-      : `Sales return from ${customer.party_name}`,
-  }];
+  return vouchers;
 }
 
 // ── Purchase Return (Debit Note) ──────────────────────────────────────
@@ -511,7 +541,8 @@ async function buildPurchaseReturnVouchers(ret, opts = {}) {
   if (roundOff > 0)      lines.push({ ledgerAccountId: roundOf.ledger_id, debit: 0, credit: roundOff });
   else if (roundOff < 0) lines.push({ ledgerAccountId: roundOf.ledger_id, debit: -roundOff, credit: 0 });
 
-  return [{
+  const refundAmount = r2(ret.refund_amount);
+  const purchaseVouchers = [{
     voucherType: 'Journal',
     sourceType:  'purchase_return_bill',
     sourceId:    ret.purchase_return_id,
@@ -522,6 +553,29 @@ async function buildPurchaseReturnVouchers(ret, opts = {}) {
       ? 'Cash purchase return'
       : `Purchase return to ${supplier.party_name}`,
   }];
+
+  // CRIT-3 fix (purchase side): when supplier is refunded cash for a purchase
+  // return (e.g. they paid us back), post the cash receipt:
+  // CR Supplier (reduces what they owe us) / DR Cash (cash received).
+  if (refundAmount > 0 && !isCashSupplier) {
+    const partyLedger = await getPartyLedger(supplier, t);
+    if (partyLedger) {
+      purchaseVouchers.push({
+        voucherType: 'Receipt',
+        sourceType:  'purchase_return_refund',
+        sourceId:    ret.purchase_return_id,
+        voucherDate: ret.return_date,
+        referenceNumber: ret.return_number,
+        lines: [
+          { ledgerAccountId: cash.ledger_id,          debit: refundAmount, credit: 0 },
+          { ledgerAccountId: partyLedger.ledger_id,   debit: 0, credit: refundAmount, partyId: supplier.party_id },
+        ],
+        narration: `Refund received from ${supplier.party_name} against ${ret.return_number}`,
+      });
+    }
+  }
+
+  return purchaseVouchers;
 }
 
 // ── Payment Receipt ────────────────────────────────────────────────────

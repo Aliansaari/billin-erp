@@ -63,6 +63,8 @@ const ExpenseVoucherItemFactory = require('./ExpenseVoucherItem');
 const CostLayerFactory = require('./CostLayer');
 const SaleLineLayerConsumptionFactory = require('./SaleLineLayerConsumption');
 const IndianStateFactory = require('./IndianState');
+const NotificationStateFactory = require('./NotificationState');
+const NotificationSettingsFactory = require('./NotificationSettings');
 
 /**
  * Define all models + associations on a given Sequelize instance.
@@ -116,6 +118,8 @@ function defineModels(sequelize) {
   const CostLayer = CostLayerFactory(sequelize);
   const SaleLineLayerConsumption = SaleLineLayerConsumptionFactory(sequelize);
   const IndianState = IndianStateFactory(sequelize);
+  const NotificationState = NotificationStateFactory(sequelize);
+  const NotificationSettings = NotificationSettingsFactory(sequelize);
 
   // ── Associations ──
   
@@ -296,6 +300,14 @@ function defineModels(sequelize) {
   // the user if the user is removed.
   User.hasMany(UserReportFavorite,   { foreignKey: 'user_id', as: 'reportFavorites', onDelete: 'CASCADE' });
   UserReportFavorite.belongsTo(User, { foreignKey: 'user_id' });
+
+  // User ↔ Notifications — both state and settings cascade with the
+  // user; deleting a user removes their per-key seen/dismissed state
+  // and their preference row. No cross-user reads of either table.
+  User.hasMany(NotificationState,       { foreignKey: 'user_id', as: 'notificationStates',   onDelete: 'CASCADE' });
+  NotificationState.belongsTo(User,     { foreignKey: 'user_id' });
+  User.hasOne(NotificationSettings,     { foreignKey: 'user_id', as: 'notificationSettings', onDelete: 'CASCADE' });
+  NotificationSettings.belongsTo(User,  { foreignKey: 'user_id' });
   
   // LoanAccount sidecar — 1:1 to LedgerAccount, many:1 to Party (lender
   // or borrower). Loans are first-class ledgers (visible in trial
@@ -472,6 +484,8 @@ function defineModels(sequelize) {
     CostLayer,
     SaleLineLayerConsumption,
     IndianState,
+    NotificationState,
+    NotificationSettings,
   };
 }
 
@@ -587,6 +601,8 @@ module.exports = {
   CostLayer: makeProxy('CostLayer'),
   SaleLineLayerConsumption: makeProxy('SaleLineLayerConsumption'),
   IndianState: makeProxy('IndianState'),
+  NotificationState: makeProxy('NotificationState'),
+  NotificationSettings: makeProxy('NotificationSettings'),
 
   // Multi-tenant escape hatches — used by the connection pool +
   // middleware. Don't import these from controllers; stick with the

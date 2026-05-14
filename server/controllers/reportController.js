@@ -4,6 +4,7 @@ const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product
 const { sanitizePagination, escapeLike } = require('../utils/helpers');
 const { aggregateAging } = require('../utils/aging');
 const { fetchBatchAggregate, computeDisplayCost, attachDisplayCost } = require('../utils/displayCost');
+const { scopeWhereByGodown } = require('../middleware/godownScope');
 
 // Local calendar date (YYYY-MM-DD) in the server's timezone. We deliberately
 // avoid toISOString().split('T')[0] here because that returns a UTC date — for
@@ -319,7 +320,7 @@ exports.dashboardStats = async (req, res) => {
             WHERE sb.is_cancelled = false AND sb.bill_date >= :monthStart
           ) AS cogs,
           (
-            SELECT COALESCE(SUM(special_discount + return_amount), 0)::float
+            SELECT COALESCE(SUM(return_amount), 0)::float
             FROM sales_bills
             WHERE is_cancelled = false AND bill_date >= :monthStart
           ) AS adjustments
@@ -381,7 +382,7 @@ exports.dashboardStats = async (req, res) => {
       sequelize.query(
         `SELECT COALESCE(SUM(total_amount), 0)::float AS total,
                 COALESCE(SUM(cgst_amount + sgst_amount + igst_amount + cess_amount), 0)::float AS gst,
-                COALESCE(SUM(special_discount + return_amount), 0)::float AS adjustments
+                COALESCE(SUM(return_amount), 0)::float AS adjustments
            FROM sales_bills
           WHERE is_cancelled = false
             AND bill_date BETWEEN :from AND :to`,
@@ -1034,7 +1035,7 @@ exports.dashboardSeries = async (req, res) => {
         SELECT date_trunc('${interval}', bill_date)::date AS d,
                COALESCE(SUM(total_amount), 0)::float AS sales,
                COALESCE(SUM(total_amount - cgst_amount - sgst_amount - igst_amount - cess_amount), 0)::float AS sales_ex_gst,
-               COALESCE(SUM(special_discount + return_amount), 0)::float AS adjustments,
+               COALESCE(SUM(return_amount), 0)::float AS adjustments,
                COUNT(*)::int AS sales_count
           FROM sales_bills
          WHERE is_cancelled = false
@@ -1136,6 +1137,7 @@ exports.salesReport = async (req, res) => {
     // still capped so an attacker can't request limit=10^9 and hang the worker.
     const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit, { maxLimit: 1000 });
     const where = { is_cancelled: false };
+    scopeWhereByGodown(where, req.user);
 
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (customer_id) where.customer_id = customer_id;
@@ -1338,6 +1340,7 @@ exports.purchaseReport = async (req, res) => {
     const { from_date, to_date, supplier_id, payment_status, search } = req.query;
     const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit, { maxLimit: 1000 });
     const where = { is_cancelled: false };
+    scopeWhereByGodown(where, req.user);
 
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (supplier_id) where.supplier_id = supplier_id;
@@ -1860,10 +1863,17 @@ exports.partyOutstanding = async (req, res) => {
                    + CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
                    - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
                    - COALESCE((
+                     -- CRIT-10 fix: only subtract truly on-account receipts.
+                     -- Bill-linked receipts (reference_bill_id IS NOT NULL) and
+                     -- multi-bill split payments (bill_allocations not empty) are
+                     -- already reflected in sales_bills.balance_amount — subtracting
+                     -- them again would double-deduct and make outstanding appear
+                     -- lower than reality (inflating bad-debt write-offs).
                      SELECT SUM(pr.total_amount) FROM payments_receipts pr
                      WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
                        AND pr.is_cancelled = false
-                       AND NOT EXISTS (SELECT 1 FROM payment_splits ps WHERE ps.transaction_id = pr.transaction_id)
+                       AND pr.reference_bill_id IS NULL
+                       AND (pr.bill_allocations IS NULL OR pr.bill_allocations::text = '[]')
                    ), 0)
                  )::float AS current_balance
           FROM parties p
@@ -1882,10 +1892,12 @@ exports.partyOutstanding = async (req, res) => {
                  + CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
                  - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
                  + COALESCE((
+                   -- CRIT-10 fix: only subtract truly on-account payments.
                    SELECT SUM(pr.total_amount) FROM payments_receipts pr
                    WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
                      AND pr.is_cancelled = false
-                     AND NOT EXISTS (SELECT 1 FROM payment_splits ps WHERE ps.transaction_id = pr.transaction_id)
+                     AND pr.reference_bill_id IS NULL
+                     AND (pr.bill_allocations IS NULL OR pr.bill_allocations::text = '[]')
                  ), 0)
                )::float AS current_balance
         FROM parties p
@@ -1957,6 +1969,7 @@ exports.exportSalesReport = async (req, res) => {
     // the search-filtered subset. Mirror the salesReport() filter set.
     const { from_date, to_date, customer_id, payment_status, search } = req.query;
     const where = { is_cancelled: false };
+    scopeWhereByGodown(where, req.user);
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (customer_id) where.customer_id = customer_id;
     if (payment_status) where.payment_status = payment_status;
@@ -2061,6 +2074,7 @@ exports.exportPurchaseReport = async (req, res) => {
     // Audit C1 — same search-filter parity fix as exportSalesReport.
     const { from_date, to_date, supplier_id, payment_status, search } = req.query;
     const where = { is_cancelled: false };
+    scopeWhereByGodown(where, req.user);
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (supplier_id) where.supplier_id = supplier_id;
     if (payment_status) where.payment_status = payment_status;
@@ -2269,20 +2283,56 @@ exports.exportPartyOutstanding = async (req, res) => {
   try {
     const { party_type } = req.query;
 
-    // Re-use the same buildQuery logic as partyOutstanding by duplicating it here
-    // (keeping exports self-contained so filter changes don't break by accident).
-    const buildQuery = (type) => `
-      SELECT p.party_id, p.party_name, p.mobile_1, p.party_type, p.gstin,
-        (CASE WHEN p.opening_balance_type = 'Payable'
-              THEN -COALESCE(p.opening_balance, 0) ELSE COALESCE(p.opening_balance, 0) END
-          + COALESCE((SELECT SUM(balance_amount) FROM sales_bills
-                      WHERE customer_id = p.party_id AND is_cancelled = false), 0)
-          - COALESCE((SELECT SUM(balance_amount) FROM purchase_bills
-                      WHERE supplier_id = p.party_id AND is_cancelled = false), 0)
-        )::float AS current_balance
-      FROM parties p
-      WHERE p.party_type IN ('${type}', 'Both') AND p.party_status = 'Active'
-    `;
+    // CRIT-9 fix: formulas match partyOutstanding() exactly.
+    // Old export used opening_balance ± sales - purchases for ALL types,
+    // which (a) subtracted purchase bills from customer outstanding and
+    // (b) omitted unallocated on-account receipt/payment deductions.
+    const buildQuery = (mode) => {
+      if (mode === 'Customer') {
+        return `
+          SELECT p.party_id, p.party_name, p.mobile_1, p.party_type, p.gstin,
+                 p.credit_limit, p.credit_days,
+                 (
+                   COALESCE((
+                     SELECT SUM(sb.balance_amount) FROM sales_bills sb
+                     WHERE sb.customer_id = p.party_id AND sb.is_cancelled = false
+                   ), 0)
+                   + CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                   - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                   - COALESCE((
+                     SELECT SUM(pr.total_amount) FROM payments_receipts pr
+                     WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
+                       AND pr.is_cancelled = false
+                       AND pr.reference_bill_id IS NULL
+                       AND (pr.bill_allocations IS NULL OR pr.bill_allocations::text = '[]')
+                   ), 0)
+                 )::float AS current_balance
+          FROM parties p
+          WHERE p.is_active = true AND p.party_type IN ('Customer','Both')
+        `;
+      }
+      return `
+        SELECT p.party_id, p.party_name, p.mobile_1, p.party_type, p.gstin,
+               p.credit_limit, p.credit_days,
+               (
+                 -COALESCE((
+                   SELECT SUM(pb.balance_amount) FROM purchase_bills pb
+                   WHERE pb.supplier_id = p.party_id AND pb.is_cancelled = false
+                 ), 0)
+                 + CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                 - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                 + COALESCE((
+                   SELECT SUM(pr.total_amount) FROM payments_receipts pr
+                   WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
+                     AND pr.is_cancelled = false
+                     AND pr.reference_bill_id IS NULL
+                     AND (pr.bill_allocations IS NULL OR pr.bill_allocations::text = '[]')
+                 ), 0)
+               )::float AS current_balance
+        FROM parties p
+        WHERE p.is_active = true AND p.party_type IN ('Supplier','Both')
+      `;
+    };
 
     let parties = [];
     if (party_type === 'Customer') {

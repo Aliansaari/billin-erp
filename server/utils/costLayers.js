@@ -394,8 +394,32 @@ async function backfillCostLayers(t = null) {
   return { backfilled: rows.length };
 }
 
+/**
+ * Zero out qty_remaining for every cost layer that was created by a
+ * specific purchase bill. Call this when a purchase bill is cancelled
+ * or edited so the cancelled/old quantities can no longer be consumed
+ * by future FIFO sales.
+ *
+ * We set qty_remaining = 0 rather than deleting so the audit trail
+ * (qty_original, rate, acquired_at) is preserved for historic COGS
+ * reports. Layers that were already partially consumed stay zeroed —
+ * the consumed portion was already attributed to past sales and cannot
+ * be unwound here (v1 limitation, same as restoreConsumption).
+ */
+async function cancelLayersForPurchase({ purchase_bill_id, t }) {
+  if (!purchase_bill_id) throw new Error('cancelLayersForPurchase: purchase_bill_id required');
+  if (!t) throw new Error('cancelLayersForPurchase: transaction required');
+  await sequelize.query(
+    `UPDATE cost_layers
+        SET qty_remaining = 0, updated_at = NOW()
+      WHERE source_type = 'Purchase' AND source_id = :bid AND qty_remaining > 0`,
+    { replacements: { bid: purchase_bill_id }, transaction: t },
+  );
+}
+
 module.exports = {
   addCostLayer,
+  cancelLayersForPurchase,
   consumeFIFO,
   recordSaleConsumption,
   reverseConsumptionForBill,

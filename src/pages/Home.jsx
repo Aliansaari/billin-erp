@@ -12,7 +12,7 @@ import useAuthStore         from '../store/authStore';
 import useHomeSettingsStore from '../store/homeSettingsStore';
 
 import Sparkline from '../components/editorial/Sparkline';
-import { GlobalSearchHero } from '../components/GlobalSearch';
+import { GlobalSearchHomeCard } from '../components/GlobalSearch';
 import './home.css';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -338,7 +338,7 @@ export default function Home() {
 
         {cfg.showSearch && (
           <div className="cc-search-section">
-            <GlobalSearchHero autoFocus />
+            <GlobalSearchHomeCard autoFocus />
           </div>
         )}
 

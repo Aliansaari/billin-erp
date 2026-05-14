@@ -49,9 +49,12 @@ async function nextEntryNumber(voucherType, voucherDate, transaction) {
   const yyyymmdd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   // Use the highest existing sequence for this prefix+date, then increment.
   const like = `${prefix}-${yyyymmdd}-%`;
+  // W1: order by entry_id (monotonic) not entry_number (lexicographic string).
+  // entry_number DESC breaks at 10000+ entries per day: '9999' > '10000' as text,
+  // so the counter would stall at 9999 and then collide on the 10001st entry.
   const last = await LedgerEntry.findOne({
     where: { entry_number: { [Op.like]: like } },
-    order: [['entry_number', 'DESC']],
+    order: [['entry_id', 'DESC']],
     transaction,
   });
   let seq = 1;
@@ -201,6 +204,7 @@ async function reverseVoucher({
   reason,
   userId,
   transaction,
+  reversalDate,    // optional: date the reversal entries should carry (defaults to today)
 }) {
   if (!sourceType) throw new Error('reverseVoucher: sourceType is required');
   if (sourceId == null) throw new Error('reverseVoucher: sourceId is required');
@@ -237,7 +241,7 @@ async function reverseVoucher({
 
     const mirrors = liveOriginals.map((orig) => ({
       entry_number: reversalEntryNumber,
-      entry_date: new Date(),
+      entry_date: reversalDate ? new Date(reversalDate) : new Date(),
       ledger_id: orig.ledger_id,
       // Swap debit ↔ credit
       debit_amount:  Number(orig.credit_amount) || 0,

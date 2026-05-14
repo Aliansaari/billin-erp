@@ -288,6 +288,12 @@ exports.trialBalance = async (req, res) => {
 
     res.json({
       period: { from, to },
+      // W19: from_date does NOT filter ledger balances. Trial Balance always
+      // shows the CUMULATIVE closing balance as of to_date regardless of the
+      // from_date chosen. from_date is used only as a display label. The
+      // frontend should show a notice like "Balances are cumulative as of
+      // [to_date]; from_date is for display only."
+      from_date_is_cumulative: true,
       ledgers,
       totals: {
         debit: totalDr,
@@ -517,7 +523,11 @@ exports.profitLoss = async (req, res) => {
     } else if (compReq === 'auto' || compReq === '1' || compReq === 'true') {
       const fromD = new Date(from + 'T00:00:00Z');
       const toD   = new Date(to   + 'T00:00:00Z');
-      const days  = Math.round((toD - fromD) / 86400000); // inclusive both ends
+      // W18: days is the EXCLUSIVE day-count between the two endpoints
+      // (toD − fromD). The period spans (days + 1) days inclusive.
+      // compFromD = compToD − days → comparative period also spans (days + 1)
+      // days, matching the primary period exactly. Do NOT add +1 here.
+      const days  = Math.round((toD - fromD) / 86400000);
       // Comp ends one day before current.from; same span backwards.
       const compToD   = new Date(fromD); compToD.setUTCDate(compToD.getUTCDate() - 1);
       const compFromD = new Date(compToD); compFromD.setUTCDate(compFromD.getUTCDate() - days);
@@ -678,9 +688,9 @@ async function computeProfitLoss(from, to) {
          COALESCE((SELECT SUM(total_amount)::float FROM purchase_bills
                     WHERE is_cancelled = false AND bill_date BETWEEN :from AND :to), 0) AS purchase_total,
          COALESCE((SELECT SUM(total_amount)::float FROM sales_return_bills
-                    WHERE is_cancelled = false AND bill_date BETWEEN :from AND :to), 0) AS sales_return_total,
+                    WHERE is_cancelled = false AND return_date BETWEEN :from AND :to), 0) AS sales_return_total,
          COALESCE((SELECT SUM(total_amount)::float FROM purchase_return_bills
-                    WHERE is_cancelled = false AND bill_date BETWEEN :from AND :to), 0) AS purchase_return_total`,
+                    WHERE is_cancelled = false AND return_date BETWEEN :from AND :to), 0) AS purchase_return_total`,
       { replacements: { from, to }, type: sequelize.QueryTypes.SELECT },
     );
     if ((billCheck.sales_total || 0) > 0 || (billCheck.purchase_total || 0) > 0) {

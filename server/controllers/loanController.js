@@ -41,6 +41,18 @@ function num(v)  { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function r2(v)   { return Math.round(num(v) * 100) / 100; }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 
+// SER-8: safe month-addition that clamps to the last day of the target month.
+// JS setMonth() overflows — Jan 31 + 1 month → March 2, not Feb 28.
+function addMonthsClamped(date, months) {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d;
+}
+
 // ── EMI maths ──────────────────────────────────────────────────────
 //
 // Standard amortization formula:
@@ -86,8 +98,7 @@ function buildSchedule(loan) {
   // Σprincipal undershot principal. Now we always run the loop to n
   // and let the i===n branch top up any sub-paisa drift.
   for (let i = 1; i <= n; i++) {
-    const due = new Date(baseDate);
-    due.setMonth(due.getMonth() + (i - 1));
+    const due = addMonthsClamped(baseDate, i - 1);
     const dueIso = due.toISOString().slice(0, 10);
 
     const interestPart = r2(Math.max(0, outstanding) * r);
@@ -203,12 +214,17 @@ exports.listLoans = async (req, res) => {
               ), 0)::float AS interest_paid,
 
               -- Last EMI entry date, useful for "last activity".
+              -- CRIT-7 fix: also exclude reversed originals here.
               (
                 SELECT MAX(le.entry_date)::text
                   FROM ledger_entries le
                  WHERE le.ledger_id = la.ledger_id
                    AND le.source_type = 'loan_emi'
                    AND le.reversal_of_id IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM ledger_entries m
+                      WHERE m.reversal_of_id = le.entry_id
+                   )
               ) AS last_emi_date
          FROM ledger_accounts la
          JOIN loan_accounts   ln ON ln.ledger_id = la.ledger_id
@@ -624,6 +640,7 @@ exports.createLoan = async (req, res) => {
       emi_amount,
       emi_day,
       notes,
+      bank_ledger_id,     // CRIT-6: which bank/cash account funds the loan
     } = req.body || {};
 
     const cleanName = String(name || '').trim();
@@ -646,21 +663,38 @@ exports.createLoan = async (req, res) => {
       return res.status(409).json({ error: `A ledger named "${cleanName}" already exists` });
     }
 
+    // CRIT-6: resolve the bank/cash leg for the disbursement journal.
+    // Priority: explicit bank_ledger_id → 'Cash' system ledger.
+    let disbLedger;
+    if (bank_ledger_id) {
+      disbLedger = await LedgerAccount.findByPk(bank_ledger_id, { transaction: t });
+      if (!disbLedger) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Selected bank ledger not found' });
+      }
+    } else {
+      disbLedger = await LedgerAccount.findOne({ where: { ledger_name: 'Cash' }, transaction: t });
+    }
+    if (!disbLedger) {
+      await t.rollback();
+      return res.status(500).json({ error: 'Cash ledger missing — cannot post disbursement journal' });
+    }
+
     const subGroup    = LOAN_SUBGROUPS[loan_type];
     const ledgerGroup = SUBGROUP_TO_GROUP[subGroup];
-    // Opening: principal goes in as the seed. For TAKEN: Cr-natured
-    // (we owe the lender). For GIVEN: Dr-natured (the borrower owes
-    // us). This makes the trial balance correct from disbursement day.
+    // CRIT-6: set opening_balance = 0. The disbursement journal entry
+    // below is the authoritative source of the initial balance. Using
+    // opening_balance=P AND posting a journal would double-count the
+    // principal on the trial balance.
     const obType = loan_type === 'taken' ? 'Credit' : 'Debit';
-    const signedOpening = loan_type === 'taken' ? -P : P;
 
     const ledger = await LedgerAccount.create({
       ledger_name:           cleanName,
       ledger_group:          ledgerGroup,
       sub_group:             subGroup,
-      opening_balance:       P,
+      opening_balance:       0,
       opening_balance_type:  obType,
-      current_balance:       signedOpening,
+      current_balance:       0,
       is_active:             true,
       is_system_ledger:      false,
     }, { transaction: t });
@@ -678,6 +712,34 @@ exports.createLoan = async (req, res) => {
       emi_day:           emi_day ? parseInt(emi_day, 10) : null,
       notes:             notes ? String(notes).trim() || null : null,
     }, { transaction: t });
+
+    // CRIT-6: Post the disbursement journal entry so the Trial Balance is
+    // balanced from day one. Without this, the Bank ledger never sees the
+    // cash movement and the books are out of balance by ₹P.
+    //
+    //   Loan TAKEN (we borrowed):  DR Bank P  / CR Loan P
+    //   Loan GIVEN (we lent out):  DR Loan P  / CR Bank P
+    const vDate = disbursement_date || new Date().toISOString().slice(0, 10);
+    const disbLines = loan_type === 'taken'
+      ? [
+          { ledgerAccountId: disbLedger.ledger_id, debit: P, credit: 0 },
+          { ledgerAccountId: ledger.ledger_id,      debit: 0, credit: P },
+        ]
+      : [
+          { ledgerAccountId: ledger.ledger_id,      debit: P, credit: 0 },
+          { ledgerAccountId: disbLedger.ledger_id,  debit: 0, credit: P },
+        ];
+    await postVoucher({
+      voucherType:     'Journal',
+      sourceType:      'loan_disbursement',
+      sourceId:        loan.loan_id,
+      voucherDate:     vDate,
+      referenceNumber: cleanName,
+      lines:           disbLines,
+      narration:       `Loan disbursement — ${cleanName}`,
+      userId:          req.user && req.user.user_id,
+      transaction:     t,
+    });
 
     await t.commit();
     res.status(201).json({
@@ -853,10 +915,20 @@ exports.recordEMI = async (req, res) => {
     // Always count posted EMIs — needed both for the ref-sequence and
     // (when principal/interest aren't passed) to look up the next-due
     // schedule row.
+    // CRIT-7 fix: exclude EMI vouchers whose original entries have been
+    // reversed (cancelled EMI). The previous query only checked
+    // reversal_of_id IS NULL (excludes the reversal row itself) but
+    // still counted the original that was later reversed — so a
+    // cancel+repost left paid_count one ahead of the real schedule pos.
     const [{ paid_count }] = await sequelize.query(
-      `SELECT COUNT(DISTINCT reference_id)::int AS paid_count
-         FROM ledger_entries WHERE ledger_id = :id
-           AND source_type = 'loan_emi' AND reversal_of_id IS NULL`,
+      `SELECT COUNT(DISTINCT le.reference_id)::int AS paid_count
+         FROM ledger_entries le
+        WHERE le.ledger_id = :id
+          AND le.source_type = 'loan_emi'
+          AND le.reversal_of_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id
+          )`,
       { replacements: { id: ledgerId }, type: sequelize.QueryTypes.SELECT, transaction: t },
     );
 

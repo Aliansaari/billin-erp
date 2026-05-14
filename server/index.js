@@ -235,6 +235,7 @@ app.use('/api/loans', require('./routes/loans'));
 app.use('/api/cheques', require('./routes/cheques'));
 app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/companies', require('./routes/companies'));
+app.use('/api/notifications', require('./routes/notifications'));
 
 // Enumerate every IPv4 the host advertises so client setup screens can
 // show the user "your office machines should connect to ANY of these

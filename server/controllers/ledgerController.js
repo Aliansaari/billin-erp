@@ -43,7 +43,7 @@ exports.listAccounts = async (req, res) => {
     const rows = await LedgerAccount.findAll({
       where,
       order: [['is_system_ledger', 'DESC'], ['ledger_group', 'ASC'], ['ledger_name', 'ASC']],
-      attributes: ['ledger_id', 'ledger_name', 'ledger_group', 'sub_group', 'is_system_ledger', 'is_party_ledger', 'party_id', 'current_balance'],
+      attributes: ['ledger_id', 'ledger_name', 'ledger_group', 'sub_group', 'is_system_ledger', 'is_party_ledger', 'party_id'],
     });
     res.json({ data: rows });
   } catch (err) {

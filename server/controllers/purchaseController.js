@@ -17,8 +17,8 @@ const {
   reverseBillColorStock,
 } = require('../services/productColorStockService');
 const { applyWeightedAvgIncrement, recomputeWeightedAvgFromLedger } = require('../utils/weightedAvgCost');
-const { addCostLayer } = require('../utils/costLayers');
-const { denyIfGodownInaccessible } = require('../middleware/godownScope');
+const { addCostLayer, cancelLayersForPurchase } = require('../utils/costLayers');
+const { denyIfGodownInaccessible, scopeWhereByGodown } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
 
 /**
@@ -287,6 +287,7 @@ exports.getAll = async (req, res) => {
     // Clamp page/limit — see salesController.getAll for rationale.
     const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
     const where = { is_cancelled: false };
+    scopeWhereByGodown(where, req.user);
 
     if (from_date && to_date) where.bill_date = { [Op.between]: [from_date, to_date] };
     if (supplier_id) where.supplier_id = supplier_id;
@@ -525,9 +526,10 @@ exports.create = async (req, res) => {
       const qty  = parseFloat(item.quantity);
       const rate = parseFloat(item.purchase_rate);
       const itemDiscPct = parseFloat(item.discount_percentage || 0);
-      if (!isFinite(qty) || qty < 0) {
+      // W15: qty > 0 required — zero-quantity lines have no stock/financial impact.
+      if (!isFinite(qty) || qty <= 0) {
         if (!t.finished) await t.rollback();
-        return res.status(400).json({ error: `Quantity must be a non-negative number (got "${item.quantity}" for "${item.product_name || 'item'}").` });
+        return res.status(400).json({ error: `Quantity must be greater than zero (got "${item.quantity}" for "${item.product_name || 'item'}").` });
       }
       if (!isFinite(rate) || rate < 0) {
         if (!t.finished) await t.rollback();
@@ -799,6 +801,16 @@ exports.create = async (req, res) => {
       if (item.product_id) {
         const product = item._product || await Product.findByPk(item.product_id, { transaction: t });
         const isSingleMode = product.product_mode === 'single';
+        // W4: include free_quantity in every stock-mutating call. Free units
+        // are physically received and must appear in inventory. The effective
+        // per-unit cost is (paidQty × rate) / totalQty so WAC and FIFO cost
+        // layers stay accurate (free units cost ₹0; they dilute the average).
+        const paidQty = +parseFloat(item.quantity);
+        const freeQty = +parseFloat(item.free_quantity || 0);
+        const totalQty = paidQty + freeQty;
+        const effectiveRate = totalQty > 0
+          ? (paidQty * +parseFloat(item.purchase_rate)) / totalQty
+          : 0;
         // ── Single-mode wac update runs BEFORE applyGodownStockDelta ───
         // The helper reads product.current_stock as the pre-purchase old
         // stock for the formula. If we ran it after the delta, current_stock
@@ -808,14 +820,14 @@ exports.create = async (req, res) => {
         if (isSingleMode && !product.is_batch_tracked) {
           await applyWeightedAvgIncrement({
             product_id: item.product_id,
-            qty: +parseFloat(item.quantity),
-            purchase_rate: item.purchase_rate,
+            qty: totalQty,
+            purchase_rate: effectiveRate,
             t,
           });
         }
         const newStock = await applyGodownStockDelta({
           product_id: item.product_id, godown_id: billData.godown_id,
-          delta: +parseFloat(item.quantity), t,
+          delta: totalQty, t,
         });
         // Audit H6 — append a FIFO cost layer. This is independent of
         // cogs_method: we ALWAYS write the layer so a future switch to
@@ -824,8 +836,8 @@ exports.create = async (req, res) => {
         await addCostLayer({
           product_id: item.product_id,
           godown_id: billData.godown_id,
-          qty: +parseFloat(item.quantity),
-          rate: +parseFloat(item.purchase_rate),
+          qty: totalQty,
+          rate: effectiveRate,
           source_type: 'Purchase',
           source_id: bill.purchase_bill_id,
           acquired_at: billData.bill_date ? new Date(billData.bill_date) : new Date(),
@@ -837,7 +849,7 @@ exports.create = async (req, res) => {
           await applyBatchStockDelta({
             product_id: item.product_id, batch_id: batchId,
             godown_id: billData.godown_id,
-            delta: +parseFloat(item.quantity), t,
+            delta: totalQty, t,
           });
         }
         // Per-color stock increment for multi-color tracked products.
@@ -846,7 +858,7 @@ exports.create = async (req, res) => {
         if (item.color_id) {
           await applyColorStockDelta({
             color_id: item.color_id,
-            delta: +parseFloat(item.quantity),
+            delta: totalQty,
             transaction: t,
           });
         }
@@ -901,9 +913,9 @@ exports.create = async (req, res) => {
           transaction_date: billData.bill_date,
           reference_id: bill.purchase_bill_id,
           reference_number: bill.bill_number,
-          quantity_in: item.quantity,
+          quantity_in: totalQty,
           quantity_out: 0,
-          rate: item.purchase_rate,
+          rate: effectiveRate,
           balance_quantity: newStock,
           created_by: req.user.user_id,
         }, { transaction: t });
@@ -1026,6 +1038,9 @@ exports.update = async (req, res) => {
     if (!existingBill) { await t.rollback(); return res.status(404).json({ error: 'Bill not found' }); }
     if (existingBill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Cannot edit a cancelled bill' }); }
 
+    // SER-7: never let the client overwrite the server-generated bill_number.
+    delete billData.bill_number;
+
     // Resolve target godown — body wins (validate); else retain existing.
     if (billData.godown_id != null) {
       const denied = denyIfGodownInaccessible(billData.godown_id, req.user);
@@ -1121,6 +1136,11 @@ exports.update = async (req, res) => {
       transaction: t,
     });
 
+    // CRIT-4 fix: zero out old FIFO cost layers for this bill before
+    // new layers are appended below. Without this, each edit accumulates
+    // duplicate layers for the same purchase_bill_id, inflating FIFO qty.
+    await cancelLayersForPurchase({ purchase_bill_id: existingBill.purchase_bill_id, t });
+
     // ── Step 2 — Audit H5: paired reversal for the existing ledger rows
     // (instead of destroying them). Preserves edit-history audit trail.
     // skipIdempotencyCheck=true so multi-edits each write their own pair.
@@ -1155,9 +1175,10 @@ exports.update = async (req, res) => {
       const qty  = parseFloat(item.quantity);
       const rate = parseFloat(item.purchase_rate);
       const itemDiscPct = parseFloat(item.discount_percentage || 0);
-      if (!isFinite(qty) || qty < 0) {
+      // W15: qty > 0 required — zero-quantity lines have no stock/financial impact.
+      if (!isFinite(qty) || qty <= 0) {
         if (!t.finished) await t.rollback();
-        return res.status(400).json({ error: `Quantity must be a non-negative number (got "${item.quantity}" for "${item.product_name || 'item'}").` });
+        return res.status(400).json({ error: `Quantity must be greater than zero (got "${item.quantity}" for "${item.product_name || 'item'}").` });
       }
       if (!isFinite(rate) || rate < 0) {
         if (!t.finished) await t.rollback();
@@ -1463,6 +1484,19 @@ exports.update = async (req, res) => {
           rate: item.purchase_rate, balance_quantity: newStock,
           created_by: req.user.user_id,
         }, { transaction: t });
+        // CRIT-4 fix: append a fresh FIFO cost layer for the updated qty/rate.
+        // Old layers were zeroed in the Step 1 block above; this recreates them
+        // with the new values so FIFO consumption stays accurate post-edit.
+        await addCostLayer({
+          product_id: item.product_id,
+          godown_id: billData.godown_id,
+          qty: +parseFloat(item.quantity),
+          rate: +parseFloat(item.purchase_rate),
+          source_type: 'Purchase',
+          source_id: id,
+          acquired_at: billData.bill_date ? new Date(billData.bill_date) : new Date(existingBill.bill_date),
+          t,
+        });
       }
     }
 
@@ -1489,13 +1523,17 @@ exports.update = async (req, res) => {
     }
 
     // ── Double-entry: reverse old, post new ──
+    // SER-6: date reversals to the ORIGINAL bill date so they cancel within
+    // the same accounting period as the original entries.
     await reverseVoucher({
       sourceType: 'purchase_bill', sourceId: existingBill.purchase_bill_id,
       reason: 'Purchase bill edited', userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: existingBill.bill_date,
     });
     await reverseVoucher({
       sourceType: 'purchase_bill_payment', sourceId: existingBill.purchase_bill_id,
       reason: 'Purchase bill edited', userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: existingBill.bill_date,
     });
     {
       const refreshed = await PurchaseBill.findByPk(existingBill.purchase_bill_id, {
@@ -1648,6 +1686,12 @@ exports.cancel = async (req, res) => {
       direction: 'purchase',
       transaction: t,
     });
+
+    // CRIT-4 fix: zero out FIFO cost layers created by this purchase bill.
+    // Without this, cancelled purchase layers remain in cost_layers and
+    // inflate available FIFO qty, causing phantom cost consumption on the
+    // next FIFO sale of the same product.
+    await cancelLayersForPurchase({ purchase_bill_id: bill.purchase_bill_id, t });
 
     // Audit H5 — preserve audit trail with paired reversing entries.
     // recomputeWeightedAvgFromLedger below replays Purchase rows in order;

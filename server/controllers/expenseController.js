@@ -36,7 +36,7 @@ async function nextVoucherNumber(date, transaction) {
   const prefix = nextVoucherNumberPrefix(date);
   const last = await ExpenseVoucher.findOne({
     where: { voucher_number: { [Op.like]: `${prefix}-%` } },
-    order: [['voucher_number', 'DESC']],
+    order: [['expense_id', 'DESC']],
     transaction,
   });
   let seq = 1;

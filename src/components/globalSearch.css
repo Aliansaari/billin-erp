@@ -54,6 +54,45 @@
   font-size: 18px;
   flex: 0 0 auto;
 }
+
+/* Scope chip (#4) — surfaces the active scope filter as a removable pill
+   that sits between the magnifier glyph and the text input. Clicking
+   the chip clears the prefix and drops back to unfiltered search. */
+.gs-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--accent-border, var(--border));
+  background: var(--accent-bg, var(--bg-muted));
+  color: var(--accent, var(--fg-primary));
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background 0.12s, border-color 0.12s;
+  font-family: inherit;
+}
+.gs-scope-chip:hover {
+  background: var(--accent-bg-strong, var(--bg-hover));
+}
+.gs-scope-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  margin-left: 2px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0.75;
+}
+.gs-scope-chip:hover .gs-scope-x { opacity: 1; }
 .gs-hero .gs-input-icon { font-size: 22px; }
 
 .gs-input {
@@ -150,6 +189,44 @@
   font-size: 13px;
 }
 
+/* ── Inline progress + skeleton (#9 loading polish) ────────────────────── */
+.gs-input-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  animation: gsSpin .7s linear infinite;
+  flex: 0 0 auto;
+  margin-right: 8px;
+}
+@keyframes gsSpin {
+  to { transform: rotate(360deg); }
+}
+
+.gs-row-skel { pointer-events: none; cursor: default; }
+.gs-row-skel:hover { background: transparent; }
+.gs-skel-block,
+.gs-skel-line {
+  background: linear-gradient(
+    90deg,
+    var(--bg-muted) 0%,
+    var(--border-subtle) 50%,
+    var(--bg-muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: gsShimmer 1.1s linear infinite;
+  border-radius: 4px;
+}
+.gs-skel-block { width: 32px; height: 32px; border-radius: var(--radius-sm, 6px); }
+.gs-skel-line { height: 11px; margin-top: 4px; }
+.gs-skel-line-lg { width: 38%; height: 12px; margin-top: 2px; }
+.gs-skel-line-sm { width: 62%; height: 9px; }
+@keyframes gsShimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
 /* ── Group ─────────────────────────────────────────────────────────────── */
 .gs-group { padding: 4px 0; }
 .gs-group + .gs-group { border-top: 1px solid var(--border-subtle); }
@@ -224,6 +301,76 @@
   flex: 0 0 auto;
 }
 
+/* Pin toggle (#17) — appears on the right of each row. Hidden by default
+   so the resting row stays clean; revealed on hover, when the row is
+   keyboard-selected, or when the item is already pinned (so the operator
+   can see what's pinned at a glance). */
+.gs-pin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  flex: 0 0 auto;
+  margin-left: 2px;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.gs-row:hover .gs-pin-btn,
+.gs-row.is-selected .gs-pin-btn { opacity: 0.8; }
+.gs-pin-btn:hover {
+  opacity: 1;
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+.gs-pin-btn.is-pinned {
+  opacity: 1;
+  color: var(--accent);
+}
+.gs-row.is-pinned .gs-pin-btn { opacity: 1; }
+
+/* "+N more" expander row (#3) — slimmer, secondary visual weight so the
+   operator's eye still leads to real result rows. The expander stays
+   selectable + keyboard-navigable. */
+.gs-row-more {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  opacity: 0.85;
+}
+.gs-row-more:hover { opacity: 1; }
+.gs-row-icon-more {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--fg-tertiary);
+  width: 32px;
+  height: 24px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gs-row-more.is-selected .gs-row-icon-more {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--fg-inverse);
+}
+.gs-row-label-more {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  font-style: italic;
+}
+
 /* ── Empty state ───────────────────────────────────────────────────────── */
 .gs-empty {
   padding: 32px 20px;
@@ -238,6 +385,14 @@
 .gs-empty-sub {
   font-size: 12px;
   color: var(--fg-tertiary);
+}
+/* Soft variant — pairs with the did-you-mean suggestion group. Tighter
+   vertical rhythm so the suggestion rows visually flow from the header
+   instead of being separated by a big gap. */
+.gs-empty-soft {
+  padding: 18px 18px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 /* ── Footer ────────────────────────────────────────────────────────────── */
@@ -255,6 +410,18 @@
 .gs-footer-brand {
   font-style: italic;
   letter-spacing: 0.2px;
+}
+.gs-footer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-tertiary);
+  font-size: 11px;
+}
+.gs-footer-hint .gs-kbd { margin: 0 1px; }
+/* Hide the hint on narrow chrome — keeps the footer one line. */
+@media (max-width: 620px) {
+  .gs-footer-hint { display: none; }
 }
 .gs-hero .gs-footer { display: none; }
 
@@ -290,6 +457,79 @@
   position: relative;
 }
 
+/* Home card (#18) — visual fake of an input row. Clicking, focusing, or
+   typing into this opens the modal palette. Mirrors the hero's height,
+   accent border and shadow so the home page UX doesn't regress; the only
+   difference visible to the operator is that there's no caret in the
+   "input" and no inline results dropdown. */
+.gs-home-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  height: 64px;
+  padding: 0 22px;
+  border: 1.5px solid var(--accent-border);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--bg-elevated);
+  box-shadow:
+    0 0 0 4px var(--accent-bg),
+    var(--shadow-md);
+  color: var(--fg-tertiary);
+  font-family: inherit;
+  text-align: left;
+  cursor: text;                  /* feels like clicking a real input */
+  transition: box-shadow .18s ease, border-color .18s ease;
+}
+.gs-home-card:hover,
+.gs-home-card:focus-visible {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 5px var(--accent-bg),
+    var(--shadow-lg);
+  outline: none;
+}
+.gs-home-card-icon {
+  color: var(--accent);
+  font-size: 22px;
+  flex: 0 0 auto;
+}
+.gs-home-card-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--fg-tertiary);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gs-home-card-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  color: var(--fg-tertiary);
+}
+.gs-home-card-kbd kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 24px;
+  padding: 0 6px;
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-bottom-width: 1.5px;
+  border-radius: 5px;
+  line-height: 1;
+}
+
 @keyframes gsFade {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -298,6 +538,107 @@
   from { opacity: 0; transform: translateY(-12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Trigger button (topbar / sidebar affordance) ──────────────────────── */
+.gs-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  /* Default for the dark topnav chrome — see below for sidebar/light over­rides. */
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  letter-spacing: -0.005em;
+}
+.gs-trigger:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #FFF8F4;
+}
+.gs-trigger-icon-glyph { font-size: 13px; flex: 0 0 auto; }
+.gs-trigger-label { font-weight: 500; }
+
+/* Pill — compact form for the topnav right cluster. Fixed height matches
+   the neighbouring icon buttons (34px). */
+.gs-trigger-pill {
+  height: 34px;
+  padding: 0 10px 0 12px;
+}
+.gs-trigger-pill .gs-trigger-label { font-size: 12.5px; }
+
+/* Wide — fills the sidebar column. Reads as a fake search input. */
+.gs-trigger-wide {
+  height: 36px;
+  width: 100%;
+  padding: 0 10px 0 12px;
+  justify-content: flex-start;
+}
+.gs-trigger-wide .gs-trigger-kbd { margin-left: auto; }
+
+/* Icon — collapsed-sidebar form. 34px square, magnifier only. */
+.gs-trigger-icon {
+  width: 34px; height: 34px;
+  display: inline-grid; place-items: center;
+  padding: 0;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.gs-trigger-icon:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: #FFF8F4;
+}
+
+/* Kbd cluster inside the trigger — smaller than the palette's kbd badges
+   because it sits inside chrome that's already a kbd badge by metaphor. */
+.gs-trigger-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 10.5px;
+}
+.gs-trigger-kbd kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 17px;
+  padding: 0 4px;
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
+  line-height: 1;
+}
+.gs-trigger-plus {
+  color: rgba(255, 255, 255, 0.40);
+  font-size: 10px;
+}
+
+/* Hide the kbd hint on very narrow viewports — pill becomes magnifier-only. */
+@media (max-width: 900px) {
+  .gs-trigger-pill .gs-trigger-label,
+  .gs-trigger-pill .gs-trigger-kbd { display: none; }
+  .gs-trigger-pill { width: 34px; padding: 0; justify-content: center; }
+}
+
+/* Sidebar variant — same dark chrome, but the sidebar's body background
+   is already dark, so the rgba whites work everywhere. No light-mode
+   override needed: sidebar uses dark chrome regardless of app appearance. */
 
 /* ── Modern themes: glassy treatment for the hero card ─────────────────── */
 [data-theme="modern-light"] .gs-hero .gs-input-wrap,

@@ -14,6 +14,7 @@ const { postVoucher, reverseVoucher } = require('../services/ledgerPostingServic
 const { buildSalesReturnVouchers } = require('../services/voucherBuilders');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite, getDefaultGodownId } = require('../utils/godownStock');
 const { applyBatchStockDelta } = require('../utils/batchStock');
+const { restoreConsumption } = require('../utils/costLayers');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
 /**
@@ -302,8 +303,8 @@ async function computeTotals(req, items, billData, returnMode, t, interState = f
     const qty  = parseFloat(item.quantity);
     const rate = parseFloat(item.rate);
     const itemDiscPct = parseFloat(item.discount_percentage || 0);
-    if (!isFinite(qty) || qty < 0) {
-      throw new Error(`Quantity must be a non-negative number (got "${item.quantity}" for "${item.product_name || 'item'}").`);
+    if (!isFinite(qty) || qty <= 0) {
+      throw new Error(`Quantity must be greater than zero (got "${item.quantity}" for "${item.product_name || 'item'}").`);
     }
     if (!isFinite(rate) || rate < 0) {
       throw new Error(`Rate must be a non-negative number (got "${item.rate}" for "${item.product_name || 'item'}").`);
@@ -375,6 +376,26 @@ async function computeTotals(req, items, billData, returnMode, t, interState = f
     totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
     totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
     totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
+
+    // Distribute bill-level GST pro-rata across lines so GSTR-1 credit note
+    // line-level data (cgst_amount / sgst_amount / igst_amount per item) is
+    // non-zero and proportional to each line's taxable base. The last line
+    // absorbs any penny rounding.
+    const lineBaseTotal = processedItems.reduce((s, it) => s + it.taxable_amount, 0);
+    let allocCgst = 0, allocSgst = 0, allocIgst = 0;
+    for (let i = 0; i < processedItems.length; i++) {
+      const it = processedItems[i];
+      const isLast = i === processedItems.length - 1;
+      const ratio = lineBaseTotal > 0 ? it.taxable_amount / lineBaseTotal : 1 / processedItems.length;
+      const lc = isLast ? roundTo(totalCgst - allocCgst, 2) : roundTo(totalCgst * ratio, 2);
+      const ls = isLast ? roundTo(totalSgst - allocSgst, 2) : roundTo(totalSgst * ratio, 2);
+      const li = isLast ? roundTo(totalIgst - allocIgst, 2) : roundTo(totalIgst * ratio, 2);
+      it.cgst_amount = lc;
+      it.sgst_amount = ls;
+      it.igst_amount = li;
+      it.total_amount = +(it.taxable_amount + lc + ls + li).toFixed(2);
+      allocCgst += lc; allocSgst += ls; allocIgst += li;
+    }
   }
 
   const other   = parseFloat(billData.other_charges || 0);
@@ -660,6 +681,16 @@ exports.create = async (req, res) => {
           remarks: billData.reason || null,
           created_by: req.user.user_id,
         }, { transaction: t });
+        // CRIT-5 fix: restore the FIFO cost layer consumed by the original
+        // sale. Returned goods re-enter inventory and must be available for
+        // future FIFO consumption. Best-effort v1 restore adds qty back to
+        // the most-recently consumed layer at the original rate.
+        await restoreConsumption({
+          product_id: item.product_id,
+          godown_id: billData.godown_id,
+          qty: +parseFloat(item.quantity),
+          t,
+        });
       }
     }
 
@@ -934,9 +965,11 @@ exports.update = async (req, res) => {
     }
 
     // ── Double-entry: reverse old, post new ──
+    // SER-6: date reversal to the original return date so it cancels in the right period.
     await reverseVoucher({
       sourceType: 'sales_return_bill', sourceId: existing.sales_return_id,
       reason: 'Sales return edited', userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: existing.return_date,
     });
     {
       const refreshed = await SalesReturnBill.findByPk(existing.sales_return_id, {

@@ -425,6 +425,19 @@ export const reportAPI = {
 };
 
 // Settings
+// Notifications — smart bell panel + per-user preferences. See
+// server/notifications/* for the full design (detectors, state diff,
+// snooze rules). All endpoints scoped to the current user; no
+// cross-user reads.
+export const notificationsAPI = {
+  list:           ()                       => api.get('/notifications'),
+  count:          ()                       => api.get('/notifications/count'),
+  action:         (key, op, opts = {})     => api.post(`/notifications/${encodeURIComponent(key)}/action`, { op, ...opts }),
+  markAllSeen:    ()                       => api.post('/notifications/mark-all-seen'),
+  getSettings:    ()                       => api.get('/notifications/settings'),
+  updateSettings: (data)                   => api.put('/notifications/settings', data),
+};
+
 export const settingsAPI = {
   getSystem: () => api.get('/settings/system'),
   updateSystem: (data) => api.put('/settings/system', data),

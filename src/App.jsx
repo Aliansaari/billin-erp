@@ -94,6 +94,7 @@ import LoanSchedule        from './pages/loans/LoanSchedule';
 import ImportV2 from './pages/settings/ImportV2';
 import CompanyProfile from './pages/settings/CompanyProfile';
 import MyAccount from './pages/settings/MyAccount';
+import NotificationsSettings from './pages/settings/NotificationsSettings';
 import UserManagement from './pages/settings/UserManagement';
 import GodownList from './pages/settings/GodownList';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
@@ -640,6 +641,8 @@ export default function App() {
             <Route path="company"             element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />
             {/* My Account — every logged-in user can reach this; no permission gate. */}
             <Route path="account"             element={<PrivateRoute><MyAccount /></PrivateRoute>} />
+            {/* Notifications preferences — per-user, no permission gate. */}
+            <Route path="notifications"       element={<PrivateRoute><NotificationsSettings /></PrivateRoute>} />
             <Route path="users"               element={<RoleRoute perm="settings.manage_users"><UserManagement /></RoleRoute>} />
             <Route path="barcode"             element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
             <Route path="modules"             element={<RoleRoute perm="settings.manage_company"><ModuleSettings /></RoleRoute>} />

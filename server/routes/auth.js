@@ -9,6 +9,7 @@ const { loginRateLimit } = require('../middleware/loginRateLimit');
 // the counter stays accurate.
 router.post('/login', loginRateLimit, authController.login);
 router.get('/profile', authenticateToken, authController.getProfile);
+router.post('/logout', authenticateToken, authController.logout);
 router.post('/change-password', authenticateToken, authController.changePassword);
 router.post('/verify-password', authenticateToken, authController.verifyPassword);
 

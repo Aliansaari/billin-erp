@@ -1,0 +1,381 @@
+/* ===========================================================================
+ * Notifications — bell, badge, dropdown panel, rows.
+ *
+ * Reads from theme tokens (var(--bg-*), var(--fg-*), var(--border)) so
+ * the same markup looks right in classic-light/dark and modern-light/dark.
+ *
+ * Style language matches the GlobalSearch palette built earlier — same
+ * border radii, kbd treatment, hover backgrounds — so the bell and the
+ * search bar feel like siblings in the topbar.
+ * ========================================================================== */
+
+.notif-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ── Bell button ────────────────────────────────────────────────────────── */
+.notif-bell {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.notif-bell:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: #FFF8F4;
+}
+.notif-bell.is-open {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #FFF8F4;
+}
+.notif-bell.has-unread { color: var(--accent, #E26A4C); }
+
+/* Badge — sits at top-right of the bell, scaled small so the digits
+   never overlap the icon's main shape. Caps at "9+" via JS. */
+.notif-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent, #B1472F);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  letter-spacing: -0.02em;
+  /* Avoid colliding with the bell glyph by overlapping just the corner. */
+  box-shadow: 0 0 0 2px var(--sidebar-bg, #1a1a1a);
+}
+
+/* ── Panel (dropdown) ───────────────────────────────────────────────────── */
+.notif-panel {
+  /* Portaled to document.body and anchored by inline top/left/right
+     styles set in JS. position:fixed so it stays put on scroll and
+     escapes any ancestor overflow:hidden (the sidebar in particular
+     clips otherwise). */
+  position: fixed;
+  width: 420px;
+  max-width: calc(100vw - 24px);
+  max-height: 70vh;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius-lg, 14px);
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.18));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 1000;
+  color: var(--fg-primary);
+  animation: notifFade 0.14s ease-out;
+}
+/* (top/left/right anchors come from inline style — see NotificationBell) */
+@keyframes notifFade {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.notif-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  background: var(--bg-muted, transparent);
+}
+.notif-header-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+}
+.notif-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.notif-link {
+  background: transparent;
+  border: none;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 4px 6px;
+  border-radius: 5px;
+  transition: background 0.12s, color 0.12s;
+}
+.notif-link:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+  color: var(--fg-primary);
+}
+
+/* ── Body / sections ────────────────────────────────────────────────────── */
+.notif-body {
+  flex: 1;
+  overflow-y: auto;
+}
+.notif-status {
+  padding: 28px 18px;
+  text-align: center;
+  color: var(--fg-tertiary);
+  font-size: 13px;
+}
+.notif-error { color: #c0392b; }
+
+.notif-empty {
+  padding: 36px 24px 32px;
+  text-align: center;
+}
+.notif-empty-icon {
+  font-size: 28px;
+  color: var(--fg-tertiary);
+  opacity: 0.55;
+  display: block;
+  margin: 0 auto 10px;
+}
+.notif-empty-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  margin-bottom: 4px;
+}
+.notif-empty-sub {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  line-height: 1.5;
+}
+
+.notif-section + .notif-section { border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.05)); }
+.notif-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.notif-section-icon {
+  font-size: 11px;
+  display: inline-flex;
+}
+.notif-section-title { flex: 1; }
+.notif-section-count {
+  background: var(--bg-muted, rgba(0, 0, 0, 0.06));
+  color: var(--fg-secondary);
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+
+/* ── Row ────────────────────────────────────────────────────────────────── */
+.notif-row {
+  display: flex;
+  align-items: stretch;
+  position: relative;
+  border-bottom: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.05));
+  background: var(--bg-elevated);
+  transition: background 0.10s;
+}
+.notif-row:last-child { border-bottom: none; }
+.notif-row:hover { background: var(--bg-hover, rgba(0, 0, 0, 0.03)); }
+.notif-row.is-unread { background: var(--accent-bg, rgba(177, 71, 47, 0.04)); }
+.notif-row.is-unread:hover { background: var(--accent-bg-strong, rgba(177, 71, 47, 0.08)); }
+
+/* Severity stripe — left edge color band that screams the priority
+   without making the operator read the row first. */
+.notif-stripe {
+  width: 3px;
+  flex: 0 0 auto;
+}
+.notif-stripe-red    { background: #c0392b; }
+.notif-stripe-amber  { background: #d68910; }
+.notif-stripe-blue   { background: #2e86c1; }
+.notif-stripe-green  { background: #27ae60; }
+
+.notif-row-body {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  color: inherit;
+  padding: 10px 14px;
+  min-width: 0;
+}
+.notif-row-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+  /* Wrap labels so context survives — but cap at two lines to keep
+     the panel tight. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notif-row.is-unread .notif-row-label { font-weight: 600; }
+.notif-row-sub {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.notif-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+  flex-shrink: 0;
+}
+.notif-row-cta {
+  background: var(--accent-bg, rgba(177, 71, 47, 0.1));
+  color: var(--accent, #B1472F);
+  border: 1px solid var(--accent-border, transparent);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+.notif-row-cta:hover {
+  background: var(--accent, #B1472F);
+  color: #fff;
+}
+
+/* ── Row "⋯" menu ───────────────────────────────────────────────────────── */
+.notif-menu-wrap {
+  position: relative;
+}
+.notif-menu-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-tertiary);
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.12s, color 0.12s;
+}
+.notif-menu-btn:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+  color: var(--fg-primary);
+}
+.notif-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  box-shadow: var(--shadow-md, 0 6px 18px rgba(0, 0, 0, 0.12));
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  z-index: 100;
+}
+.notif-menu button {
+  background: transparent;
+  border: none;
+  color: var(--fg-primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.notif-menu button:hover { background: var(--bg-hover, rgba(0, 0, 0, 0.05)); }
+.notif-menu .notif-menu-dismiss { color: #c0392b; }
+.notif-menu .notif-menu-dismiss:hover { background: rgba(192, 57, 43, 0.10); }
+.notif-menu-sep {
+  height: 1px;
+  background: var(--border-subtle, rgba(0, 0, 0, 0.08));
+  margin: 2px 4px;
+}
+
+/* ── Settings page rules (used by the Notifications settings page) ─────── */
+.notif-settings {
+  max-width: 720px;
+}
+.notif-settings-section {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+.notif-settings-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-bottom: 14px;
+}
+.notif-settings-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.notif-settings-row:first-of-type { border-top: none; padding-top: 0; }
+.notif-settings-text { flex: 1; min-width: 0; }
+.notif-settings-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  margin-bottom: 2px;
+}
+.notif-settings-desc {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  line-height: 1.5;
+}
+.notif-settings-master {
+  background: var(--accent-bg, rgba(177, 71, 47, 0.06));
+  border-color: var(--accent-border, var(--border));
+}
+.notif-settings-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
