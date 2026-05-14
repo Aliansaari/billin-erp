@@ -102,7 +102,20 @@ function normalizeLines(rawLines) {
 }
 
 exports.create = async (req, res) => {
-  // Fiscal-lock guard. voucher_date is the probe (mirror of bill_date).
+  // ── Back-dated entry policy (always-on, hard reject) ───────────────
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.voucher_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
+
+  // ── Fiscal-lock guard ──────────────────────────────────────────────
+  // voucher_date is the probe (mirror of bill_date elsewhere).
   const guard = await applyFiscalLockGuard(req, res, req.body?.voucher_date);
   if (!guard.ok) return;
   const lockResult = guard.lockResult;
@@ -175,7 +188,20 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
-  // Lock guard on edit. Probe the earlier of old/new voucher_date.
+  // ── Back-dated entry policy (always-on, hard reject) ───────────────
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.voucher_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
+
+  // ── Fiscal-lock guard on edit ──────────────────────────────────────
+  // Probe the earlier of old/new voucher_date.
   const preview = await JournalVoucher.findByPk(req.params.id, { attributes: ['id', 'voucher_date', 'voucher_number', 'is_reversed'] });
   if (!preview) return res.status(404).json({ error: 'Voucher not found' });
   if (preview.is_reversed) return res.status(400).json({ error: 'Cannot edit a reversed voucher.' });

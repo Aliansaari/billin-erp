@@ -113,6 +113,16 @@ module.exports = (sequelize) => {
       allowNull: true,
       references: { model: 'product_batches', key: 'batch_id' },
     },
+    // Audit STOCK-2 (deep) — per-layer breakdown of qty restored to
+    // cost_layers when this return was created (FIFO mode only).
+    // Shape: [{ layer_id, qty }, ...]. Read back on cancel/update to
+    // un-restore exactly the same layers, so future FIFO sales price
+    // against the correct queue. NULL on weighted-avg installs or
+    // lines that had no SLC link to restore against.
+    layers_restored: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+    },
   }, {
     tableName: 'sales_return_bill_items',
     timestamps: false,

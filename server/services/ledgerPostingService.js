@@ -66,14 +66,30 @@ async function nextEntryNumber(voucherType, voucherDate, transaction) {
   // W1: order by entry_id (monotonic) not entry_number (lexicographic string).
   // entry_number DESC breaks at 10000+ entries per day: '9999' > '10000' as text,
   // so the counter would stall at 9999 and then collide on the 10001st entry.
+  //
+  // Audit MONEY-6 — exclude reversal mirrors (reversal_of_id IS NOT NULL).
+  // A mirror's entry_number is "<prefix>-<date>-<seq>-REV", which has the
+  // highest entry_id once a same-day reversal lands. If we read it as the
+  // "last" row, the `/-(\d+)$/` regex fails on "-REV", seq stays at 1, and
+  // the very next forward voucher gets `<prefix>-<date>-0001` — colliding
+  // with the original it was meant to follow. Day Book + Cash Flow
+  // self-joins on entry_number then mingle unrelated vouchers.
+  //
+  // Filtering forward-only entries (reversal_of_id IS NULL) on the read
+  // is the safest fix: the seq counter advances strictly off the live
+  // forward sequence and reversal_of_id-tagged rows are ignored.
   const last = await LedgerEntry.findOne({
-    where: { entry_number: { [Op.like]: like } },
+    where: { entry_number: { [Op.like]: like }, reversal_of_id: null },
     order: [['entry_id', 'DESC']],
     transaction,
   });
   let seq = 1;
   if (last && last.entry_number) {
-    const m = last.entry_number.match(/-(\d+)$/);
+    // Defensive: strip a stray "-REV" suffix in case a future code path
+    // ever inserts a forward row with that suffix shape (shouldn't, but
+    // makes the regex robust if it does).
+    const tail = String(last.entry_number).replace(/-REV$/, '');
+    const m = tail.match(/-(\d+)$/);
     if (m) seq = parseInt(m[1], 10) + 1;
   }
   return `${prefix}-${yyyymmdd}-${String(seq).padStart(4, '0')}`;

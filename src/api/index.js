@@ -454,6 +454,9 @@ export const settingsAPI = {
   updateUser: (id, data) => api.put(`/settings/users/${id}`, data),
   deleteUser: (id) => api.delete(`/settings/users/${id}`),
   getRoles: () => api.get('/settings/roles'),
+  // Flip per-role capability flags. Payload accepts:
+  //   { can_enter_backdated: boolean }
+  updateRolePolicy: (roleId, data) => api.patch(`/settings/roles/${roleId}`, data),
   // Payload is { categories, password, confirmation } — backend re-verifies admin's
    // password and requires the user to type "DELETE" before wiping data.
   cleanupData: (payload) => api.post('/settings/cleanup', payload),

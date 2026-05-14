@@ -30,8 +30,10 @@ const sequelize = require('../config/database');
 const {
   Product, ProductColor, SalesBillItem, PurchaseBillItem,
 } = require('../models');
+const { roundTo } = require('../utils/helpers');
 
-const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+// Audit MONEY-4 — use canonical roundTo (Tally-compatible).
+const r2 = (n) => roundTo(Number(n) || 0, 2);
 
 async function ensureProduct(productId) {
   const p = await Product.findByPk(productId);

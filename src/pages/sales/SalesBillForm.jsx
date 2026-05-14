@@ -160,6 +160,17 @@ export default function SalesBillForm() {
   // the request with _override_reason + _override_password attached
   // once the operator confirms. Cleared on cancel + on successful save.
   const [lockModal, setLockModal] = useState(null);   // null | { lock, retryBody, retryOpts }
+
+  // Audit BILLS-2 — idempotency key for the bill in progress. Minted
+  // once when the form opens; re-used for every save attempt on the
+  // SAME bill so a retry after a dropped response collapses on the
+  // server's idempotency cache instead of double-inserting. Reset to
+  // null after a successful save so the next bill mints its own.
+  const idempotencyKeyRef                  = useRef(
+    (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   // Monotonic key for item rows. Date.now() collides with fast scanners.
   const nextKeyRef                         = useRef(1);
 
@@ -1407,11 +1418,14 @@ export default function SalesBillForm() {
     // it's the same logical attempt and creates a duplicate. The server
     // looks up this key in its short-lived (~60s) in-memory cache and
     // returns the previously-created bill instead of double-inserting.
-    // Stored on the ref so a true second user action (different bill)
-    // mints a new key.
-    const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    //
+    // Audit BILLS-2 — the key is now minted ONCE at form mount and
+    // re-used across every save attempt for the SAME bill. Pre-fix
+    // it was minted INSIDE handleSave, so a user clicking Save twice
+    // after a dropped response would generate two different keys and
+    // both POSTs would create a bill. The key is reset after a
+    // successful save so the next bill (new form open) mints its own.
+    const idempotencyKey = idempotencyKeyRef.current;
     try{
       const vals=await form.validateFields();
       // Mode-specific validation
@@ -1594,6 +1608,13 @@ export default function SalesBillForm() {
       };
       const{data}=isEdit?await salesAPI.update(id,body):await salesAPI.create(body);
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
+      // Audit BILLS-2 — successful save: mint a fresh idempotency key
+      // so the next bill (on a "new bill" reset) uses a different key.
+      // Without this, a "create another" workflow would re-use the
+      // same key and hit the server's cache for the wrong bill.
+      idempotencyKeyRef.current = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       // Post-save hook fires BEFORE navigate/reset so callers can use
       // the saved bill id (e.g. for printing) while the form is still
       // mounted and `id` isn't gone.

@@ -85,6 +85,11 @@ module.exports = (sequelize) => {
       type: DataTypes.DECIMAL(5, 2),
       defaultValue: 0,
     },
+    // Audit BILLS-3 — same rationale as SalesBill.gst_mode.
+    gst_mode: {
+      type: DataTypes.ENUM('product', 'bill'),
+      defaultValue: 'product',
+    },
     cgst_amount: {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0,

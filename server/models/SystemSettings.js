@@ -357,6 +357,32 @@ module.exports = (sequelize) => {
     // 10 minutes; the (n+1)th client gets a 503 with a "license cap
     // reached" message until an existing one goes idle.
     dev_lan_max_clients:       { type: DataTypes.INTEGER, defaultValue: 0 },
+
+    // ── Back-dated entry control ──────────────────────────────────────
+    // When TRUE (default), users can enter bills / payments / vouchers
+    // with a date before today — subject to their role's
+    // can_enter_backdated capability. When FALSE, the system blocks
+    // back-dated entries from every role (including Admin) at the
+    // controller layer. Admin can flip this from Settings → Defaults.
+    //
+    // The dual gate (this + role) lets an admin lock the books to
+    // current-period only while keeping flexible role-by-role per-user
+    // freedom for installs that don't need the lock.
+    allow_backdated_entries: { type: DataTypes.BOOLEAN, defaultValue: true },
+
+    // ── Freight + other charges in GST taxable base ───────────────────
+    // GST law Section 15(2)(c) says supplier-collected freight and
+    // incidental charges ARE part of the transaction value (taxable).
+    // Pre-fix the bill total was computed as
+    //   taxable + GST + freight + other - specialDisc + roundOff
+    // so freight/other dodged GST — under-collection vs the statute.
+    //
+    // When TRUE (default; statutory-compliant), freight + other_charges
+    // are folded into the per-line taxable base BEFORE GST is computed.
+    // When FALSE, the legacy "non-taxable add-on" behaviour is restored
+    // (for businesses where freight is billed by a third-party
+    // transporter on RCM and isn't really part of their supply).
+    freight_other_in_taxable: { type: DataTypes.BOOLEAN, defaultValue: true },
   }, {
     tableName: 'system_settings',
     timestamps: false,

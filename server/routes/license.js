@@ -68,7 +68,33 @@ router.post('/activate', express.json({ limit: '128kb' }), (req, res) => {
  * because at activation time the auth middleware would block us
  * (no user / no license).
  */
+// Audit AUTH-1 — restrict to loopback only.
+//
+// The /deactivate endpoint MUST stay unauthenticated because it's the
+// recovery path for an expired-license install (user is locked out of
+// login by the license gate, so they can't authenticate first). The
+// audit finding was that any LAN client could hit it with the public
+// default password and brick the install.
+//
+// Fix: only accept the call when the request originates from loopback
+// (localhost on the same machine). A LAN-connected client can't reach
+// it any more, but a local admin sitting at the host can — exactly the
+// audience that should be doing license recovery.
+//
+// Defense-in-depth: still requires the developer password on top of
+// the loopback check. Either layer alone breaking doesn't grant
+// recovery; both must succeed.
+function isLoopback(req) {
+  const ip = (req.ip || req.connection?.remoteAddress || '').replace(/^::ffff:/, '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === 'localhost';
+}
 router.post('/deactivate', express.json({ limit: '4kb' }), (req, res) => {
+  if (!isLoopback(req)) {
+    return res.status(403).json({
+      ok: false,
+      message: 'License deactivation must be performed from the server machine itself (loopback only).',
+    });
+  }
   const supplied = req.body && req.body.developer_password;
   // Hardcoded ship-default — same as authController.SHIPPED_DEFAULT_DEV_PASSWORD.
   // Audit C15: the previously-published default 'dev@billing2025' is in repo

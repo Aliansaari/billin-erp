@@ -47,8 +47,10 @@
 
 const sequelize = require('../config/database');
 const { SystemSettings } = require('../models');
+const { roundTo } = require('../utils/helpers');
 
-const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+// Audit MONEY-4 — use canonical roundTo (Tally-compatible).
+const r2 = (v) => roundTo(Number(v) || 0, 2);
 
 function localDateString(d = new Date()) {
   const y = d.getFullYear();

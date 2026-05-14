@@ -623,6 +623,31 @@ exports.markCleared = async (req, res) => {
     r.cleared_at = clearedAt;
     r.cleared_by = req.user?.user_id || null;
     await r.save({ transaction: t });
+
+    // Audit BANK-4 — cascade the cleared flag to any linked Cheque row.
+    // Pre-fix the receipt flipped to cleared but the Cheque Register
+    // still showed DEPOSITED, so the "In Transit" KPI lied and the
+    // bank-statement view drifted from the cheque-register view.
+    try {
+      const { Cheque } = require('../models');
+      await Cheque.update(
+        {
+          status: 'CLEARED',
+          clearance_date: clearedAt,
+          cleared_by: req.user?.user_id || null,
+        },
+        {
+          where: {
+            source_payment_id: txnId,
+            status: { [Op.notIn]: ['CANCELLED', 'BOUNCED', 'CLEARED'] },
+          },
+          transaction: t,
+        },
+      );
+    } catch (e) {
+      console.error('[bank.markCleared] Cheque cascade warn:', e.message);
+    }
+
     await t.commit();
 
     res.json({
@@ -659,6 +684,22 @@ exports.markUncleared = async (req, res) => {
     r.cleared_at = null;
     r.cleared_by = null;
     await r.save({ transaction: t });
+
+    // Audit BANK-4 — reverse the cascade. Roll the linked Cheque back
+    // to DEPOSITED so the register matches the un-cleared receipt.
+    try {
+      const { Cheque } = require('../models');
+      await Cheque.update(
+        { status: 'DEPOSITED', clearance_date: null, cleared_by: null },
+        {
+          where: { source_payment_id: txnId, status: 'CLEARED' },
+          transaction: t,
+        },
+      );
+    } catch (e) {
+      console.error('[bank.markUncleared] Cheque cascade warn:', e.message);
+    }
+
     await t.commit();
 
     res.json({ ok: true, transaction_id: txnId });
@@ -789,6 +830,17 @@ exports.updateBank = async (req, res) => {
       const newName = String(body.name).trim();
       if (!newName) return res.status(400).json({ error: 'Bank name cannot be empty' });
       if (newName.length > 100) return res.status(400).json({ error: 'Bank name is too long' });
+      // Audit LOAN-5 — refuse to rename a SYSTEM ledger. Downstream
+      // code (loanController.recordEMI, voucherBuilders system-ledger
+      // lookups) resolves these by ledger_name; allowing a rename
+      // would silently break EMI posting and break voucher posting
+      // for the 'Bank Account' fallback path.
+      if (acc.is_system_ledger && newName.toLowerCase() !== acc.ledger_name.toLowerCase()) {
+        return res.status(400).json({
+          error: `"${acc.ledger_name}" is a system ledger and cannot be renamed. Renaming would break automated postings (EMIs, expense vouchers) that look it up by name.`,
+          code: 'SYSTEM_LEDGER_RENAME_BLOCKED',
+        });
+      }
       if (newName.toLowerCase() !== acc.ledger_name.toLowerCase()) {
         const dup = await sequelize.query(
           `SELECT ledger_id FROM ledger_accounts
