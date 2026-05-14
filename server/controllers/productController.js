@@ -5,6 +5,7 @@ const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { sanitizePagination, escapeLike } = require('../utils/helpers');
 const { attachDisplayCost, fetchBatchAggregate } = require('../utils/displayCost');
 const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
+const { isFifoMode, addCostLayer, consumeFIFO } = require('../utils/costLayers');
 
 // Bulk-fetch lifetime aggregates (total purchased / total sold / last sold)
 // for the given product_ids. Used by getAll when the client opts in via
@@ -160,7 +161,12 @@ exports.getAll = async (req, res) => {
     const { literal } = require('sequelize');
     const orderClause = (search && name_only === 'true')
       ? [
-          [literal(`CASE WHEN "product_name" ILIKE '${search.replace(/'/g, "''")}%' THEN 0 ELSE 1 END`), 'ASC'],
+          // Audit (security M2) — escape LIKE-wildcards AND quote-double the value before interpolation.
+// Sequelize doesn't let `literal()` carry bind params, so we hand-build a safe string. The
+// helper `escapeLike` neutralises % and _ so a search term of "%" can't promote every row
+// to the "starts-with" tier (which would defeat the ranking AND cause an index scan on a
+// large products table). The single-quote doubling stays as the SQL-injection backstop.
+[literal(`CASE WHEN "product_name" ILIKE '${escapeLike(search).replace(/'/g, "''")}%' THEN 0 ELSE 1 END`), 'ASC'],
           ['product_name', 'ASC'],
         ]
       : [['product_name', 'ASC']];
@@ -182,7 +188,12 @@ exports.getAll = async (req, res) => {
     if (req.query.families === 'true') {
       const familyOrder = (search && name_only === 'true')
         ? [
-            [literal(`CASE WHEN "product_name" ILIKE '${search.replace(/'/g, "''")}%' THEN 0 ELSE 1 END`), 'ASC'],
+            // Audit (security M2) — escape LIKE-wildcards AND quote-double the value before interpolation.
+// Sequelize doesn't let `literal()` carry bind params, so we hand-build a safe string. The
+// helper `escapeLike` neutralises % and _ so a search term of "%" can't promote every row
+// to the "starts-with" tier (which would defeat the ranking AND cause an index scan on a
+// large products table). The single-quote doubling stays as the SQL-injection backstop.
+[literal(`CASE WHEN "product_name" ILIKE '${escapeLike(search).replace(/'/g, "''")}%' THEN 0 ELSE 1 END`), 'ASC'],
             ['product_name', 'ASC'],
           ]
         : [['product_name', 'ASC']];
@@ -582,6 +593,30 @@ exports.create = async (req, res) => {
           delta: openingQty,
           t,
         });
+
+        // ── Audit H5 — opening stock needs an Opening cost layer ─────
+        // Without this, the first FIFO sale at this godown hits the
+        // shortfall fallback (WAC, often 0 for a fresh import) and the
+        // sale's cost_rate is wrong. The Opening layer carries the
+        // opening_stock_rate (or purchase_rate if blank) and an
+        // intentionally-early acquired_at so any subsequent purchase
+        // layer sorts after it in FIFO order.
+        if (await isFifoMode(t)) {
+          await addCostLayer({
+            product_id: product.product_id,
+            godown_id:  defaultGodownId,
+            qty:  openingQty,
+            rate: parseFloat(opening_stock_rate || data.purchase_rate || 0),
+            source_type: 'Opening',
+            source_id: null,
+            // Opening stock predates all purchases by definition; use the
+            // user-supplied opening_stock_date or fall back to epoch+1
+            // so the layer ALWAYS sorts first in the FIFO queue. epoch(0)
+            // is reserved for the synthetic "Backfill" layer.
+            acquired_at: opening_stock_date ? new Date(opening_stock_date) : new Date(1),
+            t,
+          });
+        }
       }
     }
 
@@ -845,6 +880,40 @@ exports.adjust = async (req, res) => {
 
         const today = new Date().toISOString().split('T')[0];
         const dateLabel = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        const adjustRate = parseFloat(purchase_rate || product.purchase_rate || 0);
+
+        // ── Audit H5 — cost_layers must move with stock adjustments ─────
+        // Pre-fix, this path mutated quantity but never touched cost_layers,
+        // so the next FIFO sale at this godown drew from a queue that
+        // disagreed with the on-hand quantity (shortfall fallback to WAC,
+        // silent ₹50–₹500/sale drift).
+        //
+        // Positive delta → insert a synthetic Adjustment layer at the
+        // operator-supplied / current purchase rate so the new stock has
+        // a sensible FIFO cost.
+        // Negative delta → consume from the FIFO queue exactly as a sale
+        // would, so the queue stays aligned with on-hand.
+        if (await isFifoMode(t)) {
+          if (stockDiff > 0) {
+            await addCostLayer({
+              product_id: product.product_id,
+              godown_id:  adjustGodownId,
+              qty:  +stockDiff.toFixed(3),
+              rate: adjustRate,
+              source_type: 'Adjustment',
+              source_id: null,
+              acquired_at: new Date(),
+              t,
+            });
+          } else {
+            await consumeFIFO({
+              product_id: product.product_id,
+              godown_id:  adjustGodownId,
+              qty: +Math.abs(stockDiff).toFixed(3),
+              t,
+            });
+          }
+        }
 
         await StockLedger.create({
           product_id: product.product_id,
@@ -854,7 +923,7 @@ exports.adjust = async (req, res) => {
           reference_number: 'ADJ',
           quantity_in:  stockDiff > 0 ? +stockDiff.toFixed(2) : 0,
           quantity_out: stockDiff < 0 ? +Math.abs(stockDiff).toFixed(2) : 0,
-          rate: parseFloat(purchase_rate || product.purchase_rate || 0),
+          rate: adjustRate,
           balance_quantity: +newStock.toFixed(2),
           godown_id: adjustGodownId,
           remarks: `Adjusted on ${dateLabel}`,

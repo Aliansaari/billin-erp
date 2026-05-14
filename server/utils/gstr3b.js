@@ -60,8 +60,15 @@ const {
 /**
  * Sum outward supplies into 3B's 5 buckets, NET of credit notes.
  * Returns the 5×5 grid (5 row types × {taxable, igst, cgst, sgst, cess}).
+ *
+ * Audit H8 — section 3.1(d) "Inward supplies liable to reverse charge" is
+ * filled from rcm-flagged PurchaseBills. The recipient (us) is liable for
+ * the tax under reverse charge, so it shows here as an outward liability
+ * AND in section 4(A)(3) as eligible ITC (offsetting). The optional
+ * `rcmPurchases` and `rcmPurchaseReturns` args are passed through by
+ * `buildGstr3b`.
  */
-function summarizeOutward(activeBills, activeReturns, companyStateCode) {
+function summarizeOutward(activeBills, activeReturns, companyStateCode, rcmPurchases = [], rcmPurchaseReturns = []) {
   const buckets = {
     taxable_outward:    { label: '(a) Outward taxable (regular)',          taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
     zero_rated:         { label: '(b) Outward taxable zero-rated',         taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
@@ -69,6 +76,30 @@ function summarizeOutward(activeBills, activeReturns, companyStateCode) {
     inward_rcm:         { label: '(d) Inward liable to reverse charge',    taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
     non_gst_outward:    { label: '(e) Non-GST outward supplies',           taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
   };
+
+  // ── Audit H8 — fill (d) from RCM-flagged inward bills ─────────────────
+  // For each non-cancelled purchase bill where reverse_charge=true, add the
+  // taxable + tax amounts as our self-assessed outward liability. The
+  // matching ITC claim on the same amounts is in section 4(A)(3); the two
+  // legs net to zero cash impact when ITC is fully available.
+  for (const p of (rcmPurchases || [])) {
+    if (p.is_cancelled || !p.reverse_charge) continue;
+    const taxable = (p.items || []).reduce((a, i) => a + (Number(i.taxable_amount) || 0), 0);
+    buckets.inward_rcm.taxable += taxable;
+    buckets.inward_rcm.cgst    += Number(p.cgst_amount) || 0;
+    buckets.inward_rcm.sgst    += Number(p.sgst_amount) || 0;
+    buckets.inward_rcm.igst    += Number(p.igst_amount) || 0;
+    buckets.inward_rcm.cess    += Number(p.cess_amount) || 0;
+  }
+  for (const pr of (rcmPurchaseReturns || [])) {
+    if (pr.is_cancelled || !pr.reverse_charge) continue;
+    const taxable = (pr.items || []).reduce((a, i) => a + (Number(i.taxable_amount) || 0), 0);
+    buckets.inward_rcm.taxable -= taxable;
+    buckets.inward_rcm.cgst    -= Number(pr.cgst_amount) || 0;
+    buckets.inward_rcm.sgst    -= Number(pr.sgst_amount) || 0;
+    buckets.inward_rcm.igst    -= Number(pr.igst_amount) || 0;
+    buckets.inward_rcm.cess    -= Number(pr.cess_amount) || 0;
+  }
 
   // Helper: add a single bill into one of the buckets
   const addBill = (bill, sign) => {
@@ -148,18 +179,20 @@ function summarizeInterStateUnreg(activeBills, activeReturns, companyStateCode) 
  * Section 4 — Eligible ITC. Reads PurchaseBill data.
  *
  * Inputs: `purchases` is an array of bills shaped like:
- *   { purchase_bill_id, bill_date, supplier_invoice_number,
+ *   { purchase_bill_id, bill_date, supplier_invoice_number, reverse_charge,
  *     cgst_amount, sgst_amount, igst_amount, cess_amount, total_amount,
  *     is_cancelled, supplier: { gstin, state }, items: [...] }
  *
- * Without an `is_rcm` / `is_import` / `is_isd` flag on PurchaseBill, lines
- * (1)(2)(3)(4) are 0 and everything goes into (5) "All other ITC".
+ * Audit H8 — reverse-charge bills now route to (3) Inward RCM instead of
+ * (5) All other ITC. Imports (1)(2) and ISD (4) still need explicit flags
+ * (out-of-scope for this audit pass; routed into (5) when not RCM).
  *
  * (B) Reversed and (D) Other Details require operator entry — exposed as
  * zero-initialised so the UI can capture them at filing time.
  */
 function summarizeITC(purchases, purchaseReturns = []) {
   const all_other = { igst: 0, cgst: 0, sgst: 0, cess: 0 };
+  const inward_rcm = { igst: 0, cgst: 0, sgst: 0, cess: 0 };
   let purchaseTaxableTotal = 0;
   let invoiceCount = 0;
   let returnCount = 0;
@@ -167,10 +200,12 @@ function summarizeITC(purchases, purchaseReturns = []) {
   for (const p of (purchases || [])) {
     if (p.is_cancelled) continue;
     invoiceCount += 1;
-    all_other.igst += Number(p.igst_amount) || 0;
-    all_other.cgst += Number(p.cgst_amount) || 0;
-    all_other.sgst += Number(p.sgst_amount) || 0;
-    all_other.cess += Number(p.cess_amount) || 0;
+    // Audit H8 — route reverse-charge bills to bucket (3).
+    const target = p.reverse_charge ? inward_rcm : all_other;
+    target.igst += Number(p.igst_amount) || 0;
+    target.cgst += Number(p.cgst_amount) || 0;
+    target.sgst += Number(p.sgst_amount) || 0;
+    target.cess += Number(p.cess_amount) || 0;
     for (const it of (p.items || [])) {
       purchaseTaxableTotal += Number(it.taxable_amount) || 0;
     }
@@ -181,10 +216,16 @@ function summarizeITC(purchases, purchaseReturns = []) {
   for (const pr of (purchaseReturns || [])) {
     if (pr.is_cancelled) continue;
     returnCount += 1;
-    all_other.igst -= Number(pr.igst_amount) || 0;
-    all_other.cgst -= Number(pr.cgst_amount) || 0;
-    all_other.sgst -= Number(pr.sgst_amount) || 0;
-    all_other.cess -= Number(pr.cess_amount) || 0;
+    // Returns flow back to the same bucket as the originating purchase
+    // — RCM returns reduce RCM ITC, normal returns reduce normal ITC.
+    // Without a stored link to the source bill, we approximate by reading
+    // the return's reverse_charge flag (which the controller copies from
+    // the parent purchase when the return is created).
+    const targetR = pr.reverse_charge ? inward_rcm : all_other;
+    targetR.igst -= Number(pr.igst_amount) || 0;
+    targetR.cgst -= Number(pr.cgst_amount) || 0;
+    targetR.sgst -= Number(pr.sgst_amount) || 0;
+    targetR.cess -= Number(pr.cess_amount) || 0;
     for (const it of (pr.items || [])) {
       returnTaxableTotal += Number(it.taxable_amount) || 0;
     }
@@ -195,12 +236,15 @@ function summarizeITC(purchases, purchaseReturns = []) {
   for (const k of Object.keys(all_other)) {
     all_other[k] = Math.max(0, round2(all_other[k]));
   }
+  for (const k of Object.keys(inward_rcm)) {
+    inward_rcm[k] = Math.max(0, round2(inward_rcm[k]));
+  }
 
   const ZERO = { igst: 0, cgst: 0, sgst: 0, cess: 0 };
   const A = {
     import_goods:    { ...ZERO, label: '(1) Import of goods' },
     import_services: { ...ZERO, label: '(2) Import of services' },
-    inward_rcm:      { ...ZERO, label: '(3) Inward supplies liable to reverse charge (other than 1 & 2)' },
+    inward_rcm:      { ...inward_rcm, label: '(3) Inward supplies liable to reverse charge (other than 1 & 2)' },
     isd:             { ...ZERO, label: '(4) Inward supplies from ISD' },
     all_other:       { ...all_other, label: '(5) All other ITC' },
   };
@@ -304,7 +348,8 @@ function buildGstr3b({
   companyStateCode = null,
 } = {}) {
   const cStateCode = companyStateCode || null;
-  const outward    = summarizeOutward(activeBills, activeReturns, cStateCode);
+  // Audit H8 — pass RCM-flagged purchases through so 3.1(d) is filled.
+  const outward    = summarizeOutward(activeBills, activeReturns, cStateCode, purchases, purchaseReturns);
   const interUnreg = summarizeInterStateUnreg(activeBills, activeReturns, cStateCode);
   const itc        = summarizeITC(purchases, purchaseReturns);
   const payment    = summarizePayment(outward, itc);

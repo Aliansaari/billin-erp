@@ -79,6 +79,16 @@ async function getBankLedger(bankLedgerId, transaction) {
       `(sub_group=${row.sub_group}). Pick a Bank Account / Bank OD A/c.`,
     );
   }
+  // Audit (banking M1) — reject issuing / depositing a cheque against a
+  // deactivated bank. Without this, the deactivate flow leaks: the bank
+  // is hidden in the UI but POSTs against it still succeed, defeating the
+  // "hide from new transactions" guarantee operators rely on.
+  if (row.is_active === false) {
+    throw new Error(
+      `chequeService: ledger '${row.ledger_name}' is deactivated. ` +
+      `Reactivate the bank before issuing or depositing cheques against it.`,
+    );
+  }
   return row;
 }
 

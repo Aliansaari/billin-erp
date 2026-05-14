@@ -5,6 +5,7 @@ const { generateTransactionNumber, sanitizePagination, safeTrailingNumber, escap
 const { recalculatePartyBalance, getPartyOutstanding, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPaymentReceiptVouchers } = require('../services/voucherBuilders');
+const { allocateForReceipt } = require('../services/billAllocationService');
 
 // Returns a best-guess preview of the next transaction number for the given
 // type so the entry form can show `REC-000046` instead of "Auto-numbered"
@@ -340,6 +341,74 @@ exports.create = async (req, res) => {
       }
     }
 
+    // ── Persist bill_payment_allocations rows (audit B2) ─────────────────────
+    // Prior to this fix, manual receipts/payments stored allocations ONLY in
+    // PaymentReceipt.bill_allocations JSONB. The Bills-Outstanding report
+    // (billsOutstandingController._billsList) computes effective_outstanding
+    // by LEFT-LATERAL-JOINing the `bill_payment_allocations` table; if no rows
+    // existed there for a manual receipt, the report would show the bill as
+    // still owing despite the receipt having been recorded. Manual receipts
+    // therefore overstated AR/AP by the entire post-billing receipt amount.
+    //
+    // We now go through allocateForReceipt with:
+    //   - references = the user's explicit per-bill picks (mapped from
+    //     allocations[] into bill_number form via a lookup, since
+    //     allocateForReceipt is bill_number-keyed).
+    //   - allowFifoFallback = false here, because reconcileBillsForParty
+    //     below already handles the FIFO redistribution of any unallocated
+    //     remainder against the party's open bills. Letting the allocation
+    //     service also FIFO would double-apply.
+    //
+    // The service is idempotent on `transaction_id` so the row exists
+    // exactly once; subsequent edit/cancel paths handle removal explicitly.
+    if (Array.isArray(allocations) && allocations.length > 0) {
+      const sidesBillType = data.transaction_type === 'Receipt' ? 'Sales' : 'Purchase';
+      // Build {bill_number, amount} references by loading bill_number for
+      // each allocated bill id, since allocateForReceipt is keyed by number.
+      const Model = sidesBillType === 'Sales' ? SalesBill : PurchaseBill;
+      const billIds = allocations
+        .filter((a) => a && a.bill_id && a.bill_type === sidesBillType && parseFloat(a.amount) > 0)
+        .map((a) => a.bill_id);
+      const billRows = billIds.length > 0
+        ? await Model.findAll({
+            where: { [Model.primaryKeyAttribute]: billIds },
+            attributes: [Model.primaryKeyAttribute, 'bill_number'],
+            transaction: t,
+          })
+        : [];
+      const numByPk = new Map(billRows.map((b) => [b[Model.primaryKeyAttribute], b.bill_number]));
+      const references = allocations
+        .filter((a) => a && a.bill_id && a.bill_type === sidesBillType && parseFloat(a.amount) > 0)
+        .map((a) => ({
+          bill_number: numByPk.get(a.bill_id),
+          amount: parseFloat(a.amount) || 0,
+        }))
+        .filter((r) => r.bill_number);
+      if (references.length > 0) {
+        try {
+          await allocateForReceipt({
+            receiptId: payment.transaction_id,
+            partyId: data.party_id,
+            transactionType: data.transaction_type,
+            asOfDate: data.transaction_date,
+            totalAmount: parseFloat(data.total_amount) || 0,
+            references,
+            method: 'manual',
+            t,
+            allowFifoFallback: false,
+          });
+        } catch (e) {
+          // Resolution failure (e.g., bill number changed mid-flight). Roll
+          // back with a clear error rather than silently dropping rows.
+          await t.rollback();
+          return res.status(409).json({
+            error: `Bill allocation failed: ${e.message}`,
+            code: e.code || 'ALLOCATION_FAILED',
+          });
+        }
+      }
+    }
+
     // ── Reconcile every bill for this party, then recompute party balance ────
     // reconcileBillsForParty honors each receipt's explicit bill_allocations
     // first, then FIFO-applies any unallocated remainder (on-account amounts)
@@ -426,6 +495,23 @@ exports.cancel = async (req, res) => {
       cancellation_reason: reason || null,
     }, { transaction: t });
 
+    // ── Audit B2: remove bill_payment_allocations rows so the Bills-Outstanding
+    // report's LATERAL alloc_total no longer counts this cancelled receipt.
+    // The bill's balance_amount is restored a few lines below by
+    // reconcileBillsForParty, which re-derives capacity from total - paid -
+    // return on every pass.
+    await sequelize.query(
+      `DELETE FROM bill_payment_allocations WHERE transaction_id = :id`,
+      { replacements: { id: payment.transaction_id }, transaction: t },
+    );
+
+    // ── Audit H7: take party row lock BEFORE reconcile so concurrent cancels
+    // of different receipts for the same party serialise instead of racing on
+    // the bills.balance_amount snapshot. The advisory lock used in create()
+    // is per-(company, voucher-type-key) — not per-party — so two cancels can
+    // run side-by-side without this explicit row lock.
+    await Party.findByPk(payment.party_id, { lock: t.LOCK.UPDATE, transaction: t });
+
     // ── Rebuild all bill balances via FIFO, then recalculate party balance ───
     // Order matters: reconcile first so balance_amount on each bill is refreshed
     // from the now-reduced set of non-cancelled receipts, then recalc the party
@@ -492,6 +578,15 @@ exports.update = async (req, res) => {
       cancelled_on: new Date(),
       cancellation_reason: `Edited (replaced by new ${original.transaction_type.toLowerCase()})`,
     }, { transaction: t });
+    // Audit B2 — remove the original's allocation rows so the LATERAL alloc
+    // sum on bills-outstanding doesn't credit the same money twice once the
+    // replacement receipt below re-allocates.
+    await sequelize.query(
+      `DELETE FROM bill_payment_allocations WHERE transaction_id = :id`,
+      { replacements: { id: original.transaction_id }, transaction: t },
+    );
+    // Audit H7 — lock party row before reconcile (see exports.cancel comment).
+    await Party.findByPk(original.party_id, { lock: t.LOCK.UPDATE, transaction: t });
     await reconcileBillsForParty(original.party_id, t);
     await recalculatePartyBalance(original.party_id, t);
     await reverseVoucher({
@@ -608,6 +703,51 @@ exports.update = async (req, res) => {
         return res.status(400).json({
           error: `Allocation of ₹${allocAmt.toFixed(2)} for bill ${bill.bill_number} exceeds its remaining balance of ₹${currentBalance.toFixed(2)}`,
         });
+      }
+    }
+
+    // ── Persist bill_payment_allocations rows (audit B2) — same as create() ──
+    if (Array.isArray(allocations) && allocations.length > 0) {
+      const sidesBillType = data.transaction_type === 'Receipt' ? 'Sales' : 'Purchase';
+      const Model = sidesBillType === 'Sales' ? SalesBill : PurchaseBill;
+      const billIds = allocations
+        .filter((a) => a && a.bill_id && a.bill_type === sidesBillType && parseFloat(a.amount) > 0)
+        .map((a) => a.bill_id);
+      const billRows = billIds.length > 0
+        ? await Model.findAll({
+            where: { [Model.primaryKeyAttribute]: billIds },
+            attributes: [Model.primaryKeyAttribute, 'bill_number'],
+            transaction: t,
+          })
+        : [];
+      const numByPk = new Map(billRows.map((b) => [b[Model.primaryKeyAttribute], b.bill_number]));
+      const references = allocations
+        .filter((a) => a && a.bill_id && a.bill_type === sidesBillType && parseFloat(a.amount) > 0)
+        .map((a) => ({
+          bill_number: numByPk.get(a.bill_id),
+          amount: parseFloat(a.amount) || 0,
+        }))
+        .filter((r) => r.bill_number);
+      if (references.length > 0) {
+        try {
+          await allocateForReceipt({
+            receiptId: payment.transaction_id,
+            partyId: data.party_id,
+            transactionType: data.transaction_type,
+            asOfDate: data.transaction_date,
+            totalAmount: parseFloat(data.total_amount) || 0,
+            references,
+            method: 'manual',
+            t,
+            allowFifoFallback: false,
+          });
+        } catch (e) {
+          await t.rollback();
+          return res.status(409).json({
+            error: `Bill allocation failed: ${e.message}`,
+            code: e.code || 'ALLOCATION_FAILED',
+          });
+        }
       }
     }
 

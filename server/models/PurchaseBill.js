@@ -132,6 +132,19 @@ module.exports = (sequelize) => {
     remarks: {
       type: DataTypes.TEXT,
     },
+    // Audit H8 — reverse-charge flag for inward supplies liable to RCM
+    // (legal services, GTA, security, etc.) under CGST Sec 9(3)/(4) and
+    // IGST Sec 5(3)/(4). When true, the supply is reported in:
+    //   • GSTR-3B 3.1(d)  "Inward supplies liable to reverse charge"
+    //   • GSTR-3B 4(A)(3) "Inward supplies liable to RCM other than imports"
+    // Default false so existing bills behave unchanged. The supplier doesn't
+    // collect tax on these — the recipient (us) does, and claims it back as
+    // ITC in the same return.
+    reverse_charge: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
     // 'item' (default — itemised purchase with line items) or 'amount' (a
     // single synthetic line for service / freight / on-account purchases).
     // Amount-mode bills behave identically downstream (party balance, GST

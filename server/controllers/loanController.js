@@ -800,6 +800,38 @@ exports.updateLoan = async (req, res) => {
 
     if (body.is_active !== undefined) ledgerUpd.is_active = !!body.is_active;
 
+    // Audit B3 (F6) — block schedule-shape edits once any EMI has been
+    // posted. Changing interest_rate/tenure_months/first_emi_date/emi_amount
+    // on a loan with posted EMIs causes buildSchedule() to recompute against
+    // the new shape while the ledger still carries the old-shape entries.
+    // The amortization UI then shows post-edit split rows but the ledger
+    // history is pre-edit — operators record the wrong principal/interest
+    // split on the very next EMI.
+    //
+    // Allowed post-EMI edits: name, party_id, emi_day, notes, is_active.
+    // Disallowed: interest_rate, tenure_months, first_emi_date, emi_amount.
+    const lockedShapeFields = ['interest_rate', 'tenure_months', 'first_emi_date', 'emi_amount'];
+    const shapeChangeAttempted = lockedShapeFields.some(
+      (f) => body[f] !== undefined && String(body[f]) !== String(loan[f] == null ? '' : loan[f]),
+    );
+    if (shapeChangeAttempted) {
+      const [{ posted }] = await sequelize.query(
+        `SELECT COUNT(DISTINCT reference_id)::int AS posted
+           FROM ledger_entries
+          WHERE ledger_id = :id AND source_type = 'loan_emi' AND reversal_of_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = ledger_entries.entry_id)`,
+        { replacements: { id: ledgerId }, type: sequelize.QueryTypes.SELECT },
+      );
+      if (posted > 0) {
+        return res.status(409).json({
+          error: `Cannot change interest_rate / tenure_months / first_emi_date / emi_amount — ${posted} EMIs already posted against this loan. ` +
+                 `Reverse those EMIs first, or create a new loan with the corrected terms.`,
+          code: 'LOAN_SHAPE_LOCKED',
+          posted_count: posted,
+        });
+      }
+    }
+
     // Loan-side updates.
     const loanFields = ['party_id', 'interest_rate', 'tenure_months',
                         'first_emi_date', 'emi_amount', 'emi_day', 'notes'];
@@ -909,8 +941,32 @@ exports.recordEMI = async (req, res) => {
       return res.status(404).json({ error: 'Loan not found' });
     }
 
+    // Audit B3 (F3) — refuse EMIs against a deactivated loan account.
+    // Without this, a re-enabled UI element or a direct API consumer
+    // can keep posting EMIs against a closed loan and silently pollute
+    // the Trial Balance.
+    const accLedger = await LedgerAccount.findByPk(ledgerId, { transaction: t });
+    if (accLedger && accLedger.is_active === false) {
+      await t.rollback();
+      return res.status(409).json({
+        error: `Loan "${accLedger.ledger_name}" is deactivated and cannot accept new EMIs. Reactivate the loan first.`,
+        code: 'LOAN_DEACTIVATED',
+      });
+    }
+
     const body = req.body || {};
     const date = body.date || todayIso();
+
+    // Audit B3 (F2) — refuse back-dated EMIs that pre-date the loan
+    // disbursement. An EMI dated before the loan exists distorts P&L for
+    // a closed period (Interest Expense recognized in the wrong period).
+    if (loan.disbursement_date && date < String(loan.disbursement_date)) {
+      await t.rollback();
+      return res.status(400).json({
+        error: `EMI date ${date} is before the loan's disbursement date ${loan.disbursement_date}. Use a later date.`,
+        code: 'EMI_BEFORE_DISBURSEMENT',
+      });
+    }
 
     // Always count posted EMIs — needed both for the ref-sequence and
     // (when principal/interest aren't passed) to look up the next-due
@@ -931,6 +987,19 @@ exports.recordEMI = async (req, res) => {
           )`,
       { replacements: { id: ledgerId }, type: sequelize.QueryTypes.SELECT, transaction: t },
     );
+
+    // Audit B3 (F1) — refuse EMIs past the scheduled tenure. Without
+    // this guard, callers that supply explicit principal/interest can
+    // post EMIs forever, eventually driving the loan-ledger balance
+    // past zero into the opposite side and silently mis-classifying
+    // Liability ↔ Asset on the Trial Balance.
+    if (loan.tenure_months && paid_count >= loan.tenure_months) {
+      await t.rollback();
+      return res.status(409).json({
+        error: `Loan is fully paid (${paid_count}/${loan.tenure_months} EMIs posted). To pay extra, use a manual journal voucher with a foreclosure narration.`,
+        code: 'LOAN_FULLY_PAID',
+      });
+    }
 
     // Resolve principal / interest split. If not provided, use the
     // scheduled next-due EMI from the amortization table.
@@ -1015,16 +1084,22 @@ exports.recordEMI = async (req, res) => {
     //
     // postVoucher dedupes on (source_type, sourceId) so we can't reuse
     // loan.loan_id for every EMI — the second post would be rejected
-    // as a duplicate. Encode the EMI sequence into the numeric sourceId
-    // by combining loan.loan_id × 100000 + emiSeq. Bounds:
-    //   loan_id × 100000 fits in int4 for any sane loan count
-    //   emiSeq up to 100,000 (way more than any realistic tenure)
-    // The reverse mapping is `sourceId mod 100000` = emi #, `÷ 100000`
-    // = loan id, but we don't actually need to reverse it — listLoans
-    // and the schedule queries find EMI entries by joining on
-    // ledger_id + source_type, not by parsing sourceId.
+    // as a duplicate.
+    //
+    // Audit (loans M1) — pre-fix this encoded as `loan.loan_id × 100000
+    // + emiSeq`, which overflows int4 (2,147,483,647 / 100,000 = 21,474)
+    // on a long-lived install. Switched to a SHA-1-derived 31-bit hash of
+    // the canonical string `EMI-{loan_id}-{emiSeq}` so the value fits in
+    // int4 forever AND stays unique per (loan, EMI #). 31-bit space
+    // (~2.1 billion) is far larger than any reasonable EMI count, and the
+    // BIGINT alternative would require a schema migration.
     const emiSeq = paid_count + 1;
-    const sourceId = (loan.loan_id * 100000) + emiSeq;
+    const crypto = require('crypto');
+    const hash = crypto.createHash('sha1').update(`EMI-${loan.loan_id}-${emiSeq}`).digest();
+    // First 4 bytes → unsigned int. Mask top bit to keep within int4 positive
+    // range. Collisions are astronomically rare; the (source_type, source_id)
+    // unique index in ledger_entries catches any in practice.
+    const sourceId = hash.readUInt32BE(0) & 0x7fffffff;
     const refNum = `EMI-L${loan.loan_id}-${String(emiSeq).padStart(3, '0')}-${date.replace(/-/g, '')}`;
     await postVoucher({
       voucherType:     loan.loan_type === 'taken' ? 'Payment' : 'Receipt',
@@ -1078,18 +1153,26 @@ exports.reverseEMI = async (req, res) => {
       return res.status(404).json({ error: 'Loan not found' });
     }
 
-    // Find the highest-numbered live EMI voucher for this loan.
-    // sourceId encoding: loan.loan_id * 100000 + emiSeq, so MAX(sourceId)
-    // in the live (reversal_of_id IS NULL) entries gives us the latest.
+    // Find the most-recently-posted live EMI voucher for this loan.
+    //
+    // Audit (loans M1) — pre-fix this used MAX(reference_id) ASSUMING the
+    // sourceId encoded loan_id × 100000 + emiSeq (so highest = latest).
+    // The encoding is now SHA-1-derived (to avoid int4 overflow at >21k
+    // loans), so reference_id order is no longer temporal. Switch to the
+    // entry_id of the latest live entry — entry_id is monotonic-increasing
+    // and uniquely identifies the latest posting regardless of source_id
+    // hashing scheme.
     const [latest] = await sequelize.query(
-      `SELECT MAX(reference_id)::int AS source_id
+      `SELECT reference_id::int AS source_id
          FROM ledger_entries
         WHERE ledger_id = :id
           AND source_type = 'loan_emi'
           AND reversal_of_id IS NULL
           AND NOT EXISTS (
             SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = ledger_entries.entry_id
-          )`,
+          )
+        ORDER BY entry_id DESC
+        LIMIT 1`,
       { replacements: { id: ledgerId }, type: sequelize.QueryTypes.SELECT, transaction: t },
     );
     if (!latest || !latest.source_id) {

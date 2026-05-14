@@ -18,7 +18,7 @@
 
 const sequelize = require('../config/database');
 const { Op, fn, col, literal } = require('sequelize');
-const { fetchBatchAggregate, fetchBatchAggregateByGodown, computeDisplayCost } = require('../utils/displayCost');
+const { fetchBatchAggregate, fetchBatchAggregateByGodown, computeDisplayCost, attachDisplayCost } = require('../utils/displayCost');
 const {
   SystemSettings, SalesBillItem, PurchaseBillItem,
   Product, StockLedger, Category,
@@ -490,11 +490,28 @@ exports.stockVelocity = async (req, res) => {
 
     const todayD = new Date(to + 'T00:00:00Z');
 
-    const enriched = rows.map((r) => {
+    // Audit (stock M1) — operational dashboard's stock_value should mirror
+    // the same mode-aware basis the main stock report uses (purchase_rate
+    // for variant, weighted_avg_cost for single, batch-aggregate for
+    // batched). Pre-fix, this dashboard pill used raw purchase_rate for
+    // every product, which swings 10-30% under volatile pricing vs the
+    // canonical Closing Stock figure on the Balance Sheet.
+    //
+    // attachDisplayCost takes the rows array and populates each row with
+    // a `display_cost` (mode-aware) and `display_stock_value` field. We
+    // use those when available, falling back to purchase_rate * qty for
+    // legacy rows. Keeps the dashboard pill = BS stock_value to the rupee.
+    let enrichedRows;
+    try {
+      enrichedRows = await attachDisplayCost(rows);
+    } catch (_) { enrichedRows = rows; }
+    const enriched = enrichedRows.map((r) => {
       const qtySold       = num(r.qty_sold);
       const stockQty      = num(r.current_stock);
       const purchaseRate  = num(r.purchase_rate);
-      const stockValue    = r2(stockQty * purchaseRate);
+      const stockValue    = r.display_stock_value != null
+        ? r2(num(r.display_stock_value))
+        : r2(stockQty * purchaseRate);
       const revenue       = r2(num(r.revenue));
       const cogs          = r2(num(r.cogs));
       const grossProfit   = r2(revenue - cogs);

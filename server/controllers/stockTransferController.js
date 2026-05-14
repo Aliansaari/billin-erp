@@ -654,6 +654,7 @@ exports.cancel = async (req, res) => {
       // godown_id=to_godown_id and delta=-qty.)
       const sysSettings = await SystemSettings.findByPk(1, { transaction: t });
       const batchTrackingOn = !!sysSettings?.batch_tracking_enabled;
+      const fifoOn = await isFifoMode(t);
       for (const it of transfer.items) {
         await applyGodownStockDelta({
           product_id: it.product_id, godown_id: transfer.from_godown_id,
@@ -665,6 +666,42 @@ exports.cancel = async (req, res) => {
             godown_id: transfer.from_godown_id,
             delta: +parseFloat(it.quantity), t,
           });
+        }
+        // ── Audit H4 — restore FIFO layers at source ─────────────────────
+        // Pre-fix, cancelling an In-Transit transfer restored the
+        // physical quantity at source via applyGodownStockDelta, but did
+        // NOT recreate the cost_layers that submit() / receive() consumed
+        // from the source godown's layer queue. The next FIFO sale at the
+        // source then drew from a depleted queue, falling back to
+        // weighted-avg cost — silently understating profit by the
+        // difference between the cancelled transfer's layer rate and the
+        // remaining layers' rate.
+        //
+        // We replay the same `cost_layers_consumed` snapshot (used by
+        // receive() to recreate layers at destination) to restore layers
+        // at source with their ORIGINAL acquired_at dates so the FIFO
+        // queue's ordering matches what it was before submit.
+        if (fifoOn) {
+          const consumed = Array.isArray(it.cost_layers_consumed) ? it.cost_layers_consumed : [];
+          if (consumed.length > 0) {
+            for (const cl of consumed) {
+              await addCostLayer({
+                product_id: it.product_id,
+                godown_id:  transfer.from_godown_id,
+                qty:  +parseFloat(cl.qty),
+                rate: +parseFloat(cl.rate),
+                source_type: 'Adjustment',
+                source_id: transfer.transfer_id,
+                // Use the original layer's acquired_at if present so the
+                // restored layer slots back into its old FIFO position.
+                // Fallback: today's date — sub-optimal but better than no
+                // layer at all (the operator will see the cost reflect
+                // current pricing for stock that was originally older).
+                acquired_at: cl.acquired_at ? new Date(cl.acquired_at) : new Date(),
+                t,
+              });
+            }
+          }
         }
       }
       await StockLedger.destroy({

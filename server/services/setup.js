@@ -268,13 +268,20 @@ function applyConfigToEnv() {
   if (!process.env.DB_PASSWORD)        process.env.DB_PASSWORD     = cfg.db.password;
   if (!process.env.MASTER_DB_NAME)     process.env.MASTER_DB_NAME  = cfg.db.master_db_name;
 
-  // JWT secret. If the config has one (modern setups), use it. If
-  // not (older config from before this fix), back-fill with a
-  // freshly-generated secret and re-save the config so it's stable
-  // across restarts. Without this, jwt.sign throws synchronously
-  // and login looks like "wrong password" to the user.
-  if (!process.env.JWT_SECRET) {
-    if (cfg.jwt_secret) {
+  // JWT secret. Treat a missing OR placeholder value as "unset" so a
+  // stray .env containing the shipped default (audit B1) does not pin a
+  // publicly-known signing key. The literal placeholder strings to
+  // refuse are intentionally narrow — a customer who happens to pick
+  // "your-super-secret-real-secret" is left alone — but any value
+  // matching the historically-shipped templates is rotated to a
+  // process-local random 32-byte hex string and persisted to the
+  // user's per-machine config so the secret is stable across restarts.
+  const isPlaceholder = (s) => {
+    if (!s) return true;
+    return /your-super-secret-jwt-key-change-in-production|change-me-to-a-long-random-string|change-me|dev-secret-change-me/i.test(s);
+  };
+  if (isPlaceholder(process.env.JWT_SECRET)) {
+    if (cfg.jwt_secret && !isPlaceholder(cfg.jwt_secret)) {
       process.env.JWT_SECRET = cfg.jwt_secret;
     } else {
       const fresh = require('crypto').randomBytes(32).toString('hex');
@@ -283,6 +290,9 @@ function applyConfigToEnv() {
         cfg.jwt_secret = fresh;
         saveConfig(cfg);
       } catch { /* read-only filesystem etc. — env var still set for this run */ }
+      // One-line console warning so an operator running `node server/index.js`
+      // sees that a fresh secret was minted (helpful when chasing 401s).
+      console.warn('[setup] JWT_SECRET was missing or placeholder — generated a fresh per-install secret. All existing JWTs are now invalid; users will need to re-login.');
     }
   }
 

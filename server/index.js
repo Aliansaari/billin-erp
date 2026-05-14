@@ -1243,6 +1243,14 @@ async function startServer() {
                        WHERE table_name='purchase_bills' AND column_name='description') THEN
           ALTER TABLE purchase_bills ADD COLUMN description TEXT;
         END IF;
+        -- Audit H8 — reverse-charge flag for inward RCM supplies.
+        -- Default false so existing rows remain non-RCM. New bills can
+        -- set this from the purchase form / API. GSTR-3B section 3.1(d)
+        -- and ITC table 4(A)(3) read this column directly.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_bills' AND column_name='reverse_charge') THEN
+          ALTER TABLE purchase_bills ADD COLUMN reverse_charge BOOLEAN NOT NULL DEFAULT false;
+        END IF;
       END $$;
       -- Repair drafts→parties FK on installs where Sequelize sync built the
       -- table before the DO $$ block (sync omits ON DELETE clauses, so the
@@ -2263,6 +2271,63 @@ async function startServer() {
       END $$;
     `).catch((err) => {
       console.error('[Multi-color settings migration] Error:', err.message);
+    });
+
+    // ── Audit H9 — persistent rate-limit / JWT-blacklist tables ──
+    // Without these, a server restart clears every locked-out account and
+    // every revoked JWT (up to 24h after issue). The tables back the
+    // in-memory cache in middleware/loginRateLimit.js and utils/tokenBlacklist.js;
+    // those modules write through on every state change and lazy-hydrate
+    // from the table on first miss.
+    //
+    // ── Audit H11 — audit_logs append-only history ──
+    // Records sensitive admin actions (user/role mutations, permission
+    // changes, settings.cleanup, backup ops, etc.) so a forensic auditor
+    // can reconstruct who did what when. Append-only at the application
+    // level; we don't ship a DELETE endpoint.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'revoked_jtis') THEN
+          CREATE TABLE revoked_jtis (
+            jti        UUID PRIMARY KEY,
+            exp        BIGINT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+          CREATE INDEX revoked_jtis_exp_idx ON revoked_jtis(exp);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'login_attempts') THEN
+          CREATE TABLE login_attempts (
+            key            VARCHAR(200) PRIMARY KEY,
+            attempts_json  JSONB NOT NULL DEFAULT '[]'::jsonb,
+            last_attempt   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            locked_until   TIMESTAMPTZ
+          );
+          CREATE INDEX login_attempts_locked_until_idx ON login_attempts(locked_until);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'audit_logs') THEN
+          CREATE TABLE audit_logs (
+            audit_id        BIGSERIAL PRIMARY KEY,
+            action          VARCHAR(80)   NOT NULL,
+            entity_type     VARCHAR(40),
+            entity_id       VARCHAR(64),
+            actor_user_id   INTEGER,
+            actor_username  VARCHAR(80),
+            ip_address      VARCHAR(64),
+            user_agent      TEXT,
+            company_id      INTEGER,
+            before_state    JSONB,
+            after_state     JSONB,
+            notes           TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+          CREATE INDEX audit_logs_action_idx     ON audit_logs(action);
+          CREATE INDEX audit_logs_actor_idx      ON audit_logs(actor_user_id);
+          CREATE INDEX audit_logs_entity_idx     ON audit_logs(entity_type, entity_id);
+          CREATE INDEX audit_logs_created_at_idx ON audit_logs(created_at DESC);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[H9/H11 auth-persistence migration] Error:', err.message);
     });
 
     // Seed default data

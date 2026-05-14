@@ -262,8 +262,18 @@ async function getPartyOutstanding(partyId, transactionType, t = null) {
  * Sales bills    ← total non-cancelled Receipts
  */
 async function reconcileBillsForParty(partyId, t = null) {
-  const { SalesBill, PurchaseBill, PaymentReceipt } = require('../models');
+  const { SalesBill, PurchaseBill, PaymentReceipt, Party } = require('../models');
   const opts = t ? { transaction: t } : {};
+
+  // Audit H7 — defense-in-depth row lock on the party. The paymentController
+  // already locks the party row before calling reconcile, but other callers
+  // (sales/purchase create/update, salesReturn cancel, etc.) may not. Taking
+  // the lock here makes reconcile safe under any caller. Lock is no-op when
+  // a transaction wasn't passed — there's no isolation to maintain in that
+  // case.
+  if (t) {
+    await Party.findByPk(partyId, { lock: t.LOCK.UPDATE, transaction: t });
+  }
 
   // Extract valid allocations from a payment row, defensively scaled so the
   // sum never exceeds the payment's total_amount (prevents data-corruption

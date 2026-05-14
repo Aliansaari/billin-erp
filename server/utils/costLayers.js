@@ -223,6 +223,92 @@ async function reverseConsumptionForBill({ sales_bill_id, t }) {
 }
 
 /**
+ * Audit H6 — partial-line exact reversal for sales-return paths.
+ *
+ * Given a reference sales_bill_id and a list of { product_id, qty_returned },
+ * find the matching consumed-layer rows on the original bill and add the
+ * RETURNED quantity back to those exact layers, proportionally to how much
+ * each layer contributed. Returned goods re-enter inventory at their
+ * original cost basis — which is what FIFO promises.
+ *
+ * If the SLC link is missing (cancelled-and-reposted bills, legacy data),
+ * the caller falls back to the v1 best-effort restoreConsumption() for that
+ * line.
+ *
+ * Returns { restored: <map of product_id→qty restored>, skipped: <product_ids without SLC> }.
+ */
+async function reverseConsumptionForBillPartial({ sales_bill_id, returnLines, t }) {
+  if (!sales_bill_id) throw new Error('reverseConsumptionForBillPartial: sales_bill_id required');
+  if (!t) throw new Error('reverseConsumptionForBillPartial: transaction required');
+  if (!Array.isArray(returnLines) || returnLines.length === 0) return { restored: {}, skipped: [] };
+
+  const restored = {};
+  const skipped = [];
+
+  for (const line of returnLines) {
+    const pid = line.product_id;
+    const qtyRet = +parseFloat(line.qty_returned || 0);
+    if (!pid || qtyRet <= 0) continue;
+
+    // Find all SLC rows for THIS product on the original bill, with the
+    // sale-line quantity so we can pro-rate.
+    const slc = await sequelize.query(
+      `SELECT slc.consumption_id, slc.sales_bill_item_id, slc.layer_id,
+              slc.qty_consumed, sbi.quantity AS sale_qty
+         FROM sale_line_layer_consumptions slc
+         JOIN sales_bill_items sbi ON sbi.item_id = slc.sales_bill_item_id
+        WHERE sbi.sales_bill_id = :bid AND sbi.product_id = :pid
+        FOR UPDATE OF slc`,
+      {
+        replacements: { bid: sales_bill_id, pid },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      },
+    );
+    if (slc.length === 0) { skipped.push(pid); continue; }
+
+    // Total qty originally sold for this product across all lines (in case the
+    // operator created multiple lines for the same product on one bill).
+    const totalSold = slc.reduce((s, r) => s + (+parseFloat(r.qty_consumed) || 0), 0);
+    if (totalSold <= 0) { skipped.push(pid); continue; }
+
+    // Cap return at total sold so we never restore more than was consumed.
+    const eff = Math.min(qtyRet, totalSold);
+    let leftToRestore = eff;
+
+    // Walk SLC rows in order; restore each layer proportionally.
+    for (let i = 0; i < slc.length && leftToRestore > 0.0001; i++) {
+      const row = slc[i];
+      // Last row absorbs whatever's left to avoid 1-paisa/qty residue.
+      const share = i < slc.length - 1
+        ? +((+parseFloat(row.qty_consumed) / totalSold) * eff).toFixed(3)
+        : +leftToRestore.toFixed(3);
+      const restoreQty = Math.min(share, +parseFloat(row.qty_consumed));
+
+      await sequelize.query(
+        `UPDATE cost_layers
+            SET qty_remaining = LEAST(qty_original, qty_remaining + :q),
+                updated_at = NOW()
+          WHERE layer_id = :lid`,
+        { replacements: { q: restoreQty, lid: row.layer_id }, transaction: t },
+      );
+      // Reduce qty_consumed on the SLC row so a subsequent return-against-
+      // same-bill restores from what's left, not the original number.
+      await sequelize.query(
+        `UPDATE sale_line_layer_consumptions
+            SET qty_consumed = GREATEST(0, qty_consumed - :q)
+          WHERE consumption_id = :cid`,
+        { replacements: { q: restoreQty, cid: row.consumption_id }, transaction: t },
+      );
+      leftToRestore = +(leftToRestore - restoreQty).toFixed(3);
+    }
+    restored[pid] = (restored[pid] || 0) + (eff - leftToRestore);
+  }
+
+  return { restored, skipped };
+}
+
+/**
  * v1 best-effort fallback — kept for paths that DON'T have a
  * sales_bill_item_id (legacy callers, stock adjustments, transfer
  * sources without a SLC link). Prefer reverseConsumptionForBill in
@@ -423,6 +509,7 @@ module.exports = {
   consumeFIFO,
   recordSaleConsumption,
   reverseConsumptionForBill,
+  reverseConsumptionForBillPartial, // audit H6 — partial-line exact restore
   restoreConsumption,           // legacy best-effort fallback
   isFifoMode,
   getEffectiveCogsMethod,

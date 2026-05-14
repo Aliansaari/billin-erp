@@ -116,6 +116,57 @@ function calculateGST(taxableAmount, gstRate, isInterState = false) {
   return { cgst: half, sgst: roundTo(totalTax - half, 2), igst: 0 };
 }
 
+/**
+ * Audit H2 — paisa-perfect CGST/SGST/IGST split for bill-wise mode.
+ *
+ * The bill-wise controller paths used to do:
+ *   totalCgst = roundTo(taxableTotal * cgst_pct / 100, 2)
+ *   totalSgst = roundTo(taxableTotal * sgst_pct / 100, 2)
+ *   totalIgst = roundTo(taxableTotal * igst_pct / 100, 2)
+ * which can drift ±₹0.01 from the true combined tax (because each half is
+ * rounded independently). At 50k bills/year × 1 paisa drift = ~₹500/yr of
+ * silent variance against Tally's reconciliation.
+ *
+ * This helper computes the combined tax first, then divides into the two
+ * halves so the second absorbs the rounding residual — same algorithm as
+ * calculateGST but driven by explicit percentages (not a single combined
+ * gst_rate).
+ *
+ * Behaviour:
+ *   - Pure intra-state (cgst_pct>0, sgst_pct>0, igst_pct==0): combined =
+ *     roundTo(base*(cgst+sgst)/100); first half rounded; second = combined
+ *     − first. Both halves sum to combined exactly.
+ *   - Pure inter-state (igst_pct>0, others==0): igst = roundTo(base*igst/100).
+ *   - Only CGST or only SGST present: that ledger gets the full combined tax.
+ *   - Mixed CGST+SGST+IGST: callers should reject via H1 before reaching
+ *     this helper. We still split safely if the caller chooses not to.
+ *
+ * The caller already validates (a) mutual exclusion and (b) state-of-supply
+ * agreement (audit H1). This helper only does the math.
+ */
+function splitBillWiseGst(taxableTotal, cgstPct, sgstPct, igstPct) {
+  const base = parseFloat(taxableTotal) || 0;
+  const cP = parseFloat(cgstPct) || 0;
+  const sP = parseFloat(sgstPct) || 0;
+  const iP = parseFloat(igstPct) || 0;
+  const combinedPct = cP + sP;
+  let cgst = 0, sgst = 0;
+  if (combinedPct > 0) {
+    const combinedTax = roundTo(base * combinedPct / 100, 2);
+    if (cP > 0 && sP > 0) {
+      const cgstShare = roundTo(combinedTax * cP / combinedPct, 2);
+      cgst = cgstShare;
+      sgst = roundTo(combinedTax - cgstShare, 2);
+    } else if (cP > 0) {
+      cgst = combinedTax;
+    } else {
+      sgst = combinedTax;
+    }
+  }
+  const igst = roundTo(base * iP / 100, 2);
+  return { cgst, sgst, igst };
+}
+
 function paginateQuery(query, page = 1, limit = 50) {
   const offset = (page - 1) * limit;
   return { ...query, limit, offset };
@@ -149,6 +200,7 @@ module.exports = {
   roundOff,
   roundTo,
   calculateGST,
+  splitBillWiseGst,
   paginateQuery,
   sanitizePagination,
 };

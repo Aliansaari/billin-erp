@@ -416,15 +416,25 @@ function aggregateCnDn(returns, companyStateCode) {
         cdnr.grand.sgst    += r.sgst;
         cdnr.grand.cess    += r.cess;
       } else {
+        // Audit H3 — split CGST/SGST/IGST into separate columns instead of
+        // mashing intra-state CGST+SGST into the IGST column. Previously
+        // the row stored `igst = igst + (intra ? cgst + sgst : 0)`, which
+        // labelled intra-state credit notes as inter-state on portal-style
+        // output and confused operators uploading the JSON straight to the
+        // GST portal. The row now carries cgst/sgst/igst independently so
+        // the UI can render the correct tax head and the JSON export can
+        // either:
+        //   - keep IGST-only for legitimate inter-state CDNUR (the portal's
+        //     own 9B contract), OR
+        //   - net intra-state into B2CS (Table 7), which is where the
+        //     portal expects them.
+        // ur_type: 'B2CL' for inter > ₹2.5L; 'B2C' (informational, intra
+        // unregistered should be netted into B2CS by the operator) otherwise.
         cdnur.rows.push({
           return_id:        ret.return_id,
           note_number:      ret.return_number,
           note_date:        ret.return_date,
           note_type:        'C',
-          // ur_type: B2CL only legitimately applies to inter-state returns
-          // > ₹2.5L; intra-state unregistered returns are nominally outside
-          // 9B (they net into B2CS). We mark them 'B2C' so the operator can
-          // spot them and net manually before portal upload.
           ur_type:          inter ? 'B2CL' : 'B2C',
           customer_name:    cust?.party_name || '—',
           mobile:           cust?.mobile_1 || null,
@@ -432,18 +442,25 @@ function aggregateCnDn(returns, companyStateCode) {
           note_value:       round2(ret.total_amount),
           rate:             r.rate,
           taxable:          round2(r.taxable),
-          // CDNUR is inter-state in the strict portal sense (intra rows
-          // here are flagged for manual netting). For inter rows we report
-          // IGST; for intra we still surface CGST+SGST as informational
-          // and the user can decide.
-          igst:             round2(r.igst + (inter ? 0 : r.cgst + r.sgst)),
+          // Audit H3 — proper head separation. Pre-fix: a `CDNUR.igst` that
+          // mashed intra CGST+SGST into IGST. Now each head is faithful.
+          // Net-into-B2CS guidance for the intra-state rows is surfaced via
+          // `requires_b2cs_netting` so the UI / exporter can act on it.
+          cgst:             round2(inter ? 0 : r.cgst),
+          sgst:             round2(inter ? 0 : r.sgst),
+          igst:             round2(inter ? r.igst : 0),
           cess:             round2(r.cess),
+          requires_b2cs_netting: !inter, // operator should net into B2CS Tbl 7
           original_invoice_number: ret.reference_bill_number || '',
           original_invoice_date:   ret.reference_bill_date   || null,
         });
         cdnur.grand.taxable += r.taxable;
-        cdnur.grand.igst    += r.igst + (inter ? 0 : r.cgst + r.sgst);
-        cdnur.grand.cess    += r.cess;
+        // Grand totals split too — historical igst-only field kept as a
+        // back-compat alias on the response (consumer code can read either).
+        cdnur.grand.cgst = (cdnur.grand.cgst || 0) + (inter ? 0 : r.cgst);
+        cdnur.grand.sgst = (cdnur.grand.sgst || 0) + (inter ? 0 : r.sgst);
+        cdnur.grand.igst += inter ? r.igst : 0;
+        cdnur.grand.cess += r.cess;
       }
     }
     // Only count notes that produced at least one row. An empty-items
@@ -454,9 +471,13 @@ function aggregateCnDn(returns, companyStateCode) {
     }
   }
 
-  // Grand totals (CDNR includes intra-state CGST+SGST)
+  // Grand totals — CDNR includes intra-state CGST+SGST.
+  // Audit H3 — CDNUR now also breaks out CGST/SGST/IGST instead of mashing
+  // intra-state heads into igst. Total includes all heads.
   cdnr.grand.total  = cdnr.grand.taxable + cdnr.grand.igst + cdnr.grand.cgst + cdnr.grand.sgst + cdnr.grand.cess;
-  cdnur.grand.total = cdnur.grand.taxable + cdnur.grand.igst + cdnur.grand.cess;
+  cdnur.grand.cgst  = +(cdnur.grand.cgst || 0).toFixed(2);
+  cdnur.grand.sgst  = +(cdnur.grand.sgst || 0).toFixed(2);
+  cdnur.grand.total = cdnur.grand.taxable + cdnur.grand.igst + cdnur.grand.cgst + cdnur.grand.sgst + cdnur.grand.cess;
   for (const k of Object.keys(cdnr.grand))  cdnr.grand[k]  = round2(cdnr.grand[k]);
   for (const k of Object.keys(cdnur.grand)) cdnur.grand[k] = round2(cdnur.grand[k]);
 

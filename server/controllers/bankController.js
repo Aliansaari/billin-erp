@@ -911,16 +911,27 @@ exports.deleteBank = async (req, res) => {
       `SELECT COUNT(*)::int AS bill_cnt FROM sales_bills WHERE bank_ledger_id = :id`,
       { replacements: { id: ledgerId }, type: sequelize.QueryTypes.SELECT },
     );
-    const totalRefs = entry_cnt + split_cnt + bill_cnt;
+    // Audit (banking M1) — also check cheques.bank_ledger_id. A PENDING
+    // INWARD cheque doesn't yet have a posted ledger_entry on the bank
+    // (the receipt voucher hit "Cheques in Hand"), so the entry_cnt guard
+    // doesn't catch it. Pre-fix, deleting the bank silently SET NULL'd the
+    // cheque's bank reference, breaking the cheque register audit trail.
+    const [{ cheque_cnt }] = await sequelize.query(
+      `SELECT COUNT(*)::int AS cheque_cnt FROM cheques
+        WHERE bank_ledger_id = :id AND status <> 'CANCELLED'`,
+      { replacements: { id: ledgerId }, type: sequelize.QueryTypes.SELECT },
+    );
+    const totalRefs = entry_cnt + split_cnt + bill_cnt + cheque_cnt;
 
     if (totalRefs > 0) {
       return res.status(409).json({
         error: `Cannot delete "${acc.ledger_name}" — it has ${entry_cnt} ledger entries, ` +
-               `${split_cnt} payment splits, and ${bill_cnt} sales bills referencing it. ` +
+               `${split_cnt} payment splits, ${bill_cnt} sales bills, and ${cheque_cnt} cheques referencing it. ` +
                `Deactivate instead to hide it from new transactions while preserving history.`,
-        txn_count:  entry_cnt,
-        split_count: split_cnt,
-        bill_count:  bill_cnt,
+        txn_count:    entry_cnt,
+        split_count:  split_cnt,
+        bill_count:   bill_cnt,
+        cheque_count: cheque_cnt,
         suggest_deactivate: true,
       });
     }

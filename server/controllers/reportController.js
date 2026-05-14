@@ -2398,22 +2398,34 @@ function _agingBounds(settings) {
   };
 }
 
-// Load every non-cancelled bill with a positive balance and the associated
-// party. This is the dataset aggregateAging operates on. We normalize to a
-// shape the pure function expects so the DB layout never leaks further.
-async function _loadAgingBills(partyType) {
+// Load every non-cancelled bill that existed on/before `asOf` whose
+// historical balance on that date was > 0, along with the associated
+// party. The historical balance is `total - paid_at_billing -
+// SUM(bill_payment_allocations dated <= asOf via the parent receipt's
+// transaction_date)`. This is the dataset aggregateAging operates on.
+//
+// Audit B4 fix: previously this loader filtered only by `balance_amount > 0`
+// and ignored `asOf`, so a historical aging picker (e.g., last FY close)
+// returned bills created AFTER that date and used the LIVE balance — a bill
+// paid yesterday showed as fully paid on a March 31 aging. The reconciliation
+// banner already filtered correctly, so the banner would flag drift but the
+// aging table itself was wrong. Now both legs use the same temporal cut.
+async function _loadAgingBills(partyType, asOf) {
   const isCustomer = partyType === 'Customer';
   const Bill = isCustomer ? SalesBill : PurchaseBill;
   const billIdKey = isCustomer ? 'sales_bill_id' : 'purchase_bill_id';
   const partyAssoc = isCustomer ? 'customer' : 'supplier';
+  const billType   = isCustomer ? 'Sales' : 'Purchase';
+  const billTable  = isCustomer ? 'sales_bills' : 'purchase_bills';
+  const partyFk    = isCustomer ? 'customer_id' : 'supplier_id';
+
+  const where = { is_cancelled: false };
+  if (asOf) where.bill_date = { [Op.lte]: asOf };
 
   const rows = await Bill.findAll({
-    where: {
-      is_cancelled: false,
-      balance_amount: { [Op.gt]: 0 },
-    },
+    where,
     attributes: ['bill_number', 'bill_date', 'due_date', 'total_amount',
-                 'paid_amount', 'balance_amount', billIdKey],
+                 'paid_amount', 'balance_amount', 'return_amount', billIdKey],
     include: [{
       model: Party,
       as: partyAssoc,
@@ -2428,24 +2440,77 @@ async function _loadAgingBills(partyType) {
     order: [['bill_date', 'ASC']],
   });
 
-  return rows.map(r => ({
-    bill_id: r[billIdKey],
-    bill_number: r.bill_number,
-    bill_date: r.bill_date,                  // Sequelize DATEONLY → YYYY-MM-DD
-    due_date: r.due_date || null,
-    total_amount: Number(r.total_amount)   || 0,
-    paid_amount:  Number(r.paid_amount)    || 0,
-    balance_amount: Number(r.balance_amount) || 0,
-    party: r[partyAssoc] ? {
-      party_id:     r[partyAssoc].party_id,
-      party_name:   r[partyAssoc].party_name,
-      mobile_1:     r[partyAssoc].mobile_1,
-      city:         r[partyAssoc].city,
-      state:        r[partyAssoc].state,
-      credit_days:  r[partyAssoc].credit_days,
-      credit_limit: Number(r[partyAssoc].credit_limit) || 0,
-    } : null,
-  }));
+  if (rows.length === 0) return [];
+
+  // Allocation sums dated <= asOf, keyed by bill_id. We join through
+  // payments_receipts so we only count allocations whose underlying
+  // receipt was created on/before asOf AND is not cancelled. If asOf
+  // is null (no temporal cut), we still respect is_cancelled=false on
+  // the parent receipt.
+  const billIds = rows.map((r) => r[billIdKey]);
+  const allocSql = `
+    SELECT bpa.bill_id, COALESCE(SUM(bpa.allocated_amount), 0)::float AS alloc_sum
+      FROM bill_payment_allocations bpa
+      JOIN payments_receipts pr ON pr.transaction_id = bpa.transaction_id
+     WHERE bpa.bill_type = :bt
+       AND bpa.bill_id IN (:ids)
+       AND pr.is_cancelled = false
+       ${asOf ? 'AND pr.transaction_date <= :as_of' : ''}
+     GROUP BY bpa.bill_id
+  `;
+  const allocRows = await sequelize.query(allocSql, {
+    replacements: { bt: billType, ids: billIds, as_of: asOf },
+    type: sequelize.QueryTypes.SELECT,
+  });
+  const allocByBill = new Map(allocRows.map((a) => [a.bill_id, Number(a.alloc_sum) || 0]));
+
+  const mapped = rows.map((r) => {
+    const billId = r[billIdKey];
+    const total = Number(r.total_amount) || 0;
+    const paidAtBilling = Number(r.paid_amount) || 0;  // immutable at-billing snapshot
+    const ret  = Number(r.return_amount) || 0;
+    const allocAsOf = allocByBill.get(billId) || 0;
+    // Historical balance on `asOf`. paid_amount on the row may already
+    // include the at-billing auto-receipt; we DO NOT double-count because
+    // the auto-receipt's transaction_date == bill_date and its allocation
+    // IS in bill_payment_allocations only when written through allocateForReceipt
+    // (audit B2). The historical formula uses paid_amount (which is the
+    // at-billing snapshot — immutable per balanceHelper contract) PLUS
+    // allocAsOf (post-billing receipts up to asOf). Subtracting both from
+    // total gives the open balance on asOf.
+    //
+    // We subtract the auto-receipt's contribution from allocAsOf to avoid
+    // double-counting: the auto-receipt is always allocated 1:1 with
+    // paid_amount on bill_date. Its allocation row therefore equals
+    // paid_amount, and it's already in allocByBill.
+    //
+    // Net: historical_balance = total - return - max(paid_at_billing, allocByAutoReceipt) - alloc(manual_only)
+    // Simpler model: total - return - alloc(all). paid_amount is the at-billing
+    // portion captured by the auto-receipt's bill_payment_allocations row, so
+    // allocByBill already includes it. Don't subtract paid_amount separately.
+    const balanceAsOf = Math.max(0, total - ret - allocAsOf);
+    return {
+      bill_id: billId,
+      bill_number: r.bill_number,
+      bill_date: r.bill_date,                  // Sequelize DATEONLY → YYYY-MM-DD
+      due_date: r.due_date || null,
+      total_amount: total,
+      paid_amount: paidAtBilling,
+      balance_amount: +balanceAsOf.toFixed(2),
+      party: r[partyAssoc] ? {
+        party_id:     r[partyAssoc].party_id,
+        party_name:   r[partyAssoc].party_name,
+        mobile_1:     r[partyAssoc].mobile_1,
+        city:         r[partyAssoc].city,
+        state:        r[partyAssoc].state,
+        credit_days:  r[partyAssoc].credit_days,
+        credit_limit: Number(r[partyAssoc].credit_limit) || 0,
+      } : null,
+    };
+  });
+
+  // Drop bills whose historical balance ≤ 0 — they were paid off before asOf.
+  return mapped.filter((b) => b.balance_amount > 0.005);
 }
 
 // ── Aging reconciliation ───────────────────────────────────────────────
@@ -2649,7 +2714,7 @@ exports.agingReport = async (req, res) => {
       ? req.query.as_of
       : localDateString();
 
-    const bills = await _loadAgingBills(partyType);
+    const bills = await _loadAgingBills(partyType, asOf);
     const result = aggregateAging(bills, asOf, bounds);
     const reconciliation = await _agingReconciliation(partyType, asOf);
 
@@ -2670,7 +2735,7 @@ exports.exportAgingReport = async (req, res) => {
       ? req.query.as_of
       : localDateString();
 
-    const bills = await _loadAgingBills(partyType);
+    const bills = await _loadAgingBills(partyType, asOf);
     const { rows, grand, bucket_labels } = aggregateAging(bills, asOf, bounds);
 
     const wb = new ExcelJS.Workbook();

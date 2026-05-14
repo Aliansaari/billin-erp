@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, ProductColor, StockLedger, Category, SystemSettings, Godown } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber, escapeLike } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber, escapeLike, splitBillWiseGst } = require('../utils/helpers');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
@@ -667,10 +667,61 @@ exports.create = async (req, res) => {
     }
 
     if (billWise) {
-      // Round-half-away-from-zero (Tally/GST convention), not toFixed's banker's.
-      totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
-      totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
-      totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
+      const cgstPct = parseFloat(cgst_pct) || 0;
+      const sgstPct = parseFloat(sgst_pct) || 0;
+      const igstPct = parseFloat(igst_pct) || 0;
+
+      // ── Audit H1 — bill-wise GST mutual-exclusion + state-mismatch check ──
+      if ((cgstPct > 0 || sgstPct > 0) && igstPct > 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({
+          error: 'Bill-wise GST: pick CGST+SGST (intra-state) OR IGST (inter-state), not both.',
+          code: 'GST_MUTUAL_EXCLUSION',
+        });
+      }
+      const _supplierIdForRes = billData.supplier_id || (typeof supplierIdForResolve !== 'undefined' ? supplierIdForResolve : null);
+      const resolvedInterState = _supplierIdForRes
+        ? await resolveInterState({ partyId: _supplierIdForRes, transaction: t })
+        : false;
+      const typedInterState   = igstPct > 0 && cgstPct === 0 && sgstPct === 0;
+      const typedIntraState   = (cgstPct > 0 || sgstPct > 0) && igstPct === 0;
+      if ((cgstPct + sgstPct + igstPct) > 0) {
+        if (resolvedInterState && typedIntraState) {
+          if (!t.finished) await t.rollback();
+          return res.status(400).json({
+            error: 'Bill-wise GST: supplier is in a different state — use IGST, not CGST+SGST.',
+            code: 'GST_INTER_STATE_REQUIRED',
+          });
+        }
+        if (!resolvedInterState && typedInterState) {
+          if (!t.finished) await t.rollback();
+          return res.status(400).json({
+            error: 'Bill-wise GST: supplier is in the same state — use CGST+SGST, not IGST.',
+            code: 'GST_INTRA_STATE_REQUIRED',
+          });
+        }
+      }
+
+      // ── Audit H2 — paisa-perfect CGST/SGST split (see salesController) ──
+      const combinedPct = cgstPct + sgstPct;
+      if (combinedPct > 0) {
+        const combinedTax = roundTo(taxableTotal * combinedPct / 100, 2);
+        if (cgstPct > 0 && sgstPct > 0) {
+          const cgstShare = roundTo(combinedTax * cgstPct / combinedPct, 2);
+          totalCgst = cgstShare;
+          totalSgst = +(combinedTax - cgstShare).toFixed(2);
+        } else if (cgstPct > 0) {
+          totalCgst = combinedTax;
+          totalSgst = 0;
+        } else {
+          totalSgst = combinedTax;
+          totalCgst = 0;
+        }
+      } else {
+        totalCgst = 0;
+        totalSgst = 0;
+      }
+      totalIgst = roundTo(taxableTotal * igstPct / 100, 2);
       // Audit P2-D — allocate bill-wise totals pro-rata across lines.
       if (processedItems.length > 0 && taxableTotal > 0) {
         let allocCgst = 0, allocSgst = 0, allocIgst = 0;
@@ -1287,10 +1338,61 @@ exports.update = async (req, res) => {
     }
 
     if (billWise) {
-      // Round-half-away-from-zero (Tally/GST convention), not toFixed's banker's.
-      totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
-      totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
-      totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
+      const cgstPct = parseFloat(cgst_pct) || 0;
+      const sgstPct = parseFloat(sgst_pct) || 0;
+      const igstPct = parseFloat(igst_pct) || 0;
+
+      // ── Audit H1 — bill-wise GST mutual-exclusion + state-mismatch check ──
+      if ((cgstPct > 0 || sgstPct > 0) && igstPct > 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({
+          error: 'Bill-wise GST: pick CGST+SGST (intra-state) OR IGST (inter-state), not both.',
+          code: 'GST_MUTUAL_EXCLUSION',
+        });
+      }
+      const _supplierIdForRes = billData.supplier_id || (typeof supplierIdForResolve !== 'undefined' ? supplierIdForResolve : null);
+      const resolvedInterState = _supplierIdForRes
+        ? await resolveInterState({ partyId: _supplierIdForRes, transaction: t })
+        : false;
+      const typedInterState   = igstPct > 0 && cgstPct === 0 && sgstPct === 0;
+      const typedIntraState   = (cgstPct > 0 || sgstPct > 0) && igstPct === 0;
+      if ((cgstPct + sgstPct + igstPct) > 0) {
+        if (resolvedInterState && typedIntraState) {
+          if (!t.finished) await t.rollback();
+          return res.status(400).json({
+            error: 'Bill-wise GST: supplier is in a different state — use IGST, not CGST+SGST.',
+            code: 'GST_INTER_STATE_REQUIRED',
+          });
+        }
+        if (!resolvedInterState && typedInterState) {
+          if (!t.finished) await t.rollback();
+          return res.status(400).json({
+            error: 'Bill-wise GST: supplier is in the same state — use CGST+SGST, not IGST.',
+            code: 'GST_INTRA_STATE_REQUIRED',
+          });
+        }
+      }
+
+      // ── Audit H2 — paisa-perfect CGST/SGST split (see salesController) ──
+      const combinedPct = cgstPct + sgstPct;
+      if (combinedPct > 0) {
+        const combinedTax = roundTo(taxableTotal * combinedPct / 100, 2);
+        if (cgstPct > 0 && sgstPct > 0) {
+          const cgstShare = roundTo(combinedTax * cgstPct / combinedPct, 2);
+          totalCgst = cgstShare;
+          totalSgst = +(combinedTax - cgstShare).toFixed(2);
+        } else if (cgstPct > 0) {
+          totalCgst = combinedTax;
+          totalSgst = 0;
+        } else {
+          totalSgst = combinedTax;
+          totalCgst = 0;
+        }
+      } else {
+        totalCgst = 0;
+        totalSgst = 0;
+      }
+      totalIgst = roundTo(taxableTotal * igstPct / 100, 2);
       // Audit P2-D — allocate bill-wise totals pro-rata across lines.
       if (processedItems.length > 0 && taxableTotal > 0) {
         let allocCgst = 0, allocSgst = 0, allocIgst = 0;

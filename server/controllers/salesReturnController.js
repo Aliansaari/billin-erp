@@ -5,7 +5,7 @@ const {
   SalesBill, SalesBillItem,
   Party, Product, StockLedger, SystemSettings, Godown, ProductBatch,
 } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike, splitBillWiseGst } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
@@ -14,7 +14,7 @@ const { postVoucher, reverseVoucher } = require('../services/ledgerPostingServic
 const { buildSalesReturnVouchers } = require('../services/voucherBuilders');
 const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite, getDefaultGodownId } = require('../utils/godownStock');
 const { applyBatchStockDelta } = require('../utils/batchStock');
-const { restoreConsumption } = require('../utils/costLayers');
+const { restoreConsumption, reverseConsumptionForBillPartial } = require('../utils/costLayers');
 const { denyIfGodownInaccessible } = require('../middleware/godownScope');
 
 /**
@@ -372,10 +372,12 @@ async function computeTotals(req, items, billData, returnMode, t, interState = f
 
   if (billWise) {
     // Bill-wise mode: operator picked specific cgst/sgst/igst pcts; honour
-    // them as-is. The interState flag governs only the per-line product mode.
-    totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
-    totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
-    totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
+    // them as-is. Audit H2 — splitBillWiseGst rounds the combined tax once
+    // and absorbs the paisa residual into SGST so CGST+SGST == combined.
+    const _spl = splitBillWiseGst(taxableTotal, cgst_pct, sgst_pct, igst_pct);
+    totalCgst = _spl.cgst;
+    totalSgst = _spl.sgst;
+    totalIgst = _spl.igst;
 
     // Distribute bill-level GST pro-rata across lines so GSTR-1 credit note
     // line-level data (cgst_amount / sgst_amount / igst_amount per item) is
@@ -681,14 +683,47 @@ exports.create = async (req, res) => {
           remarks: billData.reason || null,
           created_by: req.user.user_id,
         }, { transaction: t });
-        // CRIT-5 fix: restore the FIFO cost layer consumed by the original
-        // sale. Returned goods re-enter inventory and must be available for
-        // future FIFO consumption. Best-effort v1 restore adds qty back to
-        // the most-recently consumed layer at the original rate.
+      }
+    }
+
+    // ── Audit H6 — exact FIFO layer restore for the whole return ─────────
+    // Pre-fix, each return line called the v1 best-effort restoreConsumption
+    // which adds qty back to the MOST RECENT consumed layer (regardless of
+    // which layer the original sale actually drew from). On a multi-batch
+    // sale that consumed an older ₹80 layer, returning 5 units pushed those
+    // units back into the newest layer at ₹120 — next FIFO sale then mis-
+    // priced.
+    //
+    // When the return is linked to a reference bill, we now use the SLC
+    // table to restore the SAME layer the original sale consumed, propor-
+    // tional to the returned quantity. If the reference link is missing
+    // (standalone return) or the SLC rows are absent (legacy data), we
+    // fall back to v1.
+    if (return_mode === 'Items' && totals.processedItems.length > 0) {
+      const lines = totals.processedItems
+        .filter((it) => it.product_id)
+        .map((it) => ({ product_id: it.product_id, qty_returned: +parseFloat(it.quantity) }));
+      const refBillId = billData.reference_bill_id || null;
+      let skippedPids = [];
+      if (refBillId) {
+        const result = await reverseConsumptionForBillPartial({
+          sales_bill_id: refBillId,
+          returnLines: lines,
+          t,
+        });
+        skippedPids = result.skipped || [];
+      } else {
+        skippedPids = lines.map((l) => l.product_id);
+      }
+      // v1 fallback for any product the exact path couldn't handle (no
+      // SLC link or standalone return).
+      for (const pid of skippedPids) {
+        const line = lines.find((l) => l.product_id === pid);
+        if (!line) continue;
         await restoreConsumption({
-          product_id: item.product_id,
-          godown_id: billData.godown_id,
-          qty: +parseFloat(item.quantity),
+          product_id: pid,
+          godown_id:  billData.godown_id,
+          qty: line.qty_returned,
           t,
         });
       }

@@ -162,7 +162,18 @@ async function seedDefaultData() {
     { ledger_name: 'CGST Output', ledger_group: 'Liabilities', sub_group: 'Duties & Taxes', is_system_ledger: true },
     { ledger_name: 'SGST Output', ledger_group: 'Liabilities', sub_group: 'Duties & Taxes', is_system_ledger: true },
     { ledger_name: 'IGST Output', ledger_group: 'Liabilities', sub_group: 'Duties & Taxes', is_system_ledger: true },
-    { ledger_name: 'Round Off', ledger_group: 'Expenses', sub_group: 'Indirect Expenses', is_system_ledger: true },
+    // Audit H8 — seed Cess Input/Output so RCM and regular cess collections
+    // don't silently fold into IGST. The voucherBuilders fallback that maps
+    // missing Cess ledgers to IGST stays in place as a safety net for legacy
+    // installs that haven't re-seeded.
+    { ledger_name: 'Cess Input',   ledger_group: 'Assets',      sub_group: 'Duties & Taxes', is_system_ledger: true },
+    { ledger_name: 'Cess Output',  ledger_group: 'Liabilities', sub_group: 'Duties & Taxes', is_system_ledger: true },
+    // Audit M (accounting) — Round Off is "Indirect Incomes" by Tally
+    // convention so a rounding gain on a sale doesn't render as a negative
+    // expense in the P&L. The voucher posts Dr (loss) or Cr (gain) against
+    // this single ledger; either sign is correct math, but the group
+    // determines which P&L line it shows up on.
+    { ledger_name: 'Round Off', ledger_group: 'Income', sub_group: 'Indirect Incomes', is_system_ledger: true },
     { ledger_name: 'Stock-in-Hand', ledger_group: 'Assets', sub_group: 'Current Assets', is_system_ledger: true },
     { ledger_name: 'Capital Account', ledger_group: 'Capital', sub_group: 'Capital Account', is_system_ledger: true },
     // Phase-1 additions for double-entry wiring:
@@ -228,7 +239,25 @@ async function seedDefaultData() {
   ];
 
   for (const ledger of defaultLedgers) {
-    await LedgerAccount.findOrCreate({ where: { ledger_name: ledger.ledger_name }, defaults: ledger });
+    const [row, created] = await LedgerAccount.findOrCreate({
+      where: { ledger_name: ledger.ledger_name }, defaults: ledger,
+    });
+    // Audit (accounting M1) — upgrade legacy seeds whose Round Off ledger
+    // is still classified as 'Expenses / Indirect Expenses'. New default
+    // is 'Income / Indirect Incomes' so a rounding gain doesn't read as a
+    // negative expense on the P&L. Idempotent — only fires when the group
+    // is wrong AND the row was seeded by us (system ledger).
+    if (!created && ledger.is_system_ledger
+        && (row.ledger_group !== ledger.ledger_group || row.sub_group !== ledger.sub_group)) {
+      // Only auto-migrate the specific Round Off case — leave other
+      // user-customised ledgers alone.
+      if (ledger.ledger_name === 'Round Off') {
+        await row.update({
+          ledger_group: ledger.ledger_group,
+          sub_group: ledger.sub_group,
+        });
+      }
+    }
   }
 
   // ── System "Cash" party ──────────────────────────────────────────────

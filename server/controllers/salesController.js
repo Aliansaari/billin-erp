@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, SalesBillDraft, SalesReturnBill, SalesReturnBillItem, Party, Product, StockLedger, SystemSettings, Godown } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber, splitBillWiseGst } = require('../utils/helpers');
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
 const idempotencyCache = require('../utils/idempotencyCache');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
@@ -711,9 +711,75 @@ exports.create = async (req, res) => {
     // under GST law) and per-line analytics reported zero tax. Last-line
     // residual absorbs rounding so Σ lines == header.
     if (billWise) {
-      totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
-      totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
-      totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
+      const cgstPct = parseFloat(cgst_pct) || 0;
+      const sgstPct = parseFloat(sgst_pct) || 0;
+      const igstPct = parseFloat(igst_pct) || 0;
+
+      // ── Audit H1 — bill-wise GST validation ──────────────────────────
+      // (a) mutual exclusion: a bill is intra-state (CGST+SGST) OR
+      //     inter-state (IGST), never both. expenseController already
+      //     enforces this; sales/purchase did not.
+      // (b) state mismatch: if the resolved place-of-supply says inter-
+      //     state but the operator typed CGST+SGST (or vice-versa),
+      //     reject with a clear message. The resolved value is the
+      //     authoritative one because it reads SystemSettings.gstin vs
+      //     Party.state — both server-side.
+      if ((cgstPct > 0 || sgstPct > 0) && igstPct > 0) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({
+          error: 'Bill-wise GST: pick CGST+SGST (intra-state) OR IGST (inter-state), not both.',
+          code: 'GST_MUTUAL_EXCLUSION',
+        });
+      }
+      const resolvedInterState = await _resolveInterState(billData, t);
+      const typedInterState   = igstPct > 0 && cgstPct === 0 && sgstPct === 0;
+      const typedIntraState   = (cgstPct > 0 || sgstPct > 0) && igstPct === 0;
+      if ((cgstPct + sgstPct + igstPct) > 0) {
+        if (resolvedInterState && typedIntraState) {
+          if (!t.finished) await t.rollback();
+          return res.status(400).json({
+            error: 'Bill-wise GST: customer is in a different state — use IGST, not CGST+SGST.',
+            code: 'GST_INTER_STATE_REQUIRED',
+          });
+        }
+        if (!resolvedInterState && typedInterState) {
+          if (!t.finished) await t.rollback();
+          return res.status(400).json({
+            error: 'Bill-wise GST: customer is in the same state — use CGST+SGST, not IGST.',
+            code: 'GST_INTRA_STATE_REQUIRED',
+          });
+        }
+      }
+
+      // ── Audit H2 — paisa-perfect CGST/SGST split ─────────────────────
+      // Previously totalCgst and totalSgst were rounded INDEPENDENTLY
+      //   totalCgst = roundTo(taxableTotal * cgst_pct/100, 2)
+      //   totalSgst = roundTo(taxableTotal * sgst_pct/100, 2)
+      // which can drift ±₹0.01 from the combined GST (Σ != calculated)
+      // — over 50k bills/year that's ~₹500 of silent drift against Tally.
+      // Mirror the helpers.calculateGST rule: round the combined tax,
+      // give half to CGST, give the residual to SGST so they reconcile
+      // exactly. Per-pct paths preserve the operator's intent when only
+      // one half is non-zero (rare but legal).
+      const combinedPct = cgstPct + sgstPct;
+      if (combinedPct > 0) {
+        const combinedTax = roundTo(taxableTotal * combinedPct / 100, 2);
+        if (cgstPct > 0 && sgstPct > 0) {
+          const cgstShare = roundTo(combinedTax * cgstPct / combinedPct, 2);
+          totalCgst = cgstShare;
+          totalSgst = +(combinedTax - cgstShare).toFixed(2);
+        } else if (cgstPct > 0) {
+          totalCgst = combinedTax;
+          totalSgst = 0;
+        } else {
+          totalSgst = combinedTax;
+          totalCgst = 0;
+        }
+      } else {
+        totalCgst = 0;
+        totalSgst = 0;
+      }
+      totalIgst = roundTo(taxableTotal * igstPct / 100, 2);
       // Pro-rata allocation across lines.
       if (processedItems.length > 0 && taxableTotal > 0) {
         let allocCgst = 0, allocSgst = 0, allocIgst = 0;
@@ -777,13 +843,26 @@ exports.create = async (req, res) => {
       }
     }
 
-    // Enforce full payment if customer has credit_not_allowed
+    // Enforce full payment if customer has credit_not_allowed.
+    //
+    // Audit M-2 — the clamp must account for the rawReturn that's about
+    // to be subtracted from total below (`effectivePaid = finalPaidAmount
+    // + rawReturn`). Pre-fix, clamping to `totalAmount` then adding
+    // `rawReturn` produced `effectivePaid > totalAmount` → stored
+    // `balance_amount = totalAmount - effectivePaid` went NEGATIVE on
+    // every no-credit customer with an inline return. Sundry Debtors
+    // aggregate skewed by the return amount per such bill.
+    //
+    // Correct clamp: bring finalPaidAmount to the amount that, after
+    // adding rawReturn, equals totalAmount — i.e., totalAmount - rawReturn.
+    // Floor at 0 in case rawReturn somehow exceeds totalAmount (the
+    // earlier validation should have caught that, but defense-in-depth).
     let finalPaidAmount = parseFloat(paid_amount);
     let customer = null;
     if (billData.customer_id) {
       customer = await Party.findByPk(billData.customer_id, { transaction: t });
       if (customer && !customer.credit_allowed) {
-        finalPaidAmount = totalAmount;
+        finalPaidAmount = Math.max(0, totalAmount - rawReturn);
       }
     }
 
@@ -1400,10 +1479,12 @@ exports.update = async (req, res) => {
     }
 
     if (billWise) {
-      // Round-half-away-from-zero to stay consistent with Tally's GST rules.
-      totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
-      totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
-      totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
+      // Audit H2 — splitBillWiseGst gives the rounding residual to SGST so
+      // CGST+SGST sum to the combined tax exactly (no 1-paisa drift).
+      const _spl = splitBillWiseGst(taxableTotal, cgst_pct, sgst_pct, igst_pct);
+      totalCgst = _spl.cgst;
+      totalSgst = _spl.sgst;
+      totalIgst = _spl.igst;
       // Audit P2-D — allocate bill-wise totals pro-rata across lines.
       if (processedItems.length > 0 && taxableTotal > 0) {
         let allocCgst = 0, allocSgst = 0, allocIgst = 0;

@@ -45,8 +45,22 @@ async function nextEntryNumber(voucherType, voucherDate, transaction) {
     Payment: 'PMT', Journal: 'JV',  Contra: 'CON',
   };
   const prefix = prefixMap[voucherType] || 'GEN';
-  const d = new Date(voucherDate);
-  const yyyymmdd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  // Audit (accounting M3) — parse the date from the STRING token, not a
+  // Date object. `new Date('2026-04-01')` is parsed as UTC midnight; calling
+  // .getFullYear/.getMonth/.getDate then reads in LOCAL time, so a server
+  // running west of UTC produced '20260331' for a 2026-04-01 voucher (period-
+  // boundary misnumbering). The entry_date column is stored correctly as
+  // DATEONLY; this just keeps the entry_number prefix aligned with it.
+  let yyyymmdd;
+  const s = String(voucherDate || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    yyyymmdd = s.replace(/-/g, '');
+  } else {
+    // Fallback: voucher dates outside the ISO YYYY-MM-DD shape get the
+    // legacy Date-coercion path. Still local-tz to match entry_date.
+    const d = new Date(voucherDate);
+    yyyymmdd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  }
   // Use the highest existing sequence for this prefix+date, then increment.
   const like = `${prefix}-${yyyymmdd}-%`;
   // W1: order by entry_id (monotonic) not entry_number (lexicographic string).

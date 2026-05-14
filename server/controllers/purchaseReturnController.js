@@ -5,7 +5,7 @@ const {
   PurchaseBill, PurchaseBillItem,
   Party, Product, StockLedger, SystemSettings, Godown, ProductBatch,
 } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike, splitBillWiseGst } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
@@ -304,9 +304,11 @@ async function computeTotals(req, items, billData, interState = false) {
     delete it._postItemTaxable;
   }
   if (billWise) {
-    totalCgst = roundTo(taxableTotal * parseFloat(cgst_pct) / 100, 2);
-    totalSgst = roundTo(taxableTotal * parseFloat(sgst_pct) / 100, 2);
-    totalIgst = roundTo(taxableTotal * parseFloat(igst_pct) / 100, 2);
+    // Audit H2 — paisa-perfect bill-wise split (see salesController).
+    const _spl = splitBillWiseGst(taxableTotal, cgst_pct, sgst_pct, igst_pct);
+    totalCgst = _spl.cgst;
+    totalSgst = _spl.sgst;
+    totalIgst = _spl.igst;
 
     // Distribute bill-level GST pro-rata across lines so GSTR-2 debit note
     // line-level data is non-zero and proportional to each line's taxable base.

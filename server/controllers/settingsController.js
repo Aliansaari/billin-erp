@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { SystemSettings, BarcodeSettings, User, Role } = require('../models');
 const fmt = require('../utils/indianIdFormats');
+const { recordAudit } = require('../utils/auditLog');
 
 // Where uploaded logos / signatures live on disk. Set by server boot
 // (see server/utils/paths.js). Each company writes into its own
@@ -198,6 +199,12 @@ exports.createUser = async (req, res) => {
       include: [{ model: Role }],
       attributes: { exclude: ['password_hash'] },
     });
+    // Audit H11 — record user creation in the audit log.
+    recordAudit({
+      req, action: 'user.create',
+      entityType: 'user', entityId: user.user_id,
+      after: { username: data.username, full_name: data.full_name, email: data.email, role_id: data.role_id, is_active: data.is_active },
+    });
     res.status(201).json(result);
   } catch (error) {
     if (error.name === 'SequelizeUniqueConstraintError') {
@@ -292,10 +299,32 @@ exports.updateUser = async (req, res) => {
       data.password_hash = await bcrypt.hash(password, 10);
     }
 
+    // Audit H11 — capture before snapshot for the audit log so role/status
+    // changes are reconstructable. Password rotations are flagged (the
+    // hash itself is redacted).
+    const beforeSnap = {
+      username: user.username, full_name: user.full_name, email: user.email,
+      role_id: user.role_id, is_active: user.is_active,
+    };
     await user.update(data);
     const result = await User.findByPk(user.user_id, {
       include: [{ model: Role }],
       attributes: { exclude: ['password_hash'] },
+    });
+    const afterSnap = {
+      username: result.username, full_name: result.full_name, email: result.email,
+      role_id: result.role_id, is_active: result.is_active,
+      password_rotated: !!password,
+    };
+    const action = (data.is_active === false && beforeSnap.is_active === true)
+      ? 'user.deactivate'
+      : (data.is_active === true && beforeSnap.is_active === false)
+        ? 'user.activate'
+        : 'user.update';
+    recordAudit({
+      req, action,
+      entityType: 'user', entityId: user.user_id,
+      before: beforeSnap, after: afterSnap,
     });
     res.json(result);
   } catch (error) {
@@ -329,6 +358,14 @@ exports.deleteUser = async (req, res) => {
     }
 
     await user.update({ is_active: false });
+    // Audit H11 — record the soft-delete (deactivate).
+    recordAudit({
+      req, action: 'user.delete',
+      entityType: 'user', entityId: user.user_id,
+      before: { username: user.username, is_active: true },
+      after:  { username: user.username, is_active: false },
+      notes: 'Soft-delete (is_active=false)',
+    });
     res.json({ message: 'User deactivated' });
   } catch (error) {
     console.error('Delete user error:', error);
@@ -657,6 +694,15 @@ exports.cleanupData = async (req, res) => {
     }
 
     await t.commit();
+    // Audit H11 — record the cleanup with the exact category list and the
+    // confirming user's identity. Irreversible operations like this MUST
+    // leave a trail.
+    recordAudit({
+      req, action: 'settings.cleanup',
+      entityType: 'settings', entityId: 'cleanup',
+      after: { categories: req.body.categories },
+      notes: `Irreversible data wipe (${(req.body.categories || []).join(', ')})`,
+    });
     res.json({ success: true, message: 'Selected data deleted successfully' });
   } catch (error) {
     // Guard against double-rollback — Sequelize throws "Transaction cannot be

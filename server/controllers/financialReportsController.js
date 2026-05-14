@@ -681,15 +681,23 @@ async function computeProfitLoss(from, to) {
   let fallback_in_use = false;
   let fallback_reason = null;
   if (buckets.sales_accounts.gross === 0 && buckets.purchase_accounts.gross === 0) {
+    // Audit (reports M2) — P&L fallback must use SUM(sub_total) (pre-tax
+    // taxable value), NOT SUM(total_amount) (which includes CGST/SGST/IGST
+    // and cess). Pre-fix, the fallback overstated Sales/Purchase by the
+    // entire GST amount (18% inflation on a typical bill). The fallback
+    // only fires when ledger entries are missing, but when it does, the
+    // P&L could mislead the operator into thinking their gross sales were
+    // 18% higher than reality. sub_total is the GST-exclusive figure that
+    // matches the corresponding ledger account's posting amount.
     const [billCheck] = await sequelize.query(
       `SELECT
-         COALESCE((SELECT SUM(total_amount)::float FROM sales_bills
+         COALESCE((SELECT SUM(sub_total)::float FROM sales_bills
                     WHERE is_cancelled = false AND bill_date BETWEEN :from AND :to), 0) AS sales_total,
-         COALESCE((SELECT SUM(total_amount)::float FROM purchase_bills
+         COALESCE((SELECT SUM(sub_total)::float FROM purchase_bills
                     WHERE is_cancelled = false AND bill_date BETWEEN :from AND :to), 0) AS purchase_total,
-         COALESCE((SELECT SUM(total_amount)::float FROM sales_return_bills
+         COALESCE((SELECT SUM(sub_total)::float FROM sales_return_bills
                     WHERE is_cancelled = false AND return_date BETWEEN :from AND :to), 0) AS sales_return_total,
-         COALESCE((SELECT SUM(total_amount)::float FROM purchase_return_bills
+         COALESCE((SELECT SUM(sub_total)::float FROM purchase_return_bills
                     WHERE is_cancelled = false AND return_date BETWEEN :from AND :to), 0) AS purchase_return_total`,
       { replacements: { from, to }, type: sequelize.QueryTypes.SELECT },
     );
