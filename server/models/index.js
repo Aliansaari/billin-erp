@@ -65,6 +65,7 @@ const SaleLineLayerConsumptionFactory = require('./SaleLineLayerConsumption');
 const IndianStateFactory = require('./IndianState');
 const NotificationStateFactory = require('./NotificationState');
 const NotificationSettingsFactory = require('./NotificationSettings');
+const ComplianceAuditLogFactory = require('./ComplianceAuditLog');
 
 /**
  * Define all models + associations on a given Sequelize instance.
@@ -120,6 +121,7 @@ function defineModels(sequelize) {
   const IndianState = IndianStateFactory(sequelize);
   const NotificationState = NotificationStateFactory(sequelize);
   const NotificationSettings = NotificationSettingsFactory(sequelize);
+  const ComplianceAuditLog = ComplianceAuditLogFactory(sequelize);
 
   // ── Associations ──
   
@@ -486,6 +488,7 @@ function defineModels(sequelize) {
     IndianState,
     NotificationState,
     NotificationSettings,
+    ComplianceAuditLog,
   };
 }
 
@@ -603,6 +606,7 @@ module.exports = {
   IndianState: makeProxy('IndianState'),
   NotificationState: makeProxy('NotificationState'),
   NotificationSettings: makeProxy('NotificationSettings'),
+  ComplianceAuditLog: makeProxy('ComplianceAuditLog'),
 
   // Multi-tenant escape hatches — used by the connection pool +
   // middleware. Don't import these from controllers; stick with the

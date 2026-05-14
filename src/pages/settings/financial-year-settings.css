@@ -255,3 +255,71 @@
   margin-right: 4px;
   color: var(--fg-tertiary);
 }
+
+/* Link rendered as a button (resets default <button> styles so it
+   reads visually identical to the <a> classmates). */
+.fyset-link-btn {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+/* Audit log viewer — list of events inside the modal. */
+.fyset-audit-list {
+  max-height: 56vh;
+  overflow-y: auto;
+  margin: -8px -24px -20px;
+  padding: 8px 24px 20px;
+}
+.fyset-audit-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.fyset-audit-row:last-child { border-bottom: 0; }
+.fyset-audit-row.is-hard {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.04), transparent 60%);
+  margin: 0 -8px;
+  padding: 12px 8px;
+  border-radius: 6px;
+}
+.fyset-audit-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.fyset-audit-when {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.fyset-audit-text { min-width: 0; }
+.fyset-audit-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  letter-spacing: -0.005em;
+}
+.fyset-audit-reason {
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: var(--bg-muted);
+  border-left: 3px solid var(--accent, #F59E0B);
+  border-radius: 4px;
+  font-style: italic;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  line-height: 1.5;
+}
+.fyset-audit-by {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}

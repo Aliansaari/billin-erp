@@ -9,6 +9,7 @@ import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled, useMultiColorEnab
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
+import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import confirmPrint from '../../utils/confirmPrint';
 import './sales-bill-form.css';
 
@@ -151,6 +152,14 @@ export default function SalesBillForm() {
   // Re-entrancy guard for Save — prevents duplicate-bill creation on rapid
   // Ctrl+Enter or double-click of Save buttons.
   const submittingRef                      = useRef(false);
+
+  // ── Fiscal-lock override modal state ─────────────────────────────────
+  // Populated when a Save attempt returns 403 FY_LOCKED from the server.
+  // Carries the lock metadata (status/lockDate/requiresPassword) the
+  // modal needs to render, plus the original save body so we can retry
+  // the request with _override_reason + _override_password attached
+  // once the operator confirms. Cleared on cancel + on successful save.
+  const [lockModal, setLockModal] = useState(null);   // null | { lock, retryBody, retryOpts }
   // Monotonic key for item rows. Date.now() collides with fast scanners.
   const nextKeyRef                         = useRef(1);
 
@@ -1597,7 +1606,29 @@ export default function SalesBillForm() {
         handleReset();
         setBillNo('');
       }
-    }catch(e){message.error(e.response?.data?.error||'Failed to save');}
+    }catch(e){
+      // Server-side fiscal-lock rejection — open the override modal so
+      // the user can supply a reason (and password if required), then
+      // retry the same save with the override fields attached. The
+      // 403 body carries everything the modal needs: lock_type, lock_date,
+      // requires_password.
+      const data = e?.response?.data;
+      if (e?.response?.status === 403 && data?.error === 'FY_LOCKED' && (data.requires_override || data.requires_password)) {
+        setLockModal({
+          lock: {
+            status:           data.lock_type,
+            lockDate:         data.lock_date,
+            requiresPassword: !!data.requires_password,
+            message:          data.message,
+          },
+          retryBody: body,
+          retryOpts: opts,
+        });
+        // Don't show the generic error toast — modal explains the situation.
+        return;
+      }
+      message.error(data?.error||'Failed to save');
+    }
     finally{setLoading(false); submittingRef.current=false;}
   },[form,items,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate,backTarget,selectedParty,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct]);
 
@@ -3553,6 +3584,45 @@ export default function SalesBillForm() {
           </div>
         )}
       </Modal>
+
+      {/* Fiscal-lock override modal — opens when a save attempt was
+          rejected with FY_LOCKED. Carries the lock metadata + retries
+          the same body with _override_reason / _override_password
+          on confirm. */}
+      <FiscalLockOverrideModal
+        open={!!lockModal}
+        lock={lockModal?.lock}
+        billDate={form.getFieldValue('bill_date')}
+        vouchTypeLabel="Sale"
+        onCancel={() => setLockModal(null)}
+        onConfirm={async ({ reason, password }) => {
+          const { retryBody, retryOpts } = lockModal || {};
+          setLockModal(null);
+          if (!retryBody) return;
+          try {
+            setLoading(true);
+            const retryPayload = { ...retryBody, _override_reason: reason };
+            if (password) retryPayload._override_password = password;
+            const { data } = isEdit
+              ? await salesAPI.update(id, retryPayload)
+              : await salesAPI.create(retryPayload);
+            message.success(`Bill ${data.bill_number} ${isEdit ? 'updated' : 'saved'} (override logged)`);
+            if (retryOpts?.onSaved) { try { retryOpts.onSaved(data); } catch (err) { console.error('[lock retry onSaved]', err); } }
+            if (isEdit) navigate(backTarget);
+            else { handleReset(); setBillNo(''); }
+          } catch (e) {
+            const data = e?.response?.data;
+            // Password didn't match → reopen the modal so the user can retry.
+            if (data?.password_invalid) {
+              setLockModal({ ...lockModal, lock: { ...lockModal.lock, message: 'Password did not match. Try again.' } });
+              return;
+            }
+            message.error(data?.error || 'Failed to save with override');
+          } finally {
+            setLoading(false);
+          }
+        }}
+      />
     </Form>
   );
 }

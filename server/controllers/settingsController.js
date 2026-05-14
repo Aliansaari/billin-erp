@@ -116,11 +116,39 @@ exports.updateSystemSettings = async (req, res) => {
         req.body[k] = req.body[k].trim().toUpperCase();
       }
     });
+    // Snapshot the compliance fields BEFORE the update so we can diff +
+    // emit audit-log rows for every change. Captured even when the
+    // settings row is being created (rare; defaults from defaultData).
+    const complianceFields = [
+      'fy_compliance_mode',
+      'fy_soft_lock_date',
+      'fy_hard_lock_date',
+      'fy_require_override_password',
+    ];
+    const before = settings
+      ? Object.fromEntries(complianceFields.map((k) => [k, settings[k] ?? null]))
+      : Object.fromEntries(complianceFields.map((k) => [k, null]));
+
     if (!settings) {
       settings = await SystemSettings.create({ setting_id: 1, ...req.body });
     } else {
       await settings.update(req.body);
     }
+
+    // Audit-log any compliance config change. Best-effort; never blocks
+    // the save. Snapshot the user from req.user so the log row carries
+    // attribution even if the user is later renamed / deactivated.
+    try {
+      const after = Object.fromEntries(complianceFields.map((k) => [k, settings[k] ?? null]));
+      const complianceChanged = complianceFields.some((k) => String(before[k]) !== String(after[k]));
+      if (complianceChanged) {
+        const { logSettingsDiff } = require('./complianceController');
+        await logSettingsDiff({ before, after, user: req.user });
+      }
+    } catch (e) {
+      console.warn('compliance audit-log write failed:', e?.message || e);
+    }
+
     // Bust the LAN gate's settings cache so dev_lan_enabled /
     // dev_lan_max_clients flips take effect on the very next request,
     // not on the next minute boundary.
