@@ -129,6 +129,17 @@ exports.getById = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.transaction_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const { splits, ...data } = req.body;
@@ -313,17 +324,57 @@ exports.create = async (req, res) => {
       // Audit C9: an INWARD PDC must NOT be auto-deposited on the
       // receipt date — its `cheque_date` is in the future, so the bank
       // ledger should not rise until the cheque physically clears.
-      // Previously the auto-sync code force-set status=DEPOSITED and
-      // deposit_date=transaction_date for every inward cheque, including
-      // PDCs, which inflated the bank balance days/weeks before the
-      // money could actually move. The cheque-controller's deposit()
-      // endpoint already blocks future-dated deposits (line 532); this
-      // path was bypassing that guard.
       //
-      // New rule: inward non-PDC → DEPOSITED today (matches existing
-      // behaviour); inward PDC → PENDING with no deposit_date (operator
-      // hits Deposit on or after maturity); outward → PENDING (existing).
-      const inwardImmediate = isInward && !isPdc;
+      // Audit BANK-6 — also force PENDING when bank_ledger_id is null
+      // on an inward cheque. chequeController.deposit refuses to mark
+      // DEPOSITED without a bank, so auto-deposit here would create a
+      // row whose only legal next state (clear) cannot fire because
+      // there's no bank to credit. Force PENDING so the operator
+      // attaches a bank via the Cheque Register before clearing.
+      const inwardImmediate = isInward && !isPdc && !!ps.bank_ledger_id;
+
+      // Audit BANK-3 — duplicate-cheque-number guard. The Cheque
+      // controller's manual-create path rejects (cheque_number,
+      // direction, bank_ledger_id) duplicates; this auto-sync path
+      // was bypassing that, allowing two receipts with the same
+      // cheque number against the same bank to silently produce two
+      // Cheque rows. Run the same check here.
+      if (ps.bank_ledger_id) {
+        const dupCheque = await Cheque.findOne({
+          where: {
+            cheque_number:  ps.cheque_number,
+            direction:      isInward ? 'INWARD' : 'OUTWARD',
+            bank_ledger_id: ps.bank_ledger_id,
+            status:         { [Op.notIn]: ['CANCELLED', 'BOUNCED'] },
+          },
+          transaction: t,
+        });
+        if (dupCheque) {
+          await t.rollback();
+          return res.status(400).json({
+            error: `Cheque #${ps.cheque_number} is already in the register against this bank for ${isInward ? 'inward' : 'outward'} direction. Cancel or bounce the existing row before re-using the number.`,
+            code: 'DUPLICATE_CHEQUE_NUMBER',
+          });
+        }
+      }
+
+      // Audit BANK-5 — refuse to attach a cheque to a deactivated
+      // bank ledger. A stale client-side bank_id or a cached form
+      // could otherwise post against a closed bank, and the
+      // dashboard's "Total Bank Balance" KPI (which excludes
+      // inactive banks) would not surface the orphaned amount.
+      if (ps.bank_ledger_id) {
+        const { LedgerAccount } = require('../models');
+        const bank = await LedgerAccount.findByPk(ps.bank_ledger_id, { transaction: t });
+        if (bank && bank.is_active === false) {
+          await t.rollback();
+          return res.status(400).json({
+            error: `Bank "${bank.ledger_name}" is deactivated and cannot accept new cheques. Pick an active bank.`,
+            code: 'BANK_DEACTIVATED',
+          });
+        }
+      }
+
       // Audit H12: previously this catch swallowed the error inside
       // the active transaction, which CAN abort the savepoint and
       // cause every subsequent statement to fail with "current
@@ -538,6 +589,31 @@ exports.cancel = async (req, res) => {
       { replacements: { id: payment.transaction_id }, transaction: t },
     );
 
+    // Audit BANK-2 — cascade the cancellation to any Cheque row that
+    // was auto-created from this payment. Pre-fix the cheque sat
+    // forever in the register as DEPOSITED / PENDING even though the
+    // source payment was cancelled, inflating the "In Transit" KPI
+    // and blocking re-use of the cheque-number.
+    try {
+      await Cheque.update(
+        {
+          status: 'CANCELLED',
+          cleared_at: new Date(),
+          cleared_by: req.user?.user_id || null,
+          remarks: 'Source payment cancelled',
+        },
+        {
+          where: {
+            source_payment_id: payment.transaction_id,
+            status: { [Op.notIn]: ['CANCELLED', 'BOUNCED'] },
+          },
+          transaction: t,
+        },
+      );
+    } catch (e) {
+      console.error('[payment.cancel] Cheque cascade warn:', e.message);
+    }
+
     // ── Audit H7: take party row lock BEFORE reconcile so concurrent cancels
     // of different receipts for the same party serialise instead of racing on
     // the bills.balance_amount snapshot. The advisory lock used in create()
@@ -589,6 +665,17 @@ exports.cancel = async (req, res) => {
 // cancel-and-recreate path is safe; this endpoint just makes it atomic
 // and exposes a clean PUT verb to the frontend.)
 exports.update = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.transaction_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const oldId = req.params.id;
@@ -618,6 +705,29 @@ exports.update = async (req, res) => {
       `DELETE FROM bill_payment_allocations WHERE transaction_id = :id`,
       { replacements: { id: original.transaction_id }, transaction: t },
     );
+    // Audit BANK-2 — cascade-cancel the linked Cheque rows from the
+    // original payment. The replacement payment will create its own
+    // fresh Cheque rows below; without this cleanup, the register
+    // would carry both the now-stale ones AND the new ones.
+    try {
+      await Cheque.update(
+        {
+          status: 'CANCELLED',
+          cleared_at: new Date(),
+          cleared_by: req.user?.user_id || null,
+          remarks: 'Source payment edited',
+        },
+        {
+          where: {
+            source_payment_id: original.transaction_id,
+            status: { [Op.notIn]: ['CANCELLED', 'BOUNCED'] },
+          },
+          transaction: t,
+        },
+      );
+    } catch (e) {
+      console.error('[payment.update] Cheque cascade warn:', e.message);
+    }
     // Audit H7 — lock party row before reconcile (see exports.cancel comment).
     await Party.findByPk(original.party_id, { lock: t.LOCK.UPDATE, transaction: t });
     await reconcileBillsForParty(original.party_id, t);

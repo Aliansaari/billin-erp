@@ -2330,6 +2330,185 @@ async function startServer() {
       console.error('[H9/H11 auth-persistence migration] Error:', err.message);
     });
 
+    // ── STOCK-2 (deep): per-layer breakdown JSONB on return items ───
+    //
+    // sales_return_bill_items.layers_restored — array of {layer_id, qty}
+    //   captured when the return restored qty into FIFO layers, so cancel
+    //   can deduct from those EXACT layer rows (not generic FIFO).
+    // purchase_return_bill_items.cost_layers_consumed — array of
+    //   {layer_id, qty, rate} captured when the return consumed FIFO
+    //   layers, so cancel can restore to those EXACT layer rows.
+    //
+    // Both NULL for weighted-avg installs (the cost-method check in
+    // the controllers skips the capture path entirely). Idempotent.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_return_bill_items'
+                         AND column_name='layers_restored') THEN
+          ALTER TABLE sales_return_bill_items ADD COLUMN layers_restored JSONB;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_return_bill_items'
+                         AND column_name='cost_layers_consumed') THEN
+          ALTER TABLE purchase_return_bill_items ADD COLUMN cost_layers_consumed JSONB;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Return layer-trail migration] Error:', err.message);
+    });
+
+    // ── BANK-1: PDC Receivable / PDC Payable system ledgers ─────────
+    //
+    // Receipts via post-dated cheque used to post Bank Dr immediately,
+    // inflating the bank balance days/weeks before the cheque physically
+    // cleared. Payments via PDC posted Bank Cr immediately, deflating
+    // it. The fix is to route PDC legs to dedicated holding ledgers:
+    //   - INWARD PDC  → DR "Post-Dated Cheques (Receivable)" (Asset)
+    //                   CR Customer
+    //   - OUTWARD PDC → DR Supplier
+    //                   CR "Post-Dated Cheques (Payable)"   (Liability)
+    // When the cheque physically clears (chequeController.clear), a
+    // contra-voucher moves the balance from holding → Bank.
+    //
+    // Idempotent IF NOT EXISTS guards.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM ledger_accounts WHERE ledger_name = 'Post-Dated Cheques (Receivable)'
+        ) THEN
+          INSERT INTO ledger_accounts (ledger_name, ledger_group, sub_group,
+                                       opening_balance, opening_balance_type,
+                                       current_balance, is_system_ledger, is_active,
+                                       created_date)
+          VALUES ('Post-Dated Cheques (Receivable)', 'Assets', 'Current Assets',
+                  0, 'Debit', 0, true, true, CURRENT_DATE);
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM ledger_accounts WHERE ledger_name = 'Post-Dated Cheques (Payable)'
+        ) THEN
+          INSERT INTO ledger_accounts (ledger_name, ledger_group, sub_group,
+                                       opening_balance, opening_balance_type,
+                                       current_balance, is_system_ledger, is_active,
+                                       created_date)
+          VALUES ('Post-Dated Cheques (Payable)', 'Liabilities', 'Current Liabilities',
+                  0, 'Credit', 0, true, true, CURRENT_DATE);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[PDC system ledgers seed] Error:', err.message);
+    });
+
+    // ── BILLS-3: persist gst_mode on bills ──────────────────────────
+    //
+    // Stores 'product' (per-line gst_rate) vs 'bill' (header CGST/SGST
+    // /IGST %) so re-opening a bill for edit doesn't have to guess
+    // from "any % > 0". Critical for bill-wise GST-EXEMPT bills (all
+    // % = 0) which were silently re-classified as product-wise on
+    // edit, recomputing GST from product master rates.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type
+                       WHERE typname = 'enum_sales_bills_gst_mode') THEN
+          CREATE TYPE enum_sales_bills_gst_mode AS ENUM ('product', 'bill');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_type
+                       WHERE typname = 'enum_purchase_bills_gst_mode') THEN
+          CREATE TYPE enum_purchase_bills_gst_mode AS ENUM ('product', 'bill');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_bills' AND column_name='gst_mode') THEN
+          ALTER TABLE sales_bills
+            ADD COLUMN gst_mode enum_sales_bills_gst_mode NOT NULL DEFAULT 'product';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_bills' AND column_name='gst_mode') THEN
+          ALTER TABLE purchase_bills
+            ADD COLUMN gst_mode enum_purchase_bills_gst_mode NOT NULL DEFAULT 'product';
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[gst_mode migration] Error:', err.message);
+    });
+
+    // ── MONEY-5: freight + other charges in GST taxable base ────────
+    //
+    // Adds the new SystemSettings flag controlling whether freight and
+    // other_charges fold into the taxable base. Defaults to TRUE
+    // (statutory compliance). Existing bills already saved keep their
+    // amounts; the flag only affects bills created AFTER the upgrade.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='freight_other_in_taxable') THEN
+          ALTER TABLE system_settings
+            ADD COLUMN freight_other_in_taxable BOOLEAN NOT NULL DEFAULT true;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[freight_other_in_taxable migration] Error:', err.message);
+    });
+
+    // ── MONEY-3: bank_ledger_id on return refunds ───────────────────
+    //
+    // Pre-fix, sales_return_refund / purchase_return_refund vouchers
+    // hard-coded the Cash ledger. Customers refunded via bank transfer
+    // had their Cash ledger go negative while the actual bank account
+    // was untouched. Add nullable FK columns mirroring the pattern on
+    // sales_bills / payments_receipts. Idempotent.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='sales_return_bills'
+                         AND column_name='bank_ledger_id') THEN
+          ALTER TABLE sales_return_bills
+            ADD COLUMN bank_ledger_id INTEGER REFERENCES ledger_accounts(ledger_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='purchase_return_bills'
+                         AND column_name='bank_ledger_id') THEN
+          ALTER TABLE purchase_return_bills
+            ADD COLUMN bank_ledger_id INTEGER REFERENCES ledger_accounts(ledger_id);
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Return refund bank_ledger_id migration] Error:', err.message);
+    });
+
+    // ── Back-dated entry guard ────────────────────────────────────────
+    //
+    // Two-tier control over back-dating bills, payments, journal
+    // vouchers and EMIs:
+    //   • SystemSettings.allow_backdated_entries — company-wide kill
+    //     switch (TRUE = current behaviour, allow back-dated entries).
+    //   • Role.can_enter_backdated — per-role narrowing (TRUE by
+    //     default, FALSE locks that role's users to today-or-later).
+    //
+    // Must run BEFORE seedDefaultData() so the seeder (which writes
+    // the default Role rows via the new model definition) sees the
+    // can_enter_backdated column already present.
+    //
+    // Idempotent: IF NOT EXISTS guards on both columns.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='allow_backdated_entries') THEN
+          ALTER TABLE system_settings
+            ADD COLUMN allow_backdated_entries BOOLEAN NOT NULL DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='roles'
+                         AND column_name='can_enter_backdated') THEN
+          ALTER TABLE roles
+            ADD COLUMN can_enter_backdated BOOLEAN NOT NULL DEFAULT true;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Back-dated entry guard migration] Error:', err.message);
+    });
+
     // Seed default data
     await seedDefaultData();
 

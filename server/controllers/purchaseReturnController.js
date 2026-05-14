@@ -5,7 +5,7 @@ const {
   PurchaseBill, PurchaseBillItem,
   Party, Product, StockLedger, SystemSettings, Godown, ProductBatch,
 } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike, splitBillWiseGst } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike, splitBillWiseGst, safeTrailingNumber } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
@@ -254,8 +254,8 @@ async function computeTotals(req, items, billData, interState = false) {
     if (!isFinite(itemDiscPct) || itemDiscPct < 0 || itemDiscPct > 100) {
       throw new Error(`Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").`);
     }
-    const lineTotal = +(qty * rate).toFixed(2);
-    const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
+    const lineTotal = roundTo(qty * rate, 2);  // Audit MONEY-7: round-half-away-from-zero
+    const discountAmt = roundTo(lineTotal * itemDiscPct / 100, 2);  // Audit MONEY-7
     const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
     processedItems.push({
       ...item,
@@ -356,6 +356,17 @@ function synthAmountLine(amount, remarks) {
 }
 
 exports.create = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.return_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const {
@@ -422,7 +433,8 @@ exports.create = async (req, res) => {
       order: [['purchase_return_id', 'DESC']],
       transaction: t,
     });
-    const lastNum = lastBill ? parseInt((lastBill.return_number.split('-').pop() || '0')) : 0;
+    // Audit BILLS-5 — see salesReturnController for rationale.
+    const lastNum = safeTrailingNumber(lastBill && lastBill.return_number);
     billData.return_number = generateBillNumber(prefix, lastNum);
     billData.created_by = req.user.user_id;
 
@@ -541,7 +553,7 @@ exports.create = async (req, res) => {
 
     const returnTouchedProductIds = new Set();
     for (const item of totals.processedItems) {
-      await PurchaseReturnBillItem.create({
+      const createdItem = await PurchaseReturnBillItem.create({
         purchase_return_id: bill.purchase_return_id,
         ...item,
         batch_id: item.batch_id || null,
@@ -599,12 +611,22 @@ exports.create = async (req, res) => {
         // goods to the supplier. Stock goes out so the oldest available layer
         // qty must decrease by the returned quantity. Without this, the layer
         // queue stays inflated and the next FIFO sale would double-consume.
-        await consumeFIFO({
+        //
+        // Audit STOCK-2 (deep) — capture the per-layer consumption rows
+        // returned by consumeFIFO so cancel/update can restore qty to
+        // those EXACT layer rows (preserving original cost basis).
+        const consumeResult = await consumeFIFO({
           product_id: item.product_id,
           godown_id: billData.godown_id,
           qty: +parseFloat(item.quantity),
           t,
         });
+        if (consumeResult && Array.isArray(consumeResult.consumedRows) && consumeResult.consumedRows.length > 0) {
+          await createdItem.update(
+            { cost_layers_consumed: consumeResult.consumedRows.map(r => ({ layer_id: r.layer_id, qty: r.qty, rate: r.rate })) },
+            { transaction: t },
+          );
+        }
       }
     }
 
@@ -656,6 +678,17 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.return_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -718,6 +751,26 @@ exports.update = async (req, res) => {
     // purchaseController.update: revert-old + apply-new.
     const settings = await SystemSettings.findByPk(1, { transaction: t });
     const allowNeg = settings?.allow_negative_stock || false;
+
+    // Audit STOCK-2 (deep) — restore the OLD layer trail before the
+    // new items get applied (consumeFIFO call below). Without this,
+    // the new items would consume from a queue that's still missing
+    // the qty the original return took out, drawing wrong cost basis.
+    const updCogsMode = settings?.cogs_method || 'weighted_avg';
+    if (updCogsMode === 'fifo' && existing.return_mode === 'Items') {
+      const { restoreLayersFromConsumption } = require('../utils/costLayers');
+      for (const oldItem of existing.items) {
+        if (Array.isArray(oldItem.cost_layers_consumed) && oldItem.cost_layers_consumed.length > 0) {
+          try {
+            await restoreLayersFromConsumption({
+              layersConsumed: oldItem.cost_layers_consumed, t,
+            });
+          } catch (e) {
+            console.error('[purchaseReturn.update] layer-restore warn:', e.message);
+          }
+        }
+      }
+    }
 
     // Reverse old stock outflows (+quantity back) at the EXISTING return's
     // godown — that's where the stock was originally pulled from.
@@ -856,7 +909,7 @@ exports.update = async (req, res) => {
     }, { transaction: t });
 
     for (const item of totals.processedItems) {
-      await PurchaseReturnBillItem.create({
+      const createdItem = await PurchaseReturnBillItem.create({
         purchase_return_id: id,
         ...item,
         batch_id: item.batch_id || null,
@@ -899,6 +952,21 @@ exports.update = async (req, res) => {
           remarks: billData.reason || null,
           created_by: req.user.user_id,
         }, { transaction: t });
+        // Audit STOCK-2 (deep) — consume FIFO for the new items
+        // (mirror of the create path) and capture the per-layer
+        // breakdown for future cancel/update.
+        const consumeResult = await consumeFIFO({
+          product_id: item.product_id,
+          godown_id: billData.godown_id,
+          qty: +parseFloat(item.quantity),
+          t,
+        });
+        if (consumeResult && Array.isArray(consumeResult.consumedRows) && consumeResult.consumedRows.length > 0) {
+          await createdItem.update(
+            { cost_layers_consumed: consumeResult.consumedRows.map(r => ({ layer_id: r.layer_id, qty: r.qty, rate: r.rate })) },
+            { transaction: t },
+          );
+        }
       }
     }
 
@@ -925,6 +993,15 @@ exports.update = async (req, res) => {
     await reverseVoucher({
       sourceType: 'purchase_return_bill', sourceId: existing.purchase_return_id,
       reason: 'Purchase return edited', userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: existing.return_date,
+    });
+    // Audit MONEY-2 — also reverse the refund-cash voucher (if any).
+    // Mirror of the sales-return fix: a refunded purchase-return that's
+    // edited would otherwise duplicate the cash leg on the re-post.
+    await reverseVoucher({
+      sourceType: 'purchase_return_refund', sourceId: existing.purchase_return_id,
+      reason: 'Purchase return edited (refund leg)',
+      userId: req.user && req.user.user_id, transaction: t,
       reversalDate: existing.return_date,
     });
     {
@@ -967,6 +1044,15 @@ exports.cancel = async (req, res) => {
 
     // Cancellation restocks at the bill's own godown. Pure addition,
     // no pre-check needed.
+    //
+    // Audit STOCK-2 (deep) — in FIFO mode the create captured per-layer
+    // consumption into purchase_return_bill_items.cost_layers_consumed.
+    // Restore qty back to those EXACT layers so future FIFO sales
+    // price against the correct (original) cost basis.
+    const settingsCanc = await SystemSettings.findByPk(1, { transaction: t });
+    const cancelCogsMode = settingsCanc?.cogs_method || 'weighted_avg';
+    const { restoreLayersFromConsumption } = require('../utils/costLayers');
+
     const returnCancelTouchedProductIds = new Set();
     if (bill.return_mode === 'Items') {
       for (const item of bill.items) {
@@ -991,6 +1077,21 @@ exports.cancel = async (req, res) => {
               delta: +parseFloat(item.quantity),
               transaction: t,
             });
+          }
+          // Audit STOCK-2 (deep) — restore qty to the exact layers that
+          // were consumed at create time. Fall back to a no-op if the
+          // row didn't capture a trail (legacy data or weighted-avg
+          // installs); the wac recompute below handles that case.
+          if (cancelCogsMode === 'fifo'
+              && Array.isArray(item.cost_layers_consumed)
+              && item.cost_layers_consumed.length > 0) {
+            try {
+              await restoreLayersFromConsumption({
+                layersConsumed: item.cost_layers_consumed, t,
+              });
+            } catch (e) {
+              console.error('[purchaseReturn.cancel] layer-restore warn:', e.message);
+            }
           }
         }
       }
@@ -1031,6 +1132,14 @@ exports.cancel = async (req, res) => {
     await reverseVoucher({
       sourceType: 'purchase_return_bill', sourceId: bill.purchase_return_id,
       reason: cancellationReason || 'Purchase return cancelled',
+      userId: req.user && req.user.user_id, transaction: t,
+    });
+    // Audit MONEY-2 — also reverse the refund-cash voucher (if any).
+    // Pre-fix this voucher was orphaned on cancel; Cash DR and Supplier
+    // CR stayed posted forever, distorting Trial Balance.
+    await reverseVoucher({
+      sourceType: 'purchase_return_refund', sourceId: bill.purchase_return_id,
+      reason: cancellationReason || 'Purchase return cancelled (refund leg)',
       userId: req.user && req.user.user_id, transaction: t,
     });
 

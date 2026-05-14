@@ -16,8 +16,15 @@ try { fs.mkdirSync(BRANDING_DIR, { recursive: true }); } catch { /* race-safe no
 // Whitelist of acceptable image MIME types for the logo + signature
 // uploads. Anything else is rejected at the multer fileFilter so we
 // never write executable content to disk.
+//
+// Audit AUTH-4 — SVG was previously in the allowlist; SVG can carry
+// <script> tags and inline `onload=` handlers. Servlets that load the
+// branding asset via <object>/<iframe>/inline-<svg> would execute the
+// script under the page's origin (stored XSS, every user printing a
+// bill is exposed). PNG / JPEG / GIF / WebP cover every real-world
+// logo and signature case — drop SVG.
 const ALLOWED_BRANDING_MIME = new Set([
-  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml',
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
 ]);
 
 // Strip every character that could escape the branding directory or
@@ -125,6 +132,9 @@ exports.updateSystemSettings = async (req, res) => {
     // dev_lan_max_clients flips take effect on the very next request,
     // not on the next minute boundary.
     try { require('../middleware/lanGate').invalidateLanGateCache(); } catch {}
+    // Same for the back-dated entry guard — operator-facing toggle
+    // should take effect on the next save, not in 60 s.
+    try { require('../utils/backdatedGuard').invalidateCache(); } catch {}
     // Audit H6 — bust the costLayers in-memory cache so a FIFO/weighted-avg
     // flip from this endpoint takes effect on the very next sale, not 30 s
     // later when the cache naturally expires.
@@ -378,6 +388,39 @@ exports.getRoles = async (req, res) => {
     const roles = await Role.findAll({ order: [['role_id', 'ASC']] });
     res.json({ data: roles });
   } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Update a role row's capability columns. Currently only the
+// `can_enter_backdated` flag is editable from the UI; the other
+// legacy booleans (can_view_reports, can_delete_bills, ...) are
+// effectively dead since the JSONB permission editor on each user
+// overrides them. The endpoint is allow-listed so a crafted client
+// can't poke `permissions_json` or `role_name` through this path.
+exports.updateRolePolicy = async (req, res) => {
+  try {
+    const roleId = parseInt(req.params.role_id, 10);
+    if (!Number.isFinite(roleId)) {
+      return res.status(400).json({ error: 'Invalid role_id' });
+    }
+    const role = await Role.findByPk(roleId);
+    if (!role) return res.status(404).json({ error: 'Role not found' });
+
+    const ALLOWED = ['can_enter_backdated'];
+    const updates = {};
+    for (const key of ALLOWED) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {
+        updates[key] = !!req.body[key];
+      }
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No editable fields supplied' });
+    }
+    await role.update(updates);
+    res.json({ data: role });
+  } catch (error) {
+    console.error('updateRolePolicy error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };

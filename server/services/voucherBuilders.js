@@ -122,7 +122,7 @@ async function getPartyLedger(party, transaction) {
 // to the legacy bank lookup so a stale FK from a deleted ledger still
 // posts somewhere sensible. The Ledger Integrity report will surface
 // any drift this introduces.
-async function paymentMethodToLedger(ctx, cache, transaction) {
+async function paymentMethodToLedger(ctx, cache, transaction, opts = {}) {
   // Backwards-compat: callers used to pass a method string. Tolerate it.
   if (typeof ctx === 'string' || ctx == null) {
     ctx = { payment_mode: ctx };
@@ -135,7 +135,21 @@ async function paymentMethodToLedger(ctx, cache, transaction) {
     ctx.payment_mode || ctx.payment_method || 'Cash',
   ).toLowerCase();
 
-  // 1. Explicit bank ledger wins.
+  // Audit BANK-1 — PDC routing. When the caller indicates this is a
+  // post-dated cheque (cheque_date > transaction_date), route to the
+  // holding ledger instead of the chosen bank. The contra-voucher to
+  // move the balance from holding → bank is posted later by
+  // chequeController.clear when the cheque physically clears.
+  // direction: 'INWARD' (Receipt) → PDC Receivable
+  //            'OUTWARD' (Payment) → PDC Payable
+  if (opts.isPdc) {
+    const ledgerName = opts.direction === 'OUTWARD'
+      ? 'Post-Dated Cheques (Payable)'
+      : 'Post-Dated Cheques (Receivable)';
+    return getSystemLedger(ledgerName, cache, transaction);
+  }
+
+  // 1. Explicit bank ledger wins (non-PDC path).
   if (ctx.bank_ledger_id) {
     const cacheKey = `__bank_${ctx.bank_ledger_id}`;
     if (cache[cacheKey]) return cache[cacheKey];
@@ -455,8 +469,17 @@ async function buildSalesReturnVouchers(ret, opts = {}) {
 
     // CRIT-3 fix: if cash was handed back to the customer, post a separate
     // refund-payment journal so the Cash ledger is credited.
-    // DR Customer (reduces what we owe them) / CR Cash (cash out of till).
+    // DR Customer (reduces what we owe them) / CR Cash/Bank (money out).
+    //
+    // Audit MONEY-3 — honor ret.bank_ledger_id when set. Refunds via
+    // UPI / NEFT / bank transfer credit the chosen bank ledger instead
+    // of Cash. NULL bank_ledger_id falls back to Cash (legacy behaviour).
     if (refundAmount > 0) {
+      let refundLedger = cash;
+      if (ret.bank_ledger_id) {
+        const bank = await LedgerAccount.findByPk(ret.bank_ledger_id, { transaction: t });
+        if (bank) refundLedger = bank;
+      }
       vouchers.push({
         voucherType: 'Payment',
         sourceType:  'sales_return_refund',
@@ -465,9 +488,9 @@ async function buildSalesReturnVouchers(ret, opts = {}) {
         referenceNumber: ret.return_number,
         lines: [
           { ledgerAccountId: partyLedger.ledger_id, debit: refundAmount, credit: 0, partyId: customer.party_id },
-          { ledgerAccountId: cash.ledger_id,         debit: 0, credit: refundAmount },
+          { ledgerAccountId: refundLedger.ledger_id, debit: 0, credit: refundAmount },
         ],
-        narration: `Refund paid to ${customer.party_name} against ${ret.return_number}`,
+        narration: `Refund paid to ${customer.party_name} against ${ret.return_number} via ${refundLedger.ledger_name}`,
       });
     }
   } else {
@@ -560,6 +583,14 @@ async function buildPurchaseReturnVouchers(ret, opts = {}) {
   if (refundAmount > 0 && !isCashSupplier) {
     const partyLedger = await getPartyLedger(supplier, t);
     if (partyLedger) {
+      // Audit MONEY-3 — honor ret.bank_ledger_id when set so a refund
+      // received via bank transfer hits the right bank ledger instead
+      // of Cash.
+      let refundLedger = cash;
+      if (ret.bank_ledger_id) {
+        const bank = await LedgerAccount.findByPk(ret.bank_ledger_id, { transaction: t });
+        if (bank) refundLedger = bank;
+      }
       purchaseVouchers.push({
         voucherType: 'Receipt',
         sourceType:  'purchase_return_refund',
@@ -567,10 +598,10 @@ async function buildPurchaseReturnVouchers(ret, opts = {}) {
         voucherDate: ret.return_date,
         referenceNumber: ret.return_number,
         lines: [
-          { ledgerAccountId: cash.ledger_id,          debit: refundAmount, credit: 0 },
-          { ledgerAccountId: partyLedger.ledger_id,   debit: 0, credit: refundAmount, partyId: supplier.party_id },
+          { ledgerAccountId: refundLedger.ledger_id, debit: refundAmount, credit: 0 },
+          { ledgerAccountId: partyLedger.ledger_id,  debit: 0, credit: refundAmount, partyId: supplier.party_id },
         ],
-        narration: `Refund received from ${supplier.party_name} against ${ret.return_number}`,
+        narration: `Refund received from ${supplier.party_name} against ${ret.return_number} via ${refundLedger.ledger_name}`,
       });
     }
   }
@@ -611,17 +642,37 @@ async function buildPaymentReceiptVouchers(receipt, opts = {}) {
   // were posting all legs to Cash. Reading the right field here is part
   // of the bank-FK migration: pass the whole split so the resolver can
   // read `payment_mode` AND `bank_ledger_id`.
+  // Audit BANK-1 — detect post-dated cheque splits so the leg routes
+  // to "Post-Dated Cheques (Receivable/Payable)" holding ledger
+  // instead of the bank. Without this, an inward PDC inflates the
+  // bank balance immediately, weeks before the cheque physically
+  // clears. The contra-voucher to move from holding → Bank is posted
+  // by chequeController.clear when the cheque clears.
+  const txnDateStr = String(receipt.transaction_date || '').slice(0, 10);
+  const isPdcSplit = (s) => {
+    if (String(s.payment_mode || '').toLowerCase() !== 'cheque') return false;
+    const chequeDateStr = String(s.cheque_date || '').slice(0, 10);
+    return chequeDateStr && txnDateStr && chequeDateStr > txnDateStr;
+  };
   const splits = Array.isArray(receipt.splits) ? receipt.splits : [];
   const methodLegs = [];
   if (splits.length > 0) {
     for (const s of splits) {
       const amt = r2(s.amount);
       if (amt <= 0) continue;
-      const lg = await paymentMethodToLedger(s, cache, t);
+      const lg = await paymentMethodToLedger(s, cache, t, {
+        isPdc: isPdcSplit(s),
+        direction: isReceipt ? 'INWARD' : 'OUTWARD',
+      });
       methodLegs.push({ ledger: lg, amount: amt });
     }
   } else {
-    const lg = await paymentMethodToLedger(receipt, cache, t);
+    // Header-mode receipt (no splits): treat the header itself like a
+    // single split for PDC detection.
+    const lg = await paymentMethodToLedger(receipt, cache, t, {
+      isPdc: isPdcSplit(receipt),
+      direction: isReceipt ? 'INWARD' : 'OUTWARD',
+    });
     methodLegs.push({ ledger: lg, amount: totalAmount });
   }
 

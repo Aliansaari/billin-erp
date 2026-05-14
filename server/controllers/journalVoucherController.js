@@ -101,6 +101,17 @@ function normalizeLines(rawLines) {
 }
 
 exports.create = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.voucher_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const { voucher_date, narration, lines: rawLines } = req.body || {};
@@ -154,6 +165,17 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.voucher_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;

@@ -71,8 +71,10 @@ const { SystemSettings } = require('../models');
 const ExcelJS = require('exceljs');
 const dayjs = require('dayjs');
 const { computeOverdueDays, bucketFor, bucketLabels } = require('../utils/aging');
+const { roundTo } = require('../utils/helpers');
 
-const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+// Audit MONEY-4 — use canonical roundTo (Tally-compatible).
+const r2 = (v) => roundTo(Number(v) || 0, 2);
 
 // Local YYYY-MM-DD in server tz. Same idiom reportController uses —
 // avoids the UTC-vs-IST off-by-one bug at evening boundaries.

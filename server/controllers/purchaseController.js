@@ -20,6 +20,11 @@ const { applyWeightedAvgIncrement, recomputeWeightedAvgFromLedger } = require('.
 const { addCostLayer, cancelLayersForPurchase } = require('../utils/costLayers');
 const { denyIfGodownInaccessible, scopeWhereByGodown } = require('../middleware/godownScope');
 const { checkPartyForBillSave } = require('../utils/partyGuards');
+// Audit BILLS-1 — purchase bills share the same retry-after-blip
+// risk as sales bills. A dropped response + operator re-click would
+// duplicate the supplier liability, double-deduct cash for paid_amount,
+// and duplicate the stock IN. Mirror the sales idempotency cache.
+const idempotencyCache = require('../utils/idempotencyCache');
 
 /**
  * Resolve or create a product for a purchase bill item.
@@ -413,9 +418,42 @@ exports.getById = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.bill_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
+
+  // Audit BILLS-1 — idempotency lookup. If the client retried after
+  // a network blip, the previous attempt may have committed; return
+  // the already-created bill instead of double-inserting (which would
+  // duplicate the supplier liability, the stock IN, and any auto-
+  // receipt). Cache is per-server (in-memory, ~60s TTL).
+  const idemKey = req.body && req.body.idempotency_key;
+  if (idemKey) {
+    const cachedBillId = idempotencyCache.get('purchase_create', idemKey);
+    if (cachedBillId) {
+      try {
+        const existing = await PurchaseBill.findByPk(cachedBillId, {
+          include: [
+            { model: PurchaseBillItem, as: 'items' },
+            { model: Party, as: 'supplier', attributes: ['party_name', 'mobile_1', 'gstin'] },
+          ],
+        });
+        if (existing) return res.status(201).json(existing);
+      } catch { /* fall through to create — cache hit but DB read failed */ }
+    }
+  }
+
   const t = await sequelize.transaction();
   try {
-    let { items, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, draft_id, ...billData } = req.body;
+    let { items, paid_amount = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, other_charges = 0, freight_charges = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, draft_id, idempotency_key, ...billData } = req.body;
 
     // ── AMOUNT-ONLY MODE ─────────────────────────────────────────────
     // Mirror of salesController amount-mode: synthesise one line item so
@@ -539,8 +577,8 @@ exports.create = async (req, res) => {
         if (!t.finished) await t.rollback();
         return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
       }
-      const lineTotal = +(qty * rate).toFixed(2);
-      const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
+      const lineTotal = roundTo(qty * rate, 2);  // Audit MONEY-7: round-half-away-from-zero
+      const discountAmt = roundTo(lineTotal * itemDiscPct / 100, 2);  // Audit MONEY-7
       const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
       const resolved = await resolveOrCreateProduct(item, t, defaultProductMode);
@@ -614,12 +652,19 @@ exports.create = async (req, res) => {
       if (!t.finished) await t.rollback();
       return res.status(400).json({ error: `Bill discount (₹${billDiscountAmt.toFixed(2)}) cannot exceed post-item-discount total (₹${postItemBaseP.toFixed(2)}).` });
     }
-    const taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt).toFixed(2);
+    // Audit MONEY-5 — fold freight + other_charges into the taxable base.
+    const freightChargesP = +(parseFloat(freight_charges || 0) || 0);
+    const otherChargesP   = +(parseFloat(other_charges || 0)   || 0);
+    const includeChargesInTaxableP = settings?.freight_other_in_taxable !== false;
+    const extraTaxableAddP = includeChargesInTaxableP ? roundTo(freightChargesP + otherChargesP, 2) : 0;
+
+    const taxableTotal = +(subTotal - itemDiscountTotal - billDiscountAmt + extraTaxableAddP).toFixed(2);
 
     // PASS 2: allocate bill-level trade discount across items pro-rata, then
     // compute GST on the post-discount line base.
     const postItemTotalP = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
     const billDiscRatioP = postItemTotalP > 0 ? billDiscountAmt / postItemTotalP : 0;
+    const extraTaxableRatioP = postItemTotalP > 0 ? extraTaxableAddP / postItemTotalP : 0;
 
     // Inter-state resolution for purchases (audit C3). Without this, every
     // cross-state purchase was stored as CGST+SGST regardless of the
@@ -633,25 +678,32 @@ exports.create = async (req, res) => {
     // product (in which case the snapshot equals the incoming rate — safe)
     // or matched an existing one (in which case snapshotting blocks rate
     // tampering via the API).
+    //
+    // Audit STOCK-5 — also snapshot hsn_code so the GSTR HSN summary
+    // can't be skewed by a tampered client payload.
     const productIdsForSnapshot = [
       ...new Set(processedItems.map(it => it.product_id).filter(Boolean)),
     ];
     if (productIdsForSnapshot.length > 0) {
       const masterProducts = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot } },
-        attributes: ['product_id', 'gst_rate'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code'],
         transaction: t,
       });
-      const masterRateById = new Map(masterProducts.map(p => [p.product_id, parseFloat(p.gst_rate) || 0]));
+      const masterById = new Map(masterProducts.map(p => [p.product_id, p]));
       for (const it of processedItems) {
-        if (it.product_id && masterRateById.has(it.product_id)) {
-          it.gst_rate = masterRateById.get(it.product_id);
+        if (it.product_id && masterById.has(it.product_id)) {
+          const mp = masterById.get(it.product_id);
+          it.gst_rate = parseFloat(mp.gst_rate) || 0;
+          if (mp.hsn_code) it.hsn_code = mp.hsn_code;
         }
       }
     }
 
     for (const it of processedItems) {
-      const lineBase = +(it._postItemTaxable * (1 - billDiscRatioP)).toFixed(2);
+      // Audit MONEY-5 — fold freight + other_charges pro-rata into the
+      // line's GST base.
+      const lineBase = +(it._postItemTaxable * (1 - billDiscRatioP + extraTaxableRatioP)).toFixed(2);
       it.taxable_amount = lineBase;
       const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(lineBase, it.gst_rate || 0, interState);
       it.cgst_amount = gst.cgst;
@@ -745,10 +797,12 @@ exports.create = async (req, res) => {
       }
     }
 
+    // Audit MONEY-5 — don't double-count freight+other on the outer
+    // total when they've already been folded into taxableTotal.
+    const extraOnTotalP = includeChargesInTaxableP ? 0 : (otherChargesP + freightChargesP);
     const { roundedAmount, roundOffValue } = roundOff(
       taxableTotal + totalCgst + totalSgst + totalIgst + totalCess
-      + parseFloat(other_charges || 0)
-      + parseFloat(freight_charges || 0)
+      + extraOnTotalP
     );
 
     const totalAmount = roundedAmount;
@@ -785,6 +839,8 @@ exports.create = async (req, res) => {
       cgst_pct: parseFloat(cgst_pct) || 0,
       sgst_pct: parseFloat(sgst_pct) || 0,
       igst_pct: parseFloat(igst_pct) || 0,
+      // Audit BILLS-3 — persist the GST mode.
+      gst_mode: billWise ? 'bill' : 'product',
       cgst_amount: totalCgst,
       sgst_amount: totalSgst,
       igst_amount: totalIgst,
@@ -1009,6 +1065,13 @@ exports.create = async (req, res) => {
 
     await t.commit();
 
+    // Audit BILLS-1 — record the freshly-created bill_id against the
+    // idempotency key so an immediate retry from the same client
+    // returns the same bill instead of duplicating.
+    if (idempotency_key) {
+      idempotencyCache.set('purchase_create', idempotency_key, bill.purchase_bill_id);
+    }
+
     // Return full bill with items for barcode printing
     const result = await PurchaseBill.findByPk(bill.purchase_bill_id, {
       include: [
@@ -1037,6 +1100,17 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.bill_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -1114,25 +1188,47 @@ exports.update = async (req, res) => {
 
     if (!allowNeg2) {
       // Aggregate net delta per product across both old and new items.
+      //
+      // Audit BILLS-9 — match new items by product_id, not by
+      // product_name. Pre-fix, a renamed item ("FILT-A" → "Filter A")
+      // failed the case-insensitive name match, the new line's
+      // addition was never aggregated, and the net delta computed
+      // wholly negative — either falsely rejecting a legitimate edit
+      // or, when the renamed item resolved via barcode to a different
+      // product_id underneath, allowing stock to silently drop below
+      // zero. Resolve new lines up front (barcode→product_id when
+      // present, falling back to old-line lookup by name+article only
+      // as a last resort) and aggregate strictly by product_id.
       const deltaByProduct = new Map();
       for (const oldItem of existingBill.items) {
         if (!oldItem.product_id) continue;
         const cur = deltaByProduct.get(oldItem.product_id) || 0;
         deltaByProduct.set(oldItem.product_id, cur - parseFloat(oldItem.quantity || 0));
       }
-      // For new items, we may not have product_ids yet (resolveOrCreateProduct
-      // happens in PASS 1 below). For stock-pre-check purposes we match by
-      // barcode/article — but realistically, a purchase update only reduces
-      // stock net when newQty < oldQty for the same product. Match items
-      // heuristically by product_name for the pre-check.
+      // Pre-resolve new lines to product_ids for accurate aggregation.
       for (const newItem of newItems) {
-        const matchOld = existingBill.items.find(o =>
-          o.product_name && newItem.product_name &&
-          String(o.product_name).trim().toLowerCase() === String(newItem.product_name).trim().toLowerCase()
-        );
-        if (matchOld?.product_id) {
-          const cur = deltaByProduct.get(matchOld.product_id) || 0;
-          deltaByProduct.set(matchOld.product_id, cur + parseFloat(newItem.quantity || 0));
+        let pid = newItem.product_id;
+        if (!pid && newItem.barcode) {
+          const byBc = await Product.findOne({
+            where: { barcode: newItem.barcode },
+            attributes: ['product_id'],
+            transaction: t,
+          });
+          if (byBc) pid = byBc.product_id;
+        }
+        if (!pid) {
+          // Fall back to the previous heuristic — name+article match
+          // against existing items on this bill. This only fires when
+          // neither product_id nor barcode is sent (legacy clients).
+          const matchOld = existingBill.items.find(o =>
+            o.product_name && newItem.product_name &&
+            String(o.product_name).trim().toLowerCase() === String(newItem.product_name).trim().toLowerCase()
+          );
+          if (matchOld?.product_id) pid = matchOld.product_id;
+        }
+        if (pid) {
+          const cur = deltaByProduct.get(pid) || 0;
+          deltaByProduct.set(pid, cur + parseFloat(newItem.quantity || 0));
         }
       }
       // Pre-check uses per-godown stock at the EXISTING bill's godown
@@ -1239,8 +1335,8 @@ exports.update = async (req, res) => {
         if (!t.finished) await t.rollback();
         return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
       }
-      const lineTotal = +(qty * rate).toFixed(2);
-      const discountAmt = +(lineTotal * itemDiscPct / 100).toFixed(2);
+      const lineTotal = roundTo(qty * rate, 2);  // Audit MONEY-7: round-half-away-from-zero
+      const discountAmt = roundTo(lineTotal * itemDiscPct / 100, 2);  // Audit MONEY-7
       const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
 
       const resolved = await resolveOrCreateProduct(item, t, defaultProductMode2);
@@ -1296,35 +1392,45 @@ exports.update = async (req, res) => {
       if (!t.finished) await t.rollback();
       return res.status(400).json({ error: `Bill discount (₹${billDiscountAmt.toFixed(2)}) cannot exceed post-item-discount total (₹${postItemBaseP2.toFixed(2)}).` });
     }
-    const taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt).toFixed(2);
+    // Audit MONEY-5 — fold freight + other_charges into the taxable base.
+    const freightChargesPU = +(parseFloat(freight_charges || 0) || 0);
+    const otherChargesPU   = +(parseFloat(other_charges || 0)   || 0);
+    const includeChargesInTaxablePU = settings2?.freight_other_in_taxable !== false;
+    const extraTaxableAddPU = includeChargesInTaxablePU ? roundTo(freightChargesPU + otherChargesPU, 2) : 0;
+
+    const taxableTotal = +(subTotal - itemDiscountTotal2 - billDiscountAmt + extraTaxableAddPU).toFixed(2);
 
     // PASS 2: pro-rate bill discount and recompute per-line GST on the net base.
     const postItemTotalP2 = processedItems.reduce((s, it) => s + it._postItemTaxable, 0);
     const billDiscRatioP2 = postItemTotalP2 > 0 ? billDiscountAmt / postItemTotalP2 : 0;
+    const extraTaxableRatioPU = postItemTotalP2 > 0 ? extraTaxableAddPU / postItemTotalP2 : 0;
     // Same inter-state resolution as create() — see comment there.
     const supplierIdForResolve = billData.supplier_id || existingBill.supplier_id;
     const interState2 = billWise ? false : await resolveInterState({ partyId: supplierIdForResolve, transaction: t });
 
-    // Server-side gst_rate snapshot — same as create() (audit C4).
+    // Server-side gst_rate + hsn_code snapshot — same as create() (audit C4 + STOCK-5).
     const productIdsForSnapshot2 = [
       ...new Set(processedItems.map(it => it.product_id).filter(Boolean)),
     ];
     if (productIdsForSnapshot2.length > 0) {
       const masterProducts2 = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot2 } },
-        attributes: ['product_id', 'gst_rate'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code'],
         transaction: t,
       });
-      const masterRateById2 = new Map(masterProducts2.map(p => [p.product_id, parseFloat(p.gst_rate) || 0]));
+      const masterById2 = new Map(masterProducts2.map(p => [p.product_id, p]));
       for (const it of processedItems) {
-        if (it.product_id && masterRateById2.has(it.product_id)) {
-          it.gst_rate = masterRateById2.get(it.product_id);
+        if (it.product_id && masterById2.has(it.product_id)) {
+          const mp = masterById2.get(it.product_id);
+          it.gst_rate = parseFloat(mp.gst_rate) || 0;
+          if (mp.hsn_code) it.hsn_code = mp.hsn_code;
         }
       }
     }
 
     for (const it of processedItems) {
-      const lineBase = +(it._postItemTaxable * (1 - billDiscRatioP2)).toFixed(2);
+      // Audit MONEY-5 — fold freight + other pro-rata.
+      const lineBase = +(it._postItemTaxable * (1 - billDiscRatioP2 + extraTaxableRatioPU)).toFixed(2);
       it.taxable_amount = lineBase;
       const gst = billWise ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : calculateGST(lineBase, it.gst_rate || 0, interState2);
       it.cgst_amount = gst.cgst;
@@ -1416,10 +1522,11 @@ exports.update = async (req, res) => {
       }
     }
 
+    // Audit MONEY-5 — mirror create-path total formula on update.
+    const extraOnTotalPU = includeChargesInTaxablePU ? 0 : (otherChargesPU + freightChargesPU);
     const { roundedAmount, roundOffValue } = roundOff(
       taxableTotal + totalCgst + totalSgst + totalIgst + totalCess
-      + parseFloat(other_charges || 0)
-      + parseFloat(freight_charges || 0)
+      + extraOnTotalPU
     );
     const totalAmount = roundedAmount;
 
@@ -1468,6 +1575,8 @@ exports.update = async (req, res) => {
       cgst_pct: parseFloat(cgst_pct) || 0,
       sgst_pct: parseFloat(sgst_pct) || 0,
       igst_pct: parseFloat(igst_pct) || 0,
+      // Audit BILLS-3 — persist mode on update.
+      gst_mode: billWise ? 'bill' : 'product',
       cgst_amount: totalCgst, sgst_amount: totalSgst, igst_amount: totalIgst,
       cess_amount: totalCess, round_off: roundOffValue,
       other_charges: parseFloat(other_charges) || 0,
@@ -1718,17 +1827,25 @@ exports.cancel = async (req, res) => {
     }
 
     // ── Block if any active Payment from the Payment tab covers this bill ────
-    // Check both new bill_allocations JSONB and legacy reference_bill_id field.
+    // Audit BILLS-4 — also check bill_payment_allocations for FIFO
+    // auto-applied payments whose JSONB intent is empty.
     const billId = bill.purchase_bill_id;
     const [linkedPaymentRows] = await sequelize.query(
-      `SELECT transaction_number FROM payments_receipts
-       WHERE is_cancelled = false
-         AND transaction_type = 'Payment'
-         AND (
-           (bill_allocations IS NOT NULL
-            AND bill_allocations @> :jsonCheck::jsonb)
-           OR (reference_bill_id = :billId AND reference_bill_type = 'Purchase')
-         )`,
+      `SELECT DISTINCT pr.transaction_number
+         FROM payments_receipts pr
+        WHERE pr.is_cancelled = false
+          AND pr.transaction_type = 'Payment'
+          AND (
+            (pr.bill_allocations IS NOT NULL
+             AND pr.bill_allocations @> :jsonCheck::jsonb)
+            OR (pr.reference_bill_id = :billId AND pr.reference_bill_type = 'Purchase')
+            OR EXISTS (
+              SELECT 1 FROM bill_payment_allocations bpa
+               WHERE bpa.transaction_id = pr.transaction_id
+                 AND bpa.bill_type = 'Purchase'
+                 AND bpa.bill_id   = :billId
+            )
+          )`,
       {
         replacements: {
           jsonCheck: JSON.stringify([{ bill_id: billId, bill_type: 'Purchase' }]),

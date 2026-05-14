@@ -74,6 +74,26 @@ async function runCompanySchemaMigrations(sequelize) {
       END IF;
     END $$;
   `);
+
+  // Back-dated entry guard columns — sync() handles a from-scratch
+  // company DB via the current model defs, but legacy company DBs
+  // that predate the model edit still need a column ADD. Idempotent.
+  await sequelize.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings'
+                       AND column_name='allow_backdated_entries') THEN
+        ALTER TABLE system_settings
+          ADD COLUMN allow_backdated_entries BOOLEAN NOT NULL DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='roles'
+                       AND column_name='can_enter_backdated') THEN
+        ALTER TABLE roles
+          ADD COLUMN can_enter_backdated BOOLEAN NOT NULL DEFAULT true;
+      END IF;
+    END $$;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };

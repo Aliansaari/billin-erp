@@ -243,6 +243,17 @@ export default function PurchaseBillForm() {
   // this a second keystroke during the save round-trip creates a duplicate
   // purchase bill (duplicate stock inflow, supplier double-charged).
   const submittingRef                           = useRef(false);
+  // Audit BILLS-1 + BILLS-2 — idempotency key for the bill in progress.
+  // Minted once when the form opens; re-used for every save attempt on
+  // the SAME bill so a retry after a dropped response collapses on the
+  // server's idempotency cache instead of double-inserting (duplicate
+  // stock IN + duplicate supplier liability). Reset after a successful
+  // save so the next bill (form re-opened) mints its own key.
+  const idempotencyKeyRef                       = useRef(
+    (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   // Monotonic key for item rows. `Date.now()` collides under fast barcode
   // scanners (two rows added in the same millisecond share a key, React
   // re-renders the wrong row). A counter guarantees uniqueness.
@@ -1590,8 +1601,19 @@ export default function PurchaseBillForm() {
           return;
         }
       }
+      // Audit BILLS-1 — attach the form-mount idempotency key so a
+      // retry after a dropped response collapses on the server's
+      // cache. Create-only; update goes through its own row lock.
+      if (!isEdit) {
+        billData.idempotency_key = idempotencyKeyRef.current;
+      }
       const{data}=isEdit?await purchaseAPI.update(id,billData):await purchaseAPI.create(billData);
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
+      // Audit BILLS-2 — mint a fresh key after a successful save so
+      // a subsequent "new bill" save uses a different key.
+      idempotencyKeyRef.current = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       invalidateFamilyCache(); // newly-created variants are now live in DB — drop cached lookups
       setRecalledDraftId(null);
       loadDrafts();

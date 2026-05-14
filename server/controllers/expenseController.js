@@ -20,9 +20,13 @@ const {
 } = require('../models');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildExpenseVoucher } = require('../services/expenseVoucherService');
-const { sanitizePagination, escapeLike } = require('../utils/helpers');
+const { sanitizePagination, escapeLike, roundTo } = require('../utils/helpers');
 
-const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+// Audit MONEY-4 — use the canonical roundTo (Tally-compatible
+// round-half-away-from-zero with floating-point fudge). Pre-fix this
+// file declared its own r2 = Math.round((n||0)*100)/100 which rounds
+// negatives the wrong way and misses .x05 edge cases.
+const r2 = (n) => roundTo(Number(n) || 0, 2);
 
 // Voucher number prefix — EXP-YYYYMMDD-NNNN. Matches the JV style so
 // the Day Book / Tally export tooling that already understands those
@@ -131,9 +135,19 @@ async function normalisePayload(body, transaction) {
     if (igst_rate > 0 && (cgst_rate > 0 || sgst_rate > 0)) {
       throw new Error(`Line ${i + 1}: pick CGST+SGST (intra-state) OR IGST (inter-state), not both.`);
     }
-    const cgst_amount = r2((taxable * cgst_rate) / 100);
-    const sgst_amount = r2((taxable * sgst_rate) / 100);
-    const igst_amount = r2((taxable * igst_rate) / 100);
+    // Audit MONEY-8 — use splitBillWiseGst so the CGST + SGST halves
+    // reconcile to the combined tax exactly. Pre-fix, each half was
+    // rounded independently:
+    //   cgst = r2(taxable * cgst_rate / 100)
+    //   sgst = r2(taxable * sgst_rate / 100)
+    // which drifts ±₹0.01 from the true combined tax on .x05 inputs.
+    // splitBillWiseGst rounds the combined tax first and gives the
+    // residual to the second half so Σ matches exactly.
+    const { splitBillWiseGst } = require('../utils/helpers');
+    const split = splitBillWiseGst(taxable, cgst_rate, sgst_rate, igst_rate);
+    const cgst_amount = split.cgst;
+    const sgst_amount = split.sgst;
+    const igst_amount = split.igst;
     const line_total  = r2(taxable + cgst_amount + sgst_amount + igst_amount);
 
     items.push({
@@ -324,6 +338,17 @@ exports.getById = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.voucher_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const { header, items, party } = await normalisePayload(req.body, t);
@@ -373,6 +398,17 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  // Audit BACKDATED-1 — block back-dating before opening the transaction.
+  {
+    const bd = require('../utils/backdatedGuard');
+    const check = await bd.checkBackdated({
+      voucherDate: req.body && req.body.voucher_date,
+      user: req.user,
+    });
+    if (!check.ok) {
+      return res.status(403).json({ error: check.reason, code: check.code });
+    }
+  }
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;

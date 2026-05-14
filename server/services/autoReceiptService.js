@@ -43,8 +43,10 @@
 // hooks coexist safely on a freshly-migrated DB.
 
 const sequelize = require('../config/database');
+const { roundTo } = require('../utils/helpers');
 
-const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+// Audit MONEY-4 — use canonical roundTo (Tally-compatible).
+const r2 = (v) => roundTo(Number(v) || 0, 2);
 
 // Resolve which transaction_type / bill_type / cash-account-side
 // constants apply for a given operation kind. Centralised so the

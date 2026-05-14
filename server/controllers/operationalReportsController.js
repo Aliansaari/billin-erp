@@ -51,39 +51,48 @@ exports.hsnSummary = async (req, res) => {
     const { from, to } = await resolvePeriod(req.query);
     const direction = (req.query.direction === 'purchase') ? 'purchase' : 'sales';
 
+    // Audit STOCK-7 — group by (hsn_code, gst_rate, unit_type), not
+    // hsn_code alone. The GSTR-1 Table 12 portal validates that every
+    // row's tax sum reconciles to taxable * gst_rate. Pre-fix, when a
+    // single HSN appeared at multiple rates (or with different units,
+    // common for products that share an HSN but differ in measure),
+    // the report collapsed them into one row with MAX(gst_rate) and
+    // MIN(unit) but SUMmed the taxes across rates — the displayed
+    // rate no longer matched the displayed tax, and the portal
+    // rejected the upload.
     const sql = direction === 'sales'
       ? `SELECT COALESCE(NULLIF(it.hsn_code, ''), '(no HSN)') AS hsn_code,
-                MIN(it.unit_type)                              AS unit_type,
+                COALESCE(it.unit_type, 'Pcs')                  AS unit_type,
+                COALESCE(it.gst_rate, 0)::float                AS gst_rate,
                 COALESCE(SUM(it.quantity), 0)::float           AS quantity,
                 COALESCE(SUM(it.taxable_amount), 0)::float     AS taxable,
                 COALESCE(SUM(it.cgst_amount), 0)::float        AS cgst,
                 COALESCE(SUM(it.sgst_amount), 0)::float        AS sgst,
                 COALESCE(SUM(it.igst_amount), 0)::float        AS igst,
                 COALESCE(SUM(it.cess_amount), 0)::float        AS cess,
-                COALESCE(SUM(it.total_amount), 0)::float       AS total,
-                MAX(it.gst_rate)::float                        AS gst_rate
+                COALESCE(SUM(it.total_amount), 0)::float       AS total
            FROM sales_bill_items it
            JOIN sales_bills b ON b.sales_bill_id = it.sales_bill_id
           WHERE b.is_cancelled = false
             AND b.bill_date BETWEEN :from AND :to
-          GROUP BY 1
+          GROUP BY 1, 2, 3
           ORDER BY taxable DESC`
       : `SELECT COALESCE(NULLIF(it.hsn_code, ''), '(no HSN)') AS hsn_code,
-                MIN(p.unit_of_measurement)                     AS unit_type,
+                COALESCE(p.unit_of_measurement, 'Pcs')         AS unit_type,
+                COALESCE(it.gst_rate, 0)::float                AS gst_rate,
                 COALESCE(SUM(it.quantity), 0)::float           AS quantity,
                 COALESCE(SUM(it.taxable_amount), 0)::float     AS taxable,
                 COALESCE(SUM(it.cgst_amount), 0)::float        AS cgst,
                 COALESCE(SUM(it.sgst_amount), 0)::float        AS sgst,
                 COALESCE(SUM(it.igst_amount), 0)::float        AS igst,
                 COALESCE(SUM(it.cess_amount), 0)::float        AS cess,
-                COALESCE(SUM(it.total_amount), 0)::float       AS total,
-                MAX(it.gst_rate)::float                        AS gst_rate
+                COALESCE(SUM(it.total_amount), 0)::float       AS total
            FROM purchase_bill_items it
            JOIN purchase_bills b ON b.purchase_bill_id = it.purchase_bill_id
            LEFT JOIN products p ON p.product_id = it.product_id
           WHERE b.is_cancelled = false
             AND b.bill_date BETWEEN :from AND :to
-          GROUP BY 1
+          GROUP BY 1, 2, 3
           ORDER BY taxable DESC`;
 
     const rows = await sequelize.query(sql, {

@@ -84,6 +84,18 @@ module.exports = (sequelize) => {
       type: DataTypes.DECIMAL(5, 2),
       defaultValue: 0,
     },
+    // Audit BILLS-3 — persist the GST mode the operator chose on save.
+    // 'product' = per-line gst_rate from product master (default).
+    // 'bill'    = single CGST/SGST/IGST % entered on the bill header.
+    // Pre-fix this was inferred from "any of the three % > 0" on read,
+    // which silently flipped a bill-wise GST-EXEMPT bill (all % = 0)
+    // into product-wise mode on re-edit, causing the GST amounts to
+    // be recomputed from product-master rates and overwriting the
+    // operator-intended zero. Storing the mode closes that hole.
+    gst_mode: {
+      type: DataTypes.ENUM('product', 'bill'),
+      defaultValue: 'product',
+    },
     cgst_amount: {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0,

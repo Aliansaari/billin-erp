@@ -110,6 +110,15 @@ module.exports = (sequelize) => {
       allowNull: true,
       references: { model: 'product_batches', key: 'batch_id' },
     },
+    // Audit STOCK-2 (deep) — per-layer breakdown of qty consumed FROM
+    // cost_layers when this purchase-return was created (FIFO mode).
+    // Shape: [{ layer_id, qty, rate }, ...]. Read back on cancel to
+    // restore qty to those exact layers (preserving original cost
+    // basis on future sales). NULL for weighted-avg installs.
+    cost_layers_consumed: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+    },
   }, {
     tableName: 'purchase_return_bill_items',
     timestamps: false,
