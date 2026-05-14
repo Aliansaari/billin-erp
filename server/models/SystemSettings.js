@@ -84,6 +84,35 @@ module.exports = (sequelize) => {
     financial_year_end: {
       type: DataTypes.DATEONLY,
     },
+    // ── Financial-year compliance controls ─────────────────────────
+    // Default behaviour is Tally-style "simple mode": current FY is
+    // derived from today's date, the user can switch to a past FY
+    // context (with a warning banner), no edit locks. Turning
+    // `fy_compliance_mode` ON enables audit features:
+    //   · soft_lock_date — backdating before this date requires an
+    //     override reason (logged in compliance_audit_log)
+    //   · hard_lock_date — backdating before this date is blocked for
+    //     every role except Super Admin (post-ITR-filing protection)
+    //   · require_override_password — extra password challenge on top
+    //     of the role check, for stricter shops
+    // The lock-date fields stay null in simple mode; that's the
+    // "no lock" sentinel value the lock check reads.
+    fy_compliance_mode: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    fy_soft_lock_date: {
+      type: DataTypes.DATEONLY,
+      defaultValue: null,
+    },
+    fy_hard_lock_date: {
+      type: DataTypes.DATEONLY,
+      defaultValue: null,
+    },
+    fy_require_override_password: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
     gst_enabled: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,

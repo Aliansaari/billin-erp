@@ -94,6 +94,7 @@ import LoanStatement       from './pages/loans/LoanStatement';
 import LoanSchedule        from './pages/loans/LoanSchedule';
 import ImportV2 from './pages/settings/ImportV2';
 import CompanyProfile from './pages/settings/CompanyProfile';
+import FinancialYearSettings from './pages/settings/FinancialYearSettings';
 import MyAccount from './pages/settings/MyAccount';
 import NotificationsSettings from './pages/settings/NotificationsSettings';
 import UserManagement from './pages/settings/UserManagement';
@@ -766,6 +767,7 @@ export default function App() {
           <Route path="settings" element={<SettingsLayout />}>
             <Route index                      element={<Navigate to="/settings/company" replace />} />
             <Route path="company"             element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />
+            <Route path="financial-year"      element={<RoleRoute perm="settings.manage_company"><FinancialYearSettings /></RoleRoute>} />
             {/* My Account — every logged-in user can reach this; no permission gate. */}
             <Route path="account"             element={<PrivateRoute><MyAccount /></PrivateRoute>} />
             {/* Notifications preferences — per-user, no permission gate. */}

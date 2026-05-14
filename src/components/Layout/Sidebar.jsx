@@ -25,6 +25,7 @@ import {
 import DeveloperGate from '../DeveloperGate';
 import useDevModeStore from '../../store/devModeStore';
 import CompanySwitcher from '../CompanySwitcher';
+import FYSwitcher from '../FYSwitcher';
 import { GlobalSearchTrigger } from '../GlobalSearch';
 import { NotificationBell } from '../Notifications';
 
@@ -311,8 +312,15 @@ export default function Sidebar({ collapsed, setCollapsed }) {
             Collapsed padding is 4 px symmetrical so every row in the
             icon column reads as the same rhythm (was 8 px bottom which
             created a visible hole above the search). */}
-        <div style={{ padding: collapsed ? '4px 8px' : '0 12px 10px' }}>
+        <div style={{ padding: collapsed ? '4px 8px' : '0 12px 6px' }}>
           <CompanySwitcher collapsed={collapsed} />
+        </div>
+
+        {/* FY switcher — sits directly below the company switcher,
+            same chrome. Shows the current FY context with a click-to-
+            switch dropdown listing past FYs. Always visible. */}
+        <div style={{ padding: collapsed ? '4px 8px' : '0 12px 10px' }}>
+          <FYSwitcher collapsed={collapsed} />
         </div>
 
         {/* Search affordance — sits between the company switcher and the

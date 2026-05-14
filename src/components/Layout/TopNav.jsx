@@ -16,6 +16,7 @@ import useFilteredAltMenus from '../../hooks/useFilteredAltMenus';
 import { GlobalSearchTrigger } from '../GlobalSearch';
 import { NotificationBell } from '../Notifications';
 import CompanySwitcher from '../CompanySwitcher';
+import FYSwitcher from '../FYSwitcher';
 import './top-nav.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -210,6 +211,13 @@ export default function TopNav() {
           dropdown from anywhere. */}
       <span className="erp-topnav-rule" aria-hidden="true" />
       <CompanySwitcher />
+
+      {/* FY switcher — context pill showing the financial year the user
+          is currently working in. Click reveals the last 3 past FYs +
+          current; switching to a past FY pops a confirm modal and lights
+          up the global yellow PastFYBanner. Always visible (every install
+          has FY config), so no auto-hide. */}
+      <FYSwitcher />
 
       {/* Main menu — hugs its content, doesn't stretch the bar. */}
       <span className="erp-topnav-rule" aria-hidden="true" />
