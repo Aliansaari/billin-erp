@@ -73,7 +73,40 @@ exports.getAll = async (req, res) => {
       offset,
     });
 
-    res.json({ total: count, page, limit, data: rows });
+    // Server-aggregated totals for the KPI strip — covers the FULL
+    // filtered set (not just the current page), so the cards stay
+    // accurate as the user scrolls / pages through 99k+ rows. Split by
+    // transaction_type so the page can render Receipts / Payments /
+    // Net independently without a second round-trip.
+    const aggregates = await PaymentReceipt.findAll({
+      where,
+      attributes: [
+        'transaction_type',
+        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('total_amount')), 0), 'sum_amount'],
+        [sequelize.fn('COUNT', sequelize.col('transaction_id')), 'count'],
+      ],
+      group: ['transaction_type'],
+      raw: true,
+    });
+    const summary = {
+      total_received:   0,
+      total_paid:       0,
+      count_received:   0,
+      count_paid:       0,
+    };
+    for (const r of aggregates) {
+      if (r.transaction_type === 'Receipt') {
+        summary.total_received = parseFloat(r.sum_amount) || 0;
+        summary.count_received = Number(r.count) || 0;
+      } else if (r.transaction_type === 'Payment') {
+        summary.total_paid     = parseFloat(r.sum_amount) || 0;
+        summary.count_paid     = Number(r.count) || 0;
+      }
+    }
+    summary.net_flow    = summary.total_received - summary.total_paid;
+    summary.total_count = summary.count_received + summary.count_paid;
+
+    res.json({ total: count, page, limit, data: rows, summary });
   } catch (error) {
     console.error('Get payments error:', error);
     res.status(500).json({ error: 'Server error' });
