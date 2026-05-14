@@ -65,18 +65,71 @@ function dateKey(input) {
   return null;
 }
 
+// Compute the end of the CURRENT financial year (local-tz 'YYYY-MM-DD').
+//
+// Prefers `system_settings.financial_year_end` when present (admin-set), else
+// computes from `fy_start_month` (defaults to 4 = April for India). The FY
+// "current" semantic is anchored at today: whichever FY today falls into,
+// that FY's end is the boundary. So on 2026-05-15 with April-start the
+// current FY end is 2027-03-31; on 2026-02-10 it's 2026-03-31.
+function currentFyEndIso(settings) {
+  // Prefer the explicit setting if it's still in the future
+  if (settings && settings.financial_year_end) {
+    const end = String(settings.financial_year_end).slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(end) && end >= todayLocalIso()) return end;
+  }
+  // Derive from fy_start_month. fy_start_month defaults to 4 (April).
+  const startMonth = Math.max(1, Math.min(12, parseInt(settings && settings.fy_start_month, 10) || 4));
+  const d = new Date();
+  const todayMonth = d.getMonth() + 1; // 1..12
+  const todayYear  = d.getFullYear();
+  // If today is BEFORE the FY-start month, we're in the FY that began LAST year.
+  // FY end is then 'this year, startMonth-1, last-day'.
+  // If today is AT/AFTER startMonth, FY end is 'next year, startMonth-1, last-day'.
+  const endYear = todayMonth < startMonth ? todayYear : todayYear + 1;
+  const endMonth = startMonth - 1 === 0 ? 12 : startMonth - 1;
+  const endYearAdj = startMonth === 1 ? endYear - 1 : endYear;
+  // Last day of endMonth: take 1st of next month, subtract 1.
+  const lastDay = new Date(endYearAdj, endMonth, 0).getDate();
+  return `${endYearAdj}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
+
 // Main guard. Returns { ok: boolean, reason?: string }.
 // Controllers call this after they've parsed the voucher date and
 // before they open the write transaction. A failed check returns a
 // 403 with a clear message naming WHICH flag blocked the entry so
 // the user knows whether to escalate to admin or company-wide setting.
+//
+// Audit CR-5 (modified) — also blocks FUTURE-dated entries that fall
+// BEYOND the current financial year. Future-within-FY is allowed
+// silently (operators routinely back/forward-dating within the FY for
+// legitimate reasons: post-dated cheques, planned-purchase orders).
+// Beyond-FY is hard-blocked with FUTURE_DATE_BEYOND_FY — mirrors the
+// BACKDATED_BLOCKED_BY_COMPANY behaviour (no override path; admin must
+// move into the next FY first).
 async function checkBackdated({ voucherDate, user, transaction }) {
   const dKey = dateKey(voucherDate);
   if (!dKey) return { ok: true }; // controller-side validation will catch a missing date
   const today = todayLocalIso();
-  if (dKey >= today) return { ok: true };
-
   const settings = await readSettings(transaction);
+
+  // ── Future-date branch (CR-5) ───────────────────────────────────────
+  if (dKey > today) {
+    const fyEnd = currentFyEndIso(settings || {});
+    if (dKey > fyEnd) {
+      return {
+        ok: false,
+        reason: `Date ${dKey} is beyond the current financial year (ends ${fyEnd}). Move into the next FY before posting voucher dates after ${fyEnd}.`,
+        code: 'FUTURE_DATE_BEYOND_FY',
+      };
+    }
+    return { ok: true }; // future-within-FY allowed silently
+  }
+
+  // ── Same-day branch ─────────────────────────────────────────────────
+  if (dKey === today) return { ok: true };
+
+  // ── Back-date branch (original logic) ───────────────────────────────
   if (settings && settings.allow_backdated_entries === false) {
     return {
       ok: false,
@@ -107,4 +160,5 @@ module.exports = {
   _readSettings: readSettings,
   _todayLocalIso: todayLocalIso,
   _dateKey: dateKey,
+  _currentFyEndIso: currentFyEndIso,
 };

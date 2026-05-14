@@ -13,6 +13,44 @@ const tokenBlacklist = require('../utils/tokenBlacklist');
 // access to any other page.
 const DEFAULT_ADMIN_PASSWORD = 'admin123';
 
+// AUTH-H5 — password strength checker. Returns {ok, reason}. Rules:
+//   - length ≥ 10 chars
+//   - at least 3 of: lowercase, uppercase, digit, non-alnum
+//   - not equal (case-insensitive) to username
+//   - not on the obvious-blocklist
+// Designed to be strict enough that "Aa1bcdef" or "admin12345" fail, while
+// realistic owner-supplied passwords (e.g. "Sabina@Dresses2026") pass.
+const COMMON_PASSWORDS = new Set([
+  'password', 'password1', 'password123', 'admin', 'admin123', 'admin1234',
+  'qwerty', 'qwerty123', '12345678', '123456789', '1234567890',
+  'letmein', 'welcome', 'welcome1', 'welcome123', 'iloveyou',
+  'monkey', 'dragon', 'master', 'sunshine', 'princess',
+  'superadmin', 'rootroot', 'changeme', 'changeme1', 'changeme123',
+]);
+function checkPasswordStrength(pwd, opts = {}) {
+  if (typeof pwd !== 'string') return { ok: false, reason: 'Password must be a string' };
+  if (pwd.length < 10) return { ok: false, reason: 'Password must be at least 10 characters' };
+  if (pwd.length > 128) return { ok: false, reason: 'Password is too long (max 128 chars)' };
+  const lower = /[a-z]/.test(pwd);
+  const upper = /[A-Z]/.test(pwd);
+  const digit = /[0-9]/.test(pwd);
+  const special = /[^A-Za-z0-9]/.test(pwd);
+  const classes = (lower ? 1 : 0) + (upper ? 1 : 0) + (digit ? 1 : 0) + (special ? 1 : 0);
+  if (classes < 3) {
+    return {
+      ok: false,
+      reason: 'Password must include at least 3 of: lowercase, uppercase, digit, special character',
+    };
+  }
+  if (COMMON_PASSWORDS.has(pwd.toLowerCase())) {
+    return { ok: false, reason: 'This password is on the common-passwords list — choose something less obvious' };
+  }
+  if (opts.username && pwd.toLowerCase() === String(opts.username).toLowerCase()) {
+    return { ok: false, reason: 'Password cannot be the same as your username' };
+  }
+  return { ok: true };
+}
+
 exports.login = async (req, res) => {
   try {
     const { username, password, company_id: companyIdRaw } = req.body;
@@ -317,14 +355,21 @@ exports.changePassword = async (req, res) => {
     if (!current_password || !new_password) {
       return res.status(400).json({ error: 'Current and new password are required' });
     }
-    if (typeof new_password !== 'string' || new_password.length < 8) {
-      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    if (typeof new_password !== 'string') {
+      return res.status(400).json({ error: 'New password must be a string' });
     }
     if (new_password === current_password) {
       return res.status(400).json({ error: 'New password must be different from the current password' });
     }
-    if (/^(admin|admin123|password|123456|qwerty)$/i.test(new_password)) {
-      return res.status(400).json({ error: 'Please choose a stronger password — avoid common defaults' });
+    // AUTH-H5 — stronger password rules. Previous regex was too permissive
+    // (admin12345 / Aa1bcdef passed). New requirements:
+    //   - length ≥ 10
+    //   - at least 3 of: lowercase, uppercase, digit, special
+    //   - not on a small blocklist of obvious choices
+    //   - not just the username
+    const checks = checkPasswordStrength(new_password, { username: req.user && req.user.username });
+    if (!checks.ok) {
+      return res.status(400).json({ error: checks.reason });
     }
 
     const user = await User.findByPk(req.user.user_id);
@@ -337,7 +382,8 @@ exports.changePassword = async (req, res) => {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
 
-    const hash = await bcrypt.hash(new_password, 10);
+    // AUTH-H6 — bcrypt cost 12 (OWASP 2025 recommendation).
+    const hash = await bcrypt.hash(new_password, 12);
     await user.update({ password_hash: hash });
 
     // Audit AUTH-6 — blacklist the OLD jti so a stolen-but-just-rotated
@@ -426,6 +472,9 @@ exports.logout = (req, res) => {
   }
   res.json({ message: 'Logged out successfully' });
 };
+
+// AUTH-H5 — exported so settingsController can re-use the same strength check.
+exports.checkPasswordStrength = checkPasswordStrength;
 
 exports.verifyDeveloperPassword = async (req, res) => {
   try {

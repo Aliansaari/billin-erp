@@ -627,15 +627,26 @@ test('buildGstr1: nil invoice excluded from B2B totals, included in nil grand', 
 // ─── normalizeUqc ─────────────────────────────────────────────
 
 test('normalizeUqc: known units map to GSTN codes', () => {
+  // Audit GST-H5 — updated to match the canonical GSTN schema list
+  // (utils/uqcCodes.js). Pre-fix the inline map used `DZN-DOZENS` for
+  // dozens; the current GSTN schema uses `DOZ-DOZENS` (DZN was the
+  // pre-2018 code). MTR-METRES retains its British spelling per the
+  // current GSTN JSON schema.
   assert.equal(normalizeUqc('meter'),  'MTR-METRES');
   assert.equal(normalizeUqc('METER'),  'MTR-METRES');
   assert.equal(normalizeUqc('  Mtr '), 'MTR-METRES');
   assert.equal(normalizeUqc('BOX'),    'BOX-BOX');
-  assert.equal(normalizeUqc('dozen'),  'DZN-DOZENS');
+  assert.equal(normalizeUqc('dozen'),  'DOZ-DOZENS');
   assert.equal(normalizeUqc('pcs'),    'PCS-PIECES');
   assert.equal(normalizeUqc('PIECES'), 'PCS-PIECES');
   assert.equal(normalizeUqc('kg'),     'KGS-KILOGRAMS');
   assert.equal(normalizeUqc('LITRE'),  'LTR-LITRES');
+  // New canonical codes now resolved (pre-fix these fell to OTH-OTHERS).
+  assert.equal(normalizeUqc('PRS'),    'PRS-PAIRS');
+  assert.equal(normalizeUqc('pair'),   'PRS-PAIRS');
+  assert.equal(normalizeUqc('SQM'),    'SQM-SQUARE METERS');
+  assert.equal(normalizeUqc('BAG'),    'BAG-BAGS');
+  assert.equal(normalizeUqc('TON'),    'TON-TONNES');
 });
 
 test('normalizeUqc: unknown unit → OTH-OTHERS', () => {

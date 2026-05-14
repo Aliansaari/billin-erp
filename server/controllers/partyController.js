@@ -4,7 +4,7 @@ const { Party, SalesBill, PurchaseBill, PaymentReceipt, SalesReturnBill, Purchas
 const { postPartyOpeningJV } = require('../models/Party');
 const { reverseVoucher } = require('../services/ledgerPostingService');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
-const { sanitizePagination, escapeLike } = require('../utils/helpers');
+const { sanitizePagination, escapeLike, respondWithError } = require('../utils/helpers');
 
 // Aging bucket boundaries come from SystemSettings so admins can tune what
 // counts as "Watchful / Chase / Critical" for their business. Falls back to
@@ -137,6 +137,12 @@ exports.create = async (req, res) => {
         field: 'party_name',
       });
     }
+    // CR-7 — validate GSTIN format + MOD-36 checksum if provided.
+    if (safe.gstin) {
+      const g = require('../utils/indianIdFormats').validateGstin(safe.gstin);
+      if (!g.ok) { await t.rollback(); return res.status(400).json({ error: g.error, field: 'gstin' }); }
+      safe.gstin = String(safe.gstin).trim().toUpperCase();
+    }
     const data = { ...safe, created_by: req.user.user_id };
     if (data.opening_balance) {
       data.current_balance = data.opening_balance_type === 'Payable'
@@ -150,11 +156,11 @@ exports.create = async (req, res) => {
     if (!t.finished) {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
-    console.error('Create party error:', error);
     if (error.name === 'SequelizeUniqueConstraintError') {
       return res.status(400).json({ error: 'Party with this information already exists' });
     }
-    res.status(500).json({ error: 'Server error' });
+    // LIVE-7 — map Sequelize validation/enum/length to 400.
+    return respondWithError(res, error);
   }
 };
 
@@ -182,6 +188,12 @@ exports.update = async (req, res) => {
         error: 'The name "Cash" is reserved. Use the system Cash party instead.',
         field: 'party_name',
       });
+    }
+    // CR-7 — validate GSTIN format + checksum on update if provided.
+    if (safe.gstin) {
+      const g = require('../utils/indianIdFormats').validateGstin(safe.gstin);
+      if (!g.ok) { await t.rollback(); return res.status(400).json({ error: g.error, field: 'gstin' }); }
+      safe.gstin = String(safe.gstin).trim().toUpperCase();
     }
 
     const openingChanged =
@@ -213,8 +225,7 @@ exports.update = async (req, res) => {
     res.json(party);
   } catch (error) {
     if (!t.finished) await t.rollback().catch(() => {});
-    console.error('Update party error:', error);
-    res.status(500).json({ error: 'Server error' });
+    return respondWithError(res, error);
   }
 };
 

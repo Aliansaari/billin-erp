@@ -35,7 +35,13 @@ const authenticateToken = async (req, res, next) => {
 
   let decoded;
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // AUTH-H1 — pin algorithms to HS256 only. Defence-in-depth against a
+    // future jsonwebtoken regression that re-enables `alg: none` (CVE-2015-9235
+    // class) or against switching the secret to an RSA public-key by
+    // mistake (which would let an attacker mint HS256 tokens with the
+    // public key as the HMAC secret). Sign side always uses HS256 by
+    // default; explicit pin closes both directions.
+    decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
   } catch (err) {
     const expired = err && err.name === 'TokenExpiredError';
     return res.status(401).json({

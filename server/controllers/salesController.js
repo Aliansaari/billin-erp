@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, SalesBillDraft, SalesReturnBill, SalesReturnBillItem, Party, Product, StockLedger, SystemSettings, Godown } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber, splitBillWiseGst } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber, splitBillWiseGst, isLegalGstSlab, gstSlabError } = require('../utils/helpers');
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
 const idempotencyCache = require('../utils/idempotencyCache');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
@@ -165,7 +165,13 @@ exports.getAll = async (req, res) => {
       where,
       attributes: [
         [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('total_amount')),    0), 'total_amount'],
-        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('paid_amount')),     0), 'total_paid'],
+        // CR-10 — paid_amount is the at-billing snapshot (per
+        // billAllocationService MONEY-1); manual receipts increase
+        // bill_payment_allocations.allocated_amount and reduce
+        // balance_amount but never touch paid_amount. So total "received"
+        // must be derived as total − balance − return. Same invariant the
+        // Bills-Receivable report uses.
+        [sequelize.literal('COALESCE(SUM(total_amount - balance_amount - COALESCE(return_amount, 0)), 0)'), 'total_paid'],
         [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('balance_amount')),  0), 'total_balance'],
         [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('discount_amount')), 0), 'total_discount'],
         [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('cgst_amount')),     0), 'total_cgst'],
@@ -502,9 +508,9 @@ exports.create = async (req, res) => {
         await t.rollback();
         return res.status(400).json({ error: 'Amount must be greater than 0 for amount-only bills.' });
       }
-      if (!isFinite(rate) || rate < 0 || rate > 100) {
+      if (!isLegalGstSlab(rate)) {
         await t.rollback();
-        return res.status(400).json({ error: 'GST rate must be between 0 and 100.' });
+        return res.status(400).json({ error: gstSlabError(rate) });
       }
       const hsn  = (amountHsnCode || '9999').toString().trim() || '9999';
       const desc = (amountDescription || 'Service / Misc').toString().trim() || 'Service / Misc';
@@ -628,6 +634,11 @@ exports.create = async (req, res) => {
         if (!t.finished) await t.rollback();
         return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
       }
+      // CR-6 — per-line GST rate must be a legal Indian slab.
+      if (item.gst_rate !== undefined && item.gst_rate !== null && !isLegalGstSlab(item.gst_rate)) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `${gstSlabError(item.gst_rate)} (line "${item.product_name || 'item'}")` });
+      }
       const lineTotal = roundTo(qty * rate, 2);  // Audit MONEY-7: round-half-away-from-zero
       const discountAmt = roundTo(lineTotal * itemDiscPct / 100, 2);  // Audit MONEY-7
       const taxableAmt = +(lineTotal - discountAmt).toFixed(2);
@@ -718,7 +729,7 @@ exports.create = async (req, res) => {
     if (productIdsForSnapshot.length > 0) {
       const masterProducts = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement'],
         transaction: t,
       });
       const masterById = new Map(masterProducts.map(p => [p.product_id, p]));
@@ -730,6 +741,12 @@ exports.create = async (req, res) => {
           // client-supplied value as fallback for products that don't
           // yet have an HSN configured.
           if (mp.hsn_code) it.hsn_code = mp.hsn_code;
+          // Audit GST-H5 — same defence for the unit_type. Without
+          // this snapshot, the client could submit 'Pcs' even though
+          // the product master says 'PRS' (pairs) → GSTR-1 HSN
+          // section reports the wrong UQC. Master wins; only when
+          // the master leaves it blank do we keep the line value.
+          if (mp.unit_of_measurement) it.unit_type = mp.unit_of_measurement;
         }
       }
     }
@@ -1023,6 +1040,24 @@ exports.create = async (req, res) => {
     } catch (err) {
       await t.rollback();
       return res.status(err.status || 400).json({ error: err.message });
+    }
+
+    // INV-H6 — deterministic lock-order. Pre-acquire FOR UPDATE locks on
+    // each distinct (product_id, godown_id) row in (product_id ASC) order
+    // BEFORE the per-line processing loop. The loop then acquires the
+    // same locks no-op (already held by this transaction). Without this,
+    // two concurrent bills sharing the same products can deadlock when
+    // they acquire the per-line locks in different orders.
+    {
+      const distinctKeys = Array.from(new Set(
+        processedItems
+          .filter(i => i.product_id)
+          .map(i => `${i.product_id}|${billData.godown_id}`)
+      )).sort();
+      for (const k of distinctKeys) {
+        const [pid, gid] = k.split('|').map(Number);
+        await getGodownStock({ product_id: pid, godown_id: gid, t, lock: true });
+      }
     }
 
     for (const item of processedItems) {
@@ -1377,9 +1412,9 @@ exports.update = async (req, res) => {
         await t.rollback();
         return res.status(400).json({ error: 'Amount must be greater than 0 for amount-only bills.' });
       }
-      if (!isFinite(rate) || rate < 0 || rate > 100) {
+      if (!isLegalGstSlab(rate)) {
         await t.rollback();
-        return res.status(400).json({ error: 'GST rate must be between 0 and 100.' });
+        return res.status(400).json({ error: gstSlabError(rate) });
       }
       const hsn  = (amountHsnCode || '9999').toString().trim() || '9999';
       const desc = (amountDescription || 'Service / Misc').toString().trim() || 'Service / Misc';
@@ -1532,6 +1567,11 @@ exports.update = async (req, res) => {
         if (!t.finished) await t.rollback();
         return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
       }
+      // CR-6 — per-line GST rate must be a legal Indian slab.
+      if (item.gst_rate !== undefined && item.gst_rate !== null && !isLegalGstSlab(item.gst_rate)) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `${gstSlabError(item.gst_rate)} (line "${item.product_name || 'item'}")` });
+      }
       const lineTotal = roundTo(qty * rate, 2);  // Audit MONEY-7: round-half-away-from-zero
       const discountAmt = roundTo(lineTotal * itemDiscPct / 100, 2);  // Audit MONEY-7
       const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
@@ -1597,7 +1637,7 @@ exports.update = async (req, res) => {
     if (productIdsForSnapshot2.length > 0) {
       const masterProducts2 = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot2 } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement'],
         transaction: t,
       });
       const masterById2 = new Map(masterProducts2.map(p => [p.product_id, p]));
@@ -1606,6 +1646,8 @@ exports.update = async (req, res) => {
           const mp = masterById2.get(it.product_id);
           it.gst_rate = parseFloat(mp.gst_rate) || 0;
           if (mp.hsn_code) it.hsn_code = mp.hsn_code;
+          // GST-H5 — also snapshot unit on update (see create-path comment).
+          if (mp.unit_of_measurement) it.unit_type = mp.unit_of_measurement;
         }
       }
     }
@@ -2130,15 +2172,21 @@ exports.cancel = async (req, res) => {
     }
 
     // ── Double-entry: reverse the bill's vouchers ──
+    // Audit LED-H2 — pass reversalDate so the mirror lands in the SAME
+    // accounting period as the original. Defaulting to today lets a
+    // cross-FY cancel post the mirror into the current FY while the
+    // original sits in a (now-closed) prior FY → asymmetric P&L.
     await reverseVoucher({
       sourceType: 'sales_bill', sourceId: bill.sales_bill_id,
       reason: cancellationReason || 'Sales bill cancelled',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: bill.bill_date,
     });
     await reverseVoucher({
       sourceType: 'sales_bill_receipt', sourceId: bill.sales_bill_id,
       reason: cancellationReason || 'Sales bill cancelled',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: bill.bill_date,
     });
     // Two-way ledger cancel cascade — soft-cancel the auto-receipt
     // row + drop its allocation. Preserves the Receipts list audit

@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { PurchaseBill, PurchaseBillItem, PurchaseBillDraft, Party, Product, ProductColor, StockLedger, Category, SystemSettings, Godown } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber, escapeLike, splitBillWiseGst } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber, escapeLike, splitBillWiseGst, isLegalGstSlab, gstSlabError } = require('../utils/helpers');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
@@ -344,7 +344,10 @@ exports.getAll = async (req, res) => {
       where,
       attributes: [
         [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('total_amount')),    0), 'total_amount'],
-        [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('paid_amount')),     0), 'total_paid'],
+        // CR-10 — derive paid from total − balance so manual payment
+        // allocations are reflected. paid_amount is the at-billing
+        // snapshot per billAllocationService MONEY-1.
+        [sequelize.literal('COALESCE(SUM(total_amount - balance_amount), 0)'), 'total_paid'],
         [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('balance_amount')),  0), 'total_balance'],
         [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('discount_amount')), 0), 'total_discount'],
         [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('cgst_amount')),     0), 'total_cgst'],
@@ -475,9 +478,9 @@ exports.create = async (req, res) => {
         await t.rollback();
         return res.status(400).json({ error: 'Amount must be greater than 0 for amount-only bills.' });
       }
-      if (!isFinite(rate) || rate < 0 || rate > 100) {
+      if (!isLegalGstSlab(rate)) {
         await t.rollback();
-        return res.status(400).json({ error: 'GST rate must be between 0 and 100.' });
+        return res.status(400).json({ error: gstSlabError(rate) });
       }
       const hsn  = (amountHsnCode || '9999').toString().trim() || '9999';
       const desc = (amountDescription || 'Service / Misc').toString().trim() || 'Service / Misc';
@@ -584,6 +587,11 @@ exports.create = async (req, res) => {
       if (!isFinite(itemDiscPct) || itemDiscPct < 0 || itemDiscPct > 100) {
         if (!t.finished) await t.rollback();
         return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
+      }
+      // CR-6 — per-line GST rate must be a legal Indian slab.
+      if (item.gst_rate !== undefined && item.gst_rate !== null && !isLegalGstSlab(item.gst_rate)) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `${gstSlabError(item.gst_rate)} (line "${item.product_name || 'item'}")` });
       }
       const lineTotal = roundTo(qty * rate, 2);  // Audit MONEY-7: round-half-away-from-zero
       const discountAmt = roundTo(lineTotal * itemDiscPct / 100, 2);  // Audit MONEY-7
@@ -695,7 +703,7 @@ exports.create = async (req, res) => {
     if (productIdsForSnapshot.length > 0) {
       const masterProducts = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement'],
         transaction: t,
       });
       const masterById = new Map(masterProducts.map(p => [p.product_id, p]));
@@ -704,6 +712,8 @@ exports.create = async (req, res) => {
           const mp = masterById.get(it.product_id);
           it.gst_rate = parseFloat(mp.gst_rate) || 0;
           if (mp.hsn_code) it.hsn_code = mp.hsn_code;
+          // GST-H5 — snapshot unit_of_measurement from product master.
+          if (mp.unit_of_measurement) it.unit_type = mp.unit_of_measurement;
         }
       }
     }
@@ -1159,9 +1169,9 @@ exports.update = async (req, res) => {
         await t.rollback();
         return res.status(400).json({ error: 'Amount must be greater than 0 for amount-only bills.' });
       }
-      if (!isFinite(rate) || rate < 0 || rate > 100) {
+      if (!isLegalGstSlab(rate)) {
         await t.rollback();
-        return res.status(400).json({ error: 'GST rate must be between 0 and 100.' });
+        return res.status(400).json({ error: gstSlabError(rate) });
       }
       const hsn  = (amountHsnCode || '9999').toString().trim() || '9999';
       const desc = (amountDescription || 'Service / Misc').toString().trim() || 'Service / Misc';
@@ -1370,6 +1380,11 @@ exports.update = async (req, res) => {
         if (!t.finished) await t.rollback();
         return res.status(400).json({ error: `Item discount % must be between 0 and 100 (got ${itemDiscPct}% for "${item.product_name || 'item'}").` });
       }
+      // CR-6 — per-line GST rate must be a legal Indian slab.
+      if (item.gst_rate !== undefined && item.gst_rate !== null && !isLegalGstSlab(item.gst_rate)) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: `${gstSlabError(item.gst_rate)} (line "${item.product_name || 'item'}")` });
+      }
       const lineTotal = roundTo(qty * rate, 2);  // Audit MONEY-7: round-half-away-from-zero
       const discountAmt = roundTo(lineTotal * itemDiscPct / 100, 2);  // Audit MONEY-7
       const postItemTaxable = +(lineTotal - discountAmt).toFixed(2);
@@ -1450,7 +1465,7 @@ exports.update = async (req, res) => {
     if (productIdsForSnapshot2.length > 0) {
       const masterProducts2 = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot2 } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement'],
         transaction: t,
       });
       const masterById2 = new Map(masterProducts2.map(p => [p.product_id, p]));
@@ -1459,6 +1474,8 @@ exports.update = async (req, res) => {
           const mp = masterById2.get(it.product_id);
           it.gst_rate = parseFloat(mp.gst_rate) || 0;
           if (mp.hsn_code) it.hsn_code = mp.hsn_code;
+          // GST-H5 — also snapshot unit on update (master wins over client).
+          if (mp.unit_of_measurement) it.unit_type = mp.unit_of_measurement;
         }
       }
     }
@@ -2006,15 +2023,18 @@ exports.cancel = async (req, res) => {
     await recalculatePartyBalance(bill.supplier_id, t);
 
     // ── Double-entry: reverse the bill's vouchers ──
+    // LED-H2 — reversalDate kept in the original FY.
     await reverseVoucher({
       sourceType: 'purchase_bill', sourceId: bill.purchase_bill_id,
       reason: cancellationReason || 'Purchase bill cancelled',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: bill.bill_date,
     });
     await reverseVoucher({
       sourceType: 'purchase_bill_payment', sourceId: bill.purchase_bill_id,
       reason: cancellationReason || 'Purchase bill cancelled',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: bill.bill_date,
     });
     // Two-way ledger cancel cascade — soft-cancel the auto-payment
     // row + drop its allocation. Mirror of sales side.

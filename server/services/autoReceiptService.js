@@ -84,9 +84,21 @@ function _config(kind) {
 // machine, or parallel restock workers). Adding a 4-char random tail
 // gives 65k entropy per millisecond — the collision probability is
 // effectively zero even under adversarial load.
+//
+// Audit LIVE-2 / LEDGER-M8 — payments_receipts.transaction_number is
+// VARCHAR(30); the old format `${billNumber}-AR-${Date.now()}-${rand}`
+// produced 31+ chars for typical billNumbers (e.g. "INV-0001-AR-
+// 1778779073052-04b0" = 31). Save failed with "value too long for type
+// character varying(30)". New format:
+//   <bn[:12]>-AR-<b36epoch:8>-<rand:4>  ≤ 12+4+8+1+4 = 29 chars
+// Base-36 epoch saves 5 chars vs decimal. Bill-number prefix capped at
+// 12 chars (truncates pathological custom prefixes); the source_bill_id
+// FK is the authoritative linkage — the prefix is just a debug aid.
 function _autoTxNumber(billNumber) {
   const rand = Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
-  return `${billNumber}-AR-${Date.now()}-${rand}`;
+  const prefix = String(billNumber || '').slice(0, 12);
+  const epoch = Date.now().toString(36);
+  return `${prefix}-AR-${epoch}-${rand}`;
 }
 
 // Bring the auto-receipt row + allocation into the desired state

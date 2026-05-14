@@ -87,7 +87,8 @@ function clientIdFor(req) {
     // as anonymous (falls through to IP-based client id).
     if (process.env.JWT_SECRET) {
       try {
-        const payload = jwt.verify(auth.slice(7), process.env.JWT_SECRET);
+        // AUTH-H1 — pin algorithms to HS256 (same as middleware/auth.js).
+        const payload = jwt.verify(auth.slice(7), process.env.JWT_SECRET, { algorithms: ['HS256'] });
         // Token + user_id makes each "session" a distinct client even if
         // two staff log in from the same PC at different times. The JTI
         // would be cleaner but we don't issue one — using the iat (issued

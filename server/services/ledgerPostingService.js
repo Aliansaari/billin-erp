@@ -21,7 +21,7 @@
 // ────────────────────────────────────────────────────────────────────────
 
 const { Op } = require('sequelize');
-const { LedgerEntry, sequelize } = require('../models');
+const { LedgerEntry, LedgerAccount, sequelize } = require('../models');
 
 const PAISA_TOLERANCE = 0.005; // half a paisa — for floating sum drift
 
@@ -35,10 +35,24 @@ function toAmount(v) {
   return Math.round(n * 100) / 100;
 }
 
-// Voucher-number generator. Format: <prefix>-<YYYYMMDD>-<seq>. Sequence is
-// derived from the count of entries already posted today plus a random
-// suffix so concurrent inserts don't collide. The DB unique constraint on
-// entry_number is the actual safety net.
+// Voucher-number generator. Format: <prefix>-<YYYYMMDD>-<seq>.
+//
+// Audit CR-2 — Self-protecting concurrency:
+// Pre-fix, callers were expected to take a controller-level advisory lock
+// (key 901-907 per voucher type) before invoking this helper. Sales /
+// Purchase / Payment do; future call sites (imports, Tally sync, scripts)
+// might forget. Take a function-local pg_advisory_xact_lock keyed by
+// (current_database, prefix+yyyymmdd) here so the next-seq read is
+// serialised against any concurrent writer for the same (db, prefix, date)
+// regardless of which controller invoked us. The lock is released on
+// commit/rollback of the passed-in transaction.
+//
+// Key shape: 2-arg form pg_advisory_xact_lock(int4, int4)
+//   - first int4 = hashtext(current_database()) → per-company isolation
+//     (advisory locks live in the Postgres CLUSTER, so multi-tenant installs
+//     sharing one cluster would otherwise serialise across companies).
+//   - second int4 = hashtext(prefix || '-' || yyyymmdd) → per (doc-type, day).
+// hashtext returns int4 so casting fits the function signature.
 async function nextEntryNumber(voucherType, voucherDate, transaction) {
   const prefixMap = {
     Sales: 'SAL', Purchase: 'PUR', Receipt: 'RCT',
@@ -61,6 +75,14 @@ async function nextEntryNumber(voucherType, voucherDate, transaction) {
     const d = new Date(voucherDate);
     yyyymmdd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   }
+  // CR-2 — serialise next-seq read against concurrent writers on
+  // (current_database, prefix+yyyymmdd). pg_advisory_xact_lock(int4, int4)
+  // hashes both keys; release is automatic on commit/rollback. Cheap (~50µs).
+  await sequelize.query(
+    'SELECT pg_advisory_xact_lock(hashtext(current_database())::int, hashtext(:k)::int)',
+    { replacements: { k: `${prefix}-${yyyymmdd}` }, transaction },
+  );
+
   // Use the highest existing sequence for this prefix+date, then increment.
   const like = `${prefix}-${yyyymmdd}-%`;
   // W1: order by entry_id (monotonic) not entry_number (lexicographic string).
@@ -269,9 +291,31 @@ async function reverseVoucher({
     const reversalEntryNumber = `${first.entry_number}-REV`;
     const reasonText = reason ? `Reversal: ${reason}` : `Reversal of ${first.entry_number}`;
 
+    // LED-H3 — local-tz YYYY-MM-DD string so the DATEONLY column doesn't
+    // shift a day when the server runs west of UTC. `new Date(reversalDate)`
+    // for a 'YYYY-MM-DD' input parses as UTC midnight; on a host configured
+    // with a negative-offset tz that's the previous day in local time.
+    // Same fix the backdatedGuard uses (todayLocalIso/dateKey).
+    const localTzKey = (input) => {
+      if (!input) {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+      if (typeof input === 'string') {
+        if (/^\d{4}-\d{2}-\d{2}/.test(input)) return input.slice(0, 10);
+        const d = new Date(input);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+      if (input instanceof Date) {
+        return `${input.getFullYear()}-${String(input.getMonth() + 1).padStart(2, '0')}-${String(input.getDate()).padStart(2, '0')}`;
+      }
+      return null;
+    };
+    const reversalEntryDateStr = localTzKey(reversalDate);
+
     const mirrors = liveOriginals.map((orig) => ({
       entry_number: reversalEntryNumber,
-      entry_date: reversalDate ? new Date(reversalDate) : new Date(),
+      entry_date: reversalEntryDateStr,
       ledger_id: orig.ledger_id,
       // Swap debit ↔ credit
       debit_amount:  Number(orig.credit_amount) || 0,
@@ -298,33 +342,39 @@ async function reverseVoucher({
 
 // Compute net balance (debit - credit) for a given ledger account, treating
 // reversed entries as zero. Used by tests and the integrity screen.
+//
+// Audit CR-3 — fold LedgerAccount.opening_balance into the result so this
+// helper agrees with ledgerStatementService.getLedgerStatement (which already
+// seeds opening). Pre-fix the two helpers returned different numbers for
+// the same ledger on installs with non-zero opening balances (most installs).
+// `opening_balance_type` = 'Credit' inverts the sign (matches statement service).
 async function getLedgerBalance(ledgerAccountId, { transaction } = {}) {
-  const rows = await LedgerEntry.findAll({
-    where: { ledger_id: ledgerAccountId },
-    attributes: ['debit_amount', 'credit_amount', 'reversal_of_id', 'entry_id'],
-    transaction,
-  });
-  // Drop any entry whose entry_id appears as another row's reversal_of_id.
-  const reversedIds = new Set(
-    rows.filter((r) => r.reversal_of_id != null).map((r) => r.reversal_of_id),
-  );
-  let dr = 0, cr = 0;
-  for (const r of rows) {
-    if (reversedIds.has(r.entry_id)) continue;          // skip reversed original
-    if (r.reversal_of_id != null) continue;             // skip the reversal mirror itself — its sibling is gone
-    dr += Number(r.debit_amount)  || 0;
-    cr += Number(r.credit_amount) || 0;
-  }
-  // Recount including reversals so net is mathematically correct:
-  // Actually simpler — sum all live (non-reversed-and-not-mirroring-a-reversed) lines.
-  // The pair (original + reversal) cancels by construction.
-  // Re-compute by including everything; the pairs sum to zero.
+  const [rows, account] = await Promise.all([
+    LedgerEntry.findAll({
+      where: { ledger_id: ledgerAccountId },
+      attributes: ['debit_amount', 'credit_amount', 'reversal_of_id', 'entry_id'],
+      transaction,
+    }),
+    LedgerAccount.findByPk(ledgerAccountId, {
+      attributes: ['opening_balance', 'opening_balance_type'],
+      transaction,
+    }),
+  ]);
+
+  // Sum all rows (reversed pairs cancel by construction).
   let drAll = 0, crAll = 0;
   for (const r of rows) {
     drAll += Number(r.debit_amount)  || 0;
     crAll += Number(r.credit_amount) || 0;
   }
-  return Math.round((drAll - crAll) * 100) / 100;
+
+  // Signed opening from the account's seed (mirrors ledgerStatementService:94-98).
+  const openingSigned = account
+    ? (account.opening_balance_type === 'Credit' ? -1 : 1) *
+      (parseFloat(account.opening_balance) || 0)
+    : 0;
+
+  return Math.round((openingSigned + drAll - crAll) * 100) / 100;
 }
 
 module.exports = {

@@ -213,15 +213,17 @@ exports.getUsers = async (req, res) => {
 exports.createUser = async (req, res) => {
   try {
     const { password, password_hash, ...data } = req.body;
-    // Audit P3-G — unify with the change-password rule (>=8 chars + common-
-    // default block). Previously this accepted 6+ chars and any value,
-    // which let an admin seed a brand-new user with a weaker password than
-    // the one their target must rotate to on first login.
-    if (!password || password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    // AUTH-H5 — unified strong-password check (10+ chars, 3 char classes,
+    // common-blocklist, not equal to username). Previously this used a
+    // less-strict rule than change-password — admins could seed weaker
+    // passwords than the user is later required to rotate to.
+    const { checkPasswordStrength } = require('./authController');
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
     }
-    if (/^(admin|admin123|password|123456|qwerty)$/i.test(password)) {
-      return res.status(400).json({ error: 'Please choose a stronger password — avoid common defaults' });
+    const ps = checkPasswordStrength(password, { username: data.username });
+    if (!ps.ok) {
+      return res.status(400).json({ error: ps.reason });
     }
     if (!data.username || !data.username.trim()) {
       return res.status(400).json({ error: 'Username is required' });
@@ -230,7 +232,8 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ error: 'Full name is required' });
     }
     // Never accept a client-supplied password_hash — always hash the plaintext.
-    data.password_hash = await bcrypt.hash(password, 10);
+    // AUTH-H6 — bcrypt cost factor 12 (OWASP 2025 recommendation, up from 10).
+    data.password_hash = await bcrypt.hash(password, 12);
     data.created_by = req.user.user_id;
     const user = await User.create(data);
     const result = await User.findByPk(user.user_id, {
@@ -327,14 +330,14 @@ exports.updateUser = async (req, res) => {
     }
 
     if (password) {
-      // Audit P3-G — match the change-password rule.
-      if (password.length < 8) {
-        return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      // AUTH-H5 — unified strong-password check.
+      const { checkPasswordStrength } = require('./authController');
+      const ps = checkPasswordStrength(password, { username: user.username });
+      if (!ps.ok) {
+        return res.status(400).json({ error: ps.reason });
       }
-      if (/^(admin|admin123|password|123456|qwerty)$/i.test(password)) {
-        return res.status(400).json({ error: 'Please choose a stronger password — avoid common defaults' });
-      }
-      data.password_hash = await bcrypt.hash(password, 10);
+      // AUTH-H6 — bcrypt cost 12.
+      data.password_hash = await bcrypt.hash(password, 12);
     }
 
     // Audit H11 — capture before snapshot for the audit log so role/status

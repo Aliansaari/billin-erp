@@ -1186,18 +1186,19 @@ exports.cancel = async (req, res) => {
       await recalculatePartyBalance(bill.supplier_id, t);
     }
 
+    // LED-H2 — reversal in original return date.
     await reverseVoucher({
       sourceType: 'purchase_return_bill', sourceId: bill.purchase_return_id,
       reason: cancellationReason || 'Purchase return cancelled',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: bill.return_date,
     });
     // Audit MONEY-2 — also reverse the refund-cash voucher (if any).
-    // Pre-fix this voucher was orphaned on cancel; Cash DR and Supplier
-    // CR stayed posted forever, distorting Trial Balance.
     await reverseVoucher({
       sourceType: 'purchase_return_refund', sourceId: bill.purchase_return_id,
       reason: cancellationReason || 'Purchase return cancelled (refund leg)',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: bill.return_date,
     });
 
     await t.commit();

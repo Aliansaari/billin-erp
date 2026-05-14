@@ -19,7 +19,7 @@ const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { JournalVoucher, LedgerEntry, LedgerAccount } = require('../models');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
-const { sanitizePagination } = require('../utils/helpers');
+const { sanitizePagination, roundTo } = require('../utils/helpers');
 const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 
 function nextVoucherNumberPrefix(date) {
@@ -84,8 +84,14 @@ function normalizeLines(rawLines) {
     throw new Error('At least 2 lines required.');
   }
   const lines = rawLines.map((ln, i) => {
-    const debit  = Number(ln.debit  || 0);
-    const credit = Number(ln.credit || 0);
+    // LED-H4 — apply `roundTo` (round-half-away-from-zero, Tally-compatible)
+    // BEFORE the unbalanced check. Pre-fix, raw float inputs like
+    // 100.005 + 100.005 from a JSON client could pass the sum check
+    // (identical floats) but then `Math.round` in postVoucher's toAmount
+    // rounded one half-paisa banker's-style and the other away-from-zero,
+    // landing the legs unbalanced server-side.
+    const debit  = roundTo(Number(ln.debit  || 0), 2);
+    const credit = roundTo(Number(ln.credit || 0), 2);
     if (!ln.ledger_id) throw new Error(`Line ${i + 1}: ledger is required.`);
     if (debit < 0 || credit < 0) throw new Error(`Line ${i + 1}: amounts must be non-negative.`);
     if (debit > 0 && credit > 0) throw new Error(`Line ${i + 1}: debit and credit can't both be > 0.`);
@@ -252,11 +258,15 @@ exports.update = async (req, res) => {
     let nextNumber = jv.voucher_number;
     const datesDiffer = voucher_date && String(voucher_date) !== String(jv.voucher_date).slice(0, 10);
     if (datesDiffer) {
-      const oldPrefix = nextVoucherNumberPrefix(jv.voucher_date);
-      const newPrefix = nextVoucherNumberPrefix(voucher_date);
-      if (oldPrefix !== newPrefix) {
-        nextNumber = await nextVoucherNumber(voucher_date, t);
-      }
+      // Audit CR-4 — always re-mint when voucher_date changes (drop the
+      // earlier same-prefix optimisation). Reason: the prefix helper relies
+      // on `new Date(date)` which is TZ-sensitive (ISO timestamps shift
+      // a day west of UTC) and is fragile against any future prefix-format
+      // change (e.g. monthly). Re-minting on every date change makes the
+      // header `voucher_number` canonical with the new `voucher_date` so
+      // ledger_entries.entry_number and journal_vouchers.voucher_number
+      // always share the same date-prefix in lock-step.
+      nextNumber = await nextVoucherNumber(voucher_date, t);
     }
 
     await jv.update({
@@ -318,10 +328,12 @@ exports.remove = async (req, res) => {
     if (!jv) { await t.rollback(); return res.status(404).json({ error: 'Voucher not found' }); }
 
     const { reason } = req.body || {};
+    // LED-H2 — keep reversal in the original FY.
     await reverseVoucher({
       sourceType: 'journal_voucher', sourceId: jv.id,
       reason: reason || 'JV deleted',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: jv.voucher_date,
     });
 
     await jv.update({ is_reversed: true }, { transaction: t });

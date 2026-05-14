@@ -506,6 +506,43 @@ async function startServer() {
       console.error('[Bank reconciliation migration] Error:', err.message);
     });
 
+    // ── UQC migration (audit GST-H5) ─────────────────────────────────
+    //
+    // Expand the `enum_products_unit_of_measurement` from the original
+    // 6 values (PCS, KG, METER, LITER, BOX, DOZEN) to the full GSTN
+    // schema list (45 canonical UQC codes). Then translate legacy
+    // non-standard values to their GSTN equivalents so the next GSTR-1
+    // upload reports the right unit instead of falling back to
+    // OTH-OTHERS.
+    //
+    // ALTER TYPE … ADD VALUE IF NOT EXISTS is idempotent (Postgres 12+),
+    // and each statement runs in its own implicit txn so a partial
+    // failure on one code doesn't block the rest.
+    try {
+      const { CANONICAL_CODES } = require('./utils/uqcCodes');
+      for (const code of CANONICAL_CODES) {
+        await sequelize.query(
+          `ALTER TYPE enum_products_unit_of_measurement ADD VALUE IF NOT EXISTS '${code}'`
+        );
+      }
+      // Map legacy values to canonical GSTN codes. PCS + BOX stay (already canonical).
+      const legacyMap = [
+        ['KG',     'KGS'],
+        ['METER',  'MTR'],
+        ['LITER',  'LTR'],
+        ['DOZEN',  'DOZ'],
+      ];
+      for (const [oldCode, newCode] of legacyMap) {
+        await sequelize.query(
+          `UPDATE products SET unit_of_measurement = :n::enum_products_unit_of_measurement
+            WHERE unit_of_measurement = :o::enum_products_unit_of_measurement`,
+          { replacements: { o: oldCode, n: newCode } }
+        );
+      }
+    } catch (err) {
+      console.error('[UQC migration] Error:', err.message);
+    }
+
     // ── Loan accounts ─────────────────────────────────────────────
     //
     // A loan has two parts: the underlying ledger account (so it lives

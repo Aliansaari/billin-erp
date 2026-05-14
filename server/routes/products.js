@@ -12,6 +12,16 @@ router.use(authenticateToken);
 router.get('/',                   requirePermission('inventory.view'),   productController.getAll);
 router.get('/low-stock',          requirePermission('inventory.view'),   productController.getLowStock);
 router.get('/next-barcode',       requirePermission('inventory.create'), productController.getNextBarcode);
+// Audit GST-H5 — UQC list endpoint. Returns the canonical 45-code GSTN
+// list ({code,label,gstn}) so the Product form dropdown can render the
+// full set without hard-coding it on the client (any future addition
+// to uqcCodes.js shows up everywhere on next reload). No permission
+// gate beyond the global authenticateToken — UQC codes are public
+// reference data.
+router.get('/uqc-codes', (req, res) => {
+  const { UQC_CODES } = require('../utils/uqcCodes');
+  res.json({ data: UQC_CODES });
+});
 router.get('/barcode/:barcode',   requirePermission('inventory.view'),   productController.getByBarcode);
 router.get('/:id/batches',        requirePermission('inventory.view'),   productController.getBatches);
 
