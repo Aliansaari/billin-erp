@@ -130,6 +130,25 @@ export default function ProductList() {
   // the bill forms and reports apply.
   const [batchTrackingEnabled, setBatchTrackingEnabled] = useState(false);
 
+  // Audit GST-H5 — canonical GSTN UQC list for the UoM dropdown. Loaded
+  // once on mount from /api/products/uqc-codes; falls back to the
+  // common-units list if the fetch fails so the form stays usable.
+  const [uqcList, setUqcList] = useState([
+    { code: 'PCS', label: 'PIECES' },
+    { code: 'KGS', label: 'KILOGRAMS' },
+    { code: 'MTR', label: 'METRES' },
+    { code: 'LTR', label: 'LITRES' },
+    { code: 'BOX', label: 'BOX' },
+    { code: 'DOZ', label: 'DOZENS' },
+    { code: 'NOS', label: 'NUMBERS' },
+    { code: 'OTH', label: 'OTHERS' },
+  ]);
+  useEffect(() => {
+    productAPI.getUqcCodes()
+      .then(({ data }) => Array.isArray(data?.data) && data.data.length && setUqcList(data.data))
+      .catch(() => {});
+  }, []);
+
   /* ── data layer ── */
   const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: (params) => productAPI.getAll(params),
@@ -820,10 +839,12 @@ export default function ProductList() {
           </EntityFormModal.Section>
 
           <EntityFormModal.Section label="Inventory">
-            <EntityFormModal.Field label="Unit of Measurement">
+            <EntityFormModal.Field label="Unit of Measurement" help="GSTN canonical UQC — used in GSTR-1 HSN summary">
               <Form.Item name="unit_of_measurement" initialValue="PCS" noStyle>
-                <Select className="efm-select-antd">
-                  {['PCS','KG','METER','LITER','BOX','DOZEN'].map(u => <Select.Option key={u}>{u}</Select.Option>)}
+                <Select className="efm-select-antd" showSearch optionFilterProp="children">
+                  {uqcList.map(u => (
+                    <Select.Option key={u.code} value={u.code}>{u.code} — {u.label}</Select.Option>
+                  ))}
                 </Select>
               </Form.Item>
             </EntityFormModal.Field>

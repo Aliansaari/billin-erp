@@ -1333,10 +1333,12 @@ exports.cancel = async (req, res) => {
       await recalculatePartyBalance(bill.customer_id, t);
     }
 
+    // LED-H2 — reversal stays in original return date.
     await reverseVoucher({
       sourceType: 'sales_return_bill', sourceId: bill.sales_return_id,
       reason: cancellationReason || 'Sales return cancelled',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: bill.return_date,
     });
 
     // Audit MONEY-2 — also reverse the refund-cash voucher that
@@ -1349,6 +1351,7 @@ exports.cancel = async (req, res) => {
     await reverseVoucher({
       sourceType: 'sales_return_refund', sourceId: bill.sales_return_id,
       reason: cancellationReason || 'Sales return cancelled (refund leg)',
+      reversalDate: bill.return_date,
       userId: req.user && req.user.user_id, transaction: t,
     });
 

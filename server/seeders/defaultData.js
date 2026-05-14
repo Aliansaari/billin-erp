@@ -78,7 +78,8 @@ async function seedDefaultData() {
   // public default password in the wild.
   const superAdminRole = await Role.findOne({ where: { role_name: 'Super Admin' } });
   const adminRole      = await Role.findOne({ where: { role_name: 'Admin' } });
-  const hashedPassword = await bcrypt.hash('admin123', 10);
+  // AUTH-H6 — bcrypt cost 12 (OWASP 2025). One-time cost at seed.
+  const hashedPassword = await bcrypt.hash('admin123', 12);
   const [adminUser, adminCreated] = await User.findOrCreate({
     where: { username: 'admin' },
     defaults: {

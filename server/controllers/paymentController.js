@@ -17,6 +17,70 @@ const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../ut
 // Filters by prefix (PAY-/REC-) so transactions imported from Tally or
 // Excel (which may have non-standard numbering like "TALLY-REC-1776...")
 // don't pollute the auto-increment seed.
+// PAY-C2 — shared cheque-sync helper used by both create() and update().
+// Pre-fix, create() had four hardening guards (duplicate-cheque, deactivated-
+// bank, inwardImmediate-needs-bank, PENDING-without-bank) that update()
+// silently dropped. Extracted here so both paths apply the same guards.
+// Returns { ok: true } or { ok: false, status, body } so callers can short-
+// circuit with the appropriate HTTP response.
+async function syncChequesFromSplits({ splits, payment, transactionType, transactionDate, userId, t }) {
+  const { LedgerAccount } = require('../models');
+  for (const ps of splits) {
+    if (ps.payment_mode !== 'Cheque' || !ps.cheque_number) continue;
+    const isInward    = transactionType === 'Receipt';
+    const chequeDate  = ps.cheque_date || transactionDate;
+    const isPdc       = String(chequeDate) > String(transactionDate);
+    const inwardImmediate = isInward && !isPdc && !!ps.bank_ledger_id;
+
+    // BANK-3 — duplicate-cheque-number guard.
+    if (ps.bank_ledger_id) {
+      const dupCheque = await Cheque.findOne({
+        where: {
+          cheque_number:  ps.cheque_number,
+          direction:      isInward ? 'INWARD' : 'OUTWARD',
+          bank_ledger_id: ps.bank_ledger_id,
+          status:         { [Op.notIn]: ['CANCELLED', 'BOUNCED'] },
+        },
+        transaction: t,
+      });
+      if (dupCheque) {
+        return { ok: false, status: 400, body: {
+          error: `Cheque #${ps.cheque_number} is already in the register against this bank for ${isInward ? 'inward' : 'outward'} direction. Cancel or bounce the existing row before re-using the number.`,
+          code: 'DUPLICATE_CHEQUE_NUMBER',
+        }};
+      }
+    }
+
+    // BANK-5 — deactivated-bank guard.
+    if (ps.bank_ledger_id) {
+      const bank = await LedgerAccount.findByPk(ps.bank_ledger_id, { transaction: t });
+      if (bank && bank.is_active === false) {
+        return { ok: false, status: 400, body: {
+          error: `Bank "${bank.ledger_name}" is deactivated and cannot accept new cheques. Pick an active bank.`,
+          code: 'BANK_DEACTIVATED',
+        }};
+      }
+    }
+
+    await Cheque.create({
+      direction:               isInward ? 'INWARD' : 'OUTWARD',
+      cheque_number:           ps.cheque_number,
+      cheque_date:             chequeDate,
+      amount:                  ps.amount,
+      party_id:                payment.party_id,
+      bank_ledger_id:          ps.bank_ledger_id,
+      status:                  inwardImmediate ? 'DEPOSITED' : 'PENDING',
+      is_pdc:                  isPdc,
+      instrument_date:         transactionDate,
+      deposit_date:            inwardImmediate ? transactionDate : null,
+      source_payment_id:       payment.transaction_id,
+      source_payment_split_id: ps.split_id,
+      created_by:              userId || null,
+    }, { transaction: t });
+  }
+  return { ok: true };
+}
+
 exports.getNextNumber = async (req, res) => {
   try {
     const type = req.query.type === 'Payment' ? 'Payment' : 'Receipt';
@@ -340,88 +404,18 @@ exports.create = async (req, res) => {
     // can show a "from PMT-N" badge and the lifecycle UI can route
     // bounce / cancel back through the Payments page (where the
     // bill allocations and voucher reversal live).
-    for (const ps of createdSplits) {
-      if (ps.payment_mode !== 'Cheque' || !ps.cheque_number) continue;
-      const isInward = data.transaction_type === 'Receipt';
-      const chequeDate = ps.cheque_date || data.transaction_date;
-      const isPdc = String(chequeDate) > String(data.transaction_date);
-      // Audit C9: an INWARD PDC must NOT be auto-deposited on the
-      // receipt date — its `cheque_date` is in the future, so the bank
-      // ledger should not rise until the cheque physically clears.
-      //
-      // Audit BANK-6 — also force PENDING when bank_ledger_id is null
-      // on an inward cheque. chequeController.deposit refuses to mark
-      // DEPOSITED without a bank, so auto-deposit here would create a
-      // row whose only legal next state (clear) cannot fire because
-      // there's no bank to credit. Force PENDING so the operator
-      // attaches a bank via the Cheque Register before clearing.
-      const inwardImmediate = isInward && !isPdc && !!ps.bank_ledger_id;
-
-      // Audit BANK-3 — duplicate-cheque-number guard. The Cheque
-      // controller's manual-create path rejects (cheque_number,
-      // direction, bank_ledger_id) duplicates; this auto-sync path
-      // was bypassing that, allowing two receipts with the same
-      // cheque number against the same bank to silently produce two
-      // Cheque rows. Run the same check here.
-      if (ps.bank_ledger_id) {
-        const dupCheque = await Cheque.findOne({
-          where: {
-            cheque_number:  ps.cheque_number,
-            direction:      isInward ? 'INWARD' : 'OUTWARD',
-            bank_ledger_id: ps.bank_ledger_id,
-            status:         { [Op.notIn]: ['CANCELLED', 'BOUNCED'] },
-          },
-          transaction: t,
-        });
-        if (dupCheque) {
-          await t.rollback();
-          return res.status(400).json({
-            error: `Cheque #${ps.cheque_number} is already in the register against this bank for ${isInward ? 'inward' : 'outward'} direction. Cancel or bounce the existing row before re-using the number.`,
-            code: 'DUPLICATE_CHEQUE_NUMBER',
-          });
-        }
+    // PAY-C2 — share the cheque-sync logic via the module helper.
+    {
+      const chk = await syncChequesFromSplits({
+        splits: createdSplits, payment,
+        transactionType: data.transaction_type,
+        transactionDate: data.transaction_date,
+        userId: req.user?.user_id, t,
+      });
+      if (!chk.ok) {
+        await t.rollback();
+        return res.status(chk.status).json(chk.body);
       }
-
-      // Audit BANK-5 — refuse to attach a cheque to a deactivated
-      // bank ledger. A stale client-side bank_id or a cached form
-      // could otherwise post against a closed bank, and the
-      // dashboard's "Total Bank Balance" KPI (which excludes
-      // inactive banks) would not surface the orphaned amount.
-      if (ps.bank_ledger_id) {
-        const { LedgerAccount } = require('../models');
-        const bank = await LedgerAccount.findByPk(ps.bank_ledger_id, { transaction: t });
-        if (bank && bank.is_active === false) {
-          await t.rollback();
-          return res.status(400).json({
-            error: `Bank "${bank.ledger_name}" is deactivated and cannot accept new cheques. Pick an active bank.`,
-            code: 'BANK_DEACTIVATED',
-          });
-        }
-      }
-
-      // Audit H12: previously this catch swallowed the error inside
-      // the active transaction, which CAN abort the savepoint and
-      // cause every subsequent statement to fail with "current
-      // transaction is aborted". The user saw "saved" but the
-      // cheque register was missing the row. We now ABORT the whole
-      // payment transaction on cheque-sync failure — the operator
-      // re-tries with a corrected cheque number rather than ending
-      // up with a divergent payment-vs-cheque-register state.
-      await Cheque.create({
-        direction:               isInward ? 'INWARD' : 'OUTWARD',
-        cheque_number:           ps.cheque_number,
-        cheque_date:             chequeDate,
-        amount:                  ps.amount,
-        party_id:                payment.party_id,
-        bank_ledger_id:          ps.bank_ledger_id,
-        status:                  inwardImmediate ? 'DEPOSITED' : 'PENDING',
-        is_pdc:                  isPdc,
-        instrument_date:         data.transaction_date,
-        deposit_date:            inwardImmediate ? data.transaction_date : null,
-        source_payment_id:       payment.transaction_id,
-        source_payment_split_id: ps.split_id,
-        created_by:              req.user?.user_id || null,
-      }, { transaction: t });
     }
 
     // ── Per-bill sanity check (user's explicit allocations mustn't exceed that bill's current remaining) ──
@@ -683,10 +677,12 @@ exports.cancel = async (req, res) => {
     await reconcileBillsForParty(payment.party_id, t);
     await recalculatePartyBalance(payment.party_id, t);
 
+    // LED-H2 — reversal lands in the same period as the original payment.
     await reverseVoucher({
       sourceType: 'payment_receipt', sourceId: payment.transaction_id,
       reason: reason || 'Payment cancelled',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: payment.transaction_date,
     });
 
     await t.commit();
@@ -821,6 +817,7 @@ exports.update = async (req, res) => {
       sourceType: 'payment_receipt', sourceId: original.transaction_id,
       reason: 'Payment edited',
       userId: req.user && req.user.user_id, transaction: t,
+      reversalDate: original.transaction_date,    // LED-H2
     });
 
     // ── Step 2: create the replacement (mirrors exports.create body) ──
@@ -859,8 +856,17 @@ exports.update = async (req, res) => {
       }
     }
 
+    // PAY-C1 — mirror the create-path's prefix filter (BANK-4). Without it,
+    // an auto-receipt with a non-PAY/REC prefix (e.g. INV-0001-AR-...) that
+    // happens to be the latest row makes safeTrailingNumber return 0,
+    // and the new number collides with an existing REC-000001 or PAY-000001
+    // → 500 UNIQUE-violation. Same bug the recent commit fixed in create;
+    // the update path was missed.
     const last = await PaymentReceipt.findOne({
-      where: { transaction_type: data.transaction_type },
+      where: {
+        transaction_type: data.transaction_type,
+        transaction_number: { [Op.like]: `${prefix}-%` },
+      },
       order: [['transaction_id', 'DESC']],
       transaction: t,
     });
@@ -893,27 +899,19 @@ exports.update = async (req, res) => {
       }
     }
 
-    for (const ps of createdSplits) {
-      if (ps.payment_mode !== 'Cheque' || !ps.cheque_number) continue;
-      const isInward = data.transaction_type === 'Receipt';
-      const chequeDate = ps.cheque_date || data.transaction_date;
-      const isPdc = String(chequeDate) > String(data.transaction_date);
-      const inwardImmediate = isInward && !isPdc;
-      await Cheque.create({
-        direction: isInward ? 'INWARD' : 'OUTWARD',
-        cheque_number: ps.cheque_number,
-        cheque_date: chequeDate,
-        amount: ps.amount,
-        party_id: payment.party_id,
-        bank_ledger_id: ps.bank_ledger_id,
-        status: inwardImmediate ? 'DEPOSITED' : 'PENDING',
-        is_pdc: isPdc,
-        instrument_date: data.transaction_date,
-        deposit_date: inwardImmediate ? data.transaction_date : null,
-        source_payment_id: payment.transaction_id,
-        source_payment_split_id: ps.split_id,
-        created_by: req.user?.user_id || null,
-      }, { transaction: t });
+    // PAY-C2 — same hardened helper as create() (was previously a stripped
+    // copy that bypassed the BANK-3 / BANK-5 / BANK-6 guards on edit).
+    {
+      const chk = await syncChequesFromSplits({
+        splits: createdSplits, payment,
+        transactionType: data.transaction_type,
+        transactionDate: data.transaction_date,
+        userId: req.user?.user_id, t,
+      });
+      if (!chk.ok) {
+        await t.rollback();
+        return res.status(chk.status).json(chk.body);
+      }
     }
 
     for (const alloc of allocations) {

@@ -1118,6 +1118,17 @@ exports.recordEMI = async (req, res) => {
     // Outstanding is the SIGNED loan-ledger balance whose absolute
     // value should be repaid via principal. For taken loans the
     // ledger sits Cr (liability), for given loans it sits Dr (asset).
+    // PAY-H5 — serialise concurrent EMIs against the same loan with an
+    // advisory lock keyed on (current_database, loan_id). Without it,
+    // two clerks posting an EMI for the same month both read the same
+    // outstanding (say ₹50k), both pass the check, and both post ₹50k
+    // principal — flipping the loan ledger sign. The advisory lock makes
+    // the read-then-post atomic per loan, auto-released on commit.
+    await sequelize.query(
+      'SELECT pg_advisory_xact_lock(hashtext(current_database())::int, hashtext(:k)::int)',
+      { replacements: { k: `loan:${loan.loan_id}` }, transaction: t },
+    );
+
     const { getLedgerBalance } = require('../services/ledgerPostingService');
     let currentOutstanding = 0;
     try {
@@ -1290,12 +1301,14 @@ exports.reverseEMI = async (req, res) => {
       return res.status(400).json({ error: 'No EMI to reverse' });
     }
 
+    // LED-H2 — reverse INTO the EMI's original date (latest.entry_date).
     await reverseVoucher({
       sourceType: 'loan_emi',
       sourceId:   latest.source_id,
       reason:     req.body?.reason || 'EMI reversed',
       userId:     req.user?.user_id || null,
       transaction: t,
+      reversalDate: latest.entry_date,
     });
 
     await t.commit();

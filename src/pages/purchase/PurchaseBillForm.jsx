@@ -10,6 +10,15 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
+
+// UI-C4 — gate the dev-trace logs behind import.meta.env.DEV so production
+// renderers don't flood the console with [lookup]/[Picker]/[addItem]
+// objects (which include purchase_rate / margin — sensitive when a support
+// session screenshares the dev console). console.error in catch handlers
+// is unaffected; only debug-tagged traces are gated.
+const dlog  = import.meta.env.DEV ? console.log  : () => {};
+const dwarn = import.meta.env.DEV ? console.warn : () => {};
 import { useMultiWarehouseEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
@@ -844,9 +853,9 @@ export default function PurchaseBillForm() {
         return Math.abs(fa-fb)<0.001;
       };
 
-      console.log('[lookup] snap', { name:snap.product_name, size:snap.size, art:snap.article_number, cat:snap.category_id,
+      dlog('[lookup] snap', { name:snap.product_name, size:snap.size, art:snap.article_number, cat:snap.category_id,
         rate:snap.purchase_rate, qpb:snap.quantity_per_box, sale:snap.sale_rate, pid:snap.product_id, barcode:snap.barcode });
-      console.log('[lookup] family', list.length, list.slice(0,5).map(p=>({ name:p.product_name, size:p.size_value, art:p.article_number, cat:p.category_id, rate:p.purchase_rate, qpb:p.quantity_per_box, sale:p.sale_rate, pid:p.product_id })));
+      dlog('[lookup] family', list.length, list.slice(0,5).map(p=>({ name:p.product_name, size:p.size_value, art:p.article_number, cat:p.category_id, rate:p.purchase_rate, qpb:p.quantity_per_box, sale:p.sale_rate, pid:p.product_id })));
 
       // Identity = (category + name + size + article). MULTIPLE variants can share identity
       // (different rate/qpb/sale → different barcode, same identity). We must scan ALL of
@@ -860,14 +869,14 @@ export default function PurchaseBillForm() {
       );
 
       if(identityMatches.length===0){
-        console.warn('[lookup] NO identity match — wiping barcode', {
+        dwarn('[lookup] NO identity match — wiping barcode', {
           want:{ n:normTight(snap.product_name), s:normTight(snap.size), a:normTight(snap.article_number), c:snap.category_id },
           have:list.map(p=>({ n:normTight(p.product_name), s:normTight(p.size_value), a:normTight(p.article_number), c:p.category_id })),
         });
         setEntry(prev=>({...prev,product_id:null,barcode:''}));
         return;
       }
-      console.log('[lookup] identity matches', identityMatches.length, identityMatches.map(p=>({ pid:p.product_id, rate:p.purchase_rate, qpb:p.quantity_per_box, sale:p.sale_rate })));
+      dlog('[lookup] identity matches', identityMatches.length, identityMatches.map(p=>({ pid:p.product_id, rate:p.purchase_rate, qpb:p.quantity_per_box, sale:p.sale_rate })));
 
       // Pricing gates — only enforce a field if the user has entered something meaningful.
       const rateEntered  = (snap.purchase_rate||0)>0;
@@ -888,7 +897,7 @@ export default function PurchaseBillForm() {
 
       if(fullMatch){
         // Full match → existing product, use its barcode
-        console.log('[lookup] full match found pid=', fullMatch.product_id, 'barcode=', fullMatch.barcode);
+        dlog('[lookup] full match found pid=', fullMatch.product_id, 'barcode=', fullMatch.barcode);
         setEntry(prev=>({...prev,
           product_id:fullMatch.product_id,
           barcode:fullMatch.barcode,
@@ -912,7 +921,7 @@ export default function PurchaseBillForm() {
         }));
       } else {
         // Identity matched but no variant has this exact pricing → new barcode variant
-        console.warn('[lookup] identity ok but pricing differs from all', identityMatches.length, 'variants — wiping');
+        dwarn('[lookup] identity ok but pricing differs from all', identityMatches.length, 'variants — wiping');
         setEntry(prev=>({...prev,product_id:null,barcode:''}));
       }
     }catch(e){
@@ -1060,7 +1069,7 @@ export default function PurchaseBillForm() {
       normTight(p.product_name) === normTight(pname) &&
       (!sizeNorm || normTight(p.size_value) === sizeNorm)
     );
-    console.log('[Picker] fetchFamily', { pname, category_id, sizeNorm, api_total:list.length, family_size:family.length,
+    dlog('[Picker] fetchFamily', { pname, category_id, sizeNorm, api_total:list.length, family_size:family.length,
       sample: list.slice(0,5).map(p=>({ name:p.product_name, size:p.size_value, art:p.article_number, cat:p.category_id })) });
     familyCacheRef.current = { key, list: family, ts: now };
     return family;
@@ -1077,7 +1086,7 @@ export default function PurchaseBillForm() {
     if (globalProductMode === 'single') { setShowVariantPicker(false); return; }
     const pname = (entry.product_name||'').trim();
     const aval  = (entry.article_number||'').trim();
-    console.log('[Picker:Art] effect', { pname, aval, size:entry.size, cat:entry.category_id });
+    dlog('[Picker:Art] effect', { pname, aval, size:entry.size, cat:entry.category_id });
     if (!pname || !aval) {
       if (pickerAnchorRef.current === 'article') { setShowVariantPicker(false); setVariantOptions([]); setPickerArticleFilter(null); }
       return;
@@ -1091,7 +1100,7 @@ export default function PurchaseBillForm() {
         if (cancelled) return;
         const artNorm = norm(aval);
         const matches = family.filter(p => norm(p.article_number).includes(artNorm));
-        console.log('[Picker:Art] filter', { pname, size:entry.size, artNorm, family_count:family.length, matched:matches.length,
+        dlog('[Picker:Art] filter', { pname, size:entry.size, artNorm, family_count:family.length, matched:matches.length,
           sample: family.slice(0,5).map(p=>({ size:p.size_value, art:p.article_number })) });
         if (matches.length > 0) {
           pickerAnchorRef.current = 'article';
@@ -1182,12 +1191,12 @@ export default function PurchaseBillForm() {
     //   - existing match (picker pick / lookupProduct) → entry.barcode is already set
     //   - brand-new variant → ask server for the next barcode so the column isn't blank
     let barcode = entry.barcode || '';
-    console.log('[addItem] entry.barcode=', entry.barcode, 'product_id=', entry.product_id);
+    dlog('[addItem] entry.barcode=', entry.barcode, 'product_id=', entry.product_id);
     if (!entry.product_id && !barcode) {
       try {
         const { data } = await productAPI.getNextBarcode();
         barcode = data?.barcode || '';
-        console.log('[addItem] reserved barcode=', barcode);
+        dlog('[addItem] reserved barcode=', barcode);
       } catch (e) {
         console.error('[addItem] barcode fetch failed', e?.response?.status, e?.response?.data, e);
         message.warning('Could not reserve barcode — restart the backend server for the /next-barcode route');
@@ -2217,7 +2226,8 @@ export default function PurchaseBillForm() {
                 )}
                 {/* No labels — placeholders communicate the field's purpose. */}
                 <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
-                  <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Bill date *" size="small"/>
+                  <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Bill date *" size="small"
+                    disabledDate={disabledDateForVoucher} />
                 </Form.Item>
                 <Form.Item name="due_date" noStyle>
                   <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Due date" size="small"/>
@@ -2575,7 +2585,7 @@ export default function PurchaseBillForm() {
                   <InputNumber keyboard={false} value={amountVal}
                     onChange={v=>setAmountVal(v||'')}
                     placeholder="0.00" min={0} style={{width:'100%'}}
-                    formatter={v => v ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                    formatter={v => v ? inrFormatter(v) : ''}
                     parser={v => v ? v.replace(/[₹,\s]/g, '') : ''} />
                 </div>
               </div>

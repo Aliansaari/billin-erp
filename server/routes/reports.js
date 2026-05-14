@@ -47,13 +47,18 @@ router.get('/transfer-register',  requirePermission('reports.view'),  operationa
 router.get('/godown-valuation',   requirePermission('reports.view'),  operationalReports.godownValuation);
 router.get('/stock-by-color',     requirePermission('reports.view'),  operationalReports.stockByColor);
 
-// Dashboard is informational and visible to anyone who can log in — it
-// doesn't expose bill-level data, just the stats already derivable from
-// their module perms. Gate the specific reports themselves.
-router.get('/dashboard', reportController.dashboardStats);
-router.get('/dashboard/series', reportController.dashboardSeries);
-router.get('/dashboard/insights', reportController.dashboardInsights);
-router.get('/dashboard/business', reportController.dashboardBusiness);
+// Audit CR-9 — dashboards expose revenue, monthly GST, and (for /business)
+// runway + working capital + customer concentration. Pre-fix these had
+// NO permission middleware, so any logged-in user could pull the firm's
+// P&L surface via curl. Now gated:
+//   /dashboard          — `reports.view` (basic KPIs Manager/Cashier need)
+//   /dashboard/series   — `reports.view` (time-series revenue)
+//   /dashboard/insights — `reports.view` (overdue, dead stock, cheques)
+//   /dashboard/business — `accounts.view` (runway, cash position, DSO/DPO)
+router.get('/dashboard',           requirePermission('reports.view'),  reportController.dashboardStats);
+router.get('/dashboard/series',    requirePermission('reports.view'),  reportController.dashboardSeries);
+router.get('/dashboard/insights',  requirePermission('reports.view'),  reportController.dashboardInsights);
+router.get('/dashboard/business',  requirePermission('accounts.view'), reportController.dashboardBusiness);
 
 router.get('/sales',             requirePermission('reports.view'),  reportController.salesReport);
 router.get('/purchases',         requirePermission('reports.view'),  reportController.purchaseReport);

@@ -44,8 +44,26 @@ module.exports = (sequelize) => {
       type: DataTypes.DECIMAL(8, 2),
       defaultValue: 0,
     },
+    // Audit GST-H5 — full GSTN UQC list (45 canonical codes) plus the
+    // 4 legacy values (KG, METER, LITER, DOZEN) kept for backwards
+    // compatibility during the one-time data migration in index.js. The
+    // legacy values stay in the enum so existing rows aren't invalidated
+    // mid-migration; once the UPDATE has moved every row to the canonical
+    // code, no new row will ever pick a legacy value (the dropdown only
+    // shows canonicals via /api/products/uqc-codes).
+    //
+    // Source of truth for the canonical list: server/utils/uqcCodes.js.
     unit_of_measurement: {
-      type: DataTypes.ENUM('PCS', 'KG', 'METER', 'LITER', 'BOX', 'DOZEN'),
+      type: DataTypes.ENUM(
+        // Canonical GSTN codes (45)
+        'BAG','BAL','BDL','BKL','BOU','BOX','BTL','BUN','CAN','CBM','CCM','CMS',
+        'CTN','DOZ','DRM','GGK','GMS','GRS','GYD','KGS','KLR','KME','LTR','MLT',
+        'MTR','MTS','NOS','OTH','PAC','PCS','PRS','QTL','ROL','SET','SQF','SQM',
+        'SQY','TBS','TGM','THD','TON','TUB','UGS','UNT','YDS',
+        // Legacy values — only present so a partially-migrated install
+        // doesn't break before the boot-time migration runs.
+        'KG','METER','LITER','DOZEN',
+      ),
       defaultValue: 'PCS',
     },
     // DECIMAL so partial boxes are representable (e.g. 0.5 m fabric, 2.5 kg).

@@ -167,6 +167,83 @@ function splitBillWiseGst(taxableTotal, cgstPct, sgstPct, igstPct) {
   return { cgst, sgst, igst };
 }
 
+// ─── Indian GST slabs (CR-6) ────────────────────────────────────────
+//
+// As of FY 2026-27 the Indian GST schedule allows: 0, 0.1, 0.25, 1, 1.5,
+// 3, 5, 6, 7.5, 12, 18, 28. Any other rate gets rejected by the GSTN
+// portal during GSTR-1 upload, but the rejection happens DOWNSTREAM —
+// the bill is already saved in our books with an illegal rate. The
+// portal error message points at "row X" of a JSON, not at a specific
+// bill, so an operator has to manually correlate.
+//
+// `isLegalGstSlab` is the single source of truth: server-side validation
+// in sales/purchase create + product master save funnel through here.
+// Adding a new slab (rare, requires a Notification) means editing one
+// constant.
+const LEGAL_GST_SLABS = [0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28];
+function isLegalGstSlab(rate) {
+  const n = parseFloat(rate);
+  if (!Number.isFinite(n) || n < 0) return false;
+  // Use a 0.001 tolerance so a string "5.00" or "5" both pass.
+  return LEGAL_GST_SLABS.some(slab => Math.abs(slab - n) < 0.001);
+}
+function gstSlabError(rate) {
+  return `GST rate ${rate}% is not a legal Indian slab. Valid slabs: ${LEGAL_GST_SLABS.join(', ')}.`;
+}
+
+// ─── Sequelize → HTTP error mapper (LIVE-7) ────────────────────────
+//
+// Pre-fix, controllers catch Sequelize errors and return generic 500
+// "Server error". This hides the real cause from the operator AND from
+// the frontend (which can't surface a useful message). For an enum
+// violation (e.g. unit_of_measurement='NOS' when enum is {PCS,KG,...}),
+// the database tells us EXACTLY which field is wrong; we should pass
+// that through as a 400.
+//
+// Usage in a catch block:
+//   } catch (err) {
+//     return respondWithError(res, err, 'Default 500 message');
+//   }
+function respondWithError(res, err, defaultMsg = 'Server error') {
+  if (err && err.name) {
+    const name = err.name;
+    if (name === 'SequelizeValidationError') {
+      const e = (err.errors && err.errors[0]) || {};
+      return res.status(400).json({
+        error: e.message || err.message || 'Validation error',
+        field: e.path || undefined,
+      });
+    }
+    if (name === 'SequelizeUniqueConstraintError') {
+      const e = (err.errors && err.errors[0]) || {};
+      return res.status(400).json({
+        error: `Duplicate value: ${e.path || 'unique field'} already exists`,
+        field: e.path || undefined,
+      });
+    }
+    if (name === 'SequelizeForeignKeyConstraintError') {
+      return res.status(400).json({
+        error: 'Referenced record does not exist or is in use elsewhere',
+      });
+    }
+    if (name === 'SequelizeDatabaseError') {
+      // Postgres surface — extract the first line of the error which is
+      // usually the actionable hint (e.g. "invalid input value for enum
+      // enum_products_unit_of_measurement: \"NOS\"").
+      const original = err.original || {};
+      const detail = original.detail || original.message || err.message;
+      // Surface enum / type / length errors as 400; truly internal errors
+      // (column-not-found, syntax errors) bubble up as 500.
+      const firstLine = String(detail || '').split('\n')[0];
+      if (/^(invalid input value|value too long|null value in column|new row for relation)/i.test(firstLine)) {
+        return res.status(400).json({ error: firstLine });
+      }
+    }
+  }
+  console.error('Server error:', err);
+  return res.status(500).json({ error: defaultMsg });
+}
+
 function paginateQuery(query, page = 1, limit = 50) {
   const offset = (page - 1) * limit;
   return { ...query, limit, offset };
@@ -201,6 +278,10 @@ module.exports = {
   roundTo,
   calculateGST,
   splitBillWiseGst,
+  isLegalGstSlab,
+  gstSlabError,
+  LEGAL_GST_SLABS,
+  respondWithError,
   paginateQuery,
   sanitizePagination,
 };

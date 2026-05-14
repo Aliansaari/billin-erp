@@ -26,6 +26,7 @@ import { ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { chequeAPI, partyAPI, bankAPI } from '../../api';
 import EntityFormModal from '../../components/EntityFormModal';
+import { inrFormatter, inrParser } from '../../utils/indianFormat';
 
 const fmtRupees = (v) => {
   const n = Number(v) || 0;
@@ -331,7 +332,7 @@ export default function ChequeForm({ open, onClose, onSaved, cheque }) {
                 controls={false}
                 placeholder="0.00"
                 disabled={memoOnly}
-                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
                 parser={(v) => v.replace(/₹\s?|,/g, '')}
               />
             </Form.Item>

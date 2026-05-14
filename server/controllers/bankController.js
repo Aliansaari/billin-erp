@@ -599,12 +599,23 @@ exports.markCleared = async (req, res) => {
       return res.status(400).json({ error: 'Invalid transaction_id' });
     }
 
-    const clearedAt = req.body?.cleared_at
-      ? new Date(req.body.cleared_at)
-      : new Date();
-    if (Number.isNaN(clearedAt.getTime())) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid cleared_at date' });
+    // PAY-H6 — coerce cleared_at to a local-tz YYYY-MM-DD string so the
+    // DATEONLY column doesn't shift a day on TZ-unaware servers. Same
+    // pattern as backdatedGuard.dateKey().
+    const rawClearedAt = req.body?.cleared_at;
+    let clearedAtIso;
+    if (!rawClearedAt) {
+      const d = new Date();
+      clearedAtIso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    } else if (typeof rawClearedAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rawClearedAt)) {
+      clearedAtIso = rawClearedAt.slice(0, 10);
+    } else {
+      const d = new Date(rawClearedAt);
+      if (Number.isNaN(d.getTime())) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid cleared_at date' });
+      }
+      clearedAtIso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
 
     const r = await PaymentReceipt.findByPk(txnId, {
@@ -619,8 +630,20 @@ exports.markCleared = async (req, res) => {
       await t.rollback();
       return res.status(400).json({ error: 'Cannot clear a cancelled receipt' });
     }
+    // PAY-H4 — cleared_at must not predate the transaction_date.
+    const txnDateStr = r.transaction_date && String(r.transaction_date).slice(0, 10);
+    if (txnDateStr && clearedAtIso < txnDateStr) {
+      await t.rollback();
+      return res.status(400).json({
+        error: `Cleared date (${clearedAtIso}) cannot be before the transaction date (${txnDateStr}).`,
+      });
+    }
+    // PAY-H4 — fiscal-lock guard so a closed FY can't be perturbed.
+    const { applyFiscalLockGuard } = require('../utils/compliance');
+    const lockGuard = await applyFiscalLockGuard(req, res, clearedAtIso);
+    if (!lockGuard.ok) { await t.rollback(); return; }
 
-    r.cleared_at = clearedAt;
+    r.cleared_at = clearedAtIso;
     r.cleared_by = req.user?.user_id || null;
     await r.save({ transaction: t });
 
@@ -633,7 +656,7 @@ exports.markCleared = async (req, res) => {
       await Cheque.update(
         {
           status: 'CLEARED',
-          clearance_date: clearedAt,
+          clearance_date: clearedAtIso,  // PAY-H6: TZ-safe string, not new Date()
           cleared_by: req.user?.user_id || null,
         },
         {

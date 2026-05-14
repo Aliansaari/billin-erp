@@ -732,31 +732,20 @@ function aggregateB2CS(bills, companyStateCode) {
  * abbreviations) because user-entered data is messy. Keys are upper-cased
  * before lookup so casing doesn't matter.
  */
-const UQC_MAP = {
-  PCS: 'PCS-PIECES', PIECE: 'PCS-PIECES', PIECES: 'PCS-PIECES',
-  NOS: 'PCS-PIECES', NO: 'PCS-PIECES', NUMBERS: 'PCS-PIECES',
-  MTR: 'MTR-METRES', METER: 'MTR-METRES', METRE: 'MTR-METRES',
-  METERS: 'MTR-METRES', METRES: 'MTR-METRES', M: 'MTR-METRES',
-  KG: 'KGS-KILOGRAMS', KGS: 'KGS-KILOGRAMS',
-  KILOGRAM: 'KGS-KILOGRAMS', KILOGRAMS: 'KGS-KILOGRAMS',
-  BOX: 'BOX-BOX', BOXES: 'BOX-BOX',
-  DZN: 'DZN-DOZENS', DOZEN: 'DZN-DOZENS', DOZENS: 'DZN-DOZENS',
-  ROL: 'ROL-ROLLS', ROLL: 'ROL-ROLLS', ROLLS: 'ROL-ROLLS',
-  PRS: 'PRS-PAIRS', PAIR: 'PRS-PAIRS', PAIRS: 'PRS-PAIRS',
-  SET: 'SET-SET', SETS: 'SET-SET',
-  GMS: 'GMS-GRAMMES', GM: 'GMS-GRAMMES', GRAM: 'GMS-GRAMMES', GRAMS: 'GMS-GRAMMES',
-  LTR: 'LTR-LITRES', L: 'LTR-LITRES', LITRE: 'LTR-LITRES', LITER: 'LTR-LITRES',
-  MLT: 'MLT-MILLILITRE', ML: 'MLT-MILLILITRE',
-};
+// Audit GST-H5 — delegate UQC normalisation to the canonical helper at
+// utils/uqcCodes.js. Pre-fix this inline map covered ~14 input variants
+// and mapped them to ~10 outputs; everything else fell to OTH-OTHERS.
+// The canonical helper covers all 45 GSTN codes plus historical aliases
+// (KG→KGS, METER→MTR, etc.) so the HSN section of GSTR-1 reports the
+// correct UQC for any unit the product master now allows.
+const { uqcToGstn } = require('./uqcCodes');
 function normalizeUqc(unit) {
-  // Trim first, *then* default — whitespace-only strings ("   ") would
-  // otherwise pass the truthy check and become empty after trimming,
-  // misclassifying as OTH-OTHERS. Empty/null intentionally defaults to
-  // PCS-PIECES so items missing a unit land in the same bucket they
-  // landed in before this helper existed.
+  // Empty / null intentionally defaults to PCS-PIECES so items missing
+  // a unit land in the same bucket they landed in before this helper
+  // existed (unchanged behaviour for legacy installs).
   const u = String(unit || '').toUpperCase().trim();
   if (!u) return 'PCS-PIECES';
-  return UQC_MAP[u] || 'OTH-OTHERS';
+  return uqcToGstn(u);
 }
 
 /**

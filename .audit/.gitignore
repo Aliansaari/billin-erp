@@ -1,0 +1,4 @@
+# Per-run artifacts — don't pollute git on every audit run.
+driver-*.log
+driver-report.json
+state.json

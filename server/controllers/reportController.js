@@ -1213,7 +1213,9 @@ exports.salesReport = async (req, res) => {
         [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'total_sgst'],
         [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'total_igst'],
         [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'total_cess'],
-        [fn('COALESCE', fn('SUM', col('paid_amount')), 0), 'total_paid'],
+        // CR-10 — derive from total − balance − return so manual receipt
+        // allocations are reflected. paid_amount is the at-billing snapshot.
+        [literal('COALESCE(SUM(total_amount - balance_amount - COALESCE(return_amount, 0)), 0)'), 'total_paid'],
         [fn('COALESCE', fn('SUM', col('balance_amount')), 0), 'total_pending'],
         [fn('COUNT', col('sales_bill_id')), 'total_bills'],
       ],
@@ -1393,7 +1395,8 @@ exports.purchaseReport = async (req, res) => {
         [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'total_sgst'],
         [fn('COALESCE', fn('SUM', col('igst_amount')), 0), 'total_igst'],
         [fn('COALESCE', fn('SUM', col('cess_amount')), 0), 'total_cess'],
-        [fn('COALESCE', fn('SUM', col('paid_amount')), 0), 'total_paid'],
+        // CR-10 — derive from total − balance so manual allocations show.
+        [literal('COALESCE(SUM(total_amount - balance_amount), 0)'), 'total_paid'],
         [fn('COALESCE', fn('SUM', col('balance_amount')), 0), 'total_pending'],
         [fn('COUNT', col('purchase_bill_id')), 'total_bills'],
       ],

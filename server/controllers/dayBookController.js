@@ -145,17 +145,41 @@ exports.dayBook = async (req, res) => {
     }
 
     // Pick primary leg per voucher.
+    //
+    // LED-H7 — deterministic pick. When the voucher has MULTIPLE party
+    // legs (e.g. inter-party JV transferring balance from Acme → Acme
+    // Subsidiary), the previous `Array.find` returned whichever party
+    // leg came first in SQL order — non-deterministic across queries
+    // because there's no ORDER BY on the leg fetch. Same call from
+    // Day Book and from Ledger Statement could show different party
+    // names for the same voucher.
+    //
+    // New rule: when multiple candidates exist, prefer the one with
+    // the highest signed amount (party with the larger movement); on
+    // a tie, fall back to the lowest entry_id so the ordering is at
+    // least stable.
     function pickPrimary(legs) {
-      // 1. party-flagged ledger
-      const partyLeg = legs.find(l => l.is_party_ledger || l.leg_party_id || l.ledger_party_id);
-      if (partyLeg) return partyLeg;
-      // 2. expense / income leg (skip cash & bank for Receipt/Payment so
-      //    the displayed account is the *counterparty* — the head behind
-      //    the cash movement, not the bank).
-      const nonCash = legs.find(l => l.sub_group !== 'Cash-in-Hand' && l.sub_group !== 'Bank Accounts');
-      if (nonCash) return nonCash;
-      // 3. fallback: first leg
-      return legs[0];
+      const partyLegs = legs.filter(l => l.is_party_ledger || l.leg_party_id || l.ledger_party_id);
+      if (partyLegs.length > 0) {
+        return partyLegs
+          .slice()
+          .sort((a, b) => {
+            const amtA = Math.max(Number(a.debit_amount) || 0, Number(a.credit_amount) || 0);
+            const amtB = Math.max(Number(b.debit_amount) || 0, Number(b.credit_amount) || 0);
+            if (amtB !== amtA) return amtB - amtA;
+            return (Number(a.entry_id) || 0) - (Number(b.entry_id) || 0);
+          })[0];
+      }
+      // Skip cash + bank + bank-OD so the counterparty surfaces on
+      // Receipt/Payment vouchers. Match the same exclusion as
+      // autoReceiptService._config (audit L2).
+      const nonCashSubgroups = new Set(['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c']);
+      const nonCash = legs
+        .filter(l => !nonCashSubgroups.has(l.sub_group))
+        .sort((a, b) => (Number(a.entry_id) || 0) - (Number(b.entry_id) || 0));
+      if (nonCash.length) return nonCash[0];
+      // Fallback: stable-sort by entry_id, pick the first.
+      return legs.slice().sort((a, b) => (Number(a.entry_id) || 0) - (Number(b.entry_id) || 0))[0];
     }
 
     const vouchers = [];

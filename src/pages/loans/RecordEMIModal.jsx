@@ -20,6 +20,7 @@ import dayjs from 'dayjs';
 import { loanAPI } from '../../api';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import EntityFormModal from '../../components/EntityFormModal';
+import { inrFormatter, inrParser } from '../../utils/indianFormat';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -189,7 +190,7 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
                 step={100}
                 style={{ width: '100%' }}
                 controls={false}
-                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
                 parser={(v) => v.replace(/₹\s?|,/g, '')}
               />
             </Form.Item>
@@ -211,7 +212,7 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
                 step={100}
                 style={{ width: '100%' }}
                 controls={false}
-                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
                 parser={(v) => v.replace(/₹\s?|,/g, '')}
               />
             </Form.Item>

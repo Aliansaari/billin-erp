@@ -22,6 +22,7 @@ import React, { useEffect, useState } from 'react';
 import { Form, Input, InputNumber, Radio, message } from 'antd';
 import { bankAPI } from '../../api';
 import EntityFormModal from '../../components/EntityFormModal';
+import { inrFormatter, inrParser } from '../../utils/indianFormat';
 
 const SUB_GROUPS = [
   { value: 'Bank Accounts', label: 'Bank Account', sublabel: 'Asset · current account / savings' },
@@ -194,7 +195,7 @@ export default function BankAccountModal({ open, onClose, onSaved, bank }) {
                 style={{ width: '100%' }}
                 placeholder="0"
                 controls={false}
-                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
                 parser={(v) => v.replace(/₹\s?|,/g, '')}
               />
             </Form.Item>

@@ -459,11 +459,13 @@ exports.update = async (req, res) => {
 
     // Reverse the existing posting first so postVoucher's idempotency
     // guard accepts the new write — same dance as JV update.
+    // LED-H2 — reversal date = original expense date, not today.
     await reverseVoucher({
       sourceType: 'expense_voucher', sourceId: ev.expense_id,
       reason: 'Expense voucher edited',
       userId: req.user && req.user.user_id,
       transaction: t,
+      reversalDate: ev.expense_date,
     });
 
     // Replace the line breakdown.
@@ -537,11 +539,13 @@ exports.cancel = async (req, res) => {
     }
 
     const reason = (req.body && req.body.reason) || null;
+    // LED-H2 — reversal lands in the original expense date.
     await reverseVoucher({
       sourceType: 'expense_voucher', sourceId: ev.expense_id,
       reason: reason || 'Expense voucher cancelled',
       userId: req.user && req.user.user_id,
       transaction: t,
+      reversalDate: ev.expense_date,
     });
 
     await ev.update({

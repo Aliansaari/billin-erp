@@ -28,6 +28,7 @@ import { Form, Input, InputNumber, DatePicker, Select, message } from 'antd';
 import dayjs from 'dayjs';
 import { loanAPI, partyAPI } from '../../api';
 import EntityFormModal from '../../components/EntityFormModal';
+import { inrFormatter, inrParser } from '../../utils/indianFormat';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', {
   minimumFractionDigits: 2, maximumFractionDigits: 2,
@@ -319,7 +320,7 @@ export default function LoanAccountModal({ open, onClose, onSaved, loan }) {
                 style={{ width: '100%' }}
                 controls={false}
                 placeholder="100000"
-                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
                 parser={(v) => v.replace(/₹\s?|,/g, '')}
               />
             </Form.Item>
@@ -381,7 +382,7 @@ export default function LoanAccountModal({ open, onClose, onSaved, loan }) {
                 style={{ width: '100%' }}
                 controls={false}
                 placeholder={computedEmi ? `Calc: ₹${fmtN(computedEmi)}` : 'Auto'}
-                formatter={(v) => v != null && v !== '' ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
                 parser={(v) => v.replace(/₹\s?|,/g, '')}
               />
             </Form.Item>

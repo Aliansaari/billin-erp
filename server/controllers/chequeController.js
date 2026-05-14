@@ -43,6 +43,7 @@ const {
   postBounceCharges, reverseChequeVoucher,
 } = require('../services/chequeService');
 const { sanitizePagination } = require('../utils/helpers');
+const { applyFiscalLockGuard } = require('../utils/compliance');
 
 // All voucher source_types this module emits — the detail endpoint
 // pulls live ledger entries scoped to these so the UI can show the
@@ -493,6 +494,12 @@ exports.update = async (req, res) => {
 
 // ── Lifecycle: deposit (INWARD only, PENDING → DEPOSITED) ────────
 exports.deposit = async (req, res) => {
+  // PAY-H3 — apply fiscal-lock guard against the deposit date so a closed
+  // FY can't be perturbed by a stray deposit voucher.
+  const probeDate = req.body?.deposit_date || new Date().toISOString().slice(0, 10);
+  const lockGuard = await applyFiscalLockGuard(req, res, probeDate);
+  if (!lockGuard.ok) return;
+
   const t = await sequelize.transaction();
   try {
     const cheque = await Cheque.findByPk(req.params.cheque_id, { transaction: t });
@@ -523,6 +530,13 @@ exports.deposit = async (req, res) => {
     }
     const depositDate = req.body?.deposit_date
       || new Date().toISOString().slice(0, 10);
+    // PAY-H4 — deposit_date must not predate cheque_date.
+    if (cheque.cheque_date && String(depositDate) < String(cheque.cheque_date).slice(0, 10)) {
+      await t.rollback();
+      return res.status(400).json({
+        error: `Deposit date (${depositDate}) cannot be earlier than the cheque date (${cheque.cheque_date}).`,
+      });
+    }
 
     // Block deposit of a still-post-dated cheque — the bank wouldn't
     // accept it. The operator can change the cheque_date / instrument
@@ -573,6 +587,11 @@ exports.deposit = async (req, res) => {
 //           (PDC liability Dr / Bank Cr) to move the obligation
 //           from the holding ledger onto the bank.
 exports.clear = async (req, res) => {
+  // PAY-H3 — fiscal-lock guard against clearance date.
+  const probeDate = req.body?.clearance_date || new Date().toISOString().slice(0, 10);
+  const lockGuard = await applyFiscalLockGuard(req, res, probeDate);
+  if (!lockGuard.ok) return;
+
   const t = await sequelize.transaction();
   try {
     const cheque = await Cheque.findByPk(req.params.cheque_id, { transaction: t });
@@ -631,6 +650,11 @@ exports.clear = async (req, res) => {
 // to date is reversed, then (if a fee was specified) a separate
 // bank-charges voucher is posted.
 exports.bounce = async (req, res) => {
+  // PAY-H3 — fiscal-lock guard against bounce date.
+  const probeDate = req.body?.bounce_date || new Date().toISOString().slice(0, 10);
+  const lockGuard = await applyFiscalLockGuard(req, res, probeDate);
+  if (!lockGuard.ok) return;
+
   const t = await sequelize.transaction();
   try {
     const cheque = await Cheque.findByPk(req.params.cheque_id, { transaction: t });
@@ -742,6 +766,12 @@ exports.bounce = async (req, res) => {
 // mistake" or "the customer asked for the cheque back without it
 // bouncing".
 exports.cancel = async (req, res) => {
+  // PAY-H3 — fiscal-lock guard against today (cancel reverses past vouchers
+  // into today's date; probe today and let compliance gate trigger if today
+  // falls in a locked period).
+  const lockGuard = await applyFiscalLockGuard(req, res, new Date().toISOString().slice(0, 10));
+  if (!lockGuard.ok) return;
+
   const t = await sequelize.transaction();
   try {
     const cheque = await Cheque.findByPk(req.params.cheque_id, { transaction: t });

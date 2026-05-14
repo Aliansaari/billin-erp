@@ -12,6 +12,7 @@ import { useDatePopup } from '../../components/keyboard/DatePopup';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import confirmPrint from '../../utils/confirmPrint';
 import './sales-bill-form.css';
+import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
@@ -2242,7 +2243,8 @@ export default function SalesBillForm() {
               )}
               {/* No labels — placeholders communicate the field's purpose. */}
               <Form.Item name="bill_date" noStyle rules={[{required:true,message:' '}]}>
-                <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Bill date *" size="small"/>
+                <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Bill date *" size="small"
+                  disabledDate={disabledDateForVoucher} />
               </Form.Item>
               <Form.Item name="due_date" noStyle>
                 <DatePicker style={{width:140}} format="DD-MM-YYYY" placeholder="Due date" size="small"/>
@@ -2852,7 +2854,7 @@ export default function SalesBillForm() {
                   <InputNumber keyboard={false} value={amountVal}
                     onChange={v=>setAmountVal(v||'')}
                     placeholder="0.00" min={0} style={{width:'100%'}}
-                    formatter={v => v ? `₹ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                    formatter={v => v ? inrFormatter(v) : ''}
                     parser={v => v ? v.replace(/[₹,\s]/g, '') : ''} />
                 </div>
               </div>

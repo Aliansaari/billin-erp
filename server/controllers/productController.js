@@ -2,7 +2,7 @@ const { Op, col, fn, literal } = require('sequelize');
 const sequelize = require('../config/database');
 const { Product, Category, StockLedger, ProductBatch, ProductColor, SystemSettings } = require('../models');
 const { generateBarcode, findExistingProduct } = require('../utils/barcode');
-const { sanitizePagination, escapeLike } = require('../utils/helpers');
+const { sanitizePagination, escapeLike, isLegalGstSlab, gstSlabError, respondWithError } = require('../utils/helpers');
 const { attachDisplayCost, fetchBatchAggregate } = require('../utils/displayCost');
 const { applyGodownStockDelta, getDefaultGodownId } = require('../utils/godownStock');
 const { isFifoMode, addCostLayer, consumeFIFO } = require('../utils/costLayers');
@@ -531,6 +531,11 @@ exports.create = async (req, res) => {
     }
     const cmErr = validateCostingMethod(safe);
     if (cmErr) { await t.rollback(); return res.status(400).json({ error: cmErr }); }
+    // CR-6 — Product master GST rate must be a legal Indian slab.
+    if (safe.gst_rate !== undefined && safe.gst_rate !== null && safe.gst_rate !== '' && !isLegalGstSlab(safe.gst_rate)) {
+      await t.rollback();
+      return res.status(400).json({ error: gstSlabError(safe.gst_rate) });
+    }
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
 
     // Check for existing product with same specs
@@ -630,11 +635,10 @@ exports.create = async (req, res) => {
     if (!t.finished) {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
-    console.error('Create product error:', error);
-    if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(400).json({ error: 'Barcode already exists' });
-    }
-    res.status(500).json({ error: 'Server error' });
+    // LIVE-7 — map Sequelize validation/enum/length errors to 400 so the
+    // frontend (and operators using curl) get a useful actionable message
+    // instead of the generic "Server error" 500.
+    return respondWithError(res, error);
   }
 };
 
@@ -648,6 +652,11 @@ exports.update = async (req, res) => {
     }
     const cmErr = validateCostingMethod(safe);
     if (cmErr) { await t.rollback(); return res.status(400).json({ error: cmErr }); }
+    // CR-6 — Product master GST rate must be a legal Indian slab.
+    if (safe.gst_rate !== undefined && safe.gst_rate !== null && safe.gst_rate !== '' && !isLegalGstSlab(safe.gst_rate)) {
+      await t.rollback();
+      return res.status(400).json({ error: gstSlabError(safe.gst_rate) });
+    }
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
     const product = await Product.findByPk(req.params.id, { transaction: t });
     if (!product) { await t.rollback(); return res.status(404).json({ error: 'Product not found' }); }
@@ -790,8 +799,7 @@ exports.update = async (req, res) => {
     if (!t.finished) {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
-    console.error('Update product error:', error);
-    res.status(500).json({ error: 'Server error' });
+    return respondWithError(res, error);
   }
 };
 
