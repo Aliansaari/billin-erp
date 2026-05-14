@@ -543,6 +543,29 @@ async function startServer() {
       console.error('[UQC migration] Error:', err.message);
     }
 
+    // ── Tax-inclusive flag on Product (audit GST-C4) ───────────────────
+    //
+    // products.is_tax_inclusive defaults to FALSE so every existing row
+    // behaves exactly like today (B2B exclusive math). When an operator
+    // ticks the toggle for a new MRP-printed product (pharmacy, FMCG,
+    // packaged goods), the bill line will reverse-compute taxable + GST
+    // from the MRP so the customer pays exactly what's printed on the
+    // box. Idempotent ADD COLUMN IF NOT EXISTS guard.
+    try {
+      await sequelize.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'products' AND column_name = 'is_tax_inclusive'
+          ) THEN
+            ALTER TABLE products ADD COLUMN is_tax_inclusive BOOLEAN NOT NULL DEFAULT false;
+          END IF;
+        END $$;
+      `);
+    } catch (err) {
+      console.error('[Tax-inclusive migration] Error:', err.message);
+    }
+
     // ── Loan accounts ─────────────────────────────────────────────
     //
     // A loan has two parts: the underlying ledger account (so it lives

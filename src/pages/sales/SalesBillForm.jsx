@@ -16,6 +16,19 @@ import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/ind
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
+// Audit GST-C4 — pick the bill-line default rate from the product master.
+// For products marked tax-inclusive (MRP / pharmacy / FMCG), the bill
+// line should auto-fill from MRP — that's the rate the customer pays.
+// For B2B / exclusive products (the default), the bill line uses
+// sale_rate. Server reverse-computes taxable + GST when inclusive.
+const defaultRateFromProduct = (p) => {
+  if (!p) return 0;
+  const inclusive = !!p.is_tax_inclusive;
+  const mrp = parseFloat(p.mrp) || 0;
+  const sale = parseFloat(p.sale_rate) || 0;
+  return (inclusive && mrp > 0) ? mrp : sale;
+};
+
 const UNITS     = ['Pcs','Box','Set','Pair','Dozen','Mtr','Roll'];
 const PAY_MODES = ['Cash','Card','UPI','Bank Transfer','Cheque','Credit'];
 
@@ -284,8 +297,9 @@ export default function SalesBillForm() {
       product_name: p.product_name,
       category_id: p.category_id, category_name: p.Category?.category_name || '',
       size: p.size_value || '', article_number: p.article_number || '',
-      rate: parseFloat(p.sale_rate) || 0, mrp: parseFloat(p.mrp) || 0,
+      rate: defaultRateFromProduct(p), mrp: parseFloat(p.mrp) || 0,
       hsn_code: p.hsn_code || '', gst_rate: parseFloat(p.gst_rate) || 0,
+      is_tax_inclusive: !!p.is_tax_inclusive,
       available_stock: parseFloat(p.current_stock) || 0,
       quantity: qty, unit_type: unitType,
       quantity_per_box: parseFloat(p.quantity_per_box) || 1,
@@ -304,7 +318,7 @@ export default function SalesBillForm() {
     retBarcodeRef.current?.focus();
     try {
       const { data } = await productAPI.getByBarcode(code);
-      const rate = parseFloat(data.sale_rate) || 0;
+      const rate = defaultRateFromProduct(data);
       const gst  = parseFloat(data.gst_rate) || 0;
       const qty  = parseFloat(data.quantity_per_box) || 1;
       const unitType = qty > 1 ? 'Box' : 'Pcs';
@@ -317,6 +331,7 @@ export default function SalesBillForm() {
         rate, quantity: qty, quantity_per_box: parseFloat(data.quantity_per_box) || 1,
         discount_percentage: 0,
         mrp: parseFloat(data.mrp) || 0,
+        is_tax_inclusive: !!data.is_tax_inclusive,
         hsn_code: data.hsn_code || '', gst_rate: gst,
       }]);
       message.success(`${data.product_name} added`, 1);
@@ -694,7 +709,7 @@ export default function SalesBillForm() {
     if(barcodeRef.current?.input) barcodeRef.current.input.value='';
     try{
       const{data}=await productAPI.getByBarcode(code);
-      const rate=parseFloat(data.sale_rate)||0;
+      const rate=defaultRateFromProduct(data);
       const gst=parseFloat(data.gst_rate)||0;
       const qty=parseFloat(data.quantity_per_box)||1;
       const unitType=qty>1?'Box':'Pcs';
@@ -949,11 +964,12 @@ export default function SalesBillForm() {
     setEntry(prev=>({...prev,product_id:p.product_id,barcode:p.barcode,product_name:p.product_name,
       category_id:p.category_id,category_name:p.Category?.category_name||'',
       size:p.size_value||'',article_number:p.article_number||'',
-      rate:parseFloat(p.sale_rate)||0,
+      rate:defaultRateFromProduct(p),
       // Stage purchase_rate so the optional "Cost" column has data.
       // Client-side only — never persisted to the server.
       purchase_rate:parseFloat(p.purchase_rate)||0,
       mrp:parseFloat(p.mrp)||0,
+      is_tax_inclusive:!!p.is_tax_inclusive,
       hsn_code:p.hsn_code||'',gst_rate:parseFloat(p.gst_rate)||0,
       available_stock:parseFloat(p.current_stock)||0,
       quantity:qty,unit_type:unitType,quantity_per_box:parseFloat(p.quantity_per_box)||1,

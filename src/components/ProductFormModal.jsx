@@ -36,6 +36,10 @@ const EMPTY = {
   margin_percentage: '',
   sale_rate: '',
   mrp: '',
+  // Audit GST-C4 — when true, the bill line will treat MRP as the
+  // tax-inclusive rate and reverse-compute taxable + GST. Default
+  // false = B2B exclusive (today's behaviour).
+  is_tax_inclusive: false,
   is_batch_tracked: false,
   // Per-product costing override (audit H6). 'inherit' = use company-wide
   // SystemSettings.cogs_method. 'weighted_avg' / 'fifo' force the method
@@ -149,6 +153,11 @@ export default function ProductFormModal({ open, onCancel, onSaved, defaultName 
       const v = form[k];
       if (v == null || v === '') next[k] = REQUIRED[k];
     });
+    // GST-C4 — when "Rate includes GST" is ticked, MRP becomes required
+    // (server enforces the same; this gives the operator instant feedback).
+    if (form.is_tax_inclusive && !(parseFloat(form.mrp) > 0)) {
+      next.mrp = 'MRP is required when "Rate includes GST" is on';
+    }
     setErrors(next);
     return Object.keys(next).length === 0;
   }, [form]);
@@ -314,6 +323,22 @@ export default function ProductFormModal({ open, onCancel, onSaved, defaultName 
               onChange={set('gst_rate')} />
             <span className="efm-suffix-unit">%</span>
           </div>
+        </Field>
+
+        {/* Audit GST-C4 — MRP / tax-inclusive toggle.
+            Tick this for products where the price printed on the box
+            already includes GST (pharmacy, FMCG, packaged goods).
+            When ticked, bills auto-fill from MRP and reverse-compute
+            the taxable base so the customer pays exactly the MRP. */}
+        <Field label="Rate includes GST" help="Tick for MRP-printed items (medicines, FMCG, packaged goods) — bill uses MRP as the rate">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox"
+              checked={!!form.is_tax_inclusive}
+              onChange={(e) => setForm(f => ({ ...f, is_tax_inclusive: e.target.checked }))} />
+            <span style={{ fontSize: 12, opacity: 0.75 }}>
+              {form.is_tax_inclusive ? 'MRP mode — bill uses MRP, taxable reverse-computed' : 'B2B mode — bill uses sale rate, GST added on top'}
+            </span>
+          </label>
         </Field>
       </Section>
 

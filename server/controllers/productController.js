@@ -51,6 +51,8 @@ const PRODUCT_UPDATABLE_FIELDS = [
   'opening_stock', 'opening_stock_rate', 'opening_stock_date',
   'current_stock',
   'purchase_rate', 'margin_percentage', 'sale_rate', 'mrp',
+  // Audit GST-C4 — toggle for MRP / tax-inclusive pricing.
+  'is_tax_inclusive',
   'is_active',
   'is_batch_tracked',
   // Color mode picker — 'none' / 'single' / 'multi'. The product form
@@ -536,6 +538,16 @@ exports.create = async (req, res) => {
       await t.rollback();
       return res.status(400).json({ error: gstSlabError(safe.gst_rate) });
     }
+    // GST-C4 — when the product is marked tax-inclusive, MRP > 0 is required.
+    // Without it, the bill line has no rate to reverse-compute from and
+    // would silently fall back to sale_rate, defeating the toggle's purpose.
+    if (safe.is_tax_inclusive === true && !(parseFloat(safe.mrp) > 0)) {
+      await t.rollback();
+      return res.status(400).json({
+        error: 'MRP is required when "Rate includes GST" is enabled. Enter the printed MRP or untick the toggle.',
+        field: 'mrp',
+      });
+    }
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
 
     // Check for existing product with same specs
@@ -660,6 +672,23 @@ exports.update = async (req, res) => {
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
     const product = await Product.findByPk(req.params.id, { transaction: t });
     if (!product) { await t.rollback(); return res.status(404).json({ error: 'Product not found' }); }
+    // GST-C4 — MRP-required check, identical to create. Read the effective
+    // is_tax_inclusive (incoming change or existing value) and the
+    // effective MRP (incoming change or existing value) — operator could
+    // tick the toggle without re-sending MRP if it's already set.
+    {
+      const effInclusive = safe.is_tax_inclusive !== undefined
+        ? safe.is_tax_inclusive : product.is_tax_inclusive;
+      const effMrp = safe.mrp !== undefined
+        ? parseFloat(safe.mrp) : parseFloat(product.mrp);
+      if (effInclusive === true && !(effMrp > 0)) {
+        await t.rollback();
+        return res.status(400).json({
+          error: 'MRP is required when "Rate includes GST" is enabled. Set MRP first or untick the toggle.',
+          field: 'mrp',
+        });
+      }
+    }
 
     // Block disabling batch tracking on a product that already has movements.
     // Once stock has flowed through batches, flipping the flag off would leave
