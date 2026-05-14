@@ -74,6 +74,84 @@ async function runCompanySchemaMigrations(sequelize) {
       END IF;
     END $$;
   `);
+
+  // FY compliance fields on system_settings + the compliance_audit_logs
+  // table. Mirrors the master block in server/index.js so an existing
+  // per-company DB picks up the new columns + table on first boot after
+  // upgrade. Same idempotent IF NOT EXISTS gates.
+  //
+  // The audit-logs TABLE is created explicitly here (not relied on
+  // Sequelize sync) because the bootstrap path doesn't call sync — it
+  // only invokes this migration runner for existing company DBs, then
+  // closes the connection. Without an explicit CREATE TABLE, the audit
+  // log writer would fail until the company pool's lazy-init sync ran
+  // on the first authed request after upgrade.
+  await sequelize.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'system_settings' AND column_name = 'fy_compliance_mode'
+      ) THEN
+        ALTER TABLE system_settings
+          ADD COLUMN fy_compliance_mode BOOLEAN DEFAULT false;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'system_settings' AND column_name = 'fy_soft_lock_date'
+      ) THEN
+        ALTER TABLE system_settings
+          ADD COLUMN fy_soft_lock_date DATE;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'system_settings' AND column_name = 'fy_hard_lock_date'
+      ) THEN
+        ALTER TABLE system_settings
+          ADD COLUMN fy_hard_lock_date DATE;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'system_settings' AND column_name = 'fy_require_override_password'
+      ) THEN
+        ALTER TABLE system_settings
+          ADD COLUMN fy_require_override_password BOOLEAN DEFAULT false;
+      END IF;
+    END $$;
+  `);
+
+  // compliance_audit_logs — column shape matches the Sequelize model in
+  // server/models/ComplianceAuditLog.js. JSONB columns hold the
+  // before/after diff snapshots; the 4 indexes cover the common filter
+  // axes used by the viewer (by date, by event_type, by user, by
+  // target).
+  await sequelize.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'compliance_audit_logs') THEN
+        CREATE TABLE compliance_audit_logs (
+          audit_log_id      SERIAL PRIMARY KEY,
+          event_type        VARCHAR(40) NOT NULL,
+          event_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          user_id           INTEGER,
+          user_name         VARCHAR(150),
+          user_role         VARCHAR(60),
+          target_type       VARCHAR(40),
+          target_id         INTEGER,
+          target_label      VARCHAR(255),
+          target_date       DATE,
+          reason            TEXT,
+          from_value        JSONB,
+          to_value          JSONB,
+          is_hard_override  BOOLEAN DEFAULT false,
+          metadata          JSONB
+        );
+        CREATE INDEX idx_cal_event_type ON compliance_audit_logs(event_type);
+        CREATE INDEX idx_cal_event_at   ON compliance_audit_logs(event_at);
+        CREATE INDEX idx_cal_user       ON compliance_audit_logs(user_id);
+        CREATE INDEX idx_cal_target     ON compliance_audit_logs(target_type, target_id);
+      END IF;
+    END $$;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };

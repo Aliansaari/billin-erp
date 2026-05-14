@@ -2274,6 +2274,47 @@ async function startServer() {
       console.error('[Multi-color settings migration] Error:', err.message);
     });
 
+    // ── FY compliance fields ─────────────────────────────────────────
+    // Four columns on system_settings (audit log table is created via
+    // Sequelize.sync earlier in this function; defining it as a model
+    // means a fresh install gets the table without an explicit CREATE).
+    // Existing legacy single-DB installs hit this block on upgrade.
+    // The per-company equivalent lives in companySchemaMigrations.js.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'system_settings' AND column_name = 'fy_compliance_mode'
+        ) THEN
+          ALTER TABLE system_settings
+            ADD COLUMN fy_compliance_mode BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'system_settings' AND column_name = 'fy_soft_lock_date'
+        ) THEN
+          ALTER TABLE system_settings
+            ADD COLUMN fy_soft_lock_date DATE;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'system_settings' AND column_name = 'fy_hard_lock_date'
+        ) THEN
+          ALTER TABLE system_settings
+            ADD COLUMN fy_hard_lock_date DATE;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'system_settings' AND column_name = 'fy_require_override_password'
+        ) THEN
+          ALTER TABLE system_settings
+            ADD COLUMN fy_require_override_password BOOLEAN DEFAULT false;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[FY compliance migration] Error:', err.message);
+    });
+
     // ── Audit H9 — persistent rate-limit / JWT-blacklist tables ──
     // Without these, a server restart clears every locked-out account and
     // every revoked JWT (up to 24h after issue). The tables back the
