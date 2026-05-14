@@ -40,15 +40,16 @@ const EVENT_TYPE_OPTIONS = [
  *    · Voucher numbering note (per-FY reset is on by convention)
  *    · "Edit FY dates" link → /settings/company (FY config lives there)
  *
- * 2. Compliance (toggle-gated)
- *    · Master toggle: "Compliance mode" (default: off)
- *    · When ON:
+ * 2. Compliance (state shown read-only here; master toggle lives in
+ *    Developer Settings → Compliance & audit so an operator can't
+ *    silently disable the audit trail).
+ *    · When compliance is ON:
  *       - Soft lock date input (backdating before requires override)
  *       - Hard lock date input (Super Admin only beyond)
  *       - "Require password on override" toggle
- *       - Stage 2: "View audit log →" link
- *    · First-time toggle ON pops a wizard (per decision #6 Option C):
- *      "You're enabling compliance. Set a soft-lock date, or skip for now."
+ *       - "View audit log →" link → paginated viewer + CSV export
+ *    · When OFF, the section shows a brief info note pointing the
+ *      user to Developer Settings if they want to turn it on.
  *
  * Default UX (compliance OFF, the simple Tally-style mode):
  *    · FY routing automatic by bill date
@@ -60,11 +61,6 @@ export default function FinancialYearSettings() {
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
   const [sys,     setSys]     = useState(null);
-
-  // Wizard state — opens when the user flips compliance ON for the first
-  // time, never been closed before. Stored intent is "show once, dismissable".
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [wizardSoft, setWizardSoft] = useState(null);
 
   // Audit-log viewer — paginated, filterable, exportable. Enterprise
   // deployments accumulate thousands of rows over a fiscal year; the
@@ -163,8 +159,12 @@ export default function FinancialYearSettings() {
   // Reset to page 1 whenever a filter changes.
   useEffect(() => { setAuditPage(1); }, [filterType, filterFrom, filterTo, filterHardOnly]);
 
-  // Local form state — mirrors the persisted settings until saved.
-  const [complianceMode, setComplianceMode]   = useState(false);
+  // Compliance master switch is READ-ONLY here — the toggle lives in
+  // Developer Settings so an operator / accountant can't accidentally
+  // (or deliberately) disable the audit trail to clean up a problem.
+  // We display the current state and surface the lock dates / password
+  // controls only when compliance is already ON.
+  const complianceMode = !!sys?.fy_compliance_mode;
   const [softLockDate,   setSoftLockDate]     = useState(null);
   const [hardLockDate,   setHardLockDate]     = useState(null);
   const [requireOvridPw, setRequireOvridPw]   = useState(false);
@@ -178,7 +178,6 @@ export default function FinancialYearSettings() {
         const s = data?.data || data || {};
         if (cancelled) return;
         setSys(s);
-        setComplianceMode(!!s.fy_compliance_mode);
         setSoftLockDate(s.fy_soft_lock_date ? dayjs(s.fy_soft_lock_date) : null);
         setHardLockDate(s.fy_hard_lock_date ? dayjs(s.fy_hard_lock_date) : null);
         setRequireOvridPw(!!s.fy_require_override_password);
@@ -191,32 +190,14 @@ export default function FinancialYearSettings() {
     return () => { cancelled = true; };
   }, []);
 
-  // Toggle handler — flipping ON for the first time opens the wizard;
-  // the actual save happens when the wizard finishes or the operator
-  // hits "Save changes" at the bottom. Flipping OFF saves immediately
-  // because there's no setup needed.
-  const handleComplianceToggle = (next) => {
-    if (next && !complianceMode && !softLockDate && !hardLockDate) {
-      // First-time enable AND no existing lock dates → walk them through.
-      setWizardSoft(softLockDate);
-      setWizardOpen(true);
-    }
-    setComplianceMode(next);
-  };
-
-  const handleWizardFinish = (mode) => {
-    // mode: 'set' (use wizard's soft-lock date) or 'skip' (just toggle on)
-    if (mode === 'set' && wizardSoft) {
-      setSoftLockDate(wizardSoft);
-    }
-    setWizardOpen(false);
-  };
-
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Do NOT send fy_compliance_mode — that flip lives in Developer
+      // Settings only. The server already has the current value; we
+      // leave it untouched so this page can never invert the master
+      // switch even by accident.
       const payload = {
-        fy_compliance_mode:           !!complianceMode,
         fy_soft_lock_date:            softLockDate ? softLockDate.format('YYYY-MM-DD') : null,
         fy_hard_lock_date:            hardLockDate ? hardLockDate.format('YYYY-MM-DD') : null,
         fy_require_override_password: !!requireOvridPw,
@@ -310,17 +291,22 @@ export default function FinancialYearSettings() {
           <div className="fyset-card-head-text">
             <SafetyOutlined className="fyset-card-icon" />
             <div>
-              <div className="fyset-card-title">Compliance mode</div>
+              <div className="fyset-card-title">
+                Compliance mode
+                <Tag
+                  color={complianceMode ? 'green' : 'default'}
+                  style={{ marginLeft: 10, verticalAlign: 'middle' }}
+                >
+                  {complianceMode ? 'ON' : 'OFF'}
+                </Tag>
+              </div>
               <div className="fyset-card-sub">
-                Off by default. Turn on to enable lock dates, the override workflow, and the audit log.
+                {complianceMode
+                  ? 'Audit features are active. Configure the lock dates and password requirement below.'
+                  : 'No locks, no audit log — Tally-style. Enabling compliance is a developer-only action.'}
               </div>
             </div>
           </div>
-          <Switch
-            checked={complianceMode}
-            onChange={handleComplianceToggle}
-            className="fyset-toggle"
-          />
         </div>
 
         {complianceMode ? (
@@ -380,17 +366,24 @@ export default function FinancialYearSettings() {
           </Form>
         ) : (
           <div className="fyset-simple-info">
-            <strong>Simple mode is active.</strong> Bills route automatically to the FY their date
-            falls in. Use the FY pill in the top-bar / sidebar to switch context and view or edit
-            past FYs. No locks, no audit log — Tally-style.
+            <strong>Simple mode is active.</strong> Bills route automatically to the FY their
+            date falls in. Use the FY pill in the top-bar / sidebar to switch context and view
+            or edit past FYs.
+            <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--fg-tertiary)' }}>
+              To turn on lock dates, the override workflow, and the audit log, a developer must
+              enable <strong>Compliance mode</strong> in <em>Developer Settings → Compliance &amp; audit</em>.
+              This guard exists so an operator can't silently disable the audit trail.
+            </div>
           </div>
         )}
 
-        <div className="fyset-card-actions">
-          <Button type="primary" onClick={handleSave} loading={saving}>
-            Save changes
-          </Button>
-        </div>
+        {complianceMode && (
+          <div className="fyset-card-actions">
+            <Button type="primary" onClick={handleSave} loading={saving}>
+              Save changes
+            </Button>
+          </div>
+        )}
       </section>
 
       {/* ── Audit log viewer ─────────────────────────────────────────── */}
@@ -511,46 +504,6 @@ export default function FinancialYearSettings() {
         )}
       </Modal>
 
-      {/* ── First-time enable wizard ─────────────────────────────────── */}
-      <Modal
-        open={wizardOpen}
-        title={
-          <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <SafetyOutlined style={{ color: '#34D399' }} />
-            Enabling compliance mode
-          </span>
-        }
-        footer={null}
-        onCancel={() => handleWizardFinish('skip')}
-        width={500}
-      >
-        <p style={{ margin: '4px 0 16px', color: 'var(--fg-secondary)', fontSize: 13.5, lineHeight: 1.55 }}>
-          Compliance mode adds <strong>lock dates</strong>, a <strong>role-based override workflow</strong>,
-          and a <strong>full audit log</strong> on top of the simple FY behaviour. You can set a soft-lock
-          date now (recommended once your audit working is in) or skip and configure later.
-        </p>
-        <div style={{ margin: '12px 0' }}>
-          <label style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--fg-secondary)', marginBottom: 6, display: 'block' }}>
-            Soft-lock date (optional)
-          </label>
-          <DatePicker
-            value={wizardSoft}
-            onChange={setWizardSoft}
-            format="DD MMM YYYY"
-            style={{ width: '100%' }}
-            placeholder="e.g. 31 Mar — end of previous FY"
-          />
-          <div style={{ fontSize: 11.5, color: 'var(--fg-tertiary)', marginTop: 6 }}>
-            Transactions on or before this date will require an override reason to edit.
-          </div>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-          <Button onClick={() => handleWizardFinish('skip')}>Skip for now</Button>
-          <Button type="primary" disabled={!wizardSoft} onClick={() => handleWizardFinish('set')}>
-            Use this date
-          </Button>
-        </div>
-      </Modal>
     </div>
   );
 }

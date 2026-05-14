@@ -4,11 +4,12 @@ import {
 } from 'antd';
 import {
   CodeOutlined, LockOutlined, UnlockOutlined, ReloadOutlined,
-  ExclamationCircleOutlined, ToolOutlined,
+  ExclamationCircleOutlined, ToolOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { settingsAPI, companyAPI } from '../../api';
 import { refreshSystemSettings } from '../../hooks/useSystemSettings';
+import { refreshFinancialYear } from '../../hooks/useFinancialYear';
 import useDevModeStore from '../../store/devModeStore';
 
 const { Title, Text, Paragraph } = Typography;
@@ -158,6 +159,60 @@ export default function DeveloperSettings() {
     }
   };
 
+  // ── Compliance mode toggle (dev-only) ──────────────────────────────
+  // The master switch for the audit-trail feature. Moved out of the
+  // regular FY Settings page in PR-DEV so an operator / accountant
+  // can't silently disable the audit trail to cover a problem.
+  // Turning OFF when locks are set is destructive (vouchers can now
+  // freely backdate); always confirm.
+  const toggleComplianceMode = (next) => {
+    const hasConfig = !!(settings?.fy_soft_lock_date || settings?.fy_hard_lock_date);
+    if (!next && hasConfig) {
+      Modal.confirm({
+        title: 'Disable compliance mode?',
+        icon: <ExclamationCircleOutlined style={{ color: '#dc2626' }} />,
+        content: (
+          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+            Compliance mode is currently <strong>ON</strong> with active lock dates.
+            Disabling it will:
+            <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
+              <li>Stop firing the lock check on every voucher save / edit / cancel</li>
+              <li>Let users post and backdate freely with no override prompt</li>
+              <li>Keep the existing audit-log rows (they're append-only) but no new ones will be written from voucher writes</li>
+            </ul>
+            <div style={{ marginTop: 10, color: '#dc2626' }}>
+              The lock-date and password settings are preserved — re-enabling restores them as-is.
+            </div>
+          </div>
+        ),
+        okText: 'Disable',
+        okButtonProps: { danger: true },
+        onOk: () => doToggleCompliance(next),
+      });
+      return;
+    }
+    doToggleCompliance(next);
+  };
+
+  const doToggleCompliance = async (next) => {
+    setSaving('fy_compliance_mode');
+    try {
+      await settingsAPI.updateSystem({ ...settings, fy_compliance_mode: !!next });
+      setSettings((s) => ({ ...s, fy_compliance_mode: !!next }));
+      // Two caches to bust: the system-settings cache (so this page +
+      // sidebar pick up the new state) and the FY-compliance store (so
+      // every voucher form's useFiscalLock hook sees the new master
+      // value immediately without a reload).
+      await refreshSystemSettings();
+      await refreshFinancialYear();
+      message.success(next ? 'Compliance mode enabled' : 'Compliance mode disabled');
+    } catch (e) {
+      message.error('Save failed');
+    } finally {
+      setSaving(null);
+    }
+  };
+
   const handleLock = () => {
     Modal.confirm({
       title: 'Lock developer mode?',
@@ -255,6 +310,43 @@ export default function DeveloperSettings() {
             onChange={(v) => updateFlag(t.key, v)}
           />
         ))}
+      </Card>
+
+      {/* ── Compliance & audit ─────────────────────────────────────── */}
+      <Card
+        title={<span><SafetyCertificateOutlined style={{ color: '#059669' }} /> Compliance &amp; audit</span>}
+        style={{ marginBottom: 20, borderRadius: 12 }}
+        styles={{ header: { fontWeight: 600 } }}
+      >
+        <Paragraph style={{ marginBottom: 14, color: '#64748b', fontSize: 13 }}>
+          Master switch for the audit-trail feature. When ON, every voucher save / edit /
+          cancel goes through the fiscal-lock check; backdated writes need a logged override.
+          This toggle lives in dev mode so a regular operator cannot silently disable
+          the audit trail to cover a problem.
+        </Paragraph>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '12px 0', borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+              Compliance mode
+              <Tag color={settings?.fy_compliance_mode ? 'green' : 'default'} style={{ marginLeft: 0 }}>
+                {settings?.fy_compliance_mode ? 'ON' : 'OFF'}
+              </Tag>
+              {settings?.fy_compliance_mode && (settings?.fy_soft_lock_date || settings?.fy_hard_lock_date) && (
+                <Tag color="gold">locks configured</Tag>
+              )}
+            </div>
+            <div style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.55 }}>
+              {settings?.fy_compliance_mode
+                ? <>Active. Lock dates and the override-password requirement are configured on <a onClick={() => navigate('/settings/financial-year')} style={{ cursor: 'pointer' }}>Settings → Financial Year</a>.</>
+                : <>Simple Tally-style mode. No locks, no override prompts, no new audit-log entries from voucher writes. Lock-date and password settings (if any were saved earlier) are preserved.</>}
+            </div>
+          </div>
+          <Switch
+            checked={!!settings?.fy_compliance_mode}
+            loading={saving === 'fy_compliance_mode'}
+            onChange={toggleComplianceMode}
+          />
+        </div>
       </Card>
 
       {/* ── LAN deployment ─────────────────────────────────────────── */}
