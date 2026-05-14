@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Tag, Typography, message, DatePicker, Select,
-  Modal, Descriptions, Divider, Dropdown, Table,
+  message, DatePicker, Select,
+  Modal, Dropdown, Table,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined,
@@ -52,7 +52,6 @@ const DEFAULT_COLS = {
   totalRow: true,
 };
 
-const { Text } = Typography;
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const fmtShort = (v) => {
   const n = parseFloat(v || 0);
@@ -60,13 +59,43 @@ const fmtShort = (v) => {
   return `₹ ${Math.round(n).toLocaleString('en-IN')}`;
 };
 
-// ── View Modal ─────────────────────────────────────────────────────────────────
+/* ── View Modal ───────────────────────────────────────────────────────────────
+ * Read-only bill viewer, opened on F1 / row-click in the Sales list.
+ *
+ * Rewritten 2026-05-14: replaced the AntD <Descriptions> grid + generic
+ * <Table> chrome with a custom layout that reads as native ERP chrome.
+ * The previous version mis-named the item rate field ('sale_rate'), so
+ * every line showed Rate ₹0.00 even when the bill subtotal was non-zero
+ * — the actual model field is `rate` (see server/models/SalesBillItem.js
+ * line 50). Fixed below alongside the visual rework.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+const statusTone = (s) =>
+  s === 'Paid'    ? { fg: '#34D399', bg: 'rgba(52, 211, 153, 0.12)', br: 'rgba(52, 211, 153, 0.28)' }
+: s === 'Partial' ? { fg: '#F59E0B', bg: 'rgba(245, 158, 11, 0.12)', br: 'rgba(245, 158, 11, 0.28)' }
+                  : { fg: '#EF4444', bg: 'rgba(239, 68, 68, 0.12)', br: 'rgba(239, 68, 68, 0.28)' };
+
+function MetaRow({ label, children }) {
+  return (
+    <div style={{ display: 'flex', gap: 16, padding: '7px 0', alignItems: 'baseline' }}>
+      <span style={{
+        flex: '0 0 120px', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+        color: 'var(--fg-tertiary)', fontWeight: 500,
+      }}>{label}</span>
+      <span style={{ fontSize: 13.5, color: 'var(--fg-primary)', fontWeight: 500 }}>{children}</span>
+    </div>
+  );
+}
+
 function SummaryRow({ label, value, color, bold, borderTop }) {
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '5px 0', borderTop: borderTop ? '1px solid var(--border)' : undefined,
-      fontWeight: bold ? 700 : 400, fontSize: bold ? 14 : 13, color: color || undefined,
+      padding: bold ? '8px 0 6px' : '5px 0',
+      borderTop: borderTop ? '1px solid var(--border)' : undefined,
+      fontWeight: bold ? 700 : 500, fontSize: bold ? 14 : 13,
+      color: color || (bold ? 'var(--fg-primary)' : 'var(--fg-secondary)'),
+      fontVariantNumeric: 'tabular-nums',
     }}>
       <span>{label}</span><span>{value}</span>
     </div>
@@ -85,54 +114,88 @@ function ViewModal({ bill, onClose }) {
   const balance = parseFloat(bill.balance_amount || 0);
   const roundOff = parseFloat(bill.round_off || 0);
 
+  const customerLabel = (() => {
+    const n = bill.customer?.party_name;
+    const isCash = !n || bill.customer?.is_system_cash;
+    const w = String(bill.walk_in_name || '').trim();
+    return isCash ? `Cash${w ? ` — ${w}` : ''}` : n;
+  })();
+
+  const tone = statusTone(bill.payment_status);
+
+  // Item table — the data bug fix lives here. Rate now reads `r.rate`
+  // (was `r.sale_rate`, which doesn't exist on the model). Amount uses
+  // the same field so the row maths can't drift from what's stored.
   const itemColumns = [
-    { title: '#', width: 40, render: (_, __, i) => i + 1 },
-    { title: 'Product', dataIndex: 'product_name' },
-    { title: 'Barcode', dataIndex: 'barcode', width: 110, render: v => <Text style={{ fontSize: 11 }}>{v}</Text> },
-    { title: 'Size', dataIndex: 'size', width: 70 },
-    { title: 'Qty', dataIndex: 'quantity', width: 65, align: 'right' },
-    { title: 'Rate', dataIndex: 'sale_rate', width: 90, align: 'right',
-      render: v => `₹${parseFloat(v || 0).toFixed(2)}` },
-    { title: 'Amount', width: 100, align: 'right',
-      render: (_, r) => `₹${(parseFloat(r.quantity || 0) * parseFloat(r.sale_rate || 0)).toFixed(2)}` },
+    { title: '#', width: 36, render: (_, __, i) => i + 1 },
+    { title: 'Product', dataIndex: 'product_name', ellipsis: true },
+    { title: 'Barcode', dataIndex: 'barcode', width: 110,
+      render: v => v ? <span style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 11.5 }}>{v}</span> : <span style={{ color: 'var(--fg-tertiary)' }}>—</span> },
+    { title: 'Size',  dataIndex: 'size',  width: 70, render: v => v || <span style={{ color: 'var(--fg-tertiary)' }}>—</span> },
+    { title: 'Qty',   dataIndex: 'quantity', width: 70, align: 'right',
+      render: v => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{parseFloat(v || 0).toFixed(2)}</span> },
+    { title: 'Rate',  dataIndex: 'rate',     width: 100, align: 'right',
+      render: v => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(v)}</span> },
+    { title: 'Amount', width: 110, align: 'right',
+      render: (_, r) => <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+        {fmt(parseFloat(r.quantity || 0) * parseFloat(r.rate || 0))}
+      </span> },
   ];
 
+  // Title block — bill number with the status tag inline, plus the date
+  // pinned right. Replaces the previous plain "Sales Bill — 1027" string
+  // so the modal header carries the same context the list row does.
+  const titleBlock = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.01em' }}>
+        Sales Bill <span style={{ color: 'var(--fg-tertiary)', fontWeight: 500 }}>#</span>{bill.bill_number}
+      </span>
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '2px 9px', borderRadius: 6,
+        fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
+        color: tone.fg, background: tone.bg, border: `1px solid ${tone.br}`,
+      }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: tone.fg }} />
+        {bill.payment_status}
+      </span>
+      <span style={{
+        marginLeft: 'auto', fontSize: 12.5, color: 'var(--fg-tertiary)',
+        fontVariantNumeric: 'tabular-nums',
+      }}>
+        {dayjs(bill.bill_date).format('DD MMM YYYY')}
+      </span>
+    </div>
+  );
+
   return (
-    <Modal open onCancel={onClose} width={960} footer={null}
-      title={<span style={{ fontWeight: 700 }}>Sales Bill — {bill.bill_number}</span>}
-      styles={{ body: { padding: '16px 24px' } }}>
+    <Modal open onCancel={onClose} width={920} footer={null}
+      title={titleBlock}
+      styles={{ body: { padding: '8px 24px 20px' } }}>
 
-      <Descriptions size="small" bordered column={2} style={{ marginBottom: 16 }}>
-        <Descriptions.Item label="Bill No">{bill.bill_number}</Descriptions.Item>
-        <Descriptions.Item label="Date">{dayjs(bill.bill_date).format('DD-MMM-YYYY')}</Descriptions.Item>
-        <Descriptions.Item label="Customer">{
-          (() => {
-            const n = bill.customer?.party_name;
-            const isCash = !n || bill.customer?.is_system_cash;
-            const w = String(bill.walk_in_name || '').trim();
-            return isCash ? `Cash${w ? ` — ${w}` : ''}` : n;
-          })()
-        }</Descriptions.Item>
-        <Descriptions.Item label="Status">
-          <Tag color={bill.payment_status === 'Paid' ? 'green' : bill.payment_status === 'Partial' ? 'orange' : 'red'}>
-            {bill.payment_status}
-          </Tag>
-        </Descriptions.Item>
-        {bill.payment_method && (
-          <Descriptions.Item label="Payment Method">{bill.payment_method}</Descriptions.Item>
-        )}
-        {bill.remarks && (
-          <Descriptions.Item label="Remarks" span={bill.payment_method ? 1 : 2}>{bill.remarks}</Descriptions.Item>
-        )}
-      </Descriptions>
+      {/* Meta block — replaces the AntD Descriptions grid. Reads as a
+          two-column label/value list with uppercase micro labels, same
+          rhythm the rest of the app's detail surfaces use. */}
+      <div style={{ padding: '6px 0 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <MetaRow label="Customer">{customerLabel}</MetaRow>
+        {bill.payment_method && <MetaRow label="Payment Method">{bill.payment_method}</MetaRow>}
+        {bill.remarks && <MetaRow label="Remarks">{bill.remarks}</MetaRow>}
+      </div>
 
-      <Table columns={itemColumns} dataSource={items} rowKey="sales_bill_item_id"
-        pagination={false} size="small" scroll={{ x: 600 }} />
+      {/* Items table — tabular-nums on every right-aligned column so the
+          rupee figures line up on the decimal. Bold amount column so the
+          eye lands on the line totals first. */}
+      <div className="erp-view-items" style={{ margin: '14px 0 4px' }}>
+        <div style={{
+          fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+          color: 'var(--fg-tertiary)', fontWeight: 500, marginBottom: 6,
+        }}>Items · {items.length}</div>
+        <Table columns={itemColumns} dataSource={items} rowKey="sales_bill_item_id"
+          pagination={false} size="small" scroll={{ x: 600 }} />
+      </div>
 
-      <Divider style={{ margin: '12px 0' }} />
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <div style={{ width: 300 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+        <div style={{ width: 320 }}>
           <SummaryRow label="Sub Total" value={fmt(bill.sub_total)} />
           {discount > 0 && (
             <SummaryRow label={`Discount${bill.discount_percentage > 0 ? ` (${bill.discount_percentage}%)` : ''}`}
