@@ -6,6 +6,7 @@ import {
 import {
   PlusOutlined, SearchOutlined,
   SettingOutlined, PauseCircleOutlined,
+  PrinterOutlined, WhatsAppOutlined, FilePdfOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -143,31 +144,41 @@ function ViewModal({ bill, onClose }) {
       </span> },
   ];
 
-  // Title block — bill number with the status tag inline, plus the date
-  // pinned right. Replaces the previous plain "Sales Bill — 1027" string
-  // so the modal header carries the same context the list row does.
+  // Title block — bill number is the hero, with the status pill inline
+  // and the date pinned right. The "Sales Bill" label is uppercase
+  // microtext so the number reads as the primary identifier, the way
+  // an invoice's bill number usually does on paper. Accent underline
+  // ties the title to the rest of the chrome.
   const titleBlock = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.01em' }}>
-        Sales Bill <span style={{ color: 'var(--fg-tertiary)', fontWeight: 500 }}>#</span>{bill.bill_number}
-      </span>
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6,
-        padding: '2px 9px', borderRadius: 6,
-        fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
-        color: tone.fg, background: tone.bg, border: `1px solid ${tone.br}`,
-      }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: tone.fg }} />
-        {bill.payment_status}
-      </span>
-      <span style={{
-        marginLeft: 'auto', fontSize: 12.5, color: 'var(--fg-tertiary)',
-        fontVariantNumeric: 'tabular-nums',
-      }}>
+    <div className="erp-bill-title">
+      <div className="erp-bill-title-text">
+        <span className="erp-bill-title-eyebrow">Sales Bill</span>
+        <span className="erp-bill-title-number">#{bill.bill_number}</span>
+        <span className="erp-bill-title-pill" style={{
+          color: tone.fg, background: tone.bg, border: `1px solid ${tone.br}`,
+        }}>
+          <span className="erp-bill-title-pill-dot" style={{ background: tone.fg }} />
+          {bill.payment_status}
+        </span>
+      </div>
+      <span className="erp-bill-title-date">
         {dayjs(bill.bill_date).format('DD MMM YYYY')}
       </span>
     </div>
   );
+
+  // The hero amount on the left of the summary section. When the bill is
+  // settled (no balance), the hero shows the full Total. When it's still
+  // open (Partial / Unpaid), the hero shows Balance Due — that's the
+  // operator's primary question every time they open the viewer: "what
+  // do I still need to collect?". Colour matches the urgency of that
+  // answer (green when settled, red when due).
+  const heroIsBalance = balance > 0.005;
+  const heroLabel = heroIsBalance ? 'Balance Due' : 'Total Settled';
+  const heroValue = heroIsBalance ? balance : parseFloat(bill.total_amount || 0);
+  const heroColor = heroIsBalance ? '#EF4444' : '#34D399';
+  const heroBg    = heroIsBalance ? 'rgba(239, 68, 68, 0.08)' : 'rgba(52, 211, 153, 0.08)';
+  const heroBr    = heroIsBalance ? 'rgba(239, 68, 68, 0.22)' : 'rgba(52, 211, 153, 0.22)';
 
   return (
     <Modal open onCancel={onClose} width={1000} footer={null}
@@ -210,11 +221,57 @@ function ViewModal({ bill, onClose }) {
             pagination={false} size="small" scroll={{ x: 600 }} />
         </div>
 
-        {/* Summary — sticks to the modal's bottom edge, always visible
-            even when items overflow. Border-top + subtle backdrop tints
-            mark it as a separate zone from the scrolling list above. */}
+        {/* Summary — sticks to the modal's bottom edge. Two-column layout:
+            hero amount + actions on the left (operator's primary
+            question — "what's still due?" or "this is settled"), full
+            breakdown on the right. Subtle accent border on the hero
+            card and a tinted backdrop on the whole footer mark it as a
+            distinct zone from the scrolling items above. */}
         <div className="erp-bill-summary">
-          <div className="erp-bill-summary-inner">
+          {/* Hero card — fills what used to be empty space on the left.
+              Color-coded by status: red bg when there's a balance due,
+              green when settled. Big amount, action buttons below. */}
+          <div className="erp-bill-hero" style={{
+            background: heroBg, borderColor: heroBr,
+          }}>
+            <div className="erp-bill-hero-label">{heroLabel}</div>
+            <div className="erp-bill-hero-amount" style={{ color: heroColor }}>
+              {fmt(heroValue)}
+            </div>
+            {heroIsBalance && (
+              <div className="erp-bill-hero-sub">
+                of <strong>{fmt(bill.total_amount)}</strong>
+                <span className="erp-bill-hero-sub-sep">·</span>
+                <span style={{ color: '#34D399' }}>{fmt(bill.paid_amount)} paid</span>
+              </div>
+            )}
+            {/* Quick actions — same handlers the list-row triple uses
+                (printDocument / exportBillPDF / shareBillViaWhatsApp).
+                Keeps the viewer self-sufficient: operator can act on
+                the bill without dismissing the modal to reach the row. */}
+            <div className="erp-bill-hero-actions">
+              <button type="button" className="erp-bill-hero-btn"
+                onClick={() => printDocument({ docType: 'sales', id: bill.sales_bill_id })}
+                title="Print bill (F9)">
+                <PrinterOutlined /> Print
+              </button>
+              <button type="button" className="erp-bill-hero-btn"
+                onClick={() => exportBillPDF({ docType: 'sales', bill })}
+                title="Export PDF (F10)">
+                <FilePdfOutlined /> PDF
+              </button>
+              <button type="button" className="erp-bill-hero-btn"
+                onClick={() => shareBillViaWhatsApp({ docType: 'sales', bill })}
+                title="Share via WhatsApp (F7)">
+                <WhatsAppOutlined /> Share
+              </button>
+            </div>
+          </div>
+
+          {/* Breakdown — every line that contributes to the Total, with
+              a clear visual break before Total/Paid/Balance which are
+              the bottom-line numbers. */}
+          <div className="erp-bill-breakdown">
             <SummaryRow label="Sub Total" value={fmt(bill.sub_total)} />
             {discount > 0 && (
               <SummaryRow label={`Discount${bill.discount_percentage > 0 ? ` (${bill.discount_percentage}%)` : ''}`}
@@ -227,9 +284,9 @@ function ViewModal({ bill, onClose }) {
             {roundOff !== 0 && (<SummaryRow label="Round Off" value={roundOff.toFixed(2)} />)}
             <SummaryRow label="Total" value={fmt(bill.total_amount)} bold borderTop />
             {returnAmt > 0 && (<SummaryRow label="Return Amount" value={`- ${fmt(returnAmt)}`} color="#7c3aed" />)}
-            <SummaryRow label="Paid" value={fmt(bill.paid_amount)} color="#16a34a" />
+            <SummaryRow label="Paid" value={fmt(bill.paid_amount)} color="#34D399" />
             <SummaryRow label="Balance Due" value={fmt(bill.balance_amount)}
-              color={balance > 0 ? '#dc2626' : '#16a34a'} bold borderTop />
+              color={balance > 0 ? '#EF4444' : '#34D399'} bold borderTop />
           </div>
         </div>
       </div>
