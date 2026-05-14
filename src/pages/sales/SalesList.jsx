@@ -17,6 +17,7 @@ import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-list.css';
+import './sales-view-modal.css';
 // Pulled in solely for the `.sbf-drafts-*` editorial drafts-modal
 // classes so the Drafts dialog here matches the SalesBillForm version.
 import './sales-bill-form.css';
@@ -169,48 +170,67 @@ function ViewModal({ bill, onClose }) {
   );
 
   return (
-    <Modal open onCancel={onClose} width={920} footer={null}
+    <Modal open onCancel={onClose} width={1000} footer={null}
       title={titleBlock}
-      styles={{ body: { padding: '8px 24px 20px' } }}>
+      className="erp-bill-view"
+      /* Padding zeroed on the body so our internal flex column owns the
+         spacing — needed because the inner Items section has to scroll
+         independently of the (always-visible) meta header and summary
+         footer. */
+      styles={{ body: { padding: 0 } }}>
 
-      {/* Meta block — replaces the AntD Descriptions grid. Reads as a
-          two-column label/value list with uppercase micro labels, same
-          rhythm the rest of the app's detail surfaces use. */}
-      <div style={{ padding: '6px 0 12px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <MetaRow label="Customer">{customerLabel}</MetaRow>
-        {bill.payment_method && <MetaRow label="Payment Method">{bill.payment_method}</MetaRow>}
-        {bill.remarks && <MetaRow label="Remarks">{bill.remarks}</MetaRow>}
-      </div>
+      {/* Inner shell: column laid out as [meta · scrollable items · sticky
+          summary]. max-height keeps tall bills (29+ items, as in the
+          screenshot that drove this rewrite) from running off the viewport
+          — instead the items section gets its own scroll affordance and
+          the totals stay anchored to the bottom edge of the modal. */}
+      <div className="erp-bill-shell">
 
-      {/* Items table — tabular-nums on every right-aligned column so the
-          rupee figures line up on the decimal. Bold amount column so the
-          eye lands on the line totals first. */}
-      <div className="erp-view-items" style={{ margin: '14px 0 4px' }}>
-        <div style={{
-          fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
-          color: 'var(--fg-tertiary)', fontWeight: 500, marginBottom: 6,
-        }}>Items · {items.length}</div>
-        <Table columns={itemColumns} dataSource={items} rowKey="sales_bill_item_id"
-          pagination={false} size="small" scroll={{ x: 600 }} />
-      </div>
+        {/* Meta block — never scrolls. */}
+        <div className="erp-bill-meta">
+          <MetaRow label="Customer">{customerLabel}</MetaRow>
+          {bill.payment_method && <MetaRow label="Payment Method">{bill.payment_method}</MetaRow>}
+          {bill.remarks && <MetaRow label="Remarks">{bill.remarks}</MetaRow>}
+        </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-        <div style={{ width: 320 }}>
-          <SummaryRow label="Sub Total" value={fmt(bill.sub_total)} />
-          {discount > 0 && (
-            <SummaryRow label={`Discount${bill.discount_percentage > 0 ? ` (${bill.discount_percentage}%)` : ''}`}
-              value={`- ${fmt(discount)}`} color="#d97706" />
+        {/* Items header — always visible above the scrollable list. */}
+        <div className="erp-bill-items-head">
+          <span className="erp-bill-microlabel">Items · {items.length}</span>
+          {items.length > 8 && (
+            <span className="erp-bill-microhint">scroll for more ↓</span>
           )}
-          {igst > 0 && (<SummaryRow label={`IGST${bill.igst_pct > 0 ? ` (${bill.igst_pct}%)` : ''}`} value={fmt(igst)} />)}
-          {cgst > 0 && (<SummaryRow label={`CGST${bill.cgst_pct > 0 ? ` (${bill.cgst_pct}%)` : ''}`} value={fmt(cgst)} />)}
-          {sgst > 0 && (<SummaryRow label={`SGST${bill.sgst_pct > 0 ? ` (${bill.sgst_pct}%)` : ''}`} value={fmt(sgst)} />)}
-          {totalGst === 0 && parseFloat(bill.gst_amount || 0) > 0 && (<SummaryRow label="GST" value={fmt(bill.gst_amount)} />)}
-          {roundOff !== 0 && (<SummaryRow label="Round Off" value={roundOff.toFixed(2)} />)}
-          <SummaryRow label="Total" value={fmt(bill.total_amount)} bold borderTop />
-          {returnAmt > 0 && (<SummaryRow label="Return Amount" value={`- ${fmt(returnAmt)}`} color="#7c3aed" />)}
-          <SummaryRow label="Paid" value={fmt(bill.paid_amount)} color="#16a34a" />
-          <SummaryRow label="Balance Due" value={fmt(bill.balance_amount)}
-            color={balance > 0 ? '#dc2626' : '#16a34a'} bold borderTop />
+        </div>
+
+        {/* Items table — the only thing that scrolls. flex: 1 + overflow:
+            auto on the wrapper lets it absorb whatever vertical space the
+            modal has left after meta + summary claim theirs. Compact rows
+            (32 px) so a many-line bill stays scannable. */}
+        <div className="erp-bill-items-scroll">
+          <Table columns={itemColumns} dataSource={items} rowKey="sales_bill_item_id"
+            pagination={false} size="small" scroll={{ x: 600 }} />
+        </div>
+
+        {/* Summary — sticks to the modal's bottom edge, always visible
+            even when items overflow. Border-top + subtle backdrop tints
+            mark it as a separate zone from the scrolling list above. */}
+        <div className="erp-bill-summary">
+          <div className="erp-bill-summary-inner">
+            <SummaryRow label="Sub Total" value={fmt(bill.sub_total)} />
+            {discount > 0 && (
+              <SummaryRow label={`Discount${bill.discount_percentage > 0 ? ` (${bill.discount_percentage}%)` : ''}`}
+                value={`- ${fmt(discount)}`} color="#d97706" />
+            )}
+            {igst > 0 && (<SummaryRow label={`IGST${bill.igst_pct > 0 ? ` (${bill.igst_pct}%)` : ''}`} value={fmt(igst)} />)}
+            {cgst > 0 && (<SummaryRow label={`CGST${bill.cgst_pct > 0 ? ` (${bill.cgst_pct}%)` : ''}`} value={fmt(cgst)} />)}
+            {sgst > 0 && (<SummaryRow label={`SGST${bill.sgst_pct > 0 ? ` (${bill.sgst_pct}%)` : ''}`} value={fmt(sgst)} />)}
+            {totalGst === 0 && parseFloat(bill.gst_amount || 0) > 0 && (<SummaryRow label="GST" value={fmt(bill.gst_amount)} />)}
+            {roundOff !== 0 && (<SummaryRow label="Round Off" value={roundOff.toFixed(2)} />)}
+            <SummaryRow label="Total" value={fmt(bill.total_amount)} bold borderTop />
+            {returnAmt > 0 && (<SummaryRow label="Return Amount" value={`- ${fmt(returnAmt)}`} color="#7c3aed" />)}
+            <SummaryRow label="Paid" value={fmt(bill.paid_amount)} color="#16a34a" />
+            <SummaryRow label="Balance Due" value={fmt(bill.balance_amount)}
+              color={balance > 0 ? '#dc2626' : '#16a34a'} bold borderTop />
+          </div>
         </div>
       </div>
     </Modal>

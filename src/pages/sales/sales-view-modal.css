@@ -1,0 +1,147 @@
+/* ===========================================================================
+ * sales-view-modal.css — the read-only Sales Bill viewer.
+ *
+ * Three-zone column inside the modal body:
+ *
+ *   ┌──────────────────────────────┐
+ *   │ Meta (customer, payment …)   │  ← fixed, never scrolls
+ *   ├──────────────────────────────┤
+ *   │ Items · N                    │  ← fixed header label
+ *   │ ┌──────────────────────────┐ │
+ *   │ │ table rows · scrollable  │ │  ← only this scrolls
+ *   │ └──────────────────────────┘ │
+ *   ├──────────────────────────────┤
+ *   │ Sub Total / Total / Paid     │  ← sticky, always visible
+ *   │ Balance Due                  │
+ *   └──────────────────────────────┘
+ *
+ * Why: the old layout grew unbounded with the items list. A 29-line bill
+ * pushed the totals below the viewport, defeating the purpose of the
+ * viewer (operator opens it to check the bill summary, not to scroll
+ * forever past identical line items).
+ * ========================================================================== */
+
+/* Constrain the AntD modal to a sensible max height. dvh handles dynamic
+   viewport chrome on Electron + browsers. */
+.erp-bill-view .ant-modal { top: 6vh; }
+.erp-bill-view .ant-modal-body { display: flex; }
+
+.erp-bill-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  /* 78 dvh = generous on a 13" 768 px display, comfortable on 27" 1440 p.
+     The header (~52 px) + footer (auto) live inside; only the items
+     section consumes the remainder. */
+  max-height: min(78dvh, 720px);
+}
+
+/* ── Meta block (Customer · Payment Method · Remarks) ──────────────────── */
+.erp-bill-meta {
+  flex-shrink: 0;
+  padding: 14px 24px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ── Items header (uppercase micro-label) ──────────────────────────────── */
+.erp-bill-items-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 24px 6px;
+}
+.erp-bill-microlabel {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  font-weight: 500;
+}
+.erp-bill-microhint {
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  opacity: 0.65;
+  font-style: italic;
+}
+
+/* ── Scrollable items table ────────────────────────────────────────────── */
+.erp-bill-items-scroll {
+  flex: 1 1 auto;
+  min-height: 120px;        /* always show at least a couple rows */
+  overflow-y: auto;
+  padding: 0 24px;
+}
+/* Tighten the AntD table chrome — many-row bills get noisy with the
+   default 16 px row padding. */
+.erp-bill-items-scroll .ant-table-thead > tr > th {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  padding: 8px 10px;
+  background: transparent !important;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+/* The sticky header needs a backdrop so rows don't bleed through it
+   when scrolling. Use the modal's elevated bg. */
+.erp-bill-items-scroll .ant-table-thead > tr > th::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--bg-elevated);
+  z-index: -1;
+  border-bottom: 1px solid var(--border);
+}
+.erp-bill-items-scroll .ant-table-tbody > tr > td {
+  padding: 8px 10px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.erp-bill-items-scroll .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+/* Zebra stripes for many-row bills — every other row a hair lighter so
+   the eye can follow a row across without losing column position. */
+.erp-bill-items-scroll .ant-table-tbody > tr:nth-child(even) > td {
+  background: rgba(255, 255, 255, 0.012);
+}
+/* Subtle scrollbar styling — matches the rest of the dark chrome. */
+.erp-bill-items-scroll::-webkit-scrollbar { width: 8px; }
+.erp-bill-items-scroll::-webkit-scrollbar-track { background: transparent; }
+.erp-bill-items-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
+}
+.erp-bill-items-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ── Sticky summary footer ─────────────────────────────────────────────── */
+.erp-bill-summary {
+  flex-shrink: 0;
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-muted, rgba(0, 0, 0, 0.10));
+  display: flex;
+  justify-content: flex-end;
+}
+.erp-bill-summary-inner {
+  width: 320px;
+  max-width: 100%;
+}
+
+/* Light-theme polish — the dark zebra stripes look wrong on light themes,
+   so override with the inverse. */
+[data-theme$="-light"] .erp-bill-items-scroll .ant-table-tbody > tr:nth-child(even) > td {
+  background: rgba(0, 0, 0, 0.018);
+}
+[data-theme$="-light"] .erp-bill-items-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+[data-theme$="-light"] .erp-bill-items-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
