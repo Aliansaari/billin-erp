@@ -396,34 +396,40 @@
 }
 
 /* ── Footer ────────────────────────────────────────────────────────────── */
+/* Four scope-prefix hints, centred. Universal shortcuts (↑↓ / ↵ / esc) are
+   deliberately absent — everyone knows them, and the footer should signal
+   only what's discoverable nowhere else. The /-prefixes are: two keys
+   total (no shift), conventional (Slack / Discord), and distinguishable
+   from a literal query. */
 .gs-footer {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 8px 18px;
+  justify-content: center;
+  gap: 22px;
+  padding: 9px 18px;
   border-top: 1px solid var(--border-subtle);
   background: var(--bg-muted);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--fg-tertiary);
+  letter-spacing: -0.003em;
 }
-.gs-footer-spacer { flex: 1; }
-.gs-footer-brand {
-  font-style: italic;
-  letter-spacing: 0.2px;
-}
-.gs-footer-hint {
+.gs-footer-tip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--fg-tertiary);
-  font-size: 11px;
 }
-.gs-footer-hint .gs-kbd { margin: 0 1px; }
-/* Hide the hint on narrow chrome — keeps the footer one line. */
-@media (max-width: 620px) {
-  .gs-footer-hint { display: none; }
+.gs-footer-tip .gs-kbd {
+  /* Slightly bolder than the row-meta kbd so the prefix reads as a label
+     not a footnote. */
+  font-weight: 600;
 }
+/* Hero variant (home-page card) has its own footer rule — hide ours. */
 .gs-hero .gs-footer { display: none; }
+/* Very narrow chrome — tighten gaps so the row stays one line. */
+@media (max-width: 520px) {
+  .gs-footer { gap: 14px; font-size: 11px; }
+  .gs-footer-tip { gap: 4px; }
+}
 
 /* ── Modal overlay ─────────────────────────────────────────────────────── */
 .gs-modal-backdrop {
@@ -571,7 +577,11 @@
 }
 .gs-trigger-pill .gs-trigger-label { font-size: 12.5px; }
 
-/* Wide — fills the sidebar column. Reads as a fake search input. */
+/* Wide — legacy variant from when the sidebar rendered a fake-input look.
+   The sidebar now uses the SAME pill variant the topbar uses (see the
+   .erp-sidebar-tools override below) so chrome is consistent across
+   layouts. Wide is kept defined in case any future surface wants the
+   full-width input feel, but no caller uses it as of this commit. */
 .gs-trigger-wide {
   height: 36px;
   width: 100%;
@@ -580,17 +590,34 @@
 }
 .gs-trigger-wide .gs-trigger-kbd { margin-left: auto; }
 
-/* Icon — collapsed-sidebar form. 34px square, magnifier only. */
+/* Sidebar override — when the pill sits inside the tools row, drop the
+   220 px min-width and let it flex-fill the narrow column. The kbd hint
+   pushes to the right edge so the layout reads identical to the topbar
+   pill, just stretched to fit. */
+.erp-sidebar-tools .gs-trigger-pill {
+  min-width: 0;
+  flex: 1;
+  padding: 0 10px 0 12px;
+}
+.erp-sidebar-tools .gs-trigger-pill .gs-trigger-kbd {
+  margin-left: auto;
+}
+
+/* Icon — collapsed-sidebar form. Same 40×40 footprint as the company
+   icon button so the tools rail (company · search · bell) reads as one
+   row rhythm; previously 34×34 which made the search look like the
+   small kid between the 40 px company and 42 px menu icons. */
 .gs-trigger-icon {
-  width: 34px; height: 34px;
+  width: 40px; height: 40px;
   display: inline-grid; place-items: center;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
   border: 1px solid transparent;
   color: rgba(255, 255, 255, 0.78);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
+  margin: 0 auto;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .gs-trigger-icon:hover {

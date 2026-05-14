@@ -25,7 +25,7 @@ import {
   EditOutlined, DeleteOutlined, EyeInvisibleOutlined, CheckCircleOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { bankAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
@@ -49,6 +49,22 @@ export default function BankList() {
   // Modal state — shared between Add (bank=null) and Edit (bank=row).
   const [modalOpen, setModalOpen] = useState(false);
   const [editing,   setEditing]   = useState(null);
+
+  // Deep-link → /banks?new=1 auto-opens the add-bank modal. Mirrors the
+  // convention PartyListView (L114), ProductList (L177), and CategoryList
+  // (L48) already use, so the MasterChooser (Cmd+Shift+N → Bank) can land
+  // here and trigger the same "New" modal that F3 does. Strip the param
+  // after firing so a page refresh doesn't reopen.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setEditing(null);
+      setModalOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('new');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // Pass include_inactive=true so the management page sees retired
   // banks too (with an "Inactive" badge); the picker (BankLedgerSelect)

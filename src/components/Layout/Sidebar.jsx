@@ -301,35 +301,46 @@ export default function Sidebar({ collapsed, setCollapsed }) {
 
         {/* Company switcher — auto-hidden when only one company exists,
             so single-company installs see no extra UI clutter. Tally-style
-            pill that opens a dropdown of every company + Manage link. */}
-        <div style={{ padding: collapsed ? '4px 8px 8px' : '0 12px 10px' }}>
+            pill that opens a dropdown of every company + Manage link.
+            Collapsed padding is 4 px symmetrical so every row in the
+            icon column reads as the same rhythm (was 8 px bottom which
+            created a visible hole above the search). */}
+        <div style={{ padding: collapsed ? '4px 8px' : '0 12px 10px' }}>
           <CompanySwitcher collapsed={collapsed} />
         </div>
 
         {/* Search affordance — sits between the company switcher and the
             menu so it reads as a primary verb, not a utility. Collapsed
-            sidebar renders the icon form; expanded gets the fake-input
-            "Search… ⌘K" pill. The notification bell rides alongside so
-            both primary "always-available" surfaces share the same row. */}
+            sidebar renders the icon form; expanded uses the same pill
+            variant the topbar uses (34 px tall, kbd hint right-aligned)
+            so the chrome is consistent across both layouts.
+            The notification bell used to ride alongside here; it moved to
+            the bottom of the sidebar — closer to the user-avatar pill,
+            matching the "personal cluster" convention in Slack / Discord
+            / Linear, and leaving the top tools row for the search verb
+            alone. */}
         <div
           className="erp-sidebar-tools"
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: collapsed ? 4 : 6,
-            padding: collapsed ? '0 8px 8px' : '0 12px 10px',
+            /* Collapsed: 4 px symmetrical so search icon sits in the same
+               rhythm as company icon above and menu icons below — was
+               '0 8px 8px' which stacked with the menu region's 8 px top
+               padding into a 16 px hole between search and home. */
+            padding: collapsed ? '4px 8px' : '0 12px 10px',
           }}
         >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <GlobalSearchTrigger variant={collapsed ? 'icon' : 'wide'} />
-          </div>
-          <NotificationBell align="left" />
+          <GlobalSearchTrigger variant={collapsed ? 'icon' : 'pill'} />
         </div>
 
         {/* ── Scrollable menu region ── */}
         <div className="erp-sidebar-scroll">
           {collapsed ? (
-            <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            /* 4 px top/bottom (was 8) so the menu rail's outer rhythm
+               matches the other collapsed rows. The 2 px gap between
+               icons inside stays. */
+            <div style={{ padding: '4px 0', display: 'flex', flexDirection: 'column', gap: 2 }}>
               {visibleItems.map(item => (
                 <CollapsedItem
                   key={item.key}
@@ -351,6 +362,17 @@ export default function Sidebar({ collapsed, setCollapsed }) {
               style={{ borderRight: 0, padding: '8px 4px', background: 'transparent' }}
             />
           )}
+        </div>
+
+        {/* Notification bell — relocated from the top tools row. Sits
+            just above the theme toggle so it groups with the "personal"
+            chrome (theme + avatar) at the bottom rather than the
+            "primary verbs" (search + workspace) at the top. Collapsed
+            sidebar renders a single centred icon; expanded gives it a
+            short row of its own. The bell component handles its own
+            badge / dropdown / unread polling; we just place it. */}
+        <div className={`erp-sidebar-notif${collapsed ? ' collapsed' : ''}`}>
+          <NotificationBell align="left" />
         </div>
 
         {/* ── Sticky bottom: theme toggle + layout toggle + user avatar ── */}

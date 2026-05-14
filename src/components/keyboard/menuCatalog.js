@@ -40,10 +40,17 @@ export const ALT_MENUS = {
     title: 'Sales',
     anchorKey: 'sales-menu',
     items: [
-      { letter: 'S', label: 'Sale',              sub: 'New customer invoice', route: '/sale/new' },
-      { letter: 'L', label: 'Sales List',        sub: 'All customer bills',   route: '/sales' },
-      { letter: 'N', label: 'New Sales Return',  sub: 'Credit note',          route: '/sales-return/new' },
-      { letter: 'R', label: 'Sales Returns',     sub: 'All credit notes',     route: '/sales-returns' },
+      { letter: 'S', label: 'Sale',              sub: 'New customer invoice',    route: '/sale/new' },
+      { letter: 'L', label: 'Sales List',        sub: 'All customer bills',      route: '/sales' },
+      // C for Collection / Cash-in (R is taken by Sales Returns below).
+      // The standalone Alt+M Payments menu was retired; receipts live
+      // here now so the natural sale→receive-money flow is one menu,
+      // not two. Ctrl+N still works as a direct shortcut to /receipt/new
+      // for operators who skip the menu entirely.
+      { letter: 'C', label: 'Receipt',           sub: 'Money in from customer',  route: '/receipt/new' },
+      { letter: 'T', label: 'Receipt List',      sub: 'All receipts received',   route: '/payments?transaction_type=Receipt' },
+      { letter: 'N', label: 'New Sales Return',  sub: 'Credit note',             route: '/sales-return/new' },
+      { letter: 'R', label: 'Sales Returns',     sub: 'All credit notes',        route: '/sales-returns' },
     ],
   },
 
@@ -51,10 +58,15 @@ export const ALT_MENUS = {
     title: 'Purchase',
     anchorKey: 'purchase-menu',
     items: [
-      { letter: 'P', label: 'Purchase',             sub: 'New supplier bill',  route: '/purchase/new' },
-      { letter: 'L', label: 'Purchase List',        sub: 'All supplier bills', route: '/purchases' },
-      { letter: 'N', label: 'New Purchase Return',  sub: 'Debit note',         route: '/purchase-return/new' },
-      { letter: 'R', label: 'Purchase Returns',     sub: 'All debit notes',    route: '/purchase-returns' },
+      { letter: 'P', label: 'Purchase',             sub: 'New supplier bill',      route: '/purchase/new' },
+      { letter: 'L', label: 'Purchase List',        sub: 'All supplier bills',     route: '/purchases' },
+      // M for Money-out / Make Payment. Mirrors C in the Sales menu — both
+      // sit one row below their list, both route into the Payments module
+      // but live here because that's the operator's mental model.
+      { letter: 'M', label: 'Payment',              sub: 'Money out to supplier',  route: '/payment/new' },
+      { letter: 'T', label: 'Payment List',         sub: 'All payments made',      route: '/payments?transaction_type=Payment' },
+      { letter: 'N', label: 'New Purchase Return',  sub: 'Debit note',             route: '/purchase-return/new' },
+      { letter: 'R', label: 'Purchase Returns',     sub: 'All debit notes',        route: '/purchase-returns' },
     ],
   },
 
@@ -88,15 +100,12 @@ export const ALT_MENUS = {
     ],
   },
 
-  KeyM: {
-    title: 'Payments',
-    anchorKey: 'payments-menu',
-    items: [
-      { letter: 'P', label: 'Make Payment',     sub: 'Money out',          route: '/payment/new' },
-      { letter: 'R', label: 'Receive Payment',  sub: 'Money in',           route: '/receipt/new' },
-      { letter: 'A', label: 'All Transactions', sub: 'Payments & Receipts',route: '/payments' },
-    ],
-  },
+  // Alt+M (Payments menu) retired — Receipt moved to Alt+S → C, Payment
+  // moved to Alt+P → M, the unified transactions list is reachable from
+  // either (Alt+S → T for receipts, Alt+P → T for payments). The direct
+  // CTRL_DIRECT['KeyM'] = '/payment/new' below stays put — Ctrl+M still
+  // jumps straight to the payment form for operators who want a single
+  // chord, no menu.
 
   KeyB: {
     title: 'Bank',
@@ -110,7 +119,11 @@ export const ALT_MENUS = {
   },
 
   KeyA: {
-    title: 'Accounts',
+    // Title shown in the Alt+A popup header. Internal anchorKey stays
+    // 'accounts-menu' so it still resolves to the sidebar's accounts-menu
+    // anchor after the rename — the user-visible label is the only thing
+    // that changed.
+    title: 'Books',
     anchorKey: 'accounts-menu',
     items: [
       { letter: 'J', label: 'New Journal',      sub: 'Manual entry',     route: '/accounts/journal/new' },
@@ -143,14 +156,17 @@ export const ALT_MENUS = {
     ],
   },
 
-  // Alt+T = se**T**tings (S is taken by Sales). Single item — opens
-  // the Settings hub directly. Inside the hub, the rail navigates
-  // between the individual setting pages.
+  // Alt+T = se**T**tings (S is taken by Sales). Single-item menu where
+  // anchorKey === items[0].route — useGlobalShortcuts detects this and
+  // skips the popup, navigating directly. Matches the click behaviour
+  // of the gear icon, which is also a direct-navigate after Settings
+  // was collapsed from a parent-with-children to a single leaf in
+  // menuConfig.
   KeyT: {
     title: 'Settings',
-    anchorKey: 'settings-menu',
+    anchorKey: '/settings/company',
     items: [
-      { letter: 'S', label: 'Settings', sub: 'All settings', route: '/settings' },
+      { letter: 'S', label: 'Settings', sub: 'Company · users · theme · backup', route: '/settings/company' },
     ],
   },
 };

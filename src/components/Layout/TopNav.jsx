@@ -15,6 +15,7 @@ import { useMenuPopup } from '../keyboard/MenuPopup';
 import useFilteredAltMenus from '../../hooks/useFilteredAltMenus';
 import { GlobalSearchTrigger } from '../GlobalSearch';
 import { NotificationBell } from '../Notifications';
+import CompanySwitcher from '../CompanySwitcher';
 import './top-nav.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -196,7 +197,16 @@ export default function TopNav() {
         <ThunderboltOutlined className="brand-icon" />
       </button>
 
+      {/* Company switcher — was sidebar-only before; surfacing it here means
+          horizontal-mode users can see + switch the active company without
+          flipping layouts. Auto-hides when only one company exists, so
+          single-company installs see no clutter. F9 still opens the
+          dropdown from anywhere. */}
+      <span className="erp-topnav-rule" aria-hidden="true" />
+      <CompanySwitcher />
+
       {/* Main menu — hugs its content, doesn't stretch the bar. */}
+      <span className="erp-topnav-rule" aria-hidden="true" />
       <nav className="erp-topnav-menu" aria-label="Primary">
         {visibleItems.map(renderItem)}
       </nav>

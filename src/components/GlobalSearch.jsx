@@ -347,17 +347,26 @@ function stripVoucherPrefix(q) {
 /* ──────────────────────────────────────────────────────────────────────────
  * Scope prefixes — narrow the palette to one kind of result.
  *
- * Two forms, both intentionally easy to type from muscle memory:
- *   - "letter:" colon form  →  c:apex, s:tata, p:hp, l:bank, r:gst, a:sale
- *   - ">" alone or "> q"    →  same as a:q, lifted from VS Code's idiom
- *   - "#<number>"           →  voucher-jump heuristic (handled in #5 below)
+ * Slash form (the one shown in the footer, the one users actually type):
+ *   /c apex   → customer scope, query "apex"
+ *   /s tata   → supplier scope
+ *   /p hp     → product scope
+ *   /l bank   → ledger scope
+ *   /r gst    → report scope
+ *   /a sale   → actions / command scope
  *
- * Why the colon and not a bare letter+space: a real query that begins with
- * "c " (e.g. "c hand drill" → "C hand drill") would otherwise vanish under
- * a scope filter the operator never asked for. Forcing the colon makes the
- * intent unambiguous. The ">" form is reserved enough not to clash.
+ * "/" is universal command-mode in Slack, Discord, Notion, GitHub — two
+ * keystrokes total, no shift required, no muscle-memory clash with names.
+ * Replaced the previous "letter:" form (c:apex), which needed three
+ * keystrokes — operator presses `c`, holds shift, hits `;` — and read as
+ * fussy in the footer. The colon form is intentionally NOT a back-compat
+ * fallback; one syntax is easier to teach than two.
  *
- * Scopes maps to which API calls fire AND which result groups render. An
+ * Why a sentinel character is needed at all: a real query like
+ * "c hand drill" would otherwise vanish under a customer-scope filter the
+ * operator never asked for. The leading "/" makes intent unambiguous.
+ *
+ * Scope maps to which API calls fire AND which result groups render. An
  * "actions" scope skips parties/products/ledgers fetches entirely, so the
  * palette is faster (no network) and the list isn't noisy with unrelated
  * COA hits when the operator is hunting a specific page like Settings →
@@ -366,7 +375,6 @@ function stripVoucherPrefix(q) {
 const SCOPE_LETTER = {
   c: 'customers', s: 'suppliers', p: 'products',
   l: 'ledgers',   r: 'reports',   a: 'actions',
-  '>': 'actions',
 };
 const SCOPE_LABEL = {
   customers: 'Customers',
@@ -378,15 +386,13 @@ const SCOPE_LABEL = {
 };
 function parseScope(raw) {
   const q = String(raw || '');
-  // Colon form: "c:apex" or "s:tata"
-  const m = q.match(/^([a-zA-Z]):(.*)$/);
+  // Slash form: "/c", "/c apex". Requires end-of-string or whitespace
+  // after the letter so "/capex" stays a literal search, not a customer-
+  // scope query for "apex".
+  const m = q.match(/^\/([a-zA-Z])(?:\s+(.*))?$/);
   if (m) {
     const scope = SCOPE_LETTER[m[1].toLowerCase()];
-    if (scope) return { scope, query: m[2].trim() };
-  }
-  // ">" alone or "> something" — actions-only mode
-  if (q === '>' || q.startsWith('> ')) {
-    return { scope: 'actions', query: q.slice(1).trim() };
+    if (scope) return { scope, query: (m[2] || '').trim() };
   }
   return { scope: null, query: q };
 }
@@ -561,7 +567,7 @@ function contextBoost(item, ctx) {
  * is bounded by the TTL.
  *
  * Cache key: `${scope || ''}:${query.toLowerCase()}` — scope-aware so a
- * "c:apex" hit doesn't pollute the unscoped "apex" entry (different
+ * "/c apex" hit doesn't pollute the unscoped "apex" entry (different
  * downstream filtering means the rendered result diverges).
  *
  * Strategy:
@@ -597,38 +603,28 @@ function swrPut(key, payload) {
   }
 }
 
-/* ── Recent picks — track the last 6 actions/parties so an empty palette
- * shows something useful instead of a static splash. Persisted in
- * localStorage so it survives reloads. */
-const RECENT_KEY = 'gs_recent_v1';
-function readRecent() {
-  try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
-function pushRecent(item) {
-  try {
-    const list = readRecent().filter(r => r.id !== item.id);
-    list.unshift({ id: item.id, label: item.label, sub: item.sub, route: item.route, group: item.group, kind: item.kind });
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 6)));
-  } catch { /* swallow */ }
-}
+/* Recent picks — removed. The palette previously kept the last 6 picks in
+ * localStorage and surfaced them in a "Recent" group on the empty state.
+ * Dropped because in an ERP the rows below "Pinned" and "Quick start"
+ * already cover the same need (you pin what you actually return to;
+ * Quick start covers first-time discovery), and a stale Recent list led
+ * to confusion when an operator's pattern shifted. Keys gs_recent_v1
+ * are left in localStorage on existing installs — harmless orphans. */
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Pinned results (#17) — operator-curated shortcuts.
  *
- * Recents/learned-ranking change over time and can demote a row the
- * operator deliberately wants stable at the top. Pinning is the override:
- * a row tagged "pinned" always renders in its own group at the very top,
+ * Learned-ranking changes over time and can demote a row the operator
+ * deliberately wants stable at the top. Pinning is the override: a row
+ * tagged "pinned" always renders in its own group at the very top,
  * regardless of query relevance, frequency, or learned weight. Twelve
  * slots is the soft cap — enough to cover a typical work day's verbs
  * without the section becoming a wall.
  *
- * Storage is localStorage (same pattern as gs_recent_v1) so pins ride
- * the operator's machine, not the firm's profile. The reasoning: pins
- * are personal muscle-memory; what an accountant pins differs from
- * what a salesman pins, and that's the right boundary.
+ * Storage is localStorage so pins ride the operator's machine, not the
+ * firm's profile. The reasoning: pins are personal muscle-memory; what
+ * an accountant pins differs from what a salesman pins, and that's the
+ * right boundary.
  * ────────────────────────────────────────────────────────────────────────── */
 const PINS_KEY = 'gs_pins_v1';
 const PINS_MAX = 12;
@@ -688,7 +684,6 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
   const [vouchers, setVouchers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedIdx, setSel] = useState(0);
-  const [recent] = useState(() => readRecent());
   // Operator-curated pins (#17). Lives in component state so the star
   // chip flips immediately on toggle without a page reload. Persisted
   // via writePins inside togglePin.
@@ -725,7 +720,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
 
   // Parse the live query for a scope prefix BEFORE deciding which APIs to
   // call. The fetched search term is always the post-scope substring, so
-  // typing "c:apex" sends "apex" (not "c:apex") to /parties — important
+  // typing "/c apex" sends "apex" (not "/c apex") to /parties — important
   // for correctness, also faster because the backend filter sees the
   // real terms. Declared up here (before any effect that references it)
   // so the telemetry effect below doesn't hit a temporal-dead-zone error.
@@ -806,7 +801,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
     // Stale-while-revalidate (#6): warm-render from cache first so the
     // operator sees immediate results, then refresh in the background.
     // The cache key is scope-aware (see swrCache comment above) so an
-    // unscoped "apex" doesn't bleed into "c:apex".
+    // unscoped "apex" doesn't bleed into "/c apex".
     const cacheKey = `${scope || ''}:${scopedQuery.toLowerCase()}`;
     const cached = swrGet(cacheKey);
     if (cached) {
@@ -979,7 +974,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
     for (const p of parties) {
       const id = `party-${p.party_id || p.id}`;
       const isCust = (p.party_type || 'Customer').toLowerCase().startsWith('cust');
-      // Scope filter — c: limits to customers, s: to suppliers. Note that
+      // Scope filter — /c limits to customers, /s to suppliers. Note that
       // the API call already used `/parties` (mixed) since the server's
       // search index isn't typed; we filter client-side here for correctness.
       if (scope === 'customers' && !isCust) continue;
@@ -1168,20 +1163,19 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
   }, [groupedResults, expanded]);
 
   /* What renders when the input is empty:
-   *   - Modal (⌘K / Alt+G): a "recent + try this" panel so the palette
-   *     is never just an empty box — the user just opened it
+   *   - Modal (⌘K / Alt+G): Pinned (if any) + a Quick-start group so the
+   *     palette is never just an empty box — the user just opened it
    *     deliberately, they want suggestions.
    *   - Hero (home page): nothing. The bar lives alone above the fold;
    *     pre-loaded suggestions felt like clutter on a landing page.
    *     Once the user types one character, results render normally.
    *
-   * "Empty" is judged on the post-scope query, so "> " (actions browse)
+   * "Empty" is judged on the post-scope query, so "/a" (actions browse)
    * is NOT empty — it intentionally surfaces every action. Same logic
-   * for "c:" with no party name: an empty Customers scope IS empty and
-   * we let the recent/try suggestions render. */
+   * for "/c" with no party name: an empty Customers scope IS empty and
+   * we let the Quick-start suggestions render. */
   const emptyState = !scopedQuery.trim() && scope !== 'actions';
   const showSuggestions = emptyState && variant !== 'hero';
-  const showRecent = showSuggestions && recent.length > 0;
   // Pinned rows render in the empty state (top of the palette) and ALSO
   // as a sticky header in the active-results state, so a frequently-
   // pinned destination is one keystroke away regardless of the current
@@ -1191,10 +1185,6 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
   const pinnedItems = useMemo(
     () => pins.map((p) => ({ ...p, icon: ACTIONS.find((a) => a.id === p.id)?.icon || FileTextOutlined })),
     [pins],
-  );
-  const recentItems = useMemo(
-    () => recent.map((r) => ({ ...r, icon: ACTIONS.find((a) => a.id === r.id)?.icon || FileTextOutlined })),
-    [recent],
   );
   // Module-aware empty-state (#12). Six suggestion slots, picked from
   // the action catalog by id. When the palette opens inside a known
@@ -1266,9 +1256,9 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
 
   /* Flat list (for keyboard nav) — order matches what's rendered. In the
    * empty state we still want Enter to do something useful, so the idle
-   * Recent + Try rows participate in selection too. Without this, opening
-   * the palette and hitting Enter on the visibly highlighted row was a
-   * no-op (Enter looked dead until the user typed).
+   * Pinned + Quick-start rows participate in selection too. Without this,
+   * opening the palette and hitting Enter on the visibly highlighted row
+   * was a no-op (Enter looked dead until the user typed).
    *
    * Pinned items sit above everything when present; they reflect the
    * operator's deliberate curation and should be the FIRST thing arrow
@@ -1281,7 +1271,6 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
     if (emptyState) {
       const base = [];
       if (showPinned)      base.push(...pinnedItems);
-      if (showRecent)      base.push(...recentItems);
       if (showSuggestions) base.push(...trySuggestions);
       return base;
     }
@@ -1291,7 +1280,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
     // are empty, so this never collides with the regular result flow.
     if (live.length === 0 && didYouMean.length > 0) return didYouMean;
     return live;
-  }, [emptyState, showPinned, showRecent, showSuggestions, pinnedItems, recentItems, trySuggestions, renderGroups, didYouMean]);
+  }, [emptyState, showPinned, showSuggestions, pinnedItems, trySuggestions, renderGroups, didYouMean]);
 
   /* Keep the highlighted row in view as the user arrows through. */
   useEffect(() => {
@@ -1333,7 +1322,6 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       expandGroup(item._moreOf);
       return;
     }
-    pushRecent(item);
     // Telemetry click event — records WHAT was picked against the query
     // that produced it. The id+kind+group triple is enough to drive both
     // the abandon analysis and the learned ranking. We intentionally
@@ -1574,8 +1562,8 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
         ))}
 
         {/* Pinned — operator-curated row block, always first in the empty
-            state. Sits ABOVE Recent because pins are deliberate (you put
-            it there) while recent is incidental (you opened it once). */}
+            state. Pins are deliberate; whatever the user starred should
+            be one keystroke away, above the generic Quick-start row. */}
         {emptyState && showPinned && (
           <GsGroup
             name="Pinned"
@@ -1589,24 +1577,11 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
           />
         )}
 
-        {showRecent && (
-          <GsGroup
-            name="Recent"
-            items={recentItems}
-            startIdx={showPinned ? pinnedItems.length : 0}
-            selectedIdx={selectedIdx}
-            onPick={choose}
-            onHover={setSel}
-            pins={pins}
-            onTogglePin={onTogglePin}
-          />
-        )}
-
         {showSuggestions && (
           <GsGroup
-            name={recentItems.length ? 'Try' : 'Quick start'}
+            name="Quick start"
             items={trySuggestions}
-            startIdx={(showPinned ? pinnedItems.length : 0) + recentItems.length}
+            startIdx={showPinned ? pinnedItems.length : 0}
             selectedIdx={selectedIdx}
             onPick={choose}
             onHover={setSel}
@@ -1650,20 +1625,17 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       </div>
       )}
 
+      {/* Footer — scope-prefix hints. Universal keys (↑↓ / ↵ / esc) are
+          intentionally NOT shown; everyone knows them and the footer
+          shouldn't compete with the result list for attention. What stays
+          is the four /-prefixes — they're the only thing here a user
+          can't figure out on their own. Slash because it's two keys total
+          (no shift) and matches Slack / Discord / Notion convention. */}
       <div className="gs-footer">
-        <span><kbd className="gs-kbd">↑</kbd><kbd className="gs-kbd">↓</kbd> navigate</span>
-        <span><kbd className="gs-kbd">↵</kbd> open</span>
-        <span><kbd className="gs-kbd">⌘</kbd><kbd className="gs-kbd">↵</kbd> new window</span>
-        <span><kbd className="gs-kbd">⌘</kbd><kbd className="gs-kbd">B</kbd> pin</span>
-        <span><kbd className="gs-kbd">esc</kbd> {variant === 'modal' ? 'close' : 'clear'}</span>
-        {/* Scope-prefix hint. Only shown on the modal variant (the hero
-            variant has a different footer rule and we don't want home-page
-            chrome growing). */}
-        <span className="gs-footer-hint">
-          tip: <kbd className="gs-kbd">c:</kbd>customer · <kbd className="gs-kbd">p:</kbd>product · <kbd className="gs-kbd">r:</kbd>report · <kbd className="gs-kbd">{'>'}</kbd>actions
-        </span>
-        <span className="gs-footer-spacer" />
-        <span className="gs-footer-brand">Billing ERP · global search</span>
+        <span className="gs-footer-tip"><kbd className="gs-kbd">/c</kbd> customers</span>
+        <span className="gs-footer-tip"><kbd className="gs-kbd">/p</kbd> products</span>
+        <span className="gs-footer-tip"><kbd className="gs-kbd">/r</kbd> reports</span>
+        <span className="gs-footer-tip"><kbd className="gs-kbd">/a</kbd> actions</span>
       </div>
     </div>
   );
@@ -1811,7 +1783,7 @@ export function GlobalSearchHomeCard({ autoFocus = false }) {
           Search anything — customers, products, bills, reports…
         </span>
         <span className="gs-home-card-kbd">
-          <kbd>{key1}</kbd>{key1 !== '⌘' && <span className="gs-trigger-plus">+</span>}<kbd>{key2}</kbd>
+          <kbd>{key1}</kbd><span className="gs-trigger-plus">+</span><kbd>{key2}</kbd>
         </span>
       </button>
     </div>
@@ -1866,7 +1838,8 @@ export const openGlobalSearch = () => {
  * GlobalSearchTrigger — visible search affordance for the topbar / sidebar.
  *
  * Before this existed, the only discoverable way to reach the palette was
- * Cmd/Ctrl+K (or Alt+G), both of which require knowing the shortcut. New
+ * a keyboard chord (Cmd+K / Ctrl+K / Alt+G), all of which require knowing
+ * the shortcut. New
  * operators on a fresh install never found global search. The trigger sits
  * in chrome and reads "Search…" with the platform-correct shortcut chip,
  * onboarding by sight without taking up a menu slot.
@@ -1885,13 +1858,12 @@ export const openGlobalSearch = () => {
  * shortcut without any extra wiring.
  * ────────────────────────────────────────────────────────────────────────── */
 function platformShortcut() {
-  // ⌘K on macOS, Ctrl+K elsewhere. window.navigator.platform is deprecated
-  // but still the most-reliable way to detect "is the user-physical Cmd key
-  // bound to meta?" inside an Electron/browser app. userAgentData would be
-  // the modern path but isn't available in Electron 28.
-  if (typeof navigator === 'undefined') return ['Ctrl', 'K'];
-  const p = String(navigator.platform || navigator.userAgent || '');
-  return /Mac|iPhone|iPad/i.test(p) ? ['⌘', 'K'] : ['Ctrl', 'K'];
+  // Always advertise Alt+G — universal across macOS / Windows / Linux,
+  // no shift required, no platform detection branch. The keyboard hook
+  // still wires Cmd+K and Ctrl+K (see useKeyboardShortcuts.js) so Mac
+  // users with the muscle memory keep working; the chrome just doesn't
+  // teach the platform-specific keystroke anymore. One hint, every OS.
+  return ['Alt', 'G'];
 }
 
 export function GlobalSearchTrigger({ variant = 'pill', className = '' }) {
@@ -1904,7 +1876,7 @@ export function GlobalSearchTrigger({ variant = 'pill', className = '' }) {
         type="button"
         className={`gs-trigger gs-trigger-icon ${className}`}
         onClick={onClick}
-        title={`Search (${key1}${key1 === '⌘' ? '' : '+'}${key2})`}
+        title={`Search (${key1}+${key2})`}
         aria-label="Open global search"
       >
         <SearchOutlined />
@@ -1923,7 +1895,7 @@ export function GlobalSearchTrigger({ variant = 'pill', className = '' }) {
       <SearchOutlined className="gs-trigger-icon-glyph" />
       <span className="gs-trigger-label">Search</span>
       <span className="gs-trigger-kbd" aria-hidden="true">
-        <kbd>{key1}</kbd>{key1 !== '⌘' && <span className="gs-trigger-plus">+</span>}<kbd>{key2}</kbd>
+        <kbd>{key1}</kbd><span className="gs-trigger-plus">+</span><kbd>{key2}</kbd>
       </span>
     </button>
   );

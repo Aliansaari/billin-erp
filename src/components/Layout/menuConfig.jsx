@@ -18,10 +18,10 @@
  */
 import React from 'react';
 import {
-  DashboardOutlined, ShoppingCartOutlined, ShoppingOutlined, TeamOutlined,
+  LineChartOutlined, ShoppingCartOutlined, ShoppingOutlined, TeamOutlined,
   InboxOutlined, DollarOutlined, BarChartOutlined, SettingOutlined,
   UserOutlined, TagsOutlined, FileTextOutlined, WalletOutlined,
-  FundOutlined, AppstoreOutlined, StockOutlined, PlusCircleOutlined,
+  CreditCardOutlined, AppstoreOutlined, StockOutlined, PlusCircleOutlined,
   UnorderedListOutlined, RollbackOutlined, BankOutlined, ThunderboltOutlined,
   FieldTimeOutlined, BookOutlined,
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
@@ -40,7 +40,7 @@ export const menuItems = [
   // Home (Command Center) — the / route. Distinct from /dashboard, which
   // is the deeper 9-tile editorial dashboard for end-of-day reading.
   { key: '/',          icon: <HomeOutlined />,      label: 'Home' },
-  { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
+  { key: '/dashboard', icon: <LineChartOutlined />, label: 'Dashboard' },
   {
     key: 'sales-menu',
     icon: <ShoppingOutlined />,
@@ -50,6 +50,16 @@ export const menuItems = [
       // the sidebar shouldn't fight the global search palette on naming.
       { key: '/sale/new',         icon: <PlusCircleOutlined />,    label: 'Sale',             perm: 'sales.create' },
       { key: '/sales',            icon: <UnorderedListOutlined />, label: 'Sales List',       perm: 'sales.view' },
+      // Receipt + Receipt List live under Sales because the natural next
+      // step after a Sale is collecting the money for it. /receipt/new
+      // and the filtered /payments list belong here now — the standalone
+      // "Payments" top-level menu was retired (its three children all
+      // moved into Sales / Purchase / Expenses where the operator's
+      // mental model already groups them). The list route uses
+      // ?transaction_type=Receipt to filter PaymentList down to receipts
+      // only (the filter PaymentList already reads at line 71).
+      { key: '/receipt/new',                         icon: <WalletOutlined />,        label: 'Receipt',      perm: 'payments.create' },
+      { key: '/payments?transaction_type=Receipt',   icon: <UnorderedListOutlined />, label: 'Receipt List', perm: 'payments.view' },
       { key: '/sales-return/new', icon: <RollbackOutlined />,      label: 'New Sales Return', perm: 'sales_returns.create' },
       { key: '/sales-returns',    icon: <UnorderedListOutlined />, label: 'Sales Returns',    perm: 'sales_returns.view' },
     ],
@@ -61,6 +71,13 @@ export const menuItems = [
     children: [
       { key: '/purchase/new',        icon: <PlusCircleOutlined />,    label: 'Purchase',            perm: 'purchase.create' },
       { key: '/purchases',           icon: <UnorderedListOutlined />, label: 'Purchase List',       perm: 'purchase.view' },
+      // Payment + Payment List mirror the Sales side — the natural next
+      // step after a Purchase is paying for it. The standalone Payments
+      // menu was retired; payments now live here (Purchase) and receipts
+      // live in Sales, which matches how operators think about money
+      // flow: out goes with what you bought, in goes with what you sold.
+      { key: '/payment/new',                         icon: <DollarOutlined />,        label: 'Payment',      perm: 'payments.create' },
+      { key: '/payments?transaction_type=Payment',   icon: <UnorderedListOutlined />, label: 'Payment List', perm: 'payments.view' },
       { key: '/purchase-return/new', icon: <RollbackOutlined />,      label: 'New Purchase Return', perm: 'purchase_returns.create' },
       { key: '/purchase-returns',    icon: <UnorderedListOutlined />, label: 'Purchase Returns',    perm: 'purchase_returns.view' },
     ],
@@ -101,23 +118,24 @@ export const menuItems = [
       { key: '/inventory/batches', icon: <AppstoreOutlined />, label: 'Batches',         perm: 'batches.view', flag: 'batch_tracking_enabled' },
     ],
   },
-  {
-    key: 'payments-menu',
-    icon: <DollarOutlined />,
-    label: 'Payments',
-    children: [
-      { key: '/payment/new', icon: <PlusCircleOutlined />,    label: 'Make Payment',     perm: 'payments.create' },
-      { key: '/receipt/new', icon: <WalletOutlined />,        label: 'Receive Payment',  perm: 'payments.create' },
-      { key: '/payments',    icon: <UnorderedListOutlined />, label: 'All Transactions', perm: 'payments.view' },
-    ],
-  },
-  // Expenses — separate from Payments because the workflow is
-  // different: a Payment settles an outstanding party balance,
-  // an Expense books a P&L hit (rent / fuel / supplies). Same
-  // double-entry plumbing under the hood, distinct UX.
+  // Payments menu retired — Receipt + List moved to Sales, Payment + List
+  // moved to Purchase, and Expenses already lived in its own top-level
+  // menu (below). Operators reach the same screens from the new homes
+  // (Alt+S → C / T for receipts, Alt+P → M / T for payments) and the
+  // direct shortcuts Ctrl+M (payment) / Ctrl+N (receipt) / F6 / F7 are
+  // unchanged. One fewer top-level pill in the nav.
+  //
+  // Expenses — separate from the (now removed) Payments menu because the
+  // workflow is different: a Payment settles an outstanding party balance,
+  // an Expense books a P&L hit (rent / fuel / supplies). Same double-entry
+  // plumbing under the hood, distinct UX.
   {
     key: 'expenses-menu',
-    icon: <FundOutlined />,
+    // CreditCardOutlined reads as "bills you pay" (rent, fuel, supplies) —
+    // much more direct than the generic FundOutlined chart we had before,
+    // and visually distinct from the wallet/dollar/bank icons elsewhere in
+    // the nav so the eye lands on the right pill without re-reading labels.
+    icon: <CreditCardOutlined />,
     label: 'Expenses',
     children: [
       { key: '/expenses/new',    icon: <PlusCircleOutlined />,    label: 'New Expense',     perm: 'expenses.create' },
@@ -154,9 +172,16 @@ export const menuItems = [
     ],
   },
   {
+    // Label is "Books" (the accounting term operators recognise — Tally
+    // uses the same in its "Display More Reports → Books" tree). The
+    // internal key stays 'accounts-menu' so getOpenKeys, the
+    // accounts.view permission tag, and any deep-link out of /accounts
+    // routes keep working without churn. BookOutlined replaces the
+    // generic FundOutlined chart so the icon now means what the label
+    // says.
     key: 'accounts-menu',
-    icon: <FundOutlined />,
-    label: 'Accounts',
+    icon: <BookOutlined />,
+    label: 'Books',
     children: [
       { key: '/accounts/journal/new', icon: <PlusCircleOutlined />,    label: 'New Journal Voucher', perm: 'accounts.view' },
       { key: '/accounts/journal',     icon: <UnorderedListOutlined />, label: 'Journal Vouchers',    perm: 'accounts.view' },
@@ -178,50 +203,22 @@ export const menuItems = [
     __dynamic: 'reports',
     children: [],   // filled in at render time by useMenuItems
   },
+  // Settings — collapsed from a parent-with-children into a single leaf
+  // that navigates straight to /settings/company. Reasons:
+  //   · clicking the gear should go to Settings, not pop a 15-item menu
+  //   · the Settings page (SettingsLayout) has its OWN internal nav
+  //     listing every sub-page, so the sidebar dropdown was duplicate
+  //     surface area
+  //   · matches Tally / QuickBooks / Xero — Settings is one destination
+  // Permission is intentionally not set: users without
+  // settings.manage_company hit the /settings/company RoleRoute which
+  // bounces them to an accessible sub-page. The submenu items above
+  // (Theme, Print, Backup, etc.) remain reachable from inside the
+  // Settings page's sidebar and via the Alt+T keyboard popup.
   {
-    key: 'settings-menu',
-    icon: <SettingOutlined />,
+    key:   '/settings/company',
+    icon:  <SettingOutlined />,
     label: 'Settings',
-    children: [
-      { key: '/settings/company',        icon: <BankOutlined />,        label: 'Company Profile',  perm: 'settings.manage_company' },
-      // Multi-company directory — list / create / archive. The page
-      // self-hides its CREATE button + show inactive when only one
-      // company exists, so single-company installs see a quiet
-      // read-only entry.
-      { key: '/settings/companies',      icon: <AppstoreOutlined />,    label: 'Companies',        perm: 'settings.manage_company' },
-      { key: '/settings/users',          icon: <UserOutlined />,        label: 'Users',            perm: 'settings.manage_users' },
-      { key: '/settings/theme',          icon: <BgColorsOutlined />,    label: 'Theme',            perm: 'settings.theme' },
-      { key: '/settings/barcode',        icon: <TagsOutlined />,        label: 'Barcode',          perm: 'settings.barcode' },
-      { key: '/settings/print',          icon: <PrinterOutlined />,     label: 'Print Settings',   perm: 'settings.print' },
-      { key: '/settings/modules',        icon: <ThunderboltOutlined />, label: 'Modules',          perm: 'settings.manage_company' },
-      // Import / Export bulk Excel — most shops use this every closing
-      // day. Default-visible (dev_show_import_export = true).
-      { key: '/settings/import-export',  icon: <SwapOutlined />,        label: 'Import & Export',  perm: 'settings.import_export', flag: 'dev_show_import_export' },
-      { key: '/settings/import',         icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export', flag: 'dev_show_import_export' },
-      // Tally Sync — XML export is fine for normal users; live HTTP
-      // sync can corrupt accounting data if pointed at the wrong
-      // Tally book. Default-hidden.
-      { key: '/settings/tally',          icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally', flag: 'dev_show_tally_sync' },
-      // Backup page — creating a backup is harmless. RESTORING wipes
-      // every table though, so the page itself ships visible but the
-      // restore button is gated separately inside (see BackupRestore).
-      { key: '/settings/backup',         icon: <CloudServerOutlined />, label: 'Backup & Recovery',perm: 'settings.backup' },
-      { key: '/settings/godowns',        icon: <BankOutlined />,        label: 'Godowns',          perm: 'godowns.view', flag: 'multi_warehouse_enabled' },
-      // Home page customization — every operator can pick what shows on
-      // their own landing page; no role gate.
-      { key: '/settings/home',           icon: <HomeOutlined />,        label: 'Home Page' },
-      // Dashboard tile picker — same per-user UX gate (none).
-      { key: '/settings/dashboard',      icon: <DashboardOutlined />,   label: 'Dashboard' },
-      // Server Setup — lets a user re-point the app at a different LAN
-      // host. Default-hidden so regular staff can't break the connection.
-      { key: '/server-setup',            icon: <CloudServerOutlined />, label: 'Server / Network Setup', flag: 'dev_show_server_settings' },
-      // Developer Settings is intentionally NOT in the sidebar. The
-      // entry point is the user-avatar dropdown ("Developer Access"
-      // when locked, "Developer Settings" when unlocked). Keeping it
-      // out of the sidebar means even an unlocked dev session doesn't
-      // accidentally show the page to a curious staff member glancing
-      // at the screen.
-    ],
   },
 ];
 
@@ -405,13 +402,25 @@ export function getOpenKeys(pathname) {
   if (pathname.startsWith('/purchase') || pathname === '/purchases') return ['purchase-menu'];
   if (pathname.startsWith('/customer') || pathname.startsWith('/supplier')) return ['parties-menu'];
   if (pathname.startsWith('/product') || pathname.startsWith('/categor') || pathname.startsWith('/stock-movement') || pathname.startsWith('/stock-transfer') || pathname.startsWith('/inventory/batches') || pathname === '/stock-report' || pathname === '/stock-report-pro') return ['inventory-menu'];
-  if (pathname.startsWith('/payment') || pathname.startsWith('/receipt')) return ['payments-menu'];
+  // Receipt routes now live under Sales (Alt+S → C); /receipt/* opens
+  // sales-menu so the parent pill highlights correctly. Payment routes
+  // live under Purchase (Alt+P → M); /payment/* opens purchase-menu.
+  // The shared /payments list page (Receipt List + Payment List both
+  // route here with ?transaction_type=…) doesn't have one canonical
+  // parent — defaulting to sales-menu so the sidebar still expands
+  // *something* when an operator lands on the bare /payments URL.
+  if (pathname.startsWith('/receipt')) return ['sales-menu'];
+  if (pathname.startsWith('/payment'))  return ['purchase-menu'];
+  if (pathname === '/payments' || pathname.startsWith('/payments/')) return ['sales-menu'];
   if (pathname.startsWith('/expenses')) return ['expenses-menu'];
   // Both /banks/* and /loans/* highlight the Bank dropdown — loans
   // are nested under Bank in the sidebar (see menuItems above).
   if (pathname.startsWith('/banks') || pathname.startsWith('/loans')) return ['bank-menu'];
   if (pathname.startsWith('/accounts')) return ['accounts-menu'];
   if (pathname.startsWith('/reports')) return ['reports-menu'];
-  if (pathname.startsWith('/settings')) return ['settings-menu'];
+  // Settings is now a leaf with route '/settings/company'; resolve any
+  // /settings/* path to that key so the gear icon stays highlighted on
+  // every Settings sub-page (Theme, Print, Backup, Users, …).
+  if (pathname.startsWith('/settings')) return ['/settings/company'];
   return [];
 }
