@@ -31,6 +31,32 @@ const { SystemSettings, ComplianceAuditLog } = require('../models');
 const { hasPermission } = require('../middleware/permissions');
 
 /**
+ * Resolve the role name from a Sequelize User instance.
+ *
+ * The User model has `role_id` (FK to roles) and a `Role` belongsTo
+ * association. The Sequelize accessor is `user.Role` (PascalCase,
+ * matches the model name) — there is NO `user.role` property on the
+ * instance. Earlier versions of this file compared `user.role` directly
+ * to strings like 'Super Admin', which always evaluated to false
+ * because `user.role` was undefined; the result was that the hard-lock
+ * branch unconditionally returned `hard_no_perm` (blocking even Super
+ * Admin) and the soft-lock branch only worked for Super Admin / default
+ * Admin via the hasPermission fallback. Accountant always failed.
+ *
+ * Matches the canonical extraction pattern in middleware/permissions.js
+ * and middleware/godownScope.js so the three places agree on how to
+ * read a role name off a user object — regardless of whether the user
+ * came in via Sequelize include (Role object), a flattened JWT-derived
+ * shape (role_name / role string), or a hand-built test stub.
+ */
+function roleNameOf(user) {
+  if (!user) return null;
+  const role = user.Role || user.role || null;
+  if (role && typeof role === 'object' && role.role_name) return role.role_name;
+  return user.role_name || (typeof user.role === 'string' ? user.role : null);
+}
+
+/**
  * Check whether `billDate` (YYYY-MM-DD string or Date) is permitted
  * under the current fiscal-lock configuration. Returns a structured
  * result the controller can act on.
@@ -62,12 +88,27 @@ async function checkFiscalLock(billDate, user, ctx = {}) {
   const hardLock    = settings.fy_hard_lock_date && String(settings.fy_hard_lock_date).slice(0, 10);
   const requirePw   = !!settings.fy_require_override_password;
 
+  // Resolve the role name once. See roleNameOf() above for why
+  // `user.role` (the lowercase property) is not a reliable accessor on a
+  // Sequelize User instance.
+  const roleName = roleNameOf(user);
+
+  // Reason must be more than whitespace + meaningful — a malicious
+  // client can bypass the UI's 8-char minimum by hitting the API
+  // directly. Enforce here so the audit log never carries a useless
+  // " " or "x" as the recorded justification.
+  const MIN_REASON_LEN = 8;
+  const trimmedReason  = typeof ctx.overrideReason === 'string'
+    ? ctx.overrideReason.trim()
+    : '';
+  const hasValidReason = trimmedReason.length >= MIN_REASON_LEN;
+
   // ── Hard lock — strictest. Beyond this only Super Admin can post,
   // and we log every break with is_hard_override=true so external
   // auditors can pull just those rows. Same path the soft lock takes,
   // but with the no-perm message swapped for the hard-lock copy.
   if (hardLock && billDateStr <= hardLock) {
-    if (user.role !== 'Super Admin') {
+    if (roleName !== 'Super Admin') {
       return {
         ok: false,
         status: 'hard_no_perm',
@@ -75,20 +116,22 @@ async function checkFiscalLock(billDate, user, ctx = {}) {
         message: `This period is hard-locked (after ITR filing). Only Super Admin can post in ${hardLock} or earlier.`,
       };
     }
-    if (!ctx.overrideReason) {
+    if (!hasValidReason) {
       return {
         ok: false,
         status: 'hard',
         requiresOverride: true,
         lockDate: hardLock,
-        message: `Hard lock — provide an override reason to record this Super-Admin break.`,
+        message: trimmedReason.length === 0
+          ? `Hard lock — provide an override reason to record this Super-Admin break.`
+          : `Reason is too short (need at least ${MIN_REASON_LEN} characters). Be specific — auditors will read this.`,
       };
     }
     // Super Admin + reason provided → allow. Caller is responsible for
     // calling logComplianceEvent({ event_type: 'hard_override', ... })
     // AFTER the underlying save succeeds, so a failed save doesn't leave
     // a hanging log entry.
-    return { ok: true, status: 'hard_override_granted', lockDate: hardLock };
+    return { ok: true, status: 'hard_override_granted', lockDate: hardLock, reason: trimmedReason };
   }
 
   // ── Soft lock — less strict. Configurable role gate; the wider
@@ -96,9 +139,9 @@ async function checkFiscalLock(billDate, user, ctx = {}) {
   // both pass. Reason is required and gets logged.
   if (softLock && billDateStr <= softLock) {
     const canOverride =
-      user.role === 'Super Admin' ||
-      user.role === 'Admin' ||
-      user.role === 'Accountant' ||
+      roleName === 'Super Admin' ||
+      roleName === 'Admin' ||
+      roleName === 'Accountant' ||
       hasPermission(user, 'fy_lock.override_soft');
     if (!canOverride) {
       return {
@@ -108,20 +151,23 @@ async function checkFiscalLock(billDate, user, ctx = {}) {
         message: `FY ${softLock.slice(0, 4)} is closed. Contact an admin/accountant to backdate.`,
       };
     }
-    if (!ctx.overrideReason) {
+    if (!hasValidReason) {
       return {
         ok: false,
         status: 'soft',
         requiresOverride: true,
         lockDate: softLock,
         requirePassword: requirePw,
-        message: `This date is in a closed period. Provide an override reason to proceed.`,
+        message: trimmedReason.length === 0
+          ? `This date is in a closed period. Provide an override reason to proceed.`
+          : `Reason is too short (need at least ${MIN_REASON_LEN} characters). Be specific — auditors will read this.`,
       };
     }
-    // Reason supplied → allow. (Password verification, if required,
-    // happens in the controller before this is called — we don't have
-    // the user's plaintext password here.)
-    return { ok: true, status: 'soft_override_granted', lockDate: softLock };
+    // Reason supplied + valid → allow. (Password verification, if
+    // required, happens in the controller AFTER this — we don't have
+    // the user's plaintext password here.) Trimmed reason is returned
+    // so the caller passes the cleaned value to the audit-log writer.
+    return { ok: true, status: 'soft_override_granted', lockDate: softLock, reason: trimmedReason };
   }
 
   // No applicable lock → fine.
@@ -139,12 +185,18 @@ async function checkFiscalLock(billDate, user, ctx = {}) {
  */
 async function logComplianceEvent(event) {
   try {
+    // Resolve the role name via the same extractor used by the lock
+    // check; previously this used `event.user?.role` which is always
+    // undefined on a Sequelize User instance, so every audit row was
+    // stamped with user_role=null and the auditor lost the role
+    // attribution.
+    const resolvedRole = roleNameOf(event.user) || event.user_role || null;
     await ComplianceAuditLog.create({
       event_type:       event.event_type,
       event_at:         event.event_at || new Date(),
       user_id:          event.user?.user_id || event.user_id || null,
       user_name:        event.user?.full_name || event.user_name || null,
-      user_role:        event.user?.role || event.user_role || null,
+      user_role:        resolvedRole,
       target_type:      event.target_type || null,
       target_id:        event.target_id || null,
       target_label:     event.target_label || null,

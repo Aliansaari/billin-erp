@@ -1266,7 +1266,11 @@ exports.create = async (req, res) => {
         target_id:        bill.sales_bill_id,
         target_label:     `Sale ${bill.bill_number || `#${bill.sales_bill_id}`} dated ${bill.bill_date}`,
         target_date:      bill.bill_date,
-        reason:           overrideReason,
+        // Use the trimmed value the lock check normalized; falls back to
+        // the raw client value if for any reason the lock result didn't
+        // carry it (e.g. compliance OFF path, which never enters this
+        // branch but keep it defensive).
+        reason:           lockResult.reason || overrideReason,
         metadata:         { lock_date: lockResult.lockDate },
       });
     }
@@ -1296,6 +1300,47 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  // ── Fiscal-lock check on edit ───────────────────────────────────────
+  // Runs BEFORE the transaction so we can return 403 cheaply without
+  // opening + rolling back. Gating logic: an edit is locked if EITHER
+  // the existing bill_date OR the proposed new bill_date lies in a
+  // locked period. Reason: moving a backdated bill out of a locked FY
+  // rewrites history just as much as moving a current bill into one;
+  // both deserve an audit-log entry.
+  //
+  // The lock check is a no-op when compliance is off; never imposes
+  // overhead on the simple-mode default.
+  const existing = await SalesBill.findByPk(req.params.id, { attributes: ['sales_bill_id', 'bill_date', 'bill_number', 'is_cancelled'] });
+  if (!existing) return res.status(404).json({ error: 'Bill not found' });
+  if (existing.is_cancelled) return res.status(400).json({ error: 'Cannot edit a cancelled bill' });
+
+  const oldDateStr = existing.bill_date && String(existing.bill_date).slice(0, 10);
+  const newDateStr = req.body?.bill_date && String(req.body.bill_date).slice(0, 10);
+  const lockProbe  = (oldDateStr && newDateStr)
+    ? (oldDateStr <= newDateStr ? oldDateStr : newDateStr)
+    : (oldDateStr || newDateStr);
+  const overrideReason   = req.body?._override_reason;
+  const overridePassword = req.body?._override_password;
+  const lockResult = await checkFiscalLock(lockProbe, req.user, { overrideReason });
+  if (!lockResult.ok) {
+    return send403FromLock(res, lockResult);
+  }
+  if (lockResult.status === 'soft_override_granted' || lockResult.status === 'hard_override_granted') {
+    const sysSettings = await SystemSettings.findByPk(1);
+    if (sysSettings?.fy_require_override_password) {
+      if (!overridePassword) {
+        return res.status(403).json({ error: 'FY_LOCKED', requires_password: true, message: 'Password required to override the fiscal lock.' });
+      }
+      const dbUser = await User.findByPk(req.user.user_id);
+      const ok = dbUser && await bcrypt.compare(overridePassword, dbUser.password_hash);
+      if (!ok) {
+        return res.status(403).json({ error: 'FY_LOCKED', requires_password: true, password_invalid: true, message: 'Password did not match. Try again.' });
+      }
+    }
+  }
+  delete req.body._override_reason;
+  delete req.body._override_password;
+
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -1841,6 +1886,26 @@ exports.update = async (req, res) => {
 
     await t.commit();
 
+    // Compliance audit log for edit-with-override. Best-effort, after
+    // commit so a log failure can't undo the save. Mirrors the create()
+    // pattern but uses the `post_close_edit` event type plus carries
+    // BOTH dates in metadata so the auditor can see whether the edit
+    // moved the bill INTO or OUT OF the locked period (or just
+    // re-saved a backdated bill).
+    if (lockResult?.status === 'soft_override_granted' || lockResult?.status === 'hard_override_granted') {
+      await logComplianceEvent({
+        event_type:       'post_close_edit',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'sales_bill',
+        target_id:        existingBill.sales_bill_id,
+        target_label:     `Sale ${existingBill.bill_number || `#${existingBill.sales_bill_id}`} edited (date ${oldDateStr || '—'} → ${newDateStr || oldDateStr || '—'})`,
+        target_date:      newDateStr || oldDateStr || null,
+        reason:           lockResult.reason || overrideReason,
+        metadata:         { lock_date: lockResult.lockDate, old_bill_date: oldDateStr, new_bill_date: newDateStr || oldDateStr },
+      });
+    }
+
     const result = await SalesBill.findByPk(existingBill.sales_bill_id, {
       include: [
         { model: Party, as: 'customer' },
@@ -1859,6 +1924,40 @@ exports.update = async (req, res) => {
 };
 
 exports.cancel = async (req, res) => {
+  // ── Fiscal-lock check on cancel ─────────────────────────────────────
+  // Cancelling a backdated bill is a write that touches the locked
+  // period — the bill flips to is_cancelled=true, stock reverses, the
+  // auto-receipt soft-cancels. The auditor needs the same audit row a
+  // create or edit produces, gated by the same role/password matrix.
+  // Lock probe = the bill's own bill_date (we're not changing the date,
+  // just nulling the bill's effect on the period).
+  const billPreview = await SalesBill.findByPk(req.params.id, { attributes: ['sales_bill_id', 'bill_date', 'bill_number', 'is_cancelled'] });
+  if (!billPreview) return res.status(404).json({ error: 'Bill not found' });
+  if (billPreview.is_cancelled) return res.status(400).json({ error: 'Bill already cancelled' });
+
+  const cancelDateStr = billPreview.bill_date && String(billPreview.bill_date).slice(0, 10);
+  const overrideReason   = req.body?._override_reason;
+  const overridePassword = req.body?._override_password;
+  const lockResult = await checkFiscalLock(cancelDateStr, req.user, { overrideReason });
+  if (!lockResult.ok) {
+    return send403FromLock(res, lockResult);
+  }
+  if (lockResult.status === 'soft_override_granted' || lockResult.status === 'hard_override_granted') {
+    const sysSettings = await SystemSettings.findByPk(1);
+    if (sysSettings?.fy_require_override_password) {
+      if (!overridePassword) {
+        return res.status(403).json({ error: 'FY_LOCKED', requires_password: true, message: 'Password required to override the fiscal lock.' });
+      }
+      const dbUser = await User.findByPk(req.user.user_id);
+      const ok = dbUser && await bcrypt.compare(overridePassword, dbUser.password_hash);
+      if (!ok) {
+        return res.status(403).json({ error: 'FY_LOCKED', requires_password: true, password_invalid: true, message: 'Password did not match. Try again.' });
+      }
+    }
+  }
+  delete req.body._override_reason;
+  delete req.body._override_password;
+
   const t = await sequelize.transaction();
   try {
     const bill = await SalesBill.findByPk(req.params.id, {
@@ -1998,6 +2097,24 @@ exports.cancel = async (req, res) => {
     });
 
     await t.commit();
+
+    // Compliance audit log for cancel-with-override. Same best-effort
+    // pattern as create() / update() — fires only when the bill was in
+    // a locked period and an override was granted.
+    if (lockResult?.status === 'soft_override_granted' || lockResult?.status === 'hard_override_granted') {
+      await logComplianceEvent({
+        event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',
+        is_hard_override: lockResult.status === 'hard_override_granted',
+        user:             req.user,
+        target_type:      'sales_bill',
+        target_id:        bill.sales_bill_id,
+        target_label:     `Sale ${bill.bill_number || `#${bill.sales_bill_id}`} cancelled (was dated ${cancelDateStr})`,
+        target_date:      cancelDateStr,
+        reason:           lockResult.reason || overrideReason,
+        metadata:         { lock_date: lockResult.lockDate, action: 'cancel' },
+      });
+    }
+
     res.json({ message: 'Bill cancelled successfully' });
   } catch (error) {
     if (!t.finished) {
