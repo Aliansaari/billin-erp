@@ -13,6 +13,8 @@ import { useMenuItems, menuItems as staticMenuItems, getOpenKeys, filterMenuByPe
 import useFavoritesStore from '../../store/favoritesStore';
 import { useMenuPopup } from '../keyboard/MenuPopup';
 import useFilteredAltMenus from '../../hooks/useFilteredAltMenus';
+import { GlobalSearchTrigger } from '../GlobalSearch';
+import { NotificationBell } from '../Notifications';
 import './top-nav.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -201,6 +203,15 @@ export default function TopNav() {
 
       {/* Right cluster — pinned to the right edge via margin-left: auto. */}
       <div className="erp-topnav-right">
+        {/* Visible search affordance — onboards new operators who don't know
+            Cmd/Ctrl+K. Sits at the head of the right cluster because it's a
+            primary verb, not a utility. Collapses to icon-only under 900px
+            via the .gs-trigger-pill media query. */}
+        <GlobalSearchTrigger variant="pill" />
+        {/* Smart notifications bell — auto-hides when the user has set
+            master_enabled=false in Settings → Notifications. Polls the
+            unread count in the background; full panel fetched on click. */}
+        <NotificationBell />
         <button
           type="button"
           className="erp-topnav-iconbtn"

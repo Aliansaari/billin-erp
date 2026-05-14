@@ -24,6 +24,8 @@ import {
 import DeveloperGate from '../DeveloperGate';
 import useDevModeStore from '../../store/devModeStore';
 import CompanySwitcher from '../CompanySwitcher';
+import { GlobalSearchTrigger } from '../GlobalSearch';
+import { NotificationBell } from '../Notifications';
 
 const { Sider } = Layout;
 
@@ -302,6 +304,26 @@ export default function Sidebar({ collapsed, setCollapsed }) {
             pill that opens a dropdown of every company + Manage link. */}
         <div style={{ padding: collapsed ? '4px 8px 8px' : '0 12px 10px' }}>
           <CompanySwitcher collapsed={collapsed} />
+        </div>
+
+        {/* Search affordance — sits between the company switcher and the
+            menu so it reads as a primary verb, not a utility. Collapsed
+            sidebar renders the icon form; expanded gets the fake-input
+            "Search… ⌘K" pill. The notification bell rides alongside so
+            both primary "always-available" surfaces share the same row. */}
+        <div
+          className="erp-sidebar-tools"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: collapsed ? 4 : 6,
+            padding: collapsed ? '0 8px 8px' : '0 12px 10px',
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <GlobalSearchTrigger variant={collapsed ? 'icon' : 'wide'} />
+          </div>
+          <NotificationBell align="left" />
         </div>
 
         {/* ── Scrollable menu region ── */}

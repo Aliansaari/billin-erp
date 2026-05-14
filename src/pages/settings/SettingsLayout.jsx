@@ -4,7 +4,7 @@ import {
   BankOutlined, UserOutlined, BgColorsOutlined, TagsOutlined,
   PrinterOutlined, ThunderboltOutlined, SwapOutlined, ApiOutlined,
   CloudServerOutlined, HomeOutlined, ControlOutlined, DashboardOutlined,
-  AppstoreOutlined, CodeOutlined, KeyOutlined,
+  AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -48,8 +48,11 @@ const SETTINGS_GROUPS = [
     items: [
       // My Account — every logged-in user can reach this. perm:null means
       // no extra check beyond authentication.
-      { path: 'account', icon: <UserOutlined />, label: 'My Account', perm: null },
-      { path: 'users',   icon: <UserOutlined />, label: 'Users',      perm: 'settings.manage_users' },
+      { path: 'account',       icon: <UserOutlined />, label: 'My Account',    perm: null },
+      // Notifications — per-user preferences for the bell. Visible to
+      // every signed-in user (each operator manages their own).
+      { path: 'notifications', icon: <BellOutlined />, label: 'Notifications', perm: null },
+      { path: 'users',         icon: <UserOutlined />, label: 'Users',         perm: 'settings.manage_users' },
     ],
   },
   {
