@@ -86,7 +86,14 @@ export function disabledDateForVoucher(current) {
   // Current FY ends March 31 of (this year + 1) if today is April-onwards,
   // otherwise March 31 of this year.
   const fyEndYear = month >= 4 ? year + 1 : year;
-  // Compare on day granularity. current is a dayjs object.
-  const fyEnd = current.constructor(`${fyEndYear}-03-31`).endOf('day');
+  // Compare on day granularity. `current` is a dayjs object from AntD.
+  // Audit (UI live test) — pre-fix used `current.constructor(string)` to
+  // build the FY-end dayjs. AntD's bundled dayjs (with its plugin chain)
+  // crashed `r3.parse` on the plain `YYYY-MM-DD` string with "Cannot
+  // read properties of undefined (reading '1')", taking the entire
+  // Sales/Purchase form's render down with an ErrorBoundary fallback.
+  // Switching to pure dayjs accessor chaining (year/month/date setters
+  // return new instances) avoids the parser path entirely.
+  const fyEnd = current.year(fyEndYear).month(2).date(31).endOf('day');
   return current.isAfter(fyEnd, 'day');
 }

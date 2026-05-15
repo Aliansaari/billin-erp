@@ -449,6 +449,14 @@ export default function PurchaseReturnForm() {
     }
   }, [supplierId, parties]);
 
+  // Fiscal-lock override flow for backdated saves.
+  // Audit (UI live test) — moved above handleSave so the useCallback
+  // dependency array doesn't TDZ-reference `guardedSave` before
+  // its const declaration.
+  const { lockModal, guardedSave } = useFiscalLockGuard({
+    onBlocked: (msg) => message.error(msg),
+  });
+
   /* `markRefunded=true` is the legacy auto-fill path (refund_amount =
      total). The redesigned strip stops passing it. `opts.onSaved`
      fires before navigate/reset so Save & Print can reach the saved
@@ -556,11 +564,6 @@ export default function PurchaseReturnForm() {
 
   // F2 Date popup — Tally-style smart-input popup for the return date.
   const { openDate } = useDatePopup();
-
-  // Fiscal-lock override flow for backdated saves.
-  const { lockModal, guardedSave } = useFiscalLockGuard({
-    onBlocked: (msg) => message.error(msg),
-  });
   const f2DatePopup = useCallback(() => {
     const current = form.getFieldValue('return_date');
     openDate({
