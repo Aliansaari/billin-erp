@@ -836,6 +836,31 @@ export default function ProductList() {
                 <InputNumber className="efm-input" min={0} suffix="%" controls={false} />
               </Form.Item>
             </EntityFormModal.Field>
+
+            {/* Audit GST-C4 — MRP / tax-inclusive toggle. Tick for products
+                where the price printed on the box already includes GST
+                (pharmacy, FMCG, packaged goods). When ticked, bills auto-fill
+                from MRP and reverse-compute the taxable base so the customer
+                pays exactly the MRP. */}
+            <EntityFormModal.Field
+              label="Rate includes GST"
+              help="Tick for MRP-printed items (medicines, FMCG, packaged goods) — bill uses MRP as the rate"
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 32 }}>
+                <Form.Item name="is_tax_inclusive" valuePropName="checked" initialValue={false} noStyle>
+                  <Switch size="small" />
+                </Form.Item>
+                <Form.Item shouldUpdate={(p, c) => p.is_tax_inclusive !== c.is_tax_inclusive} noStyle>
+                  {() => (
+                    <span style={{ fontSize: 12, opacity: 0.75 }}>
+                      {form.getFieldValue('is_tax_inclusive')
+                        ? 'MRP mode — bill uses MRP, taxable reverse-computed'
+                        : 'B2B mode — bill uses sale rate, GST added on top'}
+                    </span>
+                  )}
+                </Form.Item>
+              </div>
+            </EntityFormModal.Field>
           </EntityFormModal.Section>
 
           <EntityFormModal.Section label="Inventory">
