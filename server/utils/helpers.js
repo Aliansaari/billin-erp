@@ -263,9 +263,18 @@ function paginateQuery(query, page = 1, limit = 50) {
  * Returns parsed integers + computed offset, always in a safe range.
  */
 function sanitizePagination(rawPage, rawLimit, { defaultLimit = 50, maxLimit = 500 } = {}) {
+  // Audit NEW-LO-2 — `?all=1` (or `?limit=all`) bypasses pagination by
+  // requesting up to maxLimit rows in one page. Scripted callers
+  // (exports, audit drivers, the verify_reports.py harness) previously
+  // had to know each endpoint's maxLimit and pass `limit=1000`; now
+  // they pass `all=1` and get every row in scope. UI callers that
+  // omit the param still get the default 50-row page.
+  const wantsAll = String(rawLimit || '').toLowerCase() === 'all';
   const page  = Math.max(1, parseInt(rawPage,  10) || 1);
-  const limit = Math.min(maxLimit, Math.max(1, parseInt(rawLimit, 10) || defaultLimit));
-  const offset = (page - 1) * limit;
+  const limit = wantsAll
+    ? maxLimit
+    : Math.min(maxLimit, Math.max(1, parseInt(rawLimit, 10) || defaultLimit));
+  const offset = wantsAll ? 0 : (page - 1) * limit;
   return { page, limit, offset };
 }
 

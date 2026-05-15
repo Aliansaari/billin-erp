@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { PaymentReceipt, PaymentSplit, Party, SalesBill, PurchaseBill, Cheque } = require('../models');
-const { generateTransactionNumber, sanitizePagination, safeTrailingNumber, escapeLike } = require('../utils/helpers');
+const { generateTransactionNumber, sanitizePagination, safeTrailingNumber, escapeLike, respondWithError } = require('../utils/helpers');
 const { recalculatePartyBalance, getPartyOutstanding, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildPaymentReceiptVouchers } = require('../services/voucherBuilders');
@@ -575,7 +575,12 @@ exports.create = async (req, res) => {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
     console.error('Create payment error:', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    // Audit NEW-LO-1 — route Sequelize validation / notNull / enum / FK /
+    // length errors through respondWithError so the client gets an
+    // actionable 400 with the offending field name, not a generic 500.
+    // Pre-fix, a request missing `splits[].payment_mode` returned
+    // `500 "notNull Violation: PaymentSplit.payment_mode cannot be null"`.
+    return respondWithError(res, error);
   }
 };
 
@@ -1015,7 +1020,8 @@ exports.update = async (req, res) => {
   } catch (error) {
     if (!t.finished) { try { await t.rollback(); } catch (_) {} }
     console.error('Update payment error:', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    // Audit NEW-LO-1 — mirror create-path: route through respondWithError.
+    return respondWithError(res, error);
   }
 };
 
