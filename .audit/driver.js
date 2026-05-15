@@ -87,15 +87,39 @@ const INDIAN_STATES = [
   { code: '08', name: 'Rajasthan' },
 ];
 function pickState(i) { return INDIAN_STATES[i % INDIAN_STATES.length]; }
+
+// Audit NEW-MED-1 — checksum-valid GSTIN generator. Pre-fix the driver
+// returned `${stateCode}ABCDE####F1Z<letter>` which fails CR-7's MOD-36
+// check (75% of party creates rejected on the audited build). Brute-force
+// the check character against the canonical alphabet; one of 36 always
+// satisfies. `gstinChecksumValid` from the server util is the authority.
+const { gstinChecksumValid } = require('../server/utils/indianIdFormats');
+const _gstinCache = new Map();
 function fakeGstin(stateCode, idx) {
-  // 2-digit state + 5 alpha + 4 digit + 1 alpha + 1 alpha + Z + 1 alpha-num
+  const key = `${stateCode}-${idx}`;
+  if (_gstinCache.has(key)) return _gstinCache.get(key);
   const pan = `ABCDE${String(idx + 1000).slice(-4)}F`;
-  return `${stateCode}${pan}1Z${String.fromCharCode(65 + (idx % 26))}`;
+  const prefix = `${stateCode}${pan}1Z`;
+  // 0-9 then A-Z — 36 candidates, exactly one passes.
+  for (let i = 0; i < 36; i++) {
+    const ch = i < 10 ? String(i) : String.fromCharCode(55 + i);
+    const candidate = prefix + ch;
+    if (gstinChecksumValid(candidate)) {
+      _gstinCache.set(key, candidate);
+      return candidate;
+    }
+  }
+  // Fallback — shouldn't happen since one of 36 always works.
+  return prefix + 'Z';
 }
 
 const PRODUCT_GST_SLABS = [0, 5, 12, 18, 28];
 const HSN_CODES = ['1006', '6109', '6110', '8528', '8517', '8471', '3304', '9404', '6309', '7308'];
-const UNITS = ['PCS', 'KG', 'METER', 'LITER', 'BOX', 'DOZEN'];
+// Audit NEW-MED-1 — use GSTN-canonical UQC codes only. Pre-fix used
+// `['KG','METER','LITER','DOZEN']` which now require the boot-time
+// migration to canonicalise — the driver should exercise the canonical
+// path directly so a regression in alias-tolerance doesn't go unnoticed.
+const UNITS = ['PCS', 'KGS', 'MTR', 'LTR', 'BOX', 'DOZ'];
 
 function dateInFY(monthOffset = 0) {
   // FY starts April 1, 2026. Spread dates Apr 2026..Mar 2027
@@ -109,8 +133,10 @@ async function ensureCompanySetup() {
   if (!sys?.data?.gstin) {
     await call('PUT', '/settings/system', {
       company_name: 'Sabina Dresses',
-      gstin: '27ABCDE1234F1Z5',
-      pan_number: 'ABCDE1234F',
+      // Audit NEW-MED-1 — checksum-valid GSTIN (was 27ABCDE1234F1Z5
+      // which fails CR-7's MOD-36 check).
+      gstin: '27AAACR5055K1Z7',
+      pan_number: 'AAACR5055K',
       company_address: '123 MG Road, Pune',
       sales_bill_prefix: 'INV',
       purchase_bill_prefix: 'BILL',
@@ -241,9 +267,11 @@ async function createPurchaseBills(n, suppliers, products, godownId) {
       supplier_bill_date: dateInFY(i % 12),
       items,
       gst_mode: 'product',
-      // BUG-WORKAROUND: auto-payment for partial-paid bills hits the
-      // transaction_number VARCHAR(30) limit (see audit). Use 0 to bypass.
-      paid_amount: 0,
+      // Audit NEW-MED-1 — exercise the auto-receipt path on 1-in-4 bills
+      // (LIVE-2 fixed the VARCHAR(30) transaction_number overflow that
+      // forced the original `paid_amount: 0` workaround). Driver now
+      // verifies the fix holds end-to-end.
+      paid_amount: i % 4 === 0 ? Math.floor(Math.random() * 1000) : 0,
     };
     const r = await call('POST', '/purchases', body, `purch-${i}`);
     if (r?.purchase_bill_id) { ids.push({ id: r.purchase_bill_id, supplier_id: sup.id, total: r.total_amount, balance: r.balance_amount }); bump('purchase'); }
@@ -275,8 +303,9 @@ async function createSaleBills(n, customers, products, godownId) {
       bill_date: dateInFY(i % 12),
       items,
       gst_mode: 'product',
-      // BUG-WORKAROUND: same auto-receipt VARCHAR(30) bug on sales path.
-      paid_amount: 0,
+      // Audit NEW-MED-1 — exercise auto-receipt path on 1-in-3 sales
+      // (LIVE-2 fixed the transaction_number length overflow).
+      paid_amount: i % 3 === 0 ? Math.floor(Math.random() * 5000) : 0,
     };
     const r = await call('POST', '/sales', body, `sale-${i}`);
     if (r?.sales_bill_id) { ids.push({ id: r.sales_bill_id, customer_id: cust.id, total: r.total_amount, balance: r.balance_amount, date: r.bill_date }); bump('sale'); }
@@ -357,12 +386,26 @@ async function createBanks() {
     { name: 'ICICI Savings — Aux',  sub_group: 'Bank Accounts', opening_balance: 100000, opening_balance_type: 'Debit'  },
     { name: 'SBI OD A/c — Working', sub_group: 'Bank OD A/c',   opening_balance:  50000, opening_balance_type: 'Credit' },
   ];
+  // Audit NEW-MED-1 — idempotent: list existing first, only POST missing
+  // ones. Pre-fix, re-running the driver returned 409 "ledger already
+  // exists" for every bank and the loan phase aborted with no funding bank.
+  const existing = await call('GET', '/banks', null, 'list-banks');
+  const haveByName = new Map();
+  // /api/banks returns { banks: [...] }; older shape was {data:[...]} or [...].
+  const existingList = existing?.banks || existing?.data || (Array.isArray(existing) ? existing : []);
+  for (const b of existingList) {
+    haveByName.set(b.name || b.ledger_name, b);
+  }
   const created = [];
   for (const b of wanted) {
-    const r = await call('POST', '/banks', b, `bank-${b.name}`);
-    if (r) { created.push({ ledger_id: r.ledger_id, name: r.name, sub_group: r.sub_group }); bump('bank'); }
+    let bank = haveByName.get(b.name);
+    if (!bank) {
+      const r = await call('POST', '/banks', b, `bank-${b.name}`);
+      if (r) { bank = r; bump('bank'); }
+    }
+    if (bank) created.push({ ledger_id: bank.ledger_id, name: bank.name || bank.ledger_name, sub_group: bank.sub_group });
   }
-  log(`Created ${created.length}/${wanted.length} banks`);
+  log(`Have ${created.length}/${wanted.length} banks (idempotent)`);
   return created;
 }
 

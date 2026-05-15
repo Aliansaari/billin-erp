@@ -736,7 +736,7 @@ exports.create = async (req, res) => {
     if (productIdsForSnapshot.length > 0) {
       const masterProducts = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement', 'is_tax_inclusive'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement', 'is_tax_inclusive', 'mrp'],
         transaction: t,
       });
       const masterById = new Map(masterProducts.map(p => [p.product_id, p]));
@@ -759,6 +759,16 @@ exports.create = async (req, res) => {
           // rate it submitted is MRP or wholesale. Master is the
           // source of truth.
           it._inclusive = !!mp.is_tax_inclusive;
+          // Audit NEW-MED-3 — snapshot MRP from the master so print
+          // templates / aged reports can show the printed MRP for the
+          // line. Without this, sales_bill_items.mrp persists as 0
+          // even when the master has MRP set, breaking MRP labels and
+          // any "discount from MRP" analytics. Master MRP is the
+          // historical truth at sale time; a later master MRP edit
+          // doesn't alter the historical line.
+          if (mp.mrp !== undefined && mp.mrp !== null) {
+            it.mrp = parseFloat(mp.mrp) || 0;
+          }
         }
       }
       // GST-C4 — reverse-compute inclusive lines into taxable currency.
@@ -940,6 +950,44 @@ exports.create = async (req, res) => {
           allocIgst += it.igst_amount;
         }
       }
+    }
+
+    // Audit NEW-HI-1 — 0%-rate invariant (sales).
+    // Lines with gst_rate=0 must carry zero CGST/SGST/IGST/Cess regardless
+    // of bill mode. Pre-fix, in bill-wise mode the pro-rata allocator gave
+    // every line a share of the bill total tax (taxable_amount / taxableTotal)
+    // — including 0%-rate lines, producing phantom GST on the items table.
+    // The bill grand total stayed correct (it was derived from totalCgst /
+    // totalSgst / totalIgst, which already excluded zero-rate contributions
+    // in product mode). But the per-line columns drifted, and GSTR-1's
+    // HSN summary aggregator reads from `sales_bill_items` — so 0%-rate
+    // HSN rows ended up with non-zero tax, which fails GSTN portal
+    // validation on filing. Re-aggregate the bill totals from sanitized
+    // lines so a Cash auto-receipt's amount matches the corrected total.
+    let zeroRateRefund = { cgst: 0, sgst: 0, igst: 0 };
+    for (const it of processedItems) {
+      if (parseFloat(it.gst_rate || 0) === 0) {
+        zeroRateRefund.cgst += parseFloat(it.cgst_amount) || 0;
+        zeroRateRefund.sgst += parseFloat(it.sgst_amount) || 0;
+        zeroRateRefund.igst += parseFloat(it.igst_amount) || 0;
+        it.cgst_amount = 0;
+        it.sgst_amount = 0;
+        it.igst_amount = 0;
+        if (it.cess_amount !== undefined) it.cess_amount = 0;
+        it.total_amount = +(parseFloat(it.taxable_amount) || 0).toFixed(2);
+      }
+    }
+    if (zeroRateRefund.cgst > 0.005 || zeroRateRefund.sgst > 0.005 || zeroRateRefund.igst > 0.005) {
+      totalCgst = +(totalCgst - zeroRateRefund.cgst).toFixed(2);
+      totalSgst = +(totalSgst - zeroRateRefund.sgst).toFixed(2);
+      totalIgst = +(totalIgst - zeroRateRefund.igst).toFixed(2);
+    }
+    // Product mode never uses bill-level pct fields — force them to 0 so
+    // reports don't read a weighted-average residue (audit found bills
+    // with gst_mode='product' carrying igst_pct=9.77 from an earlier
+    // in-flight code path).
+    if (!billWise) {
+      cgst_pct = 0; sgst_pct = 0; igst_pct = 0;
     }
 
     // Audit MONEY-5 — only add freight/other_charges to the outer
@@ -1702,7 +1750,7 @@ exports.update = async (req, res) => {
     if (productIdsForSnapshot2.length > 0) {
       const masterProducts2 = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot2 } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement', 'is_tax_inclusive'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement', 'is_tax_inclusive', 'mrp'],
         transaction: t,
       });
       const masterById2 = new Map(masterProducts2.map(p => [p.product_id, p]));
@@ -1715,6 +1763,10 @@ exports.update = async (req, res) => {
           if (mp.unit_of_measurement) it.unit_type = mp.unit_of_measurement;
           // GST-C4 — snapshot tax-inclusive flag for update path.
           it._inclusive = !!mp.is_tax_inclusive;
+          // Audit NEW-MED-3 — snapshot MRP from master (mirror create).
+          if (mp.mrp !== undefined && mp.mrp !== null) {
+            it.mrp = parseFloat(mp.mrp) || 0;
+          }
         }
       }
       // GST-C4 — same reverse-compute as create-path. See the detailed
@@ -1795,6 +1847,30 @@ exports.update = async (req, res) => {
           allocIgst += it.igst_amount;
         }
       }
+    }
+
+    // Audit NEW-HI-1 — 0%-rate invariant (sales update). Mirror of the
+    // create-path block; see that comment for rationale.
+    let zeroRateRefundU = { cgst: 0, sgst: 0, igst: 0 };
+    for (const it of processedItems) {
+      if (parseFloat(it.gst_rate || 0) === 0) {
+        zeroRateRefundU.cgst += parseFloat(it.cgst_amount) || 0;
+        zeroRateRefundU.sgst += parseFloat(it.sgst_amount) || 0;
+        zeroRateRefundU.igst += parseFloat(it.igst_amount) || 0;
+        it.cgst_amount = 0;
+        it.sgst_amount = 0;
+        it.igst_amount = 0;
+        if (it.cess_amount !== undefined) it.cess_amount = 0;
+        it.total_amount = +(parseFloat(it.taxable_amount) || 0).toFixed(2);
+      }
+    }
+    if (zeroRateRefundU.cgst > 0.005 || zeroRateRefundU.sgst > 0.005 || zeroRateRefundU.igst > 0.005) {
+      totalCgst = +(totalCgst - zeroRateRefundU.cgst).toFixed(2);
+      totalSgst = +(totalSgst - zeroRateRefundU.sgst).toFixed(2);
+      totalIgst = +(totalIgst - zeroRateRefundU.igst).toFixed(2);
+    }
+    if (!billWise) {
+      cgst_pct = 0; sgst_pct = 0; igst_pct = 0;
     }
 
     // Audit MONEY-5 — mirror of the create-path total formula.

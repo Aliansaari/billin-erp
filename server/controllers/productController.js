@@ -548,6 +548,20 @@ exports.create = async (req, res) => {
         field: 'mrp',
       });
     }
+    // Audit NEW-MED-2 — canonicalize UoM at the controller boundary so
+    // every row persists with the GSTN-canonical code (KGS/MTR/LTR/DOZ,
+    // not legacy KG/METER/LITER/DOZEN). The boot-time migration heals
+    // existing rows but doesn't prevent the next insert; the frontend
+    // dropdowns already only present canonical codes, but an API
+    // caller (driver, third-party import) can still POST a legacy
+    // alias. canonicalUqc() returns the canonical for known aliases
+    // and null for unknown input — null preserves the value so
+    // downstream Sequelize enum validation can reject it.
+    if (safe.unit_of_measurement) {
+      const { canonicalUqc } = require('../utils/uqcCodes');
+      const canon = canonicalUqc(safe.unit_of_measurement);
+      if (canon) safe.unit_of_measurement = canon;
+    }
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
 
     // Check for existing product with same specs
@@ -668,6 +682,13 @@ exports.update = async (req, res) => {
     if (safe.gst_rate !== undefined && safe.gst_rate !== null && safe.gst_rate !== '' && !isLegalGstSlab(safe.gst_rate)) {
       await t.rollback();
       return res.status(400).json({ error: gstSlabError(safe.gst_rate) });
+    }
+    // Audit NEW-MED-2 — canonicalize UoM at the controller boundary
+    // (mirror of create path).
+    if (safe.unit_of_measurement) {
+      const { canonicalUqc } = require('../utils/uqcCodes');
+      const canon = canonicalUqc(safe.unit_of_measurement);
+      if (canon) safe.unit_of_measurement = canon;
     }
     const { opening_stock, opening_stock_rate, opening_stock_date, ...data } = safe;
     const product = await Product.findByPk(req.params.id, { transaction: t });

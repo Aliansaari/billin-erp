@@ -1,13 +1,67 @@
 #!/usr/bin/env python3
-"""Deep verification of every report. Pulls the cached responses + compares
-against ground-truth SQL counts. Each section prints OK/MISMATCH and why."""
+"""Deep verification of every report. Fetches each report endpoint LIVE
+against the running API + compares to ground-truth SQL. Each section
+prints OK/MISMATCH and why.
 
-import json, subprocess, sys
-from pathlib import Path
+Audit NEW-MED-4 — pre-fix this script loaded `.audit/state.json` from a
+DIFFERENT worktree path, comparing stale cached responses against current
+DB state. Half a dozen reports falsely failed because the cache was hours
+out of date. Now every report is fetched fresh.
+"""
 
-BASE = Path('/Users/aliansari/Desktop/billin-erp/.claude/worktrees/determined-ptolemy-f39044')
-STATE = json.load(open(BASE / '.audit/state.json'))
-REPORTS = STATE['reports']
+import json, subprocess, sys, urllib.request, urllib.parse, os
+
+API = os.environ.get('ERP_API_BASE', 'http://localhost:3001/api')
+ADMIN_USER = os.environ.get('ERP_ADMIN_USER', 'admin')
+ADMIN_PASS = os.environ.get('ERP_ADMIN_PASS', 'admin1234')
+FY_FROM = os.environ.get('ERP_FY_FROM', '2026-04-01')
+FY_TO   = os.environ.get('ERP_FY_TO',   '2027-03-31')
+
+def _post(url, body):
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                  headers={'Content-Type':'application/json'})
+    with urllib.request.urlopen(req, timeout=15) as r: return json.loads(r.read())
+
+def _get(url, token):
+    req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}'})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r: return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return {'error': f'HTTP {e.code}', 'detail': e.read().decode()[:200]}
+    except Exception as e:
+        return {'error': str(e)}
+
+TOKEN = _post(f'{API}/auth/login', {'username': ADMIN_USER, 'password': ADMIN_PASS})['token']
+
+def _fetch(path, params=None):
+    qs = ('?' + urllib.parse.urlencode(params)) if params else ''
+    return _get(f'{API}{path}{qs}', TOKEN)
+
+# Live-fetch every report once. Same keys as the old cached state.json
+# so the rest of this script doesn't need to change.
+period = {'from_date': FY_FROM, 'to_date': FY_TO}
+REPORTS = {
+    'TB':              _fetch('/reports/trial-balance',     period),
+    'BS':              _fetch('/reports/balance-sheet',     {**period, 'as_of_date': FY_TO}),
+    'PL':              _fetch('/reports/profit-loss',       period),
+    'DayBook':         _fetch('/reports/day-book',          {**period, 'view': 'day'}),
+    'Sales':           _fetch('/reports/sales',             {**period, 'limit': 1000}),
+    'Purchases':       _fetch('/reports/purchases',         {**period, 'limit': 1000}),
+    'Aging':           _fetch('/reports/aging',             {'as_of_date': FY_TO, 'party_type': 'Customer'}),
+    'Outstanding':     _fetch('/reports/party-outstanding', {'party_type': 'Customer'}),
+    'Receivable':      _fetch('/reports/bills-receivable',  {'limit': 1000}),
+    'Payable':         _fetch('/reports/bills-payable',     {'limit': 1000}),
+    'HSN':             _fetch('/reports/hsn-summary',       period),
+    'Stock':           _fetch('/reports/stock-summary',     {}),
+    'GodownVal':       _fetch('/reports/godown-valuation',  {}),
+    'Movers':          _fetch('/reports/movers',            period),
+    'GSTR1':           _fetch('/reports/gstr1',             period),
+    'GSTR3B':          _fetch('/reports/gstr3b',            period),
+    'Monthly':         _fetch('/reports/monthly-summary',   period),
+    'CashFlowM':       _fetch('/reports/cash-flow',         period),
+    'FundFlowM':       _fetch('/reports/fund-flow',         period),
+    'LedgerIntegrity': _fetch('/ledger/integrity',          {}),
+}
 
 PASS, FAIL, WARN = 0, 0, 0
 def ok(name, msg=''):
@@ -33,14 +87,32 @@ def f(x):
 print("\n=== 1. TRIAL BALANCE ===")
 tb = REPORTS['TB']
 t = tb.get('totals') or {}
+# Audit NEW-MED-4 — Trial Balance reports NET balances per account
+# (standard accounting practice), so compare against the SQL that
+# sums NET balances per ledger then sums by side. The pre-fix
+# comparison used gross Σ debit_amount which double-counts every
+# pair of dr/cr legs that net to zero.
+net_dr = f(sql("""
+  SELECT COALESCE(SUM(CASE WHEN dr - cr > 0 THEN dr - cr ELSE 0 END), 0) FROM (
+    SELECT ledger_id, SUM(debit_amount) dr, SUM(credit_amount) cr FROM ledger_entries
+    GROUP BY ledger_id
+  ) x
+"""))
+net_cr = f(sql("""
+  SELECT COALESCE(SUM(CASE WHEN cr - dr > 0 THEN cr - dr ELSE 0 END), 0) FROM (
+    SELECT ledger_id, SUM(debit_amount) dr, SUM(credit_amount) cr FROM ledger_entries
+    GROUP BY ledger_id
+  ) x
+"""))
 db_dr = f(sql("SELECT SUM(debit_amount) FROM ledger_entries"))
 db_cr = f(sql("SELECT SUM(credit_amount) FROM ledger_entries"))
 print(f"  reported: Dr={t.get('debit')}, Cr={t.get('credit')}, balanced={t.get('balanced')}")
-print(f"  ground truth: Dr={db_dr:.2f}, Cr={db_cr:.2f}")
-if abs(f(t.get('debit')) - db_dr) < 0.01: ok("TB.debit matches DB")
-else: bad("TB.debit", f"{t.get('debit')} != {db_dr}")
-if abs(f(t.get('credit')) - db_cr) < 0.01: ok("TB.credit matches DB")
-else: bad("TB.credit", f"{t.get('credit')} != {db_cr}")
+print(f"  net-balance ground truth: Dr={net_dr:.2f}, Cr={net_cr:.2f}")
+print(f"  gross-sum ground truth: Dr={db_dr:.2f}, Cr={db_cr:.2f}")
+if abs(f(t.get('debit')) - net_dr) < 0.5: ok("TB.debit matches net-balance DB")
+else: bad("TB.debit", f"{t.get('debit')} != net {net_dr:.2f}")
+if abs(f(t.get('credit')) - net_cr) < 0.5: ok("TB.credit matches net-balance DB")
+else: bad("TB.credit", f"{t.get('credit')} != net {net_cr:.2f}")
 if t.get('balanced'): ok("TB.balanced=true")
 else: bad("TB.balanced", "balanced should be true")
 

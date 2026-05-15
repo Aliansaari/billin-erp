@@ -1111,7 +1111,20 @@ exports.dashboardSeries = async (req, res) => {
 //   sub_total − discount + other_charges + freight_charges
 // (the "Net Sales/Purchase method"). The bill side computes the same
 // formula across the filtered rows; mismatch surfaces a banner.
-async function ledgerNetWithinPeriod(ledgerName, from, to) {
+async function ledgerNetWithinPeriod(ledgerName, from, to, voucherTypes) {
+  // Audit NEW-HI-2 — optionally scope to specific voucher types so
+  // the sales/purchase reconciliation compares like-with-like. Without
+  // the filter, a manual JV crediting Sales Account drifts the
+  // ledger total above the register total (legit ledger entry, but
+  // not bill-derived). The reconciliation banner should only fire
+  // when bill→ledger posting drifts; explicit JV adjustments are a
+  // separate concern.
+  const params = { name: ledgerName, from, to };
+  let voucherClause = '';
+  if (Array.isArray(voucherTypes) && voucherTypes.length > 0) {
+    voucherClause = `AND le.voucher_type IN (:voucherTypes)`;
+    params.voucherTypes = voucherTypes;
+  }
   const [r] = await sequelize.query(
     `SELECT COALESCE(SUM(le.debit_amount), 0)::float  AS dr,
             COALESCE(SUM(le.credit_amount), 0)::float AS cr
@@ -1122,8 +1135,9 @@ async function ledgerNetWithinPeriod(ledgerName, from, to) {
         AND NOT EXISTS (
           SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id
         )
-        AND le.entry_date BETWEEN :from AND :to`,
-    { replacements: { name: ledgerName, from, to }, type: sequelize.QueryTypes.SELECT },
+        AND le.entry_date BETWEEN :from AND :to
+        ${voucherClause}`,
+    { replacements: params, type: sequelize.QueryTypes.SELECT },
   );
   const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
   return { dr: r2(r.dr), cr: r2(r.cr) };
@@ -1314,14 +1328,33 @@ exports.salesReport = async (req, res) => {
       const disc    = r2(b.disc);
       const other   = r2(b.other);
       const freight = r2(b.freight);
-      const registerNetToLedger = r2(sub - disc + other + freight);
-      const salesLedger = await ledgerNetWithinPeriod('Sales Account', from_date, to_date);
+      // Audit NEW-HI-2 — read the actual line-level taxable sum, not the
+      // header `sub_total - discount_amount`. Pre-fix, `sub_total` is the
+      // qty*rate sum BEFORE line-level item discounts, and `discount_amount`
+      // is only the BILL-level trade discount. Bills with per-line discount%
+      // (driver writes 3% on every 7th bill) had `sub_total` overstating
+      // revenue by the line-discount amount → reconciliation banner
+      // falsely fired with difference equal to ΣΣ line_discounts.
+      // Sales Account ledger credits the post-discount taxable, so we
+      // compare apples-to-apples by reading items.taxable_amount directly.
+      const itemAgg = await sequelize.query(
+        `SELECT COALESCE(SUM(i.taxable_amount),0) AS register_taxable
+         FROM sales_bill_items i
+         JOIN sales_bills s ON s.sales_bill_id = i.sales_bill_id
+         WHERE s.is_cancelled = false
+           AND s.bill_date BETWEEN :from_date AND :to_date`,
+        { replacements: { from_date, to_date }, type: sequelize.QueryTypes.SELECT },
+      );
+      const registerTaxableLines = r2(itemAgg[0]?.register_taxable || 0);
+      const registerNetToLedger = r2(registerTaxableLines + other + freight);
+      const salesLedger = await ledgerNetWithinPeriod('Sales Account', from_date, to_date, ['Sales']);
       const salesNetCr  = r2(salesLedger.cr - salesLedger.dr);
       reconciliation = {
         ledger_name: 'Sales Account',
         ledger_net_credit: salesNetCr,
         register_net_to_ledger: registerNetToLedger,
-        register_taxable: sub,
+        register_taxable: registerTaxableLines,
+        register_taxable_header: sub,
         register_discount: disc,
         register_freight: freight,
         register_other: other,
@@ -1444,14 +1477,27 @@ exports.purchaseReport = async (req, res) => {
       const disc    = r2(b.disc);
       const other   = r2(b.other);
       const freight = r2(b.freight);
-      const registerNetToLedger = r2(sub - disc + other + freight);
-      const purLedger = await ledgerNetWithinPeriod('Purchase Account', from_date, to_date);
+      // Audit NEW-HI-2 — mirror salesReport fix. Use items.taxable_amount
+      // sum, not header sub_total minus bill discount, to correctly
+      // include line-level item discounts in the reconciliation.
+      const itemAgg = await sequelize.query(
+        `SELECT COALESCE(SUM(i.taxable_amount),0) AS register_taxable
+         FROM purchase_bill_items i
+         JOIN purchase_bills s ON s.purchase_bill_id = i.purchase_bill_id
+         WHERE s.is_cancelled = false
+           AND s.bill_date BETWEEN :from_date AND :to_date`,
+        { replacements: { from_date, to_date }, type: sequelize.QueryTypes.SELECT },
+      );
+      const registerTaxableLines = r2(itemAgg[0]?.register_taxable || 0);
+      const registerNetToLedger = r2(registerTaxableLines + other + freight);
+      const purLedger = await ledgerNetWithinPeriod('Purchase Account', from_date, to_date, ['Purchase']);
       const purNetDr  = r2(purLedger.dr - purLedger.cr);
       reconciliation = {
         ledger_name: 'Purchase Account',
         ledger_net_debit: purNetDr,
         register_net_to_ledger: registerNetToLedger,
-        register_taxable: sub,
+        register_taxable: registerTaxableLines,
+        register_taxable_header: sub,
         register_discount: disc,
         register_freight: freight,
         register_other: other,

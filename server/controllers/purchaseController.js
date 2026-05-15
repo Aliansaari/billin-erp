@@ -703,7 +703,7 @@ exports.create = async (req, res) => {
     if (productIdsForSnapshot.length > 0) {
       const masterProducts = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement', 'mrp'],
         transaction: t,
       });
       const masterById = new Map(masterProducts.map(p => [p.product_id, p]));
@@ -714,6 +714,10 @@ exports.create = async (req, res) => {
           if (mp.hsn_code) it.hsn_code = mp.hsn_code;
           // GST-H5 — snapshot unit_of_measurement from product master.
           if (mp.unit_of_measurement) it.unit_type = mp.unit_of_measurement;
+          // Audit NEW-MED-3 — snapshot MRP from master (mirror sales).
+          if (mp.mrp !== undefined && mp.mrp !== null) {
+            it.mrp = parseFloat(mp.mrp) || 0;
+          }
         }
       }
     }
@@ -813,6 +817,30 @@ exports.create = async (req, res) => {
           allocIgst += it.igst_amount;
         }
       }
+    }
+
+    // Audit NEW-HI-1 — 0%-rate invariant (purchase create). Mirror of the
+    // salesController fix; see that comment for rationale.
+    let zeroRateRefundP = { cgst: 0, sgst: 0, igst: 0 };
+    for (const it of processedItems) {
+      if (parseFloat(it.gst_rate || 0) === 0) {
+        zeroRateRefundP.cgst += parseFloat(it.cgst_amount) || 0;
+        zeroRateRefundP.sgst += parseFloat(it.sgst_amount) || 0;
+        zeroRateRefundP.igst += parseFloat(it.igst_amount) || 0;
+        it.cgst_amount = 0;
+        it.sgst_amount = 0;
+        it.igst_amount = 0;
+        if (it.cess_amount !== undefined) it.cess_amount = 0;
+        it.total_amount = +(parseFloat(it.taxable_amount) || 0).toFixed(2);
+      }
+    }
+    if (zeroRateRefundP.cgst > 0.005 || zeroRateRefundP.sgst > 0.005 || zeroRateRefundP.igst > 0.005) {
+      totalCgst = +(totalCgst - zeroRateRefundP.cgst).toFixed(2);
+      totalSgst = +(totalSgst - zeroRateRefundP.sgst).toFixed(2);
+      totalIgst = +(totalIgst - zeroRateRefundP.igst).toFixed(2);
+    }
+    if (!billWise) {
+      cgst_pct = 0; sgst_pct = 0; igst_pct = 0;
     }
 
     // Audit MONEY-5 — don't double-count freight+other on the outer
@@ -1465,7 +1493,7 @@ exports.update = async (req, res) => {
     if (productIdsForSnapshot2.length > 0) {
       const masterProducts2 = await Product.findAll({
         where: { product_id: { [Op.in]: productIdsForSnapshot2 } },
-        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement'],
+        attributes: ['product_id', 'gst_rate', 'hsn_code', 'unit_of_measurement', 'mrp'],
         transaction: t,
       });
       const masterById2 = new Map(masterProducts2.map(p => [p.product_id, p]));
@@ -1476,6 +1504,10 @@ exports.update = async (req, res) => {
           if (mp.hsn_code) it.hsn_code = mp.hsn_code;
           // GST-H5 — also snapshot unit on update (master wins over client).
           if (mp.unit_of_measurement) it.unit_type = mp.unit_of_measurement;
+          // Audit NEW-MED-3 — snapshot MRP from master.
+          if (mp.mrp !== undefined && mp.mrp !== null) {
+            it.mrp = parseFloat(mp.mrp) || 0;
+          }
         }
       }
     }
@@ -1572,6 +1604,30 @@ exports.update = async (req, res) => {
           allocIgst += it.igst_amount;
         }
       }
+    }
+
+    // Audit NEW-HI-1 — 0%-rate invariant (purchase update). Mirror of the
+    // create-path block.
+    let zeroRateRefundPU = { cgst: 0, sgst: 0, igst: 0 };
+    for (const it of processedItems) {
+      if (parseFloat(it.gst_rate || 0) === 0) {
+        zeroRateRefundPU.cgst += parseFloat(it.cgst_amount) || 0;
+        zeroRateRefundPU.sgst += parseFloat(it.sgst_amount) || 0;
+        zeroRateRefundPU.igst += parseFloat(it.igst_amount) || 0;
+        it.cgst_amount = 0;
+        it.sgst_amount = 0;
+        it.igst_amount = 0;
+        if (it.cess_amount !== undefined) it.cess_amount = 0;
+        it.total_amount = +(parseFloat(it.taxable_amount) || 0).toFixed(2);
+      }
+    }
+    if (zeroRateRefundPU.cgst > 0.005 || zeroRateRefundPU.sgst > 0.005 || zeroRateRefundPU.igst > 0.005) {
+      totalCgst = +(totalCgst - zeroRateRefundPU.cgst).toFixed(2);
+      totalSgst = +(totalSgst - zeroRateRefundPU.sgst).toFixed(2);
+      totalIgst = +(totalIgst - zeroRateRefundPU.igst).toFixed(2);
+    }
+    if (!billWise) {
+      cgst_pct = 0; sgst_pct = 0; igst_pct = 0;
     }
 
     // Audit MONEY-5 — mirror create-path total formula on update.
