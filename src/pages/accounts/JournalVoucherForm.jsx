@@ -123,14 +123,23 @@ export default function JournalVoucherForm() {
           value={row.ledger_id}
           onChange={(v) => updateLine(idx, { ledger_id: v })}
           style={{ width: '100%', minWidth: 240 }}
-          optionFilterProp="children"
-          filterOption={(input, opt) => (opt?.children ?? '').toLowerCase().includes(input.toLowerCase())}
+          optionFilterProp="label"
+          filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
         >
-          {ledgers.map((lg) => (
-            <Select.Option key={lg.ledger_id} value={lg.ledger_id}>
-              {lg.ledger_name} {lg.is_party_ledger ? '· party' : (lg.is_system_ledger ? '· system' : '')}
-            </Select.Option>
-          ))}
+          {ledgers.map((lg) => {
+            // Audit (UI live test) — pre-fix filterOption read opt?.children
+            // which is a JSX array (ledger_name + text + tag), not a string.
+            // Typing into the ledger search threw
+            //   "((intermediate value) ?? '').toLowerCase is not a function"
+            // and crashed the whole form into ErrorBoundary. Build a single
+            // string `label` on each option and filter against that.
+            const label = `${lg.ledger_name}${lg.is_party_ledger ? ' · party' : (lg.is_system_ledger ? ' · system' : '')}`;
+            return (
+              <Select.Option key={lg.ledger_id} value={lg.ledger_id} label={label}>
+                {label}
+              </Select.Option>
+            );
+          })}
         </Select>
       ),
     },
