@@ -59,6 +59,7 @@
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
+import { ConfigProvider } from 'antd';
 import './EntityFormModal.css';
 
 // ── Tone palette ──────────────────────────────────────────────────────
@@ -326,6 +327,17 @@ function EntityFormModal({
         style={{ '--efm-w': `${width}px` }}
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {/*
+         * Scope every Antd popup (Select dropdown, DatePicker, Tooltip, etc.)
+         * to render INSIDE the modal subtree. Default behaviour portals
+         * popups to document.body where they fall behind .efm-backdrop
+         * (z-index 1100 > Antd popup default 1050), making dropdowns
+         * appear "broken" — clicks land on the backdrop. Rendering inside
+         * the modal puts the popup in the modal's own stacking context,
+         * so the popup naturally sits above the backdrop without any
+         * z-index gymnastics.
+         */}
+        <ConfigProvider getPopupContainer={(trigger) => modalRef.current || (trigger && trigger.parentNode) || document.body}>
 
         {/* ── Title strip ──────────────────────────────────────── */}
         <header className="efm-hd">
@@ -413,6 +425,7 @@ function EntityFormModal({
           </button>
         </footer>
 
+        </ConfigProvider>
       </div>
     </div>,
     document.body,
