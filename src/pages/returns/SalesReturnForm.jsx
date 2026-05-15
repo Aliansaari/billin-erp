@@ -462,6 +462,14 @@ export default function SalesReturnForm() {
     }
   }, [customerId, parties]);
 
+  // Fiscal-lock guard — opens the override modal when a backdated
+  // return is saved against a closed FY.
+  // Audit (UI live test) — moved above handleSave so the useCallback
+  // dependency array doesn't TDZ-reference `guardedSave`.
+  const { lockModal, guardedSave } = useFiscalLockGuard({
+    onBlocked: (msg) => message.error(msg),
+  });
+
   /* ── save ───────────────────────────────────────────────────────────── */
   /* `markRefunded=true` is the legacy "Save & Refund" auto-fill (sets
      refund_amount to total). The redesigned strip stops passing it —
@@ -572,12 +580,6 @@ export default function SalesReturnForm() {
 
   // F2 Date popup — Tally-style smart-input popup for the return date.
   const { openDate } = useDatePopup();
-
-  // Fiscal-lock guard — opens the override modal when a backdated
-  // return is saved against a closed FY.
-  const { lockModal, guardedSave } = useFiscalLockGuard({
-    onBlocked: (msg) => message.error(msg),
-  });
   const f2DatePopup = useCallback(() => {
     const current = form.getFieldValue('return_date');
     openDate({

@@ -1494,6 +1494,16 @@ export default function PurchaseBillForm() {
     return ()=>document.removeEventListener('mousedown', handler);
   },[showVariantPicker]);
 
+  // Fiscal-lock guard — opens the override modal on a backdated save
+  // when compliance mode is on. Same hook used across all voucher forms.
+  // Audit (UI live test) — moved ABOVE handleSave's useCallback so its
+  // dependency array doesn't reference `guardedSave` before the
+  // `const` declaration. Pre-fix triggered a temporal-dead-zone
+  // ReferenceError that crashed PurchaseBillForm on mount.
+  const { lockModal, guardedSave } = useFiscalLockGuard({
+    onBlocked: (msg) => message.error(msg),
+  });
+
   /* ── save ──
      `payFull=true` is the legacy "Save & Pay" auto-fill path; the
      redesigned strip stops passing it — paid_amount is whatever the
@@ -1706,11 +1716,6 @@ export default function PurchaseBillForm() {
   // F2 Date popup — Tally-style smart-input popup for the bill date.
   const { openDate } = useDatePopup();
 
-  // Fiscal-lock guard — opens the override modal on a backdated save
-  // when compliance mode is on. Same hook used across all voucher forms.
-  const { lockModal, guardedSave } = useFiscalLockGuard({
-    onBlocked: (msg) => message.error(msg),
-  });
   const f2DatePopup = useCallback(() => {
     const current = form.getFieldValue('bill_date');
     openDate({

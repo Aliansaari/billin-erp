@@ -1689,6 +1689,16 @@ exports.update = async (req, res) => {
 
       processedItems.push({
         ...item,
+        // Audit (functional-sim bug) — PR #44's GST-C4 inclusive block
+        // at line ~1734 reads `it._lineTotal` to recompute subTotal.
+        // The CREATE path stored `_lineTotal` on processedItems; the
+        // UPDATE path didn't. The undefined read collapsed subTotal to
+        // 0 on every edit, and `buildSalesBillVouchers` then skipped
+        // the Sales-Account credit (subTotal-itemDisc was 0), making
+        // the rebuilt voucher fail with
+        //   "postVoucher: unbalanced — debits X ≠ credits gst-only".
+        // EVERY sales-bill edit 500-crashed. Mirror the create-path push.
+        _lineTotal: lineTotal,
         _postItemTaxable: postItemTaxable,
         taxable_amount: postItemTaxable,
         discount_amount: discountAmt,
