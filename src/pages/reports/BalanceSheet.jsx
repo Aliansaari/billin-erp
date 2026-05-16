@@ -1,12 +1,12 @@
 // ── Balance Sheet ──────────────────────────────────────────────────────
 //
-// TallyPrime-style two-column Balance Sheet with drill-by-page.
+// Classic accounting-style two-column Balance Sheet with drill-by-page.
 //
 //   Left  side: Liabilities + Capital (incl. synthetic Profit & Loss A/c)
 //   Right side: Assets (incl. synthetic Stock-in-Hand)
 //   Total bar  : pinned at the bottom, both sides equal when books balance
 //
-// Each side's primaries are the Tally intermediate groups (Capital
+// Each side's primaries are the intermediate groups (Capital
 // Account, Loans, Current Liabilities | Fixed Assets, Investments,
 // Current Assets). Default-collapsed; click expands inline. Click on a
 // sub-group drills into the shared Group Summary at
@@ -32,7 +32,7 @@ const fmtINR = (v) =>
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   });
 
-// ── Tally intermediate group mapping ──────────────────────────────────
+// ── Intermediate group mapping ────────────────────────────────────────
 // Same convention as TrialBalance.jsx: keyed by primary so the same
 // sub_group name classifies correctly under each side. Anything not
 // listed falls back to using the sub_group itself as its own primary.
@@ -95,8 +95,8 @@ const ASSET_ORDER = ['Fixed Assets', 'Investments', 'Current Assets', 'Misc. Exp
 // returns sub_groups as an ARRAY of { sub_group, total, rows } (see
 // `bucketBySubGroup` in financialReportsController.js); we accept
 // either array or keyed-object and normalise on the way in. Returns
-// [{ name, total, subs: [{ name, total }, …] }, …] grouped by Tally
-// intermediate, ordered per the ORDER arrays above.
+// [{ name, total, subs: [{ name, total }, …] }, …] grouped by
+// intermediate group, ordered per the ORDER arrays above.
 function buildSide(rawSubGroups, primarySide, orderHints) {
   if (!rawSubGroups) return [];
   const list = Array.isArray(rawSubGroups) ? rawSubGroups : Object.values(rawSubGroups);
@@ -316,10 +316,10 @@ export default function BalanceSheet() {
   }, [navL.length, navR.length, activeSide]);
 
   // ── Keyboard ──
-  // Esc is intentionally NOT handled here — AppLayout owns Esc →
-  // history.back() which Just Works given our URL-driven drill flow.
+  // Esc is intentionally NOT handled here — AppLayout owns the global
+  // Esc: it returns to the Reports hub only if this report was opened
+  // from there, otherwise it cascades up to Home.
   useEffect(() => {
-    sessionStorage.setItem('reports_hub_back', '1');
     const onKey = (e) => {
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       const inField = tag === 'input' || tag === 'textarea' || tag === 'select';

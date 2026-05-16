@@ -1,6 +1,6 @@
 // ── Profit & Loss ──────────────────────────────────────────────────────
 //
-// TallyPrime-shape two-column statement.
+// Classic accounting-style two-column statement.
 //
 //   Left  side (Dr):  Opening Stock · Purchase Accounts · Direct Exp ·
 //                     Gross Profit c/o · Indirect Exp · Net Profit
@@ -220,7 +220,7 @@ export default function ProfitLoss() {
   // Generic ledger drill — for ledgers without a dedicated report
   // (Round Off, Discount Allowed/Received, Direct/Indirect Income/
   // Expense). Lands on Day Book filtered to this ledger over the same
-  // period; that's the chronological voucher list (Tally calls it
+  // period; that's the chronological voucher list (commonly called
   // "Ledger Vouchers").
   const drillLedger = useCallback((ledgerId, ledgerName) => {
     const qs = new URLSearchParams({
@@ -233,7 +233,7 @@ export default function ProfitLoss() {
 
   // Build per-side row arrays. Each row carries:
   //   { kind, label, amount, compAmount?, computed?, drill? }
-  // Order matches Tally's layout and the column-totals formula.
+  // Order matches the standard P&L layout and the column-totals formula.
   const sides = useMemo(() => {
     if (!data?.current) return { debit: [], credit: [] };
     const cur = data.current;
@@ -252,7 +252,7 @@ export default function ProfitLoss() {
       drill: drillStock,
     });
 
-    // Purchase Accounts — gross, less returns, net (Tally three-line block).
+    // Purchase Accounts — gross, less returns, net (standard three-line block).
     // Union ledgers from current + comparative so rows that exist in only
     // one period still appear (with 0 in the other column) — important for
     // the comparative view; single-period view degenerates correctly.
@@ -489,7 +489,6 @@ export default function ProfitLoss() {
   , [sides.credit]);
 
   useEffect(() => {
-    sessionStorage.setItem('reports_hub_back', '1');
     const onKey = (e) => {
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
