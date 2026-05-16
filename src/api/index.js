@@ -176,6 +176,21 @@ api.interceptors.response.use(
         }
         return Promise.reject(error);
       }
+      // Default-password lockout (server/middleware/auth.js). Its body
+      // message is developer-facing ("POST your new password to …") and the
+      // dashboard fires several requests at once, so the bare text would
+      // stack as a pile of identical raw-API toasts. Show one human notice;
+      // the shared message key collapses the burst into a single toast.
+      if (data && data.must_change_password === true) {
+        try {
+          antdMessage.warning({
+            key: 'must-change-password',
+            content: 'For security, you must set a new password before continuing. Use the Change Password screen to set a new one.',
+            duration: 7,
+          });
+        } catch { /* no toast available; caller handles */ }
+        return Promise.reject(error);
+      }
       try {
         // UI-C5 — use the statically-imported antdMessage so this works in
         // every bundler (including the Capacitor mobile build).
