@@ -1,4 +1,4 @@
-/* Fund Flow — Tally-style two-level drill (register → month summary).
+/* Fund Flow — classic accounting-style two-level drill (register → month summary).
  *
  * Visual contract:
  *   • Register view (View 1) reuses .cf-* classes from cash-flow.css
@@ -35,7 +35,7 @@
 }
 
 /* Two-column statement — Sources on left, Applications on right.
- * A central rule mimics Tally's vertical divider; each column has its
+ * A central rule provides a vertical divider; each column has its
  * own header, body, and footer total (sticky inside the column). */
 .ff-stmt {
   flex: 1 1 auto;
@@ -58,7 +58,7 @@
 }
 
 /* Side header — column label on the left, period range on the right
- * mirroring Tally's "Particulars … Sabina Dresses 1-Apr-25 to 30-Apr-25". */
+ * mirroring the standard "Particulars … Sabina Dresses 1-Apr-25 to 30-Apr-25". */
 .ff-stmt-hd {
   display: flex;
   align-items: baseline;
@@ -70,7 +70,7 @@
   flex-shrink: 0;
 }
 .ff-stmt-hd-l {
-  letter-spacing: 4px;        /* Tally's "S o u r c e s" tracking */
+  letter-spacing: 4px;        /* "S o u r c e s" tracking */
   font-weight: 700;
   font-size: 12px;
   color: var(--fg-primary);
@@ -180,7 +180,7 @@
  *  Working-Capital summary strip (bottom of month-summary page)
  *  Three rows: Current Assets · Current Liabilities · Working Capital
  *  Three columns: Opening Balance · Closing Balance · Wkg Cap Increase
- *  Mirrors the Tally screenshot's bottom strip exactly.
+ *  Mirrors the standard fund-flow statement's bottom strip exactly.
  * ───────────────────────────────────────────────────────────────── */
 
 .ff-month-wc {

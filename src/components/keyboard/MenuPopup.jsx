@@ -4,13 +4,13 @@ import { useLocation } from 'react-router-dom';
 import { getRouteIcon } from '../Layout/menuConfig';
 import './MenuPopup.css';
 
-// ── Tally-style Alt-letter menu popup ──────────────────────────────
+// ── Classic keyboard-driven Alt-letter menu popup ──────────────────
 //
 // Press Alt+S → this opens, listing the Sales sub-items (Sale ·
 // Sales List · New Sales Return · Sales Returns). Each item carries
 // an UNDERLINED letter; pressing that letter picks the item. Arrow
 // keys navigate; Enter picks the highlighted row; Esc closes. Same
-// model as Tally Prime's classic menu.
+// model as a classic keyboard-driven application menu.
 //
 // Mounted once at the app root via MenuPopupProvider; pages don't
 // render anything themselves. The provider is kept independent of
@@ -183,7 +183,7 @@ function MenuPopupBody({ title, items, anchorKey, onPick, onCancel }) {
       // already eaten the modifier; here we just look at single-key
       // presses without modifiers. e.key works fine for the no-Alt
       // case. We also accept Alt+letter for users who keep holding
-      // Alt while pressing the sub-letter (like Tally).
+      // Alt while pressing the sub-letter (classic keyboard-driven behavior).
       if (!e.ctrlKey && !e.metaKey) {
         // Strip the Alt-dead-key transformation: prefer e.code
         // ("KeyS") which is identical regardless of Option/Alt.

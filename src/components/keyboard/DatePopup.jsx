@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import dayjs from 'dayjs';
 import './DatePopup.css';
 
-// ── Tally-style F2 Date popup ─────────────────────────────────────────
+// ── Classic accounting-style F2 Date popup ────────────────────────────
 //
 // One popup, two modes:
 //   mode='single' → returns a dayjs date

@@ -208,7 +208,7 @@ exports.verifyPassword = async (req, res) => {
 
 /* ── In-place company switch ─────────────────────────────────────────────
  *
- * Tally-Prime-style mid-session switch: keep the React app mounted, swap
+ * A classic-accounting-style mid-session switch: keep the React app mounted, swap
  * the auth token in place. The user types only the password for the
  * destination company (since users + passwords are per-company-isolated,
  * the same `username` may exist with a different password in each
@@ -434,7 +434,7 @@ exports.changePassword = async (req, res) => {
  *
  * Developer mode is a hidden tier above Admin that gates power-tools the
  * shop owner shouldn't normally have access to (Ledger Integrity, Data
- * Cleanup, Restore, Tally live-sync, Server settings, LAN client cap).
+ * Cleanup, Restore, accounting live-sync, Server settings, LAN client cap).
  *
  * Unlocking is a per-device one-time password check — no DB user record
  * is involved. The password is read from DEVELOPER_PASSWORD env, with a

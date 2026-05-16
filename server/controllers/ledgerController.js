@@ -315,7 +315,7 @@ exports.autoReceiptIntegrity = async (req, res) => {
 //
 // Used by the "Run Reconciliation" button on the Ledger Integrity screen
 // and as the post-import healing step for any path that wrote bills
-// directly without going through the posting service (legacy Tally
+// directly without going through the posting service (legacy accounting
 // live-pull, legacy file XML import).
 exports.reconcile = async (req, res) => {
   const SOURCES = [

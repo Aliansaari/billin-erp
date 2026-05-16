@@ -1,47 +1,36 @@
-import { createElement, useEffect } from 'react';
+import { useEffect } from 'react';
 import { create } from 'zustand';
-import { Modal } from 'antd';
-import { ExclamationCircleFilled } from '@ant-design/icons';
+import confirmDialog from '../utils/confirmDialog';
+
+const DEFAULT_MSG =
+  "You have unsaved changes on this page. If you leave now, they will be lost.";
 
 /**
  * Global nav guard. A form sets { dirty: true, message } while it has
  * unsaved work; the sidebar and Back buttons call confirmLeave(onConfirm)
- * which shows an AntD-themed modal and invokes onConfirm when the user
- * chooses to discard.
+ * which shows the shared themed confirm dialog and invokes onConfirm only
+ * when the user deliberately chooses to discard.
  *
- * API is callback-based (not a sync boolean) because the AntD modal is
- * async — the old window.confirm() blocked the JS thread and returned a
- * boolean, but that's the system popup the user wanted replaced.
+ * Keyboard-safe: Enter and Esc both KEEP editing (the safe choice).
+ * Discarding requires an explicit click on the danger button, so a
+ * reflexive keypress can never throw away a half-typed bill.
  */
 export const useNavGuard = create((set) => ({
   dirty: false,
-  message: 'You have unsaved changes. Leave this page anyway?',
-  setGuard: (dirty, message) => set({ dirty, message: message || 'You have unsaved changes. Leave this page anyway?' }),
+  message: DEFAULT_MSG,
+  setGuard: (dirty, message) => set({ dirty, message: message || DEFAULT_MSG }),
   clearGuard: () => set({ dirty: false }),
   confirmLeave: (onConfirm) => {
     const { dirty, message } = useNavGuard.getState();
     if (!dirty) { onConfirm?.(); return; }
-    // Swap ok/cancel semantics so the destructive action sits on the LEFT
-    // and the safe default (Stay) sits on the RIGHT — matches the chosen
-    // layout. AntD Modal always renders cancel on the left and ok on the
-    // right, so we put "Discard and leave" in the cancel slot and treat
-    // its click as the confirmed leave.
-    Modal.confirm({
-      title: 'Unsaved changes',
-      icon: createElement(ExclamationCircleFilled, { style: { color: 'var(--warning)' } }),
-      content: message,
-      okText: 'Stay',
-      cancelText: 'Discard and leave',
-      cancelButtonProps: { danger: true, size: 'large', style: { minWidth: 160 } },
-      okButtonProps: { size: 'large', style: { minWidth: 120 } },
-      centered: true,
-      // Custom class so global.css can theme this modal to match the app
-      // chrome (light/dark · classic/modern). Without it the confirm modal
-      // falls back to AntD's default white-on-white because static methods
-      // like Modal.confirm bypass ConfigProvider's theme context.
-      className: 'erp-confirm-modal',
-      onCancel: onConfirm,
-    });
+    confirmDialog({
+      title: 'Discard unsaved changes?',
+      message,
+      confirmText: 'Discard & leave',
+      cancelText:  'Keep editing',
+      danger: true,
+      safeDefault: true,
+    }).then((discard) => { if (discard) onConfirm?.(); });
   },
 }));
 
@@ -55,7 +44,7 @@ export const useNavGuard = create((set) => ({
  * which browsers render with their own native dialog for security — that
  * one cannot be styled. Only in-app navigation uses the themed modal.
  */
-export function useUnsavedChangesWarning(dirty, message = 'You have unsaved changes. Leave this page anyway?') {
+export function useUnsavedChangesWarning(dirty, message = DEFAULT_MSG) {
   useEffect(() => {
     useNavGuard.getState().setGuard(dirty, message);
     return () => useNavGuard.getState().clearGuard();

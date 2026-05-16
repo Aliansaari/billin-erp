@@ -34,7 +34,7 @@ const fmtBal = (v) =>
     maximumFractionDigits: 1,
   });
 
-// Tally convention: positive balance = Dr (the party owes us / asset
+// Standard accounting convention: positive balance = Dr (the party owes us / asset
 // side), negative = Cr (we owe the party / liability side). Reading
 // "Cr" is unambiguous; reading "-64,940" prompts the question we keep
 // having to answer ("why is this minus?"). Mirrors the suffix the

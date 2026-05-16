@@ -315,7 +315,7 @@ body {
   font-size: 18px;
 }
 
-/* The collapsed-sidebar hover popup now reuses the Tally MenuPopup
+/* The collapsed-sidebar hover popup now reuses the MenuPopup
  * styling (.mp-popup / .mp-head / .mp-item / etc. — see
  * components/keyboard/MenuPopup.css), so the bespoke .erp-ci-popup
  * rules that used to live here have been removed. The .erp-ci icon
@@ -1764,6 +1764,29 @@ body {
 .erp-confirm-modal + .ant-modal-mask,
 body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp-confirm-modal) .ant-modal-mask {
   /* Safari-era :has() needs recent browsers; safe fallback is the default mask. */
+}
+/* Message + discoverable keyboard hint (confirmDialog). The pill mirrors
+   the .astrip-kbd / .bpm-kbd language used elsewhere so every keyboard
+   affordance in the app looks the same. */
+.erp-confirm-modal .ck-msg { color: var(--fg-secondary) !important; }
+/* Key-hint pill rendered INSIDE the confirm buttons — same visual
+   language as the ActionStrip / barcode-modal key chips, so every
+   keyed button across the app reads the same. */
+.erp-confirm-modal .ant-btn .ck-kbd {
+  display: inline-flex; align-items: center;
+  margin-right: 7px; padding: 1px 6px;
+  background: var(--bg-muted); border: 1px solid var(--border);
+  border-radius: 4px;
+  font: 600 10.5px/1.5 'Source Sans 3', sans-serif;
+  color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums; letter-spacing: .02em;
+}
+/* On the accent primary button the pill needs contrast (mirrors
+   .astrip-btn.tone-primary .astrip-kbd). */
+.erp-confirm-modal .ant-btn-primary .ck-kbd {
+  background: rgba(0, 0, 0, .22);
+  border-color: rgba(255, 255, 255, .30);
+  color: var(--fg-inverse, #FDFAF2);
 }
 
 /* ── Customize popover (shared) ─────────────────────────────────────

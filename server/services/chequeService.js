@@ -204,7 +204,7 @@ async function buildInwardDeposit(cheque, opts = {}) {
 //   Post-dated (cheque_date > today): the bank doesn't see the
 //   instrument until maturity, so we credit a holding liability
 //   ledger ("Cheques Issued (PDC)") rather than the bank itself —
-//   exactly how Tally records PDCs.  When the cheque clears we move
+//   exactly how standard accounting records PDCs.  When the cheque clears we move
 //   it from PDC liability to Bank credit (see buildOutwardClear).
 //
 //     Supplier               Dr amount

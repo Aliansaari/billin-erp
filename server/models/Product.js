@@ -150,7 +150,7 @@ module.exports = (sequelize) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },
-    // ── Single-product mode (Tally-style) ────────────────────────────
+    // ── Single-product mode (classic accounting-style) ────────────────────────────
     //
     // 'variant' = current behavior: a purchase line at a different MRP /
     //   rate / size creates a new product row with a new barcode. Each

@@ -25,7 +25,7 @@
 // Canonical list — order matters for the dropdown UX (alphabetised
 // English label, with the most common Indian-retail units near the top
 // would be nicer but alpha keeps lookups deterministic and is what
-// Tally / Busy use).
+// common accounting software use).
 const UQC_CODES = [
   { code: 'BAG', label: 'BAGS',              gstn: 'BAG-BAGS', aliases: ['BAGS'] },
   { code: 'BAL', label: 'BALE',              gstn: 'BAL-BALE' },

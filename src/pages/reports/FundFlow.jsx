@@ -1,4 +1,4 @@
-// ── Fund Flow Statement (Tally-style three-level drill) ──────────────
+// ── Fund Flow Statement (classic accounting-style three-level drill) ──
 //
 // Exact UI parallel of CashFlow.jsx. One component, three views via URL
 // param ?view=:
@@ -16,13 +16,13 @@
 //     Two-column statement: Sources (left) | Applications (right) with
 //     totals at the foot. A small Working-Capital strip at the bottom
 //     shows Current Assets / Current Liabilities / Working Capital
-//     Opening, Closing, and Wkg Cap Increase — same shape Tally prints.
+//     Opening, Closing, and Wkg Cap Increase — same shape standard reports print.
 //     Click "Net Profit" / "Funds From Operations" → drill into the
 //     existing Profit & Loss report scoped to the same month.
 //     Esc → back to the register (handled by AppLayout's history.back).
 //
 //   Drill into Profit & Loss is via /reports/profit-loss?from_date&to_date
-//     — that page already exists, mirroring the Tally drill from
+//     — that page already exists, mirroring the standard drill from
 //     "Nett Profit" on the Funds Flow summary into the P&L statement.
 //
 // Number formatting + period presets + URL-driven state are byte-for-
@@ -338,7 +338,7 @@ function RegisterTable({ rows, totals, onRowClick, activeIdx, setActiveIdx }) {
 
   // Empty-period detection — every month in the range has zero flow.
   // Common case: requesting a future FY that has no entries yet. We
-  // still render the rows (with blank cells per Tally convention) and
+  // still render the rows (with blank cells per standard accounting convention) and
   // surface a one-line banner above so the user reads it as "no
   // activity" rather than "report broken".
   const isEmptyPeriod = rows.length > 0
@@ -375,7 +375,7 @@ function RegisterTable({ rows, totals, onRowClick, activeIdx, setActiveIdx }) {
               <tr><td colSpan={4} className="cf-empty">No working-capital activity in this period.</td></tr>
             ) : rows.map((r, i) => {
               const isActive = i === activeIdx;
-              // Tally convention — months with no activity (zero funds
+              // Standard accounting convention — months with no activity (zero funds
               // flow) leave Opening/Closing/Funds-Flow cells blank
               // rather than repeating the carrying balance row after
               // row. The month label still renders so the time
@@ -421,7 +421,7 @@ function RegisterTable({ rows, totals, onRowClick, activeIdx, setActiveIdx }) {
 // View 2 — Funds Flow Summary for ONE month
 // ─────────────────────────────────────────────────────────────────────
 //
-// Layout mirrors the Tally screenshot: top half is a two-column
+// Layout mirrors the standard fund-flow statement: top half is a two-column
 // Sources/Applications statement, bottom strip is a small WC summary
 // (CA / CL / Working Capital × Opening / Closing / Wkg Cap Increase).
 //
@@ -446,7 +446,7 @@ function FundFlowMonthView() {
   // Resolve the month into ISO date bounds, then call the existing
   // /api/reports/fund-flow endpoint (which returns the full statement
   // for ANY date range — passing month-start/month-end gives us the
-  // single-month version Tally renders here).
+  // single-month version rendered here).
   const monthBounds = useMemo(() => {
     if (!month || !/^\d{4}-\d{2}/.test(month)) return null;
     const [y, m] = month.split('-').map(Number);
@@ -575,7 +575,7 @@ function FundFlowMonthBody({ data, activeSide, setActiveSide, activeIdx, setActi
 
   const sourceLabel = (row) => {
     // If FFO has no add-backs/less, surface "Net Profit" instead of
-    // "Funds From Operations" — matches Tally and is more
+    // "Funds From Operations" — matches standard practice and is more
     // self-explanatory when there's nothing to adjust.
     if (row.id === 'ffo' && data.ffo.add_back.length === 0 && data.ffo.less.length === 0) {
       return 'Net Profit';
@@ -667,7 +667,7 @@ function FundFlowMonthBody({ data, activeSide, setActiveSide, activeIdx, setActi
       </div>
 
       {/* ── Working-Capital summary strip (bottom) ─────────────────
-          Tally convention: each balance is rendered as |amount| + a
+          Standard accounting convention: each balance is rendered as |amount| + a
           Dr/Cr tag derived from sign. CA defaults to Dr, CL defaults
           to Cr — but if an aggregate is naturally on the opposite
           side (eg. Sundry Creditors net Dr because of supplier
@@ -706,7 +706,7 @@ function FundFlowMonthBody({ data, activeSide, setActiveSide, activeIdx, setActi
           </tbody>
         </table>
 
-        {/* Reconciliation banner — Tally identity: Sources − Applications = ΔWC.
+        {/* Reconciliation banner — accounting identity: Sources − Applications = ΔWC.
             The bottom-row Working Capital "Wkg Cap Increase" must equal
             (Total Sources − Total Applications). A non-zero drift here
             means our classifier missed something — eg. a sub_group not
@@ -723,7 +723,7 @@ function FundFlowMonthBody({ data, activeSide, setActiveSide, activeIdx, setActi
   );
 }
 
-// Render a balance with its Tally-style Dr/Cr tag. The natural side
+// Render a balance with its classic accounting-style Dr/Cr tag. The natural side
 // is what we expect (Dr for assets, Cr for liabilities); when the
 // aggregate is naturally negative (eg. Sundry Creditors with net Dr
 // balance from supplier advances), the tag flips so the operator
@@ -747,7 +747,7 @@ function DrCrAmount({ value, naturalSide }) {
 }
 
 // Render a working-capital change column entry. Positive = increase
-// (green), negative = decrease (rendered as `(-)X.XX` per Tally).
+// (green), negative = decrease (rendered as `(-)X.XX` per standard format).
 function WcDelta({ value }) {
   const n = Number(value) || 0;
   if (Math.abs(n) < 0.005) return <span className="cf-zero">—</span>;

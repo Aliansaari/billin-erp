@@ -51,7 +51,7 @@ const EVENT_TYPE_OPTIONS = [
  *    · When OFF, the section shows a brief info note pointing the
  *      user to Developer Settings if they want to turn it on.
  *
- * Default UX (compliance OFF, the simple Tally-style mode):
+ * Default UX (compliance OFF, the simple classic accounting-style mode):
  *    · FY routing automatic by bill date
  *    · Past-FY context switch via the workspace pill (yellow banner)
  *    · No locks, no override prompts, no audit log
@@ -303,7 +303,7 @@ export default function FinancialYearSettings() {
               <div className="fyset-card-sub">
                 {complianceMode
                   ? 'Audit features are active. Configure the lock dates and password requirement below.'
-                  : 'No locks, no audit log — Tally-style. Enabling compliance is a developer-only action.'}
+                  : 'No locks, no audit log — simple mode. Enabling compliance is a developer-only action.'}
               </div>
             </div>
           </div>

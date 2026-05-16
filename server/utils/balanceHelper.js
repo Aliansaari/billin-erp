@@ -255,8 +255,8 @@ async function getPartyOutstanding(partyId, transactionType, t = null) {
  *      pool and is distributed oldest-bill-first.
  *
  * This preserves accounting integrity (total applied = total non-cancelled
- * receipts/payments) while honoring user intent — matching how TallyPrime and
- * Vyapar handle "advance + specific bill" combinations.
+ * receipts/payments) while honoring user intent — matching how common accounting
+ * software handles "advance + specific bill" combinations.
  *
  * Purchase bills ← total non-cancelled Payments
  * Sales bills    ← total non-cancelled Receipts

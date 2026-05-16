@@ -1,8 +1,8 @@
 // ── Trial Balance ──────────────────────────────────────────────────────
 //
-// TallyPrime-style hierarchical Trial Balance with drill-into-page.
+// Classic accounting-style hierarchical Trial Balance with drill-into-page.
 //
-//   Page 1 — Trial Balance      → primary groups + Tally intermediate
+//   Page 1 — Trial Balance      → primary groups + intermediate
 //                                 groups (Current Assets / Fixed Assets
 //                                 / Current Liabilities / Loans / etc.)
 //                                 + sub-groups, no leaf ledgers inline.
@@ -10,7 +10,7 @@
 //                                 Lists every ledger under that group.
 //                                 Click a ledger → existing PartyLedger.
 //
-// The Tally intermediate level is derived client-side from `sub_group`
+// The intermediate level is derived client-side from `sub_group`
 // — no schema change. See SUB_TO_MID below.
 //
 // Reconciliation banner renders only when totals.balanced is false OR
@@ -34,11 +34,11 @@ const fmtINR = (v) =>
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   });
 
-// ── Tally intermediate group mapping ─────────────────────────────────
+// ── Intermediate group mapping ───────────────────────────────────────
 //
 // `sub_group` (free text) + `ledger_group` (primary) → an intermediate
-// "Tally group". Adds the Current/Fixed/Loans distinction users coming
-// from Tally expect, without touching the schema.
+// account group. Adds the Current/Fixed/Loans distinction experienced
+// accounting-software users expect, without touching the schema.
 //
 // Keyed by primary so the same sub_group name (e.g., "Duties & Taxes" —
 // which can be Input GST under Assets OR Output GST under Liabilities)
@@ -192,7 +192,7 @@ export default function TrialBalance() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── Build the 3-level tree: primary → mid (Tally) → sub → ledgers ──
+  // ── Build the 3-level tree: primary → mid → sub → ledgers ──
   const tree = useMemo(() => {
     if (!data?.ledgers) return [];
 
@@ -278,7 +278,7 @@ export default function TrialBalance() {
   // The ledger rows shown in Group Summary, filtered by search.
   // activeGroup.name can be:
   //   • a primary group name      (e.g., "Assets")        → all ledgers in primary
-  //   • a Tally intermediate name (e.g., "Current Assets")→ all ledgers in that mid
+  //   • an intermediate group name (e.g., "Current Assets")→ all ledgers in that mid
   //   • a sub_group name          (e.g., "Sundry Debtors")→ only that sub-group
   // Most-specific match wins.
   const groupLedgers = useMemo(() => {
@@ -405,8 +405,8 @@ export default function TrialBalance() {
   }, [navRows.length]);
 
   // Reseed `collapsed` whenever data lands or the user flips the
-  // Collapsed/Expanded preference. Default = collapsed (Tally-style:
-  // only the 5 primary groups visible). Setting the preference to
+  // Collapsed/Expanded preference. Default = collapsed (classic
+  // accounting-style: only the 5 primary groups visible). Setting the preference to
   // "Expanded" clears the set so every primary opens at once.
   useEffect(() => {
     if (!data || tree.length === 0) return;
@@ -441,13 +441,6 @@ export default function TrialBalance() {
     }
     window.scrollTo(0, 0);
   }, [searchParams]);
-
-  // Make sure AppLayout's global Esc → history.back() always fires while
-  // on this report (not just when the user came in via the Reports hub).
-  // Without this, Esc would do nothing on a directly-opened TB URL.
-  useEffect(() => {
-    sessionStorage.setItem('reports_hub_back', '1');
-  }, []);
 
   // Keep the highlighted row in view while arrow-key navigating.
   useEffect(() => {
@@ -493,7 +486,7 @@ export default function TrialBalance() {
     return () => window.removeEventListener('keydown', onKey);
   }, [page, navRows, activeIdx]);
 
-  // F2 = Date popup (range). Opens the Tally-style smart-input popup
+  // F2 = Date popup (range). Opens the classic accounting-style smart-input popup
   // wired to the from / to state.
   const { openDate } = useDatePopup();
 

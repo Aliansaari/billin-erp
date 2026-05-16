@@ -514,7 +514,7 @@ exports.getLedger = async (req, res) => {
     // that happened BEFORE from_date. Without this, the "Opening Balance" row at
     // the top of the ledger would show the party's original opening (from when
     // they were first added) rather than the balance that was carried into the
-    // period — which is what accountants and Tally/Vyapar users expect.
+    // period — which is what accountants and accounting software users expect.
     let periodOpening = signedOpening;
     if (from_date) {
       const [preSales, prePurch, prePay] = await Promise.all([

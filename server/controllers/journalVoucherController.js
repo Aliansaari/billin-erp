@@ -84,7 +84,7 @@ function normalizeLines(rawLines) {
     throw new Error('At least 2 lines required.');
   }
   const lines = rawLines.map((ln, i) => {
-    // LED-H4 — apply `roundTo` (round-half-away-from-zero, Tally-compatible)
+    // LED-H4 — apply `roundTo` (round-half-away-from-zero, Indian GST-standard)
     // BEFORE the unbalanced check. Pre-fix, raw float inputs like
     // 100.005 + 100.005 from a JSON client could pass the sum check
     // (identical floats) but then `Math.round` in postVoucher's toAmount
@@ -244,7 +244,7 @@ exports.update = async (req, res) => {
 
     // Audit M4: when the voucher_date changes, the existing voucher_number
     // becomes stale (its prefix encodes the OLD date). Reports that group
-    // entries by reference_number — and Tally exports that key on this
+    // entries by reference_number — and accounting exports that key on this
     // string — would fan one voucher across two date-prefixed buckets.
     // Regenerate the number using the new date's prefix so the
     // reference_number always aligns with entry_date.

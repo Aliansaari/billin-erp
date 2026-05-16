@@ -562,7 +562,7 @@ export default function PurchaseReturnForm() {
     });
   }, [handleSave, id]);
 
-  // F2 Date popup — Tally-style smart-input popup for the return date.
+  // F2 Date popup — classic accounting-style smart-input popup for the return date.
   const { openDate } = useDatePopup();
   const f2DatePopup = useCallback(() => {
     const current = form.getFieldValue('return_date');

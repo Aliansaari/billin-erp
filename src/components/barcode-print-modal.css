@@ -1,0 +1,138 @@
+/* ===========================================================================
+ * Barcode Print modal — theme-token driven (classic/modern × light/dark).
+ * Single items table + brand field + select-all + print. Polished, dense,
+ * dark-mode safe. No hardcoded yellows/greys/gradients.
+ * ========================================================================= */
+
+.bpm-modal .ant-modal-body { padding: 0; }
+.bpm-modal .ant-modal-content { overflow: hidden; padding: 0; }
+.bpm-modal .ant-modal-header {
+  margin: 0; padding: 18px 22px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bpm-modal .ant-modal-footer {
+  margin: 0; padding: 14px 22px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+}
+
+/* ── Title ───────────────────────────────────────────────────────────────── */
+.bpm-head { display: flex; align-items: center; gap: 11px; }
+.bpm-head__icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: var(--radius-sm);
+  background: var(--accent-bg); color: var(--accent-text); font-size: 17px;
+}
+.bpm-head__title { font-weight: 700; font-size: 16px; color: var(--fg-primary); letter-spacing: -0.01em; }
+.bpm-head__bill  { color: var(--fg-tertiary); font-weight: 600; }
+.bpm-chip {
+  margin-left: 2px; padding: 3px 11px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; line-height: 1.5;
+  background: var(--accent-bg); color: var(--accent-text);
+  border: 1px solid var(--accent-border);
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+.bpm-toolbar {
+  display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+  padding: 18px 22px;
+}
+.bpm-field { display: flex; flex-direction: column; gap: 6px; min-width: 280px; flex: 1; }
+.bpm-field__lbl {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--fg-tertiary);
+}
+.bpm-field .ant-input-affix-wrapper,
+.bpm-field .ant-input { font-weight: 600; }
+.bpm-toolbar__spacer { flex: 1; }
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.bpm-table-wrap {
+  margin: 0 22px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow-x: hidden;          /* never a horizontal scrollbar */
+  overflow-y: auto;            /* long item lists scroll vertically */
+  max-height: 56vh;
+}
+.bpm-table-wrap .ant-table { width: 100%; }
+.bpm-table-wrap .ant-table-cell { white-space: nowrap; }
+
+/* Header — refined, never wraps */
+.bpm-modal .ant-table-thead > tr > th {
+  background: var(--bg-muted) !important;
+  color: var(--fg-tertiary) !important;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border) !important;
+  border-right: 1px solid var(--border) !important;
+  padding: 11px 14px !important;
+}
+.bpm-modal .ant-table-tbody > tr > td {
+  padding: 11px 14px !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  border-right: 1px solid var(--border-subtle) !important;
+}
+/* Last column has no inner divider — the wrapper border closes the grid */
+.bpm-modal .ant-table-thead > tr > th:last-child,
+.bpm-modal .ant-table-tbody > tr > td:last-child {
+  border-right: 0 !important;
+}
+.bpm-modal .ant-table-tbody > tr:last-child > td { border-bottom: 0 !important; }
+/* AntD draws a faint cell separator on hover/!bordered — silence it so our
+   token gridlines are the only ones (keeps light + dark crisp). */
+.bpm-modal .ant-table-tbody > tr > td::before { display: none !important; }
+
+/* Barcode cell — same font as the rest of the UI, just emphasised */
+.bpm-bc {
+  font-weight: 700; color: var(--fg-primary);
+}
+.bpm-num { font-variant-numeric: tabular-nums; }
+
+/* Row states — opacity only, so it reads on light AND dark surfaces */
+.bpm-row { transition: opacity .15s ease; }
+.bpm-row td { transition: background .12s ease; }
+.bpm-row:hover td { background: var(--bg-hover) !important; }
+.bpm-row--off > td { opacity: .4; }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.bpm-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+}
+.bpm-foot__sum { color: var(--fg-secondary); font-size: 13px; }
+.bpm-foot__sum b { color: var(--fg-primary); font-weight: 700; }
+.bpm-foot__btns { display: flex; align-items: center; gap: 10px; }
+
+/* ── Keyboard ────────────────────────────────────────────────────────────── */
+/* Key-hint pill — mirrors .astrip-kbd so it reads as the same language as
+   the F-key strips used across the app. */
+.bpm-kbd {
+  display: inline-flex; align-items: center;
+  padding: 1px 6px; margin-right: 6px;
+  background: var(--bg-muted); border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 10.5px; font-weight: 600; line-height: 1.5;
+  color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums; letter-spacing: .02em;
+  white-space: nowrap;
+}
+/* On the teal primary button the pill needs contrast (same trick as
+   .astrip-btn.tone-primary .astrip-kbd). */
+.bpm-foot .ant-btn-primary .bpm-kbd {
+  background: rgba(0, 0, 0, .22);
+  border-color: rgba(255, 255, 255, .30);
+  color: #fff;
+}
+
+/* Active row — the keyboard cursor. Stronger than hover so it's always
+   obvious which row Space will toggle. */
+.bpm-row--active > td { background: var(--bg-selected) !important; }
+.bpm-row--active:hover > td { background: var(--bg-selected) !important; }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.bpm-empty {
+  padding: 60px 20px; text-align: center; color: var(--fg-tertiary);
+  font-size: 14px;
+}

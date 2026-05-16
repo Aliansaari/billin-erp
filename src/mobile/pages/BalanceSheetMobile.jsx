@@ -49,7 +49,7 @@ const CloseIcon = () => (
   </svg>
 );
 
-// ── Tally intermediate group mapping (same as desktop BalanceSheet.jsx) ──
+// ── Intermediate group mapping (same as desktop BalanceSheet.jsx) ──
 const SUB_TO_MID = {
   Assets: {
     'Sundry Debtors':            'Current Assets',

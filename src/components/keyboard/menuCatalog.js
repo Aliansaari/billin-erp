@@ -1,4 +1,4 @@
-// Tally-style Alt-letter menu catalog.
+// Classic keyboard-driven Alt-letter menu catalog.
 //
 // Maps a physical key code (e.code, so Mac's Option dead-keys don't
 // break it) to the menu that should pop open.
@@ -151,7 +151,7 @@ export const ALT_MENUS = {
       { letter: 'D', label: 'Day Book',       sub: 'All vouchers · today', route: '/reports/day-book' },
       { letter: 'P', label: 'Profit & Loss',  sub: 'P&L statement',  route: '/reports/profit-loss' },
       { letter: 'A', label: 'Balance Sheet',  sub: 'Assets & liabilities', route: '/reports/balance-sheet' },
-      { letter: 'T', label: 'Trial Balance',  sub: 'Tally-style closing',  route: '/reports/trial-balance' },
+      { letter: 'T', label: 'Trial Balance',  sub: 'Period-end closing',  route: '/reports/trial-balance' },
       { letter: 'L', label: 'Ledger',         sub: 'Account ledger',       route: '/reports/ledger' },
     ],
   },

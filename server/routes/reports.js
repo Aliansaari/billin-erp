@@ -14,19 +14,19 @@ router.use(authenticateToken);
 // (same as profit-loss) since these surface ledger-level data.
 router.get('/trial-balance',      requirePermission('accounts.view'), financialReports.trialBalance);
 router.get('/balance-sheet',      requirePermission('accounts.view'), financialReports.balanceSheet);
-// Cash Flow — Tally-style three-level drill (register → month → group).
+// Cash Flow — classic accounting-style three-level drill (register → month → group).
 // The old `/cash-flow` endpoint was retired alongside the old CashFlow.jsx.
 router.get('/cash-flow/monthly',  requirePermission('accounts.view'), financialReports.cashFlowMonthly);
 router.get('/cash-flow/month',    requirePermission('accounts.view'), financialReports.cashFlowMonth);
 router.get('/cash-flow/group',    requirePermission('accounts.view'), financialReports.cashFlowGroup);
-// Fund Flow — Tally-style three-level drill (register → month → P&L).
+// Fund Flow — classic accounting-style three-level drill (register → month → P&L).
 //   /fund-flow/monthly   — month-by-month WC opening/closing/flow register
 //   /fund-flow            — full Sources/Apps statement for ONE period; the
 //                            month-summary view feeds it month-start..month-end
 router.get('/fund-flow/monthly',  requirePermission('accounts.view'), financialReports.fundFlowMonthly);
 router.get('/fund-flow',          requirePermission('accounts.view'), financialReports.fundFlow);
 router.get('/day-book',           requirePermission('accounts.view'), dayBookController.dayBook);
-// Profit & Loss — full Tally-shape statement sourced from ledger_entries.
+// Profit & Loss — full classic accounting-style statement sourced from ledger_entries.
 // Replaces the legacy reportController.profitLoss which read from
 // sales_bills / purchase_bills (bypassing the journal).
 router.get('/profit-loss',        requirePermission('accounts.view'), financialReports.profitLoss);

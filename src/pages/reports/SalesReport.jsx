@@ -161,7 +161,7 @@ export default function SalesReport() {
 
   // ── Cursor + multi-select for the bills table. F1 drills into the
   //    cursored bill (edit page). F4 focuses search. F2 opens the
-  //    Tally-style range date popup; on confirm we flip preset to
+  //    classic accounting-style range date popup; on confirm we flip preset to
   //    'custom' and write the range into filters.
   const navigate = useNavigate();
   const sel = useListSelection({ totalCount, rows });

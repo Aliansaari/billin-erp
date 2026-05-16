@@ -931,7 +931,7 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
 
       {/* ── Body table ─────────────────────────────────────────────
           Both views are rendered side-by-side; CSS toggles which one
-          is visible. This is the "Tally-solid" trick — switching
+          is visible. This is the "rock-solid" trick — switching
           Bill Wise ↔ Customers Wise is just a display flip, no
           unmount/remount, no re-fetch, no spinner blink. PartyOutstandingView
           fetches its data once on first mount and keeps it; subsequent

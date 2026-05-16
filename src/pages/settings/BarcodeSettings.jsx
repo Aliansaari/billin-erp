@@ -11,6 +11,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import JsBarcode from 'jsbarcode';
 import { settingsAPI } from '../../api';
+import { listPrinters } from '../../services/printer';
+import { printLabelHTML, BARCODE_PRINTER_KEY, BARCODE_SILENT_KEY } from '../../components/BarcodePrintModal';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './ModuleSettings.css';
 
@@ -400,10 +402,34 @@ export default function BarcodeSettings() {
   });
   const [selectedId, setSelectedId] = useState(null);
 
-  // Load barcode numbering settings only
+  // ── Barcode label printer (localStorage — same store as the layout) ──
+  const [printers,   setPrinters]   = useState([]);
+  const [printerErr, setPrinterErr] = useState('');
+  const [bcPrinter,  setBcPrinter]  = useState(() => localStorage.getItem(BARCODE_PRINTER_KEY) || '');
+  const [bcSilent,   setBcSilent]   = useState(() => localStorage.getItem(BARCODE_SILENT_KEY) !== '0');
+
+  const refreshPrinters = useCallback(() => {
+    listPrinters().then(res => {
+      setPrinters(res.printers || []);
+      setPrinterErr(res.error || '');
+    });
+  }, []);
+
+  const saveBcPrinter = (v) => {
+    const s = v || '';
+    setBcPrinter(s);
+    localStorage.setItem(BARCODE_PRINTER_KEY, s);
+  };
+  const saveBcSilent = (v) => {
+    setBcSilent(v);
+    localStorage.setItem(BARCODE_SILENT_KEY, v ? '1' : '0');
+  };
+
+  // Load barcode numbering settings + printer list
   useEffect(() => {
     loadSettings();
-  }, []);
+    refreshPrinters();
+  }, [refreshPrinters]);
 
   const loadSettings = async () => {
     setLoadingSettings(true);
@@ -512,16 +538,10 @@ export default function BarcodeSettings() {
 </style></head>
 <body><div class="pg">${svg}</div></body></html>`;
 
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;border:none;visibility:hidden;';
-      document.body.appendChild(iframe);
-      iframe.contentDocument.open();
-      iframe.contentDocument.write(html);
-      iframe.contentDocument.close();
-      setTimeout(() => {
-        try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch (_) {}
-        setTimeout(() => document.body.removeChild(iframe), 2000);
-      }, 500);
+      // Silent direct-print to the configured barcode printer (same path
+      // the real F7 barcode print uses); falls back to the OS dialog on
+      // web / when silent is off.
+      await printLabelHTML(html, wMm, hMm);
     } catch (e) { message.error('Test print failed: ' + e.message); }
     finally { setTestPrinting(false); }
   }, [elements, labelSize, codeType]);
@@ -800,6 +820,72 @@ export default function BarcodeSettings() {
                       </Text>
                     </div>
                     <Text type="secondary">Next generated barcode will look like this.</Text>
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+          ),
+        },
+        {
+          key: 'printer',
+          label: <span><PrinterOutlined /> Printer</span>,
+          children: (
+            <Row gutter={16}>
+              <Col xs={24} lg={16}>
+                <Card title="Barcode Label Printer">
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 14 }}>
+                    Used by the <b>F7 → Print Barcode</b> popup (Purchase list / bill form)
+                    and the Test print button. Prints silently to the chosen printer —
+                    the same way sales bills do.
+                  </Text>
+                  <Row gutter={16} align="bottom">
+                    <Col xs={24} md={14}>
+                      <label>Barcode printer</label>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Select
+                          value={bcPrinter || undefined}
+                          onChange={saveBcPrinter}
+                          style={{ flex: 1 }}
+                          allowClear
+                          showSearch
+                          placeholder={printers.length ? 'Pick a printer' : 'No printers detected — type below'}
+                          options={printers.map(p => ({
+                            value: p.name,
+                            label: `${p.displayName || p.name}${p.isDefault ? '  (system default)' : ''}`,
+                          }))}
+                        />
+                        <Tooltip title="Refresh printer list">
+                          <Button icon={<ReloadOutlined />} onClick={refreshPrinters} />
+                        </Tooltip>
+                      </div>
+                    </Col>
+                    <Col xs={24} md={10}>
+                      <label>Or type printer name</label>
+                      <Input
+                        value={bcPrinter}
+                        onChange={e => saveBcPrinter(e.target.value)}
+                        placeholder="e.g. TVS LP46  ·  blank = system default"
+                      />
+                    </Col>
+                  </Row>
+                  <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Switch checked={bcSilent} onChange={saveBcSilent} />
+                    <Text>Silent direct print (no system dialog)</Text>
+                  </div>
+                  {printerErr && (
+                    <div style={{ marginTop: 10, padding: 8, background: 'rgba(239,68,68,0.08)', color: '#b91c1c', borderRadius: 6, fontSize: 12 }}>
+                      Printer list error: {printerErr}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-muted, #f5f5f5)', borderRadius: 6, fontSize: 12, color: 'var(--fg-secondary)' }}>
+                    Label size &amp; field layout are set in the <b>Label Designer</b> tab.
+                    Silent printing requires the desktop (Electron) build; the web-only
+                    preview falls back to the browser print dialog. Settings save instantly.
+                  </div>
+                  <div style={{ marginTop: 16 }}>
+                    <Button icon={<PrinterOutlined />} onClick={handleTestPrint} loading={testPrinting}>
+                      Test print a sample label
+                    </Button>
                   </div>
                 </Card>
               </Col>

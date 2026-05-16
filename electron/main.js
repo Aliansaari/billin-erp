@@ -233,7 +233,7 @@ async function createWindow() {
     height:    useState?.height ?? defaultH,
     x:         useState?.x ?? undefined,    // undefined → centered
     y:         useState?.y ?? undefined,
-    // Hard floor: Tally-Prime-style strict minimum so dragging the
+    // Hard floor: a conservative strict minimum so dragging the
     // corner can never break the layout. 1280×800 is wide enough for
     // the sidebar + main content on every modern Indian retail PC
     // (1366×768 fits 1280×800 with a tiny margin; 1920×1080 has plenty).
@@ -272,6 +272,26 @@ async function createWindow() {
   mainWindow.on('resize', saveState);
   mainWindow.on('move',   saveState);
   mainWindow.on('close',  saveState);
+
+  // ── Exit confirmation + sign-out ──────────────────────────────────
+  // The first close attempt (X button / Alt+F4) is intercepted: ask the
+  // renderer to show the app-themed confirm dialog and sign the user
+  // out. The renderer calls back `app:exit-confirmed` only when the
+  // operator agrees, which flips the flag so the real close goes
+  // through. The renderer de-dupes its own modal, so repeated X presses
+  // never stack. If the renderer can't be reached we close immediately
+  // so the user is never trapped.
+  let exitConfirmed = false;
+  mainWindow.on('close', (e) => {
+    if (exitConfirmed) return;
+    e.preventDefault();
+    try { mainWindow.webContents.send('app:confirm-exit'); }
+    catch { exitConfirmed = true; mainWindow.close(); }
+  });
+  ipcMain.on('app:exit-confirmed', () => {
+    exitConfirmed = true;
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+  });
 
   mainWindow.setMenuBarVisibility(false);
   // Always launch maximised. The width/height/x/y above act as the

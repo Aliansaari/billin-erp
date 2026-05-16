@@ -301,11 +301,13 @@ export default function ReportsHub() {
               nav(target.route);
             }
           } else if (e.key === 'Escape') {
-            e.preventDefault();
-            // First Esc: clear selection. Second Esc (already cleared):
-            // clear query.
-            if (selectedCat) { setSelectedCat(null); setSelectedIdx(-1); }
-            else setQuery('');
+            // First Esc clears the selection, the next clears the query.
+            // When there's nothing left to clear, Esc cascades to Home.
+            // (The search input is focused here, so AppLayout's global
+            // Esc bails on the text field — navigate explicitly.)
+            if (selectedCat) { e.preventDefault(); setSelectedCat(null); setSelectedIdx(-1); }
+            else if (query) { e.preventDefault(); setQuery(''); }
+            else { e.preventDefault(); nav('/'); }
           }
         }}
         style={{ marginBottom: 14 }}

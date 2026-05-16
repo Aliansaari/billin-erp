@@ -545,7 +545,7 @@ export default function SalesList() {
     },
     cols.mobile && {
       // Mobile column — pure mobile number. TLY-prefixed mobiles from
-      // Tally imports are filtered out (those are placeholder strings,
+      // external imports are filtered out (those are placeholder strings,
       // not real numbers). Cash sales without a saved mobile show a
       // dash; the walk-in name (if any) lives in the View modal.
       key: 'mobile', title: 'Mobile', width: 130,
@@ -849,7 +849,7 @@ export default function SalesList() {
         actions={[
           // Visual order: utility / nav keys on the left, destructive
           // F8 + primary F1 on the right — matches the convention used
-          // by the bill forms and Tally Prime (Esc on the left, primary
+          // by the bill forms and common accounting software (Esc on the left, primary
           // action on the right of the button group).
           {
             id: 'edit', key: 'F2', label: 'Edit',

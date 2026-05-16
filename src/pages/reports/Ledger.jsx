@@ -7,7 +7,7 @@
 //
 // Picker is a grouped Select rather than the big PartyPicker bar —
 // COA accounts are a fixed set (~20-50 per firm) and naturally sort
-// into Tally's five groups (Assets / Liabilities / Income /
+// into the five standard accounting groups (Assets / Liabilities / Income /
 // Expenses / Capital), so a hierarchical dropdown reads cleaner than
 // a flat search. The user's mental model is "I want to see Office
 // Rent" → group → name; PartyPicker's autocomplete-by-typing UI is
@@ -38,7 +38,7 @@ import './ledger.css';
 
 const { RangePicker } = DatePicker;
 
-// Tally group order — assets first, capital last. Mirrors what
+// Standard account group order — assets first, capital last. Mirrors what
 // Trial Balance and the chart-of-accounts UI already use.
 const GROUP_ORDER = ['Assets', 'Liabilities', 'Income', 'Expenses', 'Capital'];
 
@@ -137,7 +137,7 @@ export default function Ledger() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ledgerId, from, to]);
 
-  // Group the accounts list into Tally's five primaries → grouped
+  // Group the accounts list into the five standard primaries → grouped
   // Select options. AntD Select renders OptGroup natively, so this
   // gives us a tidy dropdown like the JV form's account picker.
   const groupedOptions = useMemo(() => {

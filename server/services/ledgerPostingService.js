@@ -40,7 +40,7 @@ function toAmount(v) {
 // Audit CR-2 — Self-protecting concurrency:
 // Pre-fix, callers were expected to take a controller-level advisory lock
 // (key 901-907 per voucher type) before invoking this helper. Sales /
-// Purchase / Payment do; future call sites (imports, Tally sync, scripts)
+// Purchase / Payment do; future call sites (imports, accounting sync, scripts)
 // might forget. Take a function-local pg_advisory_xact_lock keyed by
 // (current_database, prefix+yyyymmdd) here so the next-seq read is
 // serialised against any concurrent writer for the same (db, prefix, date)

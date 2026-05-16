@@ -12,7 +12,7 @@ import { formatINR, formatShortDate } from '../utils/format';
 //     the day-book API doesn't ship per-entry timestamps and the placeholder
 //     "12:00 pm" was a distraction in the list view.
 //   • A small Cr / Dr pill before the amount so users see which side
-//     this entry sits on at a glance (matches Tally / standard accounting).
+//     this entry sits on at a glance (matches standard accounting).
 //   • A circular WhatsApp button. Tap → opens WhatsApp with a pre-filled
 //     bill summary so the user can send it to the customer / supplier in
 //     one move. We use `whatsapp://send?text=...` first (handled natively

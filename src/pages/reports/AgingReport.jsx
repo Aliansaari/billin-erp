@@ -60,7 +60,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
   const navigate = useNavigate();
   // Two rendering modes sharing the same JSON payload:
   //   'party' — one row per party with expandable bill drill-down (default)
-  //   'bill'  — flat list of every outstanding bill (Tally-style)
+  //   'bill'  — flat list of every outstanding bill (classic accounting-style)
   const [viewMode, setViewMode]   = useState('party');
 
   // User-tunable display flags — persisted so the layout someone prefers
@@ -697,7 +697,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
                         return (
                         /* Expanded bill row — one cell per column so values
                          * stay aligned with the header. Balance is placed
-                         * ONLY in the matching bucket column (Tally style),
+                         * ONLY in the matching bucket column (classic accounting style),
                          * with the total replicated in the Total column. */
                         <tr
                           key={billKey}
@@ -727,10 +727,10 @@ export default function AgingReport({ partyType = 'Customer' }) {
               </table>
             )
           ) : (
-            /* ── Bill-wise view ── Tally Prime style. One row per open bill,
+            /* ── Bill-wise view ── classic accounting style. One row per open bill,
                  the pending amount appears in the appropriate bucket column
                  (and ONLY there) so each row "lights up" exactly one bucket.
-                 Columns match Tally's Bills Receivable / Payable layout. ── */
+                 Columns match the standard Bills Receivable / Payable layout. ── */
             flatBills.length === 0 ? (
               <div className="ar-empty">
                 <div className="big">

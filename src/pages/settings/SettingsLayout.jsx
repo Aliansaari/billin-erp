@@ -39,7 +39,7 @@ const SETTINGS_GROUPS = [
       // user who can edit the current company's profile can also see
       // the list.
       { path: 'companies', icon: <AppstoreOutlined />,    label: 'Companies',       perm: 'settings.manage_company' },
-      // Financial Year — FY config + Tally-style compliance toggle that
+      // Financial Year — FY config + classic accounting-style compliance toggle that
       // enables soft/hard locks + override workflow + audit log.
       { path: 'financial-year', icon: <CalendarOutlined />, label: 'Financial Year', perm: 'settings.manage_company' },
       { path: 'modules',   icon: <ThunderboltOutlined />, label: 'Features',        perm: 'settings.manage_company' },

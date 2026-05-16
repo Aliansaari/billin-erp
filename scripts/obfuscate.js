@@ -151,7 +151,7 @@ const OBF_OPTIONS = {
 };
 
 // Lighter settings for files where heavy transforms break things.
-// Sequelize models, Tally importer, anything that uses string-named
+// Sequelize models, the accounting-XML importer, anything that uses string-named
 // property access at runtime. `transformObjectKeys: false` is the
 // critical relaxation — those files often do `model.fields[fieldName]`
 // where fieldName is a runtime string, and renaming the key would

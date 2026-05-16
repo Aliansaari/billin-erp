@@ -458,7 +458,7 @@ exports.balanceSheet = async (req, res) => {
 
 // ── Profit & Loss ──────────────────────────────────────────────────────
 //
-// TallyPrime-shape two-column statement. Sourced ENTIRELY from
+// Classic accounting-style two-column statement. Sourced ENTIRELY from
 // ledger_entries (Active = forward, non-reversed) so the figures are a
 // pure derivation of the journal — manual JVs, opening balances, and
 // voucher-driven postings all flow through the same path. No
@@ -489,7 +489,7 @@ exports.balanceSheet = async (req, res) => {
 // Stock costing convention: SUM(qty_in − qty_out up to date) ×
 // products.purchase_rate (current). Same as BS so I6 holds.
 //
-// Comparative period (Tally-style "Previous Period" column) is supported
+// Comparative period (classic accounting-style "Previous Period" column) is supported
 // via comp_from_date / comp_to_date query params. If only the current
 // period is supplied with `?comparative=auto`, we derive an automatic
 // prior period of equal length ending the day before from_date.
@@ -508,8 +508,8 @@ exports.profitLoss = async (req, res) => {
     //   1. Explicit: comp_from_date + comp_to_date supplied → use as-is.
     //   2. Auto:    `?comparative=auto` (or `?comparative=1`) → derive
     //               a prior period of EQUAL CALENDAR LENGTH ending the
-    //               day before from_date. Tally uses the prior FY for
-    //               annual comparisons, the prior quarter for QoQ, etc.
+    //               day before from_date. Standard accounting practice uses
+    //               the prior FY for annual comparisons, the prior quarter for QoQ, etc.
     //               "Equal length, ending day before" is a generic rule
     //               that matches all of those by construction.
     //   3. None:    no comp_* params → response.comparative is null.
@@ -575,7 +575,7 @@ async function computeProfitLoss(from, to) {
     { replacements: { from_date: from, to_date: to }, type: sequelize.QueryTypes.SELECT },
   );
 
-  // 2. Bucket ledgers into Tally-shape groups.
+  // 2. Bucket ledgers into classic accounting-style groups.
   const buckets = {
     sales_accounts: { lines: [], gross: 0, returns: 0, net: 0 },
     purchase_accounts: { lines: [], gross: 0, returns: 0, net: 0 },
@@ -755,7 +755,7 @@ async function computeProfitLoss(from, to) {
   // 5. Build the two-column response. Each side's `total` is the
   //    BOTTOM-of-column number; both sides MUST equal (I1).
   //
-  //    Tally splits the P&L into two stages, presented as one combined
+  //    Classic accounting splits the P&L into two stages, presented as one combined
   //    Dr|Cr statement:
   //      Stage 1 (Trading A/c)  → balances at Gross Profit / Gross Loss
   //      Stage 2 (P&L A/c)      → balances at Net Profit / Net Loss
@@ -828,7 +828,7 @@ async function computeProfitLoss(from, to) {
   //   = Σ(Income groups Cr − Dr) over the period
   //     + Σ(Expense groups Dr − Cr) over the period flipped to Income side
   //   = Σ(−net_dr for Income) − Σ(net_dr for Expense)
-  // Plus stock adjustment: Closing − Opening (since Tally treats stock
+  // Plus stock adjustment: Closing − Opening (since classic accounting treats stock
   // change as a P&L-nature adjustment when the opening-stock voucher
   // hasn't been posted as a real journal — current data assumption).
   const [tbRow] = await sequelize.query(
@@ -893,7 +893,7 @@ async function computeProfitLoss(from, to) {
   };
 }
 
-// ── Cash Flow Statement (Tally-style three-level drill) ───────────────
+// ── Cash Flow Statement (classic accounting-style three-level drill) ───────────────
 //
 // Three views, one resolver chain:
 //
@@ -1034,7 +1034,7 @@ exports.cashFlowMonth = async (req, res) => {
     // Direction is determined by the sign of the cash leg, not by the
     // contra: cash Dr (positive) → inflow; cash Cr (negative) → outflow.
     //
-    // Multi-contra convention matches the Tally screenshots: attribute
+    // Multi-contra convention matches the classic accounting screenshots: attribute
     // the whole cash impact to the FIRST contra's sub_group (picked by
     // entry_id ascending, deterministic). We use a window function to
     // pick that single contra per voucher.
@@ -1052,7 +1052,7 @@ exports.cashFlowMonth = async (req, res) => {
        -- Audit M8: when a voucher splits cash across multiple contra
        -- ledgers (e.g. Cash 100 / Sales 80 / CGST 10 / SGST 10), this
        -- DISTINCT ON picks the first non-cash leg and attributes the
-       -- WHOLE cash amount to its sub_group. Tally-style attribution —
+       -- WHOLE cash amount to its sub_group. Classic accounting-style attribution —
        -- documented behaviour, but worth flagging here so an
        -- enhancement that splits cash by leg-amount stays compatible.
        contra_first AS (
@@ -1286,7 +1286,7 @@ function bucketBySubGroup(rows) {
 //
 // Tracks change in WORKING CAPITAL (Current Assets − Current Liabilities)
 // between two balance-sheet dates, plus the long-term sources and
-// applications that drove the change. Standard ICAI / Tally format.
+// applications that drove the change. Standard ICAI format.
 //
 // Two interlocking parts:
 //
@@ -1727,9 +1727,9 @@ exports.fundFlow = async (req, res) => {
     // We don't show "decrease in misc exp" as a Source — amortization
     // handles that case via the FFO add-back.
 
-    // ── 7. Reconciliation — Tally convention ──
+    // ── 7. Reconciliation — standard accounting convention ──
     //
-    // Tally's Funds Flow Summary does NOT add a synthetic "Increase /
+    // The standard Funds Flow Summary does NOT add a synthetic "Increase /
     // Decrease in Working Capital" balancing line to the Sources or
     // Applications columns. The two columns show only REAL flows:
     //   Sources       = NP + capital introduced + loans raised + FA sold
@@ -1818,7 +1818,7 @@ exports.fundFlow = async (req, res) => {
 
 // ── Fund Flow — Monthly Register ───────────────────────────────────────
 //
-// View 1 of the Tally-style three-level drill (parallel of Cash Flow's
+// View 1 of the classic accounting-style three-level drill (parallel of Cash Flow's
 // cashFlowMonthly). Returns one row per calendar month between
 // from..to with:
 //

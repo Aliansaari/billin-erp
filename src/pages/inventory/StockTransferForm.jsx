@@ -1248,7 +1248,7 @@ export default function StockTransferForm() {
               id: 'back', key: 'Esc', label: 'Back',
               onAction: () => nav('/stock-transfers'),
             },
-            // F2 = Date popup (Tally-style smart input).
+            // F2 = Date popup (classic accounting-style smart input).
             {
               id: 'date', key: 'F2', label: 'Date',
               onAction: () => {

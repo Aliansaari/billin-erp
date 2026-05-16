@@ -19,7 +19,7 @@ export const SHORTCUTS_LIST = [
     note: 'Cmd+K / Ctrl+K also work — Alt+G is the cross-platform display key' },
   { category: 'Global',     keys: 'Cmd/Ctrl + Shift + N', description: 'Open Master Chooser (Customer · Supplier · Product · Category · Bank)' },
   { category: 'Global',     keys: 'Cmd/Ctrl + Shift + ?', description: 'Show this keyboard cheat-sheet' },
-  { category: 'Global',     keys: 'Escape',               description: 'Close modal · cancel · clear search' },
+  { category: 'Global',     keys: 'Escape',               description: 'Close modal · cancel · clear search · else step back toward Home' },
   { category: 'Global',     keys: 'F5',                   description: 'Refresh the current page / list' },
   { category: 'Global',     keys: 'F9',                   description: 'Open company switcher' },
 
@@ -49,7 +49,7 @@ export const SHORTCUTS_LIST = [
   // ── Bill form (sale / purchase / return entry) ────────────────────────
   { category: 'Bill form',  keys: 'F1',                   description: 'Save (with optional print prompt)' },
   { category: 'Bill form',  keys: 'Ctrl + Enter',         description: 'Save — alias for F1' },
-  { category: 'Bill form',  keys: 'F2',                   description: 'Open Date picker (Tally-style smart input)' },
+  { category: 'Bill form',  keys: 'F2',                   description: 'Open Date picker (classic accounting-style smart input)' },
   { category: 'Bill form',  keys: 'F3',                   description: 'Toggle focus between Barcode and Items table' },
   { category: 'Bill form',  keys: 'F4',                   description: 'Hold bill (save as draft, resume later)' },
   { category: 'Bill form',  keys: 'F5',                   description: 'Reset form to a blank bill' },
@@ -67,7 +67,7 @@ export const SHORTCUTS_LIST = [
   { category: 'List page',  keys: 'F8',                   description: 'Cancel / deactivate the selected row' },
   { category: 'List page',  keys: 'F9',                   description: 'Print (sales / purchase / return lists)' },
   { category: 'List page',  keys: 'F10',                  description: 'Export PDF' },
-  { category: 'List page',  keys: 'Esc',                  description: 'Back to previous view' },
+  { category: 'List page',  keys: 'Esc',                  description: 'Back — up one level; from a list it lands on Home' },
   { category: 'List page',  keys: '↑ / ↓',                description: 'Move cursor between rows' },
 
   // ── Global search palette (⌘K / Alt+G) ────────────────────────────────
@@ -181,7 +181,7 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
         }
       }
 
-      // ── Alt + letter → open the Tally-style menu popup.
+      // ── Alt + letter → open the classic keyboard menu popup.
       // Uses e.code (the PHYSICAL key) instead of e.key because macOS
       // Option is a dead key (Option+S generates "ß", Option+P → "π",
       // Option+D → "∂"). e.code is "KeyS" / "KeyP" / "KeyD" regardless
@@ -237,22 +237,23 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
         return;
       }
 
-      // F6 / F7 — Receipt / Payment quick-create. These match the
-      // Home Command Center's "money keys" cards. F-keys fire even
-      // when focus is in an input (search box, party picker, etc.)
-      // so the operator can press F6 from anywhere on the page. On
-      // pages that bind F6 / F7 in their own ActionStrip (e.g. bill
-      // lists where F6 = "Receipt against this cursored bill"), the
-      // strip's stopImmediatePropagation suppresses this listener so
-      // the page-level handler wins.
+      // F6 / F7 — Receipt / Payment quick-create from anywhere. BUT a
+      // page's ActionStrip may declare the same key (the Sales/Purchase
+      // lists bind F6 = Payment/Receipt vs the cursored bill, F7 =
+      // Barcodes / WhatsApp). This global listener is registered at app
+      // mount — BEFORE any page strip — so it runs first, which means
+      // the strip's stopImmediatePropagation can't retroactively cancel
+      // it. So instead of navigating now, defer one macrotask and only
+      // navigate if nothing consumed the key. ActionStrip calls
+      // preventDefault when it claims a key (even a disabled action is a
+      // deliberate no-op), so e.defaultPrevented tells us the page owns
+      // it. Without this, F7 on the Purchase list opened Payment.
       if (e.key === 'F6' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        e.preventDefault();
-        navigate('/receipt/new');
+        setTimeout(() => { if (!e.defaultPrevented) navigate('/receipt/new'); }, 0);
         return;
       }
       if (e.key === 'F7' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        e.preventDefault();
-        navigate('/payment/new');
+        setTimeout(() => { if (!e.defaultPrevented) navigate('/payment/new'); }, 0);
         return;
       }
     };

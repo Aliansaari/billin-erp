@@ -46,7 +46,7 @@ const roleColors = {
 };
 
 /* ── Collapsed sidebar item with hover popup ──
- * Renders the same Tally-style popup that Alt+letter opens (matching
+ * Renders the same classic keyboard-driven popup that Alt+letter opens (matching
  * .mp-popup classes from MenuPopup.css), so mouse-hover and keyboard
  * shortcuts share one visual UI. Letters / sub-text come from
  * ALT_MENUS, keyed by anchorKey === item.key. Falls back to plain
@@ -55,13 +55,13 @@ function CollapsedItem({ item, currentPath, navigate }) {
   const [popupPos, setPopupPos] = useState(null);
   const hideTimer = useRef(null);
 
-  // Look up the Tally menu definition for this sidebar item. Items
+  // Look up the classic keyboard menu definition for this sidebar item. Items
   // without a catalog entry (favorites, ad-hoc) render their plain
   // children with a bullet placeholder where the letter would be.
   // Uses the filtered version so dev-gated entries (Ledger Integrity
   // when its flag is off) don't appear in the hover popup either.
   const altMenus = useFilteredAltMenus();
-  const tallyMenu = useMemo(() => {
+  const keyboardMenu = useMemo(() => {
     for (const code in altMenus) {
       if (altMenus[code].anchorKey === item.key) return altMenus[code];
     }
@@ -69,9 +69,9 @@ function CollapsedItem({ item, currentPath, navigate }) {
   }, [item.key, altMenus]);
 
   const popupItems = useMemo(() => {
-    if (tallyMenu) return tallyMenu.items;
+    if (keyboardMenu) return keyboardMenu.items;
     return (item.children || []).map(c => ({ letter: '', label: c.label, sub: '', route: c.key }));
-  }, [tallyMenu, item.children]);
+  }, [keyboardMenu, item.children]);
 
   const isActive = item.children
     ? item.children.some(c => currentPath === c.key || currentPath.startsWith(c.key))
@@ -128,7 +128,7 @@ function CollapsedItem({ item, currentPath, navigate }) {
           >
             <div className="mp-head">
               <span className="mp-title">{item.label}</span>
-              <span className="mp-hint">Alt+{tallyMenu?.items?.[0]?.letter || ''}</span>
+              <span className="mp-hint">Alt+{keyboardMenu?.items?.[0]?.letter || ''}</span>
             </div>
             <ul className="mp-list">
               {popupItems.map(child => {
@@ -307,7 +307,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
         </div>
 
         {/* Company switcher — auto-hidden when only one company exists,
-            so single-company installs see no extra UI clutter. Tally-style
+            so single-company installs see no extra UI clutter. Classic-style
             pill that opens a dropdown of every company + Manage link.
             Collapsed padding is 4 px symmetrical so every row in the
             icon column reads as the same rhythm (was 8 px bottom which

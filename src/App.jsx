@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import useCompanyStore from './store/companyStore';
+import confirmDialog from './utils/confirmDialog';
 import { partyAPI } from './api';
 import { refreshFinancialYear } from './hooks/useFinancialYear';
 import { useMultiWarehouseEnabled } from './hooks/useSystemSettings';
@@ -512,6 +513,34 @@ export default function App() {
       window.removeEventListener('shortcuts:open',  onOpen);
       window.removeEventListener('shortcuts:close', onClose);
     };
+  }, []);
+
+  // Electron: confirm + sign out before the window actually closes.
+  // main.js intercepts the X / Alt+F4 and pings `app:confirm-exit`; we
+  // show the app-themed dialog, and only on confirm do we clear the
+  // session and tell main to close. De-duped so mashing the X doesn't
+  // stack modals.
+  const exitPromptOpen = React.useRef(false);
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api?.onConfirmExit) return;
+    const off = api.onConfirmExit(async () => {
+      if (exitPromptOpen.current) return;
+      exitPromptOpen.current = true;
+      const ok = await confirmDialog({
+        title: 'Exit Billing ERP?',
+        message: 'You will be signed out and the app will close.',
+        confirmText: 'Exit & sign out',
+        cancelText:  'Stay',
+        danger: true,
+      });
+      exitPromptOpen.current = false;
+      if (ok) {
+        try { useAuthStore.getState().logout(); } catch {}
+        api.confirmExit();
+      }
+    });
+    return off;
   }, []);
   // First-launch gate: when running under file:// (Electron prod) and the
   // user hasn't picked a server URL yet, force the Server Setup screen

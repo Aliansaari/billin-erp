@@ -23,6 +23,35 @@ const TOP_NAV_H = 56;
 const COLLAPSE_BREAKPOINT = 1100;
 const HIDE_BREAKPOINT     = 700;
 
+// ── Escape → cascade up to Home ───────────────────────────────────────────
+// An Esc that nothing else consumes walks the operator back up the
+// hierarchy and finally lands on Home (Command Center). Pages that own Esc
+// (bill / return / payment forms, detail pages via their ActionStrip
+// "Back") call preventDefault, so they still go one level up — e.g. the
+// Sales form → Sales list. The NEXT Esc on that list, which has no Esc
+// handler of its own, falls through to this rule and goes Home. One
+// central rule instead of an Esc handler bolted onto ~40 list pages.
+const HOME_PATH = '/';
+// Already at the top of the tree — Esc has nowhere further up to go.
+const ESC_HOME_SKIP_PATHS = new Set(['/', '/dashboard', '/dashboard/classic']);
+// If any of these is in the DOM when Esc is pressed, that Esc belongs to
+// the overlay (Esc closes it). A second Esc — overlay now gone — cascades
+// Home. Covers the app's custom popups + every AntD overlay layer.
+const ESC_OVERLAY_SELECTOR = [
+  '.gs-modal-backdrop',          // ⌘K global search palette
+  '.mc-backdrop',                // Master chooser
+  '.mp-popup',                   // Alt-letter menu popup
+  '.dp-backdrop',                // F2 date popup
+  '.erp-shortcuts-overlay',      // keyboard cheat-sheet
+  '.ant-modal-wrap:not([style*="display: none"])',
+  '.ant-drawer-open',
+  '.ant-dropdown:not(.ant-dropdown-hidden)',
+  '.ant-select-dropdown:not(.ant-select-dropdown-hidden)',
+  '.ant-picker-dropdown:not(.ant-picker-dropdown-hidden)',
+  '.ant-popover:not(.ant-popover-hidden)',
+  '.ant-image-preview-wrap',
+].join(', ');
+
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -94,31 +123,24 @@ export default function AppLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   useEffect(() => { setMobileNavOpen(false); }, [location.pathname]);
 
-  // Global ESC-back when on a report page that was opened from the
-  // /reports hub. The hub sets sessionStorage 'reports_hub_back' = '1'
-  // when it navigates the operator into a report; ESC then triggers
-  // history.back() which lands on /reports?q=<previous-search>, with
-  // the URL query intact + the hub's mount effect refocusing the
-  // search input.
+  // Global Esc handling. Three tiers, first match wins:
+  //   1. Search-back — reached this page via the global search palette →
+  //      Esc returns to where the search started.
+  //   2. Reports-hub back — a report opened from the /reports hub bounces
+  //      back to the hub (search query intact).
+  //   3. Cascade-to-Home fallback — anything else: if no page-level
+  //      handler / modal consumed the Esc, walk up to Home. This is what
+  //      makes "Esc on the Sales list goes Home" work without bolting an
+  //      Esc handler onto every list / report / settings page.
   //
-  // Guard: only fires for /reports/<slug>, never on the hub itself
-  // (the hub's own onKeyDown owns ESC there to clear search).
-  // Guard: only when the flag is set, so ESC on a directly-opened
-  // report URL (bookmark, deep link from sidebar) does nothing.
-  // Guard: ignore ESC when the user is typing in an input/textarea,
-  // since most report pages use ESC to dismiss modals/search inputs
-  // of their own — we shouldn't override that.
+  // Guard: never fight TEXT inputs / textareas / contenteditable — they
+  // own Esc for their own clear/dismiss. Non-text inputs (the hidden
+  // radio AntD's Segmented control parks focus on, etc.) must NOT block
+  // Esc-back.
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
 
-      // Don't fight TEXT-entry inputs (text/search/email/etc) and
-      // textareas — they own Esc for their own cancel/dismiss/clear
-      // behavior. But non-text inputs (radio/checkbox/range) and
-      // buttons should NOT block Esc-back: AntD's Segmented control,
-      // for example, holds focus on a hidden <input type="radio"> after
-      // a click, which previously absorbed the Esc on pages like
-      // Settings → Theme.
       const ae  = document.activeElement;
       const tag = (ae?.tagName || '').toLowerCase();
       if (ae?.isContentEditable) return;
@@ -131,11 +153,9 @@ export default function AppLayout() {
         if (TEXT_TYPES.has(type)) return;
       }
 
-      // Search-back: if the operator reached this page via the global
-      // search palette (hero or ⌘K modal), Esc returns them to where
-      // they searched from. The palette stashed the source route in
-      // `search_back_from` before navigating; we consume it here so a
-      // second Esc does nothing instead of looping.
+      // (1) Search-back. The palette stashed the source route in
+      // `search_back_from` before navigating; consume it so a second Esc
+      // doesn't loop.
       const here = location.pathname + location.search;
       const searchBack = sessionStorage.getItem('search_back_from');
       if (searchBack && searchBack !== here) {
@@ -145,14 +165,31 @@ export default function AppLayout() {
         return;
       }
 
-      // Reports-hub back — existing behavior. The hub sets
-      // sessionStorage 'reports_hub_back' = '1' when navigating into a
-      // report; Esc on that report bounces back to the hub.
+      // (2) Reports-hub back — only for a report opened from the hub.
+      // (A directly-opened report URL falls through to tier 3 → Home.)
       const path = location.pathname;
-      if (!path.startsWith('/reports/') || path === '/reports/') return;
-      if (sessionStorage.getItem('reports_hub_back') !== '1') return;
-      e.preventDefault();
-      window.history.back();
+      if (path.startsWith('/reports/') && path !== '/reports/' &&
+          sessionStorage.getItem('reports_hub_back') === '1') {
+        e.preventDefault();
+        window.history.back();
+        return;
+      }
+
+      // (3) Cascade-to-Home fallback.
+      // Already at the top of the tree — nowhere further up.
+      if (ESC_HOME_SKIP_PATHS.has(path)) return;
+      // An overlay is open — this Esc closes it, it doesn't navigate.
+      // The next Esc (overlay gone) cascades.
+      if (document.querySelector(ESC_OVERLAY_SELECTOR)) return;
+      // Defer one macrotask so page-level Esc owners (a bill form's
+      // ActionStrip "Back", AntD modals, the custom popups) run first.
+      // They call preventDefault when they handle it — e.g. the Sales
+      // form navigates to the Sales list. Only an Esc that NOBODY
+      // consumed reaches Home, turning Form → List → Home into one rule.
+      setTimeout(() => {
+        if (e.defaultPrevented) return;
+        navigate(HOME_PATH);
+      }, 0);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

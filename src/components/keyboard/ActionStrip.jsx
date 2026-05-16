@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import './ActionStrip.css';
 
-// Tally-style bottom action strip.
+// Classic accounting-style bottom action strip.
 //
 //   <ActionStrip actions={[
 //     { id: 'open',    key: 'F1', label: 'Open',    onAction: handleOpen },
@@ -100,23 +100,25 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
       for (let i = 0; i < list.length; i++) {
         const { parsed } = list[i];
         const a = live[i];
-        // `hidden` actions stay bound so they can act as keyboard
-        // aliases for visible buttons. `disabled` suppresses both the
-        // visual click AND the key binding.
-        if (!a || a.disabled) continue;
-        if (!parsed) continue;
-        if (eventMatches(e, parsed)) {
-          e.preventDefault();
-          // stopImmediatePropagation suppresses ANY other window-level
-          // keydown listener (e.g. useGlobalShortcuts F6 → /receipt/new)
-          // on the same key, so a page-level binding in this strip
-          // always wins over a global. stopPropagation alone wouldn't
-          // do this because both handlers attach at the same target.
-          e.stopImmediatePropagation();
-          try { a.onAction?.(e); }
-          catch (err) { console.error('[ActionStrip]', a.id, err); }
-          return;
-        }
+        if (!a || !parsed) continue;
+        if (!eventMatches(e, parsed)) continue;
+        // This key belongs to this strip. Claim it unconditionally so it
+        // can NEVER fall through to a global shortcut — e.g. the global
+        // F7 quick-create (→ /payment/new) used to fire from the Purchase
+        // list whenever the strip's own F7 = Barcodes was disabled (no
+        // row cursored). stopImmediatePropagation suppresses any other
+        // window-level keydown listener on the same key; stopPropagation
+        // alone wouldn't, since both attach at the same target.
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        // `disabled` actions are declared but not currently usable, so
+        // the keypress is a deliberate no-op (matches the documented
+        // contract). `hidden` actions stay active so they can alias a
+        // visible button.
+        if (a.disabled) return;
+        try { a.onAction?.(e); }
+        catch (err) { console.error('[ActionStrip]', a.id, err); }
+        return;
       }
     };
     window.addEventListener('keydown', handler);

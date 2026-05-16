@@ -156,7 +156,7 @@ test('bucket: custom bounds respected', () => {
 // bucketLabels
 // ─────────────────────────────────────────────────────────────────────
 
-test('labels: default bounds produce Tally-standard ranges', () => {
+test('labels: default bounds produce standard accounting ranges', () => {
   const l = bucketLabels({ b1: 30, b2: 60, b3: 90 });
   assert.equal(l.current, 'Not Due');
   assert.equal(l.b1, '1–30');

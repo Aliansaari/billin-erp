@@ -28,7 +28,7 @@ const modules = [
   { name: 'Settings',                weight: 5,  done: 65, remaining: 'Module toggles (warehouse, batch, expiry, serial, audit, interest, bank-recon, manufacturing) only flip flags — no backing implementation. Email/SMS settings. Dashboard-widget customization UI. Terms-and-Conditions / invoice-format editor. HSN management UI.' },
   { name: 'Backup & Restore',        weight: 3,  done: 95, remaining: 'Cloud/remote backup target (current is local JSON). Schedule-health alerts.' },
   { name: 'Import / Export',         weight: 3,  done: 95, remaining: 'Return-voucher Excel round-trip template.' },
-  { name: 'TallyPrime Integration',  weight: 2,  done: 90, remaining: 'Conflict-resolution UI when the same voucher differs between ERP and Tally. Auto-poll scheduler (currently manual Pull Now).' },
+  { name: 'Accounting XML Integration',  weight: 2,  done: 90, remaining: 'Conflict-resolution UI when the same voucher differs between this ERP and the accounting system. Auto-poll scheduler (currently manual Pull Now).' },
   { name: 'Dashboard',               weight: 3,  done: 70, remaining: 'Sparklines are faked — need real 30-day series. Upcoming-due-payments widget. Top customers / top products. Hourly trend. Drag-drop widget customization.' },
   { name: 'Optional Advanced Modules', weight: 10, done: 0,  remaining: 'All zero-built, UI toggles exist but no code: Multi-Warehouse, Batch & Expiry, Serial tracking, Manufacturing / BOM / Work Order / Production, Bank Accounts + Reconciliation, Interest on overdue, Audit Trail table.' },
   { name: 'Printing / Invoice Fmts', weight: 3,  done: 40, remaining: 'Server-side PDF invoice generation. Thermal-printer layouts (58/80 mm). Template editor for invoice header/footer/terms. Per-series custom prefixes/format.' },
@@ -112,7 +112,7 @@ const overallPct = Math.round(weighted / totalWeight * 100 * 10) / 10;
   addLine(`Overall completion: ${overallPct}%`, { bold: true, size: 14 });
   addLine('');
   addLine('Core transactional ERP is production-ready:', { bold: true });
-  addLine('   Sales, Purchase, Returns, Parties, Payments, Inventory + Barcode, Backup, Import/Export, Tally sync.');
+  addLine('   Sales, Purchase, Returns, Parties, Payments, Inventory + Barcode, Backup, Import/Export, Accounting sync.');
   addLine('');
   addLine('Priority gaps to push past 85%:', { bold: true });
   addLine('   1. Statutory GST reports — GSTR-1, GSTR-3B, HSN-wise summary, ITC.');
@@ -217,7 +217,7 @@ const overallPct = Math.round(weighted / totalWeight * 100 * 10) / 10;
     '',
     'Solid today (day-to-day billing is production-ready):',
     '  Sales, Purchase, Returns, Parties, Payments, Inventory + Barcode,',
-    '  Backup, Import/Export, TallyPrime integration.',
+    '  Backup, Import/Export, Accounting XML integration.',
     '',
     'To push past 85%:',
     '  1. Statutory GST reports — GSTR-1, GSTR-3B, HSN-wise summary, ITC.',

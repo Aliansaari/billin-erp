@@ -150,8 +150,8 @@ module.exports = (sequelize) => {
   //                                          a wrong-direction opening
   //                                          corrupts the audit trail)
   //
-  // Every caller that builds a Party row from external input (Excel / Tally
-  // orchestrators, future imports) must run the user-supplied value through
+  // Every caller that builds a Party row from external input (Excel / accounting
+  // import orchestrators, future imports) must run the user-supplied value through
   // this helper before Party.create. The afterCreate hook below keeps its
   // trust in the column value — the normalizer is the single point of
   // translation.

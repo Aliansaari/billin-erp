@@ -32,7 +32,7 @@ const OPTIONS = [
   { id: 'supp', letter: 'S', label: 'Supplier', sub: 'Add a new supplier record', icon: <ShopOutlined />,        route: '/suppliers'  },
   { id: 'prod', letter: 'P', label: 'Product',  sub: 'Add a new inventory item',  icon: <AppstoreOutlined />,    route: '/products'   },
   // Category uses "G" (for Group) — "C" is taken by Customer above.
-  // Matches Tally's "Stock Group" naming, which Indian operators know.
+  // Matches the common "Stock Group" naming, which Indian operators know.
   { id: 'cat',  letter: 'G', label: 'Category', sub: 'Add a product group',       icon: <FolderOpenOutlined />,  route: '/categories' },
   { id: 'bank', letter: 'B', label: 'Bank',     sub: 'Add a new bank account',    icon: <BankOutlined />,        route: '/banks'      },
 ];
@@ -80,7 +80,7 @@ export default function MasterChooser() {
       if (e.key === 'Enter') {
         e.preventDefault(); goCreate(OPTIONS[cursor]); return;
       }
-      // Direct letter shortcut — Tally-style, matches the MenuPopup pattern.
+      // Direct letter shortcut — classic keyboard-driven, matches the MenuPopup pattern.
       // Ignore if a modifier is held (so Cmd+Shift+N itself, which keeps
       // firing as long as the chooser is open, doesn't re-fire navigation).
       if (e.ctrlKey || e.metaKey || e.altKey) return;

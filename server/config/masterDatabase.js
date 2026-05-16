@@ -3,7 +3,7 @@ const { Sequelize } = require('sequelize');
 
 /* ── Master database ───────────────────────────────────────────────────
  *
- * Multi-company architecture (Tally-style):
+ * Multi-company architecture (classic accounting-style):
  *
  *   billing_erp_master       — this connection. Holds the companies
  *                              directory, dev-tier flags, app-level

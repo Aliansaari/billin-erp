@@ -126,7 +126,7 @@ export default function DefaultsSettings() {
                         </div>
                       </Radio>
                       <Radio value="single">
-                        <span style={{ fontWeight: 500 }}>Single Product (Tally-style)</span>
+                        <span style={{ fontWeight: 500 }}>Single Product (classic accounting-style)</span>
                         <div className="ms-row-desc" style={{ marginLeft: 24 }}>
                           One product, many purchase prices over time. Cost tracked as weighted average. Best for FMCG, hardware, pharma. Required for batch tracking.
                         </div>

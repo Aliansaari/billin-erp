@@ -33,7 +33,7 @@ import './top-nav.css';
  *    · icon-to-label alignment (single inline-flex, no line-height drift)
  *    · the overall menu width (hugs its content, right cluster pinned right)
  *
- *  Submenus open the Tally MenuPopup (same one Alt+letter triggers) so mouse
+ *  Submenus open the MenuPopup (same one Alt+letter triggers) so mouse
  *  and keyboard land in identical UI. The user-avatar dropdown still uses
  *  AntD's Dropdown — no keyboard equivalent, so unifying it would be over-
  *  reach.
@@ -63,7 +63,7 @@ export default function TopNav() {
   const { openMenu } = useMenuPopup();
 
   // Reverse-lookup: anchorKey ('sales-menu') -> ALT_MENUS entry. Lets a
-  // pill click open the same Tally popup that Alt+S opens, so mouse and
+  // pill click open the same MenuPopup that Alt+S opens, so mouse and
   // keyboard land in identical UI instead of two different dropdowns.
   // Uses the dev-flag-filtered version so pill-click can't reach a
   // route the sidebar / keyboard wouldn't allow.
@@ -144,7 +144,7 @@ export default function TopNav() {
     const pillClass = `erp-topnav-pill${isActive ? ' is-active' : ''}`;
 
     if (item.children && item.children.length > 0) {
-      // Click opens the same Tally popup that Alt+letter opens — single
+      // Click opens the same MenuPopup that Alt+letter opens — single
       // UI for mouse and keyboard. Falls back to navigating the first
       // child if the catalog is missing this anchor (shouldn't happen
       // while menuConfig and menuCatalog stay in sync).

@@ -1,6 +1,6 @@
 // ── Day Book ──────────────────────────────────────────────────────────
 //
-// Tally-style chronological list of every voucher posted in a date range.
+// Classic accounting-style chronological list of every voucher posted in a date range.
 // Source of truth: ledger_entries grouped by entry_number (the voucher
 // group key — multiple Dr/Cr legs share the same entry_number).
 //
@@ -12,7 +12,7 @@
 //        1. The leg flagged as a party ledger (la.is_party_ledger = true)
 //        2. Otherwise the first non-cash/bank ledger
 //        3. Otherwise the first leg
-//     This matches Tally's convention of showing the customer/supplier
+//     This matches the standard accounting convention of showing the customer/supplier
 //     name on Sales/Purchase rows and the bank/cash on Receipt/Payment.
 //   • Debit / Credit — net Dr or net Cr of the chosen primary leg. The
 //     header shows the *sign* of money flow on that party row, which is
@@ -189,7 +189,7 @@ exports.dayBook = async (req, res) => {
     // Σ Dr = Σ Cr total. Audit H14: the previous response only exposed
     // primary-leg sums but called them total_debit / total_credit, so an
     // operator reading the day-book summary on a sales-only day saw
-    // Cr = 0, which is correct for "Tally-style movement" but misleading
+    // Cr = 0, which is correct for "classic accounting-style movement" but misleading
     // when read as "total debits / total credits."
     let totalDrAllLegs = 0, totalCrAllLegs = 0;
 
@@ -253,7 +253,7 @@ exports.dayBook = async (req, res) => {
       total: vouchers.length,
       summary: {
         voucher_count: vouchers.length,
-        // Per-row primary-leg totals (Tally-style "movement"). Asymmetric
+        // Per-row primary-leg totals (classic accounting-style "movement"). Asymmetric
         // for single-direction days — e.g. a pure-sales day has
         // total_credit_primary = 0 because every voucher's primary leg is
         // a Customer Dr. Suitable for "money in / money out" framing.

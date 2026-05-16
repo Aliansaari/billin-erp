@@ -383,7 +383,7 @@ export const reportAPI = {
   getPurchaseReport: (params) => api.get('/reports/purchases', { params }),
   getStockReport: (params) => api.get('/reports/stock', { params }),
   // Legacy alias — kept for callers we haven't migrated yet (Dashboard etc).
-  // The new Tally-shape P&L is exported as `profitLoss` below alongside
+  // The new structured two-column P&L is exported as `profitLoss` below alongside
   // trialBalance/balanceSheet, with a structured two-column response.
   getProfitLoss: (params) => api.get('/reports/profit-loss', { params }),
   getPartyOutstanding: (params) => api.get('/reports/party-outstanding', { params }),
@@ -408,16 +408,16 @@ export const reportAPI = {
   getGstr3b: (params) => api.get('/reports/gstr3b', { params }),
   // Phase R1 — Trial Balance + Balance Sheet + Profit & Loss
   // (P&L moved here from reportController; new shape is two-column
-  // Tally-style with optional comparative period.)
+  // classic accounting-style with optional comparative period.)
   trialBalance: (params) => api.get('/reports/trial-balance',  { params }),
   balanceSheet: (params) => api.get('/reports/balance-sheet',  { params }),
   profitLoss:   (params) => api.get('/reports/profit-loss',    { params }),
-  // Phase R2 — Cash Flow (Tally-style three-level drill: register →
+  // Phase R2 — Cash Flow (classic accounting-style three-level drill: register →
   // month → group) + Aging.
   cashFlowMonthly:    (params) => api.get('/reports/cash-flow/monthly', { params }),
   cashFlowMonth:      (params) => api.get('/reports/cash-flow/month',   { params }),
   cashFlowGroup:      (params) => api.get('/reports/cash-flow/group',   { params }),
-  // Fund Flow — Tally-style three-level drill.
+  // Fund Flow — classic accounting-style three-level drill.
   fundFlowMonthly:    (params) => api.get('/reports/fund-flow/monthly', { params }),
   fundFlow:           (params) => api.get('/reports/fund-flow',         { params }),
   dayBook:            (params) => api.get('/reports/day-book',           { params }),

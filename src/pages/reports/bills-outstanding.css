@@ -388,7 +388,7 @@
 
 /* View pane — both Bill Wise and Customers/Suppliers Wise stay
    permanently mounted; the toggle just flips which one is visible.
-   No remount → no refetch → no spinner blink on toggle (Tally-solid
+   No remount → no refetch → no spinner blink on toggle (rock-solid
    view-mode switch). Each pane fills the wrapper while active. */
 .bo-view-pane {
   flex: 1 1 auto;

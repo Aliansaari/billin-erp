@@ -439,7 +439,7 @@
 .ar-amt.b4      { color: #b91c1c; font-weight: 600; }
 
 /* Expanded bill sub-rows — aligned with the header columns.
- * Balance appears only in the matching bucket column (Tally style), with
+ * Balance appears only in the matching bucket column (classic accounting style), with
  * total replicated in the Total column. Softer background distinguishes
  * them from the party-level rows above. */
 .ar-bill-row td {

@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 /* ════════════════════════════════════════════════════════════════════════════
- *  Trial Balance — Editorial · TallyPrime-faithful, drill-by-page (in-file).
+ *  Trial Balance — Editorial · classic-faithful, drill-by-page (in-file).
  *
  *  Two pages live in one file, swapped by body[data-page="tb"|"group"]:
  *    1. Trial Balance       — primary groups + sub-groups, no leaf ledgers
@@ -1218,7 +1218,7 @@ html, body {
 </main>
 
 <script>
-  // ── In-file page swap (TallyPrime "Enter" pattern, no real navigation) ──
+  // ── In-file page swap (classic accounting-style "Enter" pattern, no real navigation) ──
   function openGroup(name, parent, count, drcr, amount) {
     document.getElementById('g-title').textContent = name;
     document.getElementById('crumb-leaf').textContent = name;

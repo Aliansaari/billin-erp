@@ -172,8 +172,8 @@ export const menuItems = [
     ],
   },
   {
-    // Label is "Books" (the accounting term operators recognise — Tally
-    // uses the same in its "Display More Reports → Books" tree). The
+    // Label is "Books" (the accounting term operators recognise — common
+    // accounting software uses the same "Display Reports → Books" grouping). The
     // internal key stays 'accounts-menu' so getOpenKeys, the
     // accounts.view permission tag, and any deep-link out of /accounts
     // routes keep working without churn. BookOutlined replaces the
@@ -209,7 +209,7 @@ export const menuItems = [
   //   · the Settings page (SettingsLayout) has its OWN internal nav
   //     listing every sub-page, so the sidebar dropdown was duplicate
   //     surface area
-  //   · matches Tally / QuickBooks / Xero — Settings is one destination
+  //   · matches common accounting software — Settings is one destination
   // Permission is intentionally not set: users without
   // settings.manage_company hit the /settings/company RoleRoute which
   // bounces them to an accessible sub-page. The submenu items above

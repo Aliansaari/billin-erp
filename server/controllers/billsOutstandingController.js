@@ -73,7 +73,7 @@ const dayjs = require('dayjs');
 const { computeOverdueDays, bucketFor, bucketLabels } = require('../utils/aging');
 const { roundTo } = require('../utils/helpers');
 
-// Audit MONEY-4 — use canonical roundTo (Tally-compatible).
+// Audit MONEY-4 — use canonical roundTo (Indian GST-standard).
 const r2 = (v) => roundTo(Number(v) || 0, 2);
 
 // Local YYYY-MM-DD in server tz. Same idiom reportController uses —

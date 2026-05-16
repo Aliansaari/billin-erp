@@ -111,7 +111,7 @@ npm run electron
 
 The first time the app launches, the **Server Setup** screen appears. Pick **"Connect to a server on the network"** and type the URL the server PC printed at boot, e.g. `http://192.168.1.50:3001`. Click **Test connection** → **Save and continue**.
 
-After setup the app behaves like any normal billing terminal — silent print to attached thermal/A4 printers works, PDF export goes to the local Downloads folder, Tally sync runs locally.
+After setup the app behaves like any normal billing terminal — silent print to attached thermal/A4 printers works, PDF export goes to the local Downloads folder, Accounting sync runs locally.
 
 ### 2.2 Option B — Browser (any PC, laptop, tablet, even iPad / Android)
 

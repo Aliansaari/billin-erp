@@ -1886,7 +1886,7 @@ exports.stockReport = async (req, res) => {
 
 // Profit & Loss moved to financialReportsController.profitLoss — now
 // sourced from ledger_entries (single source of truth) with full
-// Tally-shape structure (Opening Stock, Net Purchases/Sales with
+// classic accounting-style structure (Opening Stock, Net Purchases/Sales with
 // Returns netting, Direct/Indirect splits, balancing GP/NP figures).
 // The legacy implementation here read sales_bills/purchase_bills,
 // bypassing the journal — manual JVs and opening balances were

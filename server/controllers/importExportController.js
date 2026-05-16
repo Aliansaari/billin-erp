@@ -100,7 +100,7 @@ async function findProduct({ barcode, name }) {
   return null;
 }
 
-// Tally / GST convention: the first two chars of a GSTIN are the state code.
+// GST convention: the first two chars of a GSTIN are the state code.
 // Used by the bill importer to decide CGST+SGST (intra) vs IGST (inter) when
 // the file leaves those fields blank and the user relies on auto-detection.
 function stateOfGstin(gstin) {

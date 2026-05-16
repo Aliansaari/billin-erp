@@ -1,37 +1,31 @@
-import { Modal } from 'antd';
+import { createElement as h } from 'react';
+import { PrinterFilled } from '@ant-design/icons';
+import confirmDialog from './confirmDialog';
 
 // confirmPrint — quick post-save print prompt.
 //
 //   const wantsPrint = await confirmPrint(`Print bill ${bill_number}?`);
 //   if (wantsPrint) printDocument({ docType: 'sales', id });
 //
-// Resolves to `true` when the user presses Enter (Print) and `false`
-// on Esc / Skip / outside-click. The Print button is autoFocused so
-// Enter is the print path; Esc skips. Both options are equally fast,
-// matching the user's "drop the dual save key, prompt instead" rule.
+// Resolves true on Print (Enter), false on Skip (Esc / click / backdrop).
+// Print is the focused default so a single Enter prints — Esc skips.
 //
-// Pass an optional second argument with `{ printText, skipText }` to
-// override the button labels. Defaults are sensible for bills /
-// vouchers; pass overrides only when the print action is unusual
-// (e.g. "Print barcode labels" on purchase forms).
+// Optional opts: { printText, skipText, content } override the button
+// labels / message (e.g. "Print barcode labels" on purchase forms).
 export default function confirmPrint(title, opts = {}) {
   const {
-    printText = 'Print',
-    skipText  = 'Skip',
-    content   = 'Enter to print · Esc to skip',
+    printText = 'Yes',
+    skipText  = 'No',
+    content   = 'Do you want to print it now?',
   } = opts;
 
-  return new Promise((resolve) => {
-    const modal = Modal.confirm({
-      title,
-      content,
-      okText: printText,
-      cancelText: skipText,
-      okButtonProps: { autoFocus: true },
-      // Antd modals natively close on Esc → triggers onCancel.
-      onOk:     () => { resolve(true);  },
-      onCancel: () => { resolve(false); },
-    });
-    return modal;
+  return confirmDialog({
+    title,
+    message: content,
+    confirmText: printText,
+    cancelText:  skipText,
+    icon: h(PrinterFilled, { style: { color: 'var(--accent)' } }),
+    // Non-destructive: Yes prints (Enter, the fast default), Esc = No.
+    safeDefault: false,
   });
 }

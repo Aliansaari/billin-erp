@@ -150,11 +150,11 @@ async function seedDefaultData() {
     { ledger_name: 'Bank Account', ledger_group: 'Assets', sub_group: 'Bank Accounts', is_system_ledger: true },
     { ledger_name: 'Accounts Receivable', ledger_group: 'Assets', sub_group: 'Sundry Debtors', is_system_ledger: true },
     { ledger_name: 'Accounts Payable', ledger_group: 'Liabilities', sub_group: 'Sundry Creditors', is_system_ledger: true },
-    // Sales / Purchase + their Returns sit in dedicated Tally primary groups
-    // (Sales Accounts / Purchase Accounts) so the P&L can render the
-    // "Less: Returns" deduction line cleanly. Direct Incomes / Direct
+    // Sales / Purchase + their Returns sit in dedicated standard accounting
+    // primary groups (Sales Accounts / Purchase Accounts) so the P&L can render
+    // the "Less: Returns" deduction line cleanly. Direct Incomes / Direct
     // Expenses are reserved for operational direct items (service income,
-    // freight inward, factory wages) — distinct primary groups in Tally.
+    // freight inward, factory wages) — distinct primary groups in standard accounting.
     // Within each group the natural sign tells us which is sale vs return:
     // a Cr-balance ledger in 'Sales Accounts' is a sale, a Dr-balance
     // ledger is a return.
@@ -176,8 +176,8 @@ async function seedDefaultData() {
     // installs that haven't re-seeded.
     { ledger_name: 'Cess Input',   ledger_group: 'Assets',      sub_group: 'Duties & Taxes', is_system_ledger: true },
     { ledger_name: 'Cess Output',  ledger_group: 'Liabilities', sub_group: 'Duties & Taxes', is_system_ledger: true },
-    // Audit M (accounting) — Round Off is "Indirect Incomes" by Tally
-    // convention so a rounding gain on a sale doesn't render as a negative
+    // Audit M (accounting) — Round Off is "Indirect Incomes" by standard
+    // accounting convention so a rounding gain on a sale doesn't render as a negative
     // expense in the P&L. The voucher posts Dr (loss) or Cr (gain) against
     // this single ledger; either sign is correct math, but the group
     // determines which P&L line it shows up on.

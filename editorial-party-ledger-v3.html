@@ -11,14 +11,14 @@
 /* ════════════════════════════════════════════════════════════════════════════
  *  Party Ledger v3 — Accounting-software-grade
  *
- *  Design foundation: conventions a bookkeeper coming from Tally / Vyapar /
- *  Busy already knows. Their muscle memory decides if the software is
+ *  Design foundation: conventions a bookkeeper coming from typical billing
+ *  software already knows. Their muscle memory decides if the software is
  *  usable in the first 30 seconds — if we break it, they leave.
  *
  *   1. Separate Dr and Cr columns. NEVER merge them into "amount ± direction".
  *      Accountants read a trial-balance shape left-to-right.
  *   2. Summary strip above the table: Opening | Debit | Credit | Closing.
- *      Matches the Tally Display Ledger footer/header arrangement.
+ *      Matches the standard accounting Display Ledger footer/header arrangement.
  *   3. Voucher number is ALWAYS visible and monospace — drilldown anchor.
  *   4. Narration and bill-allocation live as sub-rows under the transaction
  *      line, indented — "Against INV-0102" or "Received via UPI" etc.
@@ -29,7 +29,7 @@
  *   7. Group context in the breadcrumb. "Sundry Debtors > Rameshwar Traders"
  *      reminds the user this is an ACCOUNTING ledger, not a CRM card.
  *   8. Aging as a one-line footer — bucketed rupees, no chart glyphs.
- *   9. Density over decoration. 32-px row height is the Tally sweet spot —
+ *   9. Density over decoration. 32-px row height is the proven sweet spot —
  *      dense enough to see 20 transactions at once, airy enough to scan.
  *  10. Hover reveals row actions (view voucher · edit · reverse). Right-click
  *      too. Drilldown is always one click away, never more.
@@ -694,7 +694,7 @@ html, body {
 .aging-line .bucket .mid { color: var(--warn); }
 .aging-line .bucket .hot { color: var(--accent); font-weight: 600; }
 
-/* — Keyboard bar at the very bottom (Tally shortcut bar style) — */
+/* — Keyboard bar at the very bottom (classic accounting-style shortcut bar) — */
 .kbd-bar {
   display: flex; align-items: center; gap: 2px;
   padding: 6px 18px;

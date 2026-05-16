@@ -1,10 +1,10 @@
 // ── Import flow (Phase 6) ───────────────────────────────────────────────
 //
-// One page for both Tally and Excel imports, driven by the new queue.
+// One page for both accounting-XML and Excel imports, driven by the new queue.
 //   1. Pick source / template
 //   2. Upload file → POST /api/imports
 //   3. Poll GET /api/imports/:id every 2s
-//   4. Mapping screen (Tally only) when status='awaiting_confirmation' AND
+//   4. Mapping screen (accounting-XML only) when status='awaiting_confirmation' AND
 //      mapping_json is populated
 //   5. Preview screen when status='awaiting_confirmation' AND preview_json
 //      is populated
@@ -24,7 +24,7 @@ import './ModuleSettings.css';
 const { Title, Text } = Typography;
 
 const SOURCES = [
-  { value: 'tally',             label: 'Tally Prime XML' },
+  { value: 'tally',             label: 'Accounting XML' },
   { value: 'excel_customers',   label: 'Excel · Customers' },
   { value: 'excel_suppliers',   label: 'Excel · Suppliers' },
   { value: 'excel_products',    label: 'Excel · Products' },
@@ -177,7 +177,7 @@ export default function ImportV2() {
                 <Button icon={<UploadOutlined />}>Select File</Button>
               </Upload>
               {source === 'tally'
-                ? <Text type="secondary" style={{ fontSize: 12 }}>Tally Prime XML export (.xml)</Text>
+                ? <Text type="secondary" style={{ fontSize: 12 }}>Accounting XML export (.xml)</Text>
                 : <Text type="secondary" style={{ fontSize: 12 }}>Excel workbook (.xlsx)</Text>}
             </div>
             <Button type="primary" onClick={handleStart} disabled={!file}>Start Import</Button>
@@ -218,7 +218,7 @@ export default function ImportV2() {
             <PreviewPanel job={job} onConfirm={handleConfirmPreview} onCancel={handleCancel} />
           )}
 
-          {/* Mapping screen (Tally) */}
+          {/* Mapping screen (accounting-XML) */}
           {job.status === 'awaiting_confirmation' && job.mapping_json && (job.mapping_json.needs_review || []).length > 0 && (
             <MappingPanel job={job} />
           )}
@@ -340,7 +340,7 @@ function Bucket({ title, rows = [], reject = false, updates = false }) {
   );
 }
 
-// ── Mapping panel (Tally) ──────────────────────────────────────────────
+// ── Mapping panel (accounting-XML) ─────────────────────────────────────
 function MappingPanel({ job }) {
   const review = (job.mapping_json && job.mapping_json.needs_review) || [];
   const [selections, setSelections] = useState({});
@@ -361,7 +361,7 @@ function MappingPanel({ job }) {
     await importsAPI.confirm(job.id, { confirmed: true, mappings });
   };
   const cols = [
-    { title: 'Tally Ledger', dataIndex: 'tally_ledger_name', width: 280 },
+    { title: 'Source Ledger', dataIndex: 'tally_ledger_name', width: 280 },
     { title: 'Confidence', dataIndex: 'confidence', width: 130,
       render: (c) => <Tag color={c === 'high' ? 'green' : c === 'medium' ? 'gold' : c === 'low' ? 'orange' : 'red'}>{c}</Tag> },
     { title: 'Map to ledger', key: 'pick',
@@ -376,8 +376,8 @@ function MappingPanel({ job }) {
   ];
   return (
     <Card style={{ marginTop: 16 }}>
-      <Title level={5} style={{ margin: 0, marginBottom: 8 }}>Confirm Tally ledger mapping</Title>
-      <Text type="secondary">Pick a system ledger for each unmapped Tally name. We'll remember your choice for next time.</Text>
+      <Title level={5} style={{ margin: 0, marginBottom: 8 }}>Confirm ledger mapping</Title>
+      <Text type="secondary">Pick a system ledger for each unmapped source name. We'll remember your choice for next time.</Text>
       <Table size="small" pagination={false} rowKey="tally_ledger_name" columns={cols} dataSource={review} style={{ marginTop: 12 }} />
       <Divider />
       <Button type="primary" disabled={!allMapped} onClick={onConfirm}>Save & continue</Button>

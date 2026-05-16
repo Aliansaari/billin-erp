@@ -27,4 +27,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // the WhatsApp flow so the operator can drag the fresh PDF into the chat.
   openPath:          (p) => ipcRenderer.invoke('shell:open-path', p),
   showItemInFolder:  (p) => ipcRenderer.invoke('shell:show-item', p),
+
+  // App-exit confirmation. Main intercepts the window close and asks the
+  // renderer to show the themed confirm + sign the user out; the renderer
+  // sends `app:exit-confirmed` back only when the user agrees to quit.
+  onConfirmExit: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on('app:confirm-exit', handler);
+    return () => ipcRenderer.removeListener('app:confirm-exit', handler);
+  },
+  confirmExit: () => ipcRenderer.send('app:exit-confirmed'),
 });

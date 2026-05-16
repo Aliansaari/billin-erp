@@ -85,7 +85,7 @@ module.exports = (sequelize) => {
       type: DataTypes.DATEONLY,
     },
     // ── Financial-year compliance controls ─────────────────────────
-    // Default behaviour is Tally-style "simple mode": current FY is
+    // Default behaviour is classic accounting-style "simple mode": current FY is
     // derived from today's date, the user can switch to a past FY
     // context (with a warning banner), no edit locks. Turning
     // `fy_compliance_mode` ON enables audit features:
@@ -159,7 +159,7 @@ module.exports = (sequelize) => {
     // permanently — flipping this only affects the next product created
     // (via any path: manual form, auto-from-purchase, Excel import,
     // Tally import). 'variant' = current behavior (one product per
-    // unique MRP/rate/size combo). 'single' = Tally-style (one product,
+    // unique MRP/rate/size combo). 'single' = classic accounting-style (one product,
     // many purchase prices over time, cost as weighted average).
     default_product_mode: {
       type: DataTypes.ENUM('variant', 'single'),

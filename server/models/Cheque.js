@@ -132,7 +132,7 @@ module.exports = (sequelize) => {
     // i.e. the cheque is post-dated. Computed at create time and
     // refreshed when cheque_date is edited. The OUTWARD voucher posts
     // to "Cheques Issued (PDC)" liability instead of Bank when this is
-    // true, mirroring how Tally / Zoho track post-dated outflows.
+    // true, mirroring how common accounting software tracks post-dated outflows.
     is_pdc: {
       type: DataTypes.BOOLEAN,
       allowNull: false,

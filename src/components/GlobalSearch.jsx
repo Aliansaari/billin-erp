@@ -62,7 +62,7 @@ const ACTIONS = [
   { id: 'r-purc',       icon: BarChartOutlined,     label: 'Purchase report',           sub: 'Bill-level purchases',       group: 'Reports',  route: '/reports/purchases',          keywords: 'purchase report' },
   { id: 'r-day',        icon: BookOutlined,         label: 'Day book',                  sub: 'All vouchers by day',        group: 'Reports',  route: '/reports/day-book',           keywords: 'day book daybook journal' },
   { id: 'r-ledger',     icon: BookOutlined,         label: 'Ledger statement',          sub: 'COA ledger — pick to drill', group: 'Reports',  route: '/reports/ledger',             keywords: 'ledger statement coa chart account' },
-  { id: 'r-tb',         icon: BookOutlined,         label: 'Trial balance',             sub: 'Tally-style closing',        group: 'Reports',  route: '/reports/trial-balance',      keywords: 'trial balance tb' },
+  { id: 'r-tb',         icon: BookOutlined,         label: 'Trial balance',             sub: 'Period-end closing',        group: 'Reports',  route: '/reports/trial-balance',      keywords: 'trial balance tb' },
   { id: 'r-bs',         icon: BookOutlined,         label: 'Balance sheet',             sub: 'Assets & liabilities',       group: 'Reports',  route: '/reports/balance-sheet',      keywords: 'balance sheet bs assets liabilities' },
   { id: 'r-pl',         icon: BookOutlined,         label: 'Profit & Loss',             sub: 'P&L statement',              group: 'Reports',  route: '/reports/profit-loss',        keywords: 'profit loss pl income statement' },
   { id: 'r-cf',         icon: FundOutlined,         label: 'Cash flow',                 sub: 'Inflows & outflows',         group: 'Reports',  route: '/reports/cash-flow',          keywords: 'cash flow' },

@@ -38,7 +38,7 @@ const fmt = (v) =>
     maximumFractionDigits: 2,
   });
 
-// Tally Dr/Cr suffix. For Receivable view the customer typically owes
+// Accounting Dr/Cr suffix. For Receivable view the customer typically owes
 // us (Dr); for Payable view we typically owe the supplier (Cr). The
 // Outstanding column on the API is unsigned — we just label per side.
 const sideSuffix = (side) => (side === 'receivable' ? 'Dr' : 'Cr');

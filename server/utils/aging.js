@@ -9,7 +9,7 @@
  *   - Bucket ranges follow SystemSettings.aging_bucket_1/2/3_days which
  *     default to 30/60/90. We treat the first bucket as INCLUSIVE of the
  *     boundary day: if b1=30 then overdueDays=30 is still "1–30", and 31
- *     is where "31–60" starts. This matches Tally's aging report.
+ *     is where "31–60" starts. This matches the standard aging report.
  *
  * Bucket layout:
  *   overdueDays  bucket key   label (for b1=30, b2=60, b3=90)
