@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 /* ════════════════════════════════════════════════════════════════════════════
- *  Cash Flow — Editorial · TallyPrime-faithful, drill-by-page (in-file).
+ *  Cash Flow — Editorial · classic-faithful, drill-by-page (in-file).
  *
  *  Two views live in one file, swapped by body[data-page="register"|"summary"]:
  *    1. Monthly Register  — one row per month (Apr → Mar), Inflow / Outflow / Nett
@@ -1215,7 +1215,7 @@ html, body {
       minimumFractionDigits: 2, maximumFractionDigits: 2,
     });
   }
-  // Negative: "(-)1,23,456.78" — matches Tally's parens-with-minus glyph.
+  // Negative: "(-)1,23,456.78" — Indian GST-standard parens-with-minus glyph.
   function fmtNett(v) {
     if (v < 0) return '(-)' + fmtINR(v);
     return fmtINR(v);

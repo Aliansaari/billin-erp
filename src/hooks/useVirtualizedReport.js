@@ -104,7 +104,7 @@ export function useVirtualizedReport({
   // the user wants). When filters change, displayKey lags until the new
   // key's first chunk lands, at which point we swap atomically. Result:
   // the old data stays on screen with no blink/flash; the table flips
-  // in one paint when the new data is ready (Tally-style "rock solid").
+  // in one paint when the new data is ready (classic accounting-style "rock solid").
   const [displayKey, setDisplayKey] = useState(cacheKey);
   const displayKeyRef = useRef(displayKey);
   useEffect(() => { displayKeyRef.current = displayKey; }, [displayKey]);

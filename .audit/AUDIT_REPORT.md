@@ -7,7 +7,7 @@
 
 ## TL;DR — Ship/No-Ship verdict
 
-**No-ship-yet.** The product is impressively far along: 49-table schema, 35+ controllers, 41 Sequelize models, 150 unit tests (all green), well-thought-through double-entry engine, Tally-style keyboard UX, multi-company + multi-godown + FIFO costing + auto-receipt service. Trial Balance balanced to the paise across ~800 generated vouchers (₹99,92,021.42 Dr = ₹99,92,021.42 Cr). 20 of 24 reports verified accurate against ground-truth SQL.
+**No-ship-yet.** The product is impressively far along: 49-table schema, 35+ controllers, 41 Sequelize models, 150 unit tests (all green), well-thought-through double-entry engine, classic accounting-style keyboard UX, multi-company + multi-godown + FIFO costing + auto-receipt service. Trial Balance balanced to the paise across ~800 generated vouchers (₹99,92,021.42 Dr = ₹99,92,021.42 Cr). 20 of 24 reports verified accurate against ground-truth SQL.
 
 But shipping to paying enterprise customers right now would expose them to:
 - **10 CRITICAL findings**, each of which can corrupt books, mis-file GST, or leak data
@@ -57,7 +57,7 @@ Self-contained Node test harness, idempotent, throttled to respect `globalRateLi
 ### CR-1 — Shipped default developer password in source
 **Where:** `server/controllers/authController.js:417`, `server/routes/license.js:105`
 **Code:** `const DEFAULT_DEV_PASSWORD = 'DragonStone@2911'`
-**Why:** Unlocks Cleanup, Restore, Tally live sync, **license deactivation**. Any customer who runs the .exe (extractable via `asar extract`) and never sets `DEVELOPER_PASSWORD` is exposed. The frontend tip text in `DeveloperGate.jsx:123` still shows the older `dev@billing2025` default, multiplying the leak.
+**Why:** Unlocks Cleanup, Restore, Accounting live sync, **license deactivation**. Any customer who runs the .exe (extractable via `asar extract`) and never sets `DEVELOPER_PASSWORD` is exposed. The frontend tip text in `DeveloperGate.jsx:123` still shows the older `dev@billing2025` default, multiplying the leak.
 **Fix:** Refuse to start in packaged mode if `DEVELOPER_PASSWORD` is unset or equals the shipped default. Mint a per-install random on first run.
 
 ### CR-2 — `entry_number` race: no DB uniqueness, no advisory lock around `nextEntryNumber`
@@ -152,7 +152,7 @@ Compressed into one row per finding for space; full evidence in the per-subsyste
 - **LED-H2** `reverseVoucher` may reverse INTO a closed FY — `paymentController.cancel` line 686 + `salesController` cancel line 2133 don't pass `reversalDate`.
 - **LED-H3** `reverseVoucher` builds `entry_date` from `new Date()` — TZ-shifts by one day west of UTC after ~18:30 IST equivalent.
 - **LED-H4** JV `normalizeLines` skips `roundTo()` — paisa drift on float-y client payloads.
-- **LED-H5** `recalculatePartyBalance` uses `parseFloat` on DECIMAL columns + `.toFixed(2)` at end — Tally-incompatible negative-half-paisa.
+- **LED-H5** `recalculatePartyBalance` uses `parseFloat` on DECIMAL columns + `.toFixed(2)` at end — non-Indian-GST-standard negative-half-paisa.
 - **LED-H6** P&L bill-aggregate fallback gate `sales=0 AND purchase=0` — if posting fails on one side only, fallback doesn't fire and report shows ₹0.
 - **LED-H7** Day Book `pickPrimary` non-deterministic on JV between two party legs.
 
@@ -175,7 +175,7 @@ Compressed into one row per finding for space; full evidence in the per-subsyste
 - **GST-M5** E-invoice / e-way bill not integrated; no `irn`, `qr_code`, `ack_no` fields on `SalesBill`.
 
 ### Inventory + Costing
-- **INV-C1** Excel bulk import bypasses entire costing pipeline — no `addCostLayer`, no `applyWeightedAvgIncrement`, no `applyBatchStockDelta`. Migrations from Tally/another ERP will have wrong cost basis on first sale.
+- **INV-C1** Excel bulk import bypasses entire costing pipeline — no `addCostLayer`, no `applyWeightedAvgIncrement`, no `applyBatchStockDelta`. Migrations from another ERP will have wrong cost basis on first sale.
 - **INV-C2** Stock-Adjustment + opening-stock-edit don't update `weighted_avg_cost`.
 - **INV-C3** Opening-stock UPDATE doesn't reverse the existing Opening cost layer → phantom FIFO consumption.
 - **INV-H1** Excel import per-row atomic, not per-job — fail on row 543 of 1000 leaves 1-542 committed with no rollback.
@@ -213,9 +213,9 @@ Compressed into one row per finding for space; full evidence in the per-subsyste
 | **`alg=none` JWT** | Tampered token returns 401 (`jsonwebtoken` v9+ default protects). |
 | **Mid-session token blacklist** | Logout + password-change + company-switch immediately revoke old JTIs. |
 | **Cheque lifecycle** | Bounce reverses the cleared-cheque voucher correctly (audit H13); ChequeService routes inward/outward/PDC to the right ledgers. |
-| **F1 Save + F2 Date popup** | Verified live in browser preview. F2 opens DatePopup at the current focused date input with "Enter to confirm · Esc to cancel · 15 May 2026 Fri". Tally-faithful. |
+| **F1 Save + F2 Date popup** | Verified live in browser preview. F2 opens DatePopup at the current focused date input with "Enter to confirm · Esc to cancel · 15 May 2026 Fri". classic-faithful. |
 | **GSTR-1/3B unit tests** | 92 tests covering B2B/B2CS/B2CL/Nil/HSN/CDNR/CDNUR/Docs-Issued/bill-wise reconciliation + 18 GSTR-3B tests for sections 3.1/3.2/4(A)(5)/6.1, ITC clamp, returns netting, RCM. All green. |
-| **Aging buckets** | Inclusive boundary semantics verified by `aging.test.js`; matches Tally's convention. |
+| **Aging buckets** | Inclusive boundary semantics verified by `aging.test.js`; matches standard accounting convention. |
 | **Backup + restore** | Pre-update backup hook (`server/services/preUpdateBackup.js`); decrypt-backup utility (`scripts/decrypt-backup.js`). |
 | **Onboarding wizard** | First-run config (`server/services/setup.js`) writes JWT secret to `~/.billing-erp/config.json`, rotates per-install. |
 | **Helmet + compression + RFC1918 CORS** | Sensible LAN-deployment defaults; `trust proxy` scoped to `loopback, linklocal, uniquelocal` so IP can't be spoofed in rate limiter. |
@@ -294,7 +294,7 @@ Compressed into one row per finding for space; full evidence in the per-subsyste
 | **Sales / customer**   | Hold off on enterprise contracts until CR-1/5/6/7/8/9 land. The "demo to a CA" risk today is too high — a CA will find CR-7 (GSTIN checksum) in 60 seconds. |
 | **GST consultant / CA** | Compliance posture is good for SMB single-state intra-state retail. Inter-state / export / RCM / e-invoice / inclusive-pricing all need work before turnover > ₹5 cr customers. |
 | **Security review**    | No exploitable SQL injection, no XSS rendered, mass-assignment defense holds, JWT alg-pinning works at runtime. Highest priority: CR-1 default dev password + CR-9 RBAC bypass. |
-| **Tally-replacement champion** | F1/F2/Tally-style keyboard map is faithful and feels right. Cancel-safety, append-only ledger, FIFO exact reversal — these are what a Tally power user notices, and they're solid. |
+| **Legacy-tool-replacement champion** | F1/F2/classic accounting-style keyboard map is faithful and feels right. Cancel-safety, append-only ledger, FIFO exact reversal — these are what an experienced accounting-software user notices, and they're solid. |
 
 ---
 

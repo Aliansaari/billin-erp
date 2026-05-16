@@ -14,8 +14,8 @@ const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../ut
 // the create() transaction — this endpoint does NOT claim the number, so a
 // concurrent save could race past it. The UI treats this as a preview only.
 //
-// Filters by prefix (PAY-/REC-) so transactions imported from Tally or
-// Excel (which may have non-standard numbering like "TALLY-REC-1776...")
+// Filters by prefix (PAY-/REC-) so transactions imported from external
+// accounting software or Excel (which may have non-standard numbering)
 // don't pollute the auto-increment seed.
 // PAY-C2 — shared cheque-sync helper used by both create() and update().
 // Pre-fix, create() had four hardening guards (duplicate-cheque, deactivated-

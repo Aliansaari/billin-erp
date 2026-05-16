@@ -139,7 +139,7 @@
   line-height: 1.3;
 }
 
-/* The letter chip — Tally-style "press this key to pick" affordance. */
+/* The letter chip — classic keyboard-driven "press this key to pick" affordance. */
 .mc-letter {
   flex-shrink: 0;
   display: inline-grid;

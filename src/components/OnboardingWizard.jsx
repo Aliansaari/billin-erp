@@ -307,7 +307,7 @@ const STEPS = [
             {
               key: 'classic',
               title: 'Classic',
-              desc: 'Tight density, monospace numerals, Tally-style chrome. The familiar ERP look.',
+              desc: 'Tight density, monospace numerals, classic accounting-style chrome. The familiar ERP look.',
               swatch: ['#0EA5E9', '#0F172A', '#E2E8F0'],
             },
             {
@@ -584,7 +584,7 @@ export default function OnboardingWizard({ onComplete }) {
    * of the app.
    *
    *   F1     — Next / Finish on last step (the screen's primary action)
-   *   F2     — Back (mirrors F2 = "previous" in some Tally screens)
+   *   F2     — Back (mirrors F2 = "previous" in some classic accounting screens)
    *   F5     — Reset current step to last-saved values (not implemented
    *            for the wizard since each Next already persists; reserved)
    *   F8     — Save & Finish (skips remaining steps; same effect as

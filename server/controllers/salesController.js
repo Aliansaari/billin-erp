@@ -847,10 +847,10 @@ exports.create = async (req, res) => {
 
     // Bill-wise: override GST totals using the provided percentages on the
     // single consolidated taxable base.
-    // Use roundTo (round-half-away-from-zero) to match Tally's GST convention
+    // Use roundTo (round-half-away-from-zero) to match the Indian GST rounding convention
     // and keep the two rounding paths (item-wise via calculateGST, bill-wise
     // here) consistent — previously toFixed(2) used banker's rounding in V8
-    // and drifted by 1 paisa vs. Tally on exact .xxx5 amounts.
+    // and drifted by 1 paisa on exact .xxx5 amounts.
     //
     // Audit P2-D — allocate the bill-wise totals pro-rata back to each line
     // so per-line cgst/sgst/igst columns reflect each item's contribution.
@@ -904,7 +904,7 @@ exports.create = async (req, res) => {
       //   totalCgst = roundTo(taxableTotal * cgst_pct/100, 2)
       //   totalSgst = roundTo(taxableTotal * sgst_pct/100, 2)
       // which can drift ±₹0.01 from the combined GST (Σ != calculated)
-      // — over 50k bills/year that's ~₹500 of silent drift against Tally.
+      // — over 50k bills/year that's ~₹500 of silent drift against the GST-standard total.
       // Mirror the helpers.calculateGST rule: round the combined tax,
       // give half to CGST, give the residual to SGST so they reconcile
       // exactly. Per-pct paths preserve the operator's intent when only

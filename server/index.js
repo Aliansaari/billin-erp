@@ -1807,8 +1807,8 @@ async function startServer() {
     // ── P&L sub_group reclassification (idempotent) ────────────────────
     //
     // Sales / Purchase + their Returns historically lived under
-    // 'Direct Incomes' / 'Direct Expenses', but Tally treats them as
-    // dedicated primary groups ('Sales Accounts', 'Purchase Accounts').
+    // 'Direct Incomes' / 'Direct Expenses', but standard accounting practice
+    // treats them as dedicated primary groups ('Sales Accounts', 'Purchase Accounts').
     // Direct Incomes / Direct Expenses are reserved for operational
     // direct items (service income, freight inward, factory wages, etc.),
     // which the P&L renders as a separate section.

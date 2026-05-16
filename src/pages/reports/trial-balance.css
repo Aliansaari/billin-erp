@@ -1,8 +1,8 @@
 /*
- * Trial Balance — TallyPrime-style hierarchy with drill-into-page.
+ * Trial Balance — classic accounting-style hierarchy with drill-into-page.
  *
  * Two pages live in this stylesheet, swapped via [data-page] on .tb-page:
- *   1. Trial Balance (primary groups + Tally intermediate groups + sub-groups)
+ *   1. Trial Balance (primary groups + intermediate groups + sub-groups)
  *   2. Group Summary (drill destination — lists ledgers under a group)
  *
  * Reads theme tokens from theme/themes.css so light/dark/classic/modern all
@@ -343,7 +343,7 @@
 .tb-row-group td.num.dr { color: var(--accent); }
 .tb-row-group td.num.cr { color: var(--success); }
 
-/* Tally intermediate rows (Current Assets / Fixed Assets / Current Liabilities / Loans) */
+/* Intermediate rows (Current Assets / Fixed Assets / Current Liabilities / Loans) */
 .tb-row-mid {
   cursor: pointer;
   transition: background .1s;

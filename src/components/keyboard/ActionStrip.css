@@ -1,4 +1,4 @@
-/* ── Action Strip — Tally-style bottom toolbar ─────────────────────────
+/* ── Action Strip — classic accounting-style bottom toolbar ────────────
    Lives at the bottom of every list/form. Reads from a single action
    registry so the on-screen buttons and the keyboard handler are always
    in sync. Visual treatment matches the existing .sbf-action-bar /

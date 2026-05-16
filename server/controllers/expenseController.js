@@ -23,14 +23,14 @@ const { buildExpenseVoucher } = require('../services/expenseVoucherService');
 const { sanitizePagination, escapeLike, roundTo } = require('../utils/helpers');
 const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 
-// Audit MONEY-4 — use the canonical roundTo (Tally-compatible
+// Audit MONEY-4 — use the canonical roundTo (Indian GST-standard
 // round-half-away-from-zero with floating-point fudge). Pre-fix this
 // file declared its own r2 = Math.round((n||0)*100)/100 which rounds
 // negatives the wrong way and misses .x05 edge cases.
 const r2 = (n) => roundTo(Number(n) || 0, 2);
 
 // Voucher number prefix — EXP-YYYYMMDD-NNNN. Matches the JV style so
-// the Day Book / Tally export tooling that already understands those
+// the Day Book / accounting export tooling that already understands those
 // prefixes treats expense vouchers consistently.
 function nextVoucherNumberPrefix(date) {
   const d = new Date(date);

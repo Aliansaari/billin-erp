@@ -117,7 +117,7 @@ const COLUMN_DEFS = {
     label:  'Balance',
     width:  150,
     align:  'right',
-    // Tally convention: positive = Dr, negative = Cr. Surface the sign
+    // Standard accounting convention: positive = Dr, negative = Cr. Surface the sign
     // with a small suffix so a printed statement is unambiguous.
     render: r => {
       const v = parseFloat(r.balance) || 0;

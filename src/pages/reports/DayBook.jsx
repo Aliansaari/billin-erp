@@ -11,7 +11,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 
 /*
- * Day Book — Tally-style chronological voucher list.
+ * Day Book — classic accounting-style chronological voucher list.
  *
  * Data is loaded in one shot (the dayBook endpoint returns the full set
  * for the date range — no server-side pagination yet); voucher-type

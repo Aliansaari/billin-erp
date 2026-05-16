@@ -45,7 +45,7 @@
 const sequelize = require('../config/database');
 const { roundTo } = require('../utils/helpers');
 
-// Audit MONEY-4 — use canonical roundTo (Tally-compatible).
+// Audit MONEY-4 — use canonical roundTo (Indian GST-standard).
 const r2 = (v) => roundTo(Number(v) || 0, 2);
 
 // Resolve which transaction_type / bill_type / cash-account-side

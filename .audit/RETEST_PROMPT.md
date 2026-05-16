@@ -36,7 +36,7 @@ backend, packaged as Electron (desktop) and Capacitor (mobile). Multi-company
 multi-tenant (master DB `billing_erp_master`, per-company DBs
 `billing_erp_co_N`). Indian GST (B2B / B2CL / B2CS / CDNR / HSN summary,
 GSTR-1, GSTR-3B), double-entry ledger with Σ Dr = Σ Cr invariant, FIFO +
-weighted-average costing, JWT auth with RBAC, Tally-style F-key UX,
+weighted-average costing, JWT auth with RBAC, classic accounting-style F-key UX,
 PostgreSQL advisory locks for concurrency control.
 
 ---
@@ -143,7 +143,7 @@ the user decides whether to fix.
 4. Open the DatePicker on "As of Date" (Opening Stock section) → opens
    inside the modal, picks a date, commits.
 5. Same checks on Purchase form → +Add Product inline modal.
-6. Use the Tally-style keyboard: Tab into the Select, hit Enter → dropdown
+6. Use the classic accounting-style keyboard: Tab into the Select, hit Enter → dropdown
    should open (per the keyboard contract in EntityFormModal).
 
 ### 5.4 Receipt-number collision (PR #40, regression baseline)
@@ -338,7 +338,7 @@ Proof: log excerpt, screenshot path under .audit/screenshots/, or DB query resul
   inconsistent at scale.
 - **Do not run `npm install`** unless a missing dep blocks you. The user's
   `node_modules` state is non-trivial.
-- **Honour the Tally-style keyboard contract**: F1 = Save with print prompt,
+- **Honour the classic accounting-style keyboard contract**: F1 = Save with print prompt,
   F2 = date popup, F5 = reset, F8 = Save & Close, Esc = cancel-with-dirty-
   confirm. Don't propose to remove these.
 

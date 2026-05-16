@@ -1,6 +1,6 @@
 // ── Monthly Register (Sales / Purchase / Payment / Receipt) — R10 v3 ─
 //
-// Tally's monthly-register data shape (Particulars / Debit / Credit /
+// Standard monthly-register data shape (Particulars / Debit / Credit /
 // Closing Balance with running cumulative + Dr/Cr suffix), dressed in
 // our modern dark-mode design system. Visual language matches Bills
 // Outstanding (.bo-* family) so it sits naturally next to the rest of

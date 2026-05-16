@@ -25,7 +25,7 @@ try { fs.mkdirSync(BACKUPS_DIR, { recursive: true }); } catch {}
 
 // ── AES-256-GCM backup encryption (ALWAYS ON, ZERO CONFIG) ────────────────
 //
-// Like Tally / Vyapar — the user clicks "Backup", gets an encrypted
+// Like typical billing software — the user clicks "Backup", gets an encrypted
 // file, restores it on any machine running this app. No passwords, no
 // prompts, completely invisible to the customer.
 //
@@ -52,7 +52,7 @@ const IV_LENGTH   = 12;  // GCM standard
 const SALT_LENGTH = 32;
 
 // ── App-level encryption secret ───────────────────────────────────────────
-// This is the "Tally approach" — a proprietary key embedded in code that
+// This is the conventional approach — a proprietary key embedded in code that
 // ships obfuscated. It's NOT a user password; the user never sees or
 // types this. Changing it invalidates all existing backups, so treat it
 // as permanent once you ship v1.
@@ -606,8 +606,8 @@ function shouldRunNow(settings) {
       // this, `new Date(2025, 1, 31, ...)` (February 31) silently overflows to
       // March 3 and the monthly backup never fires in February — 11 of 12
       // months in a year a user who sets "31" would be missing backups.
-      // Tally's convention is "run on the last day if the chosen day doesn't
-      // exist this month", which is what this clamp implements.
+      // The standard accounting convention is "run on the last day if the
+      // chosen day doesn't exist this month", which is what this clamp implements.
       const desiredDay = settings.dayOfMonth || 1;
       const lastDayThisMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
       const safeDay = Math.min(desiredDay, lastDayThisMonth);

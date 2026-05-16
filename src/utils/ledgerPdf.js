@@ -31,7 +31,7 @@ const fmt = (v) =>
 
 const fmtDate = (d) => (d ? dayjs(d).format('DD-MM-YYYY') : '—');
 
-// Tally sign suffix for balance cells. Positive = Dr (we owe / asset),
+// Accounting sign suffix for balance cells. Positive = Dr (we owe / asset),
 // negative = Cr (they owe / liability). Mirrors the on-screen pill.
 const sign = (v) => {
   const n = parseFloat(v) || 0;

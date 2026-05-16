@@ -539,7 +539,7 @@ exports.reconciliation = async (req, res) => {
       };
     });
 
-    // ── Aging buckets. Tally-style buckets keyed on days outstanding
+    // ── Aging buckets. Classic accounting-style buckets keyed on days outstanding
     // since the entry was posted (proxy for "since the cheque was
     // issued"). 0-7 = fresh, this week. 90+ = chase these now.
     const buckets = {

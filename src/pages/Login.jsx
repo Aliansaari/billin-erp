@@ -645,7 +645,7 @@ const loginCss = `
 }
 /* Keyboard-highlighted item — when the user navs with arrow keys.
    Distinct from .sel (committed) and from :hover (mouse). The accent
-   ring on the left edge mirrors how Tally Prime indicates the
+   ring on the left edge mirrors how classic accounting software indicates the
    currently-focused row in its menus. */
 .erp-login-pick-item.hl {
   background: rgba(245, 238, 226, 0.08);

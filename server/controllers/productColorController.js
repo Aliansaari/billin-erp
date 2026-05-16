@@ -32,7 +32,7 @@ const {
 } = require('../models');
 const { roundTo } = require('../utils/helpers');
 
-// Audit MONEY-4 — use canonical roundTo (Tally-compatible).
+// Audit MONEY-4 — use canonical roundTo (Indian GST-standard).
 const r2 = (n) => roundTo(Number(n) || 0, 2);
 
 async function ensureProduct(productId) {

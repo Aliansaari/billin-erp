@@ -5,7 +5,7 @@
  * appears more than once in the last 90 days. Supplier_bill_number is
  * the *vendor's* invoice number — duplicates almost always mean the
  * operator booked the same supplier invoice twice (paper-in then
- * Tally-sync, or two people entering the same paper in parallel).
+ * an automated sync, or two people entering the same paper in parallel).
  *
  * NOT FIRED when:
  *   - supplier_bill_number is blank (cash purchases / walk-ins don't

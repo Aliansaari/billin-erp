@@ -219,7 +219,7 @@
  * Pages that wrap content in a flex shell (Features, Defaults,
  * Theme) already pin the strip via flex layout; for everything else
  * (Company Profile, Users, Backup, Print, Barcode, Godowns,
- * Import & Export, Tally, Import-queued) the strip used to scroll
+ * Import & Export, Sync, Import-queued) the strip used to scroll
  * with the page. Make it sticky to the pane's bottom edge so it's
  * always reachable, regardless of how each page lays itself out.
  *

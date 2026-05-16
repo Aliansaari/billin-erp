@@ -96,7 +96,7 @@ export const REPORTS = [
   },
 
   // ── Periodic Summary (R10) ───────────────────────────────────────
-  // Tally-style monthly registers. Each row = month, columns = Dr / Cr
+  // Classic accounting-style monthly registers. Each row = month, columns = Dr / Cr
   // / Closing-Balance with running ledger total. Each register has a
   // "Compare with…" toggle to overlay a second register's columns
   // alongside the primary (Sales↔Purchase, Receipt↔Payment, etc).

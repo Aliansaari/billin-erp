@@ -1,11 +1,11 @@
-// ── Monthly Register Controller (R10 v2 — Tally-faithful) ────────────
+// ── Monthly Register Controller (R10 v2 — classic accounting-style) ────────────
 //
 //   GET /api/reports/monthly-register?mode=<m>&overlay=<m>?
 //
 //   m ∈ { 'sales' | 'purchase' | 'payment' | 'receipt' }
 //
 // One controller, four modes + optional overlay. The frontend renders
-// a single Tally-style table:
+// a single classic accounting-style table:
 //
 //   Particulars | Transactions (Debit | Credit) | Closing Balance
 //   ─────────────────────────────────────────────────────────────
@@ -17,7 +17,7 @@
 // Account` ledger directly — sum of debit/credit per month. Payment /
 // Receipt modes read from `payments_receipts`, summing total_amount
 // per month: payments treated as Dr-natural, receipts as Cr-natural,
-// matching Tally's voucher-register view.
+// matching the standard voucher-register view.
 //
 // Opening balance: the running net of the ledger BEFORE from_date
 // (or for vouchers, the cumulative amount before from_date). Required
@@ -34,7 +34,7 @@ const sequelize = require('../config/database');
 const { SystemSettings } = require('../models');
 const { roundTo } = require('../utils/helpers');
 
-// Audit MONEY-4 — use canonical roundTo (Tally-compatible).
+// Audit MONEY-4 — use canonical roundTo (Indian GST-standard).
 const r2 = (v) => roundTo(Number(v) || 0, 2);
 
 const VALID_MODES = ['sales', 'purchase', 'payment', 'receipt'];
@@ -86,7 +86,7 @@ function localDateString(d = new Date()) {
   return `${y}-${m}-${dd}`;
 }
 
-// Default period = current FY (Apr 1 → Mar 31). Tally always shows the
+// Default period = current FY (Apr 1 → Mar 31). Classic accounting always shows the
 // register for a full FY by default.
 async function defaultPeriod() {
   const s = await SystemSettings.findOne({ where: { setting_id: 1 } });
@@ -131,7 +131,7 @@ async function _ledgerRows({ subGroup, naturalSide, from, to }) {
   // as positive Cr.
   //
   // We filter `ledger_name NOT ILIKE '%return%'` so the Sales Register
-  // continues to show only forward sales (Tally convention) — the seed
+  // continues to show only forward sales (standard accounting convention) — the seed
   // puts the system "Sales Return" ledger under sub_group='Sales Accounts'
   // which would otherwise drag credit-note movements into the register.
   // The name-based exclusion is safe because the system seeders use
@@ -155,7 +155,7 @@ async function _ledgerRows({ subGroup, naturalSide, from, to }) {
     : r2(openingRow.dr - openingRow.cr);
 
   // Per-month rows. month_series LEFT JOIN ledger_entries — empty
-  // months still appear (Tally-style continuous register).
+  // months still appear (classic accounting-style continuous register).
   const rows = await sequelize.query(
     `WITH month_series AS (
        SELECT generate_series(

@@ -193,7 +193,7 @@ Created [src/utils/indianFormat.js](src/utils/indianFormat.js) with `inrFormatte
 - `ChequeActionModals.jsx`
 - `LoanAccountModal.jsx`
 - `RecordEMIModal.jsx`
-Pre-fix: editing ₹1,00,000 rendered as `₹100,000` (Western 3-3-3 grouping) — a Tally user reads as "one hundred thousand" and types a value 10× off. Post-fix: renders as `₹1,00,000` (Indian 2-2-3 grouping).
+Pre-fix: editing ₹1,00,000 rendered as `₹100,000` (Western 3-3-3 grouping) — an experienced accounting-software user reads as "one hundred thousand" and types a value 10× off. Post-fix: renders as `₹1,00,000` (Indian 2-2-3 grouping).
 **Rule:** *Single Indian-format util. Every editable money InputNumber uses `inrFormatter` + `inrParser`. Static labels via `toLocaleString('en-IN')`.*
 
 ### ✅ UI-C7 — `disabledDate` on bill / payment date pickers

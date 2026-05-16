@@ -338,7 +338,7 @@ export default function DeveloperSettings() {
             <div style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.55 }}>
               {settings?.fy_compliance_mode
                 ? <>Active. Lock dates and the override-password requirement are configured on <a onClick={() => navigate('/settings/financial-year')} style={{ cursor: 'pointer' }}>Settings → Financial Year</a>.</>
-                : <>Simple Tally-style mode. No locks, no override prompts, no new audit-log entries from voucher writes. Lock-date and password settings (if any were saved earlier) are preserved.</>}
+                : <>Simple mode. No locks, no override prompts, no new audit-log entries from voucher writes. Lock-date and password settings (if any were saved earlier) are preserved.</>}
             </div>
           </div>
           <Switch

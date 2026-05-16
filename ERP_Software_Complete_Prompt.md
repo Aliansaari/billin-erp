@@ -673,7 +673,7 @@ Users can add/remove/rearrange these widgets via Settings > Dashboard Customizat
     - Export to Excel/PDF
   - **Payments Tab**: All receipts/payments
     - Columns: Receipt No., Date, Amount, Mode, Reference Bill, Actions
-  - **Ledger Tab**: Complete account statement (Tally-style)
+  - **Ledger Tab**: Complete account statement (classic accounting-style)
     - Date | Particulars | Debit | Credit | Balance
     - Opening balance at top
     - All sales bills as debits
@@ -1273,7 +1273,7 @@ ELSE:
 
 ### 7. REPORTS MODULE
 
-Inspired by Tally's detailed, date-filtered, drill-down reports with export capabilities.
+Inspired by legacy accounting tools' detailed, date-filtered, drill-down reports with export capabilities.
 
 **Reports Main Screen:**
 ```
@@ -1434,7 +1434,7 @@ Profit: ₹2,500
 
 #### 7.4 PARTY LEDGERS (Most Critical)
 
-**Party Ledger Report (Tally-Style)**
+**Party Ledger Report (Classic Accounting-Style)**
 
 **Selection:**
 - Select Party: [Dropdown with search]
@@ -2396,7 +2396,7 @@ This prompt provides a **complete, industrial-grade specification** for a full-f
 ✅ **Business Logic**: Step-by-step workflows for all operations
 ✅ **Barcode System**: Comprehensive barcode management with auto-generation and validation
 ✅ **Multi-User Support**: Role-based permissions, concurrent access, audit trails
-✅ **Reports**: Tally-inspired detailed reports with drill-down and export capabilities
+✅ **Reports**: classic accounting-style detailed reports with drill-down and export capabilities
 ✅ **Payment Handling**: Multiple payment modes, split payments, credit management
 ✅ **GST Compliance**: Optional GST module with GSTR reports (if enabled)
 ✅ **Stock Management**: Real-time stock tracking, batch/expiry management (optional)

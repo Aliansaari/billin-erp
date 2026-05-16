@@ -153,7 +153,7 @@ export default function SalesBillForm() {
   // gstMode defaults to the user's last choice (saved in localStorage) for
   // new bills, but flips to 'bill' when we load an existing bill that was
   // clearly stored as bill-wise — i.e. it has non-zero bill-level GST
-  // percentages or amounts. Without this, Tally-imported bills (which are
+  // percentages or amounts. Without this, externally imported bills (which are
   // always bill-wise and whose line items have gst_rate=0) would render
   // with zero tax in the edit form and disagree with the sales-list total.
   const [gstMode, setGstMode]   = useState(()=>localStorage.getItem('gst_mode')||'product');
@@ -588,7 +588,7 @@ export default function SalesBillForm() {
         walk_in_name:data.walk_in_name||'',
         bill_date:data.bill_date?dayjs(data.bill_date):dayjs(),
         due_date:data.due_date?dayjs(data.due_date):null,
-        // If the stored bill has a discount_amount but pct=0 (old Tally
+        // If the stored bill has a discount_amount but pct=0 (old external
         // imports), derive pct from amount/sub_total so the total calc
         // actually subtracts the discount. Safety net for legacy data.
         discount_percentage: (() => {
@@ -1340,8 +1340,8 @@ export default function SalesBillForm() {
     -parseFloat(splDisc||0)
     +parseFloat(otherChr||0)
     +parseFloat(freightChr||0);
-  // Tally rounds every voucher to the nearest rupee and records the
-  // residue as a round_off ledger. We mirror that: the displayed net
+  // Indian GST-standard practice rounds every voucher to the nearest rupee and
+  // records the residue as a round_off ledger. We mirror that: the displayed net
   // total is always an integer, and the fractional difference lands in
   // round_off automatically. This keeps the edit form total in lock-step
   // with the list total (which also shows the rounded value).
@@ -1944,7 +1944,7 @@ export default function SalesBillForm() {
     });
   }, [handleSave, id]);
 
-  // F2 Date popup — opens the Tally-style smart-input popup, focused
+  // F2 Date popup — opens the classic accounting-style smart-input popup, focused
   // on the form's current bill_date. On confirm, writes back to the
   // Antd Form's bill_date field.
   const { openDate } = useDatePopup();
@@ -3174,7 +3174,7 @@ export default function SalesBillForm() {
         </section>
 
         {/* ═══════════════════════════════ (4) ACTION STRIP ════════════════════
-            Tally-style bottom toolbar. Single source of truth for both
+            Classic accounting-style bottom toolbar. Single source of truth for both
             the on-screen buttons AND every keyboard binding (F-keys,
             Esc, Ctrl+Enter alias, Ctrl+L for Drafts). Replaces the old
             .sbf-action-bar section. Payment status is now driven by

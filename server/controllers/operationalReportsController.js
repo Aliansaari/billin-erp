@@ -492,7 +492,7 @@ exports.stockVelocity = async (req, res) => {
       { replacements, type: sequelize.QueryTypes.SELECT },
     );
 
-    // ── Classification thresholds (industry-standard / Tally defaults) ─
+    // ── Classification thresholds (industry-standard defaults) ─
     const COVER_FAST = 30;     // <30 days cover  → fast
     const COVER_AVG  = 90;     // 30–90 days cover → average
     const DEAD_DAYS  = 180;    // >180 days since last sale → dead

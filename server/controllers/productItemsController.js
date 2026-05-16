@@ -49,7 +49,7 @@ const sequelize = require('../config/database');
 const { SystemSettings } = require('../models');
 const { roundTo } = require('../utils/helpers');
 
-// Audit MONEY-4 — use canonical roundTo (Tally-compatible).
+// Audit MONEY-4 — use canonical roundTo (Indian GST-standard).
 const r2 = (v) => roundTo(Number(v) || 0, 2);
 
 function localDateString(d = new Date()) {

@@ -13,7 +13,7 @@
  *
  * BRIEF (paraphrased):
  *   • Long bills should not feel stressful — they should feel enjoyable.
- *   • Tally-minimal in spirit (keyboard-first, dense, fast) but warmer
+ *   • classic accounting-style in spirit (keyboard-first, dense, fast) but warmer
  *     and more readable (editorial type, breathing room, semantic colour).
  *   • Redesign the entry row, the totals, and the information panels.
  *
@@ -355,7 +355,7 @@ h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter
 }
 .entry-ledger .cell.add .add-text::before { content: '+'; font-size: 18px; line-height: 1; font-weight: 500; }
 
-/* ── Variant 5 — KEYBOARD-OPTIC ROW (Tally-spirit, for power users) ─
+/* ── Variant 5 — KEYBOARD-OPTIC ROW (classic keyboard-driven, for experienced accounting-software users) ─
  *
  * Each cell's label gets a tiny serif-ish ordinal (1–11) that doubles
  * as the Tab-stop number. A progress bar across the top fills as the
@@ -364,7 +364,7 @@ h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter
  * and a tiny "↵ to commit" hint when on Qty (the last numeric
  * before +ADD).
  *
- * Mood: a Tally muscle-memory user feels at home. Visual feedback
+ * Mood: an experienced accounting-software user feels at home. Visual feedback
  * gives the keyboard-driven flow a rhythm and a finish line.
  */
 .entry-keys {
@@ -540,15 +540,15 @@ h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter
 .entry-bento .cell.add .add-text { color: white; font-weight: 700; font-size: 13px; letter-spacing: 0.4px; }
 .entry-bento .cell.add .add-text::before { content: '+ '; font-size: 16px; }
 
-/* ── Variant 8 — COMPACT INLINE ROW (densest, most Tally-like) ────
+/* ── Variant 8 — COMPACT INLINE ROW (densest, most classic-accounting) ────
  *
  * Single line — no labels above, just values flowing left to right.
  * Hover or focus reveals the column name as a small floating badge
  * over the cell. Lightest visual chrome, highest information density,
- * closest to the dense grid Tally power users love.
+ * closest to the dense grid experienced accounting-software users love.
  *
  * Risk: if the operator is new, the missing labels make discovery
- * harder. Variant 5 (keyboard-optic) is the safer Tally-translation.
+ * harder. Variant 5 (keyboard-optic) is the safer choice for experienced operators.
  */
 .entry-inline {
   background: var(--bg-panel);
@@ -1166,7 +1166,7 @@ h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter
 <!-- Variant 5 -->
 <div class="section-label">
   <span class="pill recommended">PICK</span><h2>Variant 5 · Keyboard-Optic Row</h2>
-  <span class="meta">Tally-spirit, modern surface. Progress bar + ordinal-pills make the keyboard flow legible.</span>
+  <span class="meta">classic accounting-style, modern surface. Progress bar + ordinal-pills make the keyboard flow legible.</span>
 </div>
 <div class="page-card">
   <div class="strip">
@@ -1229,11 +1229,11 @@ h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter
 <div class="spec">
   <h4>Why this for keyboard-first power users</h4>
   <ul>
-    <li><strong>Tab-stop is visible.</strong> Each cell carries an ordinal pill (1–11) — Tally users mentally count cells; here we count for them.</li>
+    <li><strong>Tab-stop is visible.</strong> Each cell carries an ordinal pill (1–11) — experienced accounting-software users mentally count cells; here we count for them.</li>
     <li><strong>Progress bar = finish line.</strong> The 3px bar on top fills as the caret advances. By the 30th line the operator has built muscle memory of the bar's slide; entering Qty (cell 7) feels close to "done", not stranded somewhere in the middle.</li>
     <li><strong>Commit hint where it belongs.</strong> The "↵ next" badge sits on the active cell only — no permanent visual weight, but the moment you're at cell 7 (Qty) it whispers <em>Enter to commit + jump to next item</em>. Reduces the "what do I press now" hesitation that breaks rhythm.</li>
     <li><strong>+ADD uses the accent (not ink).</strong> Different from Variant 4 — here +ADD is also the keyboard "submit", so it earns the accent colour. The progress bar above it ties them visually.</li>
-    <li><strong>Trade-off vs Variant 4.</strong> Slightly busier (the ordinal pills carry visual weight). Worth it for a Tally-trained operator; possibly noisy for a first-time user.</li>
+    <li><strong>Trade-off vs Variant 4.</strong> Slightly busier (the ordinal pills carry visual weight). Worth it for an experienced-operator; possibly noisy for a first-time user.</li>
   </ul>
 </div>
 
@@ -1444,7 +1444,7 @@ h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter
 <div class="spec">
   <h4>Trade-off vs the picks</h4>
   <ul>
-    <li>+ Highest information density. Closest to the Tally classical row.</li>
+    <li>+ Highest information density. Closest to the classic accounting row.</li>
     <li>+ Smallest visual footprint — the row shrinks to 44px including the <code>+ADD</code>.</li>
     <li>− Labels come and go. For a new operator (or a trained operator on a new bill type) the missing labels are a real friction. Variant 5 (keyboard-optic) gets 80% of the density with 100% of the labels.</li>
   </ul>
@@ -1454,7 +1454,7 @@ h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter
 <!-- ── §2 Best three ─────────────────────────────────────────────── -->
 <div class="section-label">
   <span class="pill hero">§2 · BEST THREE</span><h2>Pick of the litter</h2>
-  <span class="meta">ranked for the brief: long bills, enjoyable, Tally-minimal-but-warmer.</span>
+  <span class="meta">ranked for the brief: long bills, enjoyable, classic-accounting-but-warmer.</span>
 </div>
 
 <div class="spec" style="background:var(--bg-panel)">
@@ -1474,9 +1474,9 @@ h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter
 
     <div style="font-family:var(--font-display); font-size:22px; font-weight:600; color: var(--accent);">2.</div>
     <div><strong>Variant 5 — Keyboard-Optic Row</strong><br><span class="note">Ordinal pills 1–11 · progress bar · ↵ commit hint on Qty.</span></div>
-    <div>Best fit for ex-Tally power users. The progress bar gives the keyboard flow a finish line — addresses the "where am I" hesitation.</div>
+    <div>Best fit for experienced accounting-software users. The progress bar gives the keyboard flow a finish line — addresses the "where am I" hesitation.</div>
     <div>Slightly busier — ordinal pills carry weight. ~5px taller than v4.</div>
-    <div>Operators migrating from Tally Prime / older accounting tools.</div>
+    <div>Operators migrating from legacy accounting tools.</div>
 
     <div style="font-family:var(--font-display); font-size:22px; font-weight:600; color: var(--accent);">3.</div>
     <div><strong>Variant 6 — Floating Caret Row</strong><br><span class="note">No borders · single hairline below · caret-line is the only chrome.</span></div>

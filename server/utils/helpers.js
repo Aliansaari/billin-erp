@@ -13,7 +13,7 @@ function generateTransactionNumber(prefix, lastNumber) {
 
 /**
  * Safely extract the trailing numeric segment of a bill/transaction number.
- * Audit P2-J — `parseInt('12-AMD')` returns 12, so legacy Tally imports
+ * Audit P2-J — `parseInt('12-AMD')` returns 12, so legacy external imports
  * with non-numeric suffixes (e.g. INV-50/A) would poison the counter:
  *   last_bill = "INV-50/A"  → parseInt("A") = NaN  (already fine)
  *   last_bill = "INV-12-AMD"→ parseInt("AMD") = NaN  (fine)
@@ -56,7 +56,7 @@ function escapeLike(s) {
 
 /**
  * Round `n` to `decimals` places using "round half away from zero" —
- * the convention followed by Tally Prime and required by Indian GST:
+ * the convention required by Indian GST:
  *   1.5   →  2      -1.5   → -2
  *   2.5   →  3      -2.5   → -3
  *   1.005 →  1.01   -1.005 → -1.01
@@ -66,7 +66,7 @@ function escapeLike(s) {
  *    so Math.round(-0.5) = 0, not -1. That breaks refund/return-note rounding.
  *  - toFixed() uses banker's rounding (round-half-to-even) in V8, so
  *    (1.005).toFixed(2) is sometimes "1.00" not "1.01" — a silent 1 paisa
- *    drift that accumulates across thousands of invoices and mismatches Tally.
+ *    drift that accumulates across thousands of invoices and mismatches the GST-standard total.
  *
  * Implementation:
  *  - Split the sign, scale up to integer, Math.round, scale back.
@@ -125,7 +125,7 @@ function calculateGST(taxableAmount, gstRate, isInterState = false) {
  *   totalIgst = roundTo(taxableTotal * igst_pct / 100, 2)
  * which can drift ±₹0.01 from the true combined tax (because each half is
  * rounded independently). At 50k bills/year × 1 paisa drift = ~₹500/yr of
- * silent variance against Tally's reconciliation.
+ * silent variance against the GST-standard reconciliation.
  *
  * This helper computes the combined tax first, then divides into the two
  * halves so the second absorbs the rounding residual — same algorithm as

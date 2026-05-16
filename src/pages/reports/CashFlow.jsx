@@ -1,4 +1,4 @@
-// ── Cash Flow Statement (Tally-style three-level drill) ───────────────
+// ── Cash Flow Statement (classic accounting-style three-level drill) ──
 //
 // One component, three URL-driven views:
 //
@@ -38,7 +38,7 @@ import './cash-flow.css';
 
 // ── Number formatting ────────────────────────────────────────────────
 // Indian rupee, two decimals. Negative renders as `(-)X,XX,XXX.XX`
-// inside a danger-colour wrapper — same visual contract used by Tally.
+// inside a danger-colour wrapper — standard accounting visual contract.
 const fmtAmt = (v) => {
   const n = Number(v) || 0;
   if (n === 0) return '—';
@@ -481,7 +481,7 @@ function CashFlowMonthView() {
       // the "as on" period — P&L is range-scoped so we pass both.
       if (/^Direct Income|^Indirect Income|^Direct Expenses|^Indirect Expenses/.test(k))
         return { path: '/reports/profit-loss', params: { from: monthFrom, to: monthTo } };
-      // Tally intermediate groups → Trial Balance group view.
+      // Intermediate groups → Trial Balance group view.
       // Sub_group becomes the group filter so the user lands on the
       // ledger list under that bucket.
       if (k === 'Duties & Taxes' || k === 'Duties and Taxes' ||

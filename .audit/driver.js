@@ -19,7 +19,7 @@ const LOG_FILE = path.join(LOG_DIR, `driver-${Date.now()}.log`);
 const DATA_FILE = path.join(LOG_DIR, 'state.json');
 const REPORT_FILE = path.join(LOG_DIR, 'driver-report.json');
 
-// Tally counters
+// Run counters
 const stats = { calls: 0, ok: 0, failures: [], created: {} };
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;

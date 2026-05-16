@@ -7,7 +7,7 @@
 //
 // Pre-fix, AntD InputNumber `formatter` props across the app used the
 // Western pattern `/\B(?=(\d{3})+(?!\d))/g` which renders ₹1,00,000 as
-// ₹100,000 — a Tally user reads that as "one hundred thousand" instead
+// ₹100,000 — a user trained on Indian-format software reads that as "one hundred thousand" instead
 // of "one lakh" and types a value 10× off when re-entering. Static read
 // labels (toLocaleString('en-IN')) were already correct; only the
 // editable InputNumber formatter was Western.
