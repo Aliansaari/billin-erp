@@ -227,6 +227,7 @@ export default function PurchaseList() {
       barcode: it.barcode, product_name: it.product_name, size: it.size,
       article_number: it.article_number, mrp: it.mrp,
       sale_rate: it.sale_rate, purchase_rate: it.purchase_rate,
+      margin_percentage: it.margin_percentage,
       quantity: it.quantity, quantity_per_box: it.quantity_per_box || 1,
     }));
     setBarcodeModal({ visible: true, bill: { ...bill, printItems } });

@@ -305,7 +305,7 @@ export default function PurchaseBillForm() {
   // gstMode defaults to the user's last choice (saved in localStorage) for
   // new bills, but flips to 'bill' when we load an existing bill that was
   // clearly stored as bill-wise — i.e. it has non-zero bill-level GST
-  // percentages or amounts. Without this, Tally-imported bills (which are
+  // percentages or amounts. Without this, externally imported bills (which are
   // always bill-wise and whose line items have gst_rate=0) would render
   // with zero tax in the edit form and disagree with the list total.
   const [gstMode, setGstMode] = useState(()=>localStorage.getItem('gst_mode')||'product');
@@ -1410,7 +1410,7 @@ export default function PurchaseBillForm() {
   const igstAmt      = effGstMode==='bill' ? +(taxableTotal*(igstPct||0)/100).toFixed(2) : 0;
   const totalGST     = +(cgst+sgst+igstAmt).toFixed(2);
   const rawTotal     = taxableTotal+totalGST+parseFloat(otherChr||0)+parseFloat(freightChr||0);
-  // Always round the net total to the nearest rupee (matches Tally's
+  // Always round the net total to the nearest rupee (Indian GST-standard
   // convention). The fractional residue lands in round_off automatically,
   // so the form's net total agrees with the list's stored total.
   const roundedTotal = Math.round(rawTotal);
@@ -1654,7 +1654,8 @@ export default function PurchaseBillForm() {
         const printItems = (data.items||[]).map(it=>({
           barcode:it.barcode,product_name:it.product_name,size:it.size,
           article_number:it.article_number,mrp:it.mrp,sale_rate:it.sale_rate,
-          purchase_rate:it.purchase_rate,quantity:it.quantity,quantity_per_box:it.quantity_per_box||1,
+          purchase_rate:it.purchase_rate,margin_percentage:it.margin_percentage,
+          quantity:it.quantity,quantity_per_box:it.quantity_per_box||1,
         }));
         setPrintModal({visible:true,bill:{...data,printItems}});
       };
@@ -1713,7 +1714,7 @@ export default function PurchaseBillForm() {
     });
   }, [handleSave, billMode]);
 
-  // F2 Date popup — Tally-style smart-input popup for the bill date.
+  // F2 Date popup — classic accounting-style smart-input popup for the bill date.
   const { openDate } = useDatePopup();
 
   const f2DatePopup = useCallback(() => {
@@ -2250,8 +2251,8 @@ export default function PurchaseBillForm() {
             {/* Supplier / transport row — bill_date and due_date moved up
                 into the header strip's right cluster to match the editorial
                 sales-form layout. When Cash is selected, the supplier-bill-#
-                slot (col 2) flips to a Walk-in vendor name input — Tally-
-                style cash purchases don't carry a separate supplier bill
+                slot (col 2) flips to a Walk-in vendor name input — classic
+                accounting-style cash purchases don't carry a separate supplier bill
                 number, so the slot reuse is honest, not just convenient. */}
             <div className="pbf-top-row">
               <div className="pbf-field">
@@ -2766,7 +2767,7 @@ export default function PurchaseBillForm() {
         </section>
 
         {/* ═══════════════════════════════ (4) ACTION STRIP ════════════════════
-            Same Tally-style strip as the Sales Bill Form. Single
+            Same classic accounting-style strip as the Sales Bill Form. Single
             registry drives both the visible buttons and the keyboard
             bindings. F1 Save & Print opens the barcode-label modal
             after save (matches the legacy "Save & Pay" behavior).

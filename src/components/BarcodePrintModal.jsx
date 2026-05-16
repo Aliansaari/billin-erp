@@ -1,12 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Modal, Button, InputNumber, Input, Table, Checkbox, Typography, message } from 'antd';
 import { PrinterOutlined } from '@ant-design/icons';
 import JsBarcode from 'jsbarcode';
+import './barcode-print-modal.css';
 
 const { Text } = Typography;
 
 const STORAGE_KEY    = 'barcode_label_layout';
 const CO_NAME_KEY    = 'barcode_company_name';
+// Printer chosen on Settings → Print. '' = system default. Silent defaults
+// ON (same behaviour as sales bills) — set to '0' to use the OS dialog.
+export const BARCODE_PRINTER_KEY = 'barcode_printer_name';
+export const BARCODE_SILENT_KEY  = 'barcode_silent_print';
 
 const FALLBACK_LAYOUT = {
   labelSize: '50x25',
@@ -156,57 +161,56 @@ function buildLabelSVG(row, companyName, layout, codeImg) {
     style="display:block;background:#fff;">${body}</svg>`;
 }
 
-// ── Small SVG preview rendered live in modal ──────────────────────────────────
-function LabelPreview({ row, companyName, layout }) {
-  const { labelSize = '50x25', elements = [] } = layout;
-  const [wMm, hMm] = labelSize.split('x').map(Number);
+// Wrap one-or-more label SVGs into a printable HTML document.
+function wrapLabelsHTML(svgs, wMm, hMm) {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  @page { size:${wMm}mm ${hMm}mm; margin:0; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#fff; }
+  .pg { width:${wMm}mm; height:${hMm}mm; overflow:hidden;
+        page-break-after:always; break-after:page; }
+  .pg:last-child { page-break-after:avoid; break-after:avoid; }
+  svg { display:block; }
+</style></head>
+<body>${svgs.map(svg => `<div class="pg">${svg}</div>`).join('')}</body></html>`;
+}
 
-  const codeEl = elements.find(e => e.id === 'code' && e.visible);
-  const availW = codeEl ? wMm - codeEl.x - 1 : 20;
-  const availH = codeEl ? hMm - codeEl.y - 1 : 10;
-  const codeMm = Math.min(availW, availH);
+// Send finished label HTML to the printer. When running in Electron with
+// silent enabled, it direct-prints through the configured barcode printer
+// — the exact same path the sales bills use (services/printer.js →
+// electronAPI.printSilent). Otherwise it falls back to the browser dialog.
+export async function printLabelHTML(html, wMm, hMm) {
+  const deviceName = (localStorage.getItem(BARCODE_PRINTER_KEY) || '').trim();
+  const silent     = localStorage.getItem(BARCODE_SILENT_KEY) !== '0'; // default ON
 
-  // Scale so preview fits in ~200px wide
-  const PREV_SCALE = 180 / wMm;
+  if (silent && window.electronAPI?.printSilent) {
+    const res = await window.electronAPI.printSilent({
+      html,
+      deviceName: deviceName || undefined,
+      copies: 1, // copy count is already expanded into N physical pages
+      paperWidthMm: wMm,
+      paperHeightMm: hMm,
+      marginsMm: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    if (res?.error) { message.error('Print failed: ' + res.error); return; }
+    if (res?.success === false) { message.warning('Print cancelled: ' + (res.failureReason || 'unknown')); return; }
+    message.success('Sent to printer');
+    return;
+  }
 
-  const textEls = elements.filter(e => e.visible && e.id !== 'code').map(el => {
-    const fn  = FIELD_VAL[el.id];
-    const val = fn ? fn(row, companyName, el) : '';
-    if (!val) return null;
-    const fsMm = ptMm(el.fontSize || 7);
-    return (
-      <text key={el.id}
-        x={el.x} y={+(el.y + fsMm).toFixed(2)}
-        fontSize={fsMm}
-        fontFamily="Arial,Helvetica,sans-serif"
-        fontWeight={el.bold ? 'bold' : 'normal'}
-        fill="#000">
-        {val}
-      </text>
-    );
-  }).filter(Boolean);
-
-  return (
-    <div style={{ border: '1px solid #e5e7eb', borderRadius: 4, display: 'inline-block', background: '#fff' }}>
-      <svg viewBox={`0 0 ${wMm} ${hMm}`}
-        width={wMm * PREV_SCALE} height={hMm * PREV_SCALE}
-        style={{ display: 'block' }}>
-        <rect width={wMm} height={hMm} fill="white" />
-        {codeEl && (
-          <rect x={codeEl.x} y={codeEl.y} width={codeMm} height={codeMm}
-            fill="#f3f4f6" stroke="#9ca3af" strokeWidth="0.3" />
-        )}
-        {codeEl && (
-          <text x={codeEl.x + codeMm / 2} y={codeEl.y + codeMm / 2}
-            textAnchor="middle" dominantBaseline="middle"
-            fontSize={codeMm * 0.12} fill="#6b7280" fontFamily="Arial">
-            {layout.codeType === 'qrcode' ? 'QR' : 'BARCODE'}
-          </text>
-        )}
-        {textEls}
-      </svg>
-    </div>
-  );
+  // Non-Electron / silent-off fallback — the OS print dialog.
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;border:none;visibility:hidden;';
+  document.body.appendChild(iframe);
+  iframe.contentDocument.open();
+  iframe.contentDocument.write(html);
+  iframe.contentDocument.close();
+  setTimeout(() => {
+    try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch (_) {}
+    setTimeout(() => document.body.removeChild(iframe), 2000);
+  }, 500);
 }
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
@@ -215,6 +219,7 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
   const [companyName, setCompanyName] = useState(() => localStorage.getItem(CO_NAME_KEY) || initialCompany);
   const [printing, setPrinting]       = useState(false);
   const [layout, setLayout]           = useState(FALLBACK_LAYOUT);
+  const [activeIdx, setActiveIdx]     = useState(0);   // keyboard row cursor
 
   // Re-read layout + company name from localStorage every time modal opens
   useEffect(() => {
@@ -238,12 +243,14 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
       return { ...item, key: item.barcode, quantity_per_box: qpb,
                no_of_prints: Math.ceil(qty / qpb), selected: true };
     }));
+    setActiveIdx(0);
   }, [visible, items]);
 
   const updateRow   = (barcode, field, value) =>
     setRows(prev => prev.map(r => r.barcode === barcode ? { ...r, [field]: value } : r));
   const allSelected = rows.length > 0 && rows.every(r => r.selected);
   const toggleAll   = () => setRows(prev => prev.map(r => ({ ...r, selected: !allSelected })));
+  const selectedCount = rows.filter(r => r.selected).length;
   const totalLabels = rows.filter(r => r.selected).reduce((s, r) => s + (r.no_of_prints || 0), 0);
 
   const handlePrint = async () => {
@@ -296,29 +303,7 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
         for (let i = 0; i < row.no_of_prints; i++) svgs.push(svg);
       });
 
-      const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>
-  @page { size:${wMm}mm ${hMm}mm; margin:0; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#fff; }
-  .pg { width:${wMm}mm; height:${hMm}mm; overflow:hidden;
-        page-break-after:always; break-after:page; }
-  .pg:last-child { page-break-after:avoid; break-after:avoid; }
-  svg { display:block; }
-</style></head>
-<body>${svgs.map(svg => `<div class="pg">${svg}</div>`).join('')}</body></html>`;
-
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;border:none;visibility:hidden;';
-      document.body.appendChild(iframe);
-      iframe.contentDocument.open();
-      iframe.contentDocument.write(html);
-      iframe.contentDocument.close();
-      setTimeout(() => {
-        try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch (_) {}
-        setTimeout(() => document.body.removeChild(iframe), 2000);
-      }, 500);
+      await printLabelHTML(wrapLabelsHTML(svgs, wMm, hMm), wMm, hMm);
 
     } catch (e) {
       message.error('Print failed: ' + e.message);
@@ -327,24 +312,101 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
     }
   };
 
+  const fmt = (v) => parseFloat(v || 0).toFixed(2);
+  // Margin %: prefer the stored value; otherwise derive from cost vs sale.
+  const marginPct = (r) => {
+    const stored = parseFloat(r.margin_percentage || 0);
+    if (stored) return stored;
+    const pr = parseFloat(r.purchase_rate || 0);
+    const sr = parseFloat(r.sale_rate || 0);
+    return pr > 0 ? ((sr - pr) / pr) * 100 : 0;
+  };
+
+  const toggleRow = (idx) =>
+    setRows(prev => prev.map((r, j) => j === idx ? { ...r, selected: !r.selected } : r));
+
+  // Keyboard control. Mirrors the app's conventions: F1 = primary action
+  // (Print), Ctrl/Cmd+Enter = its alias, F2 = the bulk toggle, ↑/↓ = row
+  // cursor, Space = toggle the cursored row, Esc = close (handled by AntD).
+  // Latest state/handlers kept in a ref so the listener never goes stale
+  // without re-binding (same trick ActionStrip uses).
+  const kbRef = useRef({});
+  kbRef.current = { rows, activeIdx, printing, totalLabels, handlePrint, toggleAll };
+
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (e) => {
+      const S = kbRef.current;
+      const k = e.key;
+      // Print — F1 or Ctrl/Cmd+Enter
+      if (k === 'F1' || ((e.ctrlKey || e.metaKey) && k === 'Enter')) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (!S.printing && S.totalLabels > 0) S.handlePrint();
+        return;
+      }
+      // Select all / Deselect all — F2
+      if (k === 'F2') {
+        e.preventDefault(); e.stopImmediatePropagation();
+        S.toggleAll();
+        return;
+      }
+      // Row cursor + per-row toggle — skip while typing in a field so the
+      // brand input and the Labels stepper keep their native keys.
+      const ae = document.activeElement;
+      const tag = (ae?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || ae?.isContentEditable) return;
+      if (k === 'ArrowDown') {
+        e.preventDefault(); e.stopImmediatePropagation();
+        setActiveIdx(i => Math.min((i < 0 ? -1 : i) + 1, S.rows.length - 1));
+      } else if (k === 'ArrowUp') {
+        e.preventDefault(); e.stopImmediatePropagation();
+        setActiveIdx(i => Math.max((i < 0 ? 0 : i) - 1, 0));
+      } else if (k === ' ' || k === 'Spacebar') {
+        e.preventDefault(); e.stopImmediatePropagation();
+        toggleRow(S.activeIdx < 0 ? 0 : S.activeIdx);
+      }
+    };
+    // Capture phase: this listener is added after the underlying page's
+    // ActionStrip (registered when the list mounted), so without capture
+    // ActionStrip's F1 = "Open bill" would fire first behind the modal.
+    // Capturing + stopImmediatePropagation makes the modal own its keys.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [visible]);
+
   const columns = [
-    { title: 'Barcode', dataIndex: 'barcode', width: 120,
-      render: v => <Text strong style={{ fontSize:12 }}>{v}</Text> },
-    { title: 'Product Name', dataIndex: 'product_name', render: v => <Text strong>{v}</Text> },
-    { title: 'Size', dataIndex: 'size', width: 70, align: 'center', render: v => <Text>{v || '—'}</Text> },
-    { title: 'QTY (Pc)', dataIndex: 'quantity', width: 80, align: 'center', render: v => <Text strong>{v}</Text> },
-    { title: 'QTY (Box)', dataIndex: 'quantity_per_box', width: 80, align: 'center' },
-    { title: 'MRP', dataIndex: 'mrp', width: 80, align: 'center',
-      render: v => <Text>{parseFloat(v || 0).toFixed(2)}</Text> },
-    { title: 'Rate', dataIndex: 'sale_rate', width: 80, align: 'center',
-      render: v => <Text>{parseFloat(v || 0).toFixed(2)}</Text> },
-    { title: 'No. of Prints', dataIndex: 'no_of_prints', width: 115, align: 'center',
+    { title: 'Barcode', dataIndex: 'barcode', width: 116,
+      render: v => <span className="bpm-bc">{v}</span> },
+    { title: 'Product', dataIndex: 'product_name', ellipsis: true,
+      render: v => v ? <Text strong>{v}</Text> : <Text type="secondary">—</Text> },
+    { title: 'Article', dataIndex: 'article_number', width: 96, ellipsis: true,
+      render: v => v ? <Text>{v}</Text> : <Text type="secondary">—</Text> },
+    { title: 'Size', dataIndex: 'size', width: 56, align: 'center',
+      render: v => v ? <Text>{v}</Text> : <Text type="secondary">—</Text> },
+    { title: 'Pieces', dataIndex: 'quantity', width: 64, align: 'right',
+      render: v => <Text strong className="bpm-num">{v}</Text> },
+    { title: 'Per box', dataIndex: 'quantity_per_box', width: 64, align: 'right',
+      render: v => <Text type="secondary" className="bpm-num">{v}</Text> },
+    { title: 'Pur rate', dataIndex: 'purchase_rate', width: 80, align: 'right',
+      render: v => <Text className="bpm-num">{fmt(v)}</Text> },
+    { title: 'Margin', dataIndex: 'margin_percentage', width: 74, align: 'right',
+      render: (_, r) => {
+        const m = marginPct(r);
+        return <Text className="bpm-num" type={m < 0 ? 'danger' : undefined}>
+          {m ? `${m.toFixed(1)}%` : '—'}
+        </Text>;
+      } },
+    { title: 'MRP', dataIndex: 'mrp', width: 76, align: 'right',
+      render: v => <Text className="bpm-num">{fmt(v)}</Text> },
+    { title: 'Sale rate', dataIndex: 'sale_rate', width: 82, align: 'right',
+      render: v => <Text type="secondary" className="bpm-num">{fmt(v)}</Text> },
+    { title: 'Labels', dataIndex: 'no_of_prints', width: 90, align: 'center',
       render: (v, record) => (
         <InputNumber min={0} max={9999} value={v}
           onChange={val => updateRow(record.barcode, 'no_of_prints', val || 0)}
-          style={{ width:78 }} size="small" />
+          style={{ width: 70 }} size="small" />
       ) },
-    { title: 'Select', width: 60, align: 'center',
+    { title: 'Print', dataIndex: '__print', width: 56, align: 'center',
       render: (_, record) => (
         <Checkbox checked={record.selected}
           onChange={e => updateRow(record.barcode, 'selected', e.target.checked)} />
@@ -352,46 +414,69 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
   ];
 
   return (
-    <Modal open={visible} onCancel={onClose} width={1050}
+    <Modal
+      className="bpm-modal"
+      open={visible}
+      onCancel={onClose}
+      width={1120}
       title={
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <PrinterOutlined style={{ color:'#4F46E5', fontSize:18 }} />
-          <span style={{ fontWeight:700, fontSize:16 }}>Barcode Printing — {billNumber}</span>
-          <span style={{ background:'#eef2ff', color:'#4F46E5', padding:'2px 10px', borderRadius:20, fontSize:12, fontWeight:600 }}>
-            {totalLabels} labels
+        <div className="bpm-head">
+          <span className="bpm-head__icon"><PrinterOutlined /></span>
+          <span className="bpm-head__title">
+            Print Barcode Labels
+            {billNumber ? <span className="bpm-head__bill">&nbsp;·&nbsp;{billNumber}</span> : null}
           </span>
+          <span className="bpm-chip">{totalLabels} label{totalLabels === 1 ? '' : 's'}</span>
         </div>
       }
       footer={
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 0' }}>
-          <Button type="primary" icon={<PrinterOutlined />} onClick={handlePrint}
-            loading={printing} size="large"
-            style={{ background:'linear-gradient(135deg,#4F46E5,#7C3AED)', border:'none', fontWeight:600, paddingInline:32 }}>
-            {printing ? 'Preparing...' : 'PRINT'}
-          </Button>
-          <Input placeholder="Company / Brand Name" value={companyName}
-            onChange={handleCompanyChange}
-            style={{ width:260, textAlign:'center', fontWeight:600, fontSize:14, borderRadius:8 }} size="large" />
-          <Button size="large" onClick={toggleAll}
-            style={{ fontWeight:600, borderColor:allSelected ? '#EF4444':'#4F46E5', color:allSelected ? '#EF4444':'#4F46E5', paddingInline:24 }}>
-            {allSelected ? 'DESELECT ALL' : 'SELECT ALL'}
-          </Button>
+        <div className="bpm-foot">
+          <span className="bpm-foot__sum">
+            <b>{totalLabels}</b> label{totalLabels === 1 ? '' : 's'} across <b>{selectedCount}</b> item{selectedCount === 1 ? '' : 's'}
+          </span>
+          <div className="bpm-foot__btns">
+            <Button onClick={onClose}>
+              <span className="bpm-kbd">Esc</span>Cancel
+            </Button>
+            <Button type="primary" icon={<PrinterOutlined />} onClick={handlePrint}
+              loading={printing} disabled={totalLabels === 0}>
+              <span className="bpm-kbd">F1</span>{printing ? 'Preparing…' : 'Print'}
+            </Button>
+          </div>
         </div>
       }
-      bodyStyle={{ padding:0, maxHeight:'65vh', overflow:'auto' }}
-      styles={{ footer:{ padding:'12px 24px', borderTop:'2px solid #f0f0f0' } }}
     >
-      <Table columns={columns} dataSource={rows} rowKey="barcode" pagination={false}
-        size="middle"
-        rowClassName={() => 'barcode-row'}
-        onRow={record => ({ style:{ opacity: record.selected ? 1 : 0.45 } })}
-        components={{ header:{ cell: props =>
-          <th {...props} style={{ ...props.style, background:'#fde047', color:'#1f2937', fontWeight:700, fontSize:13, textAlign:'center', borderBottom:'2px solid #ca8a04', padding:'10px 12px' }} />
-        }}}
-      />
-      <style>{`
-        .barcode-row td { background:#fafafa !important; transition:opacity .15s; }
-      `}</style>
+      {rows.length === 0 ? (
+        <div className="bpm-empty">No printable items in this bill.</div>
+      ) : (
+        <>
+          <div className="bpm-toolbar">
+            <div className="bpm-field">
+              <label className="bpm-field__lbl" htmlFor="bpm-company">Brand / company on label</label>
+              <Input id="bpm-company" placeholder="e.g. Sabina Traders"
+                value={companyName} onChange={handleCompanyChange} allowClear />
+            </div>
+            <div className="bpm-toolbar__spacer" />
+            <Button onClick={toggleAll}>
+              <span className="bpm-kbd">F2</span>{allSelected ? 'Deselect all' : 'Select all'}
+            </Button>
+          </div>
+
+          <div className="bpm-table-wrap">
+            <Table
+              columns={columns}
+              dataSource={rows}
+              rowKey="barcode"
+              pagination={false}
+              size="small"
+              tableLayout="fixed"
+              onRow={(_, idx) => ({ onClick: () => setActiveIdx(idx) })}
+              rowClassName={(r, idx) =>
+                `bpm-row${r.selected ? '' : ' bpm-row--off'}${idx === activeIdx ? ' bpm-row--active' : ''}`}
+            />
+          </div>
+        </>
+      )}
     </Modal>
   );
 }
