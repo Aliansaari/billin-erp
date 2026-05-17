@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
-const { startEmbeddedPostgres, stopEmbeddedPostgres } = require('./embeddedPostgres');
+const { startEmbeddedPostgres } = require('./embeddedPostgres');
 
 // `app.isPackaged` is the canonical "are we running from a packaged
 // .exe?" signal. NODE_ENV-based detection breaks in packaged builds
@@ -285,7 +285,7 @@ async function waitForServer(url, totalTimeoutMs = 30000) {
       console.log(`[Billing ERP] server reachable after ${attempts} attempt(s) (${Date.now() - start} ms)`);
       return true;
     }
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 200));
   }
   console.error(`[Billing ERP] server unreachable after ${attempts} attempts (${Date.now() - start} ms)`);
   return false;
@@ -439,40 +439,13 @@ async function createWindow() {
     return;
   }
 
-  // Production: load from the local Express server. Clear the renderer
-  // cache first so a previous broken-build cache (e.g. an old asset hash
-  // that 404s now) can't paint a blank window forever. The cost is a
-  // re-download on every launch (~3 MB total, trivial on LAN/loopback).
-  try { await mainWindow.webContents.session.clearCache(); } catch {}
-
-  const ok = await waitForServer(SERVER_URL);
-  if (!ok) {
-    // Show a clear error page rather than a blank window. The user can
-    // start the server, then click Retry to reload.
-    const html = `<!doctype html><meta charset="utf-8"><title>Billing ERP — server unreachable</title>
-<body style="margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px">
-  <div style="max-width:560px">
-    <h1 style="margin:0 0 8px;font-weight:700;letter-spacing:-.5px">Couldn't reach the server</h1>
-    <p style="margin:0 0 20px;color:#94a3b8;font-size:15px;line-height:1.55">
-      The Billing ERP app expected the database server to be running at
-      <code style="background:#1e293b;padding:2px 6px;border-radius:4px;color:#fda4af">${SERVER_URL}</code>
-      but no response came back from <code>/api/health</code> in 15 s.
-    </p>
-    <ol style="text-align:left;margin:0 auto 22px;color:#cbd5e1;font-size:14px;line-height:1.7;max-width:420px">
-      <li>Open Command Prompt in the Billing ERP folder.</li>
-      <li>Run <code style="background:#1e293b;padding:2px 6px;border-radius:4px">npm run server</code>.</li>
-      <li>Wait until you see "Database connected successfully".</li>
-      <li>Click Retry below.</li>
-    </ol>
-    <button onclick="location.reload()" style="background:#22c55e;color:#0f172a;border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Retry</button>
-    <p style="margin:18px 0 0;color:#64748b;font-size:12px">Or set <code>BILLING_ERP_SERVER_URL</code> to point at a server on your LAN.</p>
-  </div>
-</body>`;
-    await mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-    return;
-  }
-
-  await mainWindow.loadURL(SERVER_URL);
+  // Show a loading screen instantly. Navigation to SERVER_URL is driven
+  // from app.whenReady() after postgres + the API server are both up —
+  // keeping this function lean so the window appears before any slow I/O.
+  const loadingHtml = `<!doctype html><meta charset="utf-8"><title>Billing ERP</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0f172a;display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#e2e8f0}.wrap{text-align:center}.spinner{width:40px;height:40px;border:3px solid #334155;border-top-color:#22c55e;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto}.txt{margin-top:16px;font-size:14px;color:#64748b;letter-spacing:.3px}@keyframes spin{to{transform:rotate(360deg)}}</style>
+<body><div class="wrap"><div class="spinner"></div><div class="txt">Starting…</div></div></body>`;
+  await mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(loadingHtml));
 
   // Diagnostic auto-open of DevTools is OFF in production. The
   // renderer's console-message bridge above still pipes errors into
@@ -639,11 +612,21 @@ ipcMain.handle('shell:show-item', async (_ev, filePath) => {
 });
 
 app.whenReady().then(async () => {
-  // Bundled PostgreSQL — host, packaged, non-client only. MUST run before
-  // bootstrapServer so DB_* env + ~/.billing-erp/config.json are set
-  // before the server connects. Self-guards dev/CLIENT_MODE and never
-  // throws: on any failure it returns {used:false} and the existing
-  // manual Postgres Setup wizard remains the fallback.
+  // ── 1. Show the window immediately ──────────────────────────────────
+  // createWindow() renders a loading spinner and returns as soon as the
+  // data: URL is painted. Postgres and the API server boot concurrently
+  // in the steps below while the user already sees the app window.
+  // We deliberately do NOT await — the function suspends at its internal
+  // loadURL("data:...") await; since startEmbeddedPostgres now uses
+  // async execFile, the event loop is free to deliver the did-finish-load
+  // IPC that resolves that await, so the spinner appears almost instantly.
+  createWindow();
+
+  // ── 2. Start embedded postgres (non-blocking) ────────────────────────
+  // startEmbeddedPostgres now uses execFile + TCP polling instead of
+  // execFileSync + pg_ctl -w, so the event loop stays free the whole
+  // time postgres is starting up (which can take 30-75 s on machines
+  // where Windows Defender scans the binaries on first exec).
   try {
     const r = await startEmbeddedPostgres({ clientMode: CLIENT_MODE });
     console.log('[main] embedded postgres:', JSON.stringify(r));
@@ -651,19 +634,74 @@ app.whenReady().then(async () => {
     console.error('[main] startEmbeddedPostgres threw (continuing):', e);
   }
 
-  // Spawn the API server INSIDE the electron main process when running
-  // as a packaged build — the user shouldn't have to run `npm run server`
-  // separately. In dev this is a no-op; the dev script already runs the
-  // server on its own.
+  // ── 3. Boot the API server ───────────────────────────────────────────
   bootstrapServer();
-  createWindow();
+
+  // ── 4. Navigate to the app once the server is reachable ─────────────
+  // Only needed for packaged host builds; dev and CLIENT_MODE handle
+  // their own navigation inside createWindow().
+  if (app.isPackaged && !CLIENT_MODE) {
+    // Only clear the renderer cache when the app version changes.
+    // Clearing on every launch forces a full 3 MB SPA re-download and
+    // re-parse, adding 5-15 s. Version-gated clearing handles the real
+    // case (stale asset hash after an update) without the per-launch cost.
+    const appVersion = app.getVersion?.() || '0';
+    const versionCacheFile = path.join(os.homedir(), '.billing-erp', 'cached-version.txt');
+    try {
+      const last = fs.readFileSync(versionCacheFile, 'utf8').trim();
+      if (last !== appVersion && mainWindow && !mainWindow.isDestroyed()) {
+        await mainWindow.webContents.session.clearCache();
+        fs.writeFileSync(versionCacheFile, appVersion, 'utf8');
+        console.log('[main] cache cleared for new version', appVersion);
+      }
+    } catch {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed())
+          await mainWindow.webContents.session.clearCache();
+        fs.mkdirSync(path.dirname(versionCacheFile), { recursive: true });
+        fs.writeFileSync(versionCacheFile, appVersion, 'utf8');
+      } catch {}
+    }
+
+    const ok = await waitForServer(SERVER_URL);
+    if (!ok) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const html = `<!doctype html><meta charset="utf-8"><title>Billing ERP — server unreachable</title>
+<body style="margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px">
+  <div style="max-width:560px">
+    <h1 style="margin:0 0 8px;font-weight:700;letter-spacing:-.5px">Couldn't reach the server</h1>
+    <p style="margin:0 0 20px;color:#94a3b8;font-size:15px;line-height:1.55">
+      The Billing ERP app expected the database server to be running at
+      <code style="background:#1e293b;padding:2px 6px;border-radius:4px;color:#fda4af">${SERVER_URL}</code>
+      but no response came back from <code>/api/health</code> in 30 s.
+    </p>
+    <ol style="text-align:left;margin:0 auto 22px;color:#cbd5e1;font-size:14px;line-height:1.7;max-width:420px">
+      <li>Open Command Prompt in the Billing ERP folder.</li>
+      <li>Run <code style="background:#1e293b;padding:2px 6px;border-radius:4px">npm run server</code>.</li>
+      <li>Wait until you see "Database connected successfully".</li>
+      <li>Click Retry below.</li>
+    </ol>
+    <button onclick="location.reload()" style="background:#22c55e;color:#0f172a;border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Retry</button>
+    <p style="margin:18px 0 0;color:#64748b;font-size:12px">Or set <code>BILLING_ERP_SERVER_URL</code> to point at a server on your LAN.</p>
+  </div>
+</body>`;
+        await mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+      }
+      return;
+    }
+
+    if (mainWindow && !mainWindow.isDestroyed())
+      await mainWindow.loadURL(SERVER_URL);
+  }
 });
 
-// Stop the bundled Postgres cleanly when the app exits so the cluster
-// isn't left in an unclean-shutdown state (best-effort, synchronous).
-app.on('will-quit', () => {
-  try { stopEmbeddedPostgres(); } catch { /* never block quit */ }
-});
+// Postgres is intentionally left running after the app closes so that the
+// next launch hits the fast-path (TCP port already busy → skip pg_ctl,
+// startup in <1 s instead of 30-75 s while Windows Defender scans the
+// postgres binaries). The cluster shuts down automatically when Windows
+// reboots; a clean shutdown via pg_ctl is not required for data safety
+// because Postgres uses WAL and recovers from an unclean exit fine.
+app.on('will-quit', () => { /* postgres stays running — see comment above */ });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

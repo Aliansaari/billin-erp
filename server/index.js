@@ -520,25 +520,28 @@ async function startServer() {
     // failure on one code doesn't block the rest.
     try {
       const { CANONICAL_CODES } = require('./utils/uqcCodes');
-      for (const code of CANONICAL_CODES) {
-        await sequelize.query(
-          `ALTER TYPE enum_products_unit_of_measurement ADD VALUE IF NOT EXISTS '${code}'`
-        );
-      }
-      // Map legacy values to canonical GSTN codes. PCS + BOX stay (already canonical).
-      const legacyMap = [
-        ['KG',     'KGS'],
-        ['METER',  'MTR'],
-        ['LITER',  'LTR'],
-        ['DOZEN',  'DOZ'],
-      ];
-      for (const [oldCode, newCode] of legacyMap) {
-        await sequelize.query(
-          `UPDATE products SET unit_of_measurement = :n::enum_products_unit_of_measurement
-            WHERE unit_of_measurement = :o::enum_products_unit_of_measurement`,
-          { replacements: { o: oldCode, n: newCode } }
-        );
-      }
+      // Fire all 45 ALTER TYPE statements concurrently instead of sequentially.
+      // ALTER TYPE ... ADD VALUE IF NOT EXISTS serialises on a lock inside PG,
+      // but the lock per value is held only briefly (a no-op check on existing
+      // installs), so the wall-clock cost drops from ~45 × RTT to ~1 × RTT.
+      await Promise.all(
+        CANONICAL_CODES.map(code =>
+          sequelize.query(
+            `ALTER TYPE enum_products_unit_of_measurement ADD VALUE IF NOT EXISTS '${code}'`
+          )
+        )
+      );
+      // Map legacy values to canonical GSTN codes — one UPDATE covers all four.
+      await sequelize.query(`
+        UPDATE products
+           SET unit_of_measurement = (CASE unit_of_measurement::text
+             WHEN 'KG'    THEN 'KGS'
+             WHEN 'METER' THEN 'MTR'
+             WHEN 'LITER' THEN 'LTR'
+             WHEN 'DOZEN' THEN 'DOZ'
+           END)::enum_products_unit_of_measurement
+         WHERE unit_of_measurement::text IN ('KG','METER','LITER','DOZEN')
+      `);
     } catch (err) {
       console.error('[UQC migration] Error:', err.message);
     }

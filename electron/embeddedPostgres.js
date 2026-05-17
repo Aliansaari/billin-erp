@@ -26,7 +26,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const net = require('net');
-const { execFileSync } = require('child_process');
+const { execFileSync, execFile } = require('child_process');
 
 const HOME_DIR    = path.join(os.homedir(), '.billing-erp');
 const DATA_DIR    = path.join(HOME_DIR, 'pgdata');
@@ -51,6 +51,24 @@ function readJson(file) {
 function writeJson(file, obj) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');
+}
+
+// Async poll until postgres accepts TCP connections — used instead of
+// pg_ctl -w so the event loop stays free during the (potentially long)
+// postgres startup (Windows Defender scanning binaries can delay this
+// 30-75 s on some machines).
+function waitForPort(port, totalMs = 90000) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    function attempt() {
+      portBusy(port, 500).then((ready) => {
+        if (ready) return resolve(true);
+        if (Date.now() - start >= totalMs) return resolve(false);
+        setTimeout(attempt, 300);
+      });
+    }
+    attempt();
+  });
 }
 
 // Is a TCP port already accepting connections on 127.0.0.1?
@@ -215,21 +233,44 @@ async function startEmbeddedPostgres({ clientMode } = {}) {
       log('reusing existing database cluster at', DATA_DIR);
     }
 
-    // Start (idempotent: pg_ctl handles a stale postmaster.pid). -w waits
-    // for "ready to accept connections".
-    try {
-      pgCtl('start', [
-        '-w', '-t', '60',
-        '-l', PG_LOG,
-        '-o', `-p ${port} -c listen_addresses=127.0.0.1`,
-      ], 75000);
-    } catch (e) {
-      // Could be "already running" (fine) or a real failure. Probe.
-      if (!isRunning()) {
-        warn('pg_ctl start failed:', (e && e.message) || e, '— see', PG_LOG);
-        return { used: false, reason: 'start-failed' };
-      }
-      log('postgres already running');
+    // ── Fast path ──────────────────────────────────────────────────────
+    // If postgres is already accepting connections (i.e. the app was
+    // reopened without a Windows reboot), skip pg_ctl entirely and return
+    // in under a second. This avoids Windows Defender re-scanning
+    // pg_ctl.exe + postgres.exe on every launch, which costs 30-75 s.
+    if (await portBusy(port, 800)) {
+      log(`port ${port} already accepting connections — skipping pg_ctl`);
+      process.env.DB_HOST = '127.0.0.1';
+      process.env.DB_PORT = String(port);
+      process.env.DB_USER = 'postgres';
+      process.env.DB_PASSWORD = password;
+      try { writeAppConfig(port, password); } catch (e) { warn('writeAppConfig:', e.message); }
+      return { used: true, port };
+    }
+
+    // Start postgres without -w so pg_ctl exits immediately after forking
+    // the postgres process. Previously we used execFileSync with -w -t 60,
+    // which blocked the Electron main-process event loop for the entire
+    // postgres startup (30-75 s on machines where Windows Defender scans
+    // the binaries). With execFile (async) the event loop stays free:
+    // IPC from the renderer can fire, so the loading-screen window appears
+    // while postgres boots in the background.
+    await new Promise((resolve) => {
+      execFile(
+        path.join(binDir, 'pg_ctl.exe'),
+        ['-D', DATA_DIR, '-l', PG_LOG, '-o', `-p ${port} -c listen_addresses=127.0.0.1`, 'start'],
+        { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000, env: pgEnv(), windowsHide: true },
+        () => resolve() // always resolve — readiness confirmed via TCP below
+      );
+    });
+
+    // Poll until postgres accepts TCP connections (up to 90 s).
+    log('waiting for postgres on port', port, '…');
+    const ready = await waitForPort(port, 90000);
+    if (!ready) {
+      warn('postgres did not become ready within 90 s — see', PG_LOG);
+      if (!isRunning()) return { used: false, reason: 'start-failed' };
+      log('pg_ctl status confirms running despite TCP poll timeout');
     }
 
     // companyBootstrap makes billing_erp_master + per-company DBs, but
