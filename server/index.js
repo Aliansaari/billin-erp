@@ -2638,11 +2638,18 @@ async function startServer() {
         const gid = main.godown_id;
         const before = {};
         for (const tbl of ['stock_ledger', 'sales_bills', 'purchase_bills', 'sales_return_bills', 'purchase_return_bills']) {
-          const [[r]] = await sequelize.query(
-            `UPDATE ${tbl} SET godown_id = :gid WHERE godown_id IS NULL RETURNING ledger_id, sales_bill_id, purchase_bill_id, sales_return_id, purchase_return_id`,
+          // RETURNING 1 is valid for every table here. The previous
+          // explicit column list named columns that exist on only one
+          // of these tables, so the UPDATE threw "column ... does not
+          // exist" for the rest — the error was swallowed, godown_id
+          // was never actually backfilled, and pg.log got an ERROR
+          // every boot. RETURNING 1 → one row per updated row, so the
+          // count below is also finally correct.
+          const [rows] = await sequelize.query(
+            `UPDATE ${tbl} SET godown_id = :gid WHERE godown_id IS NULL RETURNING 1`,
             { replacements: { gid } },
           ).catch(() => [[]]);
-          before[tbl] = r ? Object.values(r).filter(Boolean).length : 0;
+          before[tbl] = Array.isArray(rows) ? rows.length : 0;
         }
         // Rough log so an admin watching boot logs sees the backfill happen
         // exactly once (subsequent boots return zero rows from the UPDATEs

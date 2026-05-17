@@ -147,10 +147,21 @@ async function registerPrimaryIfNeeded() {
   if (existing > 0) return;            // already migrated
 
   if (!(await legacyInstallExists())) {
-    // Truly fresh install. Don't auto-register anything — the user will
-    // create their first company through the UI. The login screen
-    // detects zero companies and shows the "create first company" flow.
-    console.log('[bootstrap] no companies yet (fresh install)');
+    // Fresh install: register a default primary company pointing at the
+    // base DB so the seeded admin can log in immediately (one-click /
+    // single-shop experience — the packaged build seeds the admin user
+    // into this DB right after bootstrap). Without a primary company
+    // row the login endpoint hard-500s with "No primary company
+    // configured". The operator renames it + fills GSTIN afterwards via
+    // onboarding / Settings → Company Profile.
+    await Company.create({
+      name:       'My Company',
+      db_name:    PRIMARY_DB_NAME,
+      legal_name: 'My Company',
+      is_primary: true,
+      is_active:  true,
+    });
+    console.log(`[bootstrap] fresh install — registered default primary company (db "${PRIMARY_DB_NAME}")`);
     return;
   }
 
