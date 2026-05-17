@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
+const { startEmbeddedPostgres, stopEmbeddedPostgres } = require('./embeddedPostgres');
 
 // `app.isPackaged` is the canonical "are we running from a packaged
 // .exe?" signal. NODE_ENV-based detection breaks in packaged builds
@@ -637,13 +638,31 @@ ipcMain.handle('shell:show-item', async (_ev, filePath) => {
   return { ok: true };
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Bundled PostgreSQL — host, packaged, non-client only. MUST run before
+  // bootstrapServer so DB_* env + ~/.billing-erp/config.json are set
+  // before the server connects. Self-guards dev/CLIENT_MODE and never
+  // throws: on any failure it returns {used:false} and the existing
+  // manual Postgres Setup wizard remains the fallback.
+  try {
+    const r = await startEmbeddedPostgres({ clientMode: CLIENT_MODE });
+    console.log('[main] embedded postgres:', JSON.stringify(r));
+  } catch (e) {
+    console.error('[main] startEmbeddedPostgres threw (continuing):', e);
+  }
+
   // Spawn the API server INSIDE the electron main process when running
   // as a packaged build — the user shouldn't have to run `npm run server`
   // separately. In dev this is a no-op; the dev script already runs the
   // server on its own.
   bootstrapServer();
   createWindow();
+});
+
+// Stop the bundled Postgres cleanly when the app exits so the cluster
+// isn't left in an unclean-shutdown state (best-effort, synchronous).
+app.on('will-quit', () => {
+  try { stopEmbeddedPostgres(); } catch { /* never block quit */ }
 });
 
 app.on('window-all-closed', () => {

@@ -134,6 +134,10 @@
       {
         "from": "scripts/maintenance/",
         "to": "maintenance"
+      },
+      {
+        "from": "vendor/pgsql",
+        "to": "pgsql"
       }
     ]
   }
