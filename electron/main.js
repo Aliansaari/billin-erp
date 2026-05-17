@@ -11,6 +11,105 @@ const os = require('os');
 // only runs on the dev machine, producing a blank screen + no logs.
 const isDev = !app.isPackaged;
 
+// ── LAN thin-client mode ────────────────────────────────────────────
+//
+// A "client" build does NOT run its own bundled server or touch a local
+// database — it only points at the shop's host PC over the LAN. It's
+// produced by `npm run dist:client`, which bakes `clientMode:true` into
+// the packaged package.json via electron-builder extraMetadata. In dev
+// you can force it with CLIENT_MODE=1.
+//
+// Strictly additive: a normal (host) build never sets clientMode, so
+// CLIENT_MODE is false and every branch below is bypassed — the host
+// installer behaves exactly as before.
+let _appPkg = {};
+try { _appPkg = require('../package.json'); } catch { /* ignore */ }
+const CLIENT_MODE = isDev ? process.env.CLIENT_MODE === '1' : !!_appPkg.clientMode;
+
+// Where the thin client remembers the host PC's URL — alongside the
+// other ~/.billing-erp sidecars so it survives reinstalls.
+const CLIENT_CFG_PATH = path.join(os.homedir(), '.billing-erp', 'client-config.json');
+
+function readClientServerUrl() {
+  // An explicit env override always wins (lets a deployer hard-pin it
+  // via a desktop shortcut, skipping the setup screen).
+  const envUrl = process.env.BILLING_ERP_SERVER_URL;
+  if (envUrl) return envUrl.replace(/\/+$/, '');
+  try {
+    const j = JSON.parse(fs.readFileSync(CLIENT_CFG_PATH, 'utf8'));
+    if (j && j.serverUrl) return String(j.serverUrl).replace(/\/+$/, '');
+  } catch { /* not configured yet */ }
+  return null;
+}
+
+function writeClientServerUrl(url) {
+  fs.mkdirSync(path.dirname(CLIENT_CFG_PATH), { recursive: true });
+  fs.writeFileSync(CLIENT_CFG_PATH, JSON.stringify({ serverUrl: url }), 'utf8');
+}
+
+// First-run / unreachable screen for the client. Self-contained HTML
+// (data: URL — no server needed) whose input calls the preload bridge
+// to persist the host URL; the main process then re-drives the load.
+// `failedUrl` is set when a previously-saved address didn't answer.
+async function showClientSetupPage(opts) {
+  const failedUrl = (opts && opts.failedUrl) || '';
+  const current = failedUrl || readClientServerUrl() || 'http://192.168.1.';
+  const banner = failedUrl
+    ? `<p style="margin:0 0 16px;color:#fda4af;font-size:14px">Couldn't reach <code style="background:#1e293b;padding:2px 6px;border-radius:4px">${failedUrl}</code>. Check the address, and that the shop PC is on and running Billing ERP.</p>`
+    : `<p style="margin:0 0 16px;color:#94a3b8;font-size:14px">Enter the address of the shop's main Billing ERP PC. Ask whoever set up the main computer for its IP.</p>`;
+  const html = `<!doctype html><meta charset="utf-8"><title>Billing ERP — connect to shop PC</title>
+<body style="margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;padding:24px">
+  <div style="max-width:520px;width:100%">
+    <h1 style="margin:0 0 6px;font-weight:700;letter-spacing:-.5px">Connect to the shop PC</h1>
+    ${banner}
+    <input id="u" value="${current}" placeholder="http://192.168.1.50:3001"
+      style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:15px;outline:none" />
+    <div id="msg" style="min-height:20px;margin:10px 2px;font-size:13px"></div>
+    <button id="go" style="background:#22c55e;color:#0f172a;border:none;padding:11px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Connect</button>
+    <p style="margin:18px 0 0;color:#64748b;font-size:12px">The main PC must be on the same Wi-Fi / LAN and running Billing ERP.</p>
+  </div>
+  <script>
+    var b=document.getElementById('go'),i=document.getElementById('u'),m=document.getElementById('msg');
+    function submit(){
+      var v=(i.value||'').trim();
+      m.style.color='#94a3b8';m.textContent='Connecting…';b.disabled=true;
+      Promise.resolve(window.electronAPI&&window.electronAPI.setClientServerUrl(v)).then(function(r){
+        if(!r||!r.ok){m.style.color='#fda4af';m.textContent=(r&&r.error)||'Could not save. Check the address.';b.disabled=false;}
+      }).catch(function(e){m.style.color='#fda4af';m.textContent=String(e);b.disabled=false;});
+    }
+    b.addEventListener('click',submit);
+    i.addEventListener('keydown',function(e){if(e.key==='Enter')submit();});
+    i.focus();i.select();
+  </script>
+</body>`;
+  await mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+}
+
+// Client load sequence: clear cache → resolve host URL → wait → load,
+// or fall back to the setup screen if unconfigured / unreachable.
+async function loadClient() {
+  try { await mainWindow.webContents.session.clearCache(); } catch { /* non-fatal */ }
+  const url = readClientServerUrl();
+  if (!url) { await showClientSetupPage(); return; }
+  const ok = await waitForServer(url);
+  if (!ok) { await showClientSetupPage({ failedUrl: url }); return; }
+  await mainWindow.loadURL(url);
+}
+
+ipcMain.handle('client:get-server-url', () => readClientServerUrl());
+ipcMain.handle('client:set-server-url', (_e, raw) => {
+  const url = String(raw || '').trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/[^\s]+/i.test(url)) {
+    return { ok: false, error: 'Enter a full address like http://192.168.1.50:3001' };
+  }
+  try { writeClientServerUrl(url); }
+  catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  // Re-drive the load now that we have a target (fire-and-forget; the
+  // renderer just needs the {ok:true} ack).
+  if (mainWindow && !mainWindow.isDestroyed()) loadClient();
+  return { ok: true };
+});
+
 // ── File logging for packaged builds ────────────────────────────────
 //
 // Packaged Electron apps don't write to a console anywhere by default,
@@ -75,6 +174,10 @@ setupFileLogging();
 // `app.isPackaged` is the canonical "are we shipped as an .exe?"
 // check. Don't use NODE_ENV — that varies by how the user launched.
 function bootstrapServer() {
+  if (CLIENT_MODE) {
+    console.log('[main] CLIENT_MODE — thin LAN client, not starting a local server/DB');
+    return;
+  }
   if (app.isPackaged) {
     // Server lives at <asar>/server/index.js. The path is relative to
     // electron/main.js — one level up. Wrapped in a try so any startup
@@ -325,6 +428,13 @@ async function createWindow() {
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
+    return;
+  }
+
+  // LAN thin-client build: never starts/expects a local server — point
+  // at the shop's host PC (configured once via the setup screen).
+  if (CLIENT_MODE) {
+    await loadClient();
     return;
   }
 

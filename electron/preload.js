@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openPath:          (p) => ipcRenderer.invoke('shell:open-path', p),
   showItemInFolder:  (p) => ipcRenderer.invoke('shell:show-item', p),
 
+  // LAN thin-client mode: read / persist the host PC's server URL the
+  // client connects to. Only used by client builds and the client setup
+  // screen; harmless (unused) in a normal host build.
+  getClientServerUrl: () => ipcRenderer.invoke('client:get-server-url'),
+  setClientServerUrl: (url) => ipcRenderer.invoke('client:set-server-url', url),
+
   // App-exit confirmation. Main intercepts the window close and asks the
   // renderer to show the themed confirm + sign the user out; the renderer
   // sends `app:exit-confirmed` back only when the user agrees to quit.
