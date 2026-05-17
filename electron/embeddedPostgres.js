@@ -149,6 +149,35 @@ function writeAppConfig(port, password) {
   writeJson(CONFIG_FILE, cfg);
 }
 
+// The server's default Sequelize connection targets
+// `process.env.DB_NAME` (|| 'billing_erp'). companyBootstrap creates
+// billing_erp_master and the per-company DBs, but NOT this base DB — on
+// a brand-new cluster it's absent and server/index.js treats that as a
+// FATAL "database billing_erp does not exist" and never starts (the app
+// then won't open). Create it idempotently here, before the server
+// boots. Best-effort: failure just falls through to the server's own
+// error path / manual flow.
+function ensureDefaultDatabase(port, password) {
+  const dbName = process.env.DB_NAME || 'billing_erp';
+  const env = { ...pgEnv(), PGPASSWORD: password };
+  const base = ['-h', '127.0.0.1', '-p', String(port), '-U', 'postgres', '-d', 'postgres', '-w'];
+  const psql = path.join(binDir, 'psql.exe');
+  try {
+    const out = execFileSync(psql,
+      [...base, '-tAc', `SELECT 1 FROM pg_database WHERE datname='${dbName}'`],
+      { stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000, env, windowsHide: true },
+    ).toString().trim();
+    if (out === '1') { log(`default database "${dbName}" already present`); return; }
+    execFileSync(psql,
+      [...base, '-c', `CREATE DATABASE "${dbName}"`],
+      { stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000, env, windowsHide: true },
+    );
+    log(`created default database "${dbName}"`);
+  } catch (e) {
+    warn(`ensureDefaultDatabase("${dbName}") failed (continuing):`, (e && e.message) || e);
+  }
+}
+
 /**
  * Start the bundled Postgres. Returns { used:boolean, port?, reason? }.
  * NEVER throws — a false result just means "fall back to manual setup".
@@ -202,6 +231,11 @@ async function startEmbeddedPostgres({ clientMode } = {}) {
       }
       log('postgres already running');
     }
+
+    // companyBootstrap makes billing_erp_master + per-company DBs, but
+    // not the server's base DB — create it now or the server hard-fails
+    // on a fresh cluster ("database billing_erp does not exist").
+    ensureDefaultDatabase(port, password);
 
     // Wire creds into env BEFORE the server boots, and persist so the
     // setup wizard is skipped and applyConfigToEnv() agrees.
