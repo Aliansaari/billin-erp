@@ -22,7 +22,6 @@ import {
   CodeOutlined,
   QuestionCircleOutlined,
 } from '@ant-design/icons';
-import DeveloperGate from '../DeveloperGate';
 import useDevModeStore from '../../store/devModeStore';
 import CompanySwitcher from '../CompanySwitcher';
 import FYSwitcher from '../FYSwitcher';
@@ -206,13 +205,11 @@ export default function Sidebar({ collapsed, setCollapsed }) {
     navigate('/login');
   };
 
-  // Developer-mode unlock UI — opened by a hidden trigger (the
-  // global-search palette intercepts the magic string "/__dev" and
-  // dispatches a `dev-gate:open` event; we listen for it here). The
-  // dropdown entry for "Developer Access" was deliberately removed —
-  // the locked-state user menu shows only normal items, so a regular
-  // user clicking the avatar finds nothing developer-flavoured.
-  const [devGateOpen, setDevGateOpen] = useState(false);
+  // Developer-mode affordances in the user menu. The unlock modal itself
+  // and the hidden "/__dev" trigger listener live in <DeveloperGateMount/>
+  // (mounted globally in App.jsx) so they work in every layout — the
+  // sidebar only reads the unlocked state here to decide which menu
+  // items to show.
   const devUnlocked   = useDevModeStore((s) => s.unlocked);
   const previewAsUser = useDevModeStore((s) => s.previewAsUser);
   const lockDevMode   = useDevModeStore((s) => s.lock);
@@ -220,16 +217,6 @@ export default function Sidebar({ collapsed, setCollapsed }) {
   // When previewing, every dev affordance hides from the dropdown so
   // the developer sees the dropdown a normal user sees.
   const effectiveDev  = devUnlocked && !previewAsUser;
-
-  // Listen for the magic-string trigger from GlobalSearch. The palette
-  // intercepts "/__dev" + Enter and fires this window event; we open
-  // the modal in response. Single, decoupled entry point — nothing
-  // else in the UI advertises developer mode.
-  React.useEffect(() => {
-    const onOpen = () => setDevGateOpen(true);
-    window.addEventListener('dev-gate:open', onOpen);
-    return () => window.removeEventListener('dev-gate:open', onOpen);
-  }, []);
 
   const userMenuItems = [
     {
@@ -437,14 +424,6 @@ export default function Sidebar({ collapsed, setCollapsed }) {
           </Dropdown>
         </div>
       </div>
-      {/* Developer-mode password modal — opened from the user dropdown's
-          "Developer Access" item. After a successful unlock, devModeStore
-          flips and the dropdown re-renders with "Developer Settings" + a
-          lock action available. */}
-      <DeveloperGate
-        open={devGateOpen}
-        onClose={() => setDevGateOpen(false)}
-      />
     </Sider>
   );
 }

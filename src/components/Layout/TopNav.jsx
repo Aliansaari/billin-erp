@@ -4,9 +4,11 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ThunderboltOutlined, UserOutlined, SettingOutlined, LockOutlined,
   LogoutOutlined, SunOutlined, MoonOutlined, QuestionCircleOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
+import useDevModeStore from '../../store/devModeStore';
 import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
 import { resolveMode } from '../../theme/tokens';
 import { useMenuItems, menuItems as staticMenuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
@@ -59,6 +61,15 @@ export default function TopNav() {
   const setAppearance = useThemeStore((s) => s.setAppearance);
   const mode   = resolveMode(themeStyle, appearance);
   const isDark = mode.endsWith('dark');
+
+  // Developer-mode affordances — mirror the sidebar's user menu so the
+  // Developer Settings entry is reachable in the horizontal layout too
+  // (it was sidebar-only before, invisible to top-nav users). Same
+  // effectiveDev gate: unlocked AND not previewing as a regular user.
+  const devUnlocked   = useDevModeStore((s) => s.unlocked);
+  const previewAsUser = useDevModeStore((s) => s.previewAsUser);
+  const lockDevMode   = useDevModeStore((s) => s.lock);
+  const effectiveDev  = devUnlocked && !previewAsUser;
 
   const { openMenu } = useMenuPopup();
 
@@ -118,6 +129,16 @@ export default function TopNav() {
         <div style={{ padding: '4px 0', borderBottom: '1px solid var(--border-subtle)', marginBottom: 4, pointerEvents: 'none' }}>
           <div style={{ fontWeight: 600, color: 'var(--fg-primary)' }}>{user?.full_name || 'User'}</div>
           <div style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>{user?.role || 'Admin'}</div>
+          {effectiveDev && (
+            <div style={{ fontSize: 11, color: '#9333ea', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <CodeOutlined style={{ fontSize: 11 }} /> Developer mode active
+            </div>
+          )}
+          {devUnlocked && previewAsUser && (
+            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+              👁 Previewing as regular user
+            </div>
+          )}
         </div>
       ),
       disabled: true,
@@ -131,6 +152,14 @@ export default function TopNav() {
     // (Cmd/Ctrl+Shift+?) still works; this is the discovery surface.
     { key: 'shortcuts', icon: <QuestionCircleOutlined />, label: 'Keyboard shortcuts',
       onClick: () => window.dispatchEvent(new Event('shortcuts:open')) },
+    // Developer affordances — only when dev mode is unlocked AND not
+    // previewing as a regular user. Mirrors Sidebar.jsx so the menu is
+    // identical across both layouts.
+    ...(effectiveDev ? [
+      { type: 'divider' },
+      { key: 'dev-settings', icon: <CodeOutlined style={{ color: '#9333ea' }} />, label: 'Developer Settings', onClick: () => navigate('/settings/developer') },
+      { key: 'dev-lock',     icon: <LockOutlined />, label: 'Lock developer mode', onClick: lockDevMode },
+    ] : []),
     { type: 'divider' },
     { key: 'logout',   icon: <LogoutOutlined />,  label: 'Sign Out', danger: true, onClick: handleLogout },
   ];

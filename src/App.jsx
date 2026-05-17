@@ -12,6 +12,7 @@ import OnboardingWizard, { shouldShowOnboarding } from './components/OnboardingW
 import RoleRoute from './components/RoleRoute';
 import { GlobalSearchModal } from './components/GlobalSearch';
 import MasterChooser from './components/MasterChooser';
+import DeveloperGateMount from './components/DeveloperGateMount';
 // DatePopup + MenuPopup providers are mounted in main.jsx (above this
 // component) so that useGlobalShortcuts called from App's body can
 // reach them via useContext.
@@ -644,6 +645,11 @@ export default function App() {
           navigates to the right list with ?new=1 to open its form
           modal. Same auth gate as the search palette. */}
       {isAuthenticated && <MasterChooser />}
+      {/* Developer-access password modal + the `dev-gate:open` listener
+          (fired by GlobalSearch's hidden "/__dev" string). Global so it
+          works in BOTH the sidebar and top-nav layouts — it previously
+          lived in Sidebar.jsx and was dead in horizontal mode. */}
+      {isAuthenticated && <DeveloperGateMount />}
       <Routes>
         {/* Manual access to Server Setup is dev-gated — once the office
             is configured, regular staff shouldn't be able to re-point

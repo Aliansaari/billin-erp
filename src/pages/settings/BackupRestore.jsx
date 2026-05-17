@@ -18,6 +18,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { backupAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import CleanupModal from './CleanupModal';
+import { useShowDataCleanup } from '../../hooks/useSystemSettings';
 import './ModuleSettings.css';
 
 dayjs.extend(relativeTime);
@@ -50,6 +51,11 @@ function formatFilename(filename) {
 
 export default function BackupRestore() {
   const navigate = useNavigate();
+  // Data Cleanup / Wipe is a destructive power-tool. Gate it on the
+  // dev_show_data_cleanup flag (or developer-mode unlock). It used to
+  // render unconditionally, so the DeveloperSettings "Data Cleanup /
+  // Wipe" toggle had no effect at all.
+  const showDataCleanup = useShowDataCleanup();
   const [backups, setBackups]               = useState([]);
   const [settings, setSettings]             = useState({});
   const [totalSize, setTotalSize]           = useState('—');
@@ -631,24 +637,30 @@ export default function BackupRestore() {
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
       </Card>
 
-      {/* ── Danger zone — destructive, password-gated bulk cleanup ── */}
-      <div className="bkp-danger">
-        <div className="bkp-danger-inner">
-          <div className="bkp-danger-icon"><ExclamationCircleOutlined /></div>
-          <div className="bkp-danger-text">
-            <div className="bkp-danger-eyebrow">Danger Zone</div>
-            <div className="bkp-danger-title">Delete data permanently</div>
-            <div className="bkp-danger-sub">
-              Wipe sales, purchases, payments, products, parties, and more — by category. Requires admin password confirmation.
+      {/* ── Danger zone — destructive, password-gated bulk cleanup ──
+          Hidden unless the dev_show_data_cleanup flag is on (or developer
+          mode is unlocked). Gating the modal too is defence-in-depth. */}
+      {showDataCleanup && (
+        <>
+          <div className="bkp-danger">
+            <div className="bkp-danger-inner">
+              <div className="bkp-danger-icon"><ExclamationCircleOutlined /></div>
+              <div className="bkp-danger-text">
+                <div className="bkp-danger-eyebrow">Danger Zone</div>
+                <div className="bkp-danger-title">Delete data permanently</div>
+                <div className="bkp-danger-sub">
+                  Wipe sales, purchases, payments, products, parties, and more — by category. Requires admin password confirmation.
+                </div>
+              </div>
+              <Button danger icon={<DeleteOutlined />} onClick={() => setCleanupOpen(true)} className="bkp-danger-btn">
+                Clean / reset…
+              </Button>
             </div>
           </div>
-          <Button danger icon={<DeleteOutlined />} onClick={() => setCleanupOpen(true)} className="bkp-danger-btn">
-            Clean / reset…
-          </Button>
-        </div>
-      </div>
 
-      <CleanupModal open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
+          <CleanupModal open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
+        </>
+      )}
 
       {/* ── Delete confirmation modal ── */}
       <Modal

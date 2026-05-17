@@ -1,0 +1,333 @@
+/* ── Import (queued) — guided 3-step flow ───────────────────────────────
+ *
+ * Visual layer only. No handler/API behaviour lives here — this file
+ * just dresses ImportV2.jsx in the same design language as the rest of
+ * the settings hub (panel cards, subtle borders, accent ring, Geist
+ * Mono numerics). All colour comes from theme tokens so it tracks the
+ * 4 theme modes automatically.
+ */
+
+.impv2-shell .ms-page-body-inner {
+  max-width: 1040px;
+}
+
+/* Vertical stack of step cards. */
+.impv2-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ── Step / panel card ── */
+.impv2-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 20px 22px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  animation: impv2-rise .4s cubic-bezier(.2, .7, .2, 1) backwards;
+}
+.impv2-card:nth-of-type(1) { animation-delay: .03s; }
+.impv2-card:nth-of-type(2) { animation-delay: .09s; }
+.impv2-card:nth-of-type(3) { animation-delay: .15s; }
+@keyframes impv2-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.impv2-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.impv2-step-badge {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: 'Geist Mono', monospace;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+}
+.impv2-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  letter-spacing: -0.01em;
+  margin: 2px 0 3px;
+}
+.impv2-card-sub {
+  font-size: 12.5px;
+  color: var(--fg-tertiary);
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* ── Source picker grid ── */
+.impv2-source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.impv2-source {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 13px 14px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .14s ease, background .14s ease,
+              box-shadow .14s ease, transform .12s ease;
+}
+.impv2-source:hover {
+  background: var(--bg-hover);
+  transform: translateY(-1px);
+}
+.impv2-source.active {
+  background: var(--bg-panel);
+}
+.impv2-source-ico {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+.impv2-source-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.impv2-source-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+.impv2-source-desc {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.impv2-source-chip {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--fg-secondary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-family: 'Geist Mono', monospace;
+}
+
+/* ── Template row ── */
+.impv2-tmpl {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+.impv2-tmpl-info {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+.impv2-tmpl-ico {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  color: var(--success);
+  background: var(--success-bg);
+}
+.impv2-tmpl-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  font-family: 'Geist Mono', monospace;
+}
+.impv2-tmpl-meta {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  margin-top: 2px;
+}
+
+/* Inline note (XML source — no template). */
+.impv2-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 15px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+}
+.impv2-note .anticon {
+  color: var(--accent);
+  font-size: 15px;
+  margin-top: 1px;
+  flex: 0 0 auto;
+}
+
+/* ── Drop zone — theme the AntD dragger ── */
+.impv2-drop .ant-upload.ant-upload-drag {
+  background: var(--bg-app);
+  border: 1.5px dashed var(--border-subtle);
+  border-radius: 12px;
+  transition: border-color .15s ease, background .15s ease;
+}
+.impv2-drop .ant-upload.ant-upload-drag:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.impv2-drop .ant-upload-drag-icon .anticon {
+  color: var(--accent) !important;
+  font-size: 40px;
+}
+.impv2-drop .ant-upload-text {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--fg-primary) !important;
+}
+.impv2-drop .ant-upload-hint {
+  font-size: 12px !important;
+  color: var(--fg-tertiary) !important;
+}
+
+.impv2-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* ── Active job header ── */
+.impv2-job-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.impv2-job-id {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+.impv2-job-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  font-family: 'Geist Mono', monospace;
+}
+.impv2-job-src {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  margin-top: 1px;
+}
+.impv2-job-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Status pill — tone-coloured. */
+.impv2-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.impv2-badge--process {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+.impv2-badge--process::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 7px;
+  vertical-align: middle;
+  animation: impv2-pulse 1.3s ease-in-out infinite;
+}
+@keyframes impv2-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+.impv2-badge--warning {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: var(--warning);
+}
+.impv2-badge--success {
+  color: var(--success);
+  background: var(--success-bg);
+  border-color: var(--success);
+}
+.impv2-badge--danger {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: var(--danger);
+}
+.impv2-badge--muted {
+  color: var(--fg-tertiary);
+  background: var(--bg-muted);
+  border-color: var(--border-subtle);
+}
+
+.impv2-phase {
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  min-height: 18px;
+  font-family: 'Geist Mono', monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .impv2-card,
+  .impv2-source,
+  .impv2-badge--process::before {
+    animation: none !important;
+    transform: none !important;
+  }
+}

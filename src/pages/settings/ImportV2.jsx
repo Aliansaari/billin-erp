@@ -1,6 +1,6 @@
 // ── Import flow (Phase 6) ───────────────────────────────────────────────
 //
-// One page for both accounting-XML and Excel imports, driven by the new queue.
+// One page for both accounting-XML and Excel imports, driven by the queue.
 //   1. Pick source / template
 //   2. Upload file → POST /api/imports
 //   3. Poll GET /api/imports/:id every 2s
@@ -11,15 +11,23 @@
 //   6. Result modal when status='done'
 //   7. Failure modal when status='failed'
 //
-// Match the existing design system — Geist Mono on numerics.
+// The UI is a guided 3-step flow (pick → template → upload) plus a polished
+// live-job panel. None of the import logic / handlers / API calls changed —
+// only the presentation. Numerics use Geist Mono to match the design system.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button, Select, Upload, Space, Typography, Progress, Tag, Table, Modal, Alert, Divider, message, Steps } from 'antd';
-import { UploadOutlined, ReloadOutlined, StopOutlined, DownloadOutlined } from '@ant-design/icons';
+import {
+  ReloadOutlined, StopOutlined, DownloadOutlined,
+  ThunderboltOutlined, InboxOutlined, InfoCircleOutlined,
+  UserOutlined, BankOutlined, AppstoreOutlined, FileExcelOutlined,
+  WalletOutlined, ApiOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { importsAPI, ledgerAPI } from '../../api';
+import { importsAPI, ledgerAPI, dataAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './ModuleSettings.css';
+import './ImportV2.css';
 
 const { Title, Text } = Typography;
 
@@ -32,6 +40,32 @@ const SOURCES = [
   { value: 'excel_purchases',   label: 'Excel · Purchase Bills' },
   { value: 'excel_payments',    label: 'Excel · Payments / Receipts' },
 ];
+
+// Presentation-only metadata: which icon/colour to show for each source,
+// the matching .xlsx template module (null = XML, no template), and a
+// one-line "what this needs" hint. Template module keys match the server's
+// /api/data/template/:module switch.
+const SOURCE_META = {
+  tally:           { icon: <ApiOutlined />,       color: '#64748B', tmpl: null,               kind: 'XML',  hint: 'XML voucher / master export from your accounting software.' },
+  excel_customers: { icon: <UserOutlined />,      color: '#4F46E5', tmpl: 'customers',        kind: 'XLSX', hint: 'Customer master — names, contacts, GSTIN, credit terms.' },
+  excel_suppliers: { icon: <BankOutlined />,      color: '#0EA5E9', tmpl: 'suppliers',        kind: 'XLSX', hint: 'Supplier master — same fields, imported as Supplier.' },
+  excel_products:  { icon: <AppstoreOutlined />,  color: '#16A34A', tmpl: 'products',         kind: 'XLSX', hint: 'Products — HSN, GST %, unit, rates, opening stock.' },
+  excel_sales:     { icon: <FileExcelOutlined />, color: '#EC4899', tmpl: 'sales_bills',      kind: 'XLSX', hint: 'Two sheets: Bills + Items linked by Bill Number.' },
+  excel_purchases: { icon: <FileExcelOutlined />, color: '#F59E0B', tmpl: 'purchase_bills',   kind: 'XLSX', hint: 'Two sheets: Bills + Items linked by Bill Number.' },
+  excel_payments:  { icon: <WalletOutlined />,    color: '#8B5CF6', tmpl: 'payment_receipts', kind: 'XLSX', hint: 'Single sheet. Type = Payment (out) or Receipt (in).' },
+};
+
+// Presentation-only status copy/tone for the live-job badge.
+const STATUS_META = {
+  queued:                { label: 'Queued',      tone: 'process' },
+  parsing:               { label: 'Parsing',     tone: 'process' },
+  validating:            { label: 'Validating',  tone: 'process' },
+  awaiting_confirmation: { label: 'Needs review',tone: 'warning' },
+  committing:            { label: 'Committing',  tone: 'process' },
+  done:                  { label: 'Completed',   tone: 'success' },
+  failed:                { label: 'Failed',      tone: 'danger'  },
+  cancelled:             { label: 'Cancelled',   tone: 'muted'   },
+};
 
 const fmt = (v) =>
   parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -144,64 +178,198 @@ export default function ImportV2() {
     }
   };
 
+  // Template download. Same auth'd-blob pattern as handleDownloadRejected —
+  // the JWT must ride along, so we fetch via the API client and save with a
+  // transient object URL. Uses the existing /api/data/template/:module
+  // endpoint (unchanged); XML sources have no template and never reach this.
+  const handleTemplate = async () => {
+    const meta = SOURCE_META[source];
+    if (!meta || !meta.tmpl) return;
+    try {
+      const res = await dataAPI.downloadTemplate(meta.tmpl);
+      const url = URL.createObjectURL(new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${meta.tmpl}_template.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      message.success('Template downloaded.');
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Template download failed.');
+    }
+  };
+
+  const meta = SOURCE_META[source] || {};
+  const srcLabel = (SOURCES.find((s) => s.value === source) || {}).label || source;
+  const terminal = job && ['done', 'failed', 'cancelled'].includes(job.status);
+  const statusMeta = (job && STATUS_META[job.status]) || { label: job?.status || '', tone: 'muted' };
+
   return (
-    <div className="ms-shell settings-pane-fill">
+    <div className="ms-shell settings-pane-fill impv2-shell">
       <header className="ms-page-header">
         <h1 className="ms-page-title">Import (queued)</h1>
         <p className="ms-page-sub">
-          Upload a vendor's catalog or daily-rate sheet — this runs as a background job so the UI stays
-          responsive while it processes thousands of rows.
+          Bring in customers, products, bills or an accounting XML export. It runs as a background
+          job, so the app stays responsive while thousands of rows are validated and posted.
         </p>
       </header>
 
       <div className="ms-page-body">
         <div className="ms-page-body-inner">
-      {/* Source picker + upload */}
+
+      {/* ── Setup: guided 3-step flow ───────────────────────────────── */}
       {!job && (
-        <Card>
-          <Title level={4} style={{ margin: 0, marginBottom: 16 }}>Import Data</Title>
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <div>
-              <Text strong>Source</Text>
-              <Select value={source} onChange={setSource} style={{ width: '100%', marginTop: 8 }}
-                options={SOURCES} />
+        <div className="impv2-flow">
+
+          {/* Step 1 — choose what to import */}
+          <section className="impv2-card">
+            <div className="impv2-card-head">
+              <span className="impv2-step-badge">1</span>
+              <div>
+                <h2 className="impv2-card-title">What are you importing?</h2>
+                <p className="impv2-card-sub">Pick a data type — each one expects its own file layout.</p>
+              </div>
             </div>
-            <div>
-              <Text strong>File</Text>
-              <Upload
-                beforeUpload={(f) => { setFile(f); return false; }}
-                fileList={file ? [file] : []}
-                onRemove={() => setFile(null)}
-                maxCount={1}
+            <div className="impv2-source-grid">
+              {SOURCES.map((s) => {
+                const m = SOURCE_META[s.value] || {};
+                const active = source === s.value;
+                return (
+                  <button
+                    type="button"
+                    key={s.value}
+                    className={`impv2-source${active ? ' active' : ''}`}
+                    onClick={() => setSource(s.value)}
+                    style={active ? { borderColor: m.color, boxShadow: `0 0 0 1px ${m.color}` } : undefined}
+                  >
+                    <span className="impv2-source-ico" style={{ background: `${m.color}1A`, color: m.color }}>
+                      {m.icon}
+                    </span>
+                    <span className="impv2-source-main">
+                      <span className="impv2-source-label">{s.label}</span>
+                      <span className="impv2-source-desc">{m.hint}</span>
+                    </span>
+                    <span className="impv2-source-chip">{m.kind}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Step 2 — get the template */}
+          <section className="impv2-card">
+            <div className="impv2-card-head">
+              <span className="impv2-step-badge">2</span>
+              <div>
+                <h2 className="impv2-card-title">Get the template</h2>
+                <p className="impv2-card-sub">
+                  {meta.tmpl
+                    ? 'Start from our .xlsx — every column, one sample row, and an Instructions sheet.'
+                    : 'No template needed — this source reads a raw XML export.'}
+                </p>
+              </div>
+            </div>
+            {meta.tmpl ? (
+              <div className="impv2-tmpl">
+                <div className="impv2-tmpl-info">
+                  <span className="impv2-tmpl-ico"><FileExcelOutlined /></span>
+                  <div>
+                    <div className="impv2-tmpl-name">{meta.tmpl}_template.xlsx</div>
+                    <div className="impv2-tmpl-meta">Keep the header row · fill rows below it · save as .xlsx</div>
+                  </div>
+                </div>
+                <Button icon={<DownloadOutlined />} onClick={handleTemplate}>
+                  Download template
+                </Button>
+              </div>
+            ) : (
+              <div className="impv2-note">
+                <InfoCircleOutlined />
+                <span>
+                  Export an XML file from your accounting software
+                  (e.g. <Text strong>Tally → Gateway of Tally → Export</Text>), then upload it below.
+                  Ledger names you haven't mapped yet will be matched on the next screen.
+                </span>
+              </div>
+            )}
+          </section>
+
+          {/* Step 3 — upload & start */}
+          <section className="impv2-card">
+            <div className="impv2-card-head">
+              <span className="impv2-step-badge">3</span>
+              <div>
+                <h2 className="impv2-card-title">Upload &amp; start</h2>
+                <p className="impv2-card-sub">
+                  Every row is validated before anything is written — invalid rows come back with reasons.
+                </p>
+              </div>
+            </div>
+            <Upload.Dragger
+              className="impv2-drop"
+              beforeUpload={(f) => { setFile(f); return false; }}
+              fileList={file ? [file] : []}
+              onRemove={() => setFile(null)}
+              maxCount={1}
+              accept={meta.tmpl ? '.xlsx,.xls,.csv' : '.xml'}
+            >
+              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+              <p className="ant-upload-text">
+                Drop your {meta.kind || 'data'} file here, or click to browse
+              </p>
+              <p className="ant-upload-hint">
+                {meta.tmpl
+                  ? 'Excel workbook (.xlsx / .xls / .csv) for ' + srcLabel
+                  : 'Accounting XML export (.xml)'}
+              </p>
+            </Upload.Dragger>
+            <div className="impv2-actions">
+              <Button
+                type="primary"
+                size="large"
+                icon={<ThunderboltOutlined />}
+                onClick={handleStart}
+                disabled={!file}
               >
-                <Button icon={<UploadOutlined />}>Select File</Button>
-              </Upload>
-              {source === 'tally'
-                ? <Text type="secondary" style={{ fontSize: 12 }}>Accounting XML export (.xml)</Text>
-                : <Text type="secondary" style={{ fontSize: 12 }}>Excel workbook (.xlsx)</Text>}
+                Start import
+              </Button>
+              {file && <Button onClick={() => setFile(null)}>Clear</Button>}
             </div>
-            <Button type="primary" onClick={handleStart} disabled={!file}>Start Import</Button>
-          </Space>
-        </Card>
+          </section>
+        </div>
       )}
 
-      {/* Active job */}
+      {/* ── Active job ──────────────────────────────────────────────── */}
       {job && (
         <>
-          <Card>
-            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-              <Title level={4} style={{ margin: 0 }}>
-                Import #{job.id} · <Text style={{ fontFamily: 'Geist Mono, monospace', fontSize: 14 }}>{job.source}</Text>
-              </Title>
-              <Space>
-                {!['done', 'failed', 'cancelled'].includes(job.status) && (
+          <section className="impv2-card">
+            <div className="impv2-job-top">
+              <div className="impv2-job-id">
+                <span
+                  className="impv2-source-ico"
+                  style={{ background: `${meta.color || '#64748B'}1A`, color: meta.color || '#64748B' }}
+                >
+                  {meta.icon || <FileExcelOutlined />}
+                </span>
+                <div>
+                  <div className="impv2-job-title">Import #{job.id}</div>
+                  <div className="impv2-job-src">{srcLabel}</div>
+                </div>
+              </div>
+              <div className="impv2-job-right">
+                <span className={`impv2-badge impv2-badge--${statusMeta.tone}`}>{statusMeta.label}</span>
+                {!terminal && (
                   <Button danger icon={<StopOutlined />} onClick={handleCancel}>Cancel</Button>
                 )}
-                <Button icon={<ReloadOutlined />} onClick={reset}>New Import</Button>
-              </Space>
-            </Space>
-            <Divider style={{ margin: '16px 0' }} />
-            <Steps current={STATUS_STEP[job.status] || 0} size="small" style={{ marginBottom: 16 }}
+                <Button icon={<ReloadOutlined />} onClick={reset}>New import</Button>
+              </div>
+            </div>
+
+            <Steps current={STATUS_STEP[job.status] || 0} size="small"
               status={job.status === 'failed' ? 'error' : job.status === 'cancelled' ? 'error' : 'process'}
               items={[
                 { title: 'Queued' }, { title: 'Parsing' }, { title: 'Validating' },
@@ -209,9 +377,13 @@ export default function ImportV2() {
                 { title: job.status === 'failed' ? 'Failed' : job.status === 'cancelled' ? 'Cancelled' : 'Done' },
               ]}
             />
-            <Progress percent={job.progress_pct || 0} status={job.status === 'failed' || job.status === 'cancelled' ? 'exception' : (job.status === 'done' ? 'success' : 'active')} />
-            <Text type="secondary">{job.phase_message || ''}</Text>
-          </Card>
+            <Progress
+              style={{ marginTop: 18 }}
+              percent={job.progress_pct || 0}
+              status={job.status === 'failed' || job.status === 'cancelled' ? 'exception' : (job.status === 'done' ? 'success' : 'active')}
+            />
+            <div className="impv2-phase">{job.phase_message || ''}</div>
+          </section>
 
           {/* Preview screen */}
           {job.status === 'awaiting_confirmation' && job.preview_json && !job.mapping_json?.needs_review?.length && (
