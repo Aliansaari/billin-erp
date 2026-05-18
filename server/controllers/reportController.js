@@ -84,12 +84,8 @@ exports.dashboardStats = async (req, res) => {
       todayPurchases,
       monthlySales,
       monthlyPurchases,
-      recBillsRows,
-      payBillsRows,
-      openRecRows,
-      openPayRows,
-      onAccountReceiptsRows,
-      onAccountPaymentsRows,
+      receivableRows,
+      payableRows,
       todayReceiptsRows,
     ] = await Promise.all([
       // Today's (or range) sales
@@ -145,69 +141,25 @@ exports.dashboardStats = async (req, res) => {
         raw: true,
       }),
 
-      // Receivables and payables — compute from the bills directly (not from
-      // the cached Party.current_balance column). The cache can drift when bills
-      // are edited, cancelled, or when payments are reversed, and a drifted
-      // dashboard would mislead finance decisions. Source of truth: sum of
-      // balance_amount across non-cancelled bills grouped by party, plus the
-      // opening-balance on the party side (which has no bill to aggregate).
+      // Receivables and payables — use party.current_balance directly.
+      // recalculatePartyBalance maintains this as:
+      //   opening + sales - purchases - receipts + payments + returns
+      // which is the single source of truth. The old bill-based formula
+      // double-counted opening balances (added them on top of bill balances
+      // that already reflected those openings via payment reconciliation).
       sequelize.query(`
-        SELECT COUNT(DISTINCT sb.customer_id)::int  AS count,
-               COALESCE(SUM(sb.balance_amount), 0)::float AS total
-        FROM sales_bills sb
-        JOIN parties p ON p.party_id = sb.customer_id
-        WHERE sb.is_cancelled = false
-          AND sb.balance_amount > 0
-          AND p.party_type IN ('Customer','Both')
-      `).then(([rows]) => rows),
-      sequelize.query(`
-        SELECT COUNT(DISTINCT pb.supplier_id)::int  AS count,
-               COALESCE(SUM(pb.balance_amount), 0)::float AS total
-        FROM purchase_bills pb
-        JOIN parties p ON p.party_id = pb.supplier_id
-        WHERE pb.is_cancelled = false
-          AND pb.balance_amount > 0
-          AND p.party_type IN ('Supplier','Both')
-      `).then(([rows]) => rows),
-
-      // Opening balance contributions from parties that have no bills yet —
-      // receivable opening for customers adds to receivables, payable opening for
-      // suppliers adds to payables.
-      sequelize.query(`
-        SELECT COALESCE(SUM(opening_balance), 0)::float AS total,
-               COUNT(*)::int AS count
+        SELECT COUNT(*)::int AS count,
+               COALESCE(SUM(current_balance), 0)::float AS total
         FROM parties
-        WHERE opening_balance_type = 'Receivable'
-          AND opening_balance > 0
-          AND party_type IN ('Customer','Both')
+        WHERE current_balance > 0
+          AND COALESCE(is_system_cash, false) = false
       `).then(([rows]) => rows),
       sequelize.query(`
-        SELECT COALESCE(SUM(opening_balance), 0)::float AS total,
-               COUNT(*)::int AS count
+        SELECT COUNT(*)::int AS count,
+               COALESCE(SUM(ABS(current_balance)), 0)::float AS total
         FROM parties
-        WHERE opening_balance_type = 'Payable'
-          AND opening_balance > 0
-          AND party_type IN ('Supplier','Both')
-      `).then(([rows]) => rows),
-
-      // Net on-account receipts/payments (money received/paid with NO bill yet)
-      // still reduces outstanding balances — subtract from the bill-based totals.
-      // NOTE: payment_splits FK is `transaction_id` (NOT payment_id) — see PaymentSplit model.
-      sequelize.query(`
-        SELECT COALESCE(SUM(pr.total_amount), 0)::float AS total
-        FROM payments_receipts pr
-        WHERE pr.transaction_type = 'Receipt' AND pr.is_cancelled = false
-          AND NOT EXISTS (
-            SELECT 1 FROM payment_splits ps WHERE ps.transaction_id = pr.transaction_id
-          )
-      `).then(([rows]) => rows),
-      sequelize.query(`
-        SELECT COALESCE(SUM(pr.total_amount), 0)::float AS total
-        FROM payments_receipts pr
-        WHERE pr.transaction_type = 'Payment' AND pr.is_cancelled = false
-          AND NOT EXISTS (
-            SELECT 1 FROM payment_splits ps WHERE ps.transaction_id = pr.transaction_id
-          )
+        WHERE current_balance < 0
+          AND COALESCE(is_system_cash, false) = false
       `).then(([rows]) => rows),
 
       // Today's (or range) receipts — money received from customers
@@ -223,23 +175,13 @@ exports.dashboardStats = async (req, res) => {
       }),
     ]);
 
-    // Re-bind to the names the rest of the controller already uses, so the
-    // downstream blocks below stay untouched.
-    const recBillsRaw          = recBillsRows;
-    const payBillsRaw          = payBillsRows;
-    const openRecRaw           = openRecRows;
-    const openPayRaw           = openPayRows;
-    const onAccountReceiptsRaw = onAccountReceiptsRows;
-    const onAccountPaymentsRaw = onAccountPaymentsRows;
-
     const receivables = [{
-      count: (recBillsRaw[0]?.count || 0) + (openRecRaw[0]?.count || 0),
-      total: Math.max(0, (recBillsRaw[0]?.total || 0) + (openRecRaw[0]?.total || 0) - (onAccountReceiptsRaw[0]?.total || 0)),
+      count: receivableRows[0]?.count || 0,
+      total: receivableRows[0]?.total || 0,
     }];
     const payables = [{
-      count: (payBillsRaw[0]?.count || 0) + (openPayRaw[0]?.count || 0),
-      // Stored as positive here; the response wraps with Math.abs for display.
-      total: Math.max(0, (payBillsRaw[0]?.total || 0) + (openPayRaw[0]?.total || 0) - (onAccountPaymentsRaw[0]?.total || 0)),
+      count: payableRows[0]?.count || 0,
+      total: payableRows[0]?.total || 0,
     }];
 
     /* ── Second parallel batch ──────────────────────────────────────────
