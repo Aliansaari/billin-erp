@@ -51,6 +51,8 @@ function xmlEsc(str) {
     .replace(/"/g, '&quot;');
 }
 
+const fmtPrice = (v) => { const n = parseFloat(v); return Number.isInteger(n) ? String(n) : n.toFixed(2); };
+
 const FIELD_VAL = {
   company_name:   (row, co, el) => {
     const val = co || ''; if (!val) return '';
@@ -66,11 +68,11 @@ const FIELD_VAL = {
   },
   mrp:            (row, co, el) => {
     if (!(row.mrp > 0)) return '';
-    return (el?.prefix !== undefined ? el.prefix : 'MRP: Rs.') + parseFloat(row.mrp).toFixed(2);
+    return (el?.prefix !== undefined ? el.prefix : 'MRP ') + fmtPrice(row.mrp);
   },
   sale_rate:      (row, co, el) => {
     if (!(row.sale_rate > 0)) return '';
-    return (el?.prefix !== undefined ? el.prefix : 'Rate: Rs.') + parseFloat(row.sale_rate).toFixed(2);
+    return (el?.prefix !== undefined ? el.prefix : 'Rate: Rs.') + fmtPrice(row.sale_rate);
   },
   size:           (row, co, el) => {
     if (!row.size) return '';
@@ -312,7 +314,7 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
     }
   };
 
-  const fmt = (v) => parseFloat(v || 0).toFixed(2);
+  const fmt = (v) => fmtPrice(v || 0);
   // Margin %: prefer the stored value; otherwise derive from cost vs sale.
   const marginPct = (r) => {
     const stored = parseFloat(r.margin_percentage || 0);

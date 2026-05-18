@@ -38,8 +38,8 @@ function getSampleVal(el, companyName) {
     case 'company_name':   return (pfx ?? '') + (companyName || 'My Company');
     case 'product_name':   return (pfx ?? '') + SAMPLE_ROW.product_name;
     case 'barcode_number': return (pfx ?? '') + SAMPLE_ROW.barcode;
-    case 'mrp':            return (pfx ?? 'MRP: Rs.') + SAMPLE_ROW.mrp.toFixed(2);
-    case 'sale_rate':      return (pfx ?? 'Rate: Rs.') + SAMPLE_ROW.sale_rate.toFixed(2);
+    case 'mrp':            return (pfx ?? 'MRP ') + (Number.isInteger(SAMPLE_ROW.mrp) ? SAMPLE_ROW.mrp : SAMPLE_ROW.mrp.toFixed(2));
+    case 'sale_rate':      return (pfx ?? 'Rate: Rs.') + (Number.isInteger(SAMPLE_ROW.sale_rate) ? SAMPLE_ROW.sale_rate : SAMPLE_ROW.sale_rate.toFixed(2));
     case 'size':           return (pfx ?? 'Size: ') + SAMPLE_ROW.size;
     case 'article_number': return (pfx ?? 'Art: ') + SAMPLE_ROW.article_number;
     default: return '';
@@ -61,8 +61,8 @@ const FIELD_META = {
   product_name:   { label: 'Product Name',   sample: 'Sample Product', defaultPrefix: '' },
   barcode_number: { label: 'Barcode No.',    sample: 'PRD000123',     defaultPrefix: '' },
   code:           { label: 'Barcode / QR',   sample: 'BARCODE', isCode: true },
-  mrp:            { label: 'MRP',            sample: '250.00',         defaultPrefix: 'MRP: Rs.' },
-  sale_rate:      { label: 'Sale Rate',      sample: '200.00',         defaultPrefix: 'Rate: Rs.' },
+  mrp:            { label: 'MRP',            sample: '250',             defaultPrefix: 'MRP ' },
+  sale_rate:      { label: 'Sale Rate',      sample: '200',             defaultPrefix: 'Rate: Rs.' },
   size:           { label: 'Size',           sample: 'M / L / XL',    defaultPrefix: 'Size: ' },
   article_number: { label: 'Article No.',    sample: 'A-001',          defaultPrefix: 'Art: ' },
 };
@@ -73,7 +73,7 @@ const DEFAULT_LAYOUTS = {
     { id: 'product_name',   x: 2,  y: 5,   fontSize: 8, bold: true,  visible: true,  prefix: '' },
     { id: 'barcode_number', x: 2,  y: 21,  fontSize: 6, bold: false, visible: false, prefix: '' },
     { id: 'code',           x: 3,  y: 10,  fontSize: 8, bold: false, visible: true,  size: 12 },
-    { id: 'mrp',            x: 2,  y: 22,  fontSize: 7, bold: true,  visible: true,  prefix: 'MRP: Rs.' },
+    { id: 'mrp',            x: 2,  y: 22,  fontSize: 7, bold: true,  visible: true,  prefix: 'MRP ' },
     { id: 'sale_rate',      x: 28, y: 22,  fontSize: 7, bold: false, visible: false, prefix: 'Rate: Rs.' },
     { id: 'size',           x: 2,  y: 8,   fontSize: 7, bold: false, visible: false, prefix: 'Size: ' },
     { id: 'article_number', x: 28, y: 1.5, fontSize: 7, bold: false, visible: false, prefix: 'Art: ' },
@@ -83,7 +83,7 @@ const DEFAULT_LAYOUTS = {
     { id: 'product_name',   x: 2,  y: 8,  fontSize: 9, bold: true,  visible: true,  prefix: '' },
     { id: 'barcode_number', x: 2,  y: 45, fontSize: 6, bold: false, visible: false, prefix: '' },
     { id: 'code',           x: 4,  y: 16, fontSize: 8, bold: false, visible: true,  size: 25 },
-    { id: 'mrp',            x: 2,  y: 44, fontSize: 8, bold: true,  visible: true,  prefix: 'MRP: Rs.' },
+    { id: 'mrp',            x: 2,  y: 44, fontSize: 8, bold: true,  visible: true,  prefix: 'MRP ' },
     { id: 'sale_rate',      x: 28, y: 44, fontSize: 8, bold: false, visible: false, prefix: 'Rate: Rs.' },
     { id: 'size',           x: 2,  y: 12, fontSize: 7, bold: false, visible: false, prefix: 'Size: ' },
     { id: 'article_number', x: 28, y: 2,  fontSize: 7, bold: false, visible: false, prefix: 'Art: ' },
