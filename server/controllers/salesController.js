@@ -10,7 +10,7 @@ const { resolveInterState } = require('../utils/interStateResolver');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildSalesBillVouchers, buildSalesReturnVouchers } = require('../services/voucherBuilders');
 const { syncAutoReceiptForBill, reverseAutoReceiptForBill } = require('../services/autoReceiptService');
-const { applyGodownStockDelta, getGodownStock, resolveGodownForWrite, getDefaultGodownId } = require('../utils/godownStock');
+const { applyGodownStockDelta, syncProductStockFromGodowns, getGodownStock, resolveGodownForWrite, getDefaultGodownId } = require('../utils/godownStock');
 const {
   validateBillColorRequirements,
   applyColorStockDelta,
@@ -1153,12 +1153,26 @@ exports.create = async (req, res) => {
       return res.status(err.status || 400).json({ error: err.message });
     }
 
-    // INV-H6 — deterministic lock-order. Pre-acquire FOR UPDATE locks on
-    // each distinct (product_id, godown_id) row in (product_id ASC) order
-    // BEFORE the per-line processing loop. The loop then acquires the
-    // same locks no-op (already held by this transaction). Without this,
-    // two concurrent bills sharing the same products can deadlock when
-    // they acquire the per-line locks in different orders.
+    // ── Bulk pre-fetch products + godown stocks ────────────────────
+    // One query each instead of N per-item fetches. The product map is
+    // reused for COGS, batch checks, and stock deduction — eliminating
+    // ~2N redundant Product.findByPk calls (one in the loop, one inside
+    // isFifoMode→getEffectiveCogsMethod).
+    const productIds = [...new Set(processedItems.filter(i => i.product_id).map(i => i.product_id))];
+    const productMap = new Map();
+    if (productIds.length) {
+      const prods = await Product.findAll({ where: { product_id: productIds }, transaction: t });
+      for (const p of prods) productMap.set(p.product_id, p);
+    }
+
+    // Resolve company-wide COGS method once (cached 30s in costLayers).
+    const { getEffectiveCogsMethod } = require('../utils/costLayers');
+    const companyCogsMethod = await getEffectiveCogsMethod({ t });
+
+    // INV-H6 — deterministic lock-order + stock cache. Pre-acquire
+    // FOR UPDATE locks in product_id ASC order and cache the returned
+    // stock values so the per-line loop skips redundant reads.
+    const godownStockCache = new Map();
     {
       const distinctKeys = Array.from(new Set(
         processedItems
@@ -1167,34 +1181,17 @@ exports.create = async (req, res) => {
       )).sort();
       for (const k of distinctKeys) {
         const [pid, gid] = k.split('|').map(Number);
-        await getGodownStock({ product_id: pid, godown_id: gid, t, lock: true });
+        const stock = await getGodownStock({ product_id: pid, godown_id: gid, t, lock: true });
+        godownStockCache.set(k, stock);
       }
     }
 
-    for (const item of processedItems) {
-      // Fetch the product once to (a) snapshot per-mode COGS for this
-      // line via the shared helper, and (b) reuse for the stock
-      // deduction below. Doing both off the same read avoids a second
-      // roundtrip and keeps the cost snapshot in the same transaction
-      // as the bill itself.
-      //
-      // computeCostRateForSale picks the right basis per mode:
-      //   variant            → product.purchase_rate
-      //   single, no batch   → product.weighted_avg_cost
-      //   single + batch     → product_batches.purchase_rate for the
-      //                        line's batch_id (per-batch frozen rate)
-      // See server/utils/displayCost.js for the full fallback cascade.
-      let product = null;
-      if (item.product_id) {
-        product = await Product.findByPk(item.product_id, { transaction: t });
-      }
+    const stockLedgerRows = [];
+    const affectedProductIds = new Set();
 
-      // Batch dimension: for batch-tracked products with the global
-      // setting ON, every line MUST carry batch_id (form picker
-      // enforces it; this guard catches direct API callers that bypass
-      // the UI). With the global setting OFF, batch-tracked products
-      // silently fall back to godown-only — same regression contract
-      // the purchase form follows.
+    for (const item of processedItems) {
+      const product = item.product_id ? (productMap.get(item.product_id) || null) : null;
+
       const batchId = (batchTrackingOn && product && product.is_batch_tracked)
         ? (item.batch_id || null)
         : null;
@@ -1205,8 +1202,6 @@ exports.create = async (req, res) => {
         });
       }
 
-      // Expiry / per-batch availability guard. Returns null when fine,
-      // or a user-readable error string we surface as a 400.
       if (batchId) {
         const err = await validateBatchLine({
           product, item: { ...item, batch_id: batchId },
@@ -1216,14 +1211,13 @@ exports.create = async (req, res) => {
         if (err) { await t.rollback(); return res.status(400).json({ error: err }); }
       }
 
-      // Audit H6 — when SystemSettings.cogs_method='fifo', consume from
-      // cost_layers FIFO-style and snapshot the weighted-avg rate of the
-      // consumed layers as this line's cost_rate. Otherwise fall back to
-      // the legacy computeCostRateForSale (weighted-avg / batch / variant
-      // depending on product mode).
+      // Resolve FIFO inline using pre-fetched product instead of
+      // re-fetching inside isFifoMode.
       let costRate;
       let fifoConsumedRows = null;
-      if (item.product_id && await isFifoMode(t, item.product_id)) {
+      const pm = product?.costing_method;
+      const useFifo = item.product_id && ((pm === 'fifo') || (pm !== 'weighted_avg' && companyCogsMethod === 'fifo'));
+      if (useFifo) {
         const fifoResult = await consumeFIFO({
           product_id: item.product_id,
           godown_id: billData.godown_id,
@@ -1232,10 +1226,6 @@ exports.create = async (req, res) => {
         });
         costRate = fifoResult.consumedRate;
         fifoConsumedRows = fifoResult.consumedRows;
-        // If FIFO returns 0 (no layers, shortfall fell back to wac=0),
-        // do one more fallback to the product's purchase_rate so the
-        // sale line doesn't record ₹0 cost just because the layers are
-        // empty AND wac is zero (fresh import / first sale).
         if (!costRate && product) {
           costRate = +parseFloat(product.weighted_avg_cost || product.purchase_rate || 0);
         }
@@ -1245,10 +1235,6 @@ exports.create = async (req, res) => {
         });
       }
 
-      // Defensive log: a batch-tracked single-mode product saving with
-      // no batch_id means computeCostRateForSale fell back to wac. The
-      // guard above should prevent this in practice — leaving the log
-      // so any bypass surfaces in dev.
       if (product && product.is_batch_tracked && !batchId) {
         console.warn(`[salesController.create] batch-tracked product ${product.product_id} saved without batch_id on bill ${bill.sales_bill_id}; cost_rate fell back to wac.`);
       }
@@ -1257,14 +1243,9 @@ exports.create = async (req, res) => {
         sales_bill_id: bill.sales_bill_id,
         ...item,
         batch_id: batchId,
-        // Server-computed; overrides anything the client might have sent so
-        // profit reports can't be manipulated by a tampered API call.
         cost_rate: costRate,
       }, { transaction: t });
 
-      // Audit H6 v2 — record per-layer consumption trail for exact
-      // reversal on cancel/edit. Only fires in FIFO mode (other modes
-      // don't touch layers).
       if (fifoConsumedRows && fifoConsumedRows.length > 0) {
         await recordSaleConsumption({
           sales_bill_item_id: newItem.item_id,
@@ -1273,22 +1254,12 @@ exports.create = async (req, res) => {
         });
       }
 
-      // Deduct stock at the BILL'S godown (not the global aggregate). The
-      // pre-check uses getGodownStock so the per-godown current_stock
-      // governs the negative-stock guard — a product that has 5 units
-      // total but 0 at this godown can't be sold from this godown.
-      //
-      // Audit H7: pass `lock: true` so the pre-check takes a row-level
-      // FOR UPDATE lock on (product_id, godown_id). Without it, two
-      // concurrent sales of the last unit can both pass the check and
-      // both UPDATE current_stock = current_stock - 1, ending at -1
-      // even with allow_negative_stock=false.
       if (product) {
-        const currentStock = await getGodownStock({
-          product_id: item.product_id, godown_id: billData.godown_id, t,
-          lock: true,
-        });
-        const newStock = +(currentStock - parseFloat(item.quantity)).toFixed(2);
+        // Use cached stock; track cumulative deltas for same-product lines.
+        const cacheKey = `${item.product_id}|${billData.godown_id}`;
+        const currentStock = godownStockCache.get(cacheKey) ?? 0;
+        const qty = parseFloat(item.quantity);
+        const newStock = +(currentStock - qty).toFixed(2);
 
         if (!allowNegativeStock && newStock < 0) {
           await t.rollback();
@@ -1297,35 +1268,32 @@ exports.create = async (req, res) => {
           });
         }
 
+        // Update cache for subsequent lines of the same product.
+        godownStockCache.set(cacheKey, newStock);
+
         await applyGodownStockDelta({
           product_id: item.product_id, godown_id: billData.godown_id,
-          delta: -parseFloat(item.quantity), t,
+          delta: -qty, t, skipProductSync: true,
         });
+        affectedProductIds.add(item.product_id);
 
-        // Per-batch on-hand mirrors the godown-level delta (same
-        // pattern as purchaseController). Both must move in the same
-        // transaction so a rollback restores both consistently.
         if (batchId) {
           await applyBatchStockDelta({
             product_id: item.product_id, batch_id: batchId,
             godown_id: billData.godown_id,
-            delta: -parseFloat(item.quantity), t,
+            delta: -qty, t,
           });
         }
 
-        // Per-color stock decrement for multi-color products. Rides
-        // alongside the godown / batch deltas in the same transaction
-        // so a rollback restores everything together. validation
-        // already passed above.
         if (item.color_id) {
           await applyColorStockDelta({
             color_id: item.color_id,
-            delta: -parseFloat(item.quantity),
+            delta: -qty,
             transaction: t,
           });
         }
 
-        await StockLedger.create({
+        stockLedgerRows.push({
           product_id: item.product_id,
           godown_id: billData.godown_id,
           batch_id: batchId,
@@ -1339,8 +1307,16 @@ exports.create = async (req, res) => {
           rate: item.rate,
           balance_quantity: newStock,
           created_by: req.user.user_id,
-        }, { transaction: t });
+        });
       }
+    }
+
+    // Batch operations deferred from the per-item loop.
+    if (stockLedgerRows.length) {
+      await StockLedger.bulkCreate(stockLedgerRows, { transaction: t });
+    }
+    if (affectedProductIds.size) {
+      await syncProductStockFromGodowns([...affectedProductIds], t);
     }
 
     // ── INLINE RETURN ────────────────────────────────────────────────

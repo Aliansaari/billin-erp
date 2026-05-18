@@ -50,7 +50,7 @@ const { Product, ProductGodownStock, Godown } = require('../models');
  * @returns {Promise<number>}        The resulting current_stock at this
  *                                   godown (post-delta).
  */
-async function applyGodownStockDelta({ product_id, godown_id, delta, t }) {
+async function applyGodownStockDelta({ product_id, godown_id, delta, t, skipProductSync = false }) {
   if (!product_id) throw new Error('applyGodownStockDelta: product_id is required');
   if (!godown_id)  throw new Error('applyGodownStockDelta: godown_id is required');
   if (!t)          throw new Error('applyGodownStockDelta: transaction is required');
@@ -69,20 +69,35 @@ async function applyGodownStockDelta({ product_id, godown_id, delta, t }) {
   const next = +(parseFloat(row.current_stock || 0) + parseFloat(delta || 0)).toFixed(2);
   await row.update({ current_stock: next }, { transaction: t });
 
-  // Mirror to products.current_stock = SUM across all godowns.
-  // Done as a single UPDATE-from-subquery so we don't have to fetch every
-  // PGS row of this product into JS.
+  if (!skipProductSync) {
+    // Mirror to products.current_stock = SUM across all godowns.
+    // Done as a single UPDATE-from-subquery so we don't have to fetch every
+    // PGS row of this product into JS.
+    await sequelize.query(
+      `UPDATE products
+          SET current_stock = COALESCE(
+            (SELECT SUM(current_stock) FROM product_godown_stock WHERE product_id = :pid),
+            0
+          )
+        WHERE product_id = :pid`,
+      { replacements: { pid: product_id }, transaction: t },
+    );
+  }
+
+  return next;
+}
+
+async function syncProductStockFromGodowns(productIds, t) {
+  if (!productIds.length) return;
   await sequelize.query(
     `UPDATE products
         SET current_stock = COALESCE(
-          (SELECT SUM(current_stock) FROM product_godown_stock WHERE product_id = :pid),
+          (SELECT SUM(current_stock) FROM product_godown_stock WHERE product_id = products.product_id),
           0
         )
-      WHERE product_id = :pid`,
-    { replacements: { pid: product_id }, transaction: t },
+      WHERE product_id IN (:pids)`,
+    { replacements: { pids: productIds }, transaction: t },
   );
-
-  return next;
 }
 
 /**
@@ -161,6 +176,7 @@ async function resolveGodownForWrite({ req_godown_id, user, t } = {}) {
 
 module.exports = {
   applyGodownStockDelta,
+  syncProductStockFromGodowns,
   getGodownStock,
   getDefaultGodownId,
   resolveGodownForWrite,
