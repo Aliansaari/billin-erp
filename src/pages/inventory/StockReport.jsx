@@ -154,7 +154,7 @@ export default function StockReport() {
   const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: (params) => reportAPI.getStockReport(params),
     filters,
-    chunkSize: 200,
+    chunkSize: 500,
   });
 
   // Cursor + multi-select runs alongside the VRT — the strip's F1 Open

@@ -168,7 +168,8 @@ function Ring({ pct, tone = 'ok' }) {
 export default function PurchaseReturnList() {
   const { fyStart, fyEnd } = useFinancialYear();
   const [searchInput, setSearchInput] = useState('');
-  const [filters, setFilters] = useState({ search: '', refund_status: null, from_date: fyStart, to_date: fyEnd });
+  const today = dayjs().format('YYYY-MM-DD');
+  const [filters, setFilters] = useState({ search: '', refund_status: null, from_date: today, to_date: today });
   useEffect(() => {
     const t = setTimeout(() => {
       setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });

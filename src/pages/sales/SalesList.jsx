@@ -322,7 +322,8 @@ export default function SalesList() {
   // actually hits the API.
   const [searchInput, setSearchInput] = useState('');
   // Date defaults to the company FY — same as every other period selector.
-  const [filters, setFilters] = useState({ search: '', payment_status: null, from_date: fyStart, to_date: fyEnd });
+  const today = dayjs().format('YYYY-MM-DD');
+  const [filters, setFilters] = useState({ search: '', payment_status: null, from_date: today, to_date: today });
   useEffect(() => {
     const t = setTimeout(() => {
       setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });

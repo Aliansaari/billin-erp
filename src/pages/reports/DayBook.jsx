@@ -103,9 +103,10 @@ export default function DayBook() {
   const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(false);
 
+  const today = dayjs().format('YYYY-MM-DD');
   const [filters, setFilters] = useState({
-    from_date: initialFrom || fyStart || dayjs().startOf('month').format('YYYY-MM-DD'),
-    to_date:   initialTo   || fyEnd   || dayjs().endOf('month').format('YYYY-MM-DD'),
+    from_date: initialFrom || today,
+    to_date:   initialTo   || today,
     voucher_types: [],
     sort_dir: 'asc',
     search: '',
@@ -123,20 +124,6 @@ export default function DayBook() {
     } catch { return DEFAULT_KPIS; }
   });
 
-  // Hydrate the date window from FY when it arrives async (first paint may
-  // happen before the settings call resolves; pickers default to "today" then).
-  useEffect(() => {
-    if (!fyStart || !fyEnd) return;
-    setFilters((f) => {
-      const todayMonthStart = dayjs().startOf('month').format('YYYY-MM-DD');
-      const todayMonthEnd   = dayjs().endOf('month').format('YYYY-MM-DD');
-      if (f.from_date === todayMonthStart && f.to_date === todayMonthEnd) {
-        return { ...f, from_date: fyStart, to_date: fyEnd };
-      }
-      return f;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fyStart, fyEnd]);
 
   useEffect(() => {
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(colsVisible)); } catch {}

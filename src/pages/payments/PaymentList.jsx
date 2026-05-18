@@ -125,8 +125,8 @@ export default function PaymentList() {
     return {
       transaction_type: validTT,
       source:           validSrc,
-      from_date:        searchParams.get('from_date') || fyStart,
-      to_date:          searchParams.get('to_date')   || fyEnd,
+      from_date:        searchParams.get('from_date') || dayjs().format('YYYY-MM-DD'),
+      to_date:          searchParams.get('to_date')   || dayjs().format('YYYY-MM-DD'),
     };
   });
 

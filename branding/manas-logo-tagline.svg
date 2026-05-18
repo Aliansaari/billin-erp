@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 110" width="400" height="110">
-  <title>Manas with tagline</title>
-  <desc>Manas logo with tagline — for website headers and presentations</desc>
-  <rect x="0" y="10" width="80" height="80" rx="18" fill="#0F172A"/>
-  <path d="M 19 70 L 19 32 L 40 58 L 61 32 L 61 70" stroke="#FFFFFF" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="100" y="62" font-family="-apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="48" font-weight="700" fill="#0F172A" letter-spacing="-2.2">manas</text>
-  <text x="102" y="88" font-family="-apple-system, system-ui, sans-serif" font-size="13" font-weight="400" fill="#64748B" letter-spacing="0.5">Complete business software for India</text>
-</svg>

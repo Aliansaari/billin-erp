@@ -153,7 +153,7 @@ export default function ProductList() {
   const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: (params) => productAPI.getAll(params),
     filters,
-    chunkSize: 200,
+    chunkSize: 500,
   });
 
   /* ── Selection model — cursor + multi-select.

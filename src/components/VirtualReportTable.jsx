@@ -516,13 +516,6 @@ export default function VirtualReportTable({
           body.scrollTop = top;
           sessionStorage.setItem(key, JSON.stringify(body));
         }
-        // Horizontal mirror is handled by the rAF poll above (reads
-        // the rc-virtual-list Filler's margin-left, which is the only
-        // place the synthetic horizontal offset shows up). We
-        // deliberately do NOT mirror el.scrollLeft from here: in
-        // virtual mode the holder has overflow-x: hidden so scrollLeft
-        // is always 0, and writing that to the summary would briefly
-        // snap it back to the left edge whenever vertical scroll fires.
       };
       handler();
       el.addEventListener('scroll', handler, { passive: true });
