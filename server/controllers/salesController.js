@@ -1361,21 +1361,14 @@ exports.create = async (req, res) => {
 
     // Recalculate customer balance from scratch — runs AFTER inline return
     // so the recompute sees both the new sale and the new return rows.
-    // Audit P2-A — also re-run reconcile so any pre-existing on-account
-    // receipts for this customer get FIFO-applied to the new bill
-    // (previously a new bill always showed "full balance owing" even when
-    // the customer had been paying advances for months).
-    if (billData.customer_id) {
+    // Cash party (is_system_cash) bills are always fully paid at creation,
+    // so reconcile + balance recompute would scan 10k+ bills for no change.
+    const isCashCustomer = !!(customer && customer.is_system_cash);
+    if (billData.customer_id && !isCashCustomer) {
       await reconcileBillsForParty(billData.customer_id, t);
       await recalculatePartyBalance(billData.customer_id, t);
     }
 
-    // If this bill came from a recalled draft, delete the draft inside
-    // the same transaction. Race-safe: if the create rolls back, the
-    // draft survives so the operator can retry. If two operators
-    // recalled the same draft and both saved, the second DELETE is a
-    // no-op (destroy returns 0 rows) — both bills get created from the
-    // same draft, but there's no orphaned draft.
     if (draft_id) {
       await SalesBillDraft.destroy({
         where: { draft_id },
@@ -1383,10 +1376,6 @@ exports.create = async (req, res) => {
       });
     }
 
-    // ── Double-entry posting ─────────────────────────────────────────
-    // Inside the same transaction so the sale and its ledger entries
-    // commit (or roll back) together. If posting throws, the bill insert
-    // and stock movements above also roll back.
     {
       const billForPosting = await SalesBill.findByPk(bill.sales_bill_id, {
         include: [{ model: Party, as: 'customer' }],
@@ -1396,28 +1385,17 @@ exports.create = async (req, res) => {
       for (const v of vouchers) {
         await postVoucher({ ...v, userId: req.user && req.user.user_id, transaction: t });
       }
-      // Two-way ledger (R8 Phase 2): if the bill carries paid_amount > 0
-      // for a non-cash customer, the voucher builder above emitted a
-      // separate Receipt voucher to the journal. Mirror that with a
-      // payments_receipts row + allocation so the Receipts list +
-      // bill-detail Payments section see the auto-receipt. Idempotent
-      // — sync is a no-op when paid_amount=0 or party=cash.
-      await syncAutoReceiptForBill({ kind: 'sales', bill: billForPosting, t });
+      if (!isCashCustomer) {
+        await syncAutoReceiptForBill({ kind: 'sales', bill: billForPosting, t });
+      }
     }
 
     await t.commit();
 
-    // Audit P2-L — cache by idempotency_key so a retry returns this bill.
     if (idempotency_key) {
       idempotencyCache.set('sales_create', idempotency_key, bill.sales_bill_id);
     }
 
-    // Compliance audit log — if a soft / hard override was used to save
-    // this backdated bill, record the override event with the reason
-    // the operator typed. The bill itself is the artifact; this row
-    // tells the auditor WHO broke the lock, WHEN, and WHY. Best-effort
-    // (logComplianceEvent swallows errors) so a log failure can't undo
-    // the successful save above.
     if (lockGuard.overrideUsed) {
       await logComplianceEvent({
         event_type:       lockResult.status === 'hard_override_granted' ? 'hard_override' : 'soft_override',

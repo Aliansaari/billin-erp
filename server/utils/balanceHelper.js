@@ -265,15 +265,14 @@ async function reconcileBillsForParty(partyId, t = null) {
   const { SalesBill, PurchaseBill, PaymentReceipt, Party } = require('../models');
   const opts = t ? { transaction: t } : {};
 
-  // Audit H7 — defense-in-depth row lock on the party. The paymentController
-  // already locks the party row before calling reconcile, but other callers
-  // (sales/purchase create/update, salesReturn cancel, etc.) may not. Taking
-  // the lock here makes reconcile safe under any caller. Lock is no-op when
-  // a transaction wasn't passed — there's no isolation to maintain in that
-  // case.
-  if (t) {
-    await Party.findByPk(partyId, { lock: t.LOCK.UPDATE, transaction: t });
-  }
+  // Audit H7 — defense-in-depth row lock on the party + Cash early-exit.
+  // Cash bills are always fully paid at creation (paid_amount = total_amount,
+  // balance_amount = 0). Running the full FIFO distribution on 10,000+ cash
+  // bills produces O(n) UPDATEs that all write the same values — pure waste.
+  const party = await Party.findByPk(partyId, {
+    ...(t ? { lock: t.LOCK.UPDATE, transaction: t } : {}),
+  });
+  if (!party || party.is_system_cash) return;
 
   // Extract valid allocations from a payment row, defensively scaled so the
   // sum never exceeds the payment's total_amount (prevents data-corruption
