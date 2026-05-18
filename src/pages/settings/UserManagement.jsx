@@ -795,44 +795,21 @@ export default function UserManagement() {
               required={!editingUser}
               help={editingUser
                 ? 'Leave blank to keep the existing password.'
-                : 'Minimum 8 characters. Avoid weak defaults like admin123 / password.'}
+                : 'Minimum 4 characters.'}
             >
               <Form.Item
                 name="password"
                 rules={editingUser
                   ? [
-                      // Even on edit, if the admin types something they must
-                      // type a *real* password. The blank-keeps-existing
-                      // branch handles "leave it alone" in handleSubmit.
-                      { min: 8, message: 'Min 8 characters' },
-                      {
-                        validator: (_, v) => {
-                          if (!v) return Promise.resolve();
-                          const banned = ['admin', 'admin123', 'password', 'password123', '12345678', 'qwerty123', 'changeme'];
-                          if (banned.includes(v.toLowerCase())) {
-                            return Promise.reject(new Error('Too common — pick something less guessable'));
-                          }
-                          return Promise.resolve();
-                        },
-                      },
+                      { min: 4, message: 'Min 4 characters' },
                     ]
                   : [
                       { required: true, message: 'Required' },
-                      { min: 8, message: 'Min 8 characters' },
-                      {
-                        validator: (_, v) => {
-                          if (!v) return Promise.resolve();
-                          const banned = ['admin', 'admin123', 'password', 'password123', '12345678', 'qwerty123', 'changeme'];
-                          if (banned.includes(v.toLowerCase())) {
-                            return Promise.reject(new Error('Too common — pick something less guessable'));
-                          }
-                          return Promise.resolve();
-                        },
-                      },
+                      { min: 4, message: 'Min 4 characters' },
                     ]}
                 noStyle
               >
-                <Input.Password className="efm-input" placeholder={editingUser ? '••••••' : 'At least 8 characters'} />
+                <Input.Password className="efm-input" placeholder={editingUser ? '••••••' : 'At least 4 characters'} />
               </Form.Item>
             </EntityFormModal.Field>
 

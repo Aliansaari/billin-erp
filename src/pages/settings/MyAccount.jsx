@@ -204,10 +204,9 @@ export default function MyAccount() {
             label="New Password"
             rules={[
               { required: true, message: 'Required' },
-              { min: 8, message: 'At least 8 characters' },
-              { pattern: /^(?!(admin|admin123|password|123456|qwerty)$)/i, message: 'Avoid common defaults like admin123 / password / 123456.' },
+              { min: 4, message: 'At least 4 characters' },
             ]}
-            help="Min 8 chars. Avoid 'admin123', 'password', '123456', etc."
+            help="Min 4 characters."
           >
             <Input.Password autoComplete="new-password" />
           </Form.Item>

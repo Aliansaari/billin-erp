@@ -38,8 +38,8 @@ export default function ChangePassword() {
       message.error('New password must be different from the current password.');
       return;
     }
-    if (mustChangePassword && /^(admin|admin123|password|123456)$/i.test(new_password)) {
-      message.error('Please choose a stronger password — avoid common defaults.');
+    if (new_password.length < 4) {
+      message.error('Password must be at least 4 characters.');
       return;
     }
     setLoading(true);
@@ -132,14 +132,14 @@ export default function ChangePassword() {
               hasFeedback
               rules={[
                 { required: true, message: 'Enter a new password' },
-                { min: 8, message: 'Password must be at least 8 characters' },
+                { min: 4, message: 'Password must be at least 4 characters' },
               ]}
               style={{ marginBottom: 16 }}
             >
               <Input.Password
                 className="erp-login-input"
                 prefix={<LockOutlined style={{ color: '#8F8372' }} />}
-                placeholder="At least 8 characters"
+                placeholder="At least 4 characters"
               />
             </Form.Item>
 
