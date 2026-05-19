@@ -170,12 +170,25 @@ export default function PurchaseReturnList() {
   const [searchInput, setSearchInput] = useState('');
   const today = dayjs().format('YYYY-MM-DD');
   const [filters, setFilters] = useState({ search: '', refund_status: null, from_date: today, to_date: today });
+  const prevDatesRef = useRef(null);
   useEffect(() => {
     const t = setTimeout(() => {
-      setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });
+      setFilters(f => {
+        if (f.search === searchInput) return f;
+        if (searchInput && !f.search) {
+          prevDatesRef.current = { from_date: f.from_date, to_date: f.to_date };
+          return { ...f, search: searchInput, from_date: fyStart, to_date: fyEnd };
+        }
+        if (!searchInput && f.search) {
+          const prev = prevDatesRef.current || { from_date: today, to_date: today };
+          prevDatesRef.current = null;
+          return { ...f, search: '', ...prev };
+        }
+        return { ...f, search: searchInput };
+      });
     }, 250);
     return () => clearTimeout(t);
-  }, [searchInput]);
+  }, [searchInput, fyStart, fyEnd, today]);
 
   const [viewBill, setViewBill]       = useState(null);
   const [companyName, setCompanyName] = useState('');
