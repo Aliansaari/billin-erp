@@ -268,6 +268,9 @@ const renderTotals = (bill, profile) => {
     tail.push(['Paid', fmtMoney(bill.paid_amount, profile)]);
   if (Number(bill.balance_amount || 0) > 0)
     tail.push(['Balance Due', fmtMoney(bill.balance_amount, profile)]);
+  const totalOutstanding = Number(party.current_balance || 0);
+  if (showPrev && totalOutstanding > 0)
+    tail.push(['Total Outstanding', fmtMoney(totalOutstanding, profile)]);
   const tailHtml = tail.map(([l, v]) => `<div class="tot-row"><span>${l}</span><span>${v}</span></div>`).join('');
   return `
     <div class="totals">
@@ -962,7 +965,7 @@ function renderThermalSimple(bill, profile, company) {
 function renderSimpleBreakdown(bill, profile, fmtInt) {
   const showDisc = profile?.show_discount !== false;
   const showGst  = profile?.show_gst !== false;
-  const showPrev = profile?.show_previous_balance === true;   // off by default
+  const showPrev = profile?.show_previous_balance !== false;
   const sym      = profile?.currency_symbol ?? 'Rs ';
   const sub      = Number(bill.sub_total || 0);
   const disc     = Number(bill.discount_amount || 0);
@@ -1002,6 +1005,10 @@ function renderSimpleTail(bill, profile, fmtInt) {
   if (showReturn && retAmt > 0) rows.push(['Return',      '-' + fmtInt(retAmt)]);
   if (paid > 0)                 rows.push(['Paid',              fmtInt(paid)]);
   if (balance > 0)              rows.push(['Balance Due',       fmtInt(balance)]);
+  const party = bill.customer || bill.supplier || bill.party || {};
+  const totalOutstanding = Number(party.current_balance || 0);
+  const showPrev = profile?.show_previous_balance !== false;
+  if (showPrev && totalOutstanding > 0) rows.push(['Total Outstanding', fmtInt(totalOutstanding)]);
   if (!rows.length) return '';
   return '<div class="hrb"></div>' + rows.map(([l, v]) =>
     `<div class="s-row"><span>${l}</span><span>${sym}${v}</span></div>`
@@ -1079,6 +1086,7 @@ function renderThermal(bill, profile, company) {
         ? line('Return', '-' + fmtMoney(bill.return_amount, profile)) : ''}
       ${bill.paid_amount != null && Number(bill.paid_amount) ? line('Paid', fmtMoney(bill.paid_amount, profile)) : ''}
       ${bill.balance_amount != null && Number(bill.balance_amount) > 0 ? line('Balance Due', fmtMoney(bill.balance_amount, profile)) : ''}
+      ${showPrev && Number(party.current_balance || 0) > 0 ? line('Total Outstanding', fmtMoney(party.current_balance, profile)) : ''}
       ${profile?.footer_html ? `<div class="fb">${profile.footer_html}</div>` : ''}
       ${profile?.terms_and_conditions ? `<div class="fb">${esc(profile.terms_and_conditions)}</div>` : ''}
     </div>

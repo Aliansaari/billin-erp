@@ -1584,6 +1584,7 @@ export default function SalesBillForm() {
             article_number: i.article_number, hsn_code: i.hsn_code,
             unit_type: i.unit_type || 'Pcs',
             quantity: i.quantity, rate: i.rate, mrp: i.mrp,
+            discount_percentage: i.discount_percentage || 0,
             gst_rate: i.gst_rate,
           })),
           reason: 'Return at counter (paired with sale)',
@@ -3062,7 +3063,7 @@ export default function SalesBillForm() {
               <div className="sbf-card sbf-payment">
                 <div className="sbf-net-hero">
                   <span className="k">Net total ₹</span>
-                  <span className="v">{roundedTotal.toLocaleString('en-IN')}</span>
+                  <span className="v">{Math.max(0, roundedTotal - parseFloat(returnAmt || 0)).toLocaleString('en-IN')}</span>
                 </div>
 
                 <div className="sbf-pay-line">
