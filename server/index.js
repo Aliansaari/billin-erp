@@ -2845,6 +2845,49 @@ async function startServer() {
       console.error('[Cheque sync migration] Error:', err.message);
     }
 
+    // ── Reverse duplicate payment_receipt ledger entries ────────────
+    //
+    // The reconcile endpoint (ledgerController.reconcile) previously
+    // re-posted auto_from_bill receipts as payment_receipt vouchers,
+    // duplicating the sales_bill_receipt / purchase_bill_payment entries
+    // the bill save already posted. This one-time repair reverses those
+    // duplicates. Idempotent — only acts on entries not yet reversed.
+    try {
+      const [reversed] = await sequelize.query(`
+        INSERT INTO ledger_entries
+          (entry_number, entry_date, ledger_id, debit_amount, credit_amount,
+           narration, voucher_type, reference_id, source_type,
+           reversal_of_id, party_id, created_date)
+        SELECT
+          le.entry_number || '-REV',
+          le.entry_date,
+          le.ledger_id,
+          le.credit_amount,
+          le.debit_amount,
+          'Reversal: duplicate auto-receipt posting',
+          le.voucher_type,
+          le.reference_id,
+          le.source_type,
+          le.entry_id,
+          le.party_id,
+          NOW()
+        FROM ledger_entries le
+        JOIN payments_receipts pr ON pr.transaction_id = le.reference_id
+        WHERE le.source_type = 'payment_receipt'
+          AND pr.source = 'auto_from_bill'
+          AND le.reversal_of_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id
+          )
+        RETURNING entry_id
+      `);
+      if (reversed.length > 0) {
+        console.log(`[Ledger repair] reversed ${reversed.length} duplicate auto-receipt ledger entries`);
+      }
+    } catch (err) {
+      console.error('[Ledger repair] Error:', err.message);
+    }
+
     const httpServer = app.listen(PORT, '0.0.0.0', () => {
       const lan = getLanAddresses();
       console.log('');

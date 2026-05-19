@@ -356,6 +356,10 @@ exports.reconcile = async (req, res) => {
       table: 'payments_receipts',
       idCol: 'transaction_id',
       cancelCol: 'is_cancelled',
+      // Auto-receipts (source='auto_from_bill') are already posted to the
+      // ledger as sales_bill_receipt / purchase_bill_payment by the bill
+      // save flow. Reconciling them here would create duplicate entries.
+      extraFilter: "AND (t.source IS DISTINCT FROM 'auto_from_bill')",
       load: async (id) => {
         const row = await PaymentReceipt.findByPk(id, {
           include: [{ model: Party, as: 'party' }],
@@ -385,6 +389,7 @@ exports.reconcile = async (req, res) => {
       const cancelClause = src.cancelCol
         ? `AND (t.${src.cancelCol} = false OR t.${src.cancelCol} IS NULL)`
         : '';
+      const extraFilter = src.extraFilter || '';
       const rows = await sequelize.query(
         `SELECT t.${src.idCol} AS id
            FROM ${src.table} t
@@ -398,6 +403,7 @@ exports.reconcile = async (req, res) => {
                )
           )
           ${cancelClause}
+          ${extraFilter}
           ORDER BY t.${src.idCol} ASC`,
         { replacements: { st: src.sourceType }, type: sequelize.QueryTypes.SELECT },
       );
@@ -445,11 +451,12 @@ exports.unposted = async (req, res) => {
       { source_type: 'purchase_bill',        table: 'purchase_bills',        id: 'purchase_bill_id',  numCol: 'bill_number',        dateCol: 'bill_date' },
       { source_type: 'sales_return_bill',    table: 'sales_return_bills',    id: 'sales_return_id',   numCol: 'return_number',      dateCol: 'return_date' },
       { source_type: 'purchase_return_bill', table: 'purchase_return_bills', id: 'purchase_return_id',numCol: 'return_number',      dateCol: 'return_date' },
-      { source_type: 'payment_receipt',      table: 'payments_receipts',     id: 'transaction_id',    numCol: 'transaction_number', dateCol: 'transaction_date' },
+      { source_type: 'payment_receipt',      table: 'payments_receipts',     id: 'transaction_id',    numCol: 'transaction_number', dateCol: 'transaction_date', extraFilter: "AND (t.source IS DISTINCT FROM 'auto_from_bill')" },
       { source_type: 'journal_voucher',      table: 'journal_vouchers',      id: 'id',                numCol: 'voucher_number',     dateCol: 'voucher_date' },
     ];
     const out = {};
     for (const s of sources) {
+      const extra = s.extraFilter || '';
       const rows = await sequelize.query(
         `SELECT t.${s.id}     AS id,
                 t.${s.numCol} AS number,
@@ -464,6 +471,7 @@ exports.unposted = async (req, res) => {
                   WHERE m.reversal_of_id = le.entry_id
                )
           )
+          ${extra}
           ORDER BY t.${s.dateCol} DESC LIMIT 50`,
         { replacements: { st: s.source_type }, type: sequelize.QueryTypes.SELECT },
       );
