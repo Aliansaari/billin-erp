@@ -241,7 +241,7 @@ function respondWithError(res, err, defaultMsg = 'Server error') {
     }
   }
   console.error('Server error:', err);
-  return res.status(500).json({ error: defaultMsg });
+  return res.status(500).json({ error: defaultMsg + ': ' + (err?.message || 'unknown') });
 }
 
 function paginateQuery(query, page = 1, limit = 50) {
