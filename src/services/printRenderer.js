@@ -243,7 +243,7 @@ const renderTotals = (bill, profile) => {
   const showDisc   = profile?.show_discount !== false;
   const showGst    = profile?.show_gst !== false;
   const showReturn = profile?.show_return_amount !== false;
-  const showPrev   = profile?.show_previous_balance === true;
+  const showPrev   = profile?.show_previous_balance !== false;
   const party = bill.customer || bill.supplier || bill.party || {};
   const prev = bill.previous_balance != null
     ? Number(bill.previous_balance)
@@ -1024,7 +1024,7 @@ function renderThermal(bill, profile, company) {
   const showDisc   = profile?.show_discount !== false;
   const showGst    = profile?.show_gst !== false;
   const showReturn = profile?.show_return_amount !== false;
-  const showPrev   = profile?.show_previous_balance === true;
+  const showPrev   = profile?.show_previous_balance !== false;
   const party      = bill.customer || bill.supplier || bill.party || {};
   const prev = bill.previous_balance != null
     ? Number(bill.previous_balance)

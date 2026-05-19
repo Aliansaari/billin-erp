@@ -92,7 +92,7 @@ module.exports = (sequelize) => {
     // bills. When ON we print it above Sub Total so the customer sees their
     // running total. Taken from bill.previous_balance if set by the API,
     // otherwise derived from party.current_balance - balance_amount.
-    show_previous_balance: { type: DataTypes.BOOLEAN, defaultValue: false },
+    show_previous_balance: { type: DataTypes.BOOLEAN, defaultValue: true },
     show_barcode:        { type: DataTypes.BOOLEAN, defaultValue: false },
     show_qr_upi:         { type: DataTypes.BOOLEAN, defaultValue: false },
     upi_id:              { type: DataTypes.STRING(120), defaultValue: '' },

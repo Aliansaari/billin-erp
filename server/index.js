@@ -960,8 +960,9 @@ async function startServer() {
           ALTER TABLE print_profiles ADD COLUMN show_return_amount BOOLEAN DEFAULT true;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_profiles' AND column_name='show_previous_balance') THEN
-          ALTER TABLE print_profiles ADD COLUMN show_previous_balance BOOLEAN DEFAULT false;
+          ALTER TABLE print_profiles ADD COLUMN show_previous_balance BOOLEAN DEFAULT true;
         END IF;
+        UPDATE print_profiles SET show_previous_balance = true WHERE show_previous_balance = false;
         -- Doc-subtitle override. Blank = renderer falls back to the
         -- per-doc-type default ("TAX INVOICE", "PURCHASE BILL", etc.).
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_profiles' AND column_name='doc_label') THEN
