@@ -252,6 +252,7 @@ exports.getById = async (req, res) => {
     if (!bill) return res.status(404).json({ error: 'Return not found' });
     res.json(bill);
   } catch (error) {
+    console.error('salesReturn getById error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };

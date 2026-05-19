@@ -189,8 +189,8 @@ async function getLedgerStatement(ledgerId, opts = {}) {
   const billLookups = [
     { model: SalesBill,           pk: 'sales_bill_id',          source: 'sales_bill' },
     { model: PurchaseBill,        pk: 'purchase_bill_id',       source: 'purchase_bill' },
-    { model: SalesReturnBill,     pk: 'sales_return_bill_id',   source: 'sales_return_bill' },
-    { model: PurchaseReturnBill,  pk: 'purchase_return_bill_id',source: 'purchase_return_bill' },
+    { model: SalesReturnBill,     pk: 'sales_return_id',        source: 'sales_return_bill' },
+    { model: PurchaseReturnBill,  pk: 'purchase_return_id',     source: 'purchase_return_bill' },
   ];
   for (const { model, pk, source } of billLookups) {
     const ids = groupedIds.get(source);

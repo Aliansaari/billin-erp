@@ -1057,24 +1057,31 @@ exports.create = async (req, res) => {
 
     // Enforce full payment if customer has credit_not_allowed.
     //
-    // Audit M-2 — the clamp must account for the rawReturn that's about
-    // to be subtracted from total below (`effectivePaid = finalPaidAmount
-    // + rawReturn`). Pre-fix, clamping to `totalAmount` then adding
-    // `rawReturn` produced `effectivePaid > totalAmount` → stored
-    // `balance_amount = totalAmount - effectivePaid` went NEGATIVE on
-    // every no-credit customer with an inline return. Sundry Debtors
-    // aggregate skewed by the return amount per such bill.
-    //
-    // Correct clamp: bring finalPaidAmount to the amount that, after
-    // adding rawReturn, equals totalAmount — i.e., totalAmount - rawReturn.
-    // Floor at 0 in case rawReturn somehow exceeds totalAmount (the
-    // earlier validation should have caught that, but defense-in-depth).
+    // The clamp must account for BOTH the legacy rawReturn AND the inline
+    // return total. When inline_return is used, rawReturn is 0 (the
+    // frontend sends return_amount: 0 because the SalesReturnBill is the
+    // source of truth). Without subtracting the inline return value here,
+    // the customer is forced to pay the gross total; the SalesReturnBill
+    // then credits them, pushing their balance negative.
+    let inlineReturnValue = 0;
+    if (hasInlineReturnItems) {
+      for (const it of inline_return.items) {
+        const q = parseFloat(it.quantity) || 0;
+        const r = parseFloat(it.rate) || 0;
+        const d = (q * r) * ((parseFloat(it.discount_percentage) || 0) / 100);
+        const taxable = q * r - d;
+        const gst = taxable * ((parseFloat(it.gst_rate) || 0) / 100);
+        inlineReturnValue += taxable + gst;
+      }
+      inlineReturnValue = Math.round(inlineReturnValue);
+    }
+
     let finalPaidAmount = parseFloat(paid_amount);
     let customer = null;
     if (billData.customer_id) {
       customer = await Party.findByPk(billData.customer_id, { transaction: t });
       if (customer && !customer.credit_allowed) {
-        finalPaidAmount = Math.max(0, totalAmount - rawReturn);
+        finalPaidAmount = Math.max(0, totalAmount - rawReturn - inlineReturnValue);
       }
     }
 
@@ -1846,13 +1853,18 @@ exports.update = async (req, res) => {
     );
     const totalAmount = roundedAmount;
 
-    // Enforce full payment if customer has credit not allowed
+    // Enforce full payment if customer has credit not allowed.
+    // Subtract return_amount so the forced payment covers only the net
+    // amount — otherwise effectivePaid (paid + return) exceeds totalAmount,
+    // either triggering the BILLS-8 over-pay rejection or leaving a
+    // negative balance after reconciliation.
+    const returnAmt          = parseFloat(return_amount || 0);
     let finalPaidAmount2 = parseFloat(paid_amount);
     let customer2 = null;
     if (billData.customer_id) {
       customer2 = await Party.findByPk(billData.customer_id, { transaction: t });
       if (customer2 && !customer2.credit_allowed) {
-        finalPaidAmount2 = totalAmount;
+        finalPaidAmount2 = Math.max(0, totalAmount - returnAmt);
       }
     }
 
@@ -1864,8 +1876,6 @@ exports.update = async (req, res) => {
     const oldTotal2          = parseFloat(existingBill.total_amount)    || 0;
     const oldReturnAmount2   = parseFloat(existingBill.return_amount)   || 0;
     const linkedReceipts     = Math.max(0, +(oldTotal2 - oldBalance2 - oldPaidAtBilling2 - oldReturnAmount2).toFixed(2));
-
-    const returnAmt          = parseFloat(return_amount || 0);
     const totalEffectivePaid2 = +(finalPaidAmount2 + returnAmt + linkedReceipts).toFixed(2);
 
     // Audit BILLS-8 — refuse an edit that would leave the bill
