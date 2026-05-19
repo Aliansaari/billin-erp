@@ -2219,7 +2219,7 @@ exports.cancel = async (req, res) => {
          FROM payments_receipts pr
         WHERE pr.is_cancelled = false
           AND pr.transaction_type = 'Receipt'
-          AND COALESCE(pr.source, '') <> 'auto_from_bill'
+          AND (pr.source IS DISTINCT FROM 'auto_from_bill')
           AND (
             (pr.bill_allocations IS NOT NULL
              AND pr.bill_allocations @> :jsonCheck::jsonb)
