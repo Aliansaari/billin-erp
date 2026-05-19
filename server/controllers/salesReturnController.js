@@ -1209,6 +1209,17 @@ exports.cancel = async (req, res) => {
     });
     if (!bill) { await t.rollback(); return res.status(404).json({ error: 'Return not found' }); }
     if (bill.is_cancelled) { await t.rollback(); return res.status(400).json({ error: 'Return already cancelled' }); }
+    // Block standalone cancel of inline returns — they must be cancelled
+    // by cancelling the parent sales bill (which cascades here).
+    if (bill.reference_bill_id) {
+      const parentBill = await SalesBill.findByPk(bill.reference_bill_id, { attributes: ['sales_bill_id', 'bill_number', 'is_cancelled'], transaction: t });
+      if (parentBill && !parentBill.is_cancelled) {
+        await t.rollback();
+        return res.status(400).json({
+          error: `This return is linked to Sales Bill ${parentBill.bill_number}. Cancel that bill instead — the return will be cancelled automatically.`,
+        });
+      }
+    }
 
     // Pre-check: if stock was restored by this return and is now lower than
     // the quantity we need to pull back out, and allow_negative_stock is off,

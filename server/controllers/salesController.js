@@ -1359,7 +1359,10 @@ exports.create = async (req, res) => {
         // balance — the credit is already reflected via the sale's
         // return_amount + effectivePaid.
         await bill.update({ return_amount: inlineReturnBill.total_amount }, { transaction: t });
-        await inlineReturnBill.update({ balance_amount: 0, refund_amount: inlineReturnBill.total_amount, refund_status: 'Refunded' }, { transaction: t });
+        await inlineReturnBill.update({
+          reference_bill_id: bill.sales_bill_id,
+          balance_amount: 0, refund_amount: inlineReturnBill.total_amount, refund_status: 'Refunded',
+        }, { transaction: t });
       } catch (rerr) {
         await t.rollback();
         return res.status(400).json({ error: 'Inline return: ' + rerr.message });
@@ -2369,6 +2372,52 @@ exports.cancel = async (req, res) => {
       userId: req.user && req.user.user_id,
       t,
     });
+
+    // ── Auto-cancel linked inline return ──────────────────────────────
+    // If this sale had a paired inline return (reference_bill_id → this
+    // bill), cancel it too: reverse stock, reverse vouchers, mark cancelled.
+    const linkedReturns = await SalesReturnBill.findAll({
+      where: { reference_bill_id: bill.sales_bill_id, is_cancelled: false },
+      include: [{ model: SalesReturnBillItem, as: 'items' }],
+      transaction: t,
+    });
+    for (const ret of linkedReturns) {
+      const retGodown = ret.godown_id || bill.godown_id;
+      for (const item of ret.items) {
+        if (item.product_id && retGodown) {
+          await applyGodownStockDelta({
+            product_id: item.product_id, godown_id: retGodown,
+            delta: -parseFloat(item.quantity), t,
+          });
+          if (item.batch_id) {
+            await applyBatchStockDelta({
+              product_id: item.product_id, batch_id: item.batch_id,
+              godown_id: retGodown, delta: -parseFloat(item.quantity), t,
+            });
+          }
+        }
+      }
+      await writeStockLedgerReversal({
+        referenceId: ret.sales_return_id,
+        transactionType: 'Sales Return',
+        reason: `Inline return ${ret.return_number} auto-cancelled with bill ${bill.bill_number}`,
+        userId: req.user?.user_id, t,
+      });
+      await ret.update({
+        is_cancelled: true,
+        cancelled_by: req.user.user_id,
+        cancelled_date: new Date(),
+        cancellation_reason: `Auto-cancelled: parent bill ${bill.bill_number} cancelled`,
+        balance_amount: 0,
+        refund_status: 'Pending',
+      }, { transaction: t });
+      await reverseVoucher({
+        sourceType: 'sales_return_bill', sourceId: ret.sales_return_id,
+        reason: `Inline return auto-cancelled with bill ${bill.bill_number}`,
+        userId: req.user?.user_id, transaction: t,
+        reversalDate: ret.return_date,
+      });
+    }
 
     await t.commit();
 
