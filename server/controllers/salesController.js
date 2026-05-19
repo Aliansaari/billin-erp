@@ -1359,7 +1359,7 @@ exports.create = async (req, res) => {
         // balance — the credit is already reflected via the sale's
         // return_amount + effectivePaid.
         await bill.update({ return_amount: inlineReturnBill.total_amount }, { transaction: t });
-        await inlineReturnBill.update({ balance_amount: 0, refund_status: 'Adjusted' }, { transaction: t });
+        await inlineReturnBill.update({ balance_amount: 0, refund_amount: inlineReturnBill.total_amount, refund_status: 'Refunded' }, { transaction: t });
       } catch (rerr) {
         await t.rollback();
         return res.status(400).json({ error: 'Inline return: ' + rerr.message });
