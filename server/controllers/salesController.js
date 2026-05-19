@@ -331,6 +331,8 @@ async function createInlineReturn({ customer_id, billDate, items, reason, isInte
       total_amount:        +(taxableAmount + cgst_amount + sgst_amount + igst_amount).toFixed(2),
       mrp:                 parseFloat(item.mrp || 0),
       gst_rate:            gstRate,
+      batch_id:            item.batch_id || null,
+      color_id:            item.color_id || null,
     });
     subTotal += lineTotal;
     totalItemDiscount += discountAmt;
@@ -340,7 +342,7 @@ async function createInlineReturn({ customer_id, billDate, items, reason, isInte
     totalIgst += igst_amount;
   }
   const { roundedAmount, roundOffValue } = roundOff(
-    subTotal + totalCgst + totalSgst + totalIgst
+    (subTotal - totalItemDiscount) + totalCgst + totalSgst + totalIgst
   );
 
   const returnBill = await SalesReturnBill.create({
@@ -1353,15 +1355,13 @@ exports.create = async (req, res) => {
           req, t,
         });
         // Store the inline return total on the SalesBill so the Return
-        // column in the sales list displays it. To avoid double-counting
-        // in balanceHelper (which subtracts BOTH SalesBill.return_amount
-        // AND SalesReturnBill.balance_amount), zero out the return bill's
-        // balance — the credit is already reflected via the sale's
-        // return_amount + effectivePaid.
+        // column in the sales list displays it. Zero both balance_amount
+        // AND refund_amount on the return bill so balanceHelper deducts
+        // the return exactly once — via SalesBill.return_amount only.
         await bill.update({ return_amount: inlineReturnBill.total_amount }, { transaction: t });
         await inlineReturnBill.update({
           reference_bill_id: bill.sales_bill_id,
-          balance_amount: 0, refund_amount: inlineReturnBill.total_amount, refund_status: 'Refunded',
+          balance_amount: 0, refund_amount: 0, refund_status: 'Refunded',
         }, { transaction: t });
       } catch (rerr) {
         await t.rollback();
