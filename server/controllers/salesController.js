@@ -1091,7 +1091,7 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: `Paid amount (₹${finalPaidAmount.toFixed(2)}) cannot exceed bill total (₹${totalAmount.toFixed(2)})` });
     }
 
-    const effectivePaid = +(finalPaidAmount + rawReturn).toFixed(2);
+    const effectivePaid = +(finalPaidAmount + rawReturn + inlineReturnValue).toFixed(2);
     const balanceAmount = +(totalAmount - effectivePaid).toFixed(2);
 
     // Blacklist + credit-limit hard block. Runs AFTER we know the bill's
@@ -1352,14 +1352,14 @@ exports.create = async (req, res) => {
           godown_id: billData.godown_id,
           req, t,
         });
-        // CRITICAL: zero out the SalesBill's `return_amount` field. Without
-        // this, balanceHelper subtracts the return value TWICE — once via
-        // the SalesBill.return_amount column (`salesWalkInReturn`) and
-        // again via the SalesReturnBill.balance_amount we just created.
-        // For inline returns the SalesReturnBill is the source of truth;
-        // the SalesBill column is reserved for the legacy "type-the-amount"
-        // flow that doesn't create a separate return record.
-        await bill.update({ return_amount: 0 }, { transaction: t });
+        // Store the inline return total on the SalesBill so the Return
+        // column in the sales list displays it. To avoid double-counting
+        // in balanceHelper (which subtracts BOTH SalesBill.return_amount
+        // AND SalesReturnBill.balance_amount), zero out the return bill's
+        // balance — the credit is already reflected via the sale's
+        // return_amount + effectivePaid.
+        await bill.update({ return_amount: inlineReturnBill.total_amount }, { transaction: t });
+        await inlineReturnBill.update({ balance_amount: 0, refund_status: 'Adjusted' }, { transaction: t });
       } catch (rerr) {
         await t.rollback();
         return res.status(400).json({ error: 'Inline return: ' + rerr.message });
