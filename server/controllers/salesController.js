@@ -2208,11 +2208,15 @@ exports.cancel = async (req, res) => {
     // would not be flagged, and the operator's expectation of "you have
     // active receipts here" would be wrong.
     const billId = bill.sales_bill_id;
+    // Auto-receipts (source='auto_from_bill') are system-generated mirrors
+    // of the at-billing payment — they should be soft-cancelled WITH the
+    // bill, not block it. Only manually-created receipts block cancellation.
     const [linkedReceiptRows] = await sequelize.query(
       `SELECT DISTINCT pr.transaction_number
          FROM payments_receipts pr
         WHERE pr.is_cancelled = false
           AND pr.transaction_type = 'Receipt'
+          AND COALESCE(pr.source, '') <> 'auto_from_bill'
           AND (
             (pr.bill_allocations IS NOT NULL
              AND pr.bill_allocations @> :jsonCheck::jsonb)
@@ -2239,6 +2243,25 @@ exports.cancel = async (req, res) => {
         error: `Cannot cancel this bill — the following receipt(s) have been recorded against it: ${nums}. Please cancel those receipts first, then cancel the bill.`,
       });
     }
+    // Soft-cancel auto-receipts tied to this bill so they don't linger.
+    await sequelize.query(
+      `UPDATE payments_receipts
+          SET is_cancelled = true,
+              cancelled_date = NOW(),
+              cancellation_reason = 'Auto-cancelled: parent bill cancelled'
+        WHERE source = 'auto_from_bill'
+          AND source_bill_id = :billId
+          AND is_cancelled = false`,
+      { replacements: { billId }, transaction: t }
+    );
+    // Remove their allocation rows so reconciliation doesn't see them.
+    await sequelize.query(
+      `DELETE FROM bill_payment_allocations
+        WHERE allocation_method = 'auto_from_bill'
+          AND bill_id = :billId
+          AND bill_type = 'Sales'`,
+      { replacements: { billId }, transaction: t }
+    );
     // ─────────────────────────────────────────────────────────────────────────
 
     // Reverse the deduction at the bill's own godown (the one the sale
