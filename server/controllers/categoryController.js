@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { Category, Product, PurchaseBillItem, SalesBillItem, PurchaseReturnBillItem, SalesReturnBillItem } = require('../models');
+const { respondWithError } = require('../utils/helpers');
 
 // Whitelist of fields clients may send via POST/PUT. Blocks clients from
 // setting category_id directly or tampering with columns we may add later.
@@ -59,7 +60,7 @@ exports.getAll = async (req, res) => {
     res.json(categories);
   } catch (error) {
     console.error('Get categories error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -71,7 +72,7 @@ exports.getAllFlat = async (req, res) => {
     });
     res.json(categories);
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -126,7 +127,7 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: 'Category name already exists' });
     }
     console.error('Create category error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -177,7 +178,7 @@ exports.update = async (req, res) => {
       return res.status(400).json({ error: 'Category name already exists' });
     }
     console.error('Update category error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -242,6 +243,6 @@ exports.delete = async (req, res) => {
     res.json({ message: 'Category deactivated' });
   } catch (error) {
     console.error('Delete category error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };

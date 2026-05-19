@@ -19,7 +19,7 @@ const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { JournalVoucher, LedgerEntry, LedgerAccount } = require('../models');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
-const { sanitizePagination, roundTo } = require('../utils/helpers');
+const { sanitizePagination, roundTo, respondWithError } = require('../utils/helpers');
 const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 
 function nextVoucherNumberPrefix(date) {
@@ -59,7 +59,7 @@ exports.getAll = async (req, res) => {
     res.json({ total: count, page, limit, data: rows });
   } catch (err) {
     console.error('JV getAll error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -75,7 +75,7 @@ exports.getById = async (req, res) => {
     res.json({ ...jv.toJSON(), lines: legs });
   } catch (err) {
     console.error('JV getById error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 

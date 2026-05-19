@@ -26,7 +26,7 @@ const {
 const {
   getLedgerStatement, resolveLedgerForParty,
 } = require('../services/ledgerStatementService');
-const { escapeLike } = require('../utils/helpers');
+const { escapeLike, respondWithError } = require('../utils/helpers');
 
 exports.listAccounts = async (req, res) => {
   try {
@@ -48,7 +48,7 @@ exports.listAccounts = async (req, res) => {
     res.json({ data: rows });
   } catch (err) {
     console.error('listAccounts error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -82,7 +82,7 @@ exports.statement = async (req, res) => {
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('ledger statement error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -111,7 +111,7 @@ exports.statementByParty = async (req, res) => {
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('ledger statement (by party) error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -275,7 +275,7 @@ exports.integrity = async (req, res) => {
     });
   } catch (err) {
     console.error('integrity error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -472,6 +472,6 @@ exports.unposted = async (req, res) => {
     res.json({ data: out });
   } catch (err) {
     console.error('unposted error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };

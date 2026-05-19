@@ -104,7 +104,7 @@ exports.getNextNumber = async (req, res) => {
     res.json({ next: generateTransactionNumber(prefix, lastNum) });
   } catch (error) {
     console.error('Get next transaction number error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -174,7 +174,7 @@ exports.getAll = async (req, res) => {
     res.json({ total: count, page, limit, data: rows, summary });
   } catch (error) {
     console.error('Get payments error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -189,7 +189,7 @@ exports.getById = async (req, res) => {
     if (!payment) return res.status(404).json({ error: 'Transaction not found' });
     res.json(payment);
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -713,7 +713,7 @@ exports.cancel = async (req, res) => {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
     console.error('Cancel payment error:', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    respondWithError(res, error);
   }
 };
 
@@ -1051,6 +1051,6 @@ exports.getUnpaidBills = async (req, res) => {
       res.json(bills);
     }
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };

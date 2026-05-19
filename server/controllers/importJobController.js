@@ -18,6 +18,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { Op } = require('sequelize');
 const { ImportJob, ImportBatch } = require('../models');
+const { respondWithError } = require('../utils/helpers');
 
 const { UPLOADS_IMPORTS_DIR: UPLOAD_DIR } = require('../utils/paths');
 // dir is created by utils/paths on first require — no need to mkdir again
@@ -87,7 +88,7 @@ exports.getById = async (req, res) => {
     res.json(job);
   } catch (err) {
     console.error('importJob getById error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -103,7 +104,7 @@ exports.list = async (req, res) => {
     });
     res.json({ data: rows });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -128,7 +129,7 @@ exports.confirm = async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('importJob confirm error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -149,7 +150,7 @@ exports.cancel = async (req, res) => {
     });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -164,7 +165,7 @@ exports.downloadRejected = async (req, res) => {
     }
     res.download(job.rejected_rows_path, `rejected-rows-${job.id}.xlsx`);
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -179,6 +180,6 @@ exports.batches = async (req, res) => {
     });
     res.json({ data: rows });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };

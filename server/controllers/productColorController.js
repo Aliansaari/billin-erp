@@ -30,7 +30,7 @@ const sequelize = require('../config/database');
 const {
   Product, ProductColor, SalesBillItem, PurchaseBillItem,
 } = require('../models');
-const { roundTo } = require('../utils/helpers');
+const { roundTo, respondWithError } = require('../utils/helpers');
 
 // Audit MONEY-4 — use canonical roundTo (Indian GST-standard).
 const r2 = (n) => roundTo(Number(n) || 0, 2);
@@ -67,7 +67,7 @@ exports.list = async (req, res) => {
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('productColor list error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -109,7 +109,7 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: 'Color already exists for this product.' });
     }
     console.error('productColor create error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -162,7 +162,7 @@ exports.update = async (req, res) => {
     res.json(row);
   } catch (err) {
     console.error('productColor update error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -197,7 +197,7 @@ exports.remove = async (req, res) => {
   } catch (err) {
     if (!t.finished) await t.rollback().catch(() => {});
     console.error('productColor remove error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -299,6 +299,6 @@ exports.bulkReplace = async (req, res) => {
     if (!t.finished) await t.rollback().catch(() => {});
     if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('productColor bulkReplace error:', err);
-    res.status(500).json({ error: err.message || 'Server error' });
+    respondWithError(res, err);
   }
 };

@@ -1,7 +1,6 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { Party, SalesBill, PurchaseBill, PaymentReceipt, SalesReturnBill, PurchaseReturnBill, SystemSettings } = require('../models');
-const { postPartyOpeningJV } = require('../models/Party');
 const { reverseVoucher } = require('../services/ledgerPostingService');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
 const { sanitizePagination, escapeLike, respondWithError } = require('../utils/helpers');
@@ -93,7 +92,7 @@ exports.getAll = async (req, res) => {
     res.json({ total: count, page, limit, data: rows });
   } catch (error) {
     console.error('Get parties error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -103,7 +102,7 @@ exports.getById = async (req, res) => {
     if (!party) return res.status(404).json({ error: 'Party not found' });
     res.json(party);
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -216,7 +215,7 @@ exports.update = async (req, res) => {
         userId:     req.user?.user_id || null,
         transaction: t,
       });
-      await postPartyOpeningJV(party, party.ledger_account_id, t);
+      await Party.postPartyOpeningJV(party, party.ledger_account_id, t);
       await recalculatePartyBalance(party.party_id, t);
       await party.reload({ transaction: t });
     }
@@ -298,7 +297,7 @@ exports.getAging = async (req, res) => {
     res.json(out);
   } catch (error) {
     console.error('Get aging error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -433,7 +432,7 @@ exports.getPartyProfit = async (req, res) => {
     });
   } catch (error) {
     console.error('Get party profit error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -444,7 +443,7 @@ exports.toggleActive = async (req, res) => {
     await party.update({ is_active: !party.is_active });
     res.json(party);
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -491,7 +490,7 @@ exports.delete = async (req, res) => {
   } catch (error) {
     if (!t.finished) await t.rollback().catch(() => {});
     console.error('Delete party error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -789,7 +788,7 @@ exports.getLedger = async (req, res) => {
     });
   } catch (error) {
     console.error('Get ledger error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -939,7 +938,7 @@ exports.getCustomers = async (req, res) => {
     res.json({ total: count, page, limit, data: enriched });
   } catch (error) {
     console.error('Get customers error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -975,7 +974,7 @@ exports.getSuppliers = async (req, res) => {
     res.json({ total: count, page, limit, data: enriched });
   } catch (error) {
     console.error('Get suppliers error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -1076,7 +1075,7 @@ exports.recalculateAll = async (req, res) => {
     res.json({ message: 'All party balances recalculated successfully' });
   } catch (error) {
     console.error('Recalculate all balances error:', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    respondWithError(res, error);
   }
 };
 
@@ -1140,7 +1139,7 @@ exports.getAging = async (req, res) => {
     res.json(out);
   } catch (error) {
     console.error('Get aging error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -1275,7 +1274,7 @@ exports.getPartyProfit = async (req, res) => {
     });
   } catch (error) {
     console.error('Get party profit error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 

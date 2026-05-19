@@ -5,6 +5,7 @@ const Company = require('../models/Company');
 const { getCompanyConnection } = require('../services/companyConnections');
 const { recordFailure, recordSuccess } = require('../middleware/loginRateLimit');
 const tokenBlacklist = require('../utils/tokenBlacklist');
+const { respondWithError } = require('../utils/helpers');
 
 // A default admin/admin seed is convenient for first-run but dangerous to
 // leave in production. The controller flags `must_change_password` whenever
@@ -171,7 +172,7 @@ exports.verifyPassword = async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     console.error('Verify password error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -395,7 +396,7 @@ exports.changePassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Change password error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -465,6 +466,6 @@ exports.verifyDeveloperPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Verify developer password error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };

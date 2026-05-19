@@ -387,7 +387,7 @@ exports.getAll = async (req, res) => {
     res.json({ total: count, page, limit, data: enriched, summary });
   } catch (error) {
     console.error('Get products error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -433,7 +433,7 @@ exports.getByBarcode = async (req, res) => {
     const [enriched] = await attachDisplayCost([product.toJSON()]);
     res.json(enriched);
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -497,7 +497,7 @@ exports.getBatches = async (req, res) => {
     return res.json({ data: rows });
   } catch (err) {
     console.error('getBatches error:', err);
-    return res.status(500).json({ error: 'Server error' });
+    return respondWithError(res, err);
   }
 };
 
@@ -513,7 +513,7 @@ exports.getById = async (req, res) => {
     const [enriched] = await attachDisplayCost([product.toJSON()]);
     return res.json(enriched);
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -874,7 +874,7 @@ exports.delete = async (req, res) => {
     await product.update({ is_active: false });
     res.json({ message: 'Product deactivated' });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -1002,7 +1002,7 @@ exports.adjust = async (req, res) => {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
     console.error('Adjust product error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -1022,7 +1022,7 @@ exports.getLowStock = async (req, res) => {
     res.json(products);
   } catch (error) {
     console.error('Get low stock error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -1113,6 +1113,6 @@ exports.getStockMovement = async (req, res) => {
     res.json(enriched);
   } catch (error) {
     console.error('getStockMovement error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };

@@ -5,7 +5,7 @@ const {
   SalesBill, SalesBillItem,
   Party, Product, StockLedger, SystemSettings, Godown, ProductBatch,
 } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike, splitBillWiseGst, safeTrailingNumber } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, escapeLike, splitBillWiseGst, safeTrailingNumber, respondWithError } = require('../utils/helpers');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { resolveInterState } = require('../utils/interStateResolver');
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
@@ -230,7 +230,7 @@ exports.getAll = async (req, res) => {
     res.json({ total: count, page, limit, data: rows, summary });
   } catch (error) {
     console.error('Get sales returns error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -253,7 +253,7 @@ exports.getById = async (req, res) => {
     res.json(bill);
   } catch (error) {
     console.error('salesReturn getById error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -271,7 +271,7 @@ exports.getReferenceBill = async (req, res) => {
     if (bill.is_cancelled) return res.status(400).json({ error: 'Cannot return a cancelled bill' });
     res.json(bill);
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -822,7 +822,7 @@ exports.create = async (req, res) => {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
     console.error('Create sales return error:', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    respondWithError(res, error);
   }
 };
 
@@ -1187,7 +1187,7 @@ exports.update = async (req, res) => {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
     console.error('Update sales return error:', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    respondWithError(res, error);
   }
 };
 
@@ -1389,6 +1389,6 @@ exports.cancel = async (req, res) => {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
     console.error('Cancel sales return error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };

@@ -4,6 +4,7 @@ const path = require('path');
 const { SystemSettings, BarcodeSettings, User, Role } = require('../models');
 const fmt = require('../utils/indianIdFormats');
 const { recordAudit } = require('../utils/auditLog');
+const { respondWithError } = require('../utils/helpers');
 
 // Where uploaded logos / signatures live on disk. Set by server boot
 // (see server/utils/paths.js). Each company writes into its own
@@ -69,7 +70,7 @@ exports.getSystemSettings = async (req, res) => {
     }
     res.json({ data: settings });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -172,7 +173,7 @@ exports.updateSystemSettings = async (req, res) => {
     res.json({ data: settings });
   } catch (error) {
     console.error('Settings update error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -181,7 +182,7 @@ exports.getBarcodeSettings = async (req, res) => {
     const settings = await BarcodeSettings.findByPk(1);
     res.json({ data: settings });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -192,7 +193,7 @@ exports.updateBarcodeSettings = async (req, res) => {
     await settings.update(req.body);
     res.json({ data: settings });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -206,7 +207,7 @@ exports.getUsers = async (req, res) => {
     });
     res.json({ data: users });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -252,7 +253,7 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ error: 'Username already exists' });
     }
     console.error('Create user error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -370,7 +371,7 @@ exports.updateUser = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Update user error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -410,7 +411,7 @@ exports.deleteUser = async (req, res) => {
     res.json({ message: 'User deactivated' });
   } catch (error) {
     console.error('Delete user error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -419,7 +420,7 @@ exports.getRoles = async (req, res) => {
     const roles = await Role.findAll({ order: [['role_id', 'ASC']] });
     res.json({ data: roles });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -452,7 +453,7 @@ exports.updateRolePolicy = async (req, res) => {
     res.json({ data: role });
   } catch (error) {
     console.error('updateRolePolicy error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -502,7 +503,7 @@ exports.cleanupData = async (req, res) => {
     }
   } catch (error) {
     console.error('Cleanup pre-check error:', error);
-    return res.status(500).json({ error: 'Server error' });
+    return respondWithError(res, error);
   }
 
   const t = await db.transaction();
@@ -875,7 +876,7 @@ exports.getBrandingAsset = (assetKind) => async (req, res) => {
     res.sendFile(fullPath);
   } catch (error) {
     console.error('getBrandingAsset error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -892,7 +893,7 @@ exports.removeBrandingAsset = (assetKind) => async (req, res) => {
     await settings.update({ [column]: null });
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -930,7 +931,7 @@ exports.getMyProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('getMyProfile error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -964,6 +965,6 @@ exports.updateMyProfile = async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     console.error('updateMyProfile error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };

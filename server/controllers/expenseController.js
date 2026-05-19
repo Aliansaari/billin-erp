@@ -20,7 +20,7 @@ const {
 } = require('../models');
 const { postVoucher, reverseVoucher } = require('../services/ledgerPostingService');
 const { buildExpenseVoucher } = require('../services/expenseVoucherService');
-const { sanitizePagination, escapeLike, roundTo } = require('../utils/helpers');
+const { sanitizePagination, escapeLike, roundTo, respondWithError } = require('../utils/helpers');
 const { applyFiscalLockGuard, logComplianceEvent, earlierDate } = require('../utils/compliance');
 
 // Audit MONEY-4 — use the canonical roundTo (Indian GST-standard
@@ -217,7 +217,7 @@ exports.getNextNumber = async (req, res) => {
     res.json({ next });
   } catch (err) {
     console.error('expense getNextNumber error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -301,7 +301,7 @@ exports.getAll = async (req, res) => {
     res.json({ total: count, page, limit, sum_total: r2(sumTotal), data: rows });
   } catch (err) {
     console.error('expense getAll error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -334,7 +334,7 @@ exports.getById = async (req, res) => {
     res.json({ ...ev.toJSON(), legs });
   } catch (err) {
     console.error('expense getById error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -696,6 +696,6 @@ exports.getSummary = async (req, res) => {
     });
   } catch (err) {
     console.error('expense getSummary error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };

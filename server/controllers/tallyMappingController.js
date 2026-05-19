@@ -6,6 +6,7 @@
 
 const { suggestMappings, saveMappings } = require('../services/tallyLedgerMapper');
 const { TallyLedgerMapping } = require('../models');
+const { respondWithError } = require('../utils/helpers');
 
 exports.suggest = async (req, res) => {
   try {
@@ -17,7 +18,7 @@ exports.suggest = async (req, res) => {
     res.json({ data: out });
   } catch (err) {
     console.error('tally mapping suggest error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -31,7 +32,7 @@ exports.save = async (req, res) => {
     res.json({ data: saved });
   } catch (err) {
     console.error('tally mapping save error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -40,6 +41,6 @@ exports.list = async (req, res) => {
     const rows = await TallyLedgerMapping.findAll({ order: [['tally_ledger_name', 'ASC']] });
     res.json({ data: rows });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };

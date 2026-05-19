@@ -1,7 +1,7 @@
 const { Op, fn, col, literal } = require('sequelize');
 const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, PurchaseReturnBillItem, SystemSettings, ProductGodownStock } = require('../models');
-const { sanitizePagination, escapeLike } = require('../utils/helpers');
+const { sanitizePagination, escapeLike, respondWithError } = require('../utils/helpers');
 const { aggregateAging } = require('../utils/aging');
 const { fetchBatchAggregate, computeDisplayCost, attachDisplayCost } = require('../utils/displayCost');
 const { scopeWhereByGodown } = require('../middleware/godownScope');
@@ -403,7 +403,7 @@ exports.dashboardStats = async (req, res) => {
     });
   } catch (error) {
     console.error('Dashboard stats error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -531,7 +531,7 @@ exports.dashboardInsights = async (req, res) => {
     });
   } catch (error) {
     console.error('Dashboard insights error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -831,7 +831,7 @@ exports.dashboardBusiness = async (req, res) => {
     });
   } catch (error) {
     console.error('Dashboard business error:', error);
-    res.status(500).json({ error: 'Server error', detail: error.message });
+    respondWithError(res, error);
   }
 };
 
@@ -1042,7 +1042,7 @@ exports.dashboardSeries = async (req, res) => {
     res.json({ interval, periods, series: rows });
   } catch (error) {
     console.error('Dashboard series error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -1308,7 +1308,7 @@ exports.salesReport = async (req, res) => {
     res.json({ total: count, page, data: rows, summary, reconciliation });
   } catch (error) {
     console.error('Sales report error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -1450,7 +1450,7 @@ exports.purchaseReport = async (req, res) => {
 
     res.json({ total: count, page, data: rows, summary, reconciliation });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -1822,7 +1822,7 @@ exports.stockReport = async (req, res) => {
     });
   } catch (error) {
     console.error('Stock report error:', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    respondWithError(res, error);
   }
 };
 
@@ -1930,7 +1930,7 @@ exports.partyOutstanding = async (req, res) => {
     res.json({ data: parties, total: +total.toFixed(2) });
   } catch (error) {
     console.error('Party outstanding error:', error);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, error);
   }
 };
 
@@ -2712,7 +2712,7 @@ exports.agingReport = async (req, res) => {
     res.json({ party_type: partyType, ...result, reconciliation });
   } catch (err) {
     console.error('Aging report error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -2985,7 +2985,7 @@ exports.gstr1Report = async (req, res) => {
     });
   } catch (err) {
     console.error('GSTR-1 error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 

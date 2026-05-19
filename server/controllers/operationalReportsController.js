@@ -23,6 +23,7 @@ const {
   SystemSettings, SalesBillItem, PurchaseBillItem,
   Product, StockLedger, Category,
 } = require('../models');
+const { respondWithError } = require('../utils/helpers');
 
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function r2(v) { return Math.round(num(v) * 100) / 100; }
@@ -129,7 +130,7 @@ exports.hsnSummary = async (req, res) => {
     res.json({ from, to, direction, hsn: data, totals });
   } catch (err) {
     console.error('hsnSummary error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -264,7 +265,7 @@ exports.stockSummary = async (req, res) => {
     res.json({ from, to, products, totals });
   } catch (err) {
     console.error('stockSummary error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -358,7 +359,7 @@ exports.movers = async (req, res) => {
     res.json({ from, to, limit, fast, slow, totals });
   } catch (err) {
     console.error('movers error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -725,7 +726,7 @@ exports.stockVelocity = async (req, res) => {
     });
   } catch (err) {
     console.error('stockVelocity error:', err);
-    res.status(500).json({ error: 'Server error: ' + err.message });
+    respondWithError(res, err);
   }
 };
 
@@ -790,7 +791,7 @@ exports.transferRegister = async (req, res) => {
     res.json({ from, to, transfers, totals });
   } catch (err) {
     console.error('transferRegister error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -917,7 +918,7 @@ exports.godownValuation = async (req, res) => {
     res.json({ summary: enrichedSummary, detail, totals });
   } catch (err) {
     console.error('godownValuation error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
 
@@ -1101,6 +1102,6 @@ exports.stockByColor = async (req, res) => {
     });
   } catch (err) {
     console.error('stockByColor error:', err);
-    res.status(500).json({ error: 'Server error' });
+    respondWithError(res, err);
   }
 };
