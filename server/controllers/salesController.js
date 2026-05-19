@@ -2444,6 +2444,6 @@ exports.cancel = async (req, res) => {
       try { await t.rollback(); } catch (_) { /* already finished */ }
     }
     console.error('Cancel sale error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error: ' + error.message });
   }
 };
