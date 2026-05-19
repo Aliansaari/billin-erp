@@ -1677,7 +1677,7 @@ export default function SalesBillForm() {
       message.error(data?.error || data?.message || 'Failed to save');
     }
     finally{setLoading(false); submittingRef.current=false;}
-  },[form,items,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate,backTarget,selectedParty,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct]);
+  },[form,items,inlineReturnItems,inlineReturnTotal,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate,backTarget,selectedParty,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct]);
 
   const handleReset=()=>{
     setItems([]);setEntry(EMPTY);
