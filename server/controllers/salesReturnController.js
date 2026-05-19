@@ -803,7 +803,7 @@ exports.create = async (req, res) => {
         user:             req.user,
         target_type:      'sales_return',
         target_id:        bill.sales_return_id,
-        target_label:     `Sales return ${bill.return_bill_number || `#${bill.sales_return_id}`} dated ${bill.return_date}`,
+        target_label:     `Sales return ${bill.return_number || `#${bill.sales_return_id}`} dated ${bill.return_date}`,
         target_date:      bill.return_date,
         reason:           guard.reason,
         metadata:         { lock_date: lockResult.lockDate },
@@ -840,7 +840,7 @@ exports.update = async (req, res) => {
   }
 
   // ── Fiscal-lock guard on edit (earlier of old/new return_date) ───
-  const previewRet = await SalesReturnBill.findByPk(req.params.id, { attributes: ['sales_return_id', 'return_date', 'return_bill_number', 'is_cancelled'] });
+  const previewRet = await SalesReturnBill.findByPk(req.params.id, { attributes: ['sales_return_id', 'return_date', 'return_number', 'is_cancelled'] });
   if (!previewRet) return res.status(404).json({ error: 'Sales return not found' });
   if (previewRet.is_cancelled) return res.status(400).json({ error: 'Cannot edit a cancelled return' });
   const oldDateStr = previewRet.return_date && String(previewRet.return_date).slice(0, 10);
@@ -1168,7 +1168,7 @@ exports.update = async (req, res) => {
         user:             req.user,
         target_type:      'sales_return',
         target_id:        existing.sales_return_id,
-        target_label:     `Sales return ${existing.return_bill_number || `#${existing.sales_return_id}`} edited (date ${oldDateStr || '—'} → ${newDateStr || oldDateStr || '—'})`,
+        target_label:     `Sales return ${existing.return_number || `#${existing.sales_return_id}`} edited (date ${oldDateStr || '—'} → ${newDateStr || oldDateStr || '—'})`,
         target_date:      newDateStr || oldDateStr || null,
         reason:           guard.reason,
         metadata:         { lock_date: lockResult.lockDate, old_date: oldDateStr, new_date: newDateStr || oldDateStr },
@@ -1193,7 +1193,7 @@ exports.update = async (req, res) => {
 
 exports.cancel = async (req, res) => {
   // Fiscal-lock guard on cancel — probe is the return's own date.
-  const previewCancel = await SalesReturnBill.findByPk(req.params.id, { attributes: ['sales_return_id', 'return_date', 'return_bill_number', 'is_cancelled'] });
+  const previewCancel = await SalesReturnBill.findByPk(req.params.id, { attributes: ['sales_return_id', 'return_date', 'return_number', 'is_cancelled'] });
   if (!previewCancel) return res.status(404).json({ error: 'Sales return not found' });
   if (previewCancel.is_cancelled) return res.status(400).json({ error: 'Return already cancelled' });
   const cancelDateStr = previewCancel.return_date && String(previewCancel.return_date).slice(0, 10);
@@ -1314,7 +1314,7 @@ exports.cancel = async (req, res) => {
     await writeStockLedgerReversal({
       referenceId: bill.sales_return_id,
       transactionType: 'Sales Return',
-      reason: `Sales Return ${bill.bill_number || '#' + bill.sales_return_id} cancelled`,
+      reason: `Sales Return ${bill.return_number || '#' + bill.sales_return_id} cancelled`,
       userId: req.user?.user_id,
       t,
     });
@@ -1365,7 +1365,7 @@ exports.cancel = async (req, res) => {
         user:             req.user,
         target_type:      'sales_return',
         target_id:        bill.sales_return_id,
-        target_label:     `Sales return ${bill.return_bill_number || `#${bill.sales_return_id}`} cancelled (was dated ${cancelDateStr})`,
+        target_label:     `Sales return ${bill.return_number || `#${bill.sales_return_id}`} cancelled (was dated ${cancelDateStr})`,
         target_date:      cancelDateStr,
         reason:           guard.reason,
         metadata:         { lock_date: lockResult.lockDate, action: 'cancel' },
