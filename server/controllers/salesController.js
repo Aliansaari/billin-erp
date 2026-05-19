@@ -2250,7 +2250,7 @@ exports.cancel = async (req, res) => {
     await sequelize.query(
       `UPDATE payments_receipts
           SET is_cancelled = true,
-              cancelled_date = NOW(),
+              cancelled_on = NOW(),
               cancellation_reason = 'Auto-cancelled: parent bill cancelled'
         WHERE source = 'auto_from_bill'
           AND source_bill_id = :billId
