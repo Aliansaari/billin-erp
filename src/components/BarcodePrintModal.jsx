@@ -82,6 +82,18 @@ const FIELD_VAL = {
     if (!row.article_number) return '';
     return (el?.prefix !== undefined ? el.prefix : 'Art: ') + row.article_number;
   },
+  qty_per_box: (row, co, el) => {
+    const val = parseFloat(row.quantity_per_box);
+    if (!val || val <= 0) return '';
+    return (el?.prefix !== undefined ? el.prefix : 'Qty: ') + val;
+  },
+  rate_barcode: (row, co, el) => {
+    const rate = parseFloat(row.sale_rate);
+    const bc = row.barcode || '';
+    if (!rate && !bc) return '';
+    const rateStr = rate ? (Number.isInteger(rate) ? String(rate) : rate.toFixed(2)) : '0';
+    return (el?.prefix !== undefined ? el.prefix : 'Rate: Rs.') + rateStr + '-' + bc;
+  },
 };
 
 // ── Generate barcode PNG data URL ─────────────────────────────────────────────

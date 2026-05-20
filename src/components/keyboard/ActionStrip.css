@@ -30,23 +30,23 @@
   gap: 6px;
   height: 30px;
   padding: 0 10px;
-  background: var(--bg-panel, #fff);
-  border: 1px solid var(--border, #e5e7eb);
+  background: color-mix(in srgb, var(--accent, #4F46E5) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #4F46E5) 30%, transparent);
   border-radius: 6px;
-  color: var(--fg-primary, #1f2937);
+  color: var(--accent, #4F46E5);
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   font-size: 12px;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(45, 31, 21, 0.04);
   transition: all .18s cubic-bezier(.2,.7,.2,1);
 }
 .astrip.dense .astrip-btn { height: 26px; padding: 0 8px; font-size: 11.5px; }
 
 .astrip-btn:hover:not(:disabled) {
-  border-color: var(--border-strong, #d1d5db);
+  background: color-mix(in srgb, var(--accent, #4F46E5) 24%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #4F46E5) 45%, transparent);
   transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(45, 31, 21, 0.08);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent, #4F46E5) 16%, transparent);
 }
 .astrip-btn:disabled {
   opacity: 0.45;
@@ -55,16 +55,19 @@
 }
 
 /* ── Tone variants ─────────────────────────────────────────────── */
+/* Primary = main screen action (Save). Bolder weight + stronger
+   glow differentiates it from the default accent buttons. */
 .astrip-btn.tone-primary {
   background: var(--accent, #4F46E5);
   border-color: var(--accent, #4F46E5);
   color: #FDFAF2;
-  font-weight: 600;
-  box-shadow: 0 2px 12px var(--accent-bg, rgba(79,70,229,0.18));
+  font-weight: 700;
+  font-size: 12.5px;
+  box-shadow: 0 2px 14px var(--accent-bg, rgba(79,70,229,0.28));
 }
 .astrip-btn.tone-primary:hover:not(:disabled) {
   background: var(--accent-hover, #4338ca);
-  box-shadow: 0 6px 22px var(--accent-bg, rgba(79,70,229,0.22));
+  box-shadow: 0 6px 22px var(--accent-bg, rgba(79,70,229,0.32));
 }
 
 .astrip-btn.tone-warn {
@@ -91,19 +94,19 @@
   display: inline-flex;
   align-items: center;
   padding: 2px 6px;
-  background: var(--bg-muted, #f3f4f6);
-  border: 1px solid var(--border, #e5e7eb);
+  background: color-mix(in srgb, var(--accent, #4F46E5) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #4F46E5) 22%, transparent);
   border-radius: 3px;
   font-size: 10.5px;
   font-weight: 500;
-  color: var(--fg-secondary, #6b7280);
+  color: var(--accent, #4F46E5);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
 .astrip-btn.tone-primary .astrip-kbd {
-  background: rgba(0, 0, 0, 0.22);
-  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.26);
+  border-color: rgba(255, 255, 255, 0.24);
   color: #FDFAF2;
 }
 .astrip-btn.tone-warn .astrip-kbd {

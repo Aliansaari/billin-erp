@@ -50,6 +50,7 @@
       var(--rtn-stripe) 60px, var(--rtn-stripe) 61px
     );
 }
+.rtn-page, .rtn-page * { font-weight: bold !important; }
 .rtn-page .num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
 
 /* AntD element tuning — same base styling as sales/purchase forms but with
@@ -96,6 +97,14 @@
 .rtn-page .ant-select-arrow,
 .rtn-page .ant-picker-suffix { color: var(--fg-tertiary) !important; }
 
+/* ── Entry-row accent override ─────────────────────────────────────
+   The entry row re-uses .sbf-entry-ledger / .sbf-cell from sales-bill-form.css.
+   Those classes' focus under-rule draws in var(--accent) (terracotta).
+   Inside .rtn-page we re-point it to crimson so the return form keeps its
+   distinct colour identity. */
+.rtn-page .sbf-cell:focus-within::before { background: var(--rtn-accent); }
+.rtn-page .sbf-cell.add:focus-visible   { outline-color: var(--rtn-accent); }
+
 .rtn-lbl {
   display: block;
   font-size: 10px;
@@ -111,6 +120,11 @@
 .rtn-top {
   padding: 14px 24px 6px;
   position: relative;
+  background: linear-gradient(135deg,
+    rgba(185, 28, 28, 0.08) 0%,
+    rgba(239, 68, 68, 0.04) 60%,
+    transparent 100%);
+  border-bottom: 1px solid rgba(185, 28, 28, 0.10);
 }
 .rtn-top-inner { max-width: 1500px; margin: 0; }
 

@@ -1075,12 +1075,15 @@ exports.create = async (req, res) => {
       }
     }
 
-    // Audit P2-A — reconcile-then-recalc so pre-existing on-account
-    // payments to this supplier FIFO-apply against the new bill.
+    // Recalculate party balance from scratch. Do NOT run
+    // reconcileBillsForParty on CREATE — it FIFO-allocates pre-existing
+    // unallocated payments against the new bill, which auto-settles it
+    // even when the user paid nothing on this bill. Reconciliation
+    // runs when payments are created/edited (paymentController), so
+    // advance payments will allocate at that point instead.
     if (billData.supplier_id) {
-      await reconcileBillsForParty(billData.supplier_id, t);
+      await recalculatePartyBalance(billData.supplier_id, t);
     }
-    await recalculatePartyBalance(billData.supplier_id, t);
 
     // If this bill came from a recalled draft, delete the draft inside the
     // same transaction. Race-safe: rollback keeps the draft alive for retry;

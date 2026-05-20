@@ -157,6 +157,46 @@ function CollapsedItem({ item, currentPath, navigate }) {
   );
 }
 
+/* Alt shortcut letter → menu key. Same mapping TopNav uses; kept here
+ * because importing from TopNav would create a circular dep. */
+const ALT_HINTS = {
+  '/':               'H',
+  '/dashboard':      'D',
+  'sales-menu':      'S',
+  'purchase-menu':   'P',
+  'parties-menu':    'E',
+  'inventory-menu':  'I',
+  'bank-menu':       'B',
+  'accounts-menu':   'A',
+  'reports-menu':    'R',
+  '/settings/company': 'T',
+};
+
+/* Underline the Alt shortcut letter inside a label string — standard
+ * Windows accelerator-key convention (Tally, MS Office, etc.). */
+function hintLabel(label, key) {
+  const letter = ALT_HINTS[key];
+  if (!letter || typeof label !== 'string') return label;
+  const idx = label.toLowerCase().indexOf(letter.toLowerCase());
+  if (idx === -1) return label;
+  return (
+    <>
+      {label.slice(0, idx)}
+      <span className="menu-hint-key">{label[idx]}</span>
+      {label.slice(idx + 1)}
+    </>
+  );
+}
+
+/* Recursively replace plain-string labels with underlined-hint JSX.
+ * Only touches the top-level items (children don't need hints). */
+function applyHintLabels(items) {
+  return items.map(item => ({
+    ...item,
+    label: hintLabel(item.label, item.key),
+  }));
+}
+
 export default function Sidebar({ collapsed, setCollapsed }) {
   const rawNavigate = useNavigate();
   const location = useLocation();
@@ -267,7 +307,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
       trigger={null}
       collapsible
       collapsed={collapsed}
-      width={270}
+      width={230}
       collapsedWidth={68}
       className="erp-sidebar"
       style={{ height: '100vh', position: 'sticky', top: 0, left: 0, display: 'flex', flexDirection: 'column' }}
@@ -358,7 +398,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
               selectedKeys={[location.pathname]}
               openKeys={openKeys}
               onOpenChange={handleOpenChange}
-              items={visibleItems}
+              items={applyHintLabels(visibleItems)}
               onClick={({ key }) => { if (!key.endsWith('-menu')) navigate(key); }}
               style={{ borderRight: 0, padding: '8px 4px', background: 'transparent' }}
             />

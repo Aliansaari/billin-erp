@@ -30,6 +30,7 @@ const SAMPLE_ROW = {
   sale_rate: 200.00,
   size: 'M-L-XL',
   article_number: 'ART-001',
+  quantity_per_box: 6,
 };
 
 function getSampleVal(el, companyName) {
@@ -42,6 +43,8 @@ function getSampleVal(el, companyName) {
     case 'sale_rate':      return (pfx ?? 'Rate: Rs.') + (Number.isInteger(SAMPLE_ROW.sale_rate) ? SAMPLE_ROW.sale_rate : SAMPLE_ROW.sale_rate.toFixed(2));
     case 'size':           return (pfx ?? 'Size: ') + SAMPLE_ROW.size;
     case 'article_number': return (pfx ?? 'Art: ') + SAMPLE_ROW.article_number;
+    case 'qty_per_box':    return (pfx ?? 'Qty: ') + SAMPLE_ROW.quantity_per_box;
+    case 'rate_barcode':   return (pfx ?? 'Rate: Rs.') + SAMPLE_ROW.sale_rate + '-' + SAMPLE_ROW.barcode;
     default: return '';
   }
 }
@@ -65,6 +68,8 @@ const FIELD_META = {
   sale_rate:      { label: 'Sale Rate',      sample: '200',             defaultPrefix: 'Rate: Rs.' },
   size:           { label: 'Size',           sample: 'M / L / XL',    defaultPrefix: 'Size: ' },
   article_number: { label: 'Article No.',    sample: 'A-001',          defaultPrefix: 'Art: ' },
+  qty_per_box:    { label: 'Qty / Box',     sample: '6',              defaultPrefix: 'Qty: ' },
+  rate_barcode:   { label: 'Rate · Barcode', sample: '200-PRD000123', defaultPrefix: 'Rate: Rs.' },
 };
 
 const DEFAULT_LAYOUTS = {
@@ -77,6 +82,8 @@ const DEFAULT_LAYOUTS = {
     { id: 'sale_rate',      x: 28, y: 22,  fontSize: 7, bold: false, visible: false, prefix: 'Rate: Rs.' },
     { id: 'size',           x: 2,  y: 8,   fontSize: 7, bold: false, visible: false, prefix: 'Size: ' },
     { id: 'article_number', x: 28, y: 1.5, fontSize: 7, bold: false, visible: false, prefix: 'Art: ' },
+    { id: 'qty_per_box',    x: 28, y: 5,   fontSize: 7, bold: false, visible: false, prefix: 'Qty: ' },
+    { id: 'rate_barcode',   x: 2,  y: 19,  fontSize: 6, bold: false, visible: false, prefix: 'Rate: Rs.' },
   ],
   '50x50': [
     { id: 'company_name',   x: 2,  y: 2,  fontSize: 8, bold: true,  visible: true,  prefix: '' },
@@ -87,6 +94,8 @@ const DEFAULT_LAYOUTS = {
     { id: 'sale_rate',      x: 28, y: 44, fontSize: 8, bold: false, visible: false, prefix: 'Rate: Rs.' },
     { id: 'size',           x: 2,  y: 12, fontSize: 7, bold: false, visible: false, prefix: 'Size: ' },
     { id: 'article_number', x: 28, y: 2,  fontSize: 7, bold: false, visible: false, prefix: 'Art: ' },
+    { id: 'qty_per_box',    x: 28, y: 8,  fontSize: 7, bold: false, visible: false, prefix: 'Qty: ' },
+    { id: 'rate_barcode',   x: 2,  y: 38, fontSize: 7, bold: false, visible: false, prefix: 'Rate: Rs.' },
   ],
 };
 
@@ -467,6 +476,9 @@ export default function BarcodeSettings() {
       const { current_number, ...payload } = values;
       await settingsAPI.updateBarcode(payload);
       message.success('Barcode settings saved');
+      // Reload so the UI shows the server-corrected current_number
+      // (reset when starting_number changes).
+      loadSettings();
     } catch (_) { message.error('Failed to save'); }
     setSavingSettings(false);
   };

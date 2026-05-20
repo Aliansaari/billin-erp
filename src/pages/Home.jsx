@@ -98,22 +98,25 @@ function greetingFor(hour) {
 const ACTION_CATALOG = {
   // Bare-noun labels match what operators type — see the global search
   // ACTIONS comment for the full rationale. Sub-line carries the verb.
-  'sale-new':       { icon: ShoppingCartOutlined, label: 'Sale',           sub: 'New customer invoice',  route: '/sale/new',              ctrlKey: 'S' },
-  'purchase-new':   { icon: InboxOutlined,        label: 'Purchase',       sub: 'New supplier bill',     route: '/purchase/new',          ctrlKey: 'P' },
-  'receipt-new':    { icon: DollarCircleOutlined, label: 'Receipt',        sub: 'Money in',              route: '/receipt/new',           fKey:  'F6'  },
-  'payment-new':    { icon: CreditCardOutlined,   label: 'Payment',        sub: 'Money out',             route: '/payment/new',           fKey:  'F7'  },
-  'sales-return':   { icon: RollbackOutlined,     label: 'Sales return',   sub: 'Credit note',           route: '/sales-return/new'                    },
-  'purchase-return':{ icon: RollbackOutlined,     label: 'Purchase return',sub: 'Debit note',            route: '/purchase-return/new'                 },
-  'journal-new':    { icon: AuditOutlined,        label: 'Journal',        sub: 'Manual entry',          route: '/accounts/journal/new'                },
-  'expense-new':    { icon: FundOutlined,         label: 'Expense',        sub: 'Book a P&L expense',    route: '/expenses/new'                        },
-  'expenses':       { icon: FundOutlined,         label: 'Expenses',       sub: 'List + report',         route: '/expenses'                            },
-  'customers':      { icon: TeamOutlined,         label: 'Customers',      sub: 'Party master',          route: '/customers',             altKey: 'E'  },
-  'suppliers':      { icon: TeamOutlined,         label: 'Suppliers',      sub: 'Vendor master',         route: '/suppliers',             altKey: 'E'  },
-  'products':       { icon: ProductOutlined,      label: 'Products',       sub: 'Item master',           route: '/products',              altKey: 'I'  },
-  'reports':        { icon: BarChartOutlined,     label: 'Reports',        sub: 'All reports',           route: '/reports',               altKey: 'R'  },
-  'dashboard':      { icon: DashboardOutlined,    label: 'Dashboard',      sub: 'Every metric',          route: '/dashboard',             ctrlKey: 'D' },
-  'day-book':       { icon: BookOutlined,         label: 'Day book',       sub: 'All vouchers · today',  route: '/reports/day-book'                    },
-  'banks':          { icon: BankOutlined,         label: 'Banks',          sub: 'Reconciliation',        route: '/banks',                 altKey: 'B'  },
+  // `tone` drives the per-card color band so the ribbon reads at a glance:
+  //   indigo = sales, amber = purchase, green = money-in, rose = money-out,
+  //   crimson = returns, purple = accounting, teal = people, slate = data.
+  'sale-new':       { icon: ShoppingCartOutlined, label: 'Sale',           sub: 'New customer invoice',  route: '/sale/new',              ctrlKey: 'S', tone: 'indigo'  },
+  'purchase-new':   { icon: InboxOutlined,        label: 'Purchase',       sub: 'New supplier bill',     route: '/purchase/new',          ctrlKey: 'P', tone: 'amber'   },
+  'receipt-new':    { icon: DollarCircleOutlined, label: 'Receipt',        sub: 'Money in',              route: '/receipt/new',           fKey:  'F6',  tone: 'green'   },
+  'payment-new':    { icon: CreditCardOutlined,   label: 'Payment',        sub: 'Money out',             route: '/payment/new',           fKey:  'F7',  tone: 'rose'    },
+  'sales-return':   { icon: RollbackOutlined,     label: 'Sales return',   sub: 'Credit note',           route: '/sales-return/new',                   tone: 'crimson' },
+  'purchase-return':{ icon: RollbackOutlined,     label: 'Purchase return',sub: 'Debit note',            route: '/purchase-return/new',                tone: 'crimson' },
+  'journal-new':    { icon: AuditOutlined,        label: 'Journal',        sub: 'Manual entry',          route: '/accounts/journal/new',               tone: 'purple'  },
+  'expense-new':    { icon: FundOutlined,         label: 'Expense',        sub: 'Book a P&L expense',    route: '/expenses/new',                       tone: 'purple'  },
+  'expenses':       { icon: FundOutlined,         label: 'Expenses',       sub: 'List + report',         route: '/expenses',                           tone: 'purple'  },
+  'customers':      { icon: TeamOutlined,         label: 'Customers',      sub: 'Party master',          route: '/customers',             altKey: 'E',  tone: 'teal'    },
+  'suppliers':      { icon: TeamOutlined,         label: 'Suppliers',      sub: 'Vendor master',         route: '/suppliers',             altKey: 'E',  tone: 'teal'    },
+  'products':       { icon: ProductOutlined,      label: 'Products',       sub: 'Item master',           route: '/products',              altKey: 'I',  tone: 'slate'   },
+  'reports':        { icon: BarChartOutlined,     label: 'Reports',        sub: 'All reports',           route: '/reports',               altKey: 'R',  tone: 'slate'   },
+  'dashboard':      { icon: DashboardOutlined,    label: 'Dashboard',      sub: 'Every metric',          route: '/dashboard',             ctrlKey: 'D', tone: 'indigo'  },
+  'day-book':       { icon: BookOutlined,         label: 'Day book',       sub: 'All vouchers · today',  route: '/reports/day-book',                   tone: 'slate'   },
+  'banks':          { icon: BankOutlined,         label: 'Banks',          sub: 'Reconciliation',        route: '/banks',                 altKey: 'B',  tone: 'amber'   },
 };
 
 const IS_MAC    = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
@@ -377,6 +380,7 @@ export default function Home() {
               <button
                 key={a.id}
                 className="cc-action"
+                data-tone={a.tone || ''}
                 onClick={() => navigate(a.route)}
                 title={`${a.label} — ${a.sub}`}
               >

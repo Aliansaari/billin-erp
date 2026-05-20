@@ -33,6 +33,7 @@
   -webkit-font-smoothing: antialiased;
   font-feature-settings: 'cv11';
 }
+.sbf-page, .sbf-page * { font-weight: bold !important; }
 .sbf-page .num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
 
 /* ── Shared input base ───────────────────────────────────────────────── */
@@ -120,6 +121,11 @@
 /* ── (1) TOP ─────────────────────────────────────────────────────────── */
 .sbf-top {
   padding: 8px 24px 4px;     /* tightened — was 14/6 */
+  background: linear-gradient(135deg,
+    rgba(79, 70, 229, 0.08) 0%,
+    rgba(99, 102, 241, 0.04) 60%,
+    transparent 100%);
+  border-bottom: 1px solid rgba(79, 70, 229, 0.10);
 }
 /* Compact variant of the header strip — single dense row, smaller paddings,
    smaller dates. Used when the operator wants the bill body to dominate. */
@@ -128,6 +134,31 @@
 .sbf-top-head--compact .sbf-doc { font-size: 11px; }
 .sbf-top-head--compact .sbf-doc b { font-size: 14px; }
 .sbf-top-head--compact .sbf-date-lbl { font-size: 9px; }
+
+/* Keyboard navigation hint bar */
+.sbf-nav-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  margin-bottom: 4px;
+  background: var(--accent-bg, rgba(79,70,229,0.07));
+  border: 1px solid color-mix(in srgb, var(--accent, #4F46E5) 15%, transparent);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--accent, #4F46E5);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+.sbf-nav-sep {
+  opacity: 0.4;
+  font-weight: 700;
+  font-size: 13px;
+  user-select: none;
+}
+
 .sbf-top-head-center {
   display: inline-flex; align-items: center; justify-content: center;
   justify-self: center;          /* centred within its grid cell (auto-sized) */

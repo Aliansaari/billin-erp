@@ -11,7 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, salesDraftAPI, settingsAPI } from '../../api';
-import { useFinancialYear } from '../../hooks/useFinancialYear';
+
 import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import useListSelection from '../../hooks/useListSelection';
@@ -316,32 +316,20 @@ function Ring({ pct, tone = 'ok' }) {
 
 // ── Main list ──────────────────────────────────────────────────────────────────
 export default function SalesList() {
-  const { fyStart, fyEnd } = useFinancialYear();
   // `searchInput` is the raw value in the box — updates on every keystroke
   // so the caret doesn't lag. `filters.search` is the debounced value that
   // actually hits the API.
   const [searchInput, setSearchInput] = useState('');
   const today = dayjs().format('YYYY-MM-DD');
   const [filters, setFilters] = useState({ search: '', payment_status: null, from_date: today, to_date: today });
-  const prevDatesRef = useRef(null);
+  // Debounce the search input → filters.search. Dates stay untouched —
+  // the user controls the date range independently via the date picker.
   useEffect(() => {
     const t = setTimeout(() => {
-      setFilters(f => {
-        if (f.search === searchInput) return f;
-        if (searchInput && !f.search) {
-          prevDatesRef.current = { from_date: f.from_date, to_date: f.to_date };
-          return { ...f, search: searchInput, from_date: fyStart, to_date: fyEnd };
-        }
-        if (!searchInput && f.search) {
-          const prev = prevDatesRef.current || { from_date: today, to_date: today };
-          prevDatesRef.current = null;
-          return { ...f, search: '', ...prev };
-        }
-        return { ...f, search: searchInput };
-      });
+      setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });
     }, 250);
     return () => clearTimeout(t);
-  }, [searchInput, fyStart, fyEnd, today]);
+  }, [searchInput]);
 
   const [viewBill, setViewBill]     = useState(null);
   const [companyName, setCompanyName] = useState('');

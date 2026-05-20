@@ -376,6 +376,11 @@ export default function SalesBillForm() {
     setRetEntryNonce(n => n + 1);
     setTimeout(() => retBarcodeRef.current?.focus(), 30);
   };
+  // Update a single field on an existing inline-return item (for in-table editing).
+  const retUpdateItem = useCallback((key, field, value) => {
+    setInlineReturnItems(prev => prev.map(it => it.key === key ? { ...it, [field]: value } : it));
+  }, []);
+
   // Total of all return items (post-discount taxable + GST). GST applies
   // to the POST-DISCOUNT line value (transaction value) — not the gross —
   // so a 5% trade discount on a 18%-GST line doesn't overstate GST.
@@ -441,6 +446,7 @@ export default function SalesBillForm() {
   const prodReopenLockRef = useRef(0);   // timestamp until which AntD reopen attempts are ignored (post-select grace)
   const skipCatAutoOpenRef = useRef(false); // skips the activeCatId-effect's auto-open of the product dropdown when the category was set as a side-effect of a product pick (vs. a direct user category pick)
   const barcodeRef   = useRef(null);
+  const customerRef  = useRef(null);
   const prodRef      = useRef(null);
   const prodWrapRef  = useRef(null);
   const sizeRef      = useRef(null);
@@ -573,7 +579,7 @@ export default function SalesBillForm() {
     if(isEdit){ loadBill(id); }
     else{
       form.setFieldsValue({ bill_date:dayjs(), payment_method:'Cash', sale_type:'Retail' });
-      setTimeout(()=>barcodeRef.current?.focus(),100);
+      setTimeout(()=>customerRef.current?.focus(),100);
     }
   },[id]);
 
@@ -684,12 +690,23 @@ export default function SalesBillForm() {
   };
 
   const navTbl=(e,ri,ci)=>{
-    if(e.key!=='ArrowUp'&&e.key!=='ArrowDown') return;
+    const isVert = e.key==='ArrowUp'||e.key==='ArrowDown';
+    // Horizontal arrows only navigate at cursor boundary so typing still works.
+    const inp = e.target;
+    const val = String(inp.value || '');
+    const pos = inp.selectionStart ?? 0;
+    const isLeft  = e.key==='ArrowLeft'  && (val.length===0 || pos===0);
+    const isRight = e.key==='ArrowRight' && (val.length===0 || pos>=val.length);
+    if(!isVert && !isLeft && !isRight) return;
     e.preventDefault();
-    const nr=e.key==='ArrowDown'?Math.min(ri+1,items.length-1):Math.max(ri-1,0);
-    if(nr===ri) return;
-    const cell=document.getElementById(`sc-${nr}-${ci}`);
-    if(cell){const inp=cell.querySelector('input');inp?.focus();inp?.select?.();}
+    let nr=ri, nc=ci;
+    if(e.key==='ArrowDown') nr=Math.min(ri+1,items.length-1);
+    else if(e.key==='ArrowUp') nr=Math.max(ri-1,0);
+    else if(isRight) nc=ci+1;
+    else if(isLeft) nc=Math.max(ci-1,0);
+    if(nr===ri&&nc===ci) return;
+    const cell=document.getElementById(`sc-${nr}-${nc}`);
+    if(cell){const inp2=cell.querySelector('input');inp2?.focus();inp2?.select?.();}
   };
 
   const handleScan=async(barcode)=>{
@@ -1203,11 +1220,22 @@ export default function SalesBillForm() {
   const ue=(f,v)=>setEntry(p=>({...p,[f]:v}));
 
   const eKey=(e,idx)=>{
-    if(e.key==='Enter'||e.key==='ArrowDown'){
+    // Cursor boundary for ArrowLeft/Right — only navigate at start/end
+    // of the value so normal text-cursor movement still works.
+    const inp = e.target;
+    const val = String(inp.value || '');
+    const pos = inp.selectionStart ?? 0;
+    const atStart = val.length === 0 || pos === 0;
+    const atEnd   = val.length === 0 || pos >= val.length;
+
+    if(e.key==='Enter'||e.key==='Tab'){
       e.preventDefault();
       if(idx>=eRefs.length-1){addItem();}
       else{const n=eRefs[idx+1];n?.current?.focus();n?.current?.select?.();}
-    }else if(e.key==='ArrowUp'){
+    }else if(e.key==='ArrowDown'||(e.key==='ArrowRight'&&atEnd)){
+      e.preventDefault();
+      if(idx<eRefs.length-1){const n=eRefs[idx+1];n?.current?.focus();n?.current?.select?.();}
+    }else if(e.key==='ArrowUp'||(e.key==='ArrowLeft'&&atStart)){
       e.preventDefault();
       if(idx>0){const p=eRefs[idx-1];p?.current?.focus();p?.current?.select?.();}
       else{barcodeRef.current?.focus();}
@@ -2293,7 +2321,7 @@ export default function SalesBillForm() {
                     person's name without creating a real party row. */}
                 <Form.Item name="customer_id" noStyle
                   rules={[{ required: true, message: 'Select a customer (use Cash for walk-ins)' }]}>
-                  <Select showSearch placeholder="Customer (required — pick Cash for walk-ins)"
+                  <Select ref={customerRef} showSearch placeholder="Customer"
                     optionFilterProp="label"
                     // After the operator picks a customer, jump straight to
                     // the barcode cell — sales is a POS-style flow ("who's
@@ -3415,22 +3443,19 @@ export default function SalesBillForm() {
           </div>
         }
         footer={null}
-        width="min(96vw, 1100px)"
+        width="min(96vw, 1440px)"
         zIndex={1100}
         className="sbf-drafts-modal sbf-ret-modal"
         styles={{ body: { padding: 0 } }}
         afterOpenChange={(open) => { if (open) setTimeout(() => retBarcodeRef.current?.focus(), 80); }}
       >
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-          {/* Full sales-bill-form-style entry row: barcode → category →
-              product (rich dropdown w/ category meta + sale rate + stock) →
-              size → art# → rate → qty → disc% → gst% → unit → +ADD.
-              Mirrors the main entry row's helpers + refs but uses the
-              modal-scoped `retXxx` versions so a search inside the modal
-              never overwrites the main form's product list. */}
-          <div className="sbf-ret-entry" key={retEntryNonce}>
-            <div className="sbf-field">
-              <Input ref={retBarcodeRef} value={retEntry.barcode} placeholder="Barcode / scan"
+        {/* ── Editorial-ledger entry row — identical pattern to the main
+              sales form so the operator's muscle memory carries over. */}
+        <div className="sbf-entry-ledger" key={retEntryNonce} style={{ margin: 0 }}>
+          <div className="sbf-entry-grid">
+            <div className="sbf-cell barcode">
+              <div className="sbf-cell-lbl">Barcode / Scan</div>
+              <Input ref={retBarcodeRef} value={retEntry.barcode} placeholder=""
                 onChange={e => setRetEntry(p => ({ ...p, barcode: e.target.value }))}
                 onPressEnter={e => {
                   const val = e.target.value.trim();
@@ -3439,7 +3464,8 @@ export default function SalesBillForm() {
                 onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); retCatRef.current?.focus(); } }}
               />
             </div>
-            <div className="sbf-field">
+            <div className="sbf-cell has-arrow">
+              <div className="sbf-cell-lbl">Category</div>
               <Select ref={retCatRef} value={retActiveCatId}
                 onChange={(v, opt) => {
                   retJustSelectedRef.current = false;
@@ -3447,21 +3473,20 @@ export default function SalesBillForm() {
                   setRetEntry(p => ({ ...p, category_id: v || null, category_name: opt?.children || '', product_name: '', product_id: null }));
                 }}
                 onKeyDown={(e) => {
-                  // Backspace clears the picked category from the keyboard
-                  // (Antd doesn't bind it by default).
                   if (e.key === 'Backspace' && !e.target.value && retActiveCatId) {
                     e.preventDefault();
                     setRetActiveCatId(null);
                     setRetEntry(p => ({ ...p, category_id: null, category_name: '', product_name: '', product_id: null }));
                   }
                 }}
-                placeholder="Category" showSearch
+                placeholder="" showSearch
                 filterOption={(input, opt) => !input || opt.children.toLowerCase().includes(input.toLowerCase())}
-                allowClear notFoundContent={null}>
+                allowClear notFoundContent={null} dropdownMatchSelectWidth={300}>
                 {cats.map(c => <Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
               </Select>
             </div>
-            <div className="sbf-field">
+            <div className="sbf-cell product has-arrow">
+              <div className="sbf-cell-lbl">Product</div>
               <Select key={retActiveCatId ?? 'no-cat'} ref={retProdRef}
                 showSearch filterOption={false} optionLabelProp="label"
                 value={retEntry.product_id || undefined}
@@ -3477,14 +3502,13 @@ export default function SalesBillForm() {
                 }}
                 onClear={() => { setRetProdOpen(false); setRetEntry(p => ({ ...p, product_id: null, product_name: '' })); }}
                 onKeyDown={(e) => {
-                  // Backspace clears the picked product from the keyboard.
                   if (e.key === 'Backspace' && !e.target.value && (retEntry.product_id || retEntry.product_name)) {
                     e.preventDefault();
                     setRetProdOpen(false);
                     setRetEntry(p => ({ ...p, product_id: null, product_name: '' }));
                   }
                 }}
-                allowClear placeholder="Product name" notFoundContent={null}
+                allowClear placeholder="" notFoundContent={null}
                 listHeight={320} dropdownMatchSelectWidth={460}
               >
                 {retProdOpts.map(p => {
@@ -3509,36 +3533,44 @@ export default function SalesBillForm() {
                 })}
               </Select>
             </div>
+            <div className="sbf-cell">
+              <div className="sbf-cell-lbl">Size</div>
+              <Input ref={retSizeRef} value={retEntry.size} placeholder=""
+                onChange={e => retUpdateEntry('size', e.target.value)} onKeyDown={e => retEntryKey(e, 1)}/>
+            </div>
             {[
-              { l: 'Size',   ref: retSizeRef, f: 'size',                v: retEntry.size,                          i: 1, t: 'txt' },
-              { l: 'Art #',  ref: retArtRef,  f: 'article_number',      v: retEntry.article_number,                i: 2, t: 'txt' },
-              { l: 'Rate ₹', ref: retRateRef, f: 'rate',                v: retEntry.rate || undefined,             i: 3, t: 'num', min: 0 },
-              { l: 'Qty',    ref: retQtyRef,  f: 'quantity',            v: retEntry.quantity || undefined,         i: 4, t: 'num', min: 0 },
-              { l: 'Disc%',  ref: retDiscRef, f: 'discount_percentage', v: retEntry.discount_percentage||undefined,i: 5, t: 'num', min: 0 },
-              { l: 'GST%',   ref: retGstRef,  f: 'gst_rate',            v: retEntry.gst_rate || undefined,         i: 6, t: 'num', min: 0 },
+              { l: 'Art #',  ref: retArtRef,  f: 'article_number',      v: retEntry.article_number,                 i: 2, t: 'txt' },
+              { l: 'Qty',    ref: retQtyRef,  f: 'quantity',            v: retEntry.quantity || undefined,           i: 3, t: 'num', min: 0 },
+              { l: 'Rate ₹', ref: retRateRef, f: 'rate',                v: retEntry.rate || undefined,               i: 4, t: 'num', min: 0 },
+              { l: 'Disc%',  ref: retDiscRef, f: 'discount_percentage', v: retEntry.discount_percentage || undefined, i: 5, t: 'num', min: 0 },
+              { l: 'GST%',   ref: retGstRef,  f: 'gst_rate',            v: retEntry.gst_rate || undefined,           i: 6, t: 'num', min: 0 },
             ].map(({ l, ref, f, v, i, t, min }) => (
-              <div key={f} className="sbf-field">
+              <div key={f} className={`sbf-cell ${t === 'num' ? 'numeric' : ''}`}>
+                <div className="sbf-cell-lbl">{l}</div>
                 {t === 'txt'
-                  ? <Input ref={ref} value={v} placeholder={l}
+                  ? <Input ref={ref} value={v} placeholder=""
                       onChange={e => retUpdateEntry(f, e.target.value)} onKeyDown={e => retEntryKey(e, i)}/>
-                  : <InputNumber keyboard={false} ref={ref} value={v} style={{ width: '100%' }} min={min} placeholder={l}
+                  : <InputNumber keyboard={false} ref={ref} value={v} style={{ width: '100%' }} min={min} placeholder=""
                       onChange={vv => retUpdateEntry(f, vv || 0)} onKeyDown={e => retEntryKey(e, i)}/>
                 }
               </div>
             ))}
-            <div className="sbf-field">
-              <Select value={retEntry.unit_type || 'Pcs'} placeholder="Unit"
+            <div className="sbf-cell has-arrow">
+              <div className="sbf-cell-lbl">Unit</div>
+              <Select value={retEntry.unit_type || 'Pcs'} placeholder=""
                 onChange={v => retUpdateEntry('unit_type', v)}>
                 {UNITS.map(u => <Select.Option key={u} value={u}>{u}</Select.Option>)}
               </Select>
             </div>
-            <button onClick={retAddItem} className="sbf-add-btn">+ ADD</button>
-            {retEntry.available_stock > 0 && (
-              <span className={`sbf-stock-chip ${retEntry.quantity > retEntry.available_stock ? 'low' : 'ok'}`}>
-                Stock: {retEntry.available_stock}
-              </span>
-            )}
+            <button onClick={retAddItem} className="sbf-cell add" type="button">
+              <span className="sbf-cell-add-text">ADD</span>
+            </button>
           </div>
+          {retEntry.available_stock > 0 && (
+            <span className={`sbf-stock-chip ${retEntry.quantity > retEntry.available_stock ? 'low' : 'ok'}`}>
+              Stock: {retEntry.available_stock}
+            </span>
+          )}
         </div>
 
         {inlineReturnItems.length === 0 ? (
@@ -3550,58 +3582,62 @@ export default function SalesBillForm() {
             </div>
           </div>
         ) : (
-          <div className="sbf-drafts-table">
-            {/* 9 columns: # | Product | Qty | Rate | Disc% | Taxable | GST% | Total | × */}
-            <div className="sbf-drafts-thead" style={{ gridTemplateColumns:
-                'minmax(40px,50px) minmax(180px,2fr) minmax(50px,70px) minmax(80px,90px) minmax(60px,70px) minmax(100px,1fr) minmax(50px,60px) minmax(100px,1fr) auto' }}>
-              <span>#</span>
-              <span>Product</span>
-              <span style={{ textAlign: 'right' }}>Qty</span>
-              <span style={{ textAlign: 'right' }}>Rate</span>
-              <span style={{ textAlign: 'right' }}>Disc%</span>
-              <span style={{ textAlign: 'right' }}>Taxable</span>
-              <span style={{ textAlign: 'right' }}>GST%</span>
-              <span style={{ textAlign: 'right' }}>Total</span>
-              <span></span>
-            </div>
-            <div className="sbf-drafts-tbody">
-              {inlineReturnItems.map((it, i) => {
-                const lt = (it.quantity||0)*(it.rate||0);
-                const disc = lt * ((it.discount_percentage||0)/100);
-                const taxable = lt - disc;
-                const gst = taxable * ((it.gst_rate||0)/100);
-                return (
-                  <div className="sbf-drafts-tr" key={it.key} style={{
-                    gridTemplateColumns:
-                      'minmax(40px,50px) minmax(180px,2fr) minmax(50px,70px) minmax(80px,90px) minmax(60px,70px) minmax(100px,1fr) minmax(50px,60px) minmax(100px,1fr) auto',
-                    cursor: 'default',
-                  }}>
-                    <span style={{ color: 'var(--fg-tertiary)', fontWeight: 600 }}>{i + 1}</span>
-                    <span style={{ fontWeight: 600 }}>
-                      {it.product_name}
-                      {it.size && <span style={{ color: 'var(--fg-tertiary)', fontWeight: 400, marginLeft: 6 }}>· {it.size}</span>}
-                    </span>
-                    <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{it.quantity}</span>
-                    <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>₹{it.rate.toFixed(2)}</span>
-                    <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                      color: (it.discount_percentage||0) > 0 ? 'var(--warning, #d97706)' : 'var(--fg-tertiary)' }}>
-                      {it.discount_percentage || 0}%
-                    </span>
-                    <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>₹{taxable.toFixed(2)}</span>
-                    <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{it.gst_rate || 0}%</span>
-                    <span style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>₹{(taxable+gst).toFixed(2)}</span>
-                    <span style={{ display: 'inline-flex', justifyContent: 'flex-end' }}>
-                      <button
-                        type="button"
-                        className="sbf-drafts-btn discard"
-                        title="Remove"
-                        onClick={() => setInlineReturnItems(prev => prev.filter(x => x.key !== it.key))}>
-                        ×
-                      </button>
-                    </span>
-                  </div>
-                );
-              })}
+          <>
+            <div className="sbf-tbl-wrap" style={{ flex: '1 1 auto', minHeight: 80, maxHeight: 'calc(85vh - 280px)' }}>
+              <Table
+                columns={[
+                  { key: 'index', title: '#', width: 40, align: 'center', render: (_, __, i) => (
+                    <span style={{ color: 'var(--fg-primary)', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>{i + 1}</span>
+                  )},
+                  { key: 'barcode', title: 'Barcode', dataIndex: 'barcode', width: 120, render: (v) => (
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg-primary)', fontFamily: 'inherit', fontVariantNumeric: 'tabular-nums' }}>{v || '—'}</span>
+                  )},
+                  { key: 'product_name', title: 'Product Name', dataIndex: 'product_name', width: 220, render: (v) => (
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg-primary)', fontFamily: 'inherit' }}>{v || '—'}</span>
+                  )},
+                  { key: 'size', title: 'Size', dataIndex: 'size', width: 70, render: (v) => (
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg-primary)', fontFamily: 'inherit' }}>{v || '—'}</span>
+                  )},
+                  { key: 'unit', title: 'Unit', dataIndex: 'unit_type', width: 70, align: 'center', render: (v) => (
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg-primary)', fontFamily: 'inherit' }}>{v || 'Pcs'}</span>
+                  )},
+                  { key: 'article', title: 'Art#', dataIndex: 'article_number', width: 80, render: (v) => (
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg-primary)', fontFamily: 'inherit' }}>{v || '—'}</span>
+                  )},
+                  { key: 'qty', title: 'Qty', dataIndex: 'quantity', width: 80, align: 'center', className: 'num-cell', render: (v, r) => (
+                    <InputNumber keyboard={false} variant="borderless" value={v}
+                      onChange={vv => retUpdateItem(r.key, 'quantity', vv ?? 0)} min={0} size="small"/>
+                  )},
+                  { key: 'rate', title: 'Rate ₹', dataIndex: 'rate', width: 110, align: 'right', className: 'num-cell', render: (v, r) => (
+                    <InputNumber keyboard={false} variant="borderless" value={v}
+                      onChange={vv => retUpdateItem(r.key, 'rate', vv ?? 0)} min={0} size="small"/>
+                  )},
+                  { key: 'disc_pct', title: 'Disc%', dataIndex: 'discount_percentage', width: 70, align: 'right', className: 'num-cell', render: (v, r) => (
+                    <InputNumber keyboard={false} variant="borderless" value={v}
+                      onChange={vv => retUpdateItem(r.key, 'discount_percentage', vv ?? 0)} min={0} size="small"/>
+                  )},
+                  { key: 'gst_pct', title: 'GST%', dataIndex: 'gst_rate', width: 70, align: 'right', className: 'num-cell', render: (v, r) => (
+                    <InputNumber keyboard={false} variant="borderless" value={v}
+                      onChange={vv => retUpdateItem(r.key, 'gst_rate', vv ?? 0)} min={0} size="small"/>
+                  )},
+                  { key: 'amount', title: 'Amount ₹', width: 120, align: 'right', className: 'num-cell', render: (_, r) => {
+                    const lt = (r.quantity||0) * (r.rate||0);
+                    const da = lt * (r.discount_percentage||0) / 100;
+                    return <span style={{ color: 'var(--fg-primary)', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{fmtN(lt - da)}</span>;
+                  }},
+                  { key: 'remove', title: '', width: 36, align: 'center', render: (_, r) => (
+                    <button onClick={() => setInlineReturnItems(prev => prev.filter(x => x.key !== r.key))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)',
+                               padding: '6px 8px', lineHeight: 1, fontSize: 16, width: '100%', height: '100%' }}>×</button>
+                  )},
+                ]}
+                dataSource={inlineReturnItems}
+                rowKey="key"
+                size="small"
+                pagination={false}
+                scroll={{ x: 1100 }}
+                locale={{ emptyText: <span /> }}
+              />
             </div>
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -3629,7 +3665,7 @@ export default function SalesBillForm() {
                 </button>
               </div>
             </div>
-          </div>
+          </>
         )}
       </Modal>
 

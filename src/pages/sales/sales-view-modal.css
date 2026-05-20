@@ -26,6 +26,8 @@
 .erp-bill-view .ant-modal { top: 6vh; }
 .erp-bill-view .ant-modal-body { display: flex; }
 
+.erp-bill-view, .erp-bill-view * { font-weight: bold !important; }
+
 .erp-bill-shell {
   display: flex;
   flex-direction: column;

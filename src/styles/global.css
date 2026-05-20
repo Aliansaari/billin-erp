@@ -247,6 +247,14 @@ body {
   color: var(--sidebar-fg) !important;
 }
 
+/* Alt accelerator key — underline the shortcut letter inside sidebar labels,
+   standard Windows convention (Tally, MS Office, etc.). */
+.menu-hint-key {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+
 /* Logo area (with collapse toggle) */
 .erp-sidebar-logo {
   height: 64px;

@@ -2888,6 +2888,44 @@ async function startServer() {
       console.error('[Ledger repair] Error:', err.message);
     }
 
+    // ── Data repair: reset bills wrongly settled by FIFO at create time ──
+    // reconcileBillsForParty was previously called inside purchase/sales
+    // CREATE handlers, which FIFO-allocated pre-existing unallocated
+    // payments against brand-new bills — zeroing balance_amount even when
+    // paid_amount=0 (user paid nothing). That call has been removed, but
+    // existing bills already in the DB need a one-time correction.
+    // Safe heuristic: if paid_amount=0 AND balance_amount<1 AND total>1,
+    // the bill was corrupted — reset balance to total.
+    try {
+      const [fixedPurchase] = await sequelize.query(`
+        UPDATE purchase_bills
+           SET balance_amount  = total_amount,
+               payment_status  = 'Unpaid'
+         WHERE is_cancelled = false
+           AND (paid_amount IS NULL OR paid_amount < 0.01)
+           AND balance_amount < 1
+           AND total_amount > 1
+        RETURNING purchase_bill_id, bill_number, total_amount
+      `);
+      const [fixedSales] = await sequelize.query(`
+        UPDATE sales_bills
+           SET balance_amount  = total_amount,
+               payment_status  = 'Unpaid'
+         WHERE is_cancelled = false
+           AND (paid_amount IS NULL OR paid_amount < 0.01)
+           AND balance_amount < 1
+           AND total_amount > 1
+        RETURNING sales_bill_id, bill_number, total_amount
+      `);
+      if (fixedPurchase.length > 0 || fixedSales.length > 0) {
+        console.log(`[Balance repair] Fixed ${fixedPurchase.length} purchase + ${fixedSales.length} sales bills with paid=0 but balance=0`);
+        for (const b of fixedPurchase) console.log(`  Purchase #${b.bill_number} → balance restored to ₹${b.total_amount}`);
+        for (const b of fixedSales)    console.log(`  Sales #${b.bill_number} → balance restored to ₹${b.total_amount}`);
+      }
+    } catch (err) {
+      console.error('[Balance repair] Error:', err.message);
+    }
+
     const httpServer = app.listen(PORT, '0.0.0.0', () => {
       const lan = getLanAddresses();
       console.log('');

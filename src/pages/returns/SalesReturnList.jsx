@@ -1,22 +1,23 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Tag, Typography, message, DatePicker, Select,
-  Modal, Descriptions, Divider, Dropdown, Table,
+  message, DatePicker, Select,
+  Modal, Dropdown, Table,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined,
   SettingOutlined, FileTextOutlined, LinkOutlined,
+  PrinterOutlined, FilePdfOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesReturnAPI, settingsAPI } from '../../api';
-import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-list.css';
+import '../sales/sales-view-modal.css';
 import './return-list.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -54,7 +55,6 @@ const DEFAULT_COLS = {
   totalRow: true,
 };
 
-const { Text } = Typography;
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const fmtShort = (v) => {
   const n = parseFloat(v || 0);
@@ -62,88 +62,177 @@ const fmtShort = (v) => {
   return `₹ ${Math.round(n).toLocaleString('en-IN')}`;
 };
 
-// ── View Modal ─────────────────────────────────────────────────────────────────
+// ── View Modal — editorial layout matching SalesList ───────────────────────────
+
+const statusTone = (s) =>
+  s === 'Refunded' ? { fg: '#34D399', bg: 'rgba(52, 211, 153, 0.12)', br: 'rgba(52, 211, 153, 0.28)' }
+: s === 'Partial'  ? { fg: '#F59E0B', bg: 'rgba(245, 158, 11, 0.12)', br: 'rgba(245, 158, 11, 0.28)' }
+                   : { fg: '#EF4444', bg: 'rgba(239, 68, 68, 0.12)', br: 'rgba(239, 68, 68, 0.28)' };
+
+function MetaRow({ label, children }) {
+  return (
+    <div style={{ display: 'flex', gap: 16, padding: '7px 0', alignItems: 'baseline' }}>
+      <span style={{
+        flex: '0 0 120px', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+        color: 'var(--fg-tertiary)', fontWeight: 500,
+      }}>{label}</span>
+      <span style={{ fontSize: 13.5, color: 'var(--fg-primary)', fontWeight: 500 }}>{children}</span>
+    </div>
+  );
+}
+
 function SummaryRow({ label, value, color, bold, borderTop }) {
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '5px 0', borderTop: borderTop ? '1px solid var(--border)' : undefined,
-      fontWeight: bold ? 700 : 400, fontSize: bold ? 14 : 13, color: color || undefined,
+      padding: bold ? '8px 0 6px' : '5px 0',
+      borderTop: borderTop ? '1px solid var(--border)' : undefined,
+      fontWeight: bold ? 700 : 500, fontSize: bold ? 14 : 13,
+      color: color || (bold ? 'var(--fg-primary)' : 'var(--fg-secondary)'),
+      fontVariantNumeric: 'tabular-nums',
     }}>
       <span>{label}</span><span>{value}</span>
     </div>
   );
 }
 
-function ViewModal({ bill, onClose }) {
+function ViewModal({ bill, onClose, onPrint, onExportPDF, onWhatsApp }) {
   if (!bill) return null;
   const items = bill.items || [];
   const cgst = parseFloat(bill.cgst_amount || 0);
   const sgst = parseFloat(bill.sgst_amount || 0);
   const igst = parseFloat(bill.igst_amount || 0);
+  const totalGst = cgst + sgst + igst;
   const discount = parseFloat(bill.discount_amount || 0);
   const balance = parseFloat(bill.balance_amount || 0);
   const roundOff = parseFloat(bill.round_off || 0);
 
+  const tone = statusTone(bill.refund_status);
+
   const itemColumns = [
-    { title: '#', width: 40, render: (_, __, i) => i + 1 },
-    { title: 'Product', dataIndex: 'product_name' },
-    { title: 'Barcode', dataIndex: 'barcode', width: 110, render: v => <Text style={{ fontSize: 11 }}>{v}</Text> },
-    { title: 'Size', dataIndex: 'size', width: 70 },
-    { title: 'Qty', dataIndex: 'quantity', width: 65, align: 'right' },
-    { title: 'Rate', dataIndex: 'rate', width: 90, align: 'right', render: v => `₹${parseFloat(v || 0).toFixed(2)}` },
-    { title: 'Amount', dataIndex: 'total_amount', width: 100, align: 'right', render: v => `₹${parseFloat(v || 0).toFixed(2)}` },
+    { title: '#', width: 36, render: (_, __, i) => i + 1 },
+    { title: 'Product', dataIndex: 'product_name', ellipsis: true },
+    { title: 'Barcode', dataIndex: 'barcode', width: 110,
+      render: v => v ? <span style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 11.5 }}>{v}</span> : <span style={{ color: 'var(--fg-tertiary)' }}>—</span> },
+    { title: 'Size', dataIndex: 'size', width: 70, render: v => v || <span style={{ color: 'var(--fg-tertiary)' }}>—</span> },
+    { title: 'Qty', dataIndex: 'quantity', width: 70, align: 'right',
+      render: v => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{parseFloat(v || 0).toFixed(2)}</span> },
+    { title: 'Rate', dataIndex: 'rate', width: 100, align: 'right',
+      render: v => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(v)}</span> },
+    { title: 'Amount', width: 110, align: 'right',
+      render: (_, r) => <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+        {fmt(parseFloat(r.quantity || 0) * parseFloat(r.rate || 0))}
+      </span> },
   ];
 
+  // Hero — when credit pending shows the balance, when settled shows full total
+  const heroIsBalance = balance > 0.005;
+  const heroLabel = heroIsBalance ? 'Credit Pending' : 'Fully Refunded';
+  const heroValue = heroIsBalance ? balance : parseFloat(bill.total_amount || 0);
+  const heroColor = heroIsBalance ? '#EF4444' : '#34D399';
+  const heroBg    = heroIsBalance ? 'rgba(239, 68, 68, 0.08)' : 'rgba(52, 211, 153, 0.08)';
+  const heroBr    = heroIsBalance ? 'rgba(239, 68, 68, 0.22)' : 'rgba(52, 211, 153, 0.22)';
+
+  const titleBlock = (
+    <div className="erp-bill-title">
+      <div className="erp-bill-title-text">
+        <span className="erp-bill-title-eyebrow">Sales Return</span>
+        <span className="erp-bill-title-number">#{bill.return_number}</span>
+        <span className="erp-bill-title-pill" style={{
+          color: tone.fg, background: tone.bg, border: `1px solid ${tone.br}`,
+        }}>
+          <span className="erp-bill-title-pill-dot" style={{ background: tone.fg }} />
+          {bill.refund_status}
+        </span>
+      </div>
+      <span className="erp-bill-title-date">
+        {dayjs(bill.return_date).format('DD MMM YYYY')}
+      </span>
+    </div>
+  );
+
   return (
-    <Modal open onCancel={onClose} width={960} footer={null}
-      title={<span style={{ fontWeight: 700 }}>Sales Return — {bill.return_number}</span>}
-      styles={{ body: { padding: '16px 24px' } }}>
+    <Modal open onCancel={onClose} width={1000} footer={null}
+      title={titleBlock}
+      className="erp-bill-view"
+      styles={{ body: { padding: 0 } }}>
 
-      <Descriptions size="small" bordered column={2} style={{ marginBottom: 16 }}>
-        <Descriptions.Item label="Return No">{bill.return_number}</Descriptions.Item>
-        <Descriptions.Item label="Date">{dayjs(bill.return_date).format('DD-MMM-YYYY')}</Descriptions.Item>
-        <Descriptions.Item label="Customer">{bill.customer?.party_name || '—'}</Descriptions.Item>
-        <Descriptions.Item label="Mode">
-          <Tag color={bill.return_mode === 'Amount' ? 'purple' : 'blue'}>{bill.return_mode}</Tag>
-        </Descriptions.Item>
-        {bill.reference_bill_number && (
-          <Descriptions.Item label="Against bill" span={2}>
-            <span style={{ fontWeight: 600 }}>{bill.reference_bill_number}</span>
-          </Descriptions.Item>
+      <div className="erp-bill-shell">
+
+        <div className="erp-bill-meta">
+          <MetaRow label="Customer">{bill.customer?.party_name || 'Cash'}</MetaRow>
+          {bill.reference_bill_number && <MetaRow label="Against Bill">{bill.reference_bill_number}</MetaRow>}
+          {bill.return_mode && <MetaRow label="Return Mode">{bill.return_mode}</MetaRow>}
+          {bill.refund_method && <MetaRow label="Refund Method">{bill.refund_method}</MetaRow>}
+          {bill.reason && <MetaRow label="Reason">{bill.reason}</MetaRow>}
+          {bill.remarks && <MetaRow label="Remarks">{bill.remarks}</MetaRow>}
+        </div>
+
+        {bill.return_mode !== 'Amount' && (
+          <>
+            <div className="erp-bill-items-head">
+              <span className="erp-bill-microlabel">Items · {items.length}</span>
+              {items.length > 8 && (
+                <span className="erp-bill-microhint">scroll for more ↓</span>
+              )}
+            </div>
+            <div className="erp-bill-items-scroll">
+              <Table columns={itemColumns} dataSource={items} rowKey="item_id"
+                pagination={false} size="small" scroll={{ x: 600 }} />
+            </div>
+          </>
         )}
-        {bill.reason && <Descriptions.Item label="Reason" span={2}>{bill.reason}</Descriptions.Item>}
-        <Descriptions.Item label="Status">
-          <Tag color={bill.refund_status === 'Refunded' ? 'green' : bill.refund_status === 'Partial' ? 'orange' : 'red'}>
-            {bill.refund_status}
-          </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item label="Refund mode">{bill.refund_method}</Descriptions.Item>
-        {bill.remarks && <Descriptions.Item label="Remarks" span={2}>{bill.remarks}</Descriptions.Item>}
-      </Descriptions>
 
-      {bill.return_mode !== 'Amount' && (
-        <Table columns={itemColumns} dataSource={items} rowKey="item_id"
-          pagination={false} size="small" scroll={{ x: 600 }} />
-      )}
+        <div className="erp-bill-summary">
+          <div className="erp-bill-hero" style={{
+            background: heroBg, borderColor: heroBr,
+          }}>
+            <div className="erp-bill-hero-label">{heroLabel}</div>
+            <div className="erp-bill-hero-amount" style={{ color: heroColor }}>
+              {fmt(heroValue)}
+            </div>
+            {heroIsBalance && (
+              <div className="erp-bill-hero-sub">
+                of <strong>{fmt(bill.total_amount)}</strong>
+                <span className="erp-bill-hero-sub-sep">·</span>
+                <span style={{ color: '#34D399' }}>{fmt(bill.refund_amount)} refunded</span>
+              </div>
+            )}
+            <div className="erp-bill-hero-actions">
+              <button type="button" className="erp-bill-hero-btn"
+                onClick={() => onPrint?.(bill.sales_return_id)}
+                title="Print credit note">
+                <PrinterOutlined /> Print
+              </button>
+              <button type="button" className="erp-bill-hero-btn"
+                onClick={() => onExportPDF?.(bill)}
+                title="Export PDF">
+                <FilePdfOutlined /> PDF
+              </button>
+              <button type="button" className="erp-bill-hero-btn"
+                onClick={() => onWhatsApp?.(bill)}
+                title="Share via WhatsApp">
+                <WhatsAppOutlined /> Share
+              </button>
+            </div>
+          </div>
 
-      <Divider style={{ margin: '12px 0' }} />
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <div style={{ width: 300 }}>
-          <SummaryRow label="Sub Total" value={fmt(bill.sub_total)} />
-          {discount > 0 && (
-            <SummaryRow label={`Discount${bill.discount_percentage > 0 ? ` (${bill.discount_percentage}%)` : ''}`}
-              value={`- ${fmt(discount)}`} color="#d97706" />
-          )}
-          {igst > 0 && (<SummaryRow label={`IGST${bill.igst_pct > 0 ? ` (${bill.igst_pct}%)` : ''}`} value={fmt(igst)} />)}
-          {cgst > 0 && (<SummaryRow label={`CGST${bill.cgst_pct > 0 ? ` (${bill.cgst_pct}%)` : ''}`} value={fmt(cgst)} />)}
-          {sgst > 0 && (<SummaryRow label={`SGST${bill.sgst_pct > 0 ? ` (${bill.sgst_pct}%)` : ''}`} value={fmt(sgst)} />)}
-          {roundOff !== 0 && (<SummaryRow label="Round Off" value={roundOff.toFixed(2)} />)}
-          <SummaryRow label="Credit Total" value={fmt(bill.total_amount)} bold borderTop />
-          <SummaryRow label="Refunded" value={fmt(bill.refund_amount)} color="var(--success)" />
-          <SummaryRow label="Credit pending" value={fmt(balance)}
-            color={balance > 0 ? 'var(--danger)' : 'var(--success)'} bold borderTop />
+          <div className="erp-bill-breakdown">
+            <SummaryRow label="Sub Total" value={fmt(bill.sub_total)} />
+            {discount > 0 && (
+              <SummaryRow label={`Discount${bill.discount_percentage > 0 ? ` (${bill.discount_percentage}%)` : ''}`}
+                value={`- ${fmt(discount)}`} color="#d97706" />
+            )}
+            {igst > 0 && (<SummaryRow label={`IGST${bill.igst_pct > 0 ? ` (${bill.igst_pct}%)` : ''}`} value={fmt(igst)} />)}
+            {cgst > 0 && (<SummaryRow label={`CGST${bill.cgst_pct > 0 ? ` (${bill.cgst_pct}%)` : ''}`} value={fmt(cgst)} />)}
+            {sgst > 0 && (<SummaryRow label={`SGST${bill.sgst_pct > 0 ? ` (${bill.sgst_pct}%)` : ''}`} value={fmt(sgst)} />)}
+            {totalGst === 0 && parseFloat(bill.gst_amount || 0) > 0 && (<SummaryRow label="GST" value={fmt(bill.gst_amount)} />)}
+            {roundOff !== 0 && (<SummaryRow label="Round Off" value={roundOff.toFixed(2)} />)}
+            <SummaryRow label="Credit Total" value={fmt(bill.total_amount)} bold borderTop />
+            <SummaryRow label="Refunded" value={fmt(bill.refund_amount)} color="#34D399" />
+            <SummaryRow label="Credit Pending" value={fmt(balance)}
+              color={balance > 0 ? '#EF4444' : '#34D399'} bold borderTop />
+          </div>
         </div>
       </div>
     </Modal>
@@ -171,29 +260,15 @@ function Ring({ pct, tone = 'ok' }) {
 
 // ── Main list ──────────────────────────────────────────────────────────────────
 export default function SalesReturnList() {
-  const { fyStart, fyEnd } = useFinancialYear();
   const [searchInput, setSearchInput] = useState('');
   const today = dayjs().format('YYYY-MM-DD');
   const [filters, setFilters] = useState({ search: '', refund_status: null, from_date: today, to_date: today });
-  const prevDatesRef = useRef(null);
   useEffect(() => {
     const t = setTimeout(() => {
-      setFilters(f => {
-        if (f.search === searchInput) return f;
-        if (searchInput && !f.search) {
-          prevDatesRef.current = { from_date: f.from_date, to_date: f.to_date };
-          return { ...f, search: searchInput, from_date: fyStart, to_date: fyEnd };
-        }
-        if (!searchInput && f.search) {
-          const prev = prevDatesRef.current || { from_date: today, to_date: today };
-          prevDatesRef.current = null;
-          return { ...f, search: '', ...prev };
-        }
-        return { ...f, search: searchInput };
-      });
+      setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });
     }, 250);
     return () => clearTimeout(t);
-  }, [searchInput, fyStart, fyEnd, today]);
+  }, [searchInput]);
 
   const [viewBill, setViewBill]       = useState(null);
   const [companyName, setCompanyName] = useState('');
@@ -652,7 +727,8 @@ export default function SalesReturnList() {
         ]}
       />
 
-      <ViewModal bill={viewBill} onClose={() => setViewBill(null)} />
+      <ViewModal bill={viewBill} onClose={() => setViewBill(null)}
+        onPrint={handlePrint} onExportPDF={handleExportPDF} onWhatsApp={handleWhatsApp} />
     </div>
   );
 }

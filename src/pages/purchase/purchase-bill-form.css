@@ -32,6 +32,7 @@
   -webkit-font-smoothing: antialiased;
   font-feature-settings: 'cv11';
 }
+.pbf-page, .pbf-page * { font-weight: bold !important; }
 .pbf-page .num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
 
 /* ── Match AntD elements inside PBF to the shared look ─────────────── */
@@ -93,6 +94,11 @@
 /* ── (1) TOP ─────────────────────────────────────────────────────────── */
 .pbf-top {
   padding: 14px 24px 6px;
+  background: linear-gradient(135deg,
+    rgba(245, 158, 11, 0.08) 0%,
+    rgba(251, 191, 36, 0.04) 60%,
+    transparent 100%);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.10);
 }
 .pbf-top-inner {
   /* No max-width: the header strip needs to span the full viewport so the
@@ -129,6 +135,31 @@
 /* Compact variant — single dense row with smaller paddings. */
 .pbf-top-head--compact { margin-bottom: 4px; }
 .pbf-top-head--compact .pbf-chip { padding: 4px 10px; font-size: 11px; }
+
+/* Keyboard navigation hint bar — subtle horizontal strip below the
+   header showing arrow-key / Tab / Enter / Esc shortcuts. */
+.pbf-nav-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  margin-bottom: 4px;
+  background: var(--accent-bg, rgba(79,70,229,0.07));
+  border: 1px solid color-mix(in srgb, var(--accent, #4F46E5) 15%, transparent);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--accent, #4F46E5);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+.pbf-nav-sep {
+  opacity: 0.4;
+  font-weight: 700;
+  font-size: 13px;
+  user-select: none;
+}
 
 /* Company chip — same accent fill as the doc chip so the header reads as
    two equal-weight tokens (matches the sales-form effective render). The

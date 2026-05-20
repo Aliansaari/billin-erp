@@ -134,6 +134,14 @@
   line-height: 1;
 }
 
+/* Alt accelerator key — underline the shortcut letter inside the label,
+   standard Windows convention (Tally, MS Office, etc.). */
+.pill-hint-key {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+
 /* ── Right cluster (pinned to the right edge) ───────────────────────── */
 .erp-topnav-right {
   margin-left: auto;

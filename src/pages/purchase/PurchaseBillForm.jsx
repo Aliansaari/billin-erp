@@ -27,6 +27,13 @@ import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import './purchase-bill-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+// Derive margin from purchase_rate/sale_rate when the stored value is 0/missing
+const deriveMg = (mg, pr, sr) => {
+  const m = parseFloat(mg || 0);
+  if (m) return m;
+  const p = parseFloat(pr || 0), s = parseFloat(sr || 0);
+  return p > 0 ? +(((s - p) / p) * 100).toFixed(2) : 0;
+};
 
 const EMPTY_ENTRY = {
   barcode:'', category_id:null, category_name:'', product_name:'', size:'',
@@ -62,7 +69,6 @@ const EMPTY_ENTRY = {
 /* Rendered via portal (document.body) so position:fixed always works regardless
    of ancestor overflow/transform/filter CSS.                                    */
 function VariantPickerDropdown({ options, selectedIdx, onPick, top, left, rateFilter, articleFilter }) {
-  // Scroll the selected row into view on arrow navigation
   const rowRefs = React.useRef([]);
   React.useEffect(()=>{
     if (selectedIdx >= 0 && rowRefs.current[selectedIdx]) {
@@ -74,72 +80,72 @@ function VariantPickerDropdown({ options, selectedIdx, onPick, top, left, rateFi
                  : rateFilter!=null && rateFilter>0 ? `₹${parseFloat(rateFilter).toFixed(0)}`
                  : '';
 
+  const cols = '72px 60px 80px 52px 72px 80px 72px';
+
   const content = (
     <div
       data-variant-picker="1"
       onMouseDown={e=>e.preventDefault()}
       style={{
         position:'fixed', top, left, zIndex:99999,
-        background:'#ffffff',
-        border:'1px solid #e2e8f0',
-        borderRadius:8,
-        boxShadow:'0 10px 30px rgba(15,23,42,.12), 0 2px 8px rgba(15,23,42,.06)',
-        minWidth:548,
-        maxWidth:620,
+        background:'var(--bg-panel, #FDFAF2)',
+        border:'1px solid var(--border, #e2d6c4)',
+        borderRadius:10,
+        boxShadow:'0 12px 36px rgba(45,31,21,.14), 0 2px 8px rgba(45,31,21,.08)',
+        minWidth:580,
+        maxWidth:660,
         maxHeight:340,
         overflow:'hidden',
         display:'flex',
         flexDirection:'column',
-        fontFamily:'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+        fontFamily:"'Source Sans 3', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
         fontSize:13,
-        color:'#0f172a',
+        color:'var(--fg-primary, #2D1F15)',
       }}
     >
-      {/* Header — flat, one line, readable; columns align with rows below */}
       <div style={{
         display:'grid',
-        gridTemplateColumns:'72px 64px 72px 52px 56px 72px 72px',
-        columnGap:10, alignItems:'center',
-        padding:'7px 14px',
-        background:'#f8fafc',
-        borderBottom:'1px solid #e2e8f0',
+        gridTemplateColumns:cols,
+        columnGap:8, alignItems:'center',
+        padding:'8px 16px',
+        background:'var(--bg-muted, #F0EAE0)',
+        borderBottom:'1px solid var(--border, #e2d6c4)',
         flexShrink:0,
-        fontSize:10, fontWeight:700, letterSpacing:.6,
-        color:'#64748b', textTransform:'uppercase',
+        fontSize:10, fontWeight:700, letterSpacing:.8,
+        color:'var(--fg-tertiary, #8C7B6B)', textTransform:'uppercase',
       }}>
         <span>Art#</span>
         <span>Size</span>
         <span style={{textAlign:'right'}}>Rate ₹</span>
         <span style={{textAlign:'right'}}>P/Box</span>
-        <span style={{textAlign:'right'}}>Margin</span>
+        <span style={{textAlign:'center'}}>Margin%</span>
         <span style={{textAlign:'right'}}>Sale ₹</span>
         <span style={{textAlign:'right'}}>Stock</span>
       </div>
 
-      {/* Secondary header — match count + hint */}
       <div style={{
         display:'flex', alignItems:'center', justifyContent:'space-between',
-        padding:'4px 14px',
-        background:'#fafbff',
-        borderBottom:'1px solid #eef2ff',
+        padding:'5px 16px',
+        background:'var(--accent-bg, rgba(177,71,47,.08))',
+        borderBottom:'1px solid var(--border-subtle, #ebe3d7)',
         flexShrink:0,
       }}>
-        <span style={{fontSize:11, fontWeight:600, color:'#4f46e5'}}>
+        <span style={{fontSize:11.5, fontWeight:700, color:'var(--accent, #B1472F)'}}>
           {options.length} match{options.length!==1?'es':''}{hintText?` · ${hintText}`:''}
         </span>
-        <span style={{fontSize:10, color:'#94a3b8', letterSpacing:.2}}>↓ select · ↵ pick · esc skip</span>
+        <span style={{fontSize:10, color:'var(--fg-tertiary, #8C7B6B)', letterSpacing:.2}}>↓ select · ↵ pick · esc skip</span>
       </div>
 
-      {/* Rows — columns line up with the form fields */}
       <div style={{overflowY:'auto', flex:1}}>
         {options.map((v,i)=>{
           const stock     = parseFloat(v.current_stock||0);
-          const stockColor= stock<=0 ? '#ef4444' : stock<=5 ? '#f59e0b' : '#10b981';
-          const stockBg   = stock<=0 ? '#fef2f2' : stock<=5 ? '#fffbeb' : '#f0fdf4';
+          const stockColor= stock<=0 ? 'var(--danger, #B1472F)' : stock<=5 ? 'var(--warning, #B8923C)' : 'var(--success, #7A9660)';
+          const stockBg   = stock<=0 ? 'var(--danger-bg, rgba(177,71,47,.10))' : stock<=5 ? 'var(--warning-bg, rgba(184,146,60,.10))' : 'var(--success-bg, rgba(122,150,96,.10))';
           const isSel     = i===selectedIdx;
           const buy       = parseFloat(v.purchase_rate||0);
           const sell      = parseFloat(v.sale_rate||0);
-          const margin    = parseFloat(v.margin_percentage||0);
+          const marginStored = parseFloat(v.margin_percentage||0);
+          const margin    = marginStored || (buy > 0 ? ((sell - buy) / buy) * 100 : 0);
           const qpb       = parseFloat(v.quantity_per_box||1)||1;
           return(
             <div key={v.product_id}
@@ -147,50 +153,45 @@ function VariantPickerDropdown({ options, selectedIdx, onPick, top, left, rateFi
               onClick={()=>onPick(v)}
               style={{
                 display:'grid',
-                gridTemplateColumns:'72px 64px 72px 52px 56px 72px 72px',
-                columnGap:10, alignItems:'center',
-                padding:'8px 14px',
+                gridTemplateColumns:cols,
+                columnGap:8, alignItems:'center',
+                padding:'9px 16px',
                 cursor:'pointer',
-                background: isSel ? '#eef2ff' : '#ffffff',
-                borderLeft: isSel ? '3px solid #4f46e5' : '3px solid transparent',
-                borderBottom:'1px solid #f1f5f9',
+                background: isSel ? 'var(--accent-bg, rgba(177,71,47,.10))' : 'var(--bg-panel, #FDFAF2)',
+                borderLeft: isSel ? '3px solid var(--accent, #B1472F)' : '3px solid transparent',
+                borderBottom:'1px solid var(--border-subtle, #ebe3d7)',
                 fontVariantNumeric:'tabular-nums',
+                transition:'background .1s',
               }}
             >
-              {/* Art# */}
               <span style={{
-                fontWeight:600, fontSize:13, color:'#0f172a',
+                fontWeight:700, fontSize:13, color:'var(--fg-primary, #2D1F15)',
                 whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
               }}>{v.article_number || '—'}</span>
 
-              {/* Size */}
-              <span style={{fontSize:12, color:'#475569'}}>{v.size_value || '—'}</span>
+              <span style={{fontSize:12.5, fontWeight:600, color:'var(--fg-secondary, #5C4D3C)'}}>{v.size_value || '—'}</span>
 
-              {/* Rate ₹ */}
-              <span style={{fontSize:13, fontWeight:600, color:'#0f172a', textAlign:'right'}}>
+              <span style={{fontSize:13, fontWeight:700, color:'var(--fg-primary, #2D1F15)', textAlign:'right'}}>
                 {buy.toFixed(0)}
               </span>
 
-              {/* P/Box */}
-              <span style={{fontSize:12, color:'#64748b', textAlign:'right'}}>{qpb}</span>
+              <span style={{fontSize:12.5, fontWeight:600, color:'var(--fg-tertiary, #8C7B6B)', textAlign:'right'}}>{qpb}</span>
 
-              {/* Margin% */}
               <span style={{
-                fontSize:11, fontWeight:600, color:'#b45309',
-                background:'#fef3c7', borderRadius:4, padding:'1px 6px',
-                textAlign:'center', justifySelf:'end',
+                fontSize:11.5, fontWeight:700, color:'var(--warning, #B8923C)',
+                background:'var(--warning-bg, rgba(184,146,60,.10))',
+                borderRadius:4, padding:'2px 8px',
+                textAlign:'center', justifySelf:'center',
               }}>{margin.toFixed(1)}%</span>
 
-              {/* Sale ₹ */}
-              <span style={{fontSize:13, fontWeight:600, color:'#7c3aed', textAlign:'right'}}>
+              <span style={{fontSize:13, fontWeight:700, color:'var(--accent, #B1472F)', textAlign:'right'}}>
                 {sell.toFixed(0)}
               </span>
 
-              {/* Stock */}
               <span style={{
                 display:'inline-flex', alignItems:'center', gap:4,
-                fontSize:11, fontWeight:600, color:stockColor,
-                background:stockBg, borderRadius:4, padding:'1px 6px',
+                fontSize:11.5, fontWeight:700, color:stockColor,
+                background:stockBg, borderRadius:4, padding:'2px 8px',
                 justifySelf:'end',
               }}>
                 <span style={{width:6, height:6, borderRadius:'50%', background:stockColor}}/>
@@ -203,7 +204,6 @@ function VariantPickerDropdown({ options, selectedIdx, onPick, top, left, rateFi
     </div>
   );
 
-  // Portal → renders directly in document.body, escaping all ancestor CSS constraints
   return ReactDOM.createPortal(content, document.body);
 }
 
@@ -250,6 +250,7 @@ export default function PurchaseBillForm() {
   const entryRef                                = useRef(entry);          // live mirror — avoids nested setEntry
   const showVariantPickerRef                    = useRef(false);          // guard for lookupProduct
   const skipNextLookupRef                       = useRef(false);          // set when user explicitly skips picker
+  const pickerBoundRef                          = useRef(false);          // true after an explicit picker pick — suppresses lookupProduct until entry resets
   // Guard against double-submit from rapid Ctrl+Enter / double-click. Without
   // this a second keystroke during the save round-trip creates a duplicate
   // purchase bill (duplicate stock inflow, supplier double-charged).
@@ -368,6 +369,7 @@ export default function PurchaseBillForm() {
   const paidInputRef = useRef(null);
   const [tblHeight, setTblHeight] = useState(300);
   const barcodeRef  = useRef(null);
+  const supplierRef = useRef(null);
   // Purchase flow is "category → product → details" (wholesale-buy style)
   // rather than sales' "scan barcode" POS flow. We focus categoryRef after
   // supplier pick AND after every addItem so the operator drops into the
@@ -437,7 +439,7 @@ export default function PurchaseBillForm() {
     justSelectedRef.current=false;
     if(!activeCatId){ setProdRawList([]); return; }
     let cancelled=false;
-    productAPI.search('',{category_id:activeCatId,name_only:'true'})
+    productAPI.search('',{category_id:activeCatId,name_only:'true',limit:500})
       .then(({data})=>{
         if(cancelled) return;
         setProdRawList(data.data||[]);
@@ -475,7 +477,7 @@ export default function PurchaseBillForm() {
       }).catch(() => {});
     }
     if (isEdit) loadBill(id);
-    else { form.setFieldsValue({bill_date:dayjs()}); setTimeout(()=>barcodeRef.current?.focus(),100); }
+    else { form.setFieldsValue({bill_date:dayjs()}); setTimeout(()=>supplierRef.current?.focus(),100); }
   }, [id]);
 
   const loadParties    = async()=>{ try{ const{data}=await partyAPI.getSuppliers({limit:1000}); setParties((data.data||[]).filter(p=>p.is_active!==false)); }catch(e){} };
@@ -571,7 +573,7 @@ export default function PurchaseBillForm() {
           quantity:parseFloat(it.quantity)||0,
           // parseFloat (not parseInt) — boxes can be fractional (0.5 metre, 2.5 kg).
           quantity_per_box:parseFloat(it.quantity_per_box)||1,
-          margin_percentage:parseFloat(it.margin_percentage)||0,
+          margin_percentage:deriveMg(it.margin_percentage, it.purchase_rate, it.sale_rate),
           sale_rate:parseFloat(it.sale_rate)||0,
           mrp:parseFloat(it.mrp)||0,
           hsn_code:it.hsn_code||'',
@@ -625,12 +627,23 @@ export default function PurchaseBillForm() {
     }));
   };
   const navTable=(e,ri,ci)=>{
-    if(e.key!=='ArrowUp'&&e.key!=='ArrowDown') return;
+    const isVert = e.key==='ArrowUp'||e.key==='ArrowDown';
+    // Horizontal arrows only navigate at cursor boundary so typing still works.
+    const inp = e.target;
+    const val = String(inp.value || '');
+    const pos = inp.selectionStart ?? 0;
+    const isLeft  = e.key==='ArrowLeft'  && (val.length===0 || pos===0);
+    const isRight = e.key==='ArrowRight' && (val.length===0 || pos>=val.length);
+    if(!isVert && !isLeft && !isRight) return;
     e.preventDefault();
-    const nr=e.key==='ArrowDown'?Math.min(ri+1,items.length-1):Math.max(ri-1,0);
-    if(nr===ri) return;
-    const cell=document.getElementById(`tc-${nr}-${ci}`);
-    if(cell){const inp=cell.querySelector('input');inp?.focus();inp?.select?.();}
+    let nr=ri, nc=ci;
+    if(e.key==='ArrowDown') nr=Math.min(ri+1,items.length-1);
+    else if(e.key==='ArrowUp') nr=Math.max(ri-1,0);
+    else if(isRight) nc=ci+1;
+    else if(isLeft) nc=Math.max(ci-1,0);
+    if(nr===ri&&nc===ci) return;
+    const cell=document.getElementById(`tc-${nr}-${nc}`);
+    if(cell){const inp2=cell.querySelector('input');inp2?.focus();inp2?.select?.();}
   };
   const validateItemBarcode=async(key,barcode)=>{
     if(!barcode) return;
@@ -642,13 +655,14 @@ export default function PurchaseBillForm() {
 
   const handleBarcodeScan=async(barcode)=>{
     if(!barcode) return;
+    pickerBoundRef.current = false; // barcode scan starts fresh binding
     try{
       const{data}=await productAPI.getByBarcode(barcode);
       setEntry(p=>({...p,barcode:data.barcode,product_id:data.product_id,
         category_id:data.category_id,category_name:data.Category?.category_name||'',
         product_name:data.product_name,size:data.size_value||'',article_number:data.article_number||'',
         purchase_rate:parseFloat(data.purchase_rate)||0,sale_rate:parseFloat(data.sale_rate)||0,
-        mrp:parseFloat(data.mrp)||0,margin_percentage:parseFloat(data.margin_percentage)||0,
+        mrp:parseFloat(data.mrp)||0,margin_percentage:deriveMg(data.margin_percentage, data.purchase_rate, data.sale_rate),
         hsn_code:data.hsn_code||'',gst_rate:parseFloat(data.gst_rate)||0,
         quantity_per_box:parseFloat(data.quantity_per_box)||1,quantity:1,
         is_batch_tracked:!!data.is_batch_tracked,
@@ -717,7 +731,7 @@ export default function PurchaseBillForm() {
       const reqId=++searchReqRef.current;
       setProductSearching(true);
       try{
-        const{data}=await productAPI.search(value,{name_only:'true',...(activeCatId?{category_id:activeCatId}:{})});
+        const{data}=await productAPI.search(value,{name_only:'true',limit:500,...(activeCatId?{category_id:activeCatId}:{})});
         if(reqId!==searchReqRef.current) return;
         setProdRawList(data.data||[]);
       }catch(e){ if(reqId===searchReqRef.current) setProdRawList([]); }
@@ -748,7 +762,7 @@ export default function PurchaseBillForm() {
         purchase_rate: parseFloat(p.purchase_rate) || 0,
         sale_rate: parseFloat(p.sale_rate) || 0,
         mrp: parseFloat(p.mrp) || 0,
-        margin_percentage: parseFloat(p.margin_percentage) || 0,
+        margin_percentage: deriveMg(p.margin_percentage, p.purchase_rate, p.sale_rate),
         hsn_code: p.hsn_code || '',
         gst_rate: parseFloat(p.gst_rate) || 0,
         quantity_per_box: parseFloat(p.quantity_per_box) || 1,
@@ -835,9 +849,10 @@ export default function PurchaseBillForm() {
     // master list", and the operator loses their typed line. Skip
     // entirely; the server resolver does the right thing.
     if (snap.product_mode === 'single' || globalProductMode === 'single') return;
-    // If the picker/barcode scan already bound a product, don't wipe it on a subsequent
-    // blur-triggered lookup just because the substring search missed the 200-row cap.
-    // We'll still run the match logic to pre-fill hints, but we protect the existing binding.
+    // If the user explicitly picked from the variant picker, the binding
+    // is authoritative — don't let a background lookup overwrite it.
+    // pickerBoundRef is cleared when the entry resets (addItem / form reset).
+    if (pickerBoundRef.current) return;
     setLookupLoading(true);
     try{
       // name_exact=true + limit 500 — same treatment as the variant picker's fetchFamily.
@@ -896,25 +911,19 @@ export default function PurchaseBillForm() {
         : priceMatches[0];
 
       if(fullMatch){
-        // Full match → existing product, use its barcode
+        // Full match → existing product — bind identity + metadata only.
+        // Pricing fields (purchase_rate, sale_rate, mrp, margin, hsn,
+        // gst, qpb) are NEVER overwritten here so the user's typed
+        // values are always respected. Pricing only comes from an
+        // explicit variant-picker pick (handleVariantPick), barcode
+        // scan, or product-dropdown selection — never from a silent
+        // background lookup.
         dlog('[lookup] full match found pid=', fullMatch.product_id, 'barcode=', fullMatch.barcode);
         setEntry(prev=>({...prev,
           product_id:fullMatch.product_id,
           barcode:fullMatch.barcode,
-          // Pre-fill rate hints only if user hasn't entered them yet
-          purchase_rate:rateEntered?prev.purchase_rate:parseFloat(fullMatch.purchase_rate)||0,
-          sale_rate:saleEntered?prev.sale_rate:parseFloat(fullMatch.sale_rate)||0,
-          mrp:prev.mrp||parseFloat(fullMatch.mrp)||0,
-          margin_percentage:prev.margin_percentage||parseFloat(fullMatch.margin_percentage)||0,
-          hsn_code:prev.hsn_code||fullMatch.hsn_code||'',
-          gst_rate:prev.gst_rate||parseFloat(fullMatch.gst_rate)||0,
-          quantity_per_box:qpbEntered?prev.quantity_per_box:parseFloat(fullMatch.quantity_per_box)||1,
           is_batch_tracked:!!fullMatch.is_batch_tracked,
           product_mode:fullMatch.product_mode||'variant',
-          // Color dimension — bind to the matched variant so the line
-          // can render the per-line color matrix. Without this, a
-          // multi-color product picked via variant lookup falls through
-          // to the items-table "—" cell.
           color_mode: fullMatch.color_mode || 'none',
           colors: (fullMatch.color_mode === 'multi' && Array.isArray(fullMatch.colors))
                   ? fullMatch.colors : [],
@@ -931,6 +940,8 @@ export default function PurchaseBillForm() {
 
   /* ── Variant picker handlers ─────────────────────────────────────────── */
   const handleVariantPick=useCallback((variant)=>{
+    skipNextLookupRef.current = true;
+    pickerBoundRef.current = true;        // lock out lookupProduct until entry resets
     setEntry(prev=>({...prev,
       product_id:variant.product_id,
       barcode:variant.barcode,
@@ -938,21 +949,22 @@ export default function PurchaseBillForm() {
       quantity_per_box:parseFloat(variant.quantity_per_box)||1,
       sale_rate:parseFloat(variant.sale_rate)||0,
       mrp:parseFloat(variant.mrp)||0,
-      margin_percentage:parseFloat(variant.margin_percentage)||0,
+      margin_percentage:deriveMg(variant.margin_percentage, variant.purchase_rate, variant.sale_rate),
       hsn_code:variant.hsn_code||'',
       gst_rate:parseFloat(variant.gst_rate)||0,
       is_batch_tracked:!!variant.is_batch_tracked,
       product_mode:variant.product_mode||'variant',
-      // Color dimension — propagate from the picked variant. Same as
-      // the other entry-fill paths; without this the items-table Color
-      // cell renders "—" for multi-color products picked through the
-      // inline variant picker.
       color_mode: variant.color_mode || 'none',
       color_id: null, color_name: '',
       colors: (variant.color_mode === 'multi' && Array.isArray(variant.colors)) ? variant.colors : [],
     }));
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
-    setTimeout(()=>{ qtyRef.current?.focus(); qtyRef.current?.select?.(); },50);
+    // Anchor-aware focus: article picker → Qty (next after Art#),
+    // rate picker → P/Box (next after Rate).
+    setTimeout(()=>{
+      const target = pickerAnchorRef.current === 'rate' ? qpbRef : qtyRef;
+      target.current?.focus(); target.current?.select?.();
+    },50);
   },[]);
 
   const handleVariantPickerDismiss=useCallback(()=>{
@@ -960,9 +972,10 @@ export default function PurchaseBillForm() {
     // User explicitly skipped — tell the next blur NOT to run lookupProduct
     // so their typed sale_rate/qty/p-box don't get auto-overwritten from a matched variant.
     skipNextLookupRef.current = true;
-    // Anchor-aware focus advance: article-picker → rate field; rate-picker → qty field
+    // Anchor-aware focus advance: article-picker → Qty (next after Art#),
+    // rate-picker → P/Box (next after Rate). Mirrors handleVariantPick.
     setTimeout(()=>{
-      const target = pickerAnchorRef.current === 'rate' ? qtyRef : rateRef;
+      const target = pickerAnchorRef.current === 'rate' ? qpbRef : qtyRef;
       target.current?.focus(); target.current?.select?.();
     },30);
   },[]);
@@ -999,13 +1012,16 @@ export default function PurchaseBillForm() {
     // When picker is visible, the global capture handler owns Up/Down/Enter/Esc/Tab.
     // Bail out here so we don't double-handle and desync state.
     if(showVariantPicker && (e.key==='ArrowUp'||e.key==='ArrowDown'||e.key==='Enter'||e.key==='Escape'||e.key==='Tab')) return;
-    // Numeric cells (idx 3..8) consume ArrowUp/Down for value-step;
-    // text + DatePicker cells (idx 0..2 + 9..12) let arrows walk
-    // between fields. Batch strip (Lot / Mfg / Exp / Notes) is the
-    // 9..12 range — explicit so a future re-order of the entry row
-    // doesn't accidentally make them numeric.
-    const isNum = idx >= 3 && idx <= 8;
-    if(e.key==='Enter'||e.key==='Tab'||(e.key==='ArrowDown'&&!isNum)){
+    // Cursor boundary for ArrowLeft/Right — only navigate when cursor
+    // is at the start (Left) or end (Right) of the value so normal
+    // text-cursor movement inside a field still works.
+    const inp = e.target;
+    const val = String(inp.value || '');
+    const pos = inp.selectionStart ?? 0;
+    const atStart = val.length === 0 || pos === 0;
+    const atEnd   = val.length === 0 || pos >= val.length;
+
+    if(e.key==='Enter'||e.key==='Tab'){
       e.preventDefault();
       if(LOOKUP_IDXS.has(idx)&&!showVariantPickerRef.current){
         if(skipNextLookupRef.current){ skipNextLookupRef.current = false; }
@@ -1021,7 +1037,12 @@ export default function PurchaseBillForm() {
       while (nextIdx < entryRefs.length && !entryRefs[nextIdx]?.current) nextIdx++;
       if (nextIdx >= entryRefs.length) addItem();
       else { entryRefs[nextIdx].current.focus(); entryRefs[nextIdx].current.select?.(); }
-    }else if(e.key==='ArrowUp'&&!isNum){
+    }else if(e.key==='ArrowDown'||(e.key==='ArrowRight'&&atEnd)){
+      e.preventDefault();
+      let nextIdx = idx + 1;
+      while (nextIdx < entryRefs.length && !entryRefs[nextIdx]?.current) nextIdx++;
+      if (nextIdx < entryRefs.length) { entryRefs[nextIdx].current.focus(); entryRefs[nextIdx].current.select?.(); }
+    }else if(e.key==='ArrowUp'||(e.key==='ArrowLeft'&&atStart)){
       e.preventDefault();
       // Symmetric skip-walk back through unmounted refs.
       let prevIdx = idx - 1;
@@ -1209,10 +1230,12 @@ export default function PurchaseBillForm() {
       message.warning(`Sale rate ₹${entry.sale_rate} is LOWER than purchase rate ₹${entry.purchase_rate}. Added — please verify.`);
     }
     const nextKey = nextKeyRef.current++;
-    setItems(prev=>[...prev,{...entry,barcode,key:nextKey,total_amount:+(entry.quantity*entry.purchase_rate).toFixed(2)}]);
+    const mg = deriveMg(entry.margin_percentage, entry.purchase_rate, entry.sale_rate);
+    setItems(prev=>[...prev,{...entry,barcode,key:nextKey,margin_percentage:mg,total_amount:+(entry.quantity*entry.purchase_rate).toFixed(2)}]);
     setEntry(EMPTY_ENTRY); setBarcodeError('');
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setPickerRateFilter(null); setPickerArticleFilter(null);
+    pickerBoundRef.current = false;       // new entry — allow lookups again
     invalidateFamilyCache(); // next lookup re-fetches fresh from DB (may include variants just saved)
     setActiveCatId(null); // triggers useEffect → clears prodRawList automatically
     // Focus the Category dropdown for the NEXT line item — purchase is a
@@ -1680,6 +1703,7 @@ export default function PurchaseBillForm() {
     setItems([]); setEntry(EMPTY_ENTRY); setBarcodeError('');
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setPickerRateFilter(null); setPickerArticleFilter(null);
+    pickerBoundRef.current = false;
     setActiveCatId(null);
     setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
     setRecalledDraftId(null);
@@ -2262,15 +2286,14 @@ export default function PurchaseBillForm() {
                     style as this Select) instead of supplier-bill-#. */}
                 <Form.Item name="supplier_id" noStyle
                   rules={[{ required: true, message: 'Select a supplier (use Cash for walk-in vendors)' }]}>
-                  <Select showSearch placeholder="Supplier (required — pick Cash for walk-in vendors)"
+                  <Select ref={supplierRef} showSearch placeholder="Supplier"
                     optionFilterProp="children" dropdownStyle={{minWidth:280}}
-                    // Purchase = wholesale-buy flow: after picking the
-                    // supplier, jump into the category dropdown so the
-                    // operator can start choosing what to buy. onSelect
-                    // (not onChange) so Form.Item's value binding stays
-                    // intact and we don't fire on the initial-load
+                    // After picking the supplier, jump to the barcode /
+                    // entry row so the operator can start adding items.
+                    // onSelect (not onChange) so Form.Item's value binding
+                    // stays intact and we don't fire on the initial-load
                     // hydration when editing an existing bill.
-                    onSelect={() => setTimeout(() => categoryRef.current?.focus(), 50)}>
+                    onSelect={() => setTimeout(() => barcodeRef.current?.focus(), 50)}>
                     {parties.map(p=><Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>)}
                   </Select>
                 </Form.Item>
@@ -2970,7 +2993,7 @@ export default function PurchaseBillForm() {
               quantity_per_box: parseFloat(p.quantity_per_box) || 1,
               mrp: parseFloat(p.mrp) || prev.mrp || 0,
               sale_rate: parseFloat(p.sale_rate) || prev.sale_rate || 0,
-              margin_percentage: parseFloat(p.margin_percentage) || prev.margin_percentage || 0,
+              margin_percentage: deriveMg(p.margin_percentage, p.purchase_rate, p.sale_rate) || prev.margin_percentage || 0,
               is_batch_tracked: !!p.is_batch_tracked,
               product_mode: p.product_mode || prev.product_mode || 'variant',
             }));

@@ -190,7 +190,24 @@ exports.updateBarcodeSettings = async (req, res) => {
   try {
     const settings = await BarcodeSettings.findByPk(1);
     if (!settings) return res.status(404).json({ error: 'Barcode settings not found' });
-    await settings.update(req.body);
+    // Ensure current_number is aligned with starting_number. The barcode
+    // generator reads current_number (not starting_number), so if the
+    // operator sets starting_number to 29112000 but current_number is 7,
+    // barcodes would stay at 00000008. Fix: whenever current_number is
+    // behind starting_number, snap it to starting_number − 1 so the next
+    // generated barcode equals starting_number.
+    const payload = { ...req.body };
+    const start = Number(payload.starting_number ?? settings.starting_number);
+    const cur   = Number(settings.current_number);
+    if (start > 0 && cur < start - 1) {
+      payload.current_number = start - 1;
+    }
+    // Also reset when starting_number explicitly changes (even if cur >= start,
+    // the operator clearly wants to restart from the new value).
+    if (payload.starting_number != null && Number(payload.starting_number) !== Number(settings.starting_number)) {
+      payload.current_number = Number(payload.starting_number) - 1;
+    }
+    await settings.update(payload);
     res.json({ data: settings });
   } catch (error) {
     respondWithError(res, error);

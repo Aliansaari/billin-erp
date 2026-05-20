@@ -26,6 +26,7 @@
   overflow: hidden;
   background: var(--bg-app);
 }
+.blist-page, .blist-page * { font-weight: bold !important; }
 
 .blist-hd {
   flex-shrink: 0;

@@ -1373,9 +1373,12 @@ exports.create = async (req, res) => {
     // so the recompute sees both the new sale and the new return rows.
     // Cash party (is_system_cash) bills are always fully paid at creation,
     // so reconcile + balance recompute would scan 10k+ bills for no change.
+    // Do NOT run reconcileBillsForParty on CREATE — it FIFO-allocates
+    // pre-existing unallocated payments against the new bill, which
+    // auto-settles it even when the user paid nothing. Reconciliation
+    // runs when payments are created/edited (paymentController).
     const isCashCustomer = !!(customer && customer.is_system_cash);
     if (billData.customer_id && !isCashCustomer) {
-      await reconcileBillsForParty(billData.customer_id, t);
       await recalculatePartyBalance(billData.customer_id, t);
     }
 

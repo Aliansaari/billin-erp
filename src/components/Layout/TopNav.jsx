@@ -166,6 +166,38 @@ export default function TopNav() {
 
   const avatarBg = roleColors[user?.role] || '#4F46E5';
 
+  // Alt+letter hints — maps each pill's menuConfig key to its Alt shortcut
+  // letter (from menuCatalog.js). Displayed as a small kbd badge on each
+  // pill so operators discover the keyboard path without reading docs.
+  const altHints = useMemo(() => ({
+    '/':               'H',
+    '/dashboard':      'D',
+    'sales-menu':      'S',
+    'purchase-menu':   'P',
+    'parties-menu':    'E',
+    'inventory-menu':  'I',
+    'bank-menu':       'B',
+    'accounts-menu':   'A',
+    'reports-menu':    'R',
+    '/settings/company': 'T',
+  }), []);
+
+  // Underline the Alt shortcut letter inside the label — standard Windows
+  // accelerator-key convention (like Tally, MS Office ribbon, etc.).
+  const hintLabel = (label, key) => {
+    const letter = altHints[key];
+    if (!letter) return label;
+    const idx = label.toLowerCase().indexOf(letter.toLowerCase());
+    if (idx === -1) return label;
+    return (
+      <>
+        {label.slice(0, idx)}
+        <span className="pill-hint-key">{label[idx]}</span>
+        {label.slice(idx + 1)}
+      </>
+    );
+  };
+
   // Render a single top-level entry. Entries with `children` open a dropdown
   // of sub-routes; leaf entries navigate directly.
   const renderItem = (item) => {
@@ -200,7 +232,7 @@ export default function TopNav() {
           data-shortcut-key={item.key}
         >
           <span className="pill-icon">{item.icon}</span>
-          <span className="pill-label">{item.label}</span>
+          <span className="pill-label">{hintLabel(item.label, item.key)}</span>
         </button>
       );
     }
@@ -215,7 +247,7 @@ export default function TopNav() {
         data-shortcut-key={item.key}
       >
         <span className="pill-icon">{item.icon}</span>
-        <span className="pill-label">{item.label}</span>
+        <span className="pill-label">{hintLabel(item.label, item.key)}</span>
       </button>
     );
   };

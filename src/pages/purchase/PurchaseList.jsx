@@ -10,7 +10,6 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, settingsAPI } from '../../api';
-import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
@@ -164,29 +163,15 @@ function Ring({ pct, tone = 'ok' }) {
 
 // ── Main list ──────────────────────────────────────────────────────────────────
 export default function PurchaseList() {
-  const { fyStart, fyEnd } = useFinancialYear();
   const [searchInput, setSearchInput] = useState('');
   const today = dayjs().format('YYYY-MM-DD');
   const [filters, setFilters] = useState({ search: '', payment_status: null, from_date: today, to_date: today });
-  const prevDatesRef = useRef(null);
   useEffect(() => {
     const t = setTimeout(() => {
-      setFilters(f => {
-        if (f.search === searchInput) return f;
-        if (searchInput && !f.search) {
-          prevDatesRef.current = { from_date: f.from_date, to_date: f.to_date };
-          return { ...f, search: searchInput, from_date: fyStart, to_date: fyEnd };
-        }
-        if (!searchInput && f.search) {
-          const prev = prevDatesRef.current || { from_date: today, to_date: today };
-          prevDatesRef.current = null;
-          return { ...f, search: '', ...prev };
-        }
-        return { ...f, search: searchInput };
-      });
+      setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });
     }, 250);
     return () => clearTimeout(t);
-  }, [searchInput, fyStart, fyEnd, today]);
+  }, [searchInput]);
 
   const [viewBill, setViewBill]     = useState(null);
   const [barcodeModal, setBarcodeModal] = useState({ visible: false, bill: null });

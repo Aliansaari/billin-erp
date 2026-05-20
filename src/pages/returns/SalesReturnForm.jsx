@@ -15,6 +15,7 @@ import { useDatePopup } from '../../components/keyboard/DatePopup';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import confirmPrint from '../../utils/confirmPrint';
 import './return-form.css';
+import '../sales/sales-bill-form.css';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
@@ -108,6 +109,7 @@ export default function SalesReturnForm() {
   const barcodeRef      = useRef(null);
   const prodRef         = useRef(null);
   const sizeRef         = useRef(null);
+  const artRef          = useRef(null);
   const rateRef         = useRef(null);
   const qtyRef          = useRef(null);
   const discRef         = useRef(null);
@@ -117,7 +119,10 @@ export default function SalesReturnForm() {
   // F6 = Jump to Refund ₹ input — attached to the InputNumber below.
   const refundInputRef  = useRef(null);
   const [tblHeight, setTblHeight] = useState(300);
-  const eRefs = [prodRef, sizeRef, rateRef, qtyRef, discRef, gstRef];
+  // Tab/Enter/ArrowDown walk this array left → right. Order mirrors the
+  // visual entry-row order: Product → Size → Art# → Qty → Rate → Disc% →
+  // GST% → (+ADD via addItem fall-through at the end of `eKey`).
+  const eRefs = [prodRef, sizeRef, artRef, qtyRef, rateRef, discRef, gstRef];
 
   useLayoutEffect(() => {
     const el = tableWrapRef.current;
@@ -241,12 +246,22 @@ export default function SalesReturnForm() {
   };
 
   const navTbl = (e, ri, ci) => {
-    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    const isVert = e.key === 'ArrowUp' || e.key === 'ArrowDown';
+    const inp = e.target;
+    const val = String(inp.value || '');
+    const pos = inp.selectionStart ?? 0;
+    const isLeft  = e.key === 'ArrowLeft'  && (val.length === 0 || pos === 0);
+    const isRight = e.key === 'ArrowRight' && (val.length === 0 || pos >= val.length);
+    if (!isVert && !isLeft && !isRight) return;
     e.preventDefault();
-    const nr = e.key === 'ArrowDown' ? Math.min(ri + 1, items.length - 1) : Math.max(ri - 1, 0);
-    if (nr === ri) return;
-    const cell = document.getElementById(`sc-${nr}-${ci}`);
-    if (cell) { const inp = cell.querySelector('input'); inp?.focus(); inp?.select?.(); }
+    let nr = ri, nc = ci;
+    if (e.key === 'ArrowDown') nr = Math.min(ri + 1, items.length - 1);
+    else if (e.key === 'ArrowUp') nr = Math.max(ri - 1, 0);
+    else if (isRight) nc = ci + 1;
+    else if (isLeft)  nc = Math.max(ci - 1, 0);
+    if (nr === ri && nc === ci) return;
+    const cell = document.getElementById(`sc-${nr}-${nc}`);
+    if (cell) { const inp2 = cell.querySelector('input'); inp2?.focus(); inp2?.select?.(); }
   };
 
   const handleScan = async (barcode) => {
@@ -827,68 +842,89 @@ export default function SalesReturnForm() {
             )}
 
             {returnMode === 'Items' ? (
-              <div className="rtn-top-row-2">
-                <div className="rtn-field">
-                  <Input ref={barcodeRef} value={entry.barcode} placeholder="Barcode / scan"
-                    onChange={(e) => setEntry((p) => ({ ...p, barcode: e.target.value }))}
-                    onPressEnter={(e) => { const val = e.target.value.trim(); if (val) { e.target.value = ''; handleScan(val); } }}
-                    onKeyDown={(e) => { if (e.key === 'ArrowDown') { e.preventDefault(); prodRef.current?.focus(); } }}/>
-                </div>
-                <div className="rtn-field">
-                  <Select value={activeCatId} placeholder="Category" showSearch
-                    filterOption={(input, opt) => !input || opt.children.toLowerCase().includes(input.toLowerCase())}
-                    allowClear notFoundContent={null} dropdownMatchSelectWidth={300}
-                    onChange={(v, opt) => {
-                      justSelectedRef.current = false;
-                      setActiveCatId(v || null);
-                      setEntry((p) => ({ ...p, category_id: v || null, category_name: opt?.children || '', product_name: '', product_id: null }));
-                    }}>
-                    {cats.map((c) => <Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
-                  </Select>
-                </div>
-                <div className="rtn-field">
-                  <Select key={activeCatId ?? 'no-cat'} ref={prodRef}
-                    showSearch filterOption={false} optionLabelProp="label"
-                    value={entry.product_id || undefined}
-                    open={prodOpen}
-                    onDropdownVisibleChange={(v) => setProdOpen(v)}
-                    onSearch={(v) => { if (v) setProdOpen(true); handleProdSearch(v); }}
-                    onSelect={(val, opt) => { setProdOpen(false); handleProdSel(val, opt); }}
-                    onFocus={() => {
-                      if (justSelectedRef.current) {
-                        justSelectedRef.current = false;
-                        requestAnimationFrame(() => { prodRef.current?.blur(); qtyRef.current?.focus(); });
-                      }
-                    }}
-                    onClear={() => { setProdOpen(false); setEntry((p) => ({ ...p, product_id: null, product_name: '' })); }}
-                    allowClear placeholder="Product name" notFoundContent={null}
-                    listHeight={320} dropdownMatchSelectWidth={460}>
-                    {prodOpts.map((p) => (
-                      <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-                          <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg-primary)' }}>{p.product_name}</span>
-                          <span style={{ color: 'var(--rtn-accent, #B91C1C)', fontWeight: 700, fontSize: 12 }}>₹{parseFloat(p.sale_rate || 0).toFixed(2)}</span>
-                        </div>
-                      </Select.Option>
-                    ))}
-                  </Select>
-                </div>
-                {[
-                  { l: 'Size',   ref: sizeRef, f: 'size',                v: entry.size,                            i: 1, t: 'txt' },
-                  { l: 'Rate ₹', ref: rateRef, f: 'rate',                v: entry.rate || undefined,               i: 2, t: 'num', min: 0 },
-                  { l: 'Qty',    ref: qtyRef,  f: 'quantity',            v: entry.quantity || undefined,           i: 3, t: 'num', min: 0 },
-                  { l: 'Disc%',  ref: discRef, f: 'discount_percentage', v: entry.discount_percentage || undefined, i: 4, t: 'num', min: 0 },
-                  { l: 'GST%',   ref: gstRef,  f: 'gst_rate',            v: entry.gst_rate || undefined,           i: 5, t: 'num', min: 0 },
-                ].map(({ l, ref, f, v, i, t, min }) => (
-                  <div key={f} className="rtn-field">
-                    {t === 'txt'
-                      ? <Input ref={ref} value={v} placeholder={l} onChange={(e) => ue(f, e.target.value)} onKeyDown={(e) => eKey(e, i)}/>
-                      : <InputNumber keyboard={false} ref={ref} value={v} style={{ width: '100%' }} min={min} placeholder={l}
-                          onChange={(vv) => ue(f, vv || 0)} onKeyDown={(e) => eKey(e, i)}/>
-                    }
+              <div className="sbf-entry-ledger">
+                <div className="sbf-entry-grid">
+                  <div className="sbf-cell barcode">
+                    <div className="sbf-cell-lbl">Barcode / Scan</div>
+                    <Input ref={barcodeRef} value={entry.barcode} placeholder=""
+                      onChange={(e) => setEntry((p) => ({ ...p, barcode: e.target.value }))}
+                      onPressEnter={(e) => { const val = e.target.value.trim(); if (val) { e.target.value = ''; handleScan(val); } }}
+                      onKeyDown={(e) => { if (e.key === 'ArrowDown') { e.preventDefault(); prodRef.current?.focus(); } }}/>
                   </div>
-                ))}
-                <button onClick={addItem} className="rtn-add-btn">+ ADD</button>
+                  <div className="sbf-cell has-arrow">
+                    <div className="sbf-cell-lbl">Category</div>
+                    <Select value={activeCatId} showSearch
+                      filterOption={(input, opt) => !input || opt.children.toLowerCase().includes(input.toLowerCase())}
+                      allowClear notFoundContent={null} dropdownMatchSelectWidth={300}
+                      onChange={(v, opt) => {
+                        justSelectedRef.current = false;
+                        setActiveCatId(v || null);
+                        setEntry((p) => ({ ...p, category_id: v || null, category_name: opt?.children || '', product_name: '', product_id: null }));
+                      }}>
+                      {cats.map((c) => <Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
+                    </Select>
+                  </div>
+                  <div className="sbf-cell product has-arrow">
+                    <div className="sbf-cell-lbl">Product</div>
+                    <Select key={activeCatId ?? 'no-cat'} ref={prodRef}
+                      showSearch filterOption={false} optionLabelProp="label"
+                      value={entry.product_id || undefined}
+                      open={prodOpen}
+                      onDropdownVisibleChange={(v) => setProdOpen(v)}
+                      onSearch={(v) => { if (v) setProdOpen(true); handleProdSearch(v); }}
+                      onSelect={(val, opt) => { setProdOpen(false); handleProdSel(val, opt); }}
+                      onFocus={() => {
+                        if (justSelectedRef.current) {
+                          justSelectedRef.current = false;
+                          requestAnimationFrame(() => { prodRef.current?.blur(); qtyRef.current?.focus(); });
+                        }
+                      }}
+                      onClear={() => { setProdOpen(false); setEntry((p) => ({ ...p, product_id: null, product_name: '' })); }}
+                      allowClear placeholder="" notFoundContent={null}
+                      listHeight={320} dropdownMatchSelectWidth={460}>
+                      {prodOpts.map((p) => (
+                        <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                            <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg-primary)' }}>{p.product_name}</span>
+                            <span style={{ color: 'var(--rtn-accent, #B91C1C)', fontWeight: 700, fontSize: 12 }}>₹{parseFloat(p.sale_rate || 0).toFixed(2)}</span>
+                          </div>
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="sbf-cell">
+                    <div className="sbf-cell-lbl">Size</div>
+                    <Input ref={sizeRef} value={entry.size} placeholder=""
+                      onChange={(e) => ue('size', e.target.value)} onKeyDown={(e) => eKey(e, 1)}/>
+                  </div>
+                  {[
+                    { l: 'Art #',  ref: artRef,  f: 'article_number',      v: entry.article_number,                  i: 2, t: 'txt' },
+                    { l: 'Qty',    ref: qtyRef,  f: 'quantity',            v: entry.quantity || undefined,           i: 3, t: 'num', min: 0 },
+                    { l: 'Rate ₹', ref: rateRef, f: 'rate',                v: entry.rate || undefined,               i: 4, t: 'num', min: 0 },
+                    { l: 'Disc%',  ref: discRef, f: 'discount_percentage', v: entry.discount_percentage || undefined, i: 5, t: 'num', min: 0 },
+                    { l: 'GST%',   ref: gstRef,  f: 'gst_rate',            v: entry.gst_rate || undefined,           i: 6, t: 'num', min: 0 },
+                  ].map(({ l, ref, f, v, i, t, min }) => (
+                    <div key={f} className={`sbf-cell ${t === 'num' ? 'numeric' : ''}`}>
+                      <div className="sbf-cell-lbl">{l}</div>
+                      {t === 'txt'
+                        ? <Input ref={ref} value={v} placeholder=""
+                            onChange={(e) => ue(f, e.target.value)} onKeyDown={(e) => eKey(e, i)}/>
+                        : <InputNumber keyboard={false} ref={ref} value={v} style={{ width: '100%' }} min={min} placeholder=""
+                            onChange={(vv) => ue(f, vv || 0)} onKeyDown={(e) => eKey(e, i)}/>
+                      }
+                    </div>
+                  ))}
+                  <div className="sbf-cell has-arrow">
+                    <div className="sbf-cell-lbl">Unit</div>
+                    <Select value={entry.unit_type || 'Pcs'} placeholder=""
+                      onChange={(v) => ue('unit_type', v)}>
+                      {UNITS.map((u) => <Select.Option key={u} value={u}>{u}</Select.Option>)}
+                    </Select>
+                  </div>
+                  <button onClick={addItem} className="sbf-cell add" type="button">
+                    <span className="sbf-cell-add-text">ADD</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="rtn-amount-box">
