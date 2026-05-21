@@ -28,8 +28,11 @@ module.exports = async function detect(ctx) {
       due_date:       { [Op.in]: [today, tomorrow] },
       balance_amount: { [Op.gt]: 0 },
       is_cancelled:   { [Op.or]: [false, null] },
+      // Exclude Cash-party bills — cash purchases are paid at the
+      // counter so any balance > 0 is a data import artefact.
+      '$supplier.is_system_cash$': { [Op.or]: [false, null] },
     },
-    include: [{ model: Party, as: 'supplier', attributes: ['party_name'] }],
+    include: [{ model: Party, as: 'supplier', attributes: ['party_name', 'is_system_cash'] }],
     order: [['due_date', 'ASC']],
     limit: 20,
   });

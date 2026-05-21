@@ -33,8 +33,13 @@ module.exports = async function detect(/* ctx */) {
       bill_date:       { [Op.lt]: cutoff },
       balance_amount:  { [Op.gt]: 0 },
       is_cancelled:    { [Op.or]: [false, null] },
+      // Exclude Cash-party bills — cash sales are paid at the counter
+      // and shouldn't appear in the overdue list. Any Cash bill with
+      // balance > 0 is a data anomaly (import artefact), not a real
+      // receivable the operator needs to chase.
+      '$customer.is_system_cash$': { [Op.or]: [false, null] },
     },
-    include: [{ model: Party, as: 'customer', attributes: ['party_name'] }],
+    include: [{ model: Party, as: 'customer', attributes: ['party_name', 'is_system_cash'] }],
     order: [['bill_date', 'ASC']],   // oldest first
     limit: 25,
   });

@@ -2978,6 +2978,40 @@ async function startServer() {
       console.log(`[migrations] skipped in ${Date.now() - migStart}ms`);
     } // end migration gate
 
+    // ── Data repair: Cash-party bills should never carry a balance ────
+    // Cash sales/purchases are paid at the counter.  Imported data may
+    // have balance_amount > 0 for Cash-party bills — fix them silently.
+    // This runs every boot but touches zero rows on a clean DB, <50 ms.
+    try {
+      const [, fixedSales] = await sequelize.query(`
+        UPDATE sales_bills sb
+        SET    balance_amount  = 0,
+               paid_amount     = sb.total_amount,
+               payment_status  = 'Paid'
+        FROM   parties p
+        WHERE  p.party_id       = sb.customer_id
+          AND  p.is_system_cash = true
+          AND  sb.balance_amount > 0
+      `);
+      const [, fixedPurchases] = await sequelize.query(`
+        UPDATE purchase_bills pb
+        SET    balance_amount  = 0,
+               paid_amount     = pb.total_amount,
+               payment_status  = 'Paid'
+        FROM   parties p
+        WHERE  p.party_id       = pb.supplier_id
+          AND  p.is_system_cash = true
+          AND  pb.balance_amount > 0
+      `);
+      const salesCount    = fixedSales?.rowCount   || 0;
+      const purchaseCount = fixedPurchases?.rowCount || 0;
+      if (salesCount || purchaseCount) {
+        console.log(`[data-repair] Fixed Cash-party bills — sales: ${salesCount}, purchases: ${purchaseCount}`);
+      }
+    } catch (e) {
+      console.error('[data-repair] Cash-party bill fix failed:', e.message);
+    }
+
     console.log(`[perf] server total startup: ${Date.now() - serverBootStart}ms`);
     const httpServer = app.listen(PORT, '0.0.0.0', () => {
       const lan = getLanAddresses();
