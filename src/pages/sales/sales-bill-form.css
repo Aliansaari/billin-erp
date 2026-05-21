@@ -810,7 +810,7 @@
   text-transform: uppercase !important;
   letter-spacing: 0.5px !important;
   padding: 10px 8px !important;
-  border-bottom: 1px solid var(--border) !important;
+  border-bottom: 2px solid var(--accent) !important;
   border-right: 1px solid var(--border) !important;
 }
 .sbf-tbl-wrap .ant-table-thead > tr > th:last-child { border-right: none !important; }

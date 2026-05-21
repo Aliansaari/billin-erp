@@ -168,7 +168,7 @@ const ALT_HINTS = {
   'inventory-menu':  'I',
   'bank-menu':       'B',
   'accounts-menu':   'A',
-  'reports-menu':    'R',
+  '/reports':        'R',
   '/settings/company': 'T',
 };
 

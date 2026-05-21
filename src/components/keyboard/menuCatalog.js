@@ -145,7 +145,7 @@ export const ALT_MENUS = {
   // takes over once the user is there.
   KeyR: {
     title: 'Reports',
-    anchorKey: 'reports-menu',
+    anchorKey: '/reports',
     items: [
       { letter: 'B', label: 'Browse Reports', sub: 'Reports hub', route: '/reports' },
       { letter: 'D', label: 'Day Book',       sub: 'All vouchers · today', route: '/reports/day-book' },

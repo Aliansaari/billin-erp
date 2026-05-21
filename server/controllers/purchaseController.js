@@ -299,13 +299,13 @@ exports.getAll = async (req, res) => {
     if (supplier_id) where.supplier_id = supplier_id;
     if (payment_status) where.payment_status = payment_status;
     if (search) {
-      // Audit P3-D — escape LIKE wildcards.
       const s = escapeLike(search);
+      const Sequelize = require('sequelize');
       where[Op.or] = [
         { bill_number: { [Op.iLike]: `%${s}%` } },
         { supplier_bill_number: { [Op.iLike]: `%${s}%` } },
-        { '$supplier.party_name$': { [Op.iLike]: `%${s}%` } },
-        { '$supplier.mobile_1$':   { [Op.iLike]: `%${s}%` } },
+        Sequelize.where(Sequelize.col('supplier.party_name'), { [Op.iLike]: `%${s}%` }),
+        Sequelize.where(Sequelize.col('supplier.mobile_1'),   { [Op.iLike]: `%${s}%` }),
       ];
     }
 

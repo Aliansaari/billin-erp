@@ -414,6 +414,8 @@ if (distExists) {
 // Database sync and start server
 async function startServer() {
   try {
+    const serverBootStart = Date.now();
+
     // First-run gate: if the setup wizard hasn't completed yet, skip
     // every DB-dependent boot step (companies bootstrap, sequelize sync,
     // schema migrations) and just listen on the port. The frontend will
@@ -437,8 +439,10 @@ async function startServer() {
     // the next boot we dump every DB BEFORE running schema migrations
     // so a botched update can be rolled back. No-op on fresh installs
     // (no setup config yet) and on normal boots (no marker).
+    let wasJustUpdated = false;
     try {
-      await require('./services/preUpdateBackup').runIfNeeded();
+      const backupResult = await require('./services/preUpdateBackup').runIfNeeded();
+      if (backupResult && backupResult.ran) wasJustUpdated = true;
     } catch (e) {
       console.error('FATAL: pre-update backup failed; refusing to migrate.', e.message);
       console.error('Restore the previous app version, fix the underlying issue, and try again.');
@@ -451,16 +455,49 @@ async function startServer() {
     // "primary company" if it hasn't been registered yet. Idempotent —
     // safe on every boot. Throws if the master DB can't be reached, in
     // which case startup aborts so we don't run half-initialised.
+    const bootstrapStart = Date.now();
     const { runCompanyBootstrap } = require('./services/companyBootstrap');
     await runCompanyBootstrap();
-    console.log('Multi-company bootstrap complete');
+    console.log(`Multi-company bootstrap complete (${Date.now() - bootstrapStart}ms)`);
 
+    const authStart = Date.now();
     await sequelize.authenticate();
-    console.log('Database connected successfully');
+    console.log(`Database connected successfully (${Date.now() - authStart}ms)`);
 
     // Sync models (creates tables if they don't exist)
+    const syncStart = Date.now();
     await sequelize.sync({ alter: false });
-    console.log('Database tables synced');
+    console.log(`Database tables synced (${Date.now() - syncStart}ms)`);
+
+    // ── Migration skip optimisation ─────────────────────────────────────
+    // Every migration block below is idempotent (IF NOT EXISTS / guarded).
+    // On a normal boot where the app version hasn't changed since the last
+    // successful run, skip them entirely — saves 10-30 s of sequential SQL
+    // round-trips on every startup.
+    //
+    // Bump MIGRATION_VERSION whenever you add/change any migration below.
+    // A simple integer counter works: just increment it.
+    const MIGRATION_VERSION = '1';
+    const migVersionFile = path.join(os.homedir(), '.billing-erp', 'migration-version.txt');
+    let skipMigrations = false;
+    try {
+      if (fs.existsSync(migVersionFile)) {
+        const stored = fs.readFileSync(migVersionFile, 'utf8').trim();
+        if (stored === MIGRATION_VERSION && !process.env.FORCE_MIGRATE && !wasJustUpdated) {
+          skipMigrations = true;
+          console.log(`[migrations] version ${MIGRATION_VERSION} already applied — skipping`);
+        } else {
+          console.log(`[migrations] version changed ${stored} → ${MIGRATION_VERSION} — running all migrations`);
+        }
+      } else {
+        console.log('[migrations] no version file — running migrations for first time');
+      }
+    } catch {
+      console.log('[migrations] could not read version file — running migrations');
+    }
+
+    const migStart = Date.now();
+    if (!skipMigrations) {
 
     // ── Pre-migration: drop row-level UNIQUE on ledger_entries.entry_number ──
     // entry_number groups Dr/Cr legs of one voucher and MUST not be row-unique.
@@ -2926,6 +2963,22 @@ async function startServer() {
       console.error('[Balance repair] Error:', err.message);
     }
 
+    // ── Save migration version ──────────────────────────────────────────
+    try {
+      const migDir = path.join(os.homedir(), '.billing-erp');
+      if (!fs.existsSync(migDir)) fs.mkdirSync(migDir, { recursive: true });
+      fs.writeFileSync(migVersionFile, MIGRATION_VERSION, 'utf8');
+      console.log(`[migrations] version ${MIGRATION_VERSION} saved — next boot will skip`);
+    } catch (e) {
+      console.error('[migrations] could not save version file:', e.message);
+    }
+    console.log(`[migrations] completed in ${Date.now() - migStart}ms`);
+
+    } else {
+      console.log(`[migrations] skipped in ${Date.now() - migStart}ms`);
+    } // end migration gate
+
+    console.log(`[perf] server total startup: ${Date.now() - serverBootStart}ms`);
     const httpServer = app.listen(PORT, '0.0.0.0', () => {
       const lan = getLanAddresses();
       console.log('');

@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, SalesBillDraft, SalesReturnBill, SalesReturnBillItem, Party, Product, StockLedger, SystemSettings, Godown } = require('../models');
-const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber, splitBillWiseGst, isLegalGstSlab, gstSlabError, respondWithError } = require('../utils/helpers');
+const { generateBillNumber, roundOff, calculateGST, roundTo, sanitizePagination, safeTrailingNumber, escapeLike, splitBillWiseGst, isLegalGstSlab, gstSlabError, respondWithError } = require('../utils/helpers');
 const { writeStockLedgerReversal } = require('../utils/stockLedgerReversal');
 const idempotencyCache = require('../utils/idempotencyCache');
 const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
@@ -109,14 +109,17 @@ exports.getAll = async (req, res) => {
     if (search) {
       // Search across bill number AND the joined customer's name / mobile
       // so "ansari" or "98765" in the search box matches the bills the user
-      // expects. The $customer.field$ syntax tells Sequelize to reference
-      // the included Party association rather than the SalesBill column.
-      // Audit P3-D — escape LIKE wildcards in user-supplied search.
+      // expects. Use Sequelize.where + Sequelize.col for cross-table column
+      // references instead of the $nested.column$ shorthand — the shorthand
+      // can fail silently in findAndCountAll with subQuery:false + literal
+      // attributes because Sequelize's count sub-generator may not resolve
+      // the $ interpolation for the JOIN alias.
       const s = escapeLike(search);
+      const Sequelize = require('sequelize');
       where[Op.or] = [
         { bill_number: { [Op.iLike]: `%${s}%` } },
-        { '$customer.party_name$': { [Op.iLike]: `%${s}%` } },
-        { '$customer.mobile_1$':  { [Op.iLike]: `%${s}%` } },
+        Sequelize.where(Sequelize.col('customer.party_name'), { [Op.iLike]: `%${s}%` }),
+        Sequelize.where(Sequelize.col('customer.mobile_1'),   { [Op.iLike]: `%${s}%` }),
       ];
     }
 

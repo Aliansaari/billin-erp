@@ -341,11 +341,17 @@ export default function SalesList() {
   // summary aggregates for the full filtered set — KPIs and footer
   // totals stay accurate as the user scrolls because they read from
   // `summary`, not from the loaded chunks.
-  const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
+  const { rows, totalCount, summary, ensureChunk, loading, error, refresh } = useVirtualizedReport({
     fetcher: (params) => salesAPI.getAll(params),
     filters,
     chunkSize: 200,
   });
+  // Surface search/filter API errors as a toast so they don't silently
+  // swallow — the old data would stay on screen and look like "search
+  // is not working" when it was really a server-side SQL failure.
+  useEffect(() => {
+    if (error) message.error('Failed to load bills: ' + (error.response?.data?.error || error.message || 'Unknown error'));
+  }, [error]);
 
   // Drafts (held bills) — separate fetch from sales_bills, never affects
   // counts/totals. Modal opens on click of the Drafts pill.
@@ -852,6 +858,10 @@ export default function SalesList() {
           // F8 + primary F1 on the right — matches the convention used
           // by the bill forms and common accounting software (Esc on the left, primary
           // action on the right of the button group).
+          {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
           {
             id: 'edit', key: 'F2', label: 'Edit',
             disabled: isMulti || !single || singleCancelled,

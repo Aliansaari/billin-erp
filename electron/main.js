@@ -443,8 +443,134 @@ async function createWindow() {
   // from app.whenReady() after postgres + the API server are both up —
   // keeping this function lean so the window appears before any slow I/O.
   const loadingHtml = `<!doctype html><meta charset="utf-8"><title>Billing ERP</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0f172a;display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#e2e8f0}.wrap{text-align:center}.spinner{width:40px;height:40px;border:3px solid #334155;border-top-color:#22c55e;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto}.txt{margin-top:16px;font-size:14px;color:#64748b;letter-spacing:.3px}@keyframes spin{to{transform:rotate(360deg)}}</style>
-<body><div class="wrap"><div class="spinner"></div><div class="txt">Starting…</div></div></body>`;
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{
+  background:#0a0f1a;
+  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  color:#e2e8f0;
+  display:flex;align-items:center;justify-content:center;
+  /* subtle radial glow behind the logo */
+  background-image:
+    radial-gradient(ellipse 600px 400px at 50% 45%, rgba(34,197,94,.07) 0%, transparent 70%),
+    radial-gradient(ellipse 300px 300px at 50% 46%, rgba(34,197,94,.04) 0%, transparent 60%);
+}
+
+.splash{text-align:center;animation:fadeUp .8s ease-out both}
+
+/* ── thunderbolt icon ── */
+.icon-ring{
+  width:80px;height:80px;margin:0 auto 28px;
+  border-radius:22px;
+  background:linear-gradient(135deg,rgba(34,197,94,.15) 0%,rgba(34,197,94,.05) 100%);
+  border:1px solid rgba(34,197,94,.2);
+  display:flex;align-items:center;justify-content:center;
+  position:relative;
+}
+.icon-ring::before{
+  content:'';position:absolute;inset:-4px;border-radius:26px;
+  background:conic-gradient(from 0deg,transparent 0%,rgba(34,197,94,.3) 25%,transparent 50%);
+  animation:ringGlow 3s linear infinite;
+  mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1px));
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1px));
+}
+/* SVG thunderbolt */
+.bolt{width:36px;height:36px;filter:drop-shadow(0 0 12px rgba(34,197,94,.4))}
+
+/* ── brand text ── */
+.brand{font-size:28px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px}
+.brand span{
+  background:linear-gradient(135deg,#e2e8f0 0%,#94a3b8 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.tagline{font-size:13px;color:#475569;letter-spacing:.8px;text-transform:uppercase;margin-bottom:40px}
+
+/* ── progress bar ── */
+.progress-track{
+  width:220px;height:3px;margin:0 auto;border-radius:2px;
+  background:rgba(51,65,85,.5);overflow:hidden;
+}
+.progress-fill{
+  height:100%;width:0%;border-radius:2px;
+  background:linear-gradient(90deg,#22c55e,#4ade80);
+  animation:load 12s cubic-bezier(.4,.0,.2,1) forwards;
+  box-shadow:0 0 12px rgba(34,197,94,.4);
+}
+
+.status{
+  margin-top:16px;font-size:13px;color:#64748b;letter-spacing:.2px;
+  animation:pulse 2s ease-in-out infinite;
+}
+
+/* ── floating particles ── */
+.particles{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.p{
+  position:absolute;width:2px;height:2px;border-radius:50%;
+  background:rgba(34,197,94,.3);
+  animation:float linear infinite;
+}
+.p:nth-child(1){left:15%;animation-duration:18s;animation-delay:0s}
+.p:nth-child(2){left:35%;animation-duration:22s;animation-delay:2s;width:3px;height:3px;opacity:.5}
+.p:nth-child(3){left:55%;animation-duration:16s;animation-delay:4s}
+.p:nth-child(4){left:75%;animation-duration:20s;animation-delay:1s;width:2.5px;height:2.5px;opacity:.4}
+.p:nth-child(5){left:90%;animation-duration:24s;animation-delay:3s}
+.p:nth-child(6){left:5%;animation-duration:19s;animation-delay:5s;opacity:.3}
+.p:nth-child(7){left:45%;animation-duration:21s;animation-delay:6s;width:1.5px;height:1.5px}
+.p:nth-child(8){left:65%;animation-duration:17s;animation-delay:2.5s;opacity:.35}
+
+/* ── version badge ── */
+.ver{
+  position:fixed;bottom:20px;right:24px;
+  font-size:11px;color:#334155;letter-spacing:.5px;
+}
+
+@keyframes fadeUp{
+  from{opacity:0;transform:translateY(16px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@keyframes ringGlow{to{transform:rotate(360deg)}}
+@keyframes load{
+  0%{width:0%}
+  15%{width:18%}
+  40%{width:40%}
+  60%{width:58%}
+  80%{width:72%}
+  95%{width:88%}
+  100%{width:95%}
+}
+@keyframes pulse{
+  0%,100%{opacity:.7}
+  50%{opacity:1}
+}
+@keyframes float{
+  0%{transform:translateY(100vh) scale(0);opacity:0}
+  10%{opacity:1}
+  90%{opacity:1}
+  100%{transform:translateY(-10vh) scale(1);opacity:0}
+}
+</style>
+<body>
+  <div class="particles">
+    <div class="p"></div><div class="p"></div><div class="p"></div><div class="p"></div>
+    <div class="p"></div><div class="p"></div><div class="p"></div><div class="p"></div>
+  </div>
+  <div class="splash">
+    <div class="icon-ring">
+      <svg class="bolt" viewBox="0 0 24 24" fill="none">
+        <path d="M13 2L4.094 12.688c-.34.408-.51.612-.512.784a.5.5 0 00.185.397c.138.118.396.118.912.118H12l-1 8 8.906-10.688c.34-.408.51-.612.512-.784a.5.5 0 00-.185-.397c-.138-.118-.396-.118-.912-.118H12l1-8z"
+              fill="#22c55e" fill-opacity=".15" stroke="#22c55e" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="brand"><span>Billing ERP</span></div>
+    <div class="tagline">Business Management Suite</div>
+    <div class="progress-track"><div class="progress-fill"></div></div>
+    <div class="status">Preparing your workspace…</div>
+  </div>
+  <div class="ver">v1.0.0</div>
+</body>`;
   await mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(loadingHtml));
 
   // Diagnostic auto-open of DevTools is OFF in production. The
@@ -612,6 +738,8 @@ ipcMain.handle('shell:show-item', async (_ev, filePath) => {
 });
 
 app.whenReady().then(async () => {
+  const bootStart = Date.now();
+
   // ── 1. Show the window immediately ──────────────────────────────────
   // createWindow() renders a loading spinner and returns as soon as the
   // data: URL is painted. Postgres and the API server boot concurrently
@@ -621,6 +749,7 @@ app.whenReady().then(async () => {
   // async execFile, the event loop is free to deliver the did-finish-load
   // IPC that resolves that await, so the spinner appears almost instantly.
   createWindow();
+  console.log(`[perf] window created +${Date.now() - bootStart}ms`);
 
   // ── 2. Start embedded postgres (non-blocking) ────────────────────────
   // startEmbeddedPostgres now uses execFile + TCP polling instead of
@@ -628,14 +757,18 @@ app.whenReady().then(async () => {
   // time postgres is starting up (which can take 30-75 s on machines
   // where Windows Defender scans the binaries on first exec).
   try {
+    const pgStart = Date.now();
     const r = await startEmbeddedPostgres({ clientMode: CLIENT_MODE });
+    console.log(`[perf] postgres ready +${Date.now() - bootStart}ms (pg took ${Date.now() - pgStart}ms)`);
     console.log('[main] embedded postgres:', JSON.stringify(r));
   } catch (e) {
     console.error('[main] startEmbeddedPostgres threw (continuing):', e);
   }
 
   // ── 3. Boot the API server ───────────────────────────────────────────
+  const serverStart = Date.now();
   bootstrapServer();
+  console.log(`[perf] server bootstrap called +${Date.now() - bootStart}ms`);
 
   // ── 4. Navigate to the app once the server is reachable ─────────────
   // Only needed for packaged host builds; dev and CLIENT_MODE handle
@@ -664,6 +797,7 @@ app.whenReady().then(async () => {
     }
 
     const ok = await waitForServer(SERVER_URL);
+    console.log(`[perf] waitForServer done +${Date.now() - bootStart}ms (ok=${ok})`);
     if (!ok) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         const html = `<!doctype html><meta charset="utf-8"><title>Billing ERP — server unreachable</title>
@@ -690,8 +824,10 @@ app.whenReady().then(async () => {
       return;
     }
 
-    if (mainWindow && !mainWindow.isDestroyed())
+    if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(SERVER_URL);
+      console.log(`[perf] app loaded +${Date.now() - bootStart}ms — total boot time`);
+    }
   }
 });
 

@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
-const { Party, SalesBill, PurchaseBill, PaymentReceipt, SalesReturnBill, PurchaseReturnBill, SystemSettings } = require('../models');
+const { Party, SalesBill, PurchaseBill, PaymentReceipt, SalesReturnBill, PurchaseReturnBill, LedgerEntry, LedgerAccount, SystemSettings } = require('../models');
 const { reverseVoucher } = require('../services/ledgerPostingService');
 const { recalculatePartyBalance } = require('../utils/balanceHelper');
 const { sanitizePagination, escapeLike, respondWithError } = require('../utils/helpers');
@@ -456,15 +456,17 @@ exports.delete = async (req, res) => {
       return res.status(404).json({ error: 'Party not found' });
     }
 
-    const salesCount    = await SalesBill.count({ where: { customer_id: party.party_id }, transaction: t });
-    const purchaseCount = await PurchaseBill.count({ where: { supplier_id: party.party_id }, transaction: t });
-    const paymentCount  = await PaymentReceipt.count({ where: { party_id: party.party_id }, transaction: t });
-    const total = salesCount + purchaseCount + paymentCount;
+    const salesCount      = await SalesBill.count({ where: { customer_id: party.party_id }, transaction: t });
+    const purchaseCount   = await PurchaseBill.count({ where: { supplier_id: party.party_id }, transaction: t });
+    const paymentCount    = await PaymentReceipt.count({ where: { party_id: party.party_id }, transaction: t });
+    const sReturnCount    = await SalesReturnBill.count({ where: { customer_id: party.party_id }, transaction: t });
+    const pReturnCount    = await PurchaseReturnBill.count({ where: { supplier_id: party.party_id }, transaction: t });
+    const total = salesCount + purchaseCount + paymentCount + sReturnCount + pReturnCount;
 
     if (total > 0) {
       await t.rollback();
       return res.status(400).json({
-        error: `Cannot delete: this party has ${total} transaction(s) linked to them.`,
+        error: `Cannot delete: this party has ${total} transaction(s) linked to them. Deactivate it instead.`,
         canDeactivate: true,
         transactionCount: total,
       });
@@ -480,6 +482,28 @@ exports.delete = async (req, res) => {
         sourceId:   party.party_id,
         reason:     'Party deleted',
         userId:     req.user?.user_id || null,
+        transaction: t,
+      });
+    }
+
+    // Clear the party_id FK on any remaining ledger_entries (opening JV
+    // originals + their reversal mirrors). The RESTRICT constraint on
+    // ledger_entries_party_id_fkey blocks party.destroy() otherwise.
+    await LedgerEntry.update(
+      { party_id: null },
+      { where: { party_id: party.party_id }, transaction: t },
+    );
+
+    // Remove the auto-created LedgerAccount and its entries so the
+    // chart of accounts stays clean. ledger_id is NOT NULL on entries,
+    // so we must delete the entries first (RESTRICT FK), then the account.
+    if (party.ledger_account_id) {
+      await LedgerEntry.destroy({
+        where: { ledger_id: party.ledger_account_id },
+        transaction: t,
+      });
+      await LedgerAccount.destroy({
+        where: { ledger_id: party.ledger_account_id },
         transaction: t,
       });
     }

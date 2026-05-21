@@ -682,6 +682,10 @@ export default function SalesReturnList() {
           // Visual order: utility on the left, destructive F8 + primary
           // F1 on the right (matches forms + SalesList convention).
           {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
             id: 'edit', key: 'F2', label: 'Edit',
             disabled: isMulti || !single || singleCancelled,
             onAction: () => single && handleEdit(single.sales_return_id),

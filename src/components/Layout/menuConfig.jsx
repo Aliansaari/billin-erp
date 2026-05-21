@@ -26,13 +26,10 @@ import {
   FieldTimeOutlined, BookOutlined,
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
   SwapOutlined, ApiOutlined, PrinterOutlined,
-  StarFilled, RiseOutlined, PieChartOutlined,
   CheckCircleOutlined, HomeOutlined, AuditOutlined,
   CodeOutlined,
 } from '@ant-design/icons';
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
-import useFavoritesStore from '../../store/favoritesStore';
-import { CATEGORY_META, resolveReports } from '../../config/reports';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import useDevModeStore from '../../store/devModeStore';
 
@@ -192,16 +189,15 @@ export const menuItems = [
       { key: '/accounts/integrity',   icon: <ThunderboltOutlined />,   label: 'Ledger Integrity',    perm: 'accounts.view', flag: 'dev_show_ledger_integrity' },
     ],
   },
-  // Reports — children are dynamic (driven by user favorites). The
-  // static placeholder below carries the parent shape only; consumers
-  // call useMenuItems() to get the resolved tree with the favorites
-  // expanded as children. See useMenuItems below for the rationale.
+  // Reports — single leaf that navigates straight to /reports (the
+  // Reports Hub). The hub shows the user's starred reports at the top
+  // and all categories below. Previously this was a parent-with-
+  // children dropdown showing pinned favourites, but clicking Reports
+  // should land the user directly on the hub — same UX as Settings.
   {
-    key: 'reports-menu',
-    icon: <BarChartOutlined />,
+    key:   '/reports',
+    icon:  <BarChartOutlined />,
     label: 'Reports',
-    __dynamic: 'reports',
-    children: [],   // filled in at render time by useMenuItems
   },
   // Settings — collapsed from a parent-with-children into a single leaf
   // that navigates straight to /settings/company. Reasons:
@@ -221,18 +217,6 @@ export const menuItems = [
     label: 'Settings',
   },
 ];
-
-// Map category meta icon names to actual AntD icon components for the
-// nav dropdown. Same icons the Reports hub uses on its category cards
-// — keeps the operator's visual association from hub to dropdown.
-const CATEGORY_ICON = {
-  RiseOutlined:         <RiseOutlined />,
-  ShoppingCartOutlined: <ShoppingCartOutlined />,
-  InboxOutlined:        <InboxOutlined />,
-  PieChartOutlined:     <PieChartOutlined />,
-  TeamOutlined:         <TeamOutlined />,
-  FileTextOutlined:     <FileTextOutlined />,
-};
 
 /**
  * Look up the icon for a given route by walking the static menuItems
@@ -255,21 +239,13 @@ export function getRouteIcon(route) {
 }
 
 /**
- * Hook variant of menuItems. Reads the favorites store and inflates
- * the Reports parent's children with the user's pinned reports +
- * a "View all reports →" link. With zero pins, children collapse to
- * a single "Browse all reports" item so the menu still navigates
- * somewhere useful.
- *
- * Why a hook (not a static array): both the sidebar and the top nav
- * need to re-render when the user pins/unpins a report. Co-locating
- * the favorites read with the menu shape gives Sidebar/TopNav a
- * subscription via the store, so the dropdown updates the moment a
- * star is clicked anywhere in the app.
+ * Hook variant of menuItems. Applies feature-flag and dev-mode
+ * filtering so the sidebar/topnav hides entries whose feature gate
+ * is OFF. Reports is now a direct-navigate leaf (like Settings) so
+ * no dynamic children inflation is needed — the Reports Hub shows
+ * starred reports itself.
  */
 export function useMenuItems() {
-  const favIds = useFavoritesStore((s) => s.ids);
-  const favs = resolveReports(favIds);
   // System settings drive feature-flag filtering. While the cache is
   // still loading we treat every flag as off (safer default — hides
   // gated entries until we know they should appear), which means a
@@ -288,48 +264,7 @@ export function useMenuItems() {
   const previewAsUser = useDevModeStore((s) => s.previewAsUser);
   const effectiveDev  = devUnlocked && !previewAsUser;
 
-  const inflated = menuItems.map((item) => {
-    if (item.__dynamic !== 'reports') return item;
-    // Build the favorites children list. Each pinned report becomes a
-    // menu item with its category icon (matches the hub) + the report
-    // route as the key. Trailing "View all reports →" link always
-    // shows so the operator can jump to /reports without opening the
-    // hub from elsewhere.
-    const children = [];
-    if (favs.length === 0) {
-      children.push({
-        key: '/reports',
-        icon: <StarFilled style={{ color: '#EF9F27' }} />,
-        label: 'Browse all reports',
-      });
-    } else {
-      for (const r of favs) {
-        const meta = CATEGORY_META[r.category];
-        children.push({
-          key: r.route,
-          icon: CATEGORY_ICON[meta?.icon] || <FileTextOutlined />,
-          label: r.name,
-          perm: r.perm,
-          // Carry the report's `flag` onto the menu node so
-          // filterMenuByFeatureFlags below drops Transfer Register /
-          // Godown Valuation when Multi-warehouse is OFF, even for users
-          // who pinned them while it was on.
-          flag: r.flag,
-        });
-      }
-      // Visual divider isn't supported by AntD Menu items spec without
-      // type:'divider'; render the "View all" link as a regular leaf
-      // with a ↗ glyph so it reads distinctly from the favorites.
-      children.push({
-        key: '/reports',
-        icon: <BarChartOutlined />,
-        label: 'View all reports →',
-      });
-    }
-    return { ...item, children };
-  });
-
-  return filterMenuByFeatureFlags(inflated, settings, effectiveDev);
+  return filterMenuByFeatureFlags(menuItems, settings, effectiveDev);
 }
 
 /**
@@ -417,7 +352,7 @@ export function getOpenKeys(pathname) {
   // are nested under Bank in the sidebar (see menuItems above).
   if (pathname.startsWith('/banks') || pathname.startsWith('/loans')) return ['bank-menu'];
   if (pathname.startsWith('/accounts')) return ['accounts-menu'];
-  if (pathname.startsWith('/reports')) return ['reports-menu'];
+  if (pathname.startsWith('/reports')) return ['/reports'];
   // Settings is now a leaf with route '/settings/company'; resolve any
   // /settings/* path to that key so the gear icon stays highlighted on
   // every Settings sub-page (Theme, Print, Backup, Users, …).

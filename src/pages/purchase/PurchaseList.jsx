@@ -644,6 +644,10 @@ export default function PurchaseList() {
           // and content keys on the left, destructive F8 + primary F1
           // on the right.
           {
+            id: 'back', key: 'Esc', label: 'Back',
+            onAction: () => navigate('/'),
+          },
+          {
             id: 'edit', key: 'F2', label: 'Edit',
             disabled: isMulti || !single || singleCancelled,
             onAction: () => single && handleEdit(single.purchase_bill_id),

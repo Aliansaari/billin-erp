@@ -1033,6 +1033,12 @@ exports.getUnpaidBills = async (req, res) => {
     if (!party_id) {
       return res.status(400).json({ error: 'party_id is required.' });
     }
+
+    // Reconcile bill balances before fetching — fixes stale balance_amount
+    // on bills from before the FIFO reconciliation was deployed. Idempotent
+    // and fast (only touches this party's bills), so safe to run on every load.
+    await reconcileBillsForParty(party_id);
+
     const baseWhere = { payment_status: { [Op.ne]: 'Paid' }, is_cancelled: false, balance_amount: { [Op.gt]: 0 } };
 
     if (type === 'Sales' || type === 'Receipt') {
