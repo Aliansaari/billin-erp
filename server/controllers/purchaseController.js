@@ -322,10 +322,13 @@ exports.getAll = async (req, res) => {
           [sequelize.literal(
             '(SELECT COALESCE(SUM(quantity), 0)::float FROM purchase_bill_items WHERE purchase_bill_items.purchase_bill_id = "PurchaseBill"."purchase_bill_id")'
           ), '_pcs_total'],
+          [sequelize.literal(
+            '(SELECT COALESCE(SUM(b2.balance_amount), 0)::float FROM purchase_bills b2 WHERE b2.supplier_id = "PurchaseBill"."supplier_id" AND b2.is_cancelled = false)'
+          ), 'party_outstanding'],
         ],
       },
       include: [
-        { model: Party,  as: 'supplier', attributes: ['party_name', 'mobile_1'] },
+        { model: Party,  as: 'supplier', attributes: ['party_name', 'mobile_1', 'gstin'] },
         { model: Godown, as: 'godown',   attributes: ['godown_id', 'code', 'name'] },
       ],
       order: [['bill_date', 'DESC'], ['purchase_bill_id', 'DESC']],

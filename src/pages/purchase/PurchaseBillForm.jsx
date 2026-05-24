@@ -11,6 +11,7 @@ import { useDatePopup } from '../../components/keyboard/DatePopup';
 import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
+import { partySelectProps } from '../../utils/partySelectProps';
 
 // UI-C4 — gate the dev-trace logs behind import.meta.env.DEV so production
 // renderers don't flood the console with [lookup]/[Picker]/[addItem]
@@ -2287,15 +2288,15 @@ export default function PurchaseBillForm() {
                 <Form.Item name="supplier_id" noStyle
                   rules={[{ required: true, message: 'Select a supplier (use Cash for walk-in vendors)' }]}>
                   <Select ref={supplierRef} showSearch placeholder="Supplier"
-                    optionFilterProp="children" dropdownStyle={{minWidth:280}}
+                    optionFilterProp="label"
+                    {...partySelectProps(parties, 'Supplier')}
                     // After picking the supplier, jump to the barcode /
                     // entry row so the operator can start adding items.
                     // onSelect (not onChange) so Form.Item's value binding
                     // stays intact and we don't fire on the initial-load
                     // hydration when editing an existing bill.
-                    onSelect={() => setTimeout(() => barcodeRef.current?.focus(), 50)}>
-                    {parties.map(p=><Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>)}
-                  </Select>
+                    onSelect={() => setTimeout(() => barcodeRef.current?.focus(), 50)}
+                  />
                 </Form.Item>
               </div>
               {/* Col 2 — supplier-bill-# OR walk-in name. Both rendered

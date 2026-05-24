@@ -3012,6 +3012,43 @@ async function startServer() {
       console.error('[data-repair] Cash-party bill fix failed:', e.message);
     }
 
+    // ── One-time full balance reconciliation ────────────────────────
+    // Imported data often has inconsistent bill balances (balance_amount
+    // doesn't match total - paid - receipts). The party's current_balance
+    // is formula-derived and correct, but individual bill balance_amounts
+    // were carried over from the old system without reconciliation.
+    // This runs reconcileBillsForParty + recalculatePartyBalance for
+    // EVERY non-cash party — making sum(bill.balance) === party.balance.
+    // Gated by a flag file so it runs exactly once after this update.
+    const reconciledFile = path.join(os.homedir(), '.billing-erp', 'balance-reconciled-v1.txt');
+    if (!fs.existsSync(reconciledFile)) {
+      try {
+        const reconStart = Date.now();
+        const { recalculatePartyBalance, reconcileBillsForParty } = require('./utils/balanceHelper');
+        const { Party } = require('./models');
+        const allParties = await Party.findAll({
+          where: { is_system_cash: { [require('sequelize').Op.or]: [false, null] } },
+          attributes: ['party_id', 'party_name'],
+        });
+        let fixed = 0;
+        for (const p of allParties) {
+          try {
+            await reconcileBillsForParty(p.party_id);
+            await recalculatePartyBalance(p.party_id);
+            fixed++;
+          } catch (e) {
+            console.error(`[balance-reconcile] Failed for ${p.party_name} (${p.party_id}):`, e.message);
+          }
+        }
+        const reconDir = path.join(os.homedir(), '.billing-erp');
+        if (!fs.existsSync(reconDir)) fs.mkdirSync(reconDir, { recursive: true });
+        fs.writeFileSync(reconciledFile, `Reconciled ${fixed} parties on ${new Date().toISOString()}`, 'utf8');
+        console.log(`[balance-reconcile] Reconciled ${fixed}/${allParties.length} parties in ${Date.now() - reconStart}ms`);
+      } catch (e) {
+        console.error('[balance-reconcile] Failed:', e.message);
+      }
+    }
+
     console.log(`[perf] server total startup: ${Date.now() - serverBootStart}ms`);
     const httpServer = app.listen(PORT, '0.0.0.0', () => {
       const lan = getLanAddresses();
@@ -3055,6 +3092,52 @@ async function startServer() {
       require('./utils/costLayers').backfillCostLayers()
         .then((r) => { if (r && r.backfilled > 0) console.log(`[cost-layers] backfilled ${r.backfilled} (product, godown) baseline layer(s)`); })
         .catch((e) => console.error('[cost-layers] backfill failed:', e.message));
+
+      // ── One-time FIFO reconciliation for imported data ──────────────
+      // Runs ONCE after update, then writes a flag file and never runs
+      // again. Zero cost on all subsequent startups.
+      const fs = require('fs');
+      const reconcileFlag = path.join(os.homedir(), '.billing-erp', 'reconciliation_done.flag');
+      if (!fs.existsSync(reconcileFlag)) {
+        (async () => {
+          try {
+            const { reconcileBillsForParty } = require('./utils/balanceHelper');
+            const drifted = await sequelize.query(`
+              SELECT p.party_id FROM parties p
+              WHERE COALESCE(p.is_system_cash, false) = false
+                AND (
+                  COALESCE((SELECT SUM(balance_amount) FROM sales_bills
+                            WHERE customer_id = p.party_id AND is_cancelled = false), 0)
+                  - GREATEST(p.current_balance, 0) > 100
+                  OR
+                  COALESCE((SELECT SUM(balance_amount) FROM purchase_bills
+                            WHERE supplier_id = p.party_id AND is_cancelled = false), 0)
+                  - GREATEST(-p.current_balance, 0) > 100
+                )
+            `, { type: sequelize.QueryTypes.SELECT });
+
+            if (drifted.length === 0) {
+              fs.writeFileSync(reconcileFlag, new Date().toISOString());
+              return;
+            }
+            console.log(`[reconcile] fixing bill balances for ${drifted.length} parties (one-time)…`);
+            let done = 0;
+            for (const { party_id } of drifted) {
+              try {
+                await reconcileBillsForParty(party_id);
+                done++;
+                if (done % 50 === 0) console.log(`[reconcile] ${done}/${drifted.length} done`);
+              } catch (e) {
+                console.error(`[reconcile] party ${party_id} failed:`, e.message);
+              }
+            }
+            fs.writeFileSync(reconcileFlag, new Date().toISOString());
+            console.log(`[reconcile] done — ${done}/${drifted.length} parties reconciled`);
+          } catch (e) {
+            console.error('[reconcile] startup reconciliation failed:', e.message);
+          }
+        })();
+      }
     });
 
     // Graceful shutdown — drain in-flight requests on SIGTERM/SIGINT so

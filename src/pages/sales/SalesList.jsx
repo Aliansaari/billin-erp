@@ -26,32 +26,31 @@ import './sales-bill-form.css';
 // Optional columns the user can toggle via the Customize popover. Keys
 // match the state shape persisted to localStorage.
 const SALES_OPTIONAL_COLS = [
-  { key: 'time',     label: 'Time' },
-  { key: 'godown',   label: 'Godown' },
-  { key: 'mobile',   label: 'Mobile' },
-  { key: 'gstin',    label: 'GSTIN' },
-  { key: 'items',    label: 'Items (count)' },
-  { key: 'pieces',   label: 'Pieces' },
-  { key: 'gst',      label: 'GST amount' },
-  { key: 'discount', label: 'Discount' },
-  { key: 'return',   label: 'Return amount' },
+  { key: 'time',             label: 'Time' },
+  { key: 'godown',           label: 'Godown' },
+  { key: 'mobile',           label: 'Mobile' },
+  { key: 'gstin',            label: 'GSTIN' },
+  { key: 'items',            label: 'Items (count)' },
+  { key: 'pieces',           label: 'Pieces' },
+  { key: 'gst',              label: 'GST amount' },
+  { key: 'discount',         label: 'Discount' },
+  { key: 'return',           label: 'Return amount' },
+  { key: 'partyOutstanding', label: 'Party total outstanding' },
 ];
-// Toggleable page sections (not data columns) — currently just the
-// sticky bottom "Total (N bills)" strip. Default on. Stored alongside
-// the column prefs so the Customize popover can show both groups.
+// Toggleable page sections (not data columns). Stored alongside column
+// prefs so the Customize popover can show both groups in one place.
 const SALES_SECTIONS = [
+  { key: 'kpiCards', label: 'KPI summary cards' },
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-// v6 promotes the godown badge (previously rendered inline next to the
-// bill number) to its own toggleable column. Existing v5 users inherit
-// `godown: true` via the DEFAULT_COLS spread on first read, so the
-// info they used to see stays visible.
-const COLS_STORAGE_KEY = 'salesList_cols_v6';
+// v7 adds partyOutstanding column + kpiCards section toggle.
+const COLS_STORAGE_KEY = 'salesList_cols_v7';
 const DEFAULT_COLS = {
   time: true, godown: true, mobile: true, gstin: false,
   items: true, pieces: true,
   gst: false, discount: false, return: false,
-  totalRow: true,
+  partyOutstanding: false,
+  kpiCards: true, totalRow: true,
 };
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -643,6 +642,16 @@ export default function SalesList() {
         ? <span className="amt"><span className="rs">₹</span>{Math.round(parseFloat(v)).toLocaleString('en-IN')}</span>
         : <span className="amt zero">—</span>,
     },
+    cols.partyOutstanding && {
+      key: 'partyOutstanding', title: 'Party Dues', width: 130, align: 'right',
+      render: (_, r) => {
+        if (!r.customer_id || r.customer?.is_system_cash) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+        const total = parseFloat(r.party_outstanding || 0);
+        return total > 0.01
+          ? <span className="amt due" title="Total outstanding across all bills for this customer"><span className="rs">₹</span>{Math.round(total).toLocaleString('en-IN')}</span>
+          : <span className="settled-tag">Cleared</span>;
+      },
+    },
     // (Per-row actions column removed — all bill actions live in the
     // bottom ActionStrip and operate on the cursored / selected rows.)
   ].filter(Boolean);
@@ -785,40 +794,42 @@ export default function SalesList() {
             </button>
           )}
           <button className="blist-cta ghost" onClick={() => navigate('/receipt/new')}>
-            <PlusOutlined /> Receipt
+            <PlusOutlined /> Receipt <span className="blist-cta-kbd">F6</span>
           </button>
           <button className="blist-cta" onClick={() => navigate('/sale/new')}>
-            <PlusOutlined /> New Sale
+            <PlusOutlined /> New Sale <span className="blist-cta-kbd">F3</span>
           </button>
         </div>
       </div>
 
-      {/* KPI cards */}
-      <div className="blist-kpi">
-        <div className="kpi-card total">
-          <div className="kpi-text">
-            <div className="k">Total Sale · This View</div>
-            <div className="v">{fmt(totalAmount)}</div>
-            <div className="sub">{billCount} bills · avg {fmtShort(avg)}</div>
+      {/* KPI cards — hidden when operator turns off via Customize */}
+      {cols.kpiCards && (
+        <div className="blist-kpi">
+          <div className="kpi-card total">
+            <div className="kpi-text">
+              <div className="k">Total Sale · This View</div>
+              <div className="v">{fmt(totalAmount)}</div>
+              <div className="sub">{billCount} bills · avg {fmtShort(avg)}</div>
+            </div>
+          </div>
+          <div className="kpi-card received">
+            <div className="kpi-text">
+              <div className="k">Received</div>
+              <div className="v">{fmt(received)}</div>
+              <div className="sub">of {fmtShort(totalAmount)} sold</div>
+            </div>
+            <Ring pct={receivedPct} tone="ok" />
+          </div>
+          <div className="kpi-card outstanding">
+            <div className="kpi-text">
+              <div className="k">Outstanding</div>
+              <div className="v">{fmt(outstanding)}</div>
+              <div className="sub">from {openBills} open bills</div>
+            </div>
+            <Ring pct={outstandingPct} tone="bad" />
           </div>
         </div>
-        <div className="kpi-card received">
-          <div className="kpi-text">
-            <div className="k">Received</div>
-            <div className="v">{fmt(received)}</div>
-            <div className="sub">of {fmtShort(totalAmount)} sold</div>
-          </div>
-          <Ring pct={receivedPct} tone="ok" />
-        </div>
-        <div className="kpi-card outstanding">
-          <div className="kpi-text">
-            <div className="k">Outstanding</div>
-            <div className="v">{fmt(outstanding)}</div>
-            <div className="sub">from {openBills} open bills</div>
-          </div>
-          <Ring pct={outstandingPct} tone="bad" />
-        </div>
-      </div>
+      )}
 
       {/* Bill list — virtualized table; row treatment preserved via column renders.
           Cursor + multi-select are owned by useListSelection (above) and passed

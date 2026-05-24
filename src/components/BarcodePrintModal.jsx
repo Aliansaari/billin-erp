@@ -6,8 +6,12 @@ import './barcode-print-modal.css';
 
 const { Text } = Typography;
 
-const STORAGE_KEY    = 'barcode_label_layout';
-const CO_NAME_KEY    = 'barcode_company_name';
+const STORAGE_KEY        = 'barcode_label_layout';
+const CO_NAME_KEY        = 'barcode_company_name';
+// Session-only store for the per-item custom label typed in the modal.
+// sessionStorage so it survives accidental closes but never leaks to the
+// product master or persists past the browser session.
+const CUSTOM_LABELS_KEY  = 'bpm_custom_labels';
 // Printer chosen on Settings → Print. '' = system default. Silent defaults
 // ON (same behaviour as sales bills) — set to '0' to use the OS dialog.
 export const BARCODE_PRINTER_KEY = 'barcode_printer_name';
@@ -93,6 +97,12 @@ const FIELD_VAL = {
     if (!rate && !bc) return '';
     const rateStr = rate ? (Number.isInteger(rate) ? String(rate) : rate.toFixed(2)) : '0';
     return (el?.prefix !== undefined ? el.prefix : 'Rate: Rs.') + rateStr + '-' + bc;
+  },
+  // Print-only custom label — typed per item in the barcode modal.
+  // Never stored on the product. Empty value → element is hidden on print.
+  custom_label: (row, co, el) => {
+    const val = row.custom_label || ''; if (!val) return '';
+    return (el?.prefix !== undefined ? el.prefix : '') + val;
   },
 };
 
@@ -233,7 +243,7 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
   const [companyName, setCompanyName] = useState(() => localStorage.getItem(CO_NAME_KEY) || initialCompany);
   const [printing, setPrinting]       = useState(false);
   const [layout, setLayout]           = useState(FALLBACK_LAYOUT);
-  const [activeIdx, setActiveIdx]     = useState(0);   // keyboard row cursor
+  const [activeCell, setActiveCell]   = useState({ row: 0, col: 0 }); // col: 0=custom_label, 1=no_of_prints
 
   // Re-read layout + company name from localStorage every time modal opens
   useEffect(() => {
@@ -251,17 +261,33 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
 
   useEffect(() => {
     if (!visible || !items?.length) return;
+    // Restore any custom labels typed in a previous open of this session
+    const savedLabels = (() => {
+      try { return JSON.parse(sessionStorage.getItem(CUSTOM_LABELS_KEY) || '{}'); } catch { return {}; }
+    })();
     setRows(items.map(item => {
       const qpb = parseFloat(item.quantity_per_box) || 1;
       const qty = parseFloat(item.quantity) || 0;
-      return { ...item, key: item.barcode, quantity_per_box: qpb,
-               no_of_prints: Math.ceil(qty / qpb), selected: true };
+      return {
+        ...item, key: item.barcode, quantity_per_box: qpb,
+        no_of_prints: Math.ceil(qty / qpb), selected: true,
+        custom_label: savedLabels[item.barcode] || '',
+      };
     }));
-    setActiveIdx(0);
+    setActiveCell({ row: 0, col: 0 });
   }, [visible, items]);
 
-  const updateRow   = (barcode, field, value) =>
+  const updateRow = (barcode, field, value) => {
     setRows(prev => prev.map(r => r.barcode === barcode ? { ...r, [field]: value } : r));
+    // Persist custom labels to sessionStorage so they survive accidental modal closes
+    if (field === 'custom_label') {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(CUSTOM_LABELS_KEY) || '{}');
+        if (value) saved[barcode] = value; else delete saved[barcode];
+        sessionStorage.setItem(CUSTOM_LABELS_KEY, JSON.stringify(saved));
+      } catch {}
+    }
+  };
   const allSelected = rows.length > 0 && rows.every(r => r.selected);
   const toggleAll   = () => setRows(prev => prev.map(r => ({ ...r, selected: !allSelected })));
   const selectedCount = rows.filter(r => r.selected).length;
@@ -339,13 +365,53 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
   const toggleRow = (idx) =>
     setRows(prev => prev.map((r, j) => j === idx ? { ...r, selected: !r.selected } : r));
 
+  // ── Cell keyboard handler — shared by both editable columns ──────────
+  // The inputs are always rendered (borderless); this just moves the
+  // active cell.  The focusCell effect auto-focuses the new target.
+  const cellKeyDown = (e, col) => {
+    const k = e.key;
+    if (k === 'Enter') {
+      e.preventDefault();
+      setActiveCell(prev => ({ ...prev, row: Math.min(prev.row + 1, rows.length - 1) }));
+    } else if (k === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      document.activeElement?.blur();
+    } else if (k === 'Tab') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        if (col > 0) setActiveCell(prev => ({ ...prev, col: col - 1 }));
+        else setActiveCell(prev => ({ row: Math.max(prev.row - 1, 0), col: 1 }));
+      } else {
+        if (col < 1) setActiveCell(prev => ({ ...prev, col: col + 1 }));
+        else setActiveCell(prev => ({ row: Math.min(prev.row + 1, rows.length - 1), col: 0 }));
+      }
+    } else if (k === 'ArrowDown') {
+      e.preventDefault();
+      setActiveCell(prev => ({ ...prev, row: Math.min(prev.row + 1, rows.length - 1) }));
+    } else if (k === 'ArrowUp') {
+      e.preventDefault();
+      setActiveCell(prev => ({ ...prev, row: Math.max(prev.row - 1, 0) }));
+    }
+  };
+
   // Keyboard control. Mirrors the app's conventions: F1 = primary action
   // (Print), Ctrl/Cmd+Enter = its alias, F2 = the bulk toggle, ↑/↓ = row
   // cursor, Space = toggle the cursored row, Esc = close (handled by AntD).
   // Latest state/handlers kept in a ref so the listener never goes stale
   // without re-binding (same trick ActionStrip uses).
   const kbRef = useRef({});
-  kbRef.current = { rows, activeIdx, printing, totalLabels, handlePrint, toggleAll };
+  kbRef.current = { rows, activeCell, printing, totalLabels, handlePrint, toggleAll };
+
+  // Auto-focus the active cell's input whenever activeCell changes
+  const prevCell = useRef(activeCell);
+  useEffect(() => {
+    if (prevCell.current.row === activeCell.row && prevCell.current.col === activeCell.col) return;
+    prevCell.current = activeCell;
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`.bpm-modal [data-cell="${activeCell.row}-${activeCell.col}"] input`);
+      if (el) { el.focus(); el.select(); }
+    });
+  });
 
   useEffect(() => {
     if (!visible) return;
@@ -364,26 +430,46 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
         S.toggleAll();
         return;
       }
-      // Row cursor + per-row toggle — skip while typing in a field so the
-      // brand input and the Labels stepper keep their native keys.
+      // Skip while typing in non-cell inputs (brand input at the top)
       const ae = document.activeElement;
-      const tag = (ae?.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || ae?.isContentEditable) return;
-      if (k === 'ArrowDown') {
-        e.preventDefault(); e.stopImmediatePropagation();
-        setActiveIdx(i => Math.min((i < 0 ? -1 : i) + 1, S.rows.length - 1));
-      } else if (k === 'ArrowUp') {
-        e.preventDefault(); e.stopImmediatePropagation();
-        setActiveIdx(i => Math.max((i < 0 ? 0 : i) - 1, 0));
-      } else if (k === ' ' || k === 'Spacebar') {
-        e.preventDefault(); e.stopImmediatePropagation();
-        toggleRow(S.activeIdx < 0 ? 0 : S.activeIdx);
+      if (ae?.closest?.('.bpm-toolbar')) return;
+      // Cell inputs handle their own keys via cellKeyDown — only handle
+      // navigation keys that the cell handler doesn't cover (left/right
+      // between columns, Space for toggle, Tab when nothing is focused).
+      const inCell = ae?.closest?.('[data-cell]');
+      if (!inCell) {
+        // Nothing focused — full navigation
+        if (k === 'ArrowDown') {
+          e.preventDefault(); e.stopImmediatePropagation();
+          setActiveCell(prev => ({ ...prev, row: Math.min(prev.row + 1, S.rows.length - 1) }));
+        } else if (k === 'ArrowUp') {
+          e.preventDefault(); e.stopImmediatePropagation();
+          setActiveCell(prev => ({ ...prev, row: Math.max(prev.row - 1, 0) }));
+        } else if (k === 'ArrowRight') {
+          e.preventDefault(); e.stopImmediatePropagation();
+          setActiveCell(prev => ({ ...prev, col: Math.min(prev.col + 1, 1) }));
+        } else if (k === 'ArrowLeft') {
+          e.preventDefault(); e.stopImmediatePropagation();
+          setActiveCell(prev => ({ ...prev, col: Math.max(prev.col - 1, 0) }));
+        } else if (k === 'Tab') {
+          e.preventDefault(); e.stopImmediatePropagation();
+          if (e.shiftKey) {
+            setActiveCell(prev => {
+              if (prev.col > 0) return { ...prev, col: prev.col - 1 };
+              return { row: Math.max(prev.row - 1, 0), col: 1 };
+            });
+          } else {
+            setActiveCell(prev => {
+              if (prev.col < 1) return { ...prev, col: prev.col + 1 };
+              return { row: Math.min(prev.row + 1, S.rows.length - 1), col: 0 };
+            });
+          }
+        } else if (k === ' ' || k === 'Spacebar') {
+          e.preventDefault(); e.stopImmediatePropagation();
+          toggleRow(S.activeCell.row);
+        }
       }
     };
-    // Capture phase: this listener is added after the underlying page's
-    // ActionStrip (registered when the list mounted), so without capture
-    // ActionStrip's F1 = "Open bill" would fire first behind the modal.
-    // Capturing + stopImmediatePropagation makes the modal own its keys.
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [visible]);
@@ -395,6 +481,18 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
       render: v => v ? <Text strong>{v}</Text> : <Text type="secondary">—</Text> },
     { title: 'Article', dataIndex: 'article_number', width: 96, ellipsis: true,
       render: v => v ? <Text>{v}</Text> : <Text type="secondary">—</Text> },
+    { title: 'Custom label', dataIndex: 'custom_label', width: 112,
+      render: (v, record, idx) => (
+        <div className={`bpm-cell${activeCell.row === idx && activeCell.col === 0 ? ' bpm-cell--focused' : ''}`}
+          data-cell={`${idx}-0`}
+          onClick={e => { e.stopPropagation(); setActiveCell({ row: idx, col: 0 }); }}>
+          <Input size="small" value={v || ''} placeholder="—"
+            variant="borderless"
+            onChange={e => updateRow(record.barcode, 'custom_label', e.target.value)}
+            onKeyDown={e => cellKeyDown(e, 0)}
+            className="bpm-cell-input" />
+        </div>
+      ) },
     { title: 'Size', dataIndex: 'size', width: 56, align: 'center',
       render: v => v ? <Text>{v}</Text> : <Text type="secondary">—</Text> },
     { title: 'Pieces', dataIndex: 'quantity', width: 64, align: 'right',
@@ -415,10 +513,16 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
     { title: 'Sale rate', dataIndex: 'sale_rate', width: 82, align: 'right',
       render: v => <Text type="secondary" className="bpm-num">{fmt(v)}</Text> },
     { title: 'Labels', dataIndex: 'no_of_prints', width: 90, align: 'center',
-      render: (v, record) => (
-        <InputNumber min={0} max={9999} value={v}
-          onChange={val => updateRow(record.barcode, 'no_of_prints', val || 0)}
-          style={{ width: 70 }} size="small" />
+      render: (v, record, idx) => (
+        <div className={`bpm-cell bpm-cell--num${activeCell.row === idx && activeCell.col === 1 ? ' bpm-cell--focused' : ''}`}
+          data-cell={`${idx}-1`}
+          onClick={e => { e.stopPropagation(); setActiveCell({ row: idx, col: 1 }); }}>
+          <InputNumber min={0} max={9999} value={v} keyboard={false}
+            variant="borderless"
+            onChange={val => updateRow(record.barcode, 'no_of_prints', val || 0)}
+            onKeyDown={e => cellKeyDown(e, 1)}
+            className="bpm-cell-input" size="small" />
+        </div>
       ) },
     { title: 'Print', dataIndex: '__print', width: 56, align: 'center',
       render: (_, record) => (
@@ -432,7 +536,7 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
       className="bpm-modal"
       open={visible}
       onCancel={onClose}
-      width={1120}
+      width={1240}
       title={
         <div className="bpm-head">
           <span className="bpm-head__icon"><PrinterOutlined /></span>
@@ -484,9 +588,9 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
               pagination={false}
               size="small"
               tableLayout="fixed"
-              onRow={(_, idx) => ({ onClick: () => setActiveIdx(idx) })}
+              onRow={(_, idx) => ({ onClick: () => setActiveCell(prev => ({ ...prev, row: idx })) })}
               rowClassName={(r, idx) =>
-                `bpm-row${r.selected ? '' : ' bpm-row--off'}${idx === activeIdx ? ' bpm-row--active' : ''}`}
+                `bpm-row${r.selected ? '' : ' bpm-row--off'}${idx === activeCell.row ? ' bpm-row--active' : ''}`}
             />
           </div>
         </>

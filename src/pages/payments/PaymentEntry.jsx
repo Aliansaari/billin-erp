@@ -13,6 +13,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
+import { partySelectProps } from '../../utils/partySelectProps';
 import '../../styles/bill-entry.css';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -419,15 +420,12 @@ export default function PaymentEntry() {
               ref={partyRef}
               showSearch
               placeholder="Search supplier..."
-              optionFilterProp="children"
+              optionFilterProp="label"
               style={{ width: '100%' }}
               onChange={handlePartyChange}
               value={selectedParty?.party_id}
-            >
-              {parties.map(p => (
-                <Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>
-              ))}
-            </Select>
+              {...partySelectProps(parties, 'Supplier')}
+            />
           </div>
 
           {selectedParty && (

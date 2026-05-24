@@ -57,7 +57,27 @@ async function resolveProfile(docType, profileId) {
 
 // Minimal profile used when no DB profiles exist yet — keeps print working
 // on a brand-new install before the user visits Settings → Print.
+// Receipts/payments default to thermal (80mm roll) — they're short docs with
+// no items table, so thermal is the natural first-print experience. Sales &
+// purchase default to A4 as before.
 function fallbackProfile(docType) {
+  const isThermalDoc = docType === 'receipt' || docType === 'payment';
+  if (isThermalDoc) {
+    return {
+      name: 'Built-in Thermal', doc_type: docType, format: 'thermal',
+      paper_width_mm: 80, paper_height_mm: null,
+      margin_top_mm: 3, margin_right_mm: 3, margin_bottom_mm: 3, margin_left_mm: 3,
+      font_family: "'Source Sans 3', system-ui, sans-serif", font_size_pt: 10, line_spacing: 1.3,
+      thermal_style: 'simple', bold_level: 'bold',
+      show_logo: false, header_align: 'center',
+      show_hsn: false, show_batch: false, show_mrp: false, show_discount: false,
+      show_tax_breakdown: false, show_barcode: false, show_qr_upi: false,
+      show_signature: false, signature_label: 'Authorised Signatory',
+      copies: 1, copy_labels: 'Original',
+      currency_symbol: 'Rs ', locale_format: 'en-IN',
+      printer_name: '', silent_print: true,
+    };
+  }
   return {
     name: 'Built-in A4', doc_type: docType, format: 'a4',
     paper_width_mm: 210, paper_height_mm: 297,

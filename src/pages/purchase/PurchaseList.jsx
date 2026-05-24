@@ -20,29 +20,31 @@ import '../../styles/bill-list.css';
 
 // Purchases don't carry a return amount — just items / GST / discount.
 const PURCHASE_OPTIONAL_COLS = [
-  { key: 'time',     label: 'Time' },
-  { key: 'godown',   label: 'Godown' },
-  { key: 'phone',    label: 'Phone' },
-  { key: 'gstin',    label: 'GSTIN' },
-  { key: 'supplierBill', label: 'Supplier bill #' },
-  { key: 'items',    label: 'Items (count)' },
-  { key: 'pieces',   label: 'Pieces' },
-  { key: 'gst',      label: 'GST amount' },
-  { key: 'discount', label: 'Discount' },
+  { key: 'time',             label: 'Time' },
+  { key: 'godown',           label: 'Godown' },
+  { key: 'phone',            label: 'Phone' },
+  { key: 'gstin',            label: 'GSTIN' },
+  { key: 'supplierBill',     label: 'Supplier bill #' },
+  { key: 'items',            label: 'Items (count)' },
+  { key: 'pieces',           label: 'Pieces' },
+  { key: 'gst',              label: 'GST amount' },
+  { key: 'discount',         label: 'Discount' },
+  { key: 'partyOutstanding', label: 'Party total outstanding' },
 ];
-// Toggleable page sections (not data columns) — currently just the
-// sticky bottom "Total (N bills)" strip. Default on.
+// Toggleable page sections. Stored alongside column prefs so the
+// Customize popover can show both groups in one place.
 const PURCHASE_SECTIONS = [
+  { key: 'kpiCards', label: 'KPI summary cards' },
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-// v6 promotes the godown badge to its own toggleable column. Existing
-// v5 users inherit `godown: true` via DEFAULT_COLS spread on first read.
-const COLS_STORAGE_KEY = 'purchaseList_cols_v6';
+// v7 adds partyOutstanding column + kpiCards section toggle.
+const COLS_STORAGE_KEY = 'purchaseList_cols_v7';
 const DEFAULT_COLS = {
   time: true, godown: true, phone: true, gstin: false, supplierBill: true,
   items: true, pieces: true,
   gst: false, discount: false,
-  totalRow: true,
+  partyOutstanding: false,
+  kpiCards: true, totalRow: true,
 };
 
 const { Text } = Typography;
@@ -457,6 +459,16 @@ export default function PurchaseList() {
         return <span className="amt due"><span className="rs">₹</span>{Math.round(balance).toLocaleString('en-IN')}</span>;
       },
     },
+    cols.partyOutstanding && {
+      key: 'partyOutstanding', title: 'Party Dues', width: 130, align: 'right',
+      render: (_, r) => {
+        if (!r.supplier_id || r.supplier?.is_system_cash) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+        const total = parseFloat(r.party_outstanding || 0);
+        return total > 0.01
+          ? <span className="amt due" title="Total outstanding across all bills for this supplier"><span className="rs">₹</span>{Math.round(total).toLocaleString('en-IN')}</span>
+          : <span className="settled-tag">Cleared</span>;
+      },
+    },
     // (Per-row actions column removed — all bill actions live in the
     // bottom ActionStrip and operate on the cursored / selected rows.)
   ].filter(Boolean);
@@ -575,39 +587,42 @@ export default function PurchaseList() {
           </Dropdown>
           <span className="blist-divider"></span>
           <button className="blist-cta ghost" onClick={() => navigate('/payment/new')}>
-            <PlusOutlined /> Payment
+            <PlusOutlined /> Payment <span className="blist-cta-kbd">F6</span>
           </button>
           <button className="blist-cta" onClick={() => navigate('/purchase/new')}>
-            <PlusOutlined /> New Purchase
+            <PlusOutlined /> New Purchase <span className="blist-cta-kbd">F3</span>
           </button>
         </div>
       </div>
 
-      <div className="blist-kpi">
-        <div className="kpi-card total">
-          <div className="kpi-text">
-            <div className="k">Total Purchase · This View</div>
-            <div className="v">{fmt(totalAmount)}</div>
-            <div className="sub">{billCount} bills · avg {fmtShort(avg)}</div>
+      {/* KPI cards — hidden when operator turns off via Customize */}
+      {cols.kpiCards && (
+        <div className="blist-kpi">
+          <div className="kpi-card total">
+            <div className="kpi-text">
+              <div className="k">Total Purchase · This View</div>
+              <div className="v">{fmt(totalAmount)}</div>
+              <div className="sub">{billCount} bills · avg {fmtShort(avg)}</div>
+            </div>
+          </div>
+          <div className="kpi-card received">
+            <div className="kpi-text">
+              <div className="k">Paid</div>
+              <div className="v">{fmt(paid)}</div>
+              <div className="sub">of {fmtShort(totalAmount)} bought</div>
+            </div>
+            <Ring pct={paidPct} tone="ok" />
+          </div>
+          <div className="kpi-card outstanding">
+            <div className="kpi-text">
+              <div className="k">Outstanding</div>
+              <div className="v">{fmt(outstanding)}</div>
+              <div className="sub">across {openBills} open bills</div>
+            </div>
+            <Ring pct={outstandingPct} tone="bad" />
           </div>
         </div>
-        <div className="kpi-card received">
-          <div className="kpi-text">
-            <div className="k">Paid</div>
-            <div className="v">{fmt(paid)}</div>
-            <div className="sub">of {fmtShort(totalAmount)} bought</div>
-          </div>
-          <Ring pct={paidPct} tone="ok" />
-        </div>
-        <div className="kpi-card outstanding">
-          <div className="kpi-text">
-            <div className="k">Outstanding</div>
-            <div className="v">{fmt(outstanding)}</div>
-            <div className="sub">across {openBills} open bills</div>
-          </div>
-          <Ring pct={outstandingPct} tone="bad" />
-        </div>
-      </div>
+      )}
 
       <div className="blist-wrap">
         <VirtualReportTable

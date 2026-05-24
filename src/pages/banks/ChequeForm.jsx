@@ -27,6 +27,7 @@ import dayjs from 'dayjs';
 import { chequeAPI, partyAPI, bankAPI } from '../../api';
 import EntityFormModal from '../../components/EntityFormModal';
 import { inrFormatter, inrParser } from '../../utils/indianFormat';
+import { partySelectProps } from '../../utils/partySelectProps';
 
 const fmtRupees = (v) => {
   const n = Number(v) || 0;
@@ -376,10 +377,7 @@ export default function ChequeForm({ open, onClose, onSaved, cheque }) {
                 placeholder={direction === 'INWARD' ? 'Select customer…' : 'Select supplier…'}
                 optionFilterProp="label"
                 disabled={memoOnly}
-                options={filteredParties.map((p) => ({
-                  value: p.party_id,
-                  label: p.party_name + (p.mobile_1 && p.mobile_1 !== 'CASH' ? ` · ${p.mobile_1}` : ''),
-                }))}
+                {...partySelectProps(filteredParties, direction === 'INWARD' ? 'Customer' : 'Supplier')}
               />
             </Form.Item>
           </EntityFormModal.Field>

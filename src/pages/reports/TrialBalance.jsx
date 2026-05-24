@@ -19,7 +19,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { message, Spin, DatePicker } from 'antd';
 import {
-  SearchOutlined, ArrowLeftOutlined, CalendarOutlined,
+  SearchOutlined, ArrowLeftOutlined, CalendarOutlined, PrinterOutlined, FileExcelOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import ActionStrip from '../../components/keyboard/ActionStrip';

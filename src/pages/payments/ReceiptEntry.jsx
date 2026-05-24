@@ -7,12 +7,15 @@ import { inrFormatter, inrParser } from '../../utils/indianFormat';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
+import { printDocument } from '../../services/printer';
+import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
+import { partySelectProps } from '../../utils/partySelectProps';
 import '../../styles/bill-entry.css';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -316,7 +319,7 @@ export default function ReceiptEntry() {
     const refBill = checkedBills.find(b => !b.isOpening);
     const bill_allocations = billsWithAlloc
       .filter(b => !b.isOpening && b.allocated > 0)
-      .map(b => ({ bill_id: b.sales_bill_id, bill_type: 'Sales', amount: b.allocated }));
+      .map(b => ({ bill_id: b.sales_bill_id, bill_type: 'Sales', amount: b.allocated, bill_number: b.bill_number }));
 
     // On-account guard — either nothing ticked, or ticked bills < received.
     // Either way the server will FIFO-apply the surplus, but we warn first.
@@ -375,11 +378,20 @@ export default function ReceiptEntry() {
       const result = await guardedSave(body, (b) => (
         isEdit ? paymentAPI.update(editId, b).then(r => r.data) : paymentAPI.create(b).then(r => r.data)
       ));
+      const txnNum = result.transaction_number;
+      const txnId  = result.transaction_id;
       message.success(
         isEdit
-          ? `Receipt updated → new number ${result.transaction_number} (original cancelled in audit trail). ✓`
-          : `Receipt ${result.transaction_number} saved! ✓`,
+          ? `Receipt updated → new number ${txnNum} (original cancelled in audit trail). ✓`
+          : `Receipt ${txnNum} saved! ✓`,
       );
+
+      // ── Print prompt (same pattern as sales bills) ──
+      const wantsPrint = await confirmPrint(`Print Receipt ${txnNum}?`);
+      if (wantsPrint) {
+        printDocument({ docType: 'receipt', id: txnId });
+      }
+
       if (isEdit) {
         navigate('/payments');
       } else {
@@ -454,26 +466,26 @@ export default function ReceiptEntry() {
               ref={partyRef}
               showSearch
               placeholder="Search customer..."
-              optionFilterProp="children"
+              optionFilterProp="label"
               style={{ width: '100%' }}
               onChange={handlePartyChange}
               value={selectedParty?.party_id}
-            >
-              {parties.map(p => (
-                <Select.Option key={p.party_id} value={p.party_id}>{p.party_name}</Select.Option>
-              ))}
-            </Select>
+              {...partySelectProps(parties, 'Customer')}
+            />
           </div>
 
-          {selectedParty && (
-            <div className="be-bal-card">
-              <span className="who">{selectedParty.party_name}</span>
-              <div className="amt">
-                {rupee(selectedParty.current_balance)}
-                <span className="s">Receivable</span>
+          {selectedParty && (() => {
+            const bal = parseFloat(selectedParty.current_balance || 0);
+            return (
+              <div className="be-bal-card">
+                <span className="who">{selectedParty.party_name}</span>
+                <div className="amt">
+                  {rupee(Math.abs(bal))}
+                  <span className="s">{bal >= 0 ? 'Receivable' : 'Payable'}</span>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           <div className="be-fld">
             <label className="be-lbl">Invoice Nos.</label>

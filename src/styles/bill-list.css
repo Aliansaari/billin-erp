@@ -109,6 +109,22 @@
 }
 .blist-cta.ghost:hover { border-color: var(--accent-border); color: var(--accent); background: var(--bg-panel); }
 .blist-cta .anticon { font-size: 12px; }
+.blist-cta-kbd {
+  display: inline-flex; align-items: center;
+  padding: 1px 5px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: 3px;
+  font-size: 10px; font-weight: 600;
+  color: rgba(255, 255, 255, 0.86);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em; white-space: nowrap;
+}
+.blist-cta.ghost .blist-cta-kbd {
+  background: color-mix(in srgb, var(--accent, #4F46E5) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #4F46E5) 22%, transparent);
+  color: var(--fg-tertiary);
+}
 
 /* ── KPI cards ── */
 .blist-kpi {

@@ -43,6 +43,19 @@ const fmtDate = (d) => {
   return x.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
+// Compute the display amount for an item row: qty × rate minus only the
+// per-item discount. This deliberately EXCLUDES the bill-level discount
+// distribution that the backend bakes into it.total_amount — the bill
+// discount belongs in the totals section as a single "Discount" line,
+// not spread across every item row (which would make the Amount column
+// not add up to Sub Total).
+const itemDisplayAmt = (it) => {
+  const q = parseFloat(it.quantity) || 0;
+  const r = parseFloat(it.rate || it.purchase_rate) || 0;
+  const d = parseFloat(it.discount_percentage) || 0;
+  return +(q * r * (1 - d / 100)).toFixed(2);
+};
+
 // Number → words for the grand-total line on A4/A5 (thermal skips this).
 const numberToWords = (num) => {
   const a = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
@@ -227,7 +240,7 @@ const renderItemsTable = (items, profile) => {
       cgst: fmtMoney(it.cgst_amount, profile),
       sgst: fmtMoney(it.sgst_amount, profile),
       igst: fmtMoney(it.igst_amount, profile),
-      amt:  fmtMoney(it.total_amount, profile),
+      amt:  fmtMoney(itemDisplayAmt(it), profile),
     };
     return `<tr>${cols.map(c => `<td class="${c.cls}">${row[c.k]}</td>`).join('')}</tr>${renderBatchSubLine(it)}`;
   }).join('');
@@ -238,8 +251,7 @@ const renderItemsTable = (items, profile) => {
 
 const renderTotals = (bill, profile) => {
   // Defaults: when a profile predates a toggle field, treat undefined as the
-  // historical default. show_previous_balance defaults OFF (opt-in); the
-  // others default ON (backwards compatible).
+  // historical default — show everything by default.
   const showDisc   = profile?.show_discount !== false;
   const showGst    = profile?.show_gst !== false;
   const showReturn = profile?.show_return_amount !== false;
@@ -248,8 +260,9 @@ const renderTotals = (bill, profile) => {
   const prev = bill.previous_balance != null
     ? Number(bill.previous_balance)
     : Math.max(0, Number(party.current_balance || 0) - Number(bill.balance_amount || 0));
+
+  // Pre-TOTAL rows: the bill's own item-level math (Sub Total → charges → GST).
   const rows = [];
-  if (showPrev && prev > 0) rows.push(['Previous Bal', fmtMoney(prev, profile)]);
   rows.push(['Sub Total', fmtMoney(bill.sub_total, profile)]);
   if (showDisc && Number(bill.discount_amount || 0)) rows.push(['Discount', '-' + fmtMoney(bill.discount_amount, profile)]);
   if (showGst  && Number(bill.cgst_amount || 0)) rows.push(['CGST', fmtMoney(bill.cgst_amount, profile)]);
@@ -260,14 +273,26 @@ const renderTotals = (bill, profile) => {
   if (Number(bill.round_off || 0)) rows.push(['Round Off', fmtMoney(bill.round_off, profile)]);
   const grand = Number(bill.total_amount || 0);
   const html = rows.map(([l, v]) => `<div class="tot-row"><span>${l}</span><span>${v}</span></div>`).join('');
-  // Post-TOTAL rows: return credit (items returned in this sale), paid, balance.
+
+  // Post-TOTAL rows: party-account context. Previous Bal sits BELOW the
+  // grand total (not above Sub Total) because it's an account concept,
+  // not a line-item calculation. Flow:
+  //   TOTAL        ← what THIS bill costs
+  //   Return       ← items returned in this transaction
+  //   Paid         ← amount paid at billing
+  //   Previous Bal ← what they owed BEFORE this bill
+  //   Balance Due  ← unpaid on THIS bill
+  //   Total Outstg ← everything they owe across ALL bills
   const tail = [];
   if (showReturn && Number(bill.return_amount || 0) > 0)
     tail.push(['Return', '-' + fmtMoney(bill.return_amount, profile)]);
   if (Number(bill.paid_amount || 0) > 0)
     tail.push(['Paid', fmtMoney(bill.paid_amount, profile)]);
-  if (Number(bill.balance_amount || 0) > 0)
+  const balAmt = Number(bill.balance_amount || 0);
+  if (balAmt > 0 && Math.abs(balAmt - grand) > 0.5)
     tail.push(['Balance Due', fmtMoney(bill.balance_amount, profile)]);
+  if (showPrev && prev > 0)
+    tail.push(['Previous Bal', fmtMoney(prev, profile)]);
   const totalOutstanding = Number(party.current_balance || 0);
   if (showPrev && totalOutstanding > 0)
     tail.push(['Total Outstanding', fmtMoney(totalOutstanding, profile)]);
@@ -904,7 +929,7 @@ function renderThermalSimple(bill, profile, company) {
         <td class="s-nm">${esc(it.product_name || '')}</td>
         <td class="s-qt">${qtyCell}</td>
         <td class="s-rt">${fmtInt(it.rate || it.purchase_rate)}</td>
-        <td class="s-am">${fmtInt(it.total_amount)}</td>
+        <td class="s-am">${fmtInt(itemDisplayAmt(it))}</td>
       </tr>
     `;
   }).join('');
@@ -965,22 +990,14 @@ function renderThermalSimple(bill, profile, company) {
 function renderSimpleBreakdown(bill, profile, fmtInt) {
   const showDisc = profile?.show_discount !== false;
   const showGst  = profile?.show_gst !== false;
-  const showPrev = profile?.show_previous_balance !== false;
   const sym      = profile?.currency_symbol ?? 'Rs ';
   const sub      = Number(bill.sub_total || 0);
   const disc     = Number(bill.discount_amount || 0);
   const gst      = Number(bill.cgst_amount||0) + Number(bill.sgst_amount||0) + Number(bill.igst_amount||0);
   const round    = Number(bill.round_off || 0);
-  // Previous balance: prefer an API-supplied snapshot; fall back to deriving
-  // from party's current_balance minus the contribution of THIS bill.
-  const party    = bill.customer || bill.supplier || bill.party || {};
-  const prev = bill.previous_balance != null
-    ? Number(bill.previous_balance)
-    : Math.max(0, Number(party.current_balance || 0) - Number(bill.balance_amount || 0));
+  // Only bill-level math goes here (Sub Total, Discount, GST, Round Off).
+  // Previous Bal is an account concept and sits in renderSimpleTail after TOTAL.
   const rows = [];
-  if (showPrev && prev > 0)     rows.push(['Previous Bal', fmtInt(prev)]);
-  // Always show sub-total when ANY breakdown row is about to render — a bare
-  // Sub Total next to TOTAL without any intermediate rows is clutter.
   const hasBreakdown = (showDisc && disc) || (showGst && gst) || round;
   if (hasBreakdown)             rows.push(['Sub Total',    fmtInt(sub)]);
   if (showDisc && disc)         rows.push(['Discount', '-' + fmtInt(disc)]);
@@ -997,17 +1014,30 @@ function renderSimpleBreakdown(bill, profile, fmtInt) {
  * line is gated on presence of a value. */
 function renderSimpleTail(bill, profile, fmtInt) {
   const showReturn = profile?.show_return_amount !== false;
+  const showPrev   = profile?.show_previous_balance !== false;
   const sym     = profile?.currency_symbol ?? 'Rs ';
   const retAmt  = Number(bill.return_amount || 0);
   const paid    = Number(bill.paid_amount || 0);
   const balance = Number(bill.balance_amount || 0);
-  const rows = [];
-  if (showReturn && retAmt > 0) rows.push(['Return',      '-' + fmtInt(retAmt)]);
-  if (paid > 0)                 rows.push(['Paid',              fmtInt(paid)]);
-  if (balance > 0)              rows.push(['Balance Due',       fmtInt(balance)]);
-  const party = bill.customer || bill.supplier || bill.party || {};
+  const party   = bill.customer || bill.supplier || bill.party || {};
   const totalOutstanding = Number(party.current_balance || 0);
-  const showPrev = profile?.show_previous_balance !== false;
+  const prev = bill.previous_balance != null
+    ? Number(bill.previous_balance)
+    : Math.max(0, totalOutstanding - balance);
+  // Post-TOTAL rows — party-account context below the bill's own math.
+  //   TOTAL        ← what THIS bill costs
+  //   Return       ← items returned in this transaction
+  //   Paid         ← amount paid at billing
+  //   Previous Bal ← what they owed BEFORE this bill
+  //   Balance Due  ← unpaid on THIS bill
+  //   Total Outstg ← everything they owe across ALL bills
+  const rows = [];
+  if (showReturn && retAmt > 0) rows.push(['Return',           '-' + fmtInt(retAmt)]);
+  if (paid > 0)                 rows.push(['Paid',                    fmtInt(paid)]);
+  const grand = Number(bill.total_amount || 0);
+  if (balance > 0 && Math.abs(balance - grand) > 0.5)
+                                rows.push(['Balance Due',             fmtInt(balance)]);
+  if (showPrev && prev > 0)     rows.push(['Previous Bal',            fmtInt(prev)]);
   if (showPrev && totalOutstanding > 0) rows.push(['Total Outstanding', fmtInt(totalOutstanding)]);
   if (!rows.length) return '';
   return '<div class="hrb"></div>' + rows.map(([l, v]) =>
@@ -1044,7 +1074,7 @@ function renderThermal(bill, profile, company) {
     <tr>
       <td>${fmtQty(it.quantity)} x ${fmtMoney(it.rate || it.purchase_rate, profile)}</td>
       <td class="it-qty"></td>
-      <td class="it-qty">${fmtMoney(it.total_amount, profile)}</td>
+      <td class="it-qty">${fmtMoney(itemDisplayAmt(it), profile)}</td>
     </tr>
   `).join('');
   // Thermal address: collapse the structured columns into a single line for
@@ -1075,7 +1105,6 @@ function renderThermal(bill, profile, company) {
       })()}
       ${items.length ? `<table class="items"><tbody>${itemsHtml}</tbody></table>` : ''}
       <div class="hrb"></div>
-      ${showPrev && prev > 0 ? line('Previous Bal', fmtMoney(prev, profile)) : ''}
       ${line('Sub Total', fmtMoney(bill.sub_total, profile))}
       ${showDisc && Number(bill.discount_amount||0) ? line('Disc', '-' + fmtMoney(bill.discount_amount, profile)) : ''}
       ${showGst && (Number(bill.cgst_amount||0) + Number(bill.sgst_amount||0) + Number(bill.igst_amount||0)) ?
@@ -1085,10 +1114,190 @@ function renderThermal(bill, profile, company) {
       ${showReturn && Number(bill.return_amount||0) > 0
         ? line('Return', '-' + fmtMoney(bill.return_amount, profile)) : ''}
       ${bill.paid_amount != null && Number(bill.paid_amount) ? line('Paid', fmtMoney(bill.paid_amount, profile)) : ''}
-      ${bill.balance_amount != null && Number(bill.balance_amount) > 0 ? line('Balance Due', fmtMoney(bill.balance_amount, profile)) : ''}
+      ${(() => { const b = Number(bill.balance_amount||0), g = Number(bill.total_amount||0); return b > 0 && Math.abs(b - g) > 0.5 ? line('Balance Due', fmtMoney(bill.balance_amount, profile)) : ''; })()}
+      ${showPrev && prev > 0 ? line('Previous Bal', fmtMoney(prev, profile)) : ''}
       ${showPrev && Number(party.current_balance || 0) > 0 ? line('Total Outstanding', fmtMoney(party.current_balance, profile)) : ''}
       ${profile?.footer_html ? `<div class="fb">${profile.footer_html}</div>` : ''}
       ${profile?.terms_and_conditions ? `<div class="fb">${esc(profile.terms_and_conditions)}</div>` : ''}
+    </div>
+  `;
+}
+
+/* ── receipt / payment renderers ────────────────────────────────────
+ * Receipts have NO items array — they're purely header + amount + payment
+ * mode + bill allocations. Separate render paths keep the items-based
+ * renderers untouched (critical: "do not break the software").
+ * ──────────────────────────────────────────────────────────────────── */
+
+function renderReceiptThermal(bill, profile, company) {
+  const party = bill.customer || bill.supplier || bill.party || {};
+  const partyName = party.party_name || 'Cash';
+  const split = (bill.splits || [])[0] || {};
+  const payMode = split.payment_mode || bill.payment_method || 'Cash';
+  const isReceipt = (bill.transaction_type || bill.__doctype) !== 'Payment';
+  const thermalAddr = buildAddressLines(company).join(', ');
+
+  const fmtTime = (d) => {
+    if (!d) return '';
+    const x = new Date(d);
+    if (isNaN(x.getTime())) return '';
+    return x.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+  const sym = profile?.currency_symbol ?? 'Rs ';
+  const fmtInt = (n) => Math.round(Number(n || 0)).toLocaleString(profile?.locale_format || 'en-IN');
+
+  // Bill allocations from the JSONB field
+  const allocations = Array.isArray(bill.bill_allocations) ? bill.bill_allocations : [];
+  const allocHtml = allocations.length
+    ? `<div class="hrb"></div>
+       <div class="s-row" style="font-weight:700;margin-bottom:1mm"><span>Against Bills:</span></div>
+       ${allocations.map(a =>
+         `<div class="s-row"><span>${esc(a.bill_number || a.bill_type + ' #' + a.bill_id)}</span><span>${sym}${fmtInt(a.amount)}</span></div>`
+       ).join('')}`
+    : '';
+
+  // Cheque details
+  const chequeHtml = payMode === 'Cheque' && split.cheque_number
+    ? `<div class="s-row"><span>Cheque No</span><span>${esc(split.cheque_number)}</span></div>
+       ${split.cheque_date ? `<div class="s-row"><span>Cheque Date</span><span>${esc(fmtDate(split.cheque_date))}</span></div>` : ''}`
+    : '';
+
+  // Outstanding after this receipt/payment — always shown so the party knows
+  // exactly where their account stands. party.current_balance is already
+  // post-receipt (the receipt was saved before printDocument loads it).
+  //
+  // Balance sign convention:
+  //   positive = receivable (customer owes us)  → shown for receipts
+  //   negative = payable    (we owe supplier)   → shown for payments (as abs)
+  // The printed receipt must never show a raw negative — we take the absolute
+  // value and use the correct label ("Outstanding" for customer receipts,
+  // "Balance Payable" for supplier payments).
+  const rawBalance = Number(party.current_balance || 0);
+  const outstandingAmt = isReceipt
+    ? Math.max(0, rawBalance)           // customer: positive balance = they owe us
+    : Math.max(0, Math.abs(rawBalance)); // supplier: negative balance = we owe them
+  const outstandingLabel = isReceipt ? 'Outstanding After Receipt' : 'Balance Payable After Payment';
+
+  return `
+    <div class="page">
+      <div class="hdr">
+        <div class="hdr-name">${esc(profile?.header_title || company?.company_name || 'Shop')}</div>
+        ${thermalAddr ? `<div class="hdr-sub">${esc(thermalAddr)}</div>` : ''}
+        ${company?.gstin ? `<div class="hdr-sub">GSTIN: ${esc(company.gstin)}</div>` : ''}
+        ${company?.company_phone ? `<div class="hdr-sub">Ph: ${esc(company.company_phone)}</div>` : ''}
+        <div class="doc-type">${esc(DOC_LABEL[bill.__doctype] || (isReceipt ? 'RECEIPT' : 'PAYMENT VOUCHER'))}${bill.__copyLabel ? ` - ${esc(bill.__copyLabel)}` : ''}</div>
+      </div>
+      <div class="s-meta">
+        <div class="s-row">
+          <span>${isReceipt ? 'Receipt' : 'Voucher'} No : ${esc(bill.transaction_number || '')}</span>
+        </div>
+        <div class="s-row">
+          <span>Date : ${esc(fmtDate(bill.transaction_date))}</span>
+          ${fmtTime(bill.transaction_date) ? `<span>Time : ${esc(fmtTime(bill.transaction_date))}</span>` : ''}
+        </div>
+      </div>
+      <div class="hrb"></div>
+      <div class="s-row"><span>${isReceipt ? 'Received from' : 'Paid to'}</span></div>
+      <div style="font-weight:700;font-size:1.05em;margin:1mm 0">${esc(partyName)}</div>
+      ${party.mobile_1 ? `<div class="s-row"><span>Mobile</span><span>${esc(party.mobile_1)}</span></div>` : ''}
+      <div class="hrb"></div>
+      <div style="text-align:center;margin:3mm 0">
+        <div style="font-size:.85em;letter-spacing:1px">${isReceipt ? 'AMOUNT RECEIVED' : 'AMOUNT PAID'}</div>
+        <div style="font-size:1.6em;font-weight:900;letter-spacing:0.5px;margin:1mm 0">${sym}${fmtInt(bill.total_amount)}</div>
+      </div>
+      <div class="hrb"></div>
+      <div class="s-row"><span>Payment Mode</span><span style="font-weight:700">${esc(payMode)}</span></div>
+      ${chequeHtml}
+      ${bill.remarks ? `<div class="s-row"><span>Remarks</span><span>${esc(bill.remarks)}</span></div>` : ''}
+      ${allocHtml}
+      <div class="hrb"></div>
+      <div class="s-row" style="font-weight:700;font-size:1.05em;margin:1mm 0">
+        <span>${outstandingLabel}</span>
+        <span>${outstandingAmt > 0 ? sym + fmtInt(outstandingAmt) : 'NIL'}</span>
+      </div>
+      <div class="hrb"></div>
+      ${profile?.footer_html
+        ? `<div class="fb">${profile.footer_html}</div>`
+        : `<div class="fb">Thank You !!!</div>`}
+    </div>
+  `;
+}
+
+function renderReceiptA4(bill, profile, company, opts = {}) {
+  const party = bill.customer || bill.supplier || bill.party || {};
+  const split = (bill.splits || [])[0] || {};
+  const payMode = split.payment_mode || bill.payment_method || 'Cash';
+  const isReceipt = (bill.transaction_type || bill.__doctype) !== 'Payment';
+  const grandTotal = Number(bill.total_amount || 0);
+
+  // Bill allocations table
+  const allocations = Array.isArray(bill.bill_allocations) ? bill.bill_allocations : [];
+  const allocTableHtml = allocations.length ? `
+    <div style="margin-top:6mm">
+      <div style="font-weight:700;font-size:.85em;letter-spacing:1px;margin-bottom:3mm;color:#444">BILL ALLOCATION</div>
+      <table class="items" style="font-size:.9em">
+        <thead><tr><th style="width:40px">#</th><th>Bill Number</th><th style="text-align:right">Amount</th></tr></thead>
+        <tbody>
+          ${allocations.map((a, i) => `<tr>
+            <td style="text-align:center">${i + 1}</td>
+            <td>${esc(a.bill_number || a.bill_type + ' #' + a.bill_id)}</td>
+            <td style="text-align:right">${fmtMoney(a.amount, profile)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  ` : '';
+
+  // Cheque details
+  const chequeHtml = payMode === 'Cheque' && split.cheque_number
+    ? `<div><b>Cheque No:</b> ${esc(split.cheque_number)}</div>
+       ${split.cheque_date ? `<div><b>Cheque Date:</b> ${esc(fmtDate(split.cheque_date))}</div>` : ''}`
+    : '';
+
+  // Outstanding after this receipt/payment — same sign-convention handling
+  // as the thermal renderer (see comment there for details).
+  const rawBalance = Number(party.current_balance || 0);
+  const outstandingAmt = isReceipt
+    ? Math.max(0, rawBalance)
+    : Math.max(0, Math.abs(rawBalance));
+  const outstandingLabel = isReceipt ? 'Outstanding After Receipt' : 'Balance Payable After Payment';
+
+  const docLabel = (profile?.doc_label || '').trim()
+    || DOC_LABEL[bill.__doctype]
+    || (isReceipt ? 'RECEIPT' : 'PAYMENT VOUCHER');
+
+  return `
+    <div class="page">
+      ${renderHeader(profile, company, bill)}
+      <div class="meta">
+        <div class="meta-block" data-doc="${esc(docLabel)}">
+          <div><b>${isReceipt ? 'Receipt' : 'Voucher'} #:</b> ${esc(bill.transaction_number || '')}</div>
+          <div><b>Date:</b> ${esc(fmtDate(bill.transaction_date))}</div>
+          <div><b>Mode:</b> ${esc(payMode)}</div>
+          ${chequeHtml}
+        </div>
+        <div class="meta-block">
+          <div style="font-size:.75em;letter-spacing:1px;color:#666">${isReceipt ? 'RECEIVED FROM' : 'PAID TO'}</div>
+          ${renderPartyBlock(bill)}
+        </div>
+      </div>
+
+      <div style="border:2px solid #000;padding:8mm;margin:6mm 0;text-align:center">
+        <div style="font-size:.85em;letter-spacing:2px;color:#444;margin-bottom:2mm">${isReceipt ? 'AMOUNT RECEIVED' : 'AMOUNT PAID'}</div>
+        <div style="font-size:2em;font-weight:900;letter-spacing:0.5px">${fmtMoney(grandTotal, profile)}</div>
+        <div style="margin-top:3mm;font-style:italic;font-size:.9em;color:#444">${esc(numberToWords(grandTotal))}</div>
+      </div>
+
+      ${bill.remarks ? `<div style="margin:4mm 0"><b>Remarks:</b> ${esc(bill.remarks)}</div>` : ''}
+      ${allocTableHtml}
+
+      <div style="margin-top:6mm;display:flex;justify-content:space-between;align-items:baseline;
+                  border-top:1.5px solid #000;border-bottom:1.5px solid #000;padding:4mm 2mm">
+        <span style="font-weight:700;font-size:1.05em;letter-spacing:0.5px">${outstandingLabel}</span>
+        <span style="font-weight:900;font-size:1.2em">${outstandingAmt > 0 ? fmtMoney(outstandingAmt, profile) : 'NIL'}</span>
+      </div>
+
+      ${renderFooter(profile, company, opts)}
     </div>
   `;
 }
@@ -1106,10 +1315,16 @@ export function renderBillHTML({ bill, profile, company, docType, upiQrDataUrl }
   const labels = [];
   for (let i = 0; i < n; i++) labels.push(rawLabels[i] || rawLabels[rawLabels.length - 1] || '');
 
+  // Receipt / payment documents have no items — route them to their own
+  // renderers so the items-based code paths stay completely untouched.
+  const isReceiptDoc = docType === 'receipt' || docType === 'payment';
+
   const render =
-    profile.format === 'thermal' ? renderThermal :
-    profile.format === 'a5'      ? renderA5 :
-                                   renderA4;
+    isReceiptDoc && profile.format === 'thermal' ? renderReceiptThermal :
+    isReceiptDoc                                 ? renderReceiptA4 :
+    profile.format === 'thermal'                 ? renderThermal :
+    profile.format === 'a5'                      ? renderA5 :
+                                                   renderA4;
   // Pass the pre-computed UPI-QR data URL through to the A4/A5 renderers
   // via opts so the footer can embed it next to the bank rows. Thermal
   // skips it — too narrow to fit a usable QR.

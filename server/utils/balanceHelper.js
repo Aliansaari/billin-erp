@@ -372,6 +372,17 @@ async function reconcileBillsForParty(partyId, t = null) {
     }
   };
 
+  // ── Opening balance credit ────────────────────────────────────────────
+  // When a party was imported with an opening balance that represents a
+  // credit (Customer with "Payable" = they had overpaid/advance; Supplier
+  // with "Receivable" = we had overpaid/advance), that credit must be
+  // applied to bills just like a receipt/payment. Without this, the sum
+  // of individual bill balances will exceed the party's correct balance
+  // by exactly the opening credit amount.
+  const rawOpening = parseFloat(party.opening_balance) || 0;
+  const openingCreditForSales    = party.opening_balance_type === 'Payable'    ? Math.abs(rawOpening) : 0;
+  const openingCreditForPurchase = party.opening_balance_type === 'Receivable' ? Math.abs(rawOpening) : 0;
+
   // ── PURCHASE BILLS: apply user Payment allocations, then FIFO remainder ──
   // Exclude auto_from_bill receipts — those mirror the at-billing paid_amount
   // already captured on the bill itself, so they MUST NOT be re-applied here
@@ -411,7 +422,7 @@ async function reconcileBillsForParty(partyId, t = null) {
     (b) => b.purchase_bill_id,
     (b) => +(Math.max(0, (parseFloat(b.total_amount) || 0) - (parseFloat(b.paid_amount) || 0))).toFixed(2),
     purchaseUserAlloc,
-    totalPaymentsUnallocated,
+    totalPaymentsUnallocated + openingCreditForPurchase,
   );
 
   // ── SALES BILLS: apply user Receipt allocations, then FIFO remainder ─────
@@ -455,7 +466,7 @@ async function reconcileBillsForParty(partyId, t = null) {
       (parseFloat(b.return_amount) || 0),
     )).toFixed(2),
     salesUserAlloc,
-    totalReceiptsUnallocated,
+    totalReceiptsUnallocated + openingCreditForSales,
   );
 }
 

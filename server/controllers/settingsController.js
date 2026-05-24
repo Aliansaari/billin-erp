@@ -566,6 +566,7 @@ exports.cleanupData = async (req, res) => {
             SELECT SUM(pr.total_amount) FROM payments_receipts pr
             WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
               AND pr.is_cancelled = false
+              AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
           ), 0)
         WHERE p.party_type IN ('Customer','Both','Supplier')
       `);
@@ -600,6 +601,7 @@ exports.cleanupData = async (req, res) => {
             SELECT SUM(pr.total_amount) FROM payments_receipts pr
             WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
               AND pr.is_cancelled = false
+              AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
           ), 0)
         WHERE p.party_type IN ('Supplier','Both','Customer')
       `);
@@ -631,11 +633,13 @@ exports.cleanupData = async (req, res) => {
             SELECT SUM(pr.total_amount) FROM payments_receipts pr
             WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
               AND pr.is_cancelled = false
+              AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
           ), 0)
           - COALESCE((
             SELECT SUM(pr.total_amount) FROM payments_receipts pr
             WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
               AND pr.is_cancelled = false
+              AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
           ), 0)
       `);
     }
@@ -663,11 +667,13 @@ exports.cleanupData = async (req, res) => {
             SELECT SUM(pr.total_amount) FROM payments_receipts pr
             WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
               AND pr.is_cancelled = false
+              AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
           ), 0)
           - COALESCE((
             SELECT SUM(pr.total_amount) FROM payments_receipts pr
             WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
               AND pr.is_cancelled = false
+              AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
           ), 0)
       `);
     }

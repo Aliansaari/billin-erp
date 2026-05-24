@@ -516,7 +516,7 @@ export default function BillDetail() {
                 <div className="bd-total-row balance">
                   <span className="lbl">{type === 'receipt' ? 'Customer balance' : 'Supplier balance'}</span>
                   <span className={`val ${partyBalance > 0 ? 'receivable' : partyBalance < 0 ? 'payable' : ''}`}>
-                    {partyBalance >= 0 ? '' : '−'}₹{formatINR(Math.abs(partyBalance))}
+                    ₹{formatINR(Math.abs(partyBalance))} {partyBalance > 0 ? 'Dr' : partyBalance < 0 ? 'Cr' : ''}
                   </span>
                 </div>
               )}

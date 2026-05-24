@@ -131,6 +131,36 @@
 .bpm-row--active > td { background: var(--bg-selected) !important; }
 .bpm-row--active:hover > td { background: var(--bg-selected) !important; }
 
+/* ── Spreadsheet cells (Custom Label + Labels columns) ──────────────────── */
+.bpm-cell {
+  cursor: cell;
+  margin: -8px -10px;           /* bleed into the td padding so the border
+                                   sits right at the cell gridline */
+  padding: 6px 8px;
+  border: 2px solid transparent;
+  border-radius: 0;
+  transition: border-color .1s;
+}
+.bpm-cell:hover { border-color: var(--border); }
+.bpm-cell--focused { border-color: #1677ff !important; background: rgba(22, 119, 255, .06); }
+.bpm-cell--num { text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Make inputs invisible — they look like plain cell text */
+.bpm-cell-input,
+.bpm-cell .ant-input-number {
+  width: 100% !important;
+  background: transparent !important;
+  font-size: inherit; line-height: inherit;
+}
+.bpm-cell-input .ant-input,
+.bpm-cell-input input,
+.bpm-cell .ant-input-number-input {
+  padding: 0 !important; height: auto !important;
+  font-size: 14px !important; color: var(--fg-primary) !important;
+}
+.bpm-cell--num .ant-input-number-input { text-align: center !important; font-weight: 600; }
+.bpm-cell .ant-input-number-handler-wrap { display: none !important; }
+
 /* ── Empty state ─────────────────────────────────────────────────────────── */
 .bpm-empty {
   padding: 60px 20px; text-align: center; color: var(--fg-tertiary);

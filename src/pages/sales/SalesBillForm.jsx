@@ -2352,6 +2352,7 @@ export default function SalesBillForm() {
                     optionRender={(opt)=>{
                       const p=opt.data.party;
                       const bal=parseFloat(p.current_balance||0);
+                      const absBal=Math.abs(bal);
                       return (
                         <div style={{display:'flex',gap:0,alignItems:'center',fontSize:12,padding:'2px 0'}}>
                           <span style={{flex:'0 0 180px',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingRight:6}}>{p.party_name}</span>
@@ -2359,7 +2360,7 @@ export default function SalesBillForm() {
                           <span style={{flex:'0 0 110px',color:'var(--fg-secondary)'}}>{p.mobile_1||'—'}</span>
                           <span style={{flex:'0 0 80px',textAlign:'right',fontWeight:700,paddingRight:8,
                             color:bal>0?'var(--success)':bal<0?'var(--danger)':'var(--fg-tertiary)'}}>
-                            {bal.toFixed(1)}
+                            {bal===0?'0':<>{absBal.toFixed(1)} <span style={{fontSize:9,fontWeight:600,opacity:0.75}}>{bal>=0?'Dr':'Cr'}</span></>}
                           </span>
                           <span style={{flex:'0 0 70px',textAlign:'center'}}>
                             <span style={{background:p.credit_allowed?'var(--success-bg)':'var(--danger-bg)',
@@ -2429,7 +2430,7 @@ export default function SalesBillForm() {
                     {selectedParty.city && <span>{selectedParty.city}</span>}
                     {selectedParty.mobile_1 && <span>📞 <b>{selectedParty.mobile_1}</b></span>}
                     <span>Balance <b className={bal >= 0 ? 'pos' : 'neg'}>
-                      ₹{bal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      ₹{Math.abs(bal).toLocaleString('en-IN', { maximumFractionDigits: 0 })} {bal >= 0 ? 'Dr' : 'Cr'}
                     </b></span>
                     {limit > 0 && (
                       <span>

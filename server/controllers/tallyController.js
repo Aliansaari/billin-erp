@@ -20,7 +20,7 @@ const sequelize = require('../config/database');
 const { SystemSettings, Party, Product, SalesBill, SalesBillItem,
         PurchaseBill, PurchaseBillItem, PaymentReceipt, StockLedger } = require('../models');
 const { Op } = require('sequelize');
-const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { computeCostRateForSale } = require('../utils/displayCost');
 // Tally imports posting to the ledger run through the same posting service
 // + builders as every other create path. Without these calls, imported
@@ -1015,8 +1015,11 @@ async function ingestVouchersFromXml(xml, userId) {
             }, { transaction: t });
           }
 
-          // Recalculate the customer's outstanding balance so imported
-          // bills contribute to party ledgers like native ones do.
+          // Reconcile bill balances then recalculate the customer's
+          // outstanding balance so imported bills contribute to party
+          // ledgers like native ones do. reconcile MUST run first so
+          // individual bill balance_amounts match the party total.
+          await reconcileBillsForParty(customer.party_id, t);
           await recalculatePartyBalance(customer.party_id, t);
 
           // Post to ledger_entries via the same builder + posting service
@@ -1133,6 +1136,7 @@ async function ingestVouchersFromXml(xml, userId) {
             }, { transaction: t });
           }
 
+          await reconcileBillsForParty(supplier.party_id, t);
           await recalculatePartyBalance(supplier.party_id, t);
 
           // Post to ledger_entries — same rationale as the sales branch.

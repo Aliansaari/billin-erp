@@ -13,6 +13,7 @@ import { printDocument } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
+import { partySelectProps } from '../../utils/partySelectProps';
 import confirmPrint from '../../utils/confirmPrint';
 import './return-form.css';
 
@@ -767,7 +768,7 @@ export default function PurchaseReturnForm() {
               <div className="rtn-field">
                 <Form.Item name="supplier_id" noStyle rules={[{ required: true, message: ' ' }]}>
                   <Select showSearch placeholder="Supplier *" allowClear optionFilterProp="label"
-                    options={parties.map((p) => ({ value: p.party_id, label: p.party_name, party: p }))}/>
+                    {...partySelectProps(parties, 'Supplier')}/>
                 </Form.Item>
               </div>
               <div className="rtn-field">
@@ -801,7 +802,7 @@ export default function PurchaseReturnForm() {
                 {selectedParty.city && <span>{selectedParty.city}</span>}
                 {selectedParty.mobile_1 && <span>📞 <b>{selectedParty.mobile_1}</b></span>}
                 <span>Balance <b className={parseFloat(selectedParty.current_balance || 0) >= 0 ? 'pos' : 'neg'}>
-                  ₹{parseFloat(selectedParty.current_balance || 0).toFixed(2)}
+                  ₹{Math.abs(parseFloat(selectedParty.current_balance || 0)).toFixed(2)} {parseFloat(selectedParty.current_balance || 0) >= 0 ? 'Dr' : 'Cr'}
                 </b></span>
               </div>
             )}

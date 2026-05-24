@@ -29,6 +29,7 @@ import dayjs from 'dayjs';
 import { loanAPI, partyAPI } from '../../api';
 import EntityFormModal from '../../components/EntityFormModal';
 import { inrFormatter, inrParser } from '../../utils/indianFormat';
+import { partySelectProps } from '../../utils/partySelectProps';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', {
   minimumFractionDigits: 2, maximumFractionDigits: 2,
@@ -288,15 +289,10 @@ export default function LoanAccountModal({ open, onClose, onSaved, loan }) {
               <Select
                 className="efm-select-antd"
                 showSearch allowClear
-                optionFilterProp="children"
+                optionFilterProp="label"
                 placeholder={loanType === 'taken' ? 'Pick lender' : 'Pick borrower'}
-              >
-                {parties.map((p) => (
-                  <Select.Option key={p.party_id} value={p.party_id}>
-                    {p.party_name}
-                  </Select.Option>
-                ))}
-              </Select>
+                {...partySelectProps(parties, loanType === 'taken' ? 'Lender' : 'Borrower')}
+              />
             </Form.Item>
           </EntityFormModal.Field>
         </EntityFormModal.Section>

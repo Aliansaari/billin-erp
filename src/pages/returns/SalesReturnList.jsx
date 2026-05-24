@@ -619,7 +619,7 @@ export default function SalesReturnList() {
           </Dropdown>
           <span className="blist-divider"></span>
           <button className="blist-cta" onClick={() => navigate('/sales-return/new')}>
-            <PlusOutlined /> New Return
+            <PlusOutlined /> New Return <span className="blist-cta-kbd">F3</span>
           </button>
         </div>
       </div>

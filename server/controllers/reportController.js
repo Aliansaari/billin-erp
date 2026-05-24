@@ -626,36 +626,54 @@ exports.dashboardBusiness = async (req, res) => {
     const cogs90 = d90Row.cogs90 || 0;
     const invValue = d90Row.inv_value || 0;
 
-    // Current AR/AP — replicate the same logic the main stats endpoint uses.
+    // Current AR/AP — canonical formula (opening + raw bill totals - returns
+    // - non-auto receipts/payments). Independent of bill-level balance_amount
+    // reconciliation state, so it always matches recalculateAll.
     const [arRow] = await sequelize.query(`
-      SELECT
-        COALESCE(SUM(sb.balance_amount), 0)::float
-          + COALESCE((SELECT SUM(opening_balance) FROM parties
-                       WHERE opening_balance_type='Receivable' AND opening_balance>0
-                         AND party_type IN ('Customer','Both')), 0)::float
-          - COALESCE((SELECT SUM(pr.total_amount) FROM payments_receipts pr
-                       WHERE pr.transaction_type='Receipt' AND pr.is_cancelled=false
-                         AND NOT EXISTS (SELECT 1 FROM payment_splits ps WHERE ps.transaction_id=pr.transaction_id)), 0)::float
-        AS ar
-      FROM sales_bills sb
-      JOIN parties p ON p.party_id = sb.customer_id
-      WHERE sb.is_cancelled = false AND sb.balance_amount > 0
-        AND p.party_type IN ('Customer','Both')
+      SELECT (
+        COALESCE((SELECT SUM(opening_balance) FROM parties
+                   WHERE opening_balance_type='Receivable' AND opening_balance>0
+                     AND party_type IN ('Customer','Both')), 0)
+        - COALESCE((SELECT SUM(opening_balance) FROM parties
+                     WHERE opening_balance_type='Payable' AND opening_balance>0
+                       AND party_type IN ('Customer','Both')), 0)
+        + COALESCE((SELECT SUM(sb.total_amount - sb.paid_amount - sb.return_amount)
+                     FROM sales_bills sb
+                     JOIN parties p ON p.party_id = sb.customer_id
+                     WHERE sb.is_cancelled = false AND p.party_type IN ('Customer','Both')), 0)
+        - COALESCE((SELECT SUM(sr.balance_amount + sr.refund_amount)
+                     FROM sales_return_bills sr
+                     JOIN parties p ON p.party_id = sr.customer_id
+                     WHERE sr.is_cancelled = false AND p.party_type IN ('Customer','Both')), 0)
+        - COALESCE((SELECT SUM(pr.total_amount) FROM payments_receipts pr
+                     JOIN parties p ON p.party_id = pr.party_id
+                     WHERE pr.transaction_type='Receipt' AND pr.is_cancelled=false
+                       AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
+                       AND p.party_type IN ('Customer','Both')), 0)
+      )::float AS ar
     `, { type: sequelize.QueryTypes.SELECT });
     const [apRow] = await sequelize.query(`
-      SELECT
-        COALESCE(SUM(pb.balance_amount), 0)::float
-          + COALESCE((SELECT SUM(opening_balance) FROM parties
-                       WHERE opening_balance_type='Payable' AND opening_balance>0
-                         AND party_type IN ('Supplier','Both')), 0)::float
-          - COALESCE((SELECT SUM(pr.total_amount) FROM payments_receipts pr
-                       WHERE pr.transaction_type='Payment' AND pr.is_cancelled=false
-                         AND NOT EXISTS (SELECT 1 FROM payment_splits ps WHERE ps.transaction_id=pr.transaction_id)), 0)::float
-        AS ap
-      FROM purchase_bills pb
-      JOIN parties p ON p.party_id = pb.supplier_id
-      WHERE pb.is_cancelled = false AND pb.balance_amount > 0
-        AND p.party_type IN ('Supplier','Both')
+      SELECT (
+        COALESCE((SELECT SUM(opening_balance) FROM parties
+                   WHERE opening_balance_type='Payable' AND opening_balance>0
+                     AND party_type IN ('Supplier','Both')), 0)
+        - COALESCE((SELECT SUM(opening_balance) FROM parties
+                     WHERE opening_balance_type='Receivable' AND opening_balance>0
+                       AND party_type IN ('Supplier','Both')), 0)
+        + COALESCE((SELECT SUM(pb.total_amount - pb.paid_amount)
+                     FROM purchase_bills pb
+                     JOIN parties p ON p.party_id = pb.supplier_id
+                     WHERE pb.is_cancelled = false AND p.party_type IN ('Supplier','Both')), 0)
+        - COALESCE((SELECT SUM(pr.balance_amount + pr.refund_amount)
+                     FROM purchase_return_bills pr
+                     JOIN parties p ON p.party_id = pr.supplier_id
+                     WHERE pr.is_cancelled = false AND p.party_type IN ('Supplier','Both')), 0)
+        - COALESCE((SELECT SUM(pr.total_amount) FROM payments_receipts pr
+                     JOIN parties p ON p.party_id = pr.party_id
+                     WHERE pr.transaction_type='Payment' AND pr.is_cancelled=false
+                       AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
+                       AND p.party_type IN ('Supplier','Both')), 0)
+      )::float AS ap
     `, { type: sequelize.QueryTypes.SELECT });
     const ar = Math.max(0, arRow.ar || 0);
     const ap = Math.max(0, apRow.ap || 0);
@@ -1838,33 +1856,31 @@ exports.partyOutstanding = async (req, res) => {
   try {
     const { party_type } = req.query;
 
-    // Compute live outstanding per party from bills + opening balance - on-account
-    // payments. Avoids relying on Party.current_balance cache which can drift
-    // and mislead finance teams chasing receivables.
+    // Compute live outstanding per party using the same canonical formula
+    // as recalculateAll (opening + raw bill totals - all non-auto receipts).
+    // This is independent of bill-level balance_amount (which varies with
+    // reconciliation state) and always produces the correct number.
     const buildQuery = (mode) => {
       if (mode === 'Customer') {
         return `
           SELECT p.party_id, p.party_name, p.party_type, p.mobile_1,
                  p.credit_limit, p.credit_days,
                  (
-                   COALESCE((
-                     SELECT SUM(sb.balance_amount) FROM sales_bills sb
+                   CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                   - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                   + COALESCE((
+                     SELECT SUM(sb.total_amount - sb.paid_amount - sb.return_amount) FROM sales_bills sb
                      WHERE sb.customer_id = p.party_id AND sb.is_cancelled = false
                    ), 0)
-                   + CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                   - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
                    - COALESCE((
-                     -- CRIT-10 fix: only subtract truly on-account receipts.
-                     -- Bill-linked receipts (reference_bill_id IS NOT NULL) and
-                     -- multi-bill split payments (bill_allocations not empty) are
-                     -- already reflected in sales_bills.balance_amount — subtracting
-                     -- them again would double-deduct and make outstanding appear
-                     -- lower than reality (inflating bad-debt write-offs).
+                     SELECT SUM(sr.balance_amount + sr.refund_amount) FROM sales_return_bills sr
+                     WHERE sr.customer_id = p.party_id AND sr.is_cancelled = false
+                   ), 0)
+                   - COALESCE((
                      SELECT SUM(pr.total_amount) FROM payments_receipts pr
                      WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
                        AND pr.is_cancelled = false
-                       AND pr.reference_bill_id IS NULL
-                       AND (pr.bill_allocations IS NULL OR pr.bill_allocations::text = '[]')
+                       AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
                    ), 0)
                  )::float AS current_balance
           FROM parties p
@@ -1875,20 +1891,21 @@ exports.partyOutstanding = async (req, res) => {
         SELECT p.party_id, p.party_name, p.party_type, p.mobile_1,
                p.credit_limit, p.credit_days,
                (
-                 -- Supplier side: stored as NEGATIVE for "we owe them"
-                 -COALESCE((
-                   SELECT SUM(pb.balance_amount) FROM purchase_bills pb
+                 CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                 - CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                 + COALESCE((
+                   SELECT SUM(pb.total_amount - pb.paid_amount) FROM purchase_bills pb
                    WHERE pb.supplier_id = p.party_id AND pb.is_cancelled = false
                  ), 0)
-                 + CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                 - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                 + COALESCE((
-                   -- CRIT-10 fix: only subtract truly on-account payments.
+                 - COALESCE((
+                   SELECT SUM(pr.balance_amount + pr.refund_amount) FROM purchase_return_bills pr
+                   WHERE pr.supplier_id = p.party_id AND pr.is_cancelled = false
+                 ), 0)
+                 - COALESCE((
                    SELECT SUM(pr.total_amount) FROM payments_receipts pr
                    WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
                      AND pr.is_cancelled = false
-                     AND pr.reference_bill_id IS NULL
-                     AND (pr.bill_allocations IS NULL OR pr.bill_allocations::text = '[]')
+                     AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
                  ), 0)
                )::float AS current_balance
         FROM parties p
@@ -2274,28 +2291,30 @@ exports.exportPartyOutstanding = async (req, res) => {
   try {
     const { party_type } = req.query;
 
-    // CRIT-9 fix: formulas match partyOutstanding() exactly.
-    // Old export used opening_balance ± sales - purchases for ALL types,
-    // which (a) subtracted purchase bills from customer outstanding and
-    // (b) omitted unallocated on-account receipt/payment deductions.
+    // Canonical outstanding formula (matches recalculateAll exactly).
+    // Uses raw bill totals - all non-auto receipts, independent of
+    // bill-level balance_amount reconciliation state.
     const buildQuery = (mode) => {
       if (mode === 'Customer') {
         return `
           SELECT p.party_id, p.party_name, p.mobile_1, p.party_type, p.gstin,
                  p.credit_limit, p.credit_days,
                  (
-                   COALESCE((
-                     SELECT SUM(sb.balance_amount) FROM sales_bills sb
+                   CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                   - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                   + COALESCE((
+                     SELECT SUM(sb.total_amount - sb.paid_amount - sb.return_amount) FROM sales_bills sb
                      WHERE sb.customer_id = p.party_id AND sb.is_cancelled = false
                    ), 0)
-                   + CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                   - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                   - COALESCE((
+                     SELECT SUM(sr.balance_amount + sr.refund_amount) FROM sales_return_bills sr
+                     WHERE sr.customer_id = p.party_id AND sr.is_cancelled = false
+                   ), 0)
                    - COALESCE((
                      SELECT SUM(pr.total_amount) FROM payments_receipts pr
                      WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
                        AND pr.is_cancelled = false
-                       AND pr.reference_bill_id IS NULL
-                       AND (pr.bill_allocations IS NULL OR pr.bill_allocations::text = '[]')
+                       AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
                    ), 0)
                  )::float AS current_balance
           FROM parties p
@@ -2306,18 +2325,21 @@ exports.exportPartyOutstanding = async (req, res) => {
         SELECT p.party_id, p.party_name, p.mobile_1, p.party_type, p.gstin,
                p.credit_limit, p.credit_days,
                (
-                 -COALESCE((
-                   SELECT SUM(pb.balance_amount) FROM purchase_bills pb
+                 CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                 - CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
+                 + COALESCE((
+                   SELECT SUM(pb.total_amount - pb.paid_amount) FROM purchase_bills pb
                    WHERE pb.supplier_id = p.party_id AND pb.is_cancelled = false
                  ), 0)
-                 + CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                 - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                 + COALESCE((
+                 - COALESCE((
+                   SELECT SUM(pr.balance_amount + pr.refund_amount) FROM purchase_return_bills pr
+                   WHERE pr.supplier_id = p.party_id AND pr.is_cancelled = false
+                 ), 0)
+                 - COALESCE((
                    SELECT SUM(pr.total_amount) FROM payments_receipts pr
                    WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
                      AND pr.is_cancelled = false
-                     AND pr.reference_bill_id IS NULL
-                     AND (pr.bill_allocations IS NULL OR pr.bill_allocations::text = '[]')
+                     AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
                  ), 0)
                )::float AS current_balance
         FROM parties p

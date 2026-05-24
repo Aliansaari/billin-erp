@@ -66,22 +66,24 @@ const PT_PER_MM = 2.834645669;
  * here to keep PDFs round-trippable in every viewer.
  */
 const THEME_PRESETS = {
-  // Bordered, traditional. The starting point if nothing else is picked.
+  // Clean professional. Teal accent on the header row + grand-total bar,
+  // subtle grid lines, alternating rows for easy scanning.
   classic: {
     bodyFont: 'helvetica',
     titleStyle: 'bold',
-    titleSize: 15,
+    titleSize: 16,
     docTypeStyle: { variant: 'plain', size: 10.5, weight: 'bold' },
-    accentRgb: [20, 20, 20],
-    rule: { color: [200, 200, 200], width: 0.5 },
+    accentRgb: [8, 145, 168],
+    rule: { color: [210, 215, 222], width: 0.4 },
     table: {
-      headFill: [248, 245, 240],
-      headText: [60, 60, 60],
-      bodyText: [40, 40, 40],
-      lineColor: [220, 220, 220],
-      lineWidth: 0.4,
+      headFill: [8, 145, 168],
+      headText: [255, 255, 255],
+      bodyText: [35, 40, 50],
+      lineColor: [225, 230, 238],
+      lineWidth: 0.3,
+      alternateRow: [246, 249, 253],
     },
-    grandTotal: { mode: 'rule', textColor: [20, 20, 20] },
+    grandTotal: { mode: 'fill', fillRgb: [8, 145, 168], textColor: [255, 255, 255] },
     pageBorder: false,
     headerBlock: false,
   },
@@ -317,6 +319,17 @@ const fmtQty = (v) => {
   return Number.isInteger(n) ? String(n) : n.toLocaleString('en-IN', { maximumFractionDigits: 3 });
 };
 const fmtDate = (d) => (d ? dayjs(d).format('DD-MM-YYYY') : '');
+
+// Display amount for an item row: qty × rate minus only the per-item
+// discount. Excludes the bill-level discount that the backend distributes
+// into it.total_amount — the bill discount shows as one "Discount" line
+// in totals, not baked into every item.
+const itemDisplayAmt = (it) => {
+  const q = parseFloat(it.quantity) || 0;
+  const r = parseFloat(it.rate || it.purchase_rate) || 0;
+  const d = parseFloat(it.discount_percentage) || 0;
+  return +(q * r * (1 - d / 100)).toFixed(2);
+};
 
 // Indian-system number-to-words. Mirrors printRenderer.numberToWords so
 // the PDF and on-screen render read the same.
@@ -584,11 +597,12 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
       body: entryBody,
       theme: tableMode,
       styles: {
-        font: T.bodyFont, fontSize: 9, cellPadding: 5,
+        font: T.bodyFont, fontSize: 9, cellPadding: 6,
         lineColor: T.table.lineColor, lineWidth: T.table.lineWidth,
         textColor: T.table.bodyText,
       },
       headStyles,
+      ...(T.table.alternateRow ? { alternateRowStyles: { fillColor: T.table.alternateRow } } : {}),
       columnStyles: {
         0: { cellWidth: 22, halign: 'center' },
         1: { cellWidth: 'auto' },
@@ -623,7 +637,7 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
       row.push(fmt(it.rate || it.purchase_rate));
       if (showMrp)      row.push(fmt(it.mrp));
       if (showDiscount) row.push((Number(it.discount_percentage || 0)).toFixed(2));
-      row.push(fmt(it.total_amount));
+      row.push(fmt(itemDisplayAmt(it)));
       return row;
     });
 
@@ -655,11 +669,12 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
       body: body.length ? body : [['', '(no items)', ...new Array(cols.length - 2).fill('')]],
       theme: tableMode,
       styles: {
-        font: T.bodyFont, fontSize: 9, cellPadding: 5,
+        font: T.bodyFont, fontSize: 9, cellPadding: 6,
         lineColor: T.table.lineColor, lineWidth: T.table.lineWidth,
         textColor: T.table.bodyText,
       },
       headStyles,
+      ...(T.table.alternateRow ? { alternateRowStyles: { fillColor: T.table.alternateRow } } : {}),
       columnStyles: styledColStyles,
       margin: { left: M, right: M },
     });
@@ -667,7 +682,24 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
 
   y = doc.lastAutoTable.finalY + 8;
 
+  /* ── Total-quantity summary (wholesale / multi-item bills) ──────── */
+  if (!isPaymentDoc) {
+    const _items = Array.isArray(bill.items) ? bill.items : [];
+    const totalQty = _items.reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0);
+    if (_items.length > 1) {
+      doc.setFont(T.bodyFont, 'normal').setFontSize(8).setTextColor(130, 130, 130);
+      doc.text(`Items: ${_items.length}  ·  Total Qty: ${fmtQty(totalQty)}`, M, y + 2);
+      y += 14;
+    }
+  }
+
   /* ── Totals block (right column) ────────────────────────────────── */
+  // Profile toggles — mirrors printRenderer.js so PDF and print match.
+  const showDisc   = profile?.show_discount !== false;
+  const showGst    = profile?.show_gst !== false;
+  const showReturn = profile?.show_return_amount !== false;
+  const showPrev   = profile?.show_previous_balance !== false;
+
   const totals = [];
   const sub = Number(bill.sub_total || 0);
   const disc = Number(bill.discount_amount || 0);
@@ -680,17 +712,25 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
   const ro      = Number(bill.round_off || 0);
   const grand   = Number(bill.total_amount || 0);
   const ret     = Number(bill.return_amount || 0);
+  const paid    = Number(bill.paid_amount || 0);
   const bal     = Number(bill.balance_amount != null ? bill.balance_amount : 0);
+  const partyObj = bill.customer || bill.supplier || bill.party || {};
+  const totalOutstanding = Number(partyObj.current_balance || 0);
+  // Previous balance: prefer API-supplied snapshot; fall back to deriving
+  // from party's current_balance minus this bill's outstanding.
+  const prev = bill.previous_balance != null
+    ? Number(bill.previous_balance)
+    : Math.max(0, totalOutstanding - bal);
 
-  if (sub)           totals.push(['Sub Total', fmt(sub)]);
-  if (disc)          totals.push(['Discount',  '-' + fmt(disc)]);
-  if (cgst)          totals.push(['CGST',      fmt(cgst)]);
-  if (sgst)          totals.push(['SGST',      fmt(sgst)]);
-  if (igst)          totals.push(['IGST',      fmt(igst)]);
-  if (cess)          totals.push(['Cess',      fmt(cess)]);
-  if (freight)       totals.push(['Freight',   fmt(freight)]);
-  if (sd)            totals.push(['Special Disc', '-' + fmt(sd)]);
-  if (ro)            totals.push(['Round Off', (ro >= 0 ? '+' : '') + fmt(Math.abs(ro))]);
+  if (sub)                      totals.push(['Sub Total', fmt(sub)]);
+  if (showDisc && disc)         totals.push(['Discount',  '-' + fmt(disc)]);
+  if (showGst && cgst)          totals.push(['CGST',      fmt(cgst)]);
+  if (showGst && sgst)          totals.push(['SGST',      fmt(sgst)]);
+  if (showGst && igst)          totals.push(['IGST',      fmt(igst)]);
+  if (cess)                     totals.push(['Cess',      fmt(cess)]);
+  if (freight)                  totals.push(['Freight',   fmt(freight)]);
+  if (sd)                       totals.push(['Special Disc', '-' + fmt(sd)]);
+  if (ro)                       totals.push(['Round Off', (ro >= 0 ? '+' : '') + fmt(Math.abs(ro))]);
 
   const totalsX = pageW - M - 200;
   const labelX  = totalsX;
@@ -738,27 +778,43 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
     doc.setTextColor(20, 20, 20);
   }
 
-  // Balance / paid (sales side)
-  if (ret) {
-    doc.setFont(T.bodyFont, 'normal').setFontSize(9).setTextColor(60);
-    doc.text('Return Credit', labelX, y);
-    doc.text('-' + fmt(ret), valueX, y, { align: 'right' });
+  // Post-total rows: party-account context below the bill's own math.
+  // Previous Bal sits here (not above Sub Total) because it's an account
+  // concept, not a line-item calculation. Flow:
+  //   GRAND TOTAL  ← what THIS bill costs
+  //   Return       ← items returned in this transaction
+  //   Paid         ← amount paid at billing
+  //   Previous Bal ← what they owed BEFORE this bill
+  //   Balance Due  ← unpaid on THIS bill
+  //   Total Outstg ← everything they owe across ALL bills
+  const tail = [];
+  if (showReturn && ret > 0) tail.push({ label: 'Return Credit', value: '-' + fmt(ret) });
+  if (paid > 0)              tail.push({ label: 'Paid',          value: fmt(paid) });
+  // Balance Due before Previous Bal — the customer reads "I paid X, I still
+  // owe Y on THIS bill, and by the way I had Z from before, so my total is W".
+  if (bal > 0 && Math.abs(bal - grand) > 0.5) tail.push({ label: 'Balance Due', value: fmt(bal), bold: true, red: true });
+  if (showPrev && prev > 0)  tail.push({ label: 'Previous Bal',  value: fmt(prev) });
+  if (showPrev && totalOutstanding > 0) tail.push({ label: 'Total Outstanding', value: fmt(totalOutstanding), bold: true, accent: true });
+
+  for (const row of tail) {
+    if (y > pageH - 80) { doc.addPage(); y = M; }
+    if (row.bold) {
+      doc.setFont(T.bodyFont, 'bold').setFontSize(10);
+    } else {
+      doc.setFont(T.bodyFont, 'normal').setFontSize(9);
+    }
+    if (row.red) {
+      doc.setTextColor(180, 50, 50);
+    } else if (row.accent) {
+      doc.setTextColor(A[0], A[1], A[2]);
+    } else {
+      doc.setTextColor(60);
+    }
+    doc.text(row.label, labelX, y);
+    doc.text(row.value, valueX, y, { align: 'right' });
     y += 13;
   }
-  if (bal !== grand && bal !== 0) {
-    const paid = Math.max(0, grand - ret - bal);
-    if (paid > 0) {
-      doc.setFont(T.bodyFont, 'normal').setFontSize(9).setTextColor(60);
-      doc.text('Paid', labelX, y);
-      doc.text(fmt(paid), valueX, y, { align: 'right' });
-      y += 13;
-    }
-    doc.setFont(T.bodyFont, 'bold').setFontSize(10).setTextColor(180, 50, 50);
-    doc.text('Balance Due', labelX, y);
-    doc.text(fmt(bal), valueX, y, { align: 'right' });
-    doc.setTextColor(20);
-    y += 14;
-  }
+  doc.setTextColor(20, 20, 20);
 
   /* ── Amount in words ────────────────────────────────────────────── */
   if (y > pageH - 70) { doc.addPage(); y = M; }

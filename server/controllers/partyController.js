@@ -2,7 +2,7 @@ const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const { Party, SalesBill, PurchaseBill, PaymentReceipt, SalesReturnBill, PurchaseReturnBill, LedgerEntry, LedgerAccount, SystemSettings } = require('../models');
 const { reverseVoucher } = require('../services/ledgerPostingService');
-const { recalculatePartyBalance } = require('../utils/balanceHelper');
+const { recalculatePartyBalance, reconcileBillsForParty } = require('../utils/balanceHelper');
 const { sanitizePagination, escapeLike, respondWithError } = require('../utils/helpers');
 
 // Aging bucket boundaries come from SystemSettings so admins can tune what
@@ -930,7 +930,10 @@ exports.getCustomers = async (req, res) => {
   try {
     req.query.party_type = 'Customer';
     const { party_type, search, status, balance_status, sort_by, sort_order } = req.query;
-    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
+    // maxLimit raised to 5000 — dropdown callers (SalesBillForm, ReceiptEntry,
+    // SalesReturnForm) request limit=1000; the default cap of 500 silently
+    // truncated the list, hiding newly-created customers.
+    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit, { maxLimit: 5000 });
     const where = {};
     where.party_type = { [Op.in]: ['Customer', 'Both'] };
     if (status) where.party_status = status;
@@ -970,7 +973,8 @@ exports.getSuppliers = async (req, res) => {
   try {
     req.query.party_type = 'Supplier';
     const { search, status, balance_status, sort_by, sort_order } = req.query;
-    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
+    // maxLimit raised to 5000 — same reason as getCustomers above.
+    const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit, { maxLimit: 5000 });
     const where = {};
     where.party_type = { [Op.in]: ['Supplier', 'Both'] };
     if (status) where.party_status = status;
@@ -1074,6 +1078,7 @@ exports.recalculateAll = async (req, res) => {
             WHERE party_id = p.party_id
               AND transaction_type = 'Receipt'
               AND is_cancelled = false
+              AND (source != 'auto_from_bill' OR source IS NULL)
           ), 0)
         - COALESCE((
             SELECT SUM(COALESCE(total_amount, 0)
@@ -1093,9 +1098,16 @@ exports.recalculateAll = async (req, res) => {
             WHERE party_id = p.party_id
               AND transaction_type = 'Payment'
               AND is_cancelled = false
+              AND (source != 'auto_from_bill' OR source IS NULL)
           ), 0)
       )::numeric, 2) END
     `);
+
+    // Bill-level reconciliation (FIFO receipt→bill distribution) is handled
+    // separately as a one-time startup task — see server/index.js
+    // runOneTimeReconciliation(). Not done here because it's O(n) per party
+    // and would block every page load.
+
     res.json({ message: 'All party balances recalculated successfully' });
   } catch (error) {
     console.error('Recalculate all balances error:', error);

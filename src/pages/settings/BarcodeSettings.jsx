@@ -31,6 +31,7 @@ const SAMPLE_ROW = {
   size: 'M-L-XL',
   article_number: 'ART-001',
   quantity_per_box: 6,
+  custom_label: 'SN-001',
 };
 
 function getSampleVal(el, companyName) {
@@ -45,6 +46,7 @@ function getSampleVal(el, companyName) {
     case 'article_number': return (pfx ?? 'Art: ') + SAMPLE_ROW.article_number;
     case 'qty_per_box':    return (pfx ?? 'Qty: ') + SAMPLE_ROW.quantity_per_box;
     case 'rate_barcode':   return (pfx ?? 'Rate: Rs.') + SAMPLE_ROW.sale_rate + '-' + SAMPLE_ROW.barcode;
+    case 'custom_label':   return (pfx ?? '') + SAMPLE_ROW.custom_label;
     default: return '';
   }
 }
@@ -70,6 +72,7 @@ const FIELD_META = {
   article_number: { label: 'Article No.',    sample: 'A-001',          defaultPrefix: 'Art: ' },
   qty_per_box:    { label: 'Qty / Box',     sample: '6',              defaultPrefix: 'Qty: ' },
   rate_barcode:   { label: 'Rate · Barcode', sample: '200-PRD000123', defaultPrefix: 'Rate: Rs.' },
+  custom_label:   { label: 'Custom Label',   sample: 'SN-001',        defaultPrefix: '' },
 };
 
 const DEFAULT_LAYOUTS = {
@@ -84,6 +87,7 @@ const DEFAULT_LAYOUTS = {
     { id: 'article_number', x: 28, y: 1.5, fontSize: 7, bold: false, visible: false, prefix: 'Art: ' },
     { id: 'qty_per_box',    x: 28, y: 5,   fontSize: 7, bold: false, visible: false, prefix: 'Qty: ' },
     { id: 'rate_barcode',   x: 2,  y: 19,  fontSize: 6, bold: false, visible: false, prefix: 'Rate: Rs.' },
+    { id: 'custom_label',   x: 28, y: 8,   fontSize: 7, bold: false, visible: false, prefix: '' },
   ],
   '50x50': [
     { id: 'company_name',   x: 2,  y: 2,  fontSize: 8, bold: true,  visible: true,  prefix: '' },
@@ -96,6 +100,7 @@ const DEFAULT_LAYOUTS = {
     { id: 'article_number', x: 28, y: 2,  fontSize: 7, bold: false, visible: false, prefix: 'Art: ' },
     { id: 'qty_per_box',    x: 28, y: 8,  fontSize: 7, bold: false, visible: false, prefix: 'Qty: ' },
     { id: 'rate_barcode',   x: 2,  y: 38, fontSize: 7, bold: false, visible: false, prefix: 'Rate: Rs.' },
+    { id: 'custom_label',   x: 28, y: 12, fontSize: 7, bold: false, visible: false, prefix: '' },
   ],
 };
 

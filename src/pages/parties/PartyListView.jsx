@@ -133,12 +133,12 @@ export default function PartyListView({ partyType }) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Ensure current_balance is fresh before fetching — Party.current_balance
-      // is a denormalised cache and can drift if older code forgot to call
-      // recalculatePartyBalance after a mutation. Cheap to call, very helpful.
-      await partyAPI.recalculateBalances().catch(() => {});
+      // Fire-and-forget: recalculate in background so the page loads instantly.
+      // Party.current_balance is a denormalised cache — the background call
+      // keeps it fresh without blocking the UI.
+      partyAPI.recalculateBalances().catch(() => {});
 
-      const params = { search, limit: 500 };
+      const params = { search, limit: 5000 };
       if (statusFilter !== 'all') params.status = statusFilter;
 
       const [partiesRes, agingRes] = await Promise.all([
@@ -498,7 +498,10 @@ export default function PartyListView({ partyType }) {
 
   /* ── Render ────────────────────────────────────────────────────────────── */
   const overdueCount = aging?.overdue_count ?? lensCounts.overdue;
-  const totalReceivable = aging?.total ?? parties.reduce((s, p) => s + Math.max(0, owingBalance(p)), 0);
+  // Always compute total from party current_balance (the canonical source).
+  // aging.total is bill-level SUM(balance_amount) which can be stale if FIFO
+  // reconciliation hasn't run yet for imported parties.
+  const totalReceivable = parties.reduce((s, p) => s + Math.max(0, owingBalance(p)), 0);
 
   return (
     <div className="plv-page">
@@ -547,8 +550,8 @@ export default function PartyListView({ partyType }) {
               onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setBucketFilter(null)}
             >
               <div className="k">Total {isCustomer ? 'Receivable' : 'Payable'}</div>
-              <div className="v plv-num">{fmt(aging.total)}</div>
-              <div className="sub">{aging.party_count || 0} {isCustomer ? 'customers' : 'suppliers'} owing</div>
+              <div className="v plv-num">{fmt(totalReceivable)}</div>
+              <div className="sub">{parties.filter(p => owingBalance(p) > 0.01).length} {isCustomer ? 'customers' : 'suppliers'} owing</div>
               <div className="bar"><div className="fill" style={{ background: 'var(--accent)', width: '100%' }}/></div>
             </div>
             {[
@@ -557,7 +560,7 @@ export default function PartyListView({ partyType }) {
               { cls: 'b60', k: 'Chase',       label: `${buckets.b2 + 1} – ${buckets.b3} days`, amount: aging.b61_90,  count: aging.c61_90 },
               { cls: 'b90', k: 'Critical',    label: `${buckets.b3}+ days`,                amount: aging.b90plus, count: aging.c90plus },
             ].map(b => {
-              const pct = aging.total > 0 ? Math.round((b.amount / aging.total) * 100) : 0;
+              const pct = totalReceivable > 0 ? Math.round((b.amount / totalReceivable) * 100) : 0;
               const active = bucketFilter === b.cls;
               return (
                 <div

@@ -71,10 +71,10 @@ export default function PartyLedgerView({ partyType }) {
   const loadParties = async () => {
     setLoading(true);
     try {
-      await partyAPI.recalculateBalances().catch(() => {});
+      partyAPI.recalculateBalances().catch(() => {});
       const { data } = isCustomer
-        ? await partyAPI.getCustomers({ search, limit: 500 })
-        : await partyAPI.getSuppliers({ search, limit: 500 });
+        ? await partyAPI.getCustomers({ search, limit: 5000 })
+        : await partyAPI.getSuppliers({ search, limit: 5000 });
       const list = data.data || [];
       setParties(list);
       if (!selected && list.length > 0) setSelected(list[0]);
