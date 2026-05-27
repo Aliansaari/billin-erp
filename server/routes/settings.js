@@ -16,9 +16,9 @@ const brandingUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
 });
 
-// Reads exposed to anyone who can access Settings at all. Writes gated to
-// the specific sub-permission.
-router.get('/system',       requirePermission('settings.view'),            settingsController.getSystemSettings);
+// System settings are read by every page (feature flags, FY, GST toggle, etc.)
+// so any authenticated user can GET — writes stay gated to manage_company.
+router.get('/system',                                                       settingsController.getSystemSettings);
 router.put('/system',       requirePermission('settings.manage_company'),  settingsController.updateSystemSettings);
 router.get('/barcode',      requirePermission('settings.view'),            settingsController.getBarcodeSettings);
 router.put('/barcode',      requirePermission('settings.barcode'),         settingsController.updateBarcodeSettings);

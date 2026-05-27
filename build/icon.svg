@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a1628"/>
+      <stop offset="100%" stop-color="#0f1f35"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="bgGlow" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="rgba(14,175,202,0.12)"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </radialGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="256" height="256" rx="48" fill="url(#bg)"/>
+  <!-- Glow -->
+  <rect width="256" height="256" rx="48" fill="url(#bgGlow)"/>
+  <!-- Border -->
+  <rect x="2" y="2" width="252" height="252" rx="46" fill="none" stroke="rgba(14,175,202,0.25)" stroke-width="2"/>
+  <!-- Thunderbolt — outlined style matching splash screen -->
+  <g transform="translate(128,128) scale(5.5) translate(-12,-12)" filter="url(#glow)">
+    <path d="M13 2L4.094 12.688c-.34.408-.51.612-.512.784a.5.5 0 00.185.397c.138.118.396.118.912.118H12l-1 8 8.906-10.688c.34-.408.51-.612.512-.784a.5.5 0 00-.185-.397c-.138-.118-.396-.118-.912-.118H12l1-8z"
+          fill="#0EAFCA" fill-opacity=".15" stroke="#0EAFCA" stroke-width="1.5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

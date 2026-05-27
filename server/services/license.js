@@ -103,9 +103,14 @@ function readLicenseFromDisk() {
   let raw, env, payload;
   try {
     raw = fs.readFileSync(file, 'utf8').trim();
-    // Support both opaque format (BILLINGERP-LIC-V1:<base64>) and
-    // legacy plain-JSON format for backward compatibility.
-    if (raw.startsWith('BILLINGERP-LIC-V1:')) {
+    // Support opaque format (BILLINGERP-LIC:<base64>),
+    // legacy V1 prefix (BILLINGERP-LIC-V1:<base64>),
+    // and plain-JSON for backward compatibility.
+    if (raw.startsWith('BILLINGERP-LIC:')) {
+      const b64 = raw.slice('BILLINGERP-LIC:'.length);
+      const json = Buffer.from(b64, 'base64').toString('utf8');
+      env = JSON.parse(json);
+    } else if (raw.startsWith('BILLINGERP-LIC-V1:')) {
       const b64 = raw.slice('BILLINGERP-LIC-V1:'.length);
       const json = Buffer.from(b64, 'base64').toString('utf8');
       env = JSON.parse(json);
@@ -265,8 +270,12 @@ function activateFromEnvelope(envelopeText) {
   let envelope, payload;
   try {
     const trimmed = envelopeText.trim();
-    // Support both opaque (BILLINGERP-LIC-V1:<base64>) and legacy JSON
-    if (trimmed.startsWith('BILLINGERP-LIC-V1:')) {
+    // Support opaque (BILLINGERP-LIC:<base64>), legacy V1, and plain JSON
+    if (trimmed.startsWith('BILLINGERP-LIC:')) {
+      const b64 = trimmed.slice('BILLINGERP-LIC:'.length);
+      const json = Buffer.from(b64, 'base64').toString('utf8');
+      envelope = JSON.parse(json);
+    } else if (trimmed.startsWith('BILLINGERP-LIC-V1:')) {
       const b64 = trimmed.slice('BILLINGERP-LIC-V1:'.length);
       const json = Buffer.from(b64, 'base64').toString('utf8');
       envelope = JSON.parse(json);
