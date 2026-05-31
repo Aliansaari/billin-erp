@@ -5,7 +5,8 @@ import {
   PrinterOutlined, ThunderboltOutlined, SwapOutlined, ApiOutlined,
   CloudServerOutlined, HomeOutlined, ControlOutlined, DashboardOutlined,
   AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
-  CalendarOutlined,
+  CalendarOutlined, TeamOutlined, InboxOutlined, ImportOutlined,
+  IdcardOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -31,67 +32,80 @@ import './SettingsLayout.css';
 // `perm` field gates visibility — use null for "everyone".
 const SETTINGS_GROUPS = [
   {
-    label: 'Business',
+    // Company-level setup — the natural starting point for a fresh
+    // install: who you are, the books' financial year, and where
+    // stock physically lives.
+    label: 'Organization',
     items: [
-      { path: 'company',   icon: <BankOutlined />,        label: 'Company Profile', perm: 'settings.manage_company' },
-      // Companies entry — list / create / archive across companies in
-      // the master DB. Same permission gate as Company Profile so any
-      // user who can edit the current company's profile can also see
-      // the list.
-      { path: 'companies', icon: <AppstoreOutlined />,    label: 'Companies',       perm: 'settings.manage_company' },
-      // Financial Year — FY config + classic accounting-style compliance toggle that
-      // enables soft/hard locks + override workflow + audit log.
-      { path: 'financial-year', icon: <CalendarOutlined />, label: 'Financial Year', perm: 'settings.manage_company' },
-      { path: 'modules',   icon: <ThunderboltOutlined />, label: 'Features',        perm: 'settings.manage_company' },
-      { path: 'defaults',  icon: <ControlOutlined />,     label: 'Defaults',        perm: 'settings.manage_company' },
-      { path: 'godowns',   icon: <BankOutlined />,        label: 'Godowns',         perm: 'godowns.view', flag: 'multi_warehouse_enabled' },
+      { path: 'company',        icon: <BankOutlined />,     label: 'Company Profile', perm: 'settings.manage_company' },
+      // Companies — list / create / archive across companies in the
+      // master DB. Same permission gate as Company Profile so anyone who
+      // can edit the current company's profile can also see the list.
+      { path: 'companies',      icon: <AppstoreOutlined />, label: 'Companies',       perm: 'settings.manage_company' },
+      // Financial Year — FY config + accounting-style compliance toggle
+      // (soft/hard locks + override workflow + audit log).
+      { path: 'financial-year', icon: <CalendarOutlined />, label: 'Financial Year',  perm: 'settings.manage_company' },
+      { path: 'godowns',        icon: <InboxOutlined />,    label: 'Godowns',         perm: 'godowns.view', flag: 'multi_warehouse_enabled' },
+      // Salesmen — master list of sales staff credited on bills. No flag
+      // gate; always available to company-settings managers.
+      { path: 'salesmen',       icon: <IdcardOutlined />,   label: 'Salesmen',        perm: 'settings.manage_company' },
     ],
   },
   {
-    label: 'People',
+    // How billing and inventory behave day to day — the master feature
+    // switches and the default values pre-filled on new entries.
+    label: 'Preferences',
     items: [
-      // My Account — every logged-in user can reach this. perm:null means
-      // no extra check beyond authentication.
+      { path: 'modules',  icon: <ThunderboltOutlined />, label: 'Features', perm: 'settings.manage_company' },
+      { path: 'defaults', icon: <ControlOutlined />,     label: 'Defaults', perm: 'settings.manage_company' },
+    ],
+  },
+  {
+    // Appearance + the document and label templates the operator prints.
+    label: 'Customization',
+    items: [
+      { path: 'print',     icon: <PrinterOutlined />,   label: 'Print Templates', perm: 'settings.print' },
+      { path: 'barcode',   icon: <TagsOutlined />,      label: 'Barcode Labels',  perm: 'settings.barcode' },
+      { path: 'theme',     icon: <BgColorsOutlined />,  label: 'Theme',           perm: null },
+      { path: 'home',      icon: <HomeOutlined />,      label: 'Home Screen',     perm: null },
+      { path: 'dashboard', icon: <DashboardOutlined />, label: 'Dashboard',       perm: null },
+    ],
+  },
+  {
+    // People — personal preferences first (every signed-in user has
+    // these), then the admin-only user roster.
+    label: 'Users & Access',
+    items: [
+      // My Account / Notifications — every logged-in user can reach
+      // these (perm:null). Each operator manages their own.
       { path: 'account',       icon: <UserOutlined />, label: 'My Account',    perm: null },
-      // Notifications — per-user preferences for the bell. Visible to
-      // every signed-in user (each operator manages their own).
       { path: 'notifications', icon: <BellOutlined />, label: 'Notifications', perm: null },
-      { path: 'users',         icon: <UserOutlined />, label: 'Users',         perm: 'settings.manage_users' },
+      { path: 'users',         icon: <TeamOutlined />, label: 'Users',         perm: 'settings.manage_users' },
     ],
   },
   {
-    label: 'Look & feel',
+    // Moving data in/out, external sync, and the safety net. Import /
+    // Export + Tally mirror the developer-tier flags used by the main
+    // sidebar so the rail honours the same hide/show toggles. Backup
+    // stays visible regardless.
+    label: 'Data & Integrations',
     items: [
-      { path: 'theme',     icon: <BgColorsOutlined />,   label: 'Theme',         perm: null },
-      { path: 'home',      icon: <HomeOutlined />,       label: 'Home Page',     perm: null },
-      { path: 'dashboard', icon: <DashboardOutlined />,  label: 'Dashboard',     perm: null },
-      { path: 'print',     icon: <PrinterOutlined />,    label: 'Print',         perm: 'settings.print' },
-      { path: 'barcode',   icon: <TagsOutlined />,       label: 'Barcode',       perm: 'settings.barcode' },
-    ],
-  },
-  {
-    label: 'Data',
-    items: [
-      // Import / Export + Tally Sync mirror the developer-tier flags
-      // used by the main sidebar so the settings rail honours the same
-      // hide/show toggles. Backup creation stays visible regardless.
-      { path: 'import-export', icon: <SwapOutlined />,        label: 'Import & Export',  perm: 'settings.import_export', flag: 'dev_show_import_export' },
-      { path: 'import',        icon: <ThunderboltOutlined />, label: 'Import (queued)',  perm: 'settings.import_export', flag: 'dev_show_import_export' },
-      { path: 'tally',         icon: <ApiOutlined />,         label: 'TallyPrime Sync',  perm: 'settings.tally',         flag: 'dev_show_tally_sync' },
+      { path: 'import-export', icon: <SwapOutlined />,        label: 'Import & Export',   perm: 'settings.import_export', flag: 'dev_show_import_export' },
+      { path: 'import',        icon: <ImportOutlined />,      label: 'Import (queued)',   perm: 'settings.import_export', flag: 'dev_show_import_export' },
+      { path: 'tally',         icon: <ApiOutlined />,         label: 'TallyPrime Sync',   perm: 'settings.tally',         flag: 'dev_show_tally_sync' },
       { path: 'backup',        icon: <CloudServerOutlined />, label: 'Backup & Recovery', perm: 'settings.backup' },
     ],
   },
   {
-    // Visible only when developer mode is unlocked on this device.
-    // Filtered by the `__devOnly` marker — the visibleGroups computation
-    // below honours it.
+    // Visible only when developer mode is unlocked on this device
+    // (the `__devOnly` marker — honoured by visibleGroups below).
     label: 'Developer',
     items: [
-      { path: 'developer',  icon: <CodeOutlined />,        label: 'Developer Access', __devOnly: true },
-      // License panel — visible to anyone (so the customer can see their
-      // expiry / customer ID), but the sensitive Replace flow is dev-gated
-      // inside the panel itself.
-      { path: 'license',    icon: <KeyOutlined />,         label: 'License',          perm: null },
+      { path: 'developer', icon: <CodeOutlined />, label: 'Developer Access', __devOnly: true },
+      // License — visible to anyone (so the customer can see expiry /
+      // customer ID); the sensitive Replace flow is dev-gated inside
+      // the panel itself.
+      { path: 'license',   icon: <KeyOutlined />,  label: 'License',          perm: null },
     ],
   },
 ];

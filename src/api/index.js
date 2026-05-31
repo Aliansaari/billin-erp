@@ -380,6 +380,10 @@ export const reportAPI = {
   // typically 200-400ms on a populated DB.
   getDashboardBusiness: (params) => api.get('/reports/dashboard/business', { params }),
   getSalesReport: (params) => api.get('/reports/sales', { params }),
+  // Sales aggregated per salesman — one row per credited salesman over the
+  // filtered period (counts, taxable, GST, gross, paid/outstanding, profit,
+  // and an indicative commission). Read-only roll-up; computes no new money.
+  getSalesBySalesman: (params) => api.get('/reports/sales-by-salesman', { params }),
   getPurchaseReport: (params) => api.get('/reports/purchases', { params }),
   getStockReport: (params) => api.get('/reports/stock', { params }),
   // Legacy alias — kept for callers we haven't migrated yet (Dashboard etc).
@@ -711,6 +715,19 @@ export const godownAPI = {
   update:     (id, data) => api.put(`/godowns/${id}`, data),
   setDefault: (id) => api.post(`/godowns/${id}/default`),
   delete:     (id) => api.delete(`/godowns/${id}`),
+};
+
+// Salesman master — the managed list of sales staff credited on bills.
+// `getAll` without params returns only active salesmen (what the Sales Bill
+// form dropdown wants); pass { include_inactive: 'true' } on the settings
+// management page to also list deactivated ones. Pure attribution — none of
+// these endpoints touch any bill total or ledger.
+export const salesmanAPI = {
+  getAll:  (params) => api.get('/salesmen', { params }),
+  getById: (id) => api.get(`/salesmen/${id}`),
+  create:  (data) => api.post('/salesmen', data),
+  update:  (id, data) => api.put(`/salesmen/${id}`, data),
+  delete:  (id) => api.delete(`/salesmen/${id}`),
 };
 
 // Indian states reference list — backs the state-picker dropdowns on

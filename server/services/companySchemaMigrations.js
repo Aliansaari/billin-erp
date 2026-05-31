@@ -183,6 +183,46 @@ async function runCompanySchemaMigrations(sequelize) {
       END IF;
     END $$;
   `);
+
+  // salesmen — master list of sales staff credited on bills. Column shape
+  // matches the Sequelize model in server/models/Salesman.js. Created
+  // explicitly here (like compliance_audit_logs above) so the table exists
+  // regardless of whether the provisioning path ran sync(). PURE ATTRIBUTION:
+  // nothing here participates in any total/tax/ledger/balance calculation.
+  // Uniqueness of name/code is enforced in the controller, not the DB.
+  await sequelize.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'salesmen') THEN
+        CREATE TABLE salesmen (
+          salesman_id            SERIAL PRIMARY KEY,
+          name                   VARCHAR(100) NOT NULL,
+          code                   VARCHAR(20),
+          phone                  VARCHAR(20),
+          email                  VARCHAR(120),
+          commission_percentage  NUMERIC(5,2) DEFAULT 0,
+          is_active              BOOLEAN DEFAULT true,
+          notes                  TEXT,
+          created_date           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          modified_date          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+      END IF;
+    END $$;
+  `);
+
+  // sales_bills.salesman_id — nullable attribution FK into salesmen. Added as
+  // a plain INTEGER (no DB-level FK constraint), mirroring the master block in
+  // server/index.js and the existing category_id pattern: the deletion guard
+  // lives in the controller, and we avoid a constraint scan over a large
+  // sales_bills table on legacy company DBs.
+  await sequelize.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='sales_bills' AND column_name='salesman_id') THEN
+        ALTER TABLE sales_bills ADD COLUMN salesman_id INTEGER;
+      END IF;
+    END $$;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };

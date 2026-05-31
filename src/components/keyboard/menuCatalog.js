@@ -139,20 +139,19 @@ export const ALT_MENUS = {
     ],
   },
 
-  // Alt+R = Reports menu. The hub already has rich keyboard nav of
-  // its own, so the "menu" here is just a one-item shortcut to it —
-  // kept for consistency with the other Alt+letter slots. The hub
-  // takes over once the user is there.
+  // Alt+R = Reports menu. The item list is FAVOURITES-DRIVEN and rebuilt
+  // at runtime in useFilteredAltMenus (the operator's pinned reports +
+  // a Browse-hub anchor), so Alt+R, the TopNav pill, and the collapsed-
+  // sidebar popup all mirror the sidebar dropdown and the hub's starred
+  // set. The static entry below is only a fallback shape; anchorKey must
+  // stay 'reports-menu' to match the nav item's key so the popup anchors
+  // to the Reports pill/row. With zero pins the list is one item and the
+  // keyboard hook short-circuits Alt+R straight to the hub.
   KeyR: {
     title: 'Reports',
-    anchorKey: '/reports',
+    anchorKey: 'reports-menu',
     items: [
       { letter: 'B', label: 'Browse Reports', sub: 'Reports hub', route: '/reports' },
-      { letter: 'D', label: 'Day Book',       sub: 'All vouchers · today', route: '/reports/day-book' },
-      { letter: 'P', label: 'Profit & Loss',  sub: 'P&L statement',  route: '/reports/profit-loss' },
-      { letter: 'A', label: 'Balance Sheet',  sub: 'Assets & liabilities', route: '/reports/balance-sheet' },
-      { letter: 'T', label: 'Trial Balance',  sub: 'Period-end closing',  route: '/reports/trial-balance' },
-      { letter: 'L', label: 'Ledger',         sub: 'Account ledger',       route: '/reports/ledger' },
     ],
   },
 

@@ -178,7 +178,7 @@ export default function TopNav() {
     'inventory-menu':  'I',
     'bank-menu':       'B',
     'accounts-menu':   'A',
-    '/reports':        'R',
+    'reports-menu':    'R',
     '/settings/company': 'T',
   }), []);
 

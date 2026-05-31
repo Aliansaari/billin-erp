@@ -4,7 +4,7 @@ const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product
 const { sanitizePagination, escapeLike, respondWithError } = require('../utils/helpers');
 const { aggregateAging } = require('../utils/aging');
 const { fetchBatchAggregate, computeDisplayCost, attachDisplayCost } = require('../utils/displayCost');
-const { scopeWhereByGodown } = require('../middleware/godownScope');
+const { scopeWhereByGodown, effectiveGodownIds } = require('../middleware/godownScope');
 
 // Local calendar date (YYYY-MM-DD) in the server's timezone. We deliberately
 // avoid toISOString().split('T')[0] here because that returns a UTC date — for
@@ -1329,6 +1329,158 @@ exports.salesReport = async (req, res) => {
     respondWithError(res, error);
   }
 };
+
+/*
+ * Sales-by-Salesman report — one row per salesman, aggregated over the
+ * filtered period.
+ *
+ * PURE ATTRIBUTION: this is a read-only roll-up of EXISTING bill figures
+ * grouped by the credited salesman. It computes NOTHING new on the money side
+ * — every rupee comes straight from the already-saved sales_bills columns. The
+ * "indicative commission" is a display convenience (period taxable × the
+ * salesman's stored commission %); it is NOT a ledger entry, payout, or
+ * anything that touches a bill total.
+ *
+ * Grouping:
+ *   - Bills with a managed salesman_id group under that salesman (label from
+ *     the salesmen master, so renames flow through).
+ *   - Bills with no salesman_id (legacy free-text or simply unassigned) fall
+ *     into a single honest "Unassigned" bucket. We intentionally do NOT try to
+ *     reconstruct groups from the free-text salesman_name snapshot — that field
+ *     is unreliable; the per-bill snapshot is still visible on the main Sales
+ *     Report.
+ *
+ * Filters mirror the Sales Report: from_date/to_date, optional salesman_id,
+ * and the same godown access scoping (a godown-restricted user only sees sales
+ * from their reachable godowns).
+ */
+exports.salesBySalesmanReport = async (req, res) => {
+  try {
+    const { from_date, to_date, salesman_id } = req.query;
+
+    const conds = ['sb.is_cancelled = false'];
+    const repl = {};
+    if (from_date && to_date) {
+      conds.push('sb.bill_date BETWEEN :from_date AND :to_date');
+      repl.from_date = from_date;
+      repl.to_date = to_date;
+    }
+    if (salesman_id) {
+      conds.push('sb.salesman_id = :salesman_id');
+      repl.salesman_id = parseInt(salesman_id, 10);
+    }
+
+    // Apply the same godown scoping the Sales Report uses, but for raw SQL.
+    // null => unrestricted; [] => locked out (return empty); [ids] => filter.
+    const godownIds = effectiveGodownIds(req.user);
+    if (Array.isArray(godownIds)) {
+      if (godownIds.length === 0) {
+        return res.json({ data: [], summary: emptySalesmanSummary(), from_date, to_date });
+      }
+      conds.push('sb.godown_id IN (:godownIds)');
+      repl.godownIds = godownIds;
+    }
+
+    const rows = await sequelize.query(
+      `SELECT
+         sb.salesman_id,
+         CASE WHEN sb.salesman_id IS NULL THEN 'Unassigned'
+              ELSE COALESCE(sm.name, 'Salesman #' || sb.salesman_id) END AS salesman_name,
+         COALESCE(sm.code, '')                    AS salesman_code,
+         COALESCE(sm.commission_percentage, 0)::float AS commission_percentage,
+         sm.is_active                             AS salesman_active,
+         COUNT(sb.sales_bill_id)::int             AS bill_count,
+         COALESCE(SUM(sb.sub_total), 0)::float     AS total_sub,
+         COALESCE(SUM(sb.discount_amount), 0)::float AS total_discount,
+         COALESCE(SUM(COALESCE(sb.cgst_amount,0) + COALESCE(sb.sgst_amount,0)
+                    + COALESCE(sb.igst_amount,0) + COALESCE(sb.cess_amount,0)), 0)::float AS total_gst,
+         COALESCE(SUM(sb.total_amount), 0)::float  AS total_amount,
+         COALESCE(SUM(sb.total_amount - sb.balance_amount - COALESCE(sb.return_amount, 0)), 0)::float AS total_paid,
+         COALESCE(SUM(sb.balance_amount), 0)::float AS total_balance,
+         COALESCE(SUM(COALESCE(sb.return_amount, 0)), 0)::float AS total_return,
+         COALESCE(SUM(ic.cogs), 0)::float          AS total_cogs
+       FROM sales_bills sb
+       LEFT JOIN salesmen sm ON sm.salesman_id = sb.salesman_id
+       LEFT JOIN (
+         SELECT sales_bill_id, SUM(quantity * cost_rate) AS cogs
+           FROM sales_bill_items
+          GROUP BY sales_bill_id
+       ) ic ON ic.sales_bill_id = sb.sales_bill_id
+       WHERE ${conds.join(' AND ')}
+       GROUP BY sb.salesman_id, sm.name, sm.code, sm.commission_percentage, sm.is_active
+       ORDER BY total_amount DESC`,
+      { replacements: repl, type: sequelize.QueryTypes.SELECT },
+    );
+
+    // Per-row derived fields + running summary. All arithmetic is over numbers
+    // already produced by the DB — no re-pricing, no tax recompute.
+    const summary = emptySalesmanSummary();
+    const data = rows.map((r) => {
+      const total_sub = r2(r.total_sub);
+      const total_cogs = r2(r.total_cogs);
+      const total_profit = r2(total_sub - total_cogs);
+      const margin_pct = total_sub > 0 ? r2((total_profit / total_sub) * 100) : 0;
+      // Indicative commission only — period taxable × stored %. Never posted.
+      const commission_amount = r2(total_sub * (parseFloat(r.commission_percentage) || 0) / 100);
+
+      summary.salesmen_count += 1;
+      summary.total_bills    += parseInt(r.bill_count, 10) || 0;
+      summary.total_sub      += total_sub;
+      summary.total_discount += r2(r.total_discount);
+      summary.total_gst      += r2(r.total_gst);
+      summary.total_amount   += r2(r.total_amount);
+      summary.total_paid     += r2(r.total_paid);
+      summary.total_balance  += r2(r.total_balance);
+      summary.total_return   += r2(r.total_return);
+      summary.total_cogs     += total_cogs;
+      summary.total_profit   += total_profit;
+      summary.total_commission += commission_amount;
+
+      return {
+        salesman_id: r.salesman_id,
+        salesman_name: r.salesman_name,
+        salesman_code: r.salesman_code,
+        salesman_active: r.salesman_active,
+        commission_percentage: r2(r.commission_percentage),
+        bill_count: parseInt(r.bill_count, 10) || 0,
+        total_sub,
+        total_discount: r2(r.total_discount),
+        total_gst: r2(r.total_gst),
+        total_amount: r2(r.total_amount),
+        total_paid: r2(r.total_paid),
+        total_balance: r2(r.total_balance),
+        total_return: r2(r.total_return),
+        total_cogs,
+        total_profit,
+        margin_pct,
+        commission_amount,
+      };
+    });
+
+    // Round the accumulated summary and derive its margin.
+    Object.keys(summary).forEach((k) => {
+      if (k !== 'salesmen_count' && k !== 'total_bills') summary[k] = r2(summary[k]);
+    });
+    summary.margin_pct = summary.total_sub > 0
+      ? r2((summary.total_profit / summary.total_sub) * 100)
+      : 0;
+
+    res.json({ data, summary, from_date, to_date });
+  } catch (error) {
+    console.error('Sales-by-salesman report error:', error);
+    respondWithError(res, error);
+  }
+};
+
+// Zeroed summary skeleton for the salesman report (also returned on lockout).
+function emptySalesmanSummary() {
+  return {
+    salesmen_count: 0, total_bills: 0, total_sub: 0, total_discount: 0,
+    total_gst: 0, total_amount: 0, total_paid: 0, total_balance: 0,
+    total_return: 0, total_cogs: 0, total_profit: 0, margin_pct: 0,
+    total_commission: 0,
+  };
+}
 
 exports.purchaseReport = async (req, res) => {
   try {

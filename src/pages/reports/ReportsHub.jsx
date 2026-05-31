@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Input, Typography, Tag, Empty } from 'antd';
+import { Input, Typography, Tag, Empty, Dropdown, message } from 'antd';
 import {
   RiseOutlined, ShoppingCartOutlined, InboxOutlined,
   PieChartOutlined, TeamOutlined, FileTextOutlined,
-  SearchOutlined, StarFilled, AlertOutlined, CalendarOutlined,
+  SearchOutlined, StarFilled, StarOutlined, AlertOutlined, CalendarOutlined,
+  MoreOutlined, ArrowRightOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import { REPORTS, CATEGORY_META, CATEGORY_ORDER, matchReport, resolveReports } from '../../config/reports';
 import useFavoritesStore from '../../store/favoritesStore';
@@ -65,6 +66,161 @@ const TONE = {
   purple:  { bg: 'rgba(124,58,237,0.12)', fg: '#8B5CF6' },
   teal:    { bg: 'rgba(13,148,136,0.12)', fg: '#14B8A6' },
 };
+
+// ── Shared action menu (Open / Pin) for a report row ─────────────────
+// Built once per row from the report + its pinned state. Used by BOTH
+// the right-click context menu (whole row) and the hover ⋮ kebab so the
+// operator gets the same actions from either gesture.
+function useReportMenu(r, onOpen) {
+  const has    = useFavoritesStore((s) => s.has(r.id));
+  const toggle = useFavoritesStore((s) => s.toggle);
+  const toggleFav = async () => {
+    try { await toggle(r.id); }
+    catch (err) { message.error(err?.response?.data?.error || "Couldn't save favorite"); }
+  };
+  return {
+    has,
+    menu: {
+      items: [
+        { key: 'open', icon: <ArrowRightOutlined />, label: 'Open report' },
+        { type: 'divider' },
+        {
+          key: 'pin',
+          icon: has ? <StarFilled style={{ color: '#EF9F27' }} /> : <StarOutlined />,
+          label: has ? 'Remove from favorites' : 'Pin to favorites',
+        },
+      ],
+      onClick: ({ key, domEvent }) => {
+        domEvent?.stopPropagation?.();
+        if (key === 'open') onOpen();
+        else toggleFav();
+      },
+    },
+  };
+}
+
+// ── A single report row in the category grid ─────────────────────────
+// Click = open (the primary action). Pinning is offered three ways so
+// it's never hidden: the quick star on the left, a hover-revealed ⋮
+// menu on the right, and a right-click context menu on the whole row.
+function ReportRow({ r, tone, selected, setRef, onOpen }) {
+  const [hover, setHover] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { menu } = useReportMenu(r, onOpen);
+  // "active" = the row should look engaged: keyboard-selected, hovered,
+  // or its menu is open. Drives the hover tint + reveals the kebab.
+  const active = selected || hover || menuOpen;
+
+  return (
+    // Outer wrapper holds the keyboard-scroll ref so the AntD Dropdown
+    // can own the inner row element's ref without a clash.
+    <div ref={setRef}>
+      <Dropdown menu={menu} trigger={['contextMenu']} onOpenChange={setMenuOpen}>
+        <div
+          onClick={onOpen}
+          onMouseEnter={() => setHover(true)}
+          onMouseLeave={() => setHover(false)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: active ? '10px 8px' : '10px 0',
+            cursor: 'pointer',
+            background: active ? 'var(--bg-hover)' : '',
+            borderLeft: selected ? `3px solid ${tone.fg}` : '3px solid transparent',
+            borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+            transition: 'background .12s, padding .12s',
+          }}
+        >
+          <FavoriteStar reportId={r.id} size={14} style={{ flexShrink: 0 }} />
+          <span style={{ fontWeight: 500, fontSize: 14, color: 'var(--fg-primary)' }}>{r.name}</span>
+          {r.isNew && (
+            <Tag color="orange" style={{
+              fontSize: 8.5, padding: '0 4px', lineHeight: '14px',
+              margin: 0, fontWeight: 700, letterSpacing: 0.4,
+            }}>NEW</Tag>
+          )}
+          <span style={{
+            fontSize: 12, color: 'var(--fg-tertiary)', marginLeft: 'auto',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {r.subtitle}
+          </span>
+          <Dropdown menu={menu} trigger={['click']} placement="bottomRight" onOpenChange={setMenuOpen}>
+            <button
+              type="button"
+              aria-label="Report actions"
+              title="More actions"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                flexShrink: 0, width: 26, height: 26, marginLeft: 6,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                border: 'none', borderRadius: 6, background: 'transparent',
+                color: 'var(--fg-secondary)', cursor: 'pointer',
+                opacity: active ? 1 : 0,
+                pointerEvents: active ? 'auto' : 'none',
+                transition: 'opacity .12s, background .12s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-elevated, rgba(0,0,0,0.06))'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <MoreOutlined style={{ fontSize: 16 }} />
+            </button>
+          </Dropdown>
+        </div>
+      </Dropdown>
+    </div>
+  );
+}
+
+// ── A pinned-favorite pill in the top strip ──────────────────────────
+// Click navigates; a hover-revealed × unpins, so the operator can
+// curate favorites without hunting for the row in the grid below.
+function PinnedPill({ r, onOpen }) {
+  const unpin = useFavoritesStore((s) => s.unpin);
+  const [hover, setHover] = useState(false);
+  const tone = TONE[CATEGORY_META[r.category]?.tone] || TONE.info;
+  const remove = async (e) => {
+    e.stopPropagation();
+    try { await unpin(r.id); }
+    catch (err) { message.error(err?.response?.data?.error || "Couldn't update favorite"); }
+  };
+  return (
+    <span
+      onClick={onOpen}
+      title={r.subtitle}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '4px 8px 4px 7px', borderRadius: 16,
+        background: 'var(--bg-elevated, #fff)',
+        border: `1px solid ${hover ? tone.fg : 'var(--border, #e5e7eb)'}`,
+        cursor: 'pointer', fontSize: 12.5, fontWeight: 500,
+        color: hover ? tone.fg : 'var(--fg-primary)',
+        transition: 'border-color .12s, color .12s',
+      }}
+    >
+      <span style={{
+        width: 16, height: 16, borderRadius: 4,
+        background: tone.bg, color: tone.fg,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 10, flexShrink: 0,
+      }}>{ICON_BY_NAME[CATEGORY_META[r.category]?.icon]}</span>
+      {r.name}
+      <CloseOutlined
+        onClick={remove}
+        aria-label={`Unpin ${r.name}`}
+        title="Remove from favorites"
+        style={{
+          fontSize: 10, marginLeft: 2, padding: 2, borderRadius: 4,
+          color: 'var(--fg-tertiary)',
+          opacity: hover ? 0.85 : 0,
+          pointerEvents: hover ? 'auto' : 'none',
+          transition: 'opacity .12s',
+        }}
+      />
+    </span>
+  );
+}
 
 // ── Main hub ─────────────────────────────────────────────────────────
 //
@@ -167,6 +323,13 @@ export default function ReportsHub() {
     const visibleIds = new Set(visibleReports.map((r) => r.id));
     return resolveReports(favIds.filter((id) => visibleIds.has(id)));
   }, [favIds, visibleReports]);
+
+  // Open a report, remembering we came from the hub so Esc on the
+  // report cascades back here (AppLayout reads reports_hub_back).
+  const openReport = (route) => {
+    sessionStorage.setItem('reports_hub_back', '1');
+    nav(route);
+  };
 
   return (
     // Page shell — pinned-header pattern matching Ledger Integrity and
@@ -337,41 +500,9 @@ export default function ReportsHub() {
           }}>
             <StarFilled style={{ color: '#F59E0B', fontSize: 11 }} /> Pinned
           </span>
-          {pinned.map((r) => {
-            const tone = TONE[CATEGORY_META[r.category]?.tone] || TONE.info;
-            return (
-              <span
-                key={r.id}
-                onClick={() => nav(r.route)}
-                title={r.subtitle}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '4px 10px 4px 7px', borderRadius: 16,
-                  background: 'var(--bg-elevated, #fff)',
-                  border: '1px solid var(--border, #e5e7eb)',
-                  cursor: 'pointer', fontSize: 12.5, fontWeight: 500,
-                  color: 'var(--fg-primary)',
-                  transition: 'border-color .12s, color .12s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = tone.fg;
-                  e.currentTarget.style.color = tone.fg;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '';
-                  e.currentTarget.style.color = '';
-                }}
-              >
-                <span style={{
-                  width: 16, height: 16, borderRadius: 4,
-                  background: tone.bg, color: tone.fg,
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 10, flexShrink: 0,
-                }}>{ICON_BY_NAME[CATEGORY_META[r.category]?.icon]}</span>
-                {r.name}
-              </span>
-            );
-          })}
+          {pinned.map((r) => (
+            <PinnedPill key={r.id} r={r} onOpen={() => openReport(r.route)} />
+          ))}
         </div>
       )}
 
@@ -433,56 +564,16 @@ export default function ReportsHub() {
                     padding. Hover warms the row but no chrome around it.
                     When keyboard-driving via search, the row that
                     matches (selectedCat, selectedIdx) is highlighted. */}
-                {reports.map((r, rowIdx) => {
-                  const selected = query && selectedCat === cat && selectedIdx === rowIdx;
-                  return (
-                  <div
+                {reports.map((r, rowIdx) => (
+                  <ReportRow
                     key={r.id}
-                    ref={(el) => { rowRefs.current[`${cat}:${rowIdx}`] = el; }}
-                    onClick={() => {
-                      sessionStorage.setItem('reports_hub_back', '1');
-                      nav(r.route);
-                    }}
-                    style={{
-                      display: 'flex', alignItems: 'baseline', gap: 10,
-                      padding: selected ? '10px 8px' : '10px 0',
-                      cursor: 'pointer',
-                      background: selected ? 'var(--bg-hover)' : '',
-                      borderLeft: selected ? `3px solid ${tone.fg}` : '3px solid transparent',
-                      borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
-                      transition: 'background .12s, padding .12s',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (selected) return;
-                      e.currentTarget.style.background = 'var(--bg-hover)';
-                      e.currentTarget.style.padding = '10px 8px';
-                    }}
-                    onMouseLeave={(e) => {
-                      if (selected) return;
-                      e.currentTarget.style.background = '';
-                      e.currentTarget.style.padding = '10px 0';
-                    }}
-                  >
-                    <FavoriteStar reportId={r.id} size={14} style={{ flexShrink: 0, position: 'relative', top: 2 }} />
-                    <span style={{
-                      fontWeight: 500, fontSize: 14, color: 'var(--fg-primary)',
-                    }}>{r.name}</span>
-                    {r.isNew && (
-                      <Tag color="orange" style={{
-                        fontSize: 8.5, padding: '0 4px', lineHeight: '14px',
-                        margin: 0, fontWeight: 700, letterSpacing: 0.4,
-                      }}>NEW</Tag>
-                    )}
-                    <span style={{
-                      fontSize: 12, color: 'var(--fg-tertiary)',
-                      marginLeft: 'auto',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {r.subtitle}
-                    </span>
-                  </div>
-                  );
-                })}
+                    r={r}
+                    tone={tone}
+                    selected={!!(query && selectedCat === cat && selectedIdx === rowIdx)}
+                    setRef={(el) => { rowRefs.current[`${cat}:${rowIdx}`] = el; }}
+                    onOpen={() => openReport(r.route)}
+                  />
+                ))}
               </div>
             );
           })}

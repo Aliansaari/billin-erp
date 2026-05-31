@@ -152,6 +152,16 @@ export const REPORTS = [
     aliases: ['sales register', 'invoice'],
   },
   {
+    id: 'sales_by_salesman',
+    name: 'Sales by Salesman',
+    subtitle: 'Per-salesman sales, profit & indicative commission',
+    category: 'sales',
+    route: '/reports/sales-by-salesman',
+    perm: 'reports.view',
+    aliases: ['salesman', 'salesperson', 'sales staff', 'commission', 'sales by salesman', 'staff performance'],
+    isNew: true,
+  },
+  {
     id: 'product_sales_detail',
     name: 'Product Sales Detail',
     subtitle: 'Per-line item · with profit',

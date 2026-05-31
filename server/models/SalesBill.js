@@ -139,6 +139,16 @@ module.exports = (sequelize) => {
     salesman_name: {
       type: DataTypes.STRING(100),
     },
+    salesman_id: {
+      // FK into the salesmen master. Pure attribution — never touched by any
+      // total/tax/ledger/balance/return/stock calculation. Nullable so bills
+      // with no assigned salesman (and all legacy bills) stay valid. The
+      // salesman_name text above is kept as a snapshot of the label at save
+      // time so renaming/deactivating a salesman never rewrites old bills.
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: { model: 'salesmen', key: 'salesman_id' },
+    },
     special_discount: {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0,

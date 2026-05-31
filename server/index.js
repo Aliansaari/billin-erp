@@ -226,6 +226,7 @@ app.use('/api/tally', require('./routes/tally'));
 app.use('/api/backup', require('./routes/backup'));
 app.use('/api/print', require('./routes/print'));
 app.use('/api/godowns', require('./routes/godowns'));
+app.use('/api/salesmen', require('./routes/salesmen'));
 app.use('/api/states', require('./routes/states'));
 app.use('/api/stock-transfers', require('./routes/stockTransfers'));
 app.use('/api/batches', require('./routes/batches'));
@@ -477,7 +478,7 @@ async function startServer() {
     //
     // Bump MIGRATION_VERSION whenever you add/change any migration below.
     // A simple integer counter works: just increment it.
-    const MIGRATION_VERSION = '1';
+    const MIGRATION_VERSION = '2';
     const migVersionFile = path.join(os.homedir(), '.billing-erp', 'migration-version.txt');
     let skipMigrations = false;
     try {
@@ -843,6 +844,13 @@ async function startServer() {
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bills' AND column_name='salesman_name') THEN
           ALTER TABLE sales_bills ADD COLUMN salesman_name VARCHAR(100);
+        END IF;
+        -- Salesman master FK (pure attribution; nullable). Added as a plain
+        -- INTEGER without a DB-level FK constraint, mirroring category_id below:
+        -- the salesmen master deletion guard lives in the controller, and we
+        -- avoid a constraint-validation scan over a large sales_bills table.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bills' AND column_name='salesman_id') THEN
+          ALTER TABLE sales_bills ADD COLUMN salesman_id INTEGER;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bills' AND column_name='special_discount') THEN
           ALTER TABLE sales_bills ADD COLUMN special_discount DECIMAL(15,2) DEFAULT 0;

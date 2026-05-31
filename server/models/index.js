@@ -66,6 +66,7 @@ const IndianStateFactory = require('./IndianState');
 const NotificationStateFactory = require('./NotificationState');
 const NotificationSettingsFactory = require('./NotificationSettings');
 const ComplianceAuditLogFactory = require('./ComplianceAuditLog');
+const SalesmanFactory = require('./Salesman');
 
 /**
  * Define all models + associations on a given Sequelize instance.
@@ -122,6 +123,7 @@ function defineModels(sequelize) {
   const NotificationState = NotificationStateFactory(sequelize);
   const NotificationSettings = NotificationSettingsFactory(sequelize);
   const ComplianceAuditLog = ComplianceAuditLogFactory(sequelize);
+  const Salesman = SalesmanFactory(sequelize);
 
   // ── Associations ──
   
@@ -156,7 +158,14 @@ function defineModels(sequelize) {
   // SalesBill <-> User (Salesperson)
   User.hasMany(SalesBill, { foreignKey: 'sales_person' });
   SalesBill.belongsTo(User, { foreignKey: 'sales_person', as: 'salesperson' });
-  
+
+  // SalesBill <-> Salesman (pure attribution — the credited sales staff).
+  // Distinct from the `salesperson` (login User who keyed the bill). Nullable
+  // FK; the `salesman_name` text snapshot on SalesBill is preserved so renaming
+  // or deactivating a Salesman never rewrites historical attribution.
+  Salesman.hasMany(SalesBill, { foreignKey: 'salesman_id' });
+  SalesBill.belongsTo(Salesman, { foreignKey: 'salesman_id', as: 'salesman' });
+
   // SalesBill <-> SalesBillItem
   SalesBill.hasMany(SalesBillItem, { foreignKey: 'sales_bill_id', as: 'items' });
   SalesBillItem.belongsTo(SalesBill, { foreignKey: 'sales_bill_id' });
@@ -489,6 +498,7 @@ function defineModels(sequelize) {
     NotificationState,
     NotificationSettings,
     ComplianceAuditLog,
+    Salesman,
   };
 }
 
@@ -607,6 +617,7 @@ module.exports = {
   NotificationState: makeProxy('NotificationState'),
   NotificationSettings: makeProxy('NotificationSettings'),
   ComplianceAuditLog: makeProxy('ComplianceAuditLog'),
+  Salesman: makeProxy('Salesman'),
 
   // Multi-tenant escape hatches — used by the connection pool +
   // middleware. Don't import these from controllers; stick with the

@@ -52,6 +52,7 @@ import ExpenseEntry  from './pages/expenses/ExpenseEntry';
 import ExpenseList   from './pages/expenses/ExpenseList';
 import ExpenseReport from './pages/expenses/ExpenseReport';
 import SalesReport from './pages/reports/SalesReport';
+import SalesmanReport from './pages/reports/SalesmanReport';
 import PurchaseReport from './pages/reports/PurchaseReport';
 import DayBook from './pages/reports/DayBook';
 import CustomerStatement from './pages/reports/CustomerStatement';
@@ -101,6 +102,7 @@ import MyAccount from './pages/settings/MyAccount';
 import NotificationsSettings from './pages/settings/NotificationsSettings';
 import UserManagement from './pages/settings/UserManagement';
 import GodownList from './pages/settings/GodownList';
+import SalesmanList from './pages/settings/SalesmanList';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
 import ModuleSettings from './pages/settings/ModuleSettings';
 import BackupRestore from './pages/settings/BackupRestore';
@@ -750,6 +752,7 @@ export default function App() {
               has been replaced by this page + a favorites-only nav menu. */}
           <Route path="reports"               element={<ReportsHub />} />
           <Route path="reports/sales"         element={<RoleRoute perm="reports.view"><SalesReport /></RoleRoute>} />
+          <Route path="reports/sales-by-salesman" element={<RoleRoute perm="reports.view"><SalesmanReport /></RoleRoute>} />
           <Route path="reports/purchases"     element={<RoleRoute perm="reports.view"><PurchaseReport /></RoleRoute>} />
           {/* /reports/stock removed — Stock Report lives at /stock-report
               (inventory menu). Old links rewired in BalanceSheet + the
@@ -843,6 +846,7 @@ export default function App() {
             <Route path="barcode"             element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
             <Route path="modules"             element={<RoleRoute perm="settings.manage_company"><ModuleSettings /></RoleRoute>} />
             <Route path="defaults"            element={<RoleRoute perm="settings.manage_company"><DefaultsSettings /></RoleRoute>} />
+            <Route path="salesmen"            element={<RoleRoute perm="settings.manage_company"><SalesmanList /></RoleRoute>} />
             <Route path="backup"              element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
             {/* Theme is per-user UX — anyone can pick light/dark. */}
             <Route path="theme"               element={<ThemeSettings />} />

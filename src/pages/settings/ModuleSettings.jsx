@@ -125,39 +125,52 @@ export default function ModuleSettings() {
         <div className="ms-page-body-inner">
           <Form form={form} onFinish={handleSave} disabled={loading}>
 
-            {/* ── Features ── */}
+            {/* ── Taxation ── */}
             <section className="ms-section">
               <div className="ms-section-head">
-                <h2 className="ms-section-title">Features</h2>
+                <h2 className="ms-section-title">Taxation</h2>
                 <p className="ms-section-desc">
-                  Master toggles for modules and capabilities. Off here = hidden across the app.
+                  Tax computation on invoices and reports.
                 </p>
               </div>
               <ToggleRow name="gst_enabled" label="GST"
                          desc="Run GST calculations on invoices and reports." />
-              <ToggleRow name="low_stock_alert_enabled" label="Stock alerts"
-                         desc="Notify when stock falls below the per-product minimum." />
-              <ToggleRow name="allow_negative_stock" label="Allow negative stock"
-                         desc="ON — sales pass even if quantity goes below zero (shown in red). OFF — block the sale." />
+            </section>
+
+            {/* ── Billing & Sales ── */}
+            <section className="ms-section">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">Billing &amp; Sales</h2>
+                <p className="ms-section-desc">
+                  How the Sales Bill form behaves while you enter invoices.
+                </p>
+              </div>
               <ToggleRow name="enable_amount_only_billing" label="Amount-only billing"
                          desc="Adds an Itemised / Amount-only mode toggle on the Sales Bill form for service or on-account bills." />
-              <ToggleRow name="multi_warehouse_enabled" label="Multi-warehouse"
-                         desc="Track stock across multiple godowns." />
-              <ToggleRow name="audit_trail_enabled" label="Audit trail"
-                         desc="Record every change to bills and master records." />
-              <ToggleRow name="batch_tracking_enabled" label="Batch tracking"
-                         desc="Group identical units into batches with their own dates, quantities, and optional expiry. Per-product opt-in on the Product form."
-                         onChange={setBatchTrackingOn} />
-              <ToggleRow name="single_color_enabled" label="Single color label"
-                         desc="Adds an optional Color text field on the product master. Pure metadata for filtering and reports. Mutually exclusive per-product with multi-color tracking." />
-              <ToggleRow name="multi_color_enabled" label="Multi-color stock"
-                         desc="Track per-color stock for products that come in multiple colors. Color box on purchase, color dropdown on sale. Per-product opt-in via the product form."
-                         onChange={setMultiColorOn} />
               <ToggleRow name="merge_repeat_scans_enabled" label="Merge repeat scans"
                          disabled={multiColorOn}
                          desc={multiColorOn
                            ? 'Locked off while Multi-color stock is on — merging different-color picks across scans would break per-color tracking.'
                            : 'Sales form: same barcode scanned multiple times merges into one line with combined quantity. OFF = each scan is a separate line.'} />
+            </section>
+
+            {/* ── Inventory & Stock ── */}
+            <section className="ms-section">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">Inventory &amp; Stock</h2>
+                <p className="ms-section-desc">
+                  Stock control, warehousing, and batch / expiry tracking.
+                </p>
+              </div>
+              <ToggleRow name="low_stock_alert_enabled" label="Stock alerts"
+                         desc="Notify when stock falls below the per-product minimum." />
+              <ToggleRow name="allow_negative_stock" label="Allow negative stock"
+                         desc="ON — sales pass even if quantity goes below zero (shown in red). OFF — block the sale." />
+              <ToggleRow name="multi_warehouse_enabled" label="Multi-warehouse"
+                         desc="Track stock across multiple godowns." />
+              <ToggleRow name="batch_tracking_enabled" label="Batch tracking"
+                         desc="Group identical units into batches with their own dates, quantities, and optional expiry. Per-product opt-in on the Product form."
+                         onChange={setBatchTrackingOn} />
 
               {batchTrackingOn && (
                 <div className="ms-nested">
@@ -170,6 +183,33 @@ export default function ModuleSettings() {
                              desc="ON — pre-register a batch before stock arrives. OFF — batches only via purchase bill." />
                 </div>
               )}
+            </section>
+
+            {/* ── Product Variants ── */}
+            <section className="ms-section">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">Product Variants</h2>
+                <p className="ms-section-desc">
+                  Colour tracking for products that ship in more than one variant.
+                </p>
+              </div>
+              <ToggleRow name="single_color_enabled" label="Single color label"
+                         desc="Adds an optional Color text field on the product master. Pure metadata for filtering and reports. Mutually exclusive per-product with multi-color tracking." />
+              <ToggleRow name="multi_color_enabled" label="Multi-color stock"
+                         desc="Track per-color stock for products that come in multiple colors. Color box on purchase, color dropdown on sale. Per-product opt-in via the product form."
+                         onChange={setMultiColorOn} />
+            </section>
+
+            {/* ── System & Audit ── */}
+            <section className="ms-section">
+              <div className="ms-section-head">
+                <h2 className="ms-section-title">System &amp; Audit</h2>
+                <p className="ms-section-desc">
+                  Record-keeping and change history.
+                </p>
+              </div>
+              <ToggleRow name="audit_trail_enabled" label="Audit trail"
+                         desc="Record every change to bills and master records." />
             </section>
 
           </Form>

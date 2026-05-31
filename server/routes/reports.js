@@ -61,6 +61,7 @@ router.get('/dashboard/insights',  requirePermission('reports.view'),  reportCon
 router.get('/dashboard/business',  requirePermission('accounts.view'), reportController.dashboardBusiness);
 
 router.get('/sales',             requirePermission('reports.view'),  reportController.salesReport);
+router.get('/sales-by-salesman', requirePermission('reports.view'),  reportController.salesBySalesmanReport);
 router.get('/purchases',         requirePermission('reports.view'),  reportController.purchaseReport);
 router.get('/stock',             requirePermission('reports.view'),  reportController.stockReport);
 router.get('/party-outstanding', requirePermission('reports.view'),  reportController.partyOutstanding);

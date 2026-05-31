@@ -283,9 +283,18 @@ async function reconcileBillsForParty(partyId, t = null) {
     const valid = [];
     let sumAlloc = 0;
     for (const a of raw) {
-      if (!a || !a.bill_id || a.bill_type !== expectedBillType) continue;
+      if (!a) continue;
       const amt = parseFloat(a.amount) || 0;
       if (amt <= 0) continue;
+      // Opening balance sentinel — this portion was intentionally applied
+      // to the party's opening balance by the user (not to any real bill).
+      // Count it in sumAlloc so it doesn't spill into the FIFO pool, but
+      // do NOT add it to perBill — no real bill row should be touched.
+      if (a.bill_type === 'OpeningBalance') {
+        sumAlloc += amt;
+        continue;
+      }
+      if (!a.bill_id || a.bill_type !== expectedBillType) continue;
       valid.push({ bill_id: a.bill_id, amount: amt });
       sumAlloc += amt;
     }

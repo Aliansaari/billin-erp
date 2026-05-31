@@ -127,7 +127,7 @@ function CollapsedItem({ item, currentPath, navigate }) {
           >
             <div className="mp-head">
               <span className="mp-title">{item.label}</span>
-              <span className="mp-hint">Alt+{keyboardMenu?.items?.[0]?.letter || ''}</span>
+              <span className="mp-hint">Alt+{ALT_HINTS[item.key] || keyboardMenu?.items?.[0]?.letter || ''}</span>
             </div>
             <ul className="mp-list">
               {popupItems.map(child => {
@@ -168,7 +168,7 @@ const ALT_HINTS = {
   'inventory-menu':  'I',
   'bank-menu':       'B',
   'accounts-menu':   'A',
-  '/reports':        'R',
+  'reports-menu':    'R',
   '/settings/company': 'T',
 };
 

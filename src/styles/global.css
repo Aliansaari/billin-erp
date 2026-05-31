@@ -1290,6 +1290,60 @@ body {
   border-radius: 8px;
 }
 .rpt-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+/* Keyboard cursor row in plain-table reports (e.g. Sales by Salesman).
+   The selected row F1 acts on — subtle accent tint + left rail. */
+.rpt-row-cursor > td { background: var(--bg-hover, rgba(99,102,241,0.08)) !important; }
+.rpt-row-cursor > td:first-child { box-shadow: inset 3px 0 0 var(--accent, #6366f1); }
+
+/* ── Sales-by-Salesman report — contained data panel ─────────────────
+   The per-salesman dataset is small, so this report uses a plain Ant
+   Table (not the virtualized one). Wrapping it in a bordered panel that
+   fills the available height keeps the page from looking empty when only
+   a few salesmen exist, and pins the header + footer note to the edges. */
+.smr-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.smr-card-hd {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+}
+.smr-card-ttl { font-size: 13px; font-weight: 700; color: var(--fg-primary); letter-spacing: 0.02em; }
+.smr-card-meta { font-size: 12px; color: var(--fg-tertiary); font-variant-numeric: tabular-nums; }
+.smr-card-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.smr-note {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+  font-size: 12px;
+  color: var(--fg-tertiary);
+}
+/* Table inside the panel: transparent body so the panel shows through,
+   and soften the heavy sorted-column tint Ant paints in dark themes. */
+.smr-table .ant-table { background: transparent; }
+.smr-table .ant-table-tbody > tr > td.ant-table-column-sort { background: transparent; }
+.smr-table .ant-table-tbody > tr:hover > td { background: var(--bg-hover, rgba(99,102,241,0.06)); }
+.smr-table .ant-table-summary > tr > td {
+  background: var(--bg-muted);
+  border-top: 2px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
 .rpt-chip {
   display: inline-flex;
   align-items: center;

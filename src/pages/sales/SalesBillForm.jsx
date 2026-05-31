@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Tag, Checkbox } from 'antd';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
+import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI, salesmanAPI } from '../../api';
 import { printDocument } from '../../services/printer';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
@@ -124,6 +124,9 @@ export default function SalesBillForm() {
   // allowed_godowns when the JWT carries that allowlist (the server
   // also enforces — this is just to keep the dropdown honest).
   const [godowns, setGodowns]   = useState([]);
+  // Active salesmen for the summary-card dropdown. Pure attribution — picking
+  // one only tags the bill; it never affects any total or calculation.
+  const [salesmen, setSalesmen] = useState([]);
   const [loading, setLoading]   = useState(false);
   const [pgLoading, setPgLoading] = useState(false);
   const [entry, setEntry]       = useState(EMPTY);
@@ -543,6 +546,12 @@ export default function SalesBillForm() {
         if (def) form.setFieldsValue({ godown_id: def.godown_id });
       }
     }).catch(()=>{});
+    // Active salesmen for the dropdown. getAll() (no include_inactive) returns
+    // only active ones, so deactivated staff drop out of the picker while their
+    // past-bill attribution stays intact.
+    salesmanAPI.getAll().then(({data}) => {
+      setSalesmen(Array.isArray(data) ? data : []);
+    }).catch(()=>{});
     settingsAPI.getSystem().then(({data}) => {
       setCompany(data?.data?.company_name || '');
       // Default to enabled when the column is missing (older DBs that
@@ -608,6 +617,7 @@ export default function SalesBillForm() {
         return_amount:parseFloat(data.return_amount)||0,
         sale_type:data.sale_type||'Retail',
         salesman_name:data.salesman_name||'',
+        salesman_id:data.salesman_id||undefined,
         special_discount:parseFloat(data.special_discount)||0,
         other_charges:parseFloat(data.other_charges)||0,
         freight_charges:parseFloat(data.freight_charges)||0,
@@ -1437,8 +1447,14 @@ export default function SalesBillForm() {
         form.setFieldValue('paid_amount', due||0);
       } else if(party && party.credit_allowed){
         // Credit allowed — only auto-set once when customer is first selected;
-        // if user has manually edited paid_amount, leave it alone
-        if(!paidEditedRef.current){
+        // if user has manually edited paid_amount, leave it alone.
+        // On EDIT, never auto-zero: the loaded paid_amount (what the customer
+        // actually paid at sale time) is authoritative. The billLoadedRef
+        // guard above is one-shot and gets consumed on the first hydration
+        // pass, but this effect re-fires as customerId / parties / roundedTotal
+        // settle asynchronously during load — without the !isEdit guard those
+        // later passes wipe the loaded value to 0 (the reported bug).
+        if(!paidEditedRef.current && !isEdit){
           form.setFieldValue('paid_amount', 0);
         }
       }
@@ -1572,6 +1588,9 @@ export default function SalesBillForm() {
         due_date:vals.due_date?.format('YYYY-MM-DD'),
         sale_type:vals.sale_type||'Retail',
         salesman_name:vals.salesman_name||'',
+        // Pure-attribution FK. Null when no salesman picked. Rides through the
+        // controller's generic billData spread — no salesController change.
+        salesman_id:vals.salesman_id||null,
         special_discount:parseFloat(splDisc)||0,
         other_charges:parseFloat(otherChr)||0,
         freight_charges:parseFloat(freightChr)||0,
@@ -1711,7 +1730,7 @@ export default function SalesBillForm() {
     setItems([]);setEntry(EMPTY);
     setActiveCatId(null); setProdOpen(false);
     setSiblings([]); setSizeOpen(false);
-    form.resetFields(['customer_id','walk_in_name','due_date','discount_percentage','paid_amount','return_amount','special_discount','other_charges','freight_charges','salesman_name','remarks']);
+    form.resetFields(['customer_id','walk_in_name','due_date','discount_percentage','paid_amount','return_amount','special_discount','other_charges','freight_charges','salesman_name','salesman_id','remarks']);
     setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
     setRecalledDraftId(null);
     setInlineReturnItems([]);
@@ -1755,6 +1774,7 @@ export default function SalesBillForm() {
         due_date: vals.due_date ? vals.due_date.format('YYYY-MM-DD') : null,
         sale_type: vals.sale_type || 'Retail',
         salesman_name: vals.salesman_name || '',
+        salesman_id: vals.salesman_id || null,
         special_discount: parseFloat(splDisc) || 0,
         other_charges: parseFloat(otherChr) || 0,
         freight_charges: parseFloat(freightChr) || 0,
@@ -1836,6 +1856,7 @@ export default function SalesBillForm() {
         due_date:           p.due_date  ? dayjs(p.due_date)  : undefined,
         sale_type:          p.sale_type || 'Retail',
         salesman_name:      p.salesman_name || '',
+        salesman_id:        p.salesman_id || undefined,
         payment_method:     p.payment_method || 'Cash',
         bank_ledger_id:     p.bank_ledger_id || undefined,  // restore bank pick from draft
         remarks:            p.remarks || '',
@@ -2984,8 +3005,31 @@ export default function SalesBillForm() {
                   </div>
                   <div className="sbf-field">
                     <span className="sbf-lbl">Salesman</span>
-                    <Form.Item name="salesman_name" noStyle>
-                      <Input placeholder="Name"/>
+                    <Form.Item name="salesman_id" noStyle>
+                      <Select
+                        placeholder="Select salesman"
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        options={salesmen.map((s) => ({
+                          value: s.salesman_id,
+                          label: s.code ? `${s.name} (${s.code})` : s.name,
+                        }))}
+                        onChange={(val) => {
+                          // Keep the salesman_name text snapshot in sync with the
+                          // picked label so the saved bill carries a readable name
+                          // beside the FK (and stays readable if the salesman is
+                          // later renamed or deactivated).
+                          const picked = salesmen.find((s) => s.salesman_id === val);
+                          form.setFieldsValue({ salesman_name: picked ? picked.name : '' });
+                        }}
+                      />
+                    </Form.Item>
+                    {/* Hidden mirror — preserves salesman_name in the form store so
+                        the save payload always carries the snapshot, including
+                        legacy bills whose free-text name matches no current option. */}
+                    <Form.Item name="salesman_name" hidden>
+                      <Input />
                     </Form.Item>
                   </div>
                 </div>

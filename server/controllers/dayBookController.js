@@ -28,6 +28,14 @@ const { SystemSettings } = require('../models');
 
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
+// Ledger sub-groups that represent real cash/bank balances. Used to
+// derive, per voucher, how much actual cash MOVED (cash_in / cash_out)
+// so the shop-owner "Simple" Day Book view can separate money truly
+// received/paid from amounts merely billed on credit. Mirrors the set
+// used inside pickPrimary below — this is purely a derived, additive
+// figure; it changes no existing total or posting.
+const CASH_SUBGROUPS = new Set(['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c']);
+
 async function resolvePeriod(query) {
   let from = (query && query.from_date) ? String(query.from_date).slice(0, 10) : null;
   let to   = (query && query.to_date)   ? String(query.to_date).slice(0, 10)   : null;
@@ -158,7 +166,10 @@ exports.dayBook = async (req, res) => {
     // the highest signed amount (party with the larger movement); on
     // a tie, fall back to the lowest entry_id so the ordering is at
     // least stable.
-    function pickPrimary(legs) {
+    // source_type is passed so we can treat cash Sales/Purchase differently
+    // from Receipt/Payment: on a cash sale the Cash leg IS the primary
+    // account to show; on a Receipt it's the counterparty (customer).
+    function pickPrimary(legs, source_type) {
       const partyLegs = legs.filter(l => l.is_party_ledger || l.leg_party_id || l.ledger_party_id);
       if (partyLegs.length > 0) {
         return partyLegs
@@ -170,12 +181,21 @@ exports.dayBook = async (req, res) => {
             return (Number(a.entry_id) || 0) - (Number(b.entry_id) || 0);
           })[0];
       }
-      // Skip cash + bank + bank-OD so the counterparty surfaces on
-      // Receipt/Payment vouchers. Match the same exclusion as
-      // autoReceiptService._config (audit L2).
-      const nonCashSubgroups = new Set(['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c']);
+      const cashSubgroups = new Set(['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c']);
+      const isSalesPurchase = ['sales_bill', 'purchase_bill', 'sales_return_bill', 'purchase_return_bill']
+        .includes(source_type);
+      if (isSalesPurchase) {
+        // Cash sales/purchases: prefer the Cash/Bank leg so the Day Book
+        // shows "Cash" (or the bank name) instead of "Sales A/c".
+        const cashLegs = legs
+          .filter(l => cashSubgroups.has(l.sub_group))
+          .sort((a, b) => (Number(a.entry_id) || 0) - (Number(b.entry_id) || 0));
+        if (cashLegs.length) return cashLegs[0];
+      }
+      // Receipt/Payment/Journal/Contra with no party: skip cash so the
+      // counterparty (e.g. expense account) surfaces, not "Cash".
       const nonCash = legs
-        .filter(l => !nonCashSubgroups.has(l.sub_group))
+        .filter(l => !cashSubgroups.has(l.sub_group))
         .sort((a, b) => (Number(a.entry_id) || 0) - (Number(b.entry_id) || 0));
       if (nonCash.length) return nonCash[0];
       // Fallback: stable-sort by entry_id, pick the first.
@@ -194,7 +214,7 @@ exports.dayBook = async (req, res) => {
     let totalDrAllLegs = 0, totalCrAllLegs = 0;
 
     for (const v of byVoucher.values()) {
-      const primary = pickPrimary(v.legs);
+      const primary = pickPrimary(v.legs, v.source_type);
       const dispType = displayVoucherType(v.voucher_type, v.source_type);
 
       // Apply voucher-type filter at the voucher level (not leg level).
@@ -206,10 +226,18 @@ exports.dayBook = async (req, res) => {
       totalCr += cr;
 
       // Sum across every leg of this voucher (always balanced per voucher).
+      // Also split out the cash/bank movement so the Simple view can show
+      // money ACTUALLY received / paid vs amounts merely billed on credit.
+      let cashDr = 0, cashCr = 0;
       for (const l of v.legs) {
         totalDrAllLegs += num(l.debit_amount);
         totalCrAllLegs += num(l.credit_amount);
+        if (CASH_SUBGROUPS.has(l.sub_group)) {
+          cashDr += num(l.debit_amount);
+          cashCr += num(l.credit_amount);
+        }
       }
+      const cashDelta = cashDr - cashCr;   // +ve = into cash/bank, −ve = out
 
       vouchers.push({
         entry_number:     v.entry_number,
@@ -220,6 +248,10 @@ exports.dayBook = async (req, res) => {
         is_party:         !!(primary.is_party_ledger || primary.party_name),
         debit:            dr,
         credit:           cr,
+        // Net cash/bank that actually moved on this voucher. Drives the
+        // Simple view's money-in / money-out / on-credit split.
+        cash_in:          Math.round(Math.max(0,  cashDelta) * 100) / 100,
+        cash_out:         Math.round(Math.max(0, -cashDelta) * 100) / 100,
         narration:        v.narration || '',
         drill_route:      drillRoute(v.source_type, v.reference_id),
         // include all legs for an inline drill-down view if the UI wants it later

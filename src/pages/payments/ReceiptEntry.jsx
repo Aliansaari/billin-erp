@@ -185,12 +185,23 @@ export default function ReceiptEntry() {
   const savedAllocsRef = useRef(null);
 
   const handlePartyChange = async (partyId) => {
-    const party = parties.find(p => p.party_id === partyId);
-    setSelectedParty(party);
+    // Optimistic: show the party name immediately from local cache.
+    const localParty = parties.find(p => p.party_id === partyId) || null;
+    setSelectedParty(localParty);
     setBills([]);
     setPayAmt(null);
     try {
-      const { data } = await paymentAPI.getUnpaidBills({ party_id: partyId, type: 'Sales' });
+      // Fetch fresh party data and unpaid bills in parallel.
+      // Fresh party is needed so current_balance reflects the server state
+      // AFTER the last save — the local `parties` array is only loaded once
+      // on mount and would show a stale balance otherwise (Bug #1 fix).
+      const [partyRes, billsRes] = await Promise.all([
+        partyAPI.getById(partyId),
+        paymentAPI.getUnpaidBills({ party_id: partyId, type: 'Sales' }),
+      ]);
+      const party = partyRes.data || localParty;
+      setSelectedParty(party);
+
       // Audit L4 — in edit mode, re-tick only the bills that were previously
       // allocated by this receipt (read from savedAllocsRef.current). New-
       // receipt flow keeps the default-check-all behaviour. Allocations
@@ -208,7 +219,7 @@ export default function ReceiptEntry() {
         // Consume so a subsequent party-change doesn't re-apply old allocs.
         savedAllocsRef.current = null;
       }
-      const rows = (data || []).map(b => {
+      const rows = (billsRes.data || []).map(b => {
         const hadAlloc = isEditFlow ? allocLookup[Number(b.sales_bill_id)] : undefined;
         return {
           ...b,
@@ -284,7 +295,9 @@ export default function ReceiptEntry() {
   }, [bills, netAmount]);
 
   const checkedBills   = billsWithAlloc.filter(b => b.checked);
-  const selectedInvNos = checkedBills.map(b => b.bill_number).join(', ');
+  const selectedInvNos = billsWithAlloc
+    .filter(b => b.allocated > 0 && !b.isOpening)
+    .map(b => b.bill_number).join(', ');
 
   const handlePayAmtChange = (val) => {
     const v = val || 0;
@@ -321,11 +334,18 @@ export default function ReceiptEntry() {
       .filter(b => !b.isOpening && b.allocated > 0)
       .map(b => ({ bill_id: b.sales_bill_id, bill_type: 'Sales', amount: b.allocated, bill_number: b.bill_number }));
 
-    // On-account guard — either nothing ticked, or ticked bills < received.
-    // Either way the server will FIFO-apply the surplus, but we warn first.
+    // Opening balance allocation — include as a sentinel entry so the server's
+    // reconcileBillsForParty absorbs this amount without FIFO-applying it to
+    // regular bills. Without this, the receipt would be distributed to the
+    // oldest bills even when the user explicitly chose the opening balance row.
     const obBill = checkedBills.find(b => b.isOpening);
     const obAlloc = obBill ? parseFloat(obBill.allocated) || 0 : 0;
-    const sumAllocated = bill_allocations.reduce((s, a) => s + parseFloat(a.amount || 0), 0) + obAlloc;
+    if (obAlloc > 0) {
+      bill_allocations.push({ bill_id: null, bill_type: 'OpeningBalance', amount: obAlloc });
+    }
+    // obAlloc is now included in bill_allocations (as the OpeningBalance sentinel),
+    // so don't add it again — the reduce already covers it.
+    const sumAllocated = bill_allocations.reduce((s, a) => s + parseFloat(a.amount || 0), 0);
     const surplus = +(netAmount - sumAllocated).toFixed(2);
     const hasSurplus = surplus > 0.01;
     const nothingTicked = bill_allocations.length === 0 && obAlloc <= 0;
@@ -397,6 +417,11 @@ export default function ReceiptEntry() {
       } else {
         handleReset();
         refreshNextNumber();
+        // Refresh the customer list so the dropdown's Balance column shows
+        // the post-receipt figure. Without this the list (loaded once on
+        // mount) keeps showing the pre-receipt balance until the page is
+        // reopened — re-selecting the same customer looked "not updated".
+        loadParties();
       }
     } catch (e) {
       if (isFiscalLockCancel(e)) return;

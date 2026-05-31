@@ -28,6 +28,7 @@ import './sales-bill-form.css';
 const SALES_OPTIONAL_COLS = [
   { key: 'time',             label: 'Time' },
   { key: 'godown',           label: 'Godown' },
+  { key: 'salesman',         label: 'Salesperson' },
   { key: 'mobile',           label: 'Mobile' },
   { key: 'gstin',            label: 'GSTIN' },
   { key: 'items',            label: 'Items (count)' },
@@ -43,10 +44,11 @@ const SALES_SECTIONS = [
   { key: 'kpiCards', label: 'KPI summary cards' },
   { key: 'totalRow', label: 'Total row (sticky bottom)' },
 ];
-// v7 adds partyOutstanding column + kpiCards section toggle.
-const COLS_STORAGE_KEY = 'salesList_cols_v7';
+// v8 adds the salesman (Salesperson) optional column, off by default.
+const COLS_STORAGE_KEY = 'salesList_cols_v8';
 const DEFAULT_COLS = {
   time: true, godown: true, mobile: true, gstin: false,
+  salesman: false,
   items: true, pieces: true,
   gst: false, discount: false, return: false,
   partyOutstanding: false,
@@ -58,6 +60,33 @@ const fmtShort = (v) => {
   const n = parseFloat(v || 0);
   if (n === 0) return '₹ 0';
   return `₹ ${Math.round(n).toLocaleString('en-IN')}`;
+};
+
+// India FY: Apr 1 → Mar 31
+const getFYDates = () => {
+  const now = dayjs();
+  const year = now.month() >= 3 ? now.year() : now.year() - 1;
+  return { from_date: `${year}-04-01`, to_date: `${year + 1}-03-31` };
+};
+const PERIOD_OPTIONS = [
+  { value: 'today',     label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'thisweek',  label: 'This Week' },
+  { value: 'thismonth', label: 'This Month' },
+  { value: 'lastmonth', label: 'Last Month' },
+  { value: 'thisfy',    label: 'This FY' },
+];
+const getPeriodDates = (period) => {
+  const now = dayjs();
+  switch (period) {
+    case 'today':     return { from_date: now.format('YYYY-MM-DD'), to_date: now.format('YYYY-MM-DD') };
+    case 'yesterday': { const y = now.subtract(1, 'day'); return { from_date: y.format('YYYY-MM-DD'), to_date: y.format('YYYY-MM-DD') }; }
+    case 'thisweek':  return { from_date: now.startOf('week').format('YYYY-MM-DD'), to_date: now.endOf('week').format('YYYY-MM-DD') };
+    case 'thismonth': return { from_date: now.startOf('month').format('YYYY-MM-DD'), to_date: now.endOf('month').format('YYYY-MM-DD') };
+    case 'lastmonth': { const lm = now.subtract(1, 'month'); return { from_date: lm.startOf('month').format('YYYY-MM-DD'), to_date: lm.endOf('month').format('YYYY-MM-DD') }; }
+    case 'thisfy':    return getFYDates();
+    default:          return null;
+  }
 };
 
 /* ── View Modal ───────────────────────────────────────────────────────────────
@@ -321,11 +350,20 @@ export default function SalesList() {
   const [searchInput, setSearchInput] = useState('');
   const today = dayjs().format('YYYY-MM-DD');
   const [filters, setFilters] = useState({ search: '', payment_status: null, from_date: today, to_date: today });
-  // Debounce the search input → filters.search. Dates stay untouched —
-  // the user controls the date range independently via the date picker.
+  const [selectedPeriod, setSelectedPeriod] = useState('today');
+  // Debounce the search input → filters.search.
+  // When search becomes non-empty, expand date range to current FY so the
+  // user can find bills across the whole year without having to change the
+  // date picker manually.
   useEffect(() => {
     const t = setTimeout(() => {
-      setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });
+      if (searchInput) {
+        const fy = getFYDates();
+        setFilters(f => ({ ...f, search: searchInput, from_date: fy.from_date, to_date: fy.to_date }));
+        setSelectedPeriod('thisfy');
+      } else {
+        setFilters(f => f.search === '' ? f : { ...f, search: '' });
+      }
     }, 250);
     return () => clearTimeout(t);
   }, [searchInput]);
@@ -549,6 +587,14 @@ export default function SalesList() {
         );
       },
     },
+    cols.salesman && {
+      // Salesperson — the pure-attribution name snapshot saved on the bill.
+      // Falls back to a dash for legacy/unassigned bills.
+      key: 'salesman', title: 'Salesperson', width: 140,
+      render: (_, r) => r.salesman_name
+        ? <span style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>{r.salesman_name}</span>
+        : <span style={{ color: 'var(--fg-tertiary)' }}>{'—'}</span>,
+    },
     cols.mobile && {
       // Mobile column — pure mobile number. TLY-prefixed mobiles from
       // external imports are filtered out (those are placeholder strings,
@@ -718,12 +764,31 @@ export default function SalesList() {
             size="middle" format="DD MMM"
             placeholder={['From', 'To']}
             value={[filters.from_date ? dayjs(filters.from_date) : null, filters.to_date ? dayjs(filters.to_date) : null]}
-            onChange={(v) => setFilters(f => ({
-              ...f,
-              from_date: v?.[0]?.format('YYYY-MM-DD') || null,
-              to_date:   v?.[1]?.format('YYYY-MM-DD') || null,
-            }))}
+            onChange={(v) => {
+              setSelectedPeriod(null);
+              setFilters(f => ({
+                ...f,
+                from_date: v?.[0]?.format('YYYY-MM-DD') || null,
+                to_date:   v?.[1]?.format('YYYY-MM-DD') || null,
+              }));
+            }}
             style={{ height: 34, width: 220 }}
+          />
+          <Select
+            value={selectedPeriod}
+            placeholder="Period"
+            allowClear
+            style={{ width: 120, height: 34 }}
+            onChange={(v) => {
+              if (v) {
+                const dates = getPeriodDates(v);
+                setFilters(f => ({ ...f, ...dates }));
+                setSelectedPeriod(v);
+              } else {
+                setSelectedPeriod(null);
+              }
+            }}
+            options={PERIOD_OPTIONS}
           />
           <Select
             placeholder="All statuses" allowClear

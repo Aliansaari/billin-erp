@@ -157,12 +157,23 @@ export default function PaymentEntry() {
   const savedAllocsRef = useRef(null);
 
   const handlePartyChange = async (partyId) => {
-    const party = parties.find(p => p.party_id === partyId);
-    setSelectedParty(party);
+    // Optimistic: show the party name immediately from local cache.
+    const localParty = parties.find(p => p.party_id === partyId) || null;
+    setSelectedParty(localParty);
     setBills([]);
     setPayAmt(null);
     try {
-      const { data } = await paymentAPI.getUnpaidBills({ party_id: partyId, type: 'Purchase' });
+      // Fetch fresh party data and unpaid bills in parallel.
+      // Fresh party is needed so current_balance reflects the server state
+      // AFTER the last save — the local `parties` array is only loaded once
+      // on mount and would show a stale balance otherwise (Bug #1 fix).
+      const [partyRes, billsRes] = await Promise.all([
+        partyAPI.getById(partyId),
+        paymentAPI.getUnpaidBills({ party_id: partyId, type: 'Purchase' }),
+      ]);
+      const party = partyRes.data || localParty;
+      setSelectedParty(party);
+
       // Audit L4 — same re-tick-only-previously-allocated pattern as
       // ReceiptEntry (see comment there for the rationale).
       const savedAllocs = savedAllocsRef.current;
@@ -176,7 +187,7 @@ export default function PaymentEntry() {
         }
         savedAllocsRef.current = null;
       }
-      const rows = (data || []).map(b => {
+      const rows = (billsRes.data || []).map(b => {
         const hadAlloc = isEditFlow ? allocLookup[Number(b.purchase_bill_id)] : undefined;
         return {
           ...b,
@@ -283,10 +294,18 @@ export default function PaymentEntry() {
       .filter(b => !b.isOpening && b.allocated > 0)
       .map(b => ({ bill_id: b.purchase_bill_id, bill_type: 'Purchase', amount: b.allocated }));
 
-    // On-account guard — same as ReceiptEntry, mirrored for payables.
+    // Opening balance allocation — include as a sentinel entry so the server's
+    // reconcileBillsForParty absorbs this amount without FIFO-applying it to
+    // regular bills. Without this, the payment would be distributed to the
+    // oldest bills even when the user explicitly chose the opening balance row.
     const obBill = checkedBills.find(b => b.isOpening);
     const obAlloc = obBill ? parseFloat(obBill.allocated) || 0 : 0;
-    const sumAllocated = bill_allocations.reduce((s, a) => s + parseFloat(a.amount || 0), 0) + obAlloc;
+    if (obAlloc > 0) {
+      bill_allocations.push({ bill_id: null, bill_type: 'OpeningBalance', amount: obAlloc });
+    }
+    // obAlloc is now included in bill_allocations (as the OpeningBalance sentinel),
+    // so don't add it again — the reduce already covers it.
+    const sumAllocated = bill_allocations.reduce((s, a) => s + parseFloat(a.amount || 0), 0);
     const surplus = +(netAmount - sumAllocated).toFixed(2);
     const hasSurplus = surplus > 0.01;
     const nothingTicked = bill_allocations.length === 0 && obAlloc <= 0;
@@ -351,6 +370,10 @@ export default function PaymentEntry() {
       } else {
         handleReset();
         refreshNextNumber();
+        // Refresh the supplier list so the dropdown's Balance column shows
+        // the post-payment figure (the cached list is loaded once on mount,
+        // otherwise it shows the pre-payment balance until reopened).
+        loadParties();
       }
     } catch (e) {
       if (isFiscalLockCancel(e)) return;

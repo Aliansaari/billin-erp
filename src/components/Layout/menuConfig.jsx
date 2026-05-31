@@ -32,6 +32,8 @@ import {
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import useDevModeStore from '../../store/devModeStore';
+import useFavoritesStore from '../../store/favoritesStore';
+import { resolveReports } from '../../config/reports';
 
 export const menuItems = [
   // Home (Command Center) — the / route. Distinct from /dashboard, which
@@ -189,13 +191,14 @@ export const menuItems = [
       { key: '/accounts/integrity',   icon: <ThunderboltOutlined />,   label: 'Ledger Integrity',    perm: 'accounts.view', flag: 'dev_show_ledger_integrity' },
     ],
   },
-  // Reports — single leaf that navigates straight to /reports (the
-  // Reports Hub). The hub shows the user's starred reports at the top
-  // and all categories below. Previously this was a parent-with-
-  // children dropdown showing pinned favourites, but clicking Reports
-  // should land the user directly on the hub — same UX as Settings.
+  // Reports — parent submenu whose children are the operator's pinned
+  // (starred) reports plus a Browse-hub anchor, injected at runtime by
+  // useMenuItems from the favorites store. This makes Reports behave
+  // like Sales / Purchase: the pill/row expands to a dropdown of the
+  // starred reports instead of jumping straight to the hub. The key
+  // ends in '-menu' so a parent click expands rather than navigates.
   {
-    key:   '/reports',
+    key:   'reports-menu',
     icon:  <BarChartOutlined />,
     label: 'Reports',
   },
@@ -239,32 +242,66 @@ export function getRouteIcon(route) {
 }
 
 /**
- * Hook variant of menuItems. Applies feature-flag and dev-mode
- * filtering so the sidebar/topnav hides entries whose feature gate
- * is OFF. Reports is now a direct-navigate leaf (like Settings) so
- * no dynamic children inflation is needed — the Reports Hub shows
- * starred reports itself.
+ * Category → sidebar icon for the dynamically-injected pinned-report
+ * children. Uses icons already imported above (no extra weight).
+ */
+const REPORT_CAT_ICON = {
+  outstanding:      <FileTextOutlined />,
+  periodic_summary: <BarChartOutlined />,
+  sales:            <BarChartOutlined />,
+  purchase:         <ShoppingCartOutlined />,
+  inventory:        <InboxOutlined />,
+  financial:        <BookOutlined />,
+  parties:          <TeamOutlined />,
+  tax:              <FileTextOutlined />,
+};
+
+/**
+ * Hook variant of menuItems. Applies feature-flag + dev-mode filtering
+ * AND inflates the Reports submenu's children from the user's pinned
+ * favourites, so the nav mirrors what's starred on the hub — the same
+ * way Sales / Purchase expose their sub-routes. Subscribing to the
+ * favorites store here means the sidebar / topnav re-render the instant
+ * a star toggles anywhere in the app.
  */
 export function useMenuItems() {
   // System settings drive feature-flag filtering. While the cache is
   // still loading we treat every flag as off (safer default — hides
-  // gated entries until we know they should appear), which means a
-  // brief moment after first paint the gated items are absent. They
-  // pop in once the fetch resolves; consumers re-render via the
-  // useSystemSettings subscription.
+  // gated entries until we know they should appear). Developer mode
+  // unlock shows every flag-gated + __devOnly entry (unless previewing
+  // as a regular user).
   const settings = useSystemSettings();
-  // Developer mode unlock — when true (and not previewing), EVERY
-  // `flag`-gated entry shows regardless of system_settings, and
-  // __devOnly entries become visible. When `previewAsUser` is also
-  // on, the dev temporarily sees the sidebar exactly as a regular
-  // user does — gated entries respect their flags, __devOnly entries
-  // stay hidden — so the developer can verify the toggle settings
-  // without having to lock dev mode and re-enter the password.
   const devUnlocked   = useDevModeStore((s) => s.unlocked);
   const previewAsUser = useDevModeStore((s) => s.previewAsUser);
   const effectiveDev  = devUnlocked && !previewAsUser;
 
-  return filterMenuByFeatureFlags(menuItems, settings, effectiveDev);
+  // Pinned report ids, in pin order. resolveReports maps them to the
+  // canonical report shape and silently drops any unknown id.
+  const favIds = useFavoritesStore((s) => s.ids);
+
+  const itemsWithReports = React.useMemo(() => {
+    const pinned = resolveReports(favIds);
+    const reportChildren = pinned.map((r) => ({
+      key:   r.route,
+      icon:  REPORT_CAT_ICON[r.category] || <BarChartOutlined />,
+      label: r.name,
+      perm:  r.perm,   // consumed by filterMenuByPermissions
+      flag:  r.flag,   // consumed by filterMenuByFeatureFlags
+    }));
+    // Always-present anchor to the full hub — keeps the dropdown useful
+    // (and never empty, so the parent isn't pruned) even before the
+    // operator has starred anything.
+    reportChildren.push({
+      key:   '/reports',
+      icon:  <AppstoreOutlined />,
+      label: pinned.length ? 'All Reports' : 'Browse all reports',
+    });
+    return menuItems.map((item) =>
+      item.key === 'reports-menu' ? { ...item, children: reportChildren } : item,
+    );
+  }, [favIds]);
+
+  return filterMenuByFeatureFlags(itemsWithReports, settings, effectiveDev);
 }
 
 /**
@@ -352,7 +389,7 @@ export function getOpenKeys(pathname) {
   // are nested under Bank in the sidebar (see menuItems above).
   if (pathname.startsWith('/banks') || pathname.startsWith('/loans')) return ['bank-menu'];
   if (pathname.startsWith('/accounts')) return ['accounts-menu'];
-  if (pathname.startsWith('/reports')) return ['/reports'];
+  if (pathname.startsWith('/reports')) return ['reports-menu'];
   // Settings is now a leaf with route '/settings/company'; resolve any
   // /settings/* path to that key so the gear icon stays highlighted on
   // every Settings sub-page (Theme, Print, Backup, Users, …).

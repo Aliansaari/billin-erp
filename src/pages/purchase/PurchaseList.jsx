@@ -55,6 +55,33 @@ const fmtShort = (v) => {
   return `₹ ${Math.round(n).toLocaleString('en-IN')}`;
 };
 
+// India FY: Apr 1 → Mar 31
+const getFYDates = () => {
+  const now = dayjs();
+  const year = now.month() >= 3 ? now.year() : now.year() - 1;
+  return { from_date: `${year}-04-01`, to_date: `${year + 1}-03-31` };
+};
+const PERIOD_OPTIONS = [
+  { value: 'today',     label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'thisweek',  label: 'This Week' },
+  { value: 'thismonth', label: 'This Month' },
+  { value: 'lastmonth', label: 'Last Month' },
+  { value: 'thisfy',    label: 'This FY' },
+];
+const getPeriodDates = (period) => {
+  const now = dayjs();
+  switch (period) {
+    case 'today':     return { from_date: now.format('YYYY-MM-DD'), to_date: now.format('YYYY-MM-DD') };
+    case 'yesterday': { const y = now.subtract(1, 'day'); return { from_date: y.format('YYYY-MM-DD'), to_date: y.format('YYYY-MM-DD') }; }
+    case 'thisweek':  return { from_date: now.startOf('week').format('YYYY-MM-DD'), to_date: now.endOf('week').format('YYYY-MM-DD') };
+    case 'thismonth': return { from_date: now.startOf('month').format('YYYY-MM-DD'), to_date: now.endOf('month').format('YYYY-MM-DD') };
+    case 'lastmonth': { const lm = now.subtract(1, 'month'); return { from_date: lm.startOf('month').format('YYYY-MM-DD'), to_date: lm.endOf('month').format('YYYY-MM-DD') }; }
+    case 'thisfy':    return getFYDates();
+    default:          return null;
+  }
+};
+
 // ── View Modal ─────────────────────────────────────────────────────────────────
 function SummaryRow({ label, value, color, bold, borderTop }) {
   return (
@@ -168,9 +195,18 @@ export default function PurchaseList() {
   const [searchInput, setSearchInput] = useState('');
   const today = dayjs().format('YYYY-MM-DD');
   const [filters, setFilters] = useState({ search: '', payment_status: null, from_date: today, to_date: today });
+  const [selectedPeriod, setSelectedPeriod] = useState('today');
+  // When search becomes non-empty, expand date range to current FY so the
+  // user can find bills across the whole year without changing the date picker.
   useEffect(() => {
     const t = setTimeout(() => {
-      setFilters(f => f.search === searchInput ? f : { ...f, search: searchInput });
+      if (searchInput) {
+        const fy = getFYDates();
+        setFilters(f => ({ ...f, search: searchInput, from_date: fy.from_date, to_date: fy.to_date }));
+        setSelectedPeriod('thisfy');
+      } else {
+        setFilters(f => f.search === '' ? f : { ...f, search: '' });
+      }
     }, 250);
     return () => clearTimeout(t);
   }, [searchInput]);
@@ -528,12 +564,31 @@ export default function PurchaseList() {
             size="middle" format="DD MMM"
             placeholder={['From', 'To']}
             value={[filters.from_date ? dayjs(filters.from_date) : null, filters.to_date ? dayjs(filters.to_date) : null]}
-            onChange={(v) => setFilters(f => ({
-              ...f,
-              from_date: v?.[0]?.format('YYYY-MM-DD') || null,
-              to_date:   v?.[1]?.format('YYYY-MM-DD') || null,
-            }))}
+            onChange={(v) => {
+              setSelectedPeriod(null);
+              setFilters(f => ({
+                ...f,
+                from_date: v?.[0]?.format('YYYY-MM-DD') || null,
+                to_date:   v?.[1]?.format('YYYY-MM-DD') || null,
+              }));
+            }}
             style={{ height: 34, width: 220 }}
+          />
+          <Select
+            value={selectedPeriod}
+            placeholder="Period"
+            allowClear
+            style={{ width: 120, height: 34 }}
+            onChange={(v) => {
+              if (v) {
+                const dates = getPeriodDates(v);
+                setFilters(f => ({ ...f, ...dates }));
+                setSelectedPeriod(v);
+              } else {
+                setSelectedPeriod(null);
+              }
+            }}
+            options={PERIOD_OPTIONS}
           />
           <Select
             placeholder="All statuses" allowClear

@@ -265,6 +265,17 @@ exports.create = async (req, res) => {
           await t.rollback();
           return res.status(400).json({ error: `bill_allocations[${i}] must be an object.` });
         }
+        // Opening balance sentinel — no real bill_id; just an amount the user
+        // explicitly directed at the party's opening balance. Validate amount
+        // only; the bill_id / bill_type checks below don't apply.
+        if (a.bill_type === 'OpeningBalance') {
+          const amt = parseFloat(a.amount);
+          if (!Number.isFinite(amt) || amt < 0) {
+            await t.rollback();
+            return res.status(400).json({ error: `bill_allocations[${i}].amount must be a non-negative number.` });
+          }
+          continue;
+        }
         if (!Number.isFinite(Number(a.bill_id)) || Number(a.bill_id) <= 0) {
           await t.rollback();
           return res.status(400).json({ error: `bill_allocations[${i}].bill_id must be a positive integer.` });

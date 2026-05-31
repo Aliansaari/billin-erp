@@ -222,6 +222,14 @@ export default function AppLayout() {
     '/sales', '/purchases', '/payments',
     '/sales-returns', '/purchase-returns',
     '/reports/sales', '/reports/purchases',
+    // Sales by Salesman — same editorial-report shell as Sales Report
+    // (.report-editorial → sticky header + KPI strip + filter row +
+    // internally-scrolling table panel + ActionStrip pinned to the
+    // viewport bottom). Must be full-page so .erp-page-content gets an
+    // explicit 100dvh height; otherwise .report-editorial's height:100%
+    // collapses to content height, leaving a void below the table panel
+    // and the F-bar floating mid-page instead of flush at the bottom.
+    '/reports/sales-by-salesman',
     '/reports/party-ledger',                   // legacy redirect — keep listed so flash-of-padded-frame doesn't show during the bounce
     '/reports/customer-statement',
     '/reports/supplier-statement',

@@ -1486,7 +1486,7 @@ exports.update = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    let { items: newItems, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, ...billData } = req.body;
+    let { items: newItems, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, inline_return, ...billData } = req.body;
 
     // Same amount-only synthesis as create() — see comment block there.
     if (bill_mode === 'amount') {
@@ -1865,18 +1865,40 @@ exports.update = async (req, res) => {
     );
     const totalAmount = roundedAmount;
 
+    // ── INLINE RETURN value (mirror of create()) ──────────────────────
+    // When the operator (re)adds rows in the "Return" modal while editing,
+    // the frontend sends inline_return.items and return_amount: 0 — the
+    // paired SalesReturnBill is the single source of truth. Compute the
+    // return's gross value here so the forced-full-payment clamp AND the
+    // BILLS-8 over-pay guard both net it out, exactly like create() does
+    // (see lines ~1074-1102). The paired SalesReturnBill itself is
+    // (re)created further below, just before reconcile/recalc.
+    const hasInlineReturnItems = !!(inline_return && Array.isArray(inline_return.items) && inline_return.items.length > 0);
+    let inlineReturnValue = 0;
+    if (hasInlineReturnItems) {
+      for (const it of inline_return.items) {
+        const q = parseFloat(it.quantity) || 0;
+        const r = parseFloat(it.rate) || 0;
+        const d = (q * r) * ((parseFloat(it.discount_percentage) || 0) / 100);
+        const taxable = q * r - d;
+        const gst = taxable * ((parseFloat(it.gst_rate) || 0) / 100);
+        inlineReturnValue += taxable + gst;
+      }
+      inlineReturnValue = Math.round(inlineReturnValue);
+    }
+
     // Enforce full payment if customer has credit not allowed.
-    // Subtract return_amount so the forced payment covers only the net
-    // amount — otherwise effectivePaid (paid + return) exceeds totalAmount,
-    // either triggering the BILLS-8 over-pay rejection or leaving a
-    // negative balance after reconciliation.
+    // Subtract return_amount AND the inline-return value so the forced
+    // payment covers only the net amount — otherwise effectivePaid
+    // (paid + return) exceeds totalAmount, either triggering the BILLS-8
+    // over-pay rejection or leaving a negative balance after reconciliation.
     const returnAmt          = parseFloat(return_amount || 0);
     let finalPaidAmount2 = parseFloat(paid_amount);
     let customer2 = null;
     if (billData.customer_id) {
       customer2 = await Party.findByPk(billData.customer_id, { transaction: t });
       if (customer2 && !customer2.credit_allowed) {
-        finalPaidAmount2 = Math.max(0, totalAmount - returnAmt);
+        finalPaidAmount2 = Math.max(0, totalAmount - returnAmt - inlineReturnValue);
       }
     }
 
@@ -1888,12 +1910,12 @@ exports.update = async (req, res) => {
     const oldTotal2          = parseFloat(existingBill.total_amount)    || 0;
     const oldReturnAmount2   = parseFloat(existingBill.return_amount)   || 0;
     const linkedReceipts     = Math.max(0, +(oldTotal2 - oldBalance2 - oldPaidAtBilling2 - oldReturnAmount2).toFixed(2));
-    const totalEffectivePaid2 = +(finalPaidAmount2 + returnAmt + linkedReceipts).toFixed(2);
+    const totalEffectivePaid2 = +(finalPaidAmount2 + returnAmt + inlineReturnValue + linkedReceipts).toFixed(2);
 
     // Audit BILLS-8 — refuse an edit that would leave the bill
     // over-paid. If linkedReceipts (manual receipts already pointing
     // at this bill via bill_payment_allocations) plus at-billing
-    // payment plus walk-in return exceeds the new total, the
+    // payment plus walk-in/inline return exceeds the new total, the
     // allocation table would carry MORE money than the bill costs.
     // Math.max(0, …) would silently clamp balance to 0, breaking
     // the I1 invariant (paid_amount == Σ allocations).
@@ -1902,7 +1924,8 @@ exports.update = async (req, res) => {
       return res.status(400).json({
         error:
           `This edit would over-pay the bill: linked receipts (₹${linkedReceipts.toFixed(2)}) + ` +
-          `at-billing paid (₹${finalPaidAmount2.toFixed(2)}) + walk-in return (₹${returnAmt.toFixed(2)}) = ` +
+          `at-billing paid (₹${finalPaidAmount2.toFixed(2)}) + walk-in return (₹${returnAmt.toFixed(2)}) + ` +
+          `inline return (₹${inlineReturnValue.toFixed(2)}) = ` +
           `₹${totalEffectivePaid2.toFixed(2)}, but the new total is ₹${totalAmount.toFixed(2)}. ` +
           `Cancel or reduce the linked receipts before editing the bill down.`,
         code: 'EDIT_OVERPAYS_BILL',
@@ -1952,7 +1975,10 @@ exports.update = async (req, res) => {
       round_off: roundOffValue,
       total_amount: totalAmount,
       paid_amount: finalPaidAmount2,
-      return_amount: parseFloat(return_amount) || 0,
+      // With an inline return the paired SalesReturnBill is the source of
+      // truth; seed return_amount with the computed value now and overwrite
+      // with the exact paired-return total once it's created below.
+      return_amount: hasInlineReturnItems ? inlineReturnValue : (parseFloat(return_amount) || 0),
       balance_amount: balanceAmount,
       payment_status: paymentStatus,
       special_discount: parseFloat(special_discount) || 0,
@@ -2098,6 +2124,107 @@ exports.update = async (req, res) => {
           rate: item.rate, balance_quantity: newStock,
           created_by: req.user.user_id,
         }, { transaction: t });
+      }
+    }
+
+    // ── INLINE RETURN (edit) ──────────────────────────────────────────
+    // Mirror of create()'s inline-return handling (lines ~1337-1376),
+    // made idempotent for edits. The frontend sends inline_return.items
+    // ONLY when the operator (re)adds rows in the Return modal; in that
+    // case the request is the single source of truth for this bill's
+    // paired return, so we first cancel ANY pre-existing inline return
+    // linked to this bill (reversing its stock + vouchers) and then
+    // create a fresh one. When inline_return is ABSENT we deliberately
+    // leave existing paired returns untouched — a plain edit must NOT
+    // silently drop the return captured at sale time (that was the bug).
+    // Runs BEFORE reconcile/recalc so the new SalesReturnBill + the
+    // updated bill.return_amount are both visible to the balance recompute.
+    if (hasInlineReturnItems) {
+      if (!existingBill.customer_id) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Inline returns require a customer (walk-in cash sales cannot have a paired return).' });
+      }
+
+      // 1. Reverse + cancel pre-existing inline returns for this bill so
+      //    re-editing never leaves a duplicate paired return behind.
+      const priorReturns = await SalesReturnBill.findAll({
+        where: { reference_bill_id: existingBill.sales_bill_id, is_cancelled: false },
+        include: [{ model: SalesReturnBillItem, as: 'items' }],
+        transaction: t,
+      });
+      for (const ret of priorReturns) {
+        const retGodown = ret.godown_id || existingBill.godown_id;
+        for (const item of (ret.items || [])) {
+          if (item.product_id && retGodown) {
+            await applyGodownStockDelta({
+              product_id: item.product_id, godown_id: retGodown,
+              delta: -parseFloat(item.quantity), t,
+            });
+            if (item.batch_id) {
+              await applyBatchStockDelta({
+                product_id: item.product_id, batch_id: item.batch_id,
+                godown_id: retGodown, delta: -parseFloat(item.quantity), t,
+              });
+            }
+            if (item.color_id) {
+              await applyColorStockDelta({
+                color_id: item.color_id,
+                delta: -parseFloat(item.quantity),
+                transaction: t,
+              });
+            }
+          }
+        }
+        await writeStockLedgerReversal({
+          referenceId: ret.sales_return_id,
+          transactionType: 'Sales Return',
+          reason: `Inline return ${ret.return_number} replaced (bill ${existingBill.bill_number} edited)`,
+          userId: req.user?.user_id, t,
+          skipIdempotencyCheck: true,
+        });
+        await ret.update({
+          is_cancelled: true,
+          cancelled_by: req.user.user_id,
+          cancelled_date: new Date(),
+          cancellation_reason: `Replaced: parent bill ${existingBill.bill_number} edited`,
+          balance_amount: 0,
+          refund_status: 'Pending',
+        }, { transaction: t });
+        await reverseVoucher({
+          sourceType: 'sales_return_bill', sourceId: ret.sales_return_id,
+          reason: `Inline return replaced (bill ${existingBill.bill_number} edited)`,
+          userId: req.user && req.user.user_id, transaction: t,
+          reversalDate: ret.return_date,
+        });
+        await reverseVoucher({
+          sourceType: 'sales_return_refund', sourceId: ret.sales_return_id,
+          reason: 'Inline return replaced (refund leg)',
+          userId: req.user && req.user.user_id, transaction: t,
+          reversalDate: ret.return_date,
+        });
+      }
+
+      // 2. Create the fresh paired return from the request items.
+      try {
+        const inlineReturnBill = await createInlineReturn({
+          customer_id:  existingBill.customer_id,
+          billDate:     billData.bill_date || existingBill.bill_date,
+          items:        inline_return.items,
+          reason:       inline_return.reason,
+          isInterState: interState2,
+          godown_id:    billData.godown_id,
+          req, t,
+        });
+        if (inlineReturnBill) {
+          await existingBill.update({ return_amount: inlineReturnBill.total_amount }, { transaction: t });
+          await inlineReturnBill.update({
+            reference_bill_id: existingBill.sales_bill_id,
+            balance_amount: 0, refund_amount: 0, refund_status: 'Refunded',
+          }, { transaction: t });
+        }
+      } catch (rerr) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Inline return: ' + rerr.message });
       }
     }
 
