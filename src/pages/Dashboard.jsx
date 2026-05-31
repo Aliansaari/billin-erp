@@ -1,9 +1,42 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { DatePicker } from 'antd';
+import { DatePicker, Tooltip } from 'antd';
 import { reportAPI } from '../api';
 import './dashboard-editorial.css';
+
+/* ── InfoTip ──────────────────────────────────────────────────────────
+ * A small "(i)" affordance placed next to a metric / section title. On
+ * hover (or keyboard focus) it shows a plain-language explanation so a
+ * non-accountant shop owner understands what the number means and what
+ * to do about it. Purely informational — never affects any value.
+ */
+function InfoTip({ text, label }) {
+  return (
+    <Tooltip
+      title={text}
+      placement="top"
+      mouseEnterDelay={0.05}
+      overlayClassName="ed-tip"
+      overlayStyle={{ maxWidth: 320 }}
+    >
+      <span
+        className="ed-info"
+        tabIndex={0}
+        role="img"
+        aria-label={`${label ? label + ' — ' : ''}what is this?`}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+      >
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+             strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="11" x2="12" y2="16" />
+          <line x1="12" y1="7.5" x2="12.01" y2="7.5" />
+        </svg>
+      </span>
+    </Tooltip>
+  );
+}
 
 /**
  * Editorial Dashboard — wholesale business intelligence.
@@ -228,16 +261,20 @@ function PageHeader({ stats, insights, aging }) {
         <InsightBanner {...subtitle} />
       </div>
       <div className="ed-quick-stats">
-        <QStat tone="primary" icon="invoice" label="Bills today"  value={billsToday} sub={`${todaySales} sale · ${todayPurch} purch`} />
-        <QStat tone="warn"    icon="folder"  label="Open bills"   value={openSales + openPurch} sub={`${openSales} AR · ${openPurch} AP`} />
-        <QStat tone="info"    icon="ticket"  label="Avg ticket"   value={formatINR(avgTicket, { compact: true })} sub="month to date" mono cur />
-        <QStat tone="pos"     icon="box"     label="Stock value"  value={formatINR(stats?.stock_value?.purchase || 0, { compact: true })} sub={`${stats?.low_stock_count || 0} low stock`} mono cur />
+        <QStat tone="primary" icon="invoice" label="Bills today"  value={billsToday} sub={`${todaySales} sale · ${todayPurch} purch`}
+               tip="Number of bills you entered today — sales plus purchases. A quick pulse of today's activity." />
+        <QStat tone="warn"    icon="folder"  label="Open bills"   value={openSales + openPurch} sub={`${openSales} AR · ${openPurch} AP`}
+               tip="Bills not yet fully settled. AR (accounts receivable) = sales customers still owe you; AP (accounts payable) = purchases you still owe suppliers." />
+        <QStat tone="info"    icon="ticket"  label="Avg ticket"   value={formatINR(avgTicket, { compact: true })} sub="month to date" mono cur
+               tip="Average value of one sale this month = total sales ÷ number of sales bills. Higher means bigger orders per customer." />
+        <QStat tone="pos"     icon="box"     label="Stock value"  value={formatINR(stats?.stock_value?.purchase || 0, { compact: true })} sub={`${stats?.low_stock_count || 0} low stock`} mono cur
+               tip="Cost-price value of all goods currently in stock. “Low stock” is the count of items at or below their reorder level." />
       </div>
     </header>
   );
 }
 
-function QStat({ tone = 'idle', icon, label, value, sub, mono, cur }) {
+function QStat({ tone = 'idle', icon, label, value, sub, mono, cur, tip }) {
   const Icon = () => {
     if (icon === 'invoice') return (
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
@@ -258,6 +295,7 @@ function QStat({ tone = 'idle', icon, label, value, sub, mono, cur }) {
       <div className="ed-qstat-head">
         <span className="ed-qstat-icon"><Icon /></span>
         <span className="ed-qstat-label">{label}</span>
+        {tip && <InfoTip text={tip} label={label} />}
       </div>
       <div className={`ed-qstat-val${mono ? ' ed-tab' : ''}`}>
         {cur && <span className="ed-qstat-cur">₹</span>}{value}
@@ -279,6 +317,7 @@ function KpiStrip({ stats, series, insights, business }) {
     {
       tone: 'accent',
       label: 'Cash position',
+      tip: 'Total money you can use right now — all bank balances plus cash in hand. “Runway” is roughly how many days this lasts at your recent spending rate.',
       value: business?.cash_position ?? null,
       sub: cashRunway != null
         ? `${cashRunway} day runway`
@@ -290,6 +329,7 @@ function KpiStrip({ stats, series, insights, business }) {
     {
       tone: 'warn',
       label: 'Receivables',
+      tip: 'Money your customers still owe you on unpaid sales bills (udhaar). “Overdue” ones are past their due date — chase these first.',
       value: stats?.receivables?.total || 0,
       sub: `${stats?.receivables?.count || 0} parties${insights?.overdue_receivables?.length ? ' · ' + insights.overdue_receivables.length + ' overdue' : ''}`,
       sparkKey: 'sales',
@@ -298,6 +338,7 @@ function KpiStrip({ stats, series, insights, business }) {
     {
       tone: 'neg',
       label: 'Payables',
+      tip: 'Money you still owe your suppliers on unpaid purchase bills. “Overdue” ones are past their due date.',
       value: stats?.payables?.total || 0,
       sub: `${stats?.payables?.count || 0} suppliers${insights?.overdue_payables?.length ? ' · ' + insights.overdue_payables.length + ' overdue' : ''}`,
       sparkKey: 'purchases',
@@ -306,6 +347,7 @@ function KpiStrip({ stats, series, insights, business }) {
     {
       tone: 'pos',
       label: 'Sales MTD',
+      tip: 'Total sales so far this month (MTD = month-to-date), excluding GST. The % compares with the same point last month — green is up, red is down.',
       value: stats?.monthly_sales_excl_gst || 0,
       sub: buildSalesSub(stats, last14),
       sparkKey: 'sales',
@@ -315,6 +357,7 @@ function KpiStrip({ stats, series, insights, business }) {
     {
       tone: 'info',
       label: 'Stock value',
+      tip: 'Value of goods currently in stock, valued at the price you paid (cost), not the selling price. This is cash tied up in inventory.',
       value: stats?.stock_value?.purchase || 0,
       sub: buildStockSub(stats, insights),
       sparkKey: null,
@@ -331,7 +374,7 @@ function KpiStrip({ stats, series, insights, business }) {
   );
 }
 
-function KpiCard({ tone, label, value, sub, delta, isCurrency, sparkKey, series }) {
+function KpiCard({ tone, label, value, sub, delta, isCurrency, sparkKey, series, tip }) {
   const sparkValues = sparkKey
     ? series.map((s) => Number(s[sparkKey] || 0))
     : [];
@@ -343,6 +386,7 @@ function KpiCard({ tone, label, value, sub, delta, isCurrency, sparkKey, series 
         <div className="ed-kpi-label">
           <span className={`ed-mk ed-mk-${tone}`} />
           {label}
+          {tip && <InfoTip text={tip} label={label} />}
         </div>
         {delta != null && (
           <span className={`ed-kpi-delta ${deltaTone(delta, tone)}`}>
@@ -412,7 +456,9 @@ function MoneyMovementRow({ stats, series, period, bucket }) {
       <div className="ed-panel">
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
-            <div className="ed-panel-title">Cash <em>movement</em></div>
+            <div className="ed-panel-title">Cash <em>movement</em>
+              <InfoTip label="Cash movement" text="Money actually coming in (receipts) versus going out (payments) over this period — your real cash flow, separate from sales merely booked on credit." />
+            </div>
             <div className="ed-panel-meta">{periodLabel}</div>
           </div>
         </div>
@@ -441,7 +487,9 @@ function MoneyMovementRow({ stats, series, period, bucket }) {
       <div className="ed-panel">
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
-            <div className="ed-panel-title">Profit & <em>loss</em></div>
+            <div className="ed-panel-title">Profit & <em>loss</em>
+              <InfoTip label="Profit & loss" text="Your profit picture for the period: sales minus cost of goods sold and expenses. Shows whether the business is truly making money, not just turnover." />
+            </div>
             <div className="ed-panel-meta">Month to date</div>
           </div>
         </div>
@@ -621,7 +669,9 @@ function SalesPurchaseTrendRow({ stats, series, period, bucket }) {
       <div className="ed-panel">
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
-            <div className="ed-panel-title">Sales <em>trend</em></div>
+            <div className="ed-panel-title">Sales <em>trend</em>
+              <InfoTip label="Sales trend" text="Your sales over time across the selected period, so you can spot momentum, peak days, and slow patches at a glance." />
+            </div>
             <div className="ed-panel-meta">{periodLabel}</div>
           </div>
         </div>
@@ -647,7 +697,9 @@ function SalesPurchaseTrendRow({ stats, series, period, bucket }) {
       <div className="ed-panel">
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
-            <div className="ed-panel-title">Purchase <em>trend</em></div>
+            <div className="ed-panel-title">Purchase <em>trend</em>
+              <InfoTip label="Purchase trend" text="Your purchases over time across the selected period — useful for spotting overbuying and seeing how stocking lines up with sales." />
+            </div>
             <div className="ed-panel-meta">{periodLabel}</div>
           </div>
         </div>
@@ -827,7 +879,9 @@ function ReceivablesSection({ aging, insights, business, navigate }) {
     <section className="ed-section">
       <div className="ed-section-head">
         <div className="ed-section-head-left">
-          <div className="ed-section-title">Where money is <em>stuck</em></div>
+          <div className="ed-section-title">Where money is <em>stuck</em>
+            <InfoTip label="Receivables aging" text="Your unpaid customer dues grouped by how long they've been outstanding. The older the bucket (60–90d, 90+d), the higher the risk it won't be collected — focus your follow-ups there." />
+          </div>
           <div className="ed-section-sub">Receivables aging · total {formatINR(grand.total || 0, { compact: true, withCur: true })}</div>
         </div>
         <button
@@ -965,7 +1019,9 @@ function SalesIntelligenceRow({ insights, stats }) {
       <div className="ed-panel">
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
-            <div className="ed-panel-title">Top <em>customers</em></div>
+            <div className="ed-panel-title">Top <em>customers</em>
+              <InfoTip label="Top customers" text="Customers who owe you the most right now, by unpaid balance. “120d oldest” means their oldest unpaid bill is 120 days old — a sign of slow payment to follow up on." />
+            </div>
             <div className="ed-panel-meta">Highest balances</div>
           </div>
         </div>
@@ -997,7 +1053,9 @@ function SalesIntelligenceRow({ insights, stats }) {
       <div className="ed-panel">
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
-            <div className="ed-panel-title">Top <em>products</em></div>
+            <div className="ed-panel-title">Top <em>products</em>
+              <InfoTip label="Top products" text="Your best-selling items over the last 7 days, ranked by sales value. The FAST / SLOW tag shows how quickly each item is moving off the shelf." />
+            </div>
             <div className="ed-panel-meta">Last 7 days</div>
           </div>
         </div>
@@ -1030,7 +1088,9 @@ function SalesIntelligenceRow({ insights, stats }) {
       <div className="ed-panel">
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
-            <div className="ed-panel-title">Customer <em>concentration</em></div>
+            <div className="ed-panel-title">Customer <em>concentration</em>
+              <InfoTip label="Customer concentration" text="What share of all the money owed to you is tied up in just your top 5 customers. A high % is risky — if one of them delays paying, your cash takes a big hit. Under 30% is low risk." />
+            </div>
             <div className="ed-panel-meta">Top 5 share</div>
           </div>
         </div>
@@ -1113,7 +1173,9 @@ function OperationalHealthRow({ business, insights }) {
     <section className="ed-section">
       <div className="ed-section-head">
         <div className="ed-section-head-left">
-          <div className="ed-section-title">Operational <em>health</em></div>
+          <div className="ed-section-title">Operational <em>health</em>
+            <InfoTip label="Operational health" text="A health-check of how your business runs day to day: can you cover short-term dues (working capital), is your stock actually selling (inventory), and how fast does money cycle back to you (velocity)." />
+          </div>
           <div className="ed-section-sub">Working capital · inventory · business velocity</div>
         </div>
       </div>
@@ -1122,21 +1184,27 @@ function OperationalHealthRow({ business, insights }) {
         <div className="ed-panel">
           <div className="ed-panel-head">
             <div className="ed-panel-title-row">
-              <div className="ed-panel-title">Working <em>capital</em></div>
+              <div className="ed-panel-title">Working <em>capital</em>
+                <InfoTip label="Working capital" text="Your short-term financial cushion: what you own that turns into cash within a year (cash, dues from customers, stock) versus what you must pay within a year (supplier dues, GST). It answers “can I comfortably cover my near-term bills?”" />
+              </div>
               <div className="ed-panel-meta">Liquidity ratios</div>
             </div>
           </div>
           <div className="ed-wc-wrap">
             <div className="ed-wc-grid">
               <div className="ed-wc-tile ed-wc-assets">
-                <div className="ed-wc-tile-label">Current assets</div>
+                <div className="ed-wc-tile-label">Current assets
+                  <InfoTip label="Current assets" text="Things you own that turn into cash within a year: cash in hand and bank, money customers owe you (AR = accounts receivable), and stock on hand." />
+                </div>
                 <div className="ed-wc-tile-val">
                   <span className="ed-cur">₹</span>{formatINR(wc.current_assets || 0, { compact: true })}
                 </div>
                 <div className="ed-wc-tile-meta">cash + AR + stock</div>
               </div>
               <div className="ed-wc-tile ed-wc-liab">
-                <div className="ed-wc-tile-label">Current liabilities</div>
+                <div className="ed-wc-tile-label">Current liabilities
+                  <InfoTip label="Current liabilities" text="What you must pay within a year: money you owe suppliers (AP = accounts payable) plus net GST payable to the government." />
+                </div>
                 <div className="ed-wc-tile-val">
                   <span className="ed-cur">₹</span>{formatINR(wc.current_liabilities || 0, { compact: true })}
                 </div>
@@ -1144,14 +1212,18 @@ function OperationalHealthRow({ business, insights }) {
               </div>
             </div>
             <div className="ed-wc-net">
-              <div className="ed-wc-net-label">Net working capital</div>
+              <div className="ed-wc-net-label">Net working capital
+                <InfoTip label="Net working capital" text="Current assets minus current liabilities. A positive figure means you can cover all short-term dues and still have a buffer left over; negative means a cash crunch is likely." />
+              </div>
               <div className={`ed-wc-net-val ${(wc.net_working_capital || 0) >= 0 ? 'ed-pos-text' : 'ed-neg-text'}`}>
                 <span className="ed-cur">₹</span>{formatINR(Math.abs(wc.net_working_capital || 0), { compact: true })}
               </div>
             </div>
             <div className="ed-ratio-grid">
               <div className="ed-ratio">
-                <div className="ed-ratio-label">Current ratio</div>
+                <div className="ed-ratio-label">Current ratio
+                  <InfoTip label="Current ratio" text="Current assets ÷ current liabilities. 1.5 or higher is healthy; around 1 is tight; below 1 means you may struggle to pay short-term dues on time." />
+                </div>
                 <div className={`ed-ratio-val ed-ratio-val-${crTone}`}>
                   {wc.current_ratio != null ? wc.current_ratio.toFixed(2) : '—'}
                 </div>
@@ -1160,7 +1232,9 @@ function OperationalHealthRow({ business, insights }) {
                 </div>
               </div>
               <div className="ed-ratio">
-                <div className="ed-ratio-label">Quick ratio</div>
+                <div className="ed-ratio-label">Quick ratio
+                  <InfoTip label="Quick ratio" text="Like the current ratio but excludes stock (which takes time to sell). Above 1 means you can clear short-term dues from cash and customer payments alone, without relying on selling inventory." />
+                </div>
                 <div className={`ed-ratio-val ed-ratio-val-${qrTone}`}>
                   {wc.quick_ratio != null ? wc.quick_ratio.toFixed(2) : '—'}
                 </div>
@@ -1176,7 +1250,9 @@ function OperationalHealthRow({ business, insights }) {
         <div className="ed-panel">
           <div className="ed-panel-head">
             <div className="ed-panel-title-row">
-              <div className="ed-panel-title">Inventory <em>health</em></div>
+              <div className="ed-panel-title">Inventory <em>health</em>
+                <InfoTip label="Inventory health" text="How well your stock is selling. Items are grouped by how fast they move — Fast, Medium, Slow, and Dead (no sale in 60+ days). Dead stock is cash stuck on the shelf you could free up." />
+              </div>
               <div className="ed-panel-meta">{totalSku} active SKUs</div>
             </div>
           </div>
@@ -1211,14 +1287,18 @@ function OperationalHealthRow({ business, insights }) {
             </div>
             <div className="ed-inv-metrics">
               <div className="ed-inv-met">
-                <div className="ed-inv-met-label">Stock value</div>
+                <div className="ed-inv-met-label">Stock value
+                  <InfoTip label="Stock value" text="Total cost-price value of all goods on hand right now — i.e. how much cash is currently tied up in inventory." />
+                </div>
                 <div className="ed-inv-met-val">
                   <span className="ed-cur">₹</span>{formatINR(inv.value || 0, { compact: true })}
                 </div>
                 <div className="ed-inv-met-sub">cost basis · on hand</div>
               </div>
               <div className="ed-inv-met">
-                <div className="ed-inv-met-label">Turnover</div>
+                <div className="ed-inv-met-label">Turnover
+                  <InfoTip label="Turnover" text="How many times you sell through your entire stock in a year. Higher is better — target 6× or more. Low turnover means cash is sitting in slow-moving goods." />
+                </div>
                 <div className={`ed-inv-met-val ed-ratio-val-${invTurnoverTone(inv.turnover)}`}>
                   {inv.turnover != null ? inv.turnover.toFixed(1) : '—'}<span className="ed-inv-unit">×/yr</span>
                 </div>
@@ -1232,22 +1312,29 @@ function OperationalHealthRow({ business, insights }) {
         <div className="ed-panel">
           <div className="ed-panel-head">
             <div className="ed-panel-title-row">
-              <div className="ed-panel-title">Business <em>velocity</em></div>
+              <div className="ed-panel-title">Business <em>velocity</em>
+                <InfoTip label="Business velocity" text="How quickly money flows through your business — from paying for stock, to selling it, to collecting the cash. Fewer days means your money isn't sitting idle waiting to come back." />
+              </div>
               <div className="ed-panel-meta">Cash conversion cycle</div>
             </div>
           </div>
           <div className="ed-opex-wrap">
             <div className="ed-ccc-hero">
-              <div className="ed-ccc-label">Cash Conversion Cycle</div>
+              <div className="ed-ccc-label">Cash Conversion Cycle
+                <InfoTip label="Cash Conversion Cycle" text="The number of days from paying for stock to getting the cash back after selling it. Lower is better. Formula: DIO (days stock sits) + DSO (days customers take to pay) − DPO (days you take to pay suppliers)." />
+              </div>
               <div className={`ed-ccc-val ed-ratio-val-${cccTone}`}>
                 {bv.ccc != null ? bv.ccc : '—'}<span className="ed-inv-unit">d</span>
               </div>
               <div className="ed-ccc-formula">DIO {bv.dio ?? '—'} + DSO {bv.dso ?? '—'} − DPO {bv.dpo ?? '—'}</div>
             </div>
             <div className="ed-effic-rows">
-              <EfficRow label="DSO" detail="Days Sales Outstanding" value={bv.dso} target={45} cap={80} invert={false} />
-              <EfficRow label="DPO" detail={bv.dpo != null && bv.dpo < 30 ? 'Paying too fast' : 'Days Payable Outstanding'} value={bv.dpo} target={40} cap={80} invert={true} />
-              <EfficRow label="DIO" detail="Days Inventory Outstanding" value={bv.dio} target={60} cap={120} invert={false} />
+              <EfficRow label="DSO" detail="Days Sales Outstanding" value={bv.dso} target={45} cap={80} invert={false}
+                tip="Days Sales Outstanding — the average days your customers take to pay you. Lower is better (target under 45 days). High DSO means cash is stuck with customers." />
+              <EfficRow label="DPO" detail={bv.dpo != null && bv.dpo < 30 ? 'Paying too fast' : 'Days Payable Outstanding'} value={bv.dpo} target={40} cap={80} invert={true}
+                tip="Days Payable Outstanding — the average days you take to pay suppliers. Paying too fast strains your cash; paying very slowly can hurt supplier relationships." />
+              <EfficRow label="DIO" detail="Days Inventory Outstanding" value={bv.dio} target={60} cap={120} invert={false}
+                tip="Days Inventory Outstanding — the average days stock sits before it's sold. Lower means faster-moving inventory and less cash locked up in goods." />
             </div>
           </div>
         </div>
@@ -1256,7 +1343,7 @@ function OperationalHealthRow({ business, insights }) {
   );
 }
 
-function EfficRow({ label, detail, value, target, cap, invert }) {
+function EfficRow({ label, detail, value, target, cap, invert, tip }) {
   const v = Number.isFinite(value) ? value : null;
   const pct = v != null ? Math.min(100, (v / cap) * 100) : 0;
   const benchPct = Math.min(100, (target / cap) * 100);
@@ -1277,7 +1364,7 @@ function EfficRow({ label, detail, value, target, cap, invert }) {
     <div className="ed-effic-row">
       <div className="ed-effic-name">
         <div className="ed-effic-name-row">
-          <div className="ed-effic-label">{label}</div>
+          <div className="ed-effic-label">{label}{tip && <InfoTip label={label} text={tip} />}</div>
           <div className="ed-effic-bench">target {target}d</div>
         </div>
         <div className="ed-effic-bar-wrap">
@@ -1320,6 +1407,7 @@ function InsightBar({ tone, insight, actions, navigate }) {
             {actions.length === 1
               ? <>One action could free up <span className="ed-strong">₹{formatINR(totalImpact, { compact: true })}</span> of working capital.</>
               : <>{actions.length} actions could free up <span className="ed-strong">₹{formatINR(totalImpact, { compact: true })}</span> of working capital this month.</>}
+            <InfoTip label="Free up working capital" text="The biggest opportunities to unlock cash that's currently stuck — e.g. trimming excess stock to about 60 days of cover, or clearing dead items. Acting on these puts that money back in your hands." />
           </div>
           <div className="ed-insight-actions-list">
             {actions.map((a) => (

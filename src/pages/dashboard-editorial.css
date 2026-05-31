@@ -1743,3 +1743,41 @@
 [data-theme="modern-dark"]  .ed-dashboard::before {
   opacity: 0;
 }
+
+/* ── InfoTip "(i)" affordance ──────────────────────────────────────────────
+ *  A subtle info marker placed next to metric / section titles. Muted by
+ *  default so it never competes with the number; brightens to the accent
+ *  colour on hover or keyboard focus. Hover the icon to read a plain-language
+ *  explanation of the metric (the tooltip itself is AntD-rendered).
+ * ──────────────────────────────────────────────────────────────────────── */
+.ed-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 5px;
+  flex: 0 0 auto;
+  color: var(--fg-tertiary, #9aa3af);
+  opacity: 0.55;
+  cursor: help;
+  vertical-align: middle;
+  transition: opacity .12s ease, color .12s ease, transform .12s ease;
+}
+.ed-info:hover,
+.ed-info:focus-visible {
+  opacity: 1;
+  color: var(--accent, #6366f1);
+  transform: translateY(-0.5px);
+  outline: none;
+}
+.ed-info svg { display: block; }
+
+/* Tooltip body — comfortable reading width + line-height for the
+ * explanatory sentences (AntD default is a touch cramped). */
+.ed-tip .ant-tooltip-inner {
+  font-size: 12.5px;
+  line-height: 1.55;
+  padding: 9px 12px;
+  border-radius: 8px;
+}
