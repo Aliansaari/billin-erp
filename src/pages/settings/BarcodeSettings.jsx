@@ -416,6 +416,19 @@ export default function BarcodeSettings() {
   });
   const [selectedId, setSelectedId] = useState(null);
 
+  // Durable label design: the DB is the source of truth (survives Electron/
+  // Chromium upgrades, unlike localStorage). localStorage is just a fast cache.
+  // hydratedRef gates DB writes until after the initial DB load, so the mount-
+  // time auto-save can't clobber the server copy with the local cache.
+  const hydratedRef = useRef(false);
+  const dbSaveTimer = useRef(null);
+  const persistLayoutToDb = useCallback((payload) => {
+    clearTimeout(dbSaveTimer.current);
+    dbSaveTimer.current = setTimeout(() => {
+      settingsAPI.updateBarcode({ label_layout: JSON.stringify(payload) }).catch(() => {});
+    }, 1200);
+  }, []);
+
   // ── Barcode label printer (localStorage — same store as the layout) ──
   const [printers,   setPrinters]   = useState([]);
   const [printerErr, setPrinterErr] = useState('');
@@ -456,7 +469,30 @@ export default function BarcodeSettings() {
       if (settings.separator === null || settings.separator === undefined) settings.separator = '-';
       form.setFieldsValue(settings);
       updatePreview(settings);
+      // ── Durable label design ──
+      // DB is authoritative. Hydrate the designer from it + refresh the cache.
+      // If the DB has none yet but this machine has a cached design, migrate
+      // the cache up to the DB so the design is preserved — permanently.
+      try {
+        if (settings.label_layout) {
+          const dbLayout = JSON.parse(settings.label_layout);
+          if (dbLayout && (dbLayout.elements || dbLayout.layouts)) {
+            saveLayout(dbLayout);
+            const size = dbLayout.labelSize || '50x25';
+            setLabelSize(size);
+            setCodeType(dbLayout.codeType || 'barcode');
+            const raw = (dbLayout.layouts && dbLayout.layouts[size]) || dbLayout.elements || DEFAULT_LAYOUTS[size];
+            setElements(mergeWithDefaults(raw, size));
+          }
+        } else {
+          const local = loadLayout();
+          if (local && (local.elements || local.layouts)) {
+            await settingsAPI.updateBarcode({ label_layout: JSON.stringify(local) });
+          }
+        }
+      } catch (_) { /* keep the localStorage-backed design */ }
     } catch (_) {}
+    hydratedRef.current = true;
     setLoadingSettings(false);
   };
 
@@ -584,7 +620,10 @@ export default function BarcodeSettings() {
     const saved = loadLayout() || {};
     const layouts = saved.layouts || {};
     layouts[labelSize] = elements;
-    saveLayout({ labelSize, codeType, elements, layouts });
+    const payload = { labelSize, codeType, elements, layouts };
+    saveLayout(payload);
+    // Persist to the DB immediately so an explicit Save is durable at once.
+    settingsAPI.updateBarcode({ label_layout: JSON.stringify(payload) }).catch(() => {});
     message.success('Label design saved!');
   };
 
@@ -598,13 +637,16 @@ export default function BarcodeSettings() {
     setElements(prev => prev.map(el => el.id === elemId ? { ...el, visible: !el.visible } : el));
   };
 
-  // Auto-save on every change — safe because all state initializes from localStorage
+  // Auto-save on every change — localStorage cache always; DB (durable) after
+  // the initial hydration so the mount-time fire can't clobber the server copy.
   useEffect(() => {
     const saved = loadLayout() || {};
     const layouts = saved.layouts || {};
     layouts[labelSize] = elements;
-    saveLayout({ labelSize, codeType, elements, layouts });
-  }, [elements, labelSize, codeType]);
+    const payload = { labelSize, codeType, elements, layouts };
+    saveLayout(payload);
+    if (hydratedRef.current) persistLayoutToDb(payload);
+  }, [elements, labelSize, codeType, persistLayoutToDb]);
 
   const selectedElem = elements.find(el => el.id === selectedId) || null;
   const { w, h } = LABEL_SIZES[labelSize];

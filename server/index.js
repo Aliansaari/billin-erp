@@ -227,6 +227,7 @@ app.use('/api/backup', require('./routes/backup'));
 app.use('/api/print', require('./routes/print'));
 app.use('/api/godowns', require('./routes/godowns'));
 app.use('/api/salesmen', require('./routes/salesmen'));
+app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/states', require('./routes/states'));
 app.use('/api/stock-transfers', require('./routes/stockTransfers'));
 app.use('/api/batches', require('./routes/batches'));
@@ -478,15 +479,30 @@ async function startServer() {
     //
     // Bump MIGRATION_VERSION whenever you add/change any migration below.
     // A simple integer counter works: just increment it.
-    const MIGRATION_VERSION = '2';
+    const MIGRATION_VERSION = '9';
     const migVersionFile = path.join(os.homedir(), '.billing-erp', 'migration-version.txt');
     let skipMigrations = false;
     try {
       if (fs.existsSync(migVersionFile)) {
         const stored = fs.readFileSync(migVersionFile, 'utf8').trim();
-        if (stored === MIGRATION_VERSION && !process.env.FORCE_MIGRATE && !wasJustUpdated) {
+        // Gate PURELY on the version stamp — NOT on `wasJustUpdated`.
+        //
+        // Why: a reinstall/update drops the `.just-installed` marker, which
+        // makes the pre-update backup run and (previously) forced EVERY
+        // migration to re-run. Re-running is only safe if every block is
+        // perfectly idempotent — and a single non-idempotent line (e.g. a
+        // backfill `UPDATE ... SET show_x = true`) would then silently
+        // clobber a user's setting on *every* reinstall. That was a real
+        // bug (printer "show previous balance" kept turning itself back on).
+        //
+        // The version stamp is the correct trigger: whenever a migration is
+        // added or changed, bump MIGRATION_VERSION and it runs exactly once.
+        // The pre-update backup above still runs on every reinstall (it's
+        // gated separately on the marker), so update safety is unchanged.
+        // FORCE_MIGRATE remains the manual escape hatch.
+        if (stored === MIGRATION_VERSION && !process.env.FORCE_MIGRATE) {
           skipMigrations = true;
-          console.log(`[migrations] version ${MIGRATION_VERSION} already applied — skipping`);
+          console.log(`[migrations] version ${MIGRATION_VERSION} already applied — skipping${wasJustUpdated ? ' (reinstall detected; backup taken, migrations version-gated)' : ''}`);
         } else {
           console.log(`[migrations] version changed ${stored} → ${MIGRATION_VERSION} — running all migrations`);
         }
@@ -517,6 +533,64 @@ async function startServer() {
       "END LOOP; END $do$;",
     ).catch((err) => {
       console.error('[Pre-migration drop entry_number unique] Error:', err.message);
+    });
+
+    // ── WhatsApp delivery: parties.whatsapp_opt_out + outbox worker index ──
+    // The whatsapp_settings / whatsapp_outbox tables are full models, so
+    // sequelize.sync() above already created them on this (master) DB. This
+    // block only adds the one new column on an EXISTING table (sync with
+    // alter:false never adds columns) plus the composite index the outbox
+    // worker's hot query (status + scheduled_at) relies on. Both idempotent.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='parties' AND column_name='whatsapp_opt_out') THEN
+          ALTER TABLE parties ADD COLUMN whatsapp_opt_out BOOLEAN NOT NULL DEFAULT false;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Migration parties.whatsapp_opt_out] Error:', err.message);
+    });
+    await sequelize.query(
+      `CREATE INDEX IF NOT EXISTS idx_wa_outbox_status_sched ON whatsapp_outbox(status, scheduled_at);`
+    ).catch((err) => {
+      console.error('[Migration whatsapp_outbox index] Error:', err.message);
+    });
+    // WhatsApp self-service BOT columns on whatsapp_settings (the table itself
+    // is created by sync above; these add the bot fields to an EXISTING table
+    // from a prior version). ADD COLUMN IF NOT EXISTS is idempotent.
+    await sequelize.query(`
+      ALTER TABLE whatsapp_settings
+        ADD COLUMN IF NOT EXISTS bot_enabled        BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS bot_show_balance   BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_show_bills     BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_show_payments  BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_show_statement BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_blocked        TEXT DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS bot_owner_numbers  TEXT DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS bot_welcome        TEXT,
+        ADD COLUMN IF NOT EXISTS bot_stock_lookup             BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_owner_show_sale_rate     BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_owner_show_purchase_rate BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_owner_show_stock         BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_owner_show_mrp           BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_doc_request              BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS bot_owner_panel              TEXT DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS bot_supplier_panel           TEXT DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS bot_daily_digest             BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS bot_digest_time              VARCHAR(5) DEFAULT '21:00',
+        ADD COLUMN IF NOT EXISTS bot_digest_last_sent         DATE;
+    `).catch((err) => {
+      console.error('[Migration whatsapp_settings bot columns] Error:', err.message);
+    });
+    // Durable barcode label design — moved off fragile renderer localStorage
+    // into the DB so it survives Electron/Chromium upgrades + reinstalls.
+    await sequelize.query(`
+      ALTER TABLE barcode_settings
+        ADD COLUMN IF NOT EXISTS label_layout        TEXT,
+        ADD COLUMN IF NOT EXISTS label_company_name  VARCHAR(120);
+    `).catch((err) => {
+      console.error('[Migration barcode_settings label columns] Error:', err.message);
     });
 
     // ── Bank reconciliation: cleared_at on payment_receipts ──────
@@ -1006,8 +1080,13 @@ async function startServer() {
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_profiles' AND column_name='show_previous_balance') THEN
           ALTER TABLE print_profiles ADD COLUMN show_previous_balance BOOLEAN DEFAULT true;
+          -- One-time backfill: existing profiles (created before this column)
+          -- come up NULL → default them ON to preserve prior render behaviour.
+          -- MUST stay INSIDE this IF block: running it unconditionally on every
+          -- migration pass force-flipped the toggle back ON for any user who
+          -- deliberately turned it OFF (the reinstall "printers reset" bug).
+          UPDATE print_profiles SET show_previous_balance = true WHERE show_previous_balance IS NULL;
         END IF;
-        UPDATE print_profiles SET show_previous_balance = true WHERE show_previous_balance = false;
         -- Doc-subtitle override. Blank = renderer falls back to the
         -- per-doc-type default ("TAX INVOICE", "PURCHASE BILL", etc.).
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_profiles' AND column_name='doc_label') THEN
@@ -2660,6 +2739,64 @@ async function startServer() {
       console.error('[Back-dated entry guard migration] Error:', err.message);
     });
 
+    // ── Customer Insight Panel (F8) visibility toggles ────────────────
+    //
+    // Six BOOLEAN flags on system_settings controlling which sections of
+    // the F8 customer-analytics panel render on the Sales Bill form. All
+    // default TRUE so existing installs get the full panel after upgrade.
+    //
+    // CRITICAL: these columns are declared in the SystemSettings model, so
+    // every `SELECT` Sequelize generates for that table lists them. Without
+    // this ADD COLUMN backfill, an upgraded DB that lacks the columns makes
+    // EVERY system_settings read fail with "column does not exist" —
+    // breaking company-name loading and the sales save path. Idempotent.
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='insight_show_fy_metrics') THEN
+          ALTER TABLE system_settings ADD COLUMN insight_show_fy_metrics BOOLEAN DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='insight_show_alltime_metrics') THEN
+          ALTER TABLE system_settings ADD COLUMN insight_show_alltime_metrics BOOLEAN DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='insight_show_profit') THEN
+          ALTER TABLE system_settings ADD COLUMN insight_show_profit BOOLEAN DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='insight_show_behavior') THEN
+          ALTER TABLE system_settings ADD COLUMN insight_show_behavior BOOLEAN DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='insight_show_top_products') THEN
+          ALTER TABLE system_settings ADD COLUMN insight_show_top_products BOOLEAN DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='insight_show_bill_stats') THEN
+          ALTER TABLE system_settings ADD COLUMN insight_show_bill_stats BOOLEAN DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='insight_show_pay_time') THEN
+          ALTER TABLE system_settings ADD COLUMN insight_show_pay_time BOOLEAN DEFAULT true;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings'
+                         AND column_name='insight_show_lifetime_profit') THEN
+          ALTER TABLE system_settings ADD COLUMN insight_show_lifetime_profit BOOLEAN DEFAULT true;
+        END IF;
+      END $$;
+    `).catch((err) => {
+      console.error('[Customer Insight toggles migration] Error:', err.message);
+    });
+
     // Seed default data
     await seedDefaultData();
 
@@ -2880,6 +3017,17 @@ async function startServer() {
           AND NOT EXISTS (
             SELECT 1 FROM cheques c WHERE c.source_payment_split_id = ps.split_id
           )
+        -- A shop can legitimately have two cheque-mode payments that share the
+        -- same printed number at the same bank ledger + direction, which
+        -- collides with the cheques_bank_number_dir_active_uniq partial index.
+        -- The backfill is one all-or-nothing statement, so ONE such duplicate
+        -- aborted the WHOLE batch every boot — Sequelize wraps the unique
+        -- violation as a UniqueConstraintError whose message is the misleading
+        -- generic "Validation error" (the symptom seen in app.log). DO NOTHING
+        -- inserts every non-colliding cheque and silently skips the duplicate.
+        -- The cheques table is a tracking register (no voucher is posted here,
+        -- see above), so a skipped duplicate changes no money/ledger math.
+        ON CONFLICT DO NOTHING
         RETURNING cheque_id
       `);
       const inserted = (backfilled && backfilled.length) || 0;
@@ -2887,7 +3035,12 @@ async function startServer() {
         console.log(`[Cheque sync] backfilled ${inserted} cheque(s) from existing cheque-mode payments`);
       }
     } catch (err) {
-      console.error('[Cheque sync migration] Error:', err.message);
+      // Sequelize masks DB-level failures (e.g. a unique violation) behind the
+      // generic "Validation error" message, so also surface the underlying
+      // Postgres error + detail — otherwise the log is useless for diagnosis.
+      const orig = err.original || err.parent;
+      console.error('[Cheque sync migration] Error:', err.message,
+        orig ? `| db: ${orig.message}${orig.detail ? ' — ' + orig.detail : ''}` : '');
     }
 
     // ── Reverse duplicate payment_receipt ledger entries ────────────
@@ -3094,6 +3247,10 @@ async function startServer() {
       importWorker.recoverOrphans()
         .then(() => importWorker.start())
         .catch((e) => console.error('[importJobWorker] failed to start:', e.message));
+      // WhatsApp — reconnect the primary company's saved web session (if any)
+      // so paced sending resumes without the owner reopening Settings.
+      require('./services/whatsapp/manager').bootReconnect()
+        .catch((e) => console.error('[whatsapp] bootReconnect failed:', e.message));
       // Audit H6 — backfill cost_layers for products with stock but no
       // layers. Idempotent (skips combos that already have a layer); safe
       // to run on every boot. New installs are no-ops.

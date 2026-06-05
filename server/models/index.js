@@ -67,6 +67,8 @@ const NotificationStateFactory = require('./NotificationState');
 const NotificationSettingsFactory = require('./NotificationSettings');
 const ComplianceAuditLogFactory = require('./ComplianceAuditLog');
 const SalesmanFactory = require('./Salesman');
+const WhatsappSettingsFactory = require('./WhatsappSettings');
+const WhatsappOutboxFactory = require('./WhatsappOutbox');
 
 /**
  * Define all models + associations on a given Sequelize instance.
@@ -124,6 +126,8 @@ function defineModels(sequelize) {
   const NotificationSettings = NotificationSettingsFactory(sequelize);
   const ComplianceAuditLog = ComplianceAuditLogFactory(sequelize);
   const Salesman = SalesmanFactory(sequelize);
+  const WhatsappSettings = WhatsappSettingsFactory(sequelize);
+  const WhatsappOutbox = WhatsappOutboxFactory(sequelize);
 
   // ── Associations ──
   
@@ -451,6 +455,13 @@ function defineModels(sequelize) {
   ProductColor.hasMany(PurchaseBillItem, { foreignKey: 'color_id', onDelete: 'RESTRICT' });
   PurchaseBillItem.belongsTo(ProductColor, { foreignKey: 'color_id', as: 'color' });
 
+  // ── WhatsApp outbox ↔ Party (informational tag) ──
+  // Nullable FK; we never want a party hard-delete to cascade-wipe the send
+  // log, and a queued send must survive even if the party row is gone, so the
+  // association is a plain belongsTo with no hasMany back-reference (the outbox
+  // is not part of party ledger/history and must not surface there).
+  WhatsappOutbox.belongsTo(Party, { foreignKey: 'party_id', as: 'party' });
+
   return {
     sequelize,
     Role,
@@ -499,6 +510,8 @@ function defineModels(sequelize) {
     NotificationSettings,
     ComplianceAuditLog,
     Salesman,
+    WhatsappSettings,
+    WhatsappOutbox,
   };
 }
 
@@ -618,6 +631,8 @@ module.exports = {
   NotificationSettings: makeProxy('NotificationSettings'),
   ComplianceAuditLog: makeProxy('ComplianceAuditLog'),
   Salesman: makeProxy('Salesman'),
+  WhatsappSettings: makeProxy('WhatsappSettings'),
+  WhatsappOutbox: makeProxy('WhatsappOutbox'),
 
   // Multi-tenant escape hatches — used by the connection pool +
   // middleware. Don't import these from controllers; stick with the

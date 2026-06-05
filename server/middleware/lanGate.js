@@ -31,9 +31,14 @@
 const jwt = require('jsonwebtoken');
 const SystemSettings = require('../models/SystemSettings');
 
-// Sliding-window of recent client IDs.
-//   Map<clientId, lastSeenMs>
+// Sliding-window of recent clients.
+//   Map<clientId, { ip, userId, username, firstSeen, lastSeen }>
 const recent = new Map();
+// Admin-disconnected devices, keyed by normalised IP. A blocked IP's
+// requests are rejected (503) until the admin re-allows it (or the
+// server restarts). Deliberately NOT auto-expired so a "disconnect"
+// sticks until explicitly undone.
+const blocked = new Map();
 const WINDOW_MS = 10 * 60 * 1000;          // 10 min "still active"
 let cachedSettings = null;
 let cachedAt = 0;
@@ -43,8 +48,8 @@ const SETTINGS_TTL_MS = 60 * 1000;          // refresh once per minute
 // so the cap counts only currently-active machines. Runs every 30s.
 setInterval(() => {
   const cutoff = Date.now() - WINDOW_MS;
-  for (const [id, ts] of recent) {
-    if (ts < cutoff) recent.delete(id);
+  for (const [id, e] of recent) {
+    if ((e?.lastSeen || 0) < cutoff) recent.delete(id);
   }
 }, 30 * 1000).unref();
 
@@ -71,34 +76,34 @@ function invalidateLanGateCache() {
   cachedAt = 0;
 }
 
-// Map an incoming request to a stable "client identity" for cap counting.
-// Prefers the JWT user_id (machine-independent — same user on two devices
-// counts twice because their tokens differ; same machine across reloads
-// counts once because the token persists in localStorage). Falls back to
-// IP for unauthenticated routes.
-function clientIdFor(req) {
+// Normalise an IP for display + matching: strip the IPv6-mapped prefix
+// and collapse loopback to 127.0.0.1.
+function normIp(raw) {
+  let s = String(raw || '').trim();
+  if (s.startsWith('::ffff:')) s = s.slice(7);
+  if (s === '::1') s = '127.0.0.1';
+  return s;
+}
+
+// Identify the device/session behind a request. Prefers the JWT
+// (user_id + iat → a stable per-session id, and the username for the
+// admin's device list); falls back to the IP for unauthenticated routes.
+// Always returns the normalised client IP so a device can be shown and
+// disconnected.
+//
+// Audit C16 — only ever verify with the real JWT_SECRET pinned to HS256
+// (same as middleware/auth.js); a missing secret means we treat the
+// request as anonymous rather than trusting a forgeable token.
+function identify(req) {
+  const ip = normIp(req.ip || req.connection?.remoteAddress || 'unknown');
   const auth = req.headers?.authorization || '';
-  if (auth.startsWith('Bearer ')) {
-    // Audit C16 — must use the same JWT_SECRET as middleware/auth.js. The
-    // previous OR-fallback to 'dev-secret-change-me' meant that if
-    // JWT_SECRET was ever unset, an attacker could forge tokens signed
-    // with the well-known string and pass this gate. Drop the fallback;
-    // if JWT_SECRET is missing, refuse to verify and treat the request
-    // as anonymous (falls through to IP-based client id).
-    if (process.env.JWT_SECRET) {
-      try {
-        // AUTH-H1 — pin algorithms to HS256 (same as middleware/auth.js).
-        const payload = jwt.verify(auth.slice(7), process.env.JWT_SECRET, { algorithms: ['HS256'] });
-        // Token + user_id makes each "session" a distinct client even if
-        // two staff log in from the same PC at different times. The JTI
-        // would be cleaner but we don't issue one — using the iat (issued
-        // at) as a session-stable per-token discriminator is good enough.
-        return `user:${payload.user_id}:${payload.iat || 0}`;
-      } catch { /* invalid token — fall through to IP */ }
-    }
+  if (auth.startsWith('Bearer ') && process.env.JWT_SECRET) {
+    try {
+      const p = jwt.verify(auth.slice(7), process.env.JWT_SECRET, { algorithms: ['HS256'] });
+      return { id: `user:${p.user_id}:${p.iat || 0}`, userId: p.user_id ?? null, username: p.username || null, ip };
+    } catch { /* invalid token — fall through to IP identity */ }
   }
-  const ip = (req.ip || req.connection?.remoteAddress || 'unknown').toString();
-  return `ip:${ip}`;
+  return { id: `ip:${ip}`, userId: null, username: null, ip };
 }
 
 // True iff the request originated on the same machine as the server.
@@ -135,30 +140,46 @@ async function lanGate(req, res, next) {
     });
   }
 
-  // Track activity from non-loopback requests for cap accounting.
+  // Track activity from non-loopback requests for cap accounting +
+  // admin disconnect/blocklist.
   if (!isLoopback(req)) {
-    const id = clientIdFor(req);
+    const who = identify(req);
     const now = Date.now();
-    if (!recent.has(id) && Number(settings.dev_lan_max_clients) > 0) {
+
+    // Admin-disconnected device — reject every request until re-allowed.
+    if (blocked.has(who.ip)) {
+      return res.status(503).json({
+        error: 'This device was disconnected by the administrator.',
+        code: 'LAN_DEVICE_BLOCKED',
+      });
+    }
+
+    if (!recent.has(who.id) && Number(settings.dev_lan_max_clients) > 0) {
       // New client — would they exceed the cap?
       const activeCount = recent.size;
       if (activeCount >= Number(settings.dev_lan_max_clients)) {
         return res.status(503).json({
-          error: `Maximum LAN client limit reached (${settings.dev_lan_max_clients}). Wait for an existing client to go idle, or ask the administrator to raise the cap in Developer Settings.`,
+          error: `Maximum LAN device limit reached (${settings.dev_lan_max_clients}). Wait for one to go idle, or raise the cap in Settings → LAN & Network.`,
           code: 'LAN_MAX_CLIENTS',
           active: activeCount,
           limit: Number(settings.dev_lan_max_clients),
         });
       }
     }
-    recent.set(id, now);
+    const existing = recent.get(who.id);
+    recent.set(who.id, {
+      ip: who.ip,
+      userId: who.userId,
+      username: who.username,
+      firstSeen: existing?.firstSeen || now,
+      lastSeen: now,
+    });
   }
 
   next();
 }
 
-// Diagnostic helper — exposed via /api/server-info for the Developer
-// Settings page to show "X clients active right now".
+// Diagnostic helper — exposed via /api/server-info to show the count.
 function getActiveClients() {
   return {
     active_count: recent.size,
@@ -166,4 +187,49 @@ function getActiveClients() {
   };
 }
 
-module.exports = { lanGate, invalidateLanGateCache, getActiveClients };
+// Full list for the admin LAN page: one row per active device/session,
+// plus the currently-blocked devices.
+function listActiveClients() {
+  const now = Date.now();
+  const clients = [];
+  for (const [id, e] of recent) {
+    clients.push({
+      id,
+      ip: e.ip || null,
+      user_id: e.userId ?? null,
+      username: e.username || null,
+      first_seen: e.firstSeen || null,
+      last_seen: e.lastSeen || null,
+      idle_ms: now - (e.lastSeen || now),
+    });
+  }
+  clients.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
+  const blockedList = [];
+  for (const [ip, b] of blocked) blockedList.push({ ip, since: b.since || null });
+  return { active_count: recent.size, window_ms: WINDOW_MS, clients, blocked: blockedList };
+}
+
+// Disconnect (kick) a device by IP: block its future requests and drop
+// any active sessions it has so the count + cap free up immediately. The
+// block persists until allowClient() or a server restart.
+function disconnectClient(ip) {
+  const ipNorm = normIp(ip);
+  if (!ipNorm) return { ok: false };
+  blocked.set(ipNorm, { since: Date.now() });
+  for (const [id, e] of recent) {
+    if (normIp(e.ip) === ipNorm) recent.delete(id);
+  }
+  return { ok: true, ip: ipNorm };
+}
+
+// Re-allow a previously-disconnected device.
+function allowClient(ip) {
+  const ipNorm = normIp(ip);
+  blocked.delete(ipNorm);
+  return { ok: true, ip: ipNorm };
+}
+
+module.exports = {
+  lanGate, invalidateLanGateCache, getActiveClients,
+  listActiveClients, disconnectClient, allowClient,
+};

@@ -25,6 +25,13 @@ module.exports = (sequelize) => {
     mobile_2: {
       type: DataTypes.STRING(15),
     },
+    // WhatsApp opt-out — set when the customer replies "STOP" (or the operator
+    // toggles it). The WhatsApp outbox worker never sends to an opted-out
+    // party. Defaults false (opted-in) so existing customers are unaffected.
+    whatsapp_opt_out: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
     email: {
       type: DataTypes.STRING(100),
     },

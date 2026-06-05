@@ -103,6 +103,9 @@ import NotificationsSettings from './pages/settings/NotificationsSettings';
 import UserManagement from './pages/settings/UserManagement';
 import GodownList from './pages/settings/GodownList';
 import SalesmanList from './pages/settings/SalesmanList';
+import LanSettings from './pages/settings/LanSettings';
+import WhatsappSettings from './pages/settings/WhatsappSettings';
+import WhatsappBotSettings from './pages/settings/WhatsappBotSettings';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
 import ModuleSettings from './pages/settings/ModuleSettings';
 import BackupRestore from './pages/settings/BackupRestore';
@@ -113,6 +116,7 @@ import PrintSettings from './pages/settings/PrintSettings';
 import HomeSettings from './pages/settings/HomeSettings';
 import DashboardSettings from './pages/settings/DashboardSettings';
 import DefaultsSettings from './pages/settings/DefaultsSettings';
+import CustomerInsightSettings from './pages/settings/CustomerInsightSettings';
 import SettingsLayout from './pages/settings/SettingsLayout';
 import EntityFormModalDemo from './pages/dev/EntityFormModalDemo';
 import DeveloperSettings from './pages/settings/DeveloperSettings';
@@ -846,7 +850,11 @@ export default function App() {
             <Route path="barcode"             element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
             <Route path="modules"             element={<RoleRoute perm="settings.manage_company"><ModuleSettings /></RoleRoute>} />
             <Route path="defaults"            element={<RoleRoute perm="settings.manage_company"><DefaultsSettings /></RoleRoute>} />
+            <Route path="customer-insight"    element={<RoleRoute perm="settings.manage_company"><CustomerInsightSettings /></RoleRoute>} />
             <Route path="salesmen"            element={<RoleRoute perm="settings.manage_company"><SalesmanList /></RoleRoute>} />
+            <Route path="network"             element={<RoleRoute perm="settings.manage_company"><LanSettings /></RoleRoute>} />
+            <Route path="whatsapp"            element={<RoleRoute perm="settings.manage_company"><WhatsappSettings /></RoleRoute>} />
+            <Route path="whatsapp-bot"        element={<RoleRoute perm="settings.manage_company"><WhatsappBotSettings /></RoleRoute>} />
             <Route path="backup"              element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
             {/* Theme is per-user UX — anyone can pick light/dark. */}
             <Route path="theme"               element={<ThemeSettings />} />

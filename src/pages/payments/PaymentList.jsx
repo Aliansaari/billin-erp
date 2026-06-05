@@ -22,7 +22,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
-import { printDocument } from '../../services/printer';
+import { printDocument, shareBillViaWhatsApp, whatsappReady } from '../../services/printer';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
@@ -178,6 +178,23 @@ export default function PaymentList() {
     docType: record.transaction_type === 'Receipt' ? 'receipt' : 'payment',
     id: record.transaction_id,
   });
+  const docTypeOf = (r) => (r.transaction_type === 'Receipt' ? 'receipt' : 'payment');
+  const handleWhatsApp = (r) => shareBillViaWhatsApp({ docType: docTypeOf(r), id: r.transaction_id });
+  // Bulk send selected receipts/payments on WhatsApp (paced, queued).
+  const handleBulkWhatsApp = async (rows) => {
+    if (!(await whatsappReady())) {
+      message.warning('Connect WhatsApp first (Settings → WhatsApp) to send in bulk.');
+      return;
+    }
+    const list = (rows || []).filter((r) => r && !r.is_cancelled && r.party?.mobile_1);
+    if (!list.length) { message.warning('No selected entries have a party phone number.'); return; }
+    message.info(`Queuing ${list.length} on WhatsApp…`);
+    let ok = 0;
+    for (const r of list) {
+      try { await shareBillViaWhatsApp({ docType: docTypeOf(r), id: r.transaction_id, silent: true, noFallback: true }); ok++; } catch { /* skip */ }
+    }
+    message.success(`Queued ${ok} on WhatsApp — delivering with safe pacing.`);
+  };
 
   // Bulk-cancel — confirm once, run cancels serially, summary at end.
   const handleBulkCancel = useCallback((rowsToCancel) => {
@@ -532,6 +549,13 @@ export default function PaymentList() {
                 : `/payment/edit/${single.transaction_id}`;
               navigate(path);
             },
+          },
+          {
+            id: 'whatsapp', key: 'F7', label: isMulti ? 'WhatsApp selected' : 'WhatsApp',
+            disabled: isMulti
+              ? !selectedRows.some((r) => r && !r.is_cancelled && r.party?.mobile_1)
+              : (!single || singleCancelled || !single?.party?.mobile_1),
+            onAction: () => (isMulti ? handleBulkWhatsApp(selectedRows) : (single && handleWhatsApp(single))),
           },
           {
             id: 'cancel', key: 'F8', label: 'Cancel', tone: 'danger',

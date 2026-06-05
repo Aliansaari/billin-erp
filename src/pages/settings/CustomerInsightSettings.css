@@ -1,0 +1,20 @@
+/* ── CustomerInsightSettings.css ─────────────────────────────────────────────
+ * Supplementary styles for the Customer Insight Panel settings page.
+ * Core layout primitives (ms-row, ms-section, etc.) come from ModuleSettings.css.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Sub-group header separating clusters of toggles within the section.
+ * Visually matches the panel's own card-title style: tiny caps + muted colour
+ * + bottom border so toggles below it feel grouped.
+ */
+.cis-section-header {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin: 16px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}

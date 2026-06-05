@@ -23,6 +23,11 @@ router.get('/uqc-codes', (req, res) => {
   res.json({ data: UQC_CODES });
 });
 router.get('/barcode/:barcode',   requirePermission('inventory.view'),   productController.getByBarcode);
+// Full-catalog lightweight barcode index — powers the instant in-memory
+// scan path on the sales / purchase forms. Static path, so it MUST be
+// declared before the `/:id` route below or Express would treat
+// "scan-index" as a product id.
+router.get('/scan-index',         requirePermission('inventory.view'),   productController.scanIndex);
 router.get('/:id/batches',        requirePermission('inventory.view'),   productController.getBatches);
 
 // ── Product colors (multi-color stock module) ─────────────────────

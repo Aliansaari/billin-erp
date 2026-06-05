@@ -949,3 +949,172 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
 
   return doc.output('blob');
 }
+
+/* ── Receipt / payment voucher → narrow COLOURED thermal-style PDF ───────
+ *
+ * Receipts shouldn't look like a full A4 invoice — shop owners expect the
+ * familiar narrow thermal receipt. This produces an 80mm-wide PDF that mirrors
+ * the thermal layout (renderReceiptThermal in printRenderer.js): centered shop
+ * header, doc-type chip, meta, party, a highlighted amount band, payment mode,
+ * bill allocations, outstanding-after line, and a thank-you footer — but with
+ * the brand accent colour instead of plain thermal black ink.
+ *
+ * Page height is auto-fit: we paint once onto a tall scratch doc to measure the
+ * final Y, then create the real doc sized exactly to the content (no long blank
+ * tail). `docType` is 'receipt' | 'payment'.
+ */
+export async function buildReceiptPdf({ docType, bill, profile, company }) {
+  if (!bill) throw new Error('bill is required');
+  const { default: jsPDF } = await import('jspdf');
+
+  const isReceipt = docType !== 'payment';
+  const party = bill.customer || bill.supplier || bill.party || {};
+  const split = (Array.isArray(bill.splits) ? bill.splits[0] : null) || {};
+  const payMode = split.payment_mode || bill.payment_method || 'Cash';
+  // Force a colourful brand accent: the receipt PRINT profile is usually
+  // monochrome/black (built for thermal), but this PDF is meant to be COLOURED.
+  const A = [177, 71, 47];                                  // terracotta
+  const tint = A.map((c) => Math.round(c + (255 - c) * 0.9)); // light accent wash
+
+  const W = 80, M = 6, cx = W / 2, innerW = W - M * 2;
+  // jsPDF's built-in fonts CANNOT render the ₹ glyph (it shows as a stray "¹"),
+  // so we use "Rs " — exactly like the thermal print. (The WhatsApp message
+  // caption still uses ₹ because WhatsApp renders Unicode fine.)
+  const money = (n) => 'Rs ' + (parseFloat(n || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const timeStr = (d) => {
+    if (!d) return '';
+    const x = new Date(d);
+    return isNaN(x.getTime()) ? '' : x.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+  const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const addrLines = buildAddressLines(company);
+  const rawBalance = Number(party.current_balance || 0);
+  const outstanding = isReceipt ? Math.max(0, rawBalance) : Math.max(0, Math.abs(rawBalance));
+  const outLabel = isReceipt ? 'Outstanding After Receipt' : 'Balance Payable After Payment';
+  const allocs = Array.isArray(bill.bill_allocations) ? bill.bill_allocations : [];
+  const footerTxt = stripHtml(profile?.footer_html) || 'Thank You !!!';
+  const docLabel = (profile?.doc_label || '').trim() || (isReceipt ? 'RECEIPT' : 'PAYMENT VOUCHER');
+
+  function paint(doc) {
+    let y = M;
+    const sep = (g = 1.6) => {
+      y += g;
+      doc.setDrawColor(A[0], A[1], A[2]).setLineWidth(0.3).line(M, y, W - M, y);
+      y += g + 1.2;
+    };
+    const row = (label, val, bold) => {
+      doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(8.3).setTextColor(70, 70, 70);
+      doc.text(String(label), M, y);
+      doc.setTextColor(30, 30, 30);
+      doc.text(String(val), W - M, y, { align: 'right' });
+      y += 4.6;
+    };
+
+    // Header — shop name (accent), address, GSTIN, phone.
+    doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(A[0], A[1], A[2]);
+    const shop = profile?.header_title || company?.company_name || 'Shop';
+    doc.splitTextToSize(shop, innerW).forEach((ln) => { doc.text(ln, cx, y, { align: 'center' }); y += 5.4; });
+    doc.setFont('helvetica', 'normal').setFontSize(7.4).setTextColor(95, 95, 95);
+    const addr = addrLines.join(', ');
+    if (addr) doc.splitTextToSize(addr, innerW).forEach((ln) => { doc.text(ln, cx, y, { align: 'center' }); y += 3.5; });
+    if (company?.gstin) { doc.text('GSTIN: ' + company.gstin, cx, y, { align: 'center' }); y += 3.5; }
+    if (company?.company_phone) { doc.text('Ph: ' + company.company_phone, cx, y, { align: 'center' }); y += 3.5; }
+
+    // Doc-type chip (filled accent pill).
+    y += 1.5;
+    doc.setFont('helvetica', 'bold').setFontSize(8.5);
+    const lw = doc.getTextWidth(docLabel) + 9;
+    doc.setFillColor(A[0], A[1], A[2]);
+    doc.roundedRect(cx - lw / 2, y, lw, 6, 1.4, 1.4, 'F');
+    doc.setTextColor(255, 255, 255).text(docLabel, cx, y + 4.1, { align: 'center' });
+    y += 6 + 1.5;
+    sep();
+
+    // Meta — number, date, time.
+    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(60, 60, 60);
+    doc.text(`${isReceipt ? 'Receipt' : 'Voucher'} No: ${esc(bill.transaction_number || '')}`, M, y); y += 4.2;
+    doc.text(`Date: ${fmtDate(bill.transaction_date)}`, M, y);
+    const t = timeStr(bill.created_date);
+    if (t) doc.text(`Time: ${t}`, W - M, y, { align: 'right' });
+    y += 3.2;
+    sep();
+
+    // Party.
+    doc.setFont('helvetica', 'normal').setFontSize(7.2).setTextColor(120, 120, 120);
+    doc.text(isReceipt ? 'RECEIVED FROM' : 'PAID TO', M, y); y += 4.4;
+    doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(25, 25, 25);
+    doc.splitTextToSize(party.party_name || 'Cash', innerW).forEach((ln) => { doc.text(ln, M, y); y += 4.8; });
+    if (party.mobile_1) {
+      doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(95, 95, 95);
+      doc.text('Mobile: ' + party.mobile_1, M, y); y += 4;
+    }
+    y += 1;
+    sep();
+
+    // Amount band (light accent wash + big accent number).
+    const bandH = 18;
+    doc.setFillColor(tint[0], tint[1], tint[2]);
+    doc.roundedRect(M, y, innerW, bandH, 2, 2, 'F');
+    doc.setFont('helvetica', 'normal').setFontSize(7.4).setTextColor(A[0], A[1], A[2]);
+    doc.text(isReceipt ? 'AMOUNT RECEIVED' : 'AMOUNT PAID', cx, y + 5.5, { align: 'center' });
+    // Big amount — shrink to fit the narrow page for large values.
+    const amtStr = money(bill.total_amount);
+    doc.setFont('helvetica', 'bold').setTextColor(A[0], A[1], A[2]);
+    let amtSize = 16;
+    doc.setFontSize(amtSize);
+    while (doc.getTextWidth(amtStr) > innerW - 8 && amtSize > 9) { amtSize -= 0.5; doc.setFontSize(amtSize); }
+    doc.text(amtStr, cx, y + 13.5, { align: 'center' });
+    y += bandH + 4;
+
+    // Amount in words.
+    doc.setFont('helvetica', 'italic').setFontSize(7).setTextColor(110, 110, 110);
+    doc.splitTextToSize(numberToWords(bill.total_amount), innerW).forEach((ln) => { doc.text(ln, cx, y, { align: 'center' }); y += 3.3; });
+    y += 1;
+    sep();
+
+    // Payment mode + cheque + remarks.
+    row('Payment Mode', payMode, true);
+    if (payMode === 'Cheque' && split.cheque_number) {
+      row('Cheque No', split.cheque_number);
+      if (split.cheque_date) row('Cheque Date', fmtDate(split.cheque_date));
+    }
+    if (bill.remarks) {
+      doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(70, 70, 70);
+      doc.text('Remarks:', M, y); y += 3.8;
+      doc.setTextColor(40, 40, 40);
+      doc.splitTextToSize(String(bill.remarks), innerW).forEach((ln) => { doc.text(ln, M, y); y += 3.6; });
+    }
+
+    // Bill allocations.
+    if (allocs.length) {
+      sep();
+      doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(60, 60, 60);
+      doc.text('Against Bills', M, y); y += 4.4;
+      allocs.forEach((a) => row(a.bill_number || `${a.bill_type} #${a.bill_id}`, money(a.amount)));
+    }
+    sep();
+
+    // Outstanding after (red when due).
+    const due = outstanding > 0.005;
+    doc.setFont('helvetica', 'bold').setFontSize(9.2);
+    doc.setTextColor(due ? 180 : 40, due ? 50 : 40, due ? 50 : 40);
+    doc.text(outLabel, M, y);
+    doc.text(due ? money(outstanding) : 'NIL', W - M, y, { align: 'right' });
+    y += 4.6;
+    sep();
+
+    // Footer.
+    doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(A[0], A[1], A[2]);
+    doc.splitTextToSize(footerTxt, innerW).forEach((ln) => { doc.text(ln, cx, y, { align: 'center' }); y += 4.8; });
+    y += 3;
+    return y;
+  }
+
+  // Pass 1 — measure on a tall scratch doc; Pass 2 — paint at the exact height.
+  const scratch = new jsPDF({ unit: 'mm', format: [W, 600] });
+  const h = paint(scratch);
+  const doc = new jsPDF({ unit: 'mm', format: [W, Math.max(70, Math.ceil(h))] });
+  paint(doc);
+  return doc.output('blob');
+}

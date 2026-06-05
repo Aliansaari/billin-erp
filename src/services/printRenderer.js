@@ -853,7 +853,14 @@ const thermalCSS = (profile) => {
              padding: 1mm 0; margin: 1mm 0; }
   .fb { margin-top: 3mm; text-align: center; font-size: .82em; white-space: pre-wrap;
         border-top: 1px dashed #000; padding-top: 2mm; }
-  @media print { .page { page-break-after: always; } .page:last-child { page-break-after: auto; } }
+  @media print {
+    .page { page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    /* Roll paper is one continuous strip — never repeat the items header,
+       and keep rows / total lines from splitting across a break. */
+    table.items thead { display: table-row-group; }
+    table.items tr, .t-row, .t-grand, .party { break-inside: avoid; }
+  }
   ${thermalStyleCSS(style, accent)}
   ${boldLevelCSS(bold)}
 `;
@@ -951,8 +958,8 @@ function renderThermalSimple(bill, profile, company) {
           <span>Bill No : ${esc(bill.bill_number || bill.transaction_number || '')}</span>
           <span>Date : ${esc(fmtDate(bill.bill_date || bill.transaction_date))}</span>
         </div>
-        ${fmtTime(bill.bill_date || bill.transaction_date)
-          ? `<div class="s-row"><span>Time : ${esc(fmtTime(bill.bill_date || bill.transaction_date))}</span></div>`
+        ${fmtTime(bill.created_date)
+          ? `<div class="s-row"><span>Time : ${esc(fmtTime(bill.created_date))}</span></div>`
           : ''}
         <div class="s-row"><span>Name : ${esc(partyName)}</span></div>
       </div>
@@ -1193,7 +1200,7 @@ function renderReceiptThermal(bill, profile, company) {
         </div>
         <div class="s-row">
           <span>Date : ${esc(fmtDate(bill.transaction_date))}</span>
-          ${fmtTime(bill.transaction_date) ? `<span>Time : ${esc(fmtTime(bill.transaction_date))}</span>` : ''}
+          ${fmtTime(bill.created_date) ? `<span>Time : ${esc(fmtTime(bill.created_date))}</span>` : ''}
         </div>
       </div>
       <div class="hrb"></div>

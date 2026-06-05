@@ -31,6 +31,39 @@ const CLIENT_MODE = isDev ? process.env.CLIENT_MODE === '1' : !!_appPkg.clientMo
 // other ~/.billing-erp sidecars so it survives reinstalls.
 const CLIENT_CFG_PATH = path.join(os.homedir(), '.billing-erp', 'client-config.json');
 
+// ── UI-settings sidecar ─────────────────────────────────────────────
+//
+// The home/dashboard layout, theme and barcode-label preferences live in
+// the renderer's localStorage (Zustand `persist`). localStorage normally
+// survives reinstalls (userData isn't deleted), but it's fragile — a
+// corrupted LevelDB, a Chromium storage reset, or moving to a new PC all
+// wipe it, and the operator loses every layout/theme/barcode tweak.
+//
+// So we mirror just those keys to a plain JSON file under ~/.billing-erp
+// (the same place window-state.json lives "so it survives reinstalls").
+// The preload restores any MISSING key from here on boot and backs the
+// current values up periodically. Purely additive + best-effort: if the
+// file is absent or unreadable, the app behaves exactly as before.
+const UI_SETTINGS_PATH = path.join(os.homedir(), '.billing-erp', 'ui-settings.json');
+
+function readUiSettingsFile() {
+  try {
+    if (fs.existsSync(UI_SETTINGS_PATH)) {
+      const obj = JSON.parse(fs.readFileSync(UI_SETTINGS_PATH, 'utf8'));
+      if (obj && typeof obj === 'object') return obj;
+    }
+  } catch { /* corrupted / unreadable → treat as empty */ }
+  return {};
+}
+
+function writeUiSettingsFile(obj) {
+  try {
+    if (!obj || typeof obj !== 'object') return;
+    fs.mkdirSync(path.dirname(UI_SETTINGS_PATH), { recursive: true });
+    fs.writeFileSync(UI_SETTINGS_PATH, JSON.stringify(obj), 'utf8');
+  } catch { /* best-effort; never block the app on a settings-mirror write */ }
+}
+
 function readClientServerUrl() {
   // An explicit env override always wins (lets a deployer hard-pin it
   // via a desktop shortcut, skipping the setup screen).
@@ -110,6 +143,12 @@ ipcMain.handle('client:set-server-url', (_e, raw) => {
   if (mainWindow && !mainWindow.isDestroyed()) loadClient();
   return { ok: true };
 });
+
+// UI-settings mirror. `load-sync` is SYNCHRONOUS on purpose: the preload
+// must restore localStorage BEFORE the SPA's scripts (Zustand) read it,
+// and a one-off ~1 KB file read is instant. `save` is async fire-and-forget.
+ipcMain.on('ui-settings:load-sync', (e) => { e.returnValue = readUiSettingsFile(); });
+ipcMain.handle('ui-settings:save', (_e, obj) => { writeUiSettingsFile(obj); return true; });
 
 // ── File logging for packaged builds ────────────────────────────────
 //
@@ -348,6 +387,12 @@ async function createWindow() {
     minimizable:  true,
     center:       !useState,    // only center on first launch; respect saved x/y after
     title: 'Billing ERP',
+    // Explicit window icon so the logo shows in the title bar + taskbar for
+    // BOTH the host and client builds. Without this, Electron falls back to
+    // the exe's embedded icon, which the client build doesn't always pick up
+    // reliably. icon.ico ships inside electron/ (bundled via the package
+    // `files` glob), so this path resolves in dev AND the packaged asar.
+    icon: path.join(__dirname, 'icon.ico'),
     show: false,                // wait until we've decided what to load
     backgroundColor: '#0f172a', // matches the loading screen so no white flash
     webPreferences: {
@@ -624,7 +669,16 @@ ipcMain.handle('print:silent', async (_ev, payload) => {
   const { html, deviceName, copies, paperWidthMm, paperHeightMm, marginsMm } = payload || {};
   if (!html) return { error: 'No HTML supplied' };
 
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  // Coerce sizes up front. Sequelize returns DECIMAL columns as strings
+  // ("0.00"), so Number() first; a 0/NaN height means "continuous roll".
+  const w = Number(paperWidthMm);
+  const h = Number(paperHeightMm);
+  const MM_PER_PX = 25.4 / 96;   // 96 CSS px per inch
+  // Render the offscreen window at the paper's pixel width so the content
+  // height we measure below matches the printed layout (line wrapping etc.).
+  const contentPxW = (w > 0 && !Number.isNaN(w)) ? Math.max(160, Math.ceil(w / MM_PER_PX)) : 800;
+
+  const win = new BrowserWindow({ show: false, useContentSize: true, width: contentPxW, height: 1200, webPreferences: { sandbox: true } });
   try {
     // Load the HTML as a data: URL so we don't need a temp file.
     const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
@@ -643,16 +697,33 @@ ipcMain.handle('print:silent', async (_ev, payload) => {
         left: (marginsMm.left ?? 10),
       } : { marginType: 'default' },
     };
-    // Page size in microns (1 mm = 1000 µm). Coerce to Number FIRST — Sequelize
-    // returns DECIMAL columns as strings like "0.00", which are truthy in JS, so
-    // a simple `paperHeightMm || fallback` kept the zero and Electron rejected
-    // the pageSize with "height and width properties are required". Number("0.00")
-    // is 0 (falsy), which then correctly triggers the 3× width fallback used for
-    // thermal roll paper with no fixed height.
-    const w = Number(paperWidthMm);
-    const h = Number(paperHeightMm);
+
+    // Page size in microns (1 mm = 1000 µm).
     if (w > 0 && !Number.isNaN(w)) {
-      const effH = (h > 0 && !Number.isNaN(h)) ? h : w * 3;
+      let effH;
+      if (h > 0 && !Number.isNaN(h)) {
+        // Fixed page height (A4 / A5 / custom) — paginate normally; the
+        // items-table header is meant to repeat per page on those.
+        effH = h;
+      } else {
+        // Continuous roll: no fixed height. Size the page to the ACTUAL
+        // rendered content height so the whole bill prints as ONE strip —
+        // no page break, no repeated header — no matter how many items.
+        // Previously this used a fixed width×3 height, which forced a page
+        // break (and a repeated table header) on long bills (~37+ items).
+        let effPx = 0;
+        try {
+          await win.webContents.executeJavaScript(
+            'document.fonts && document.fonts.ready ? document.fonts.ready.then(() => true) : true'
+          ).catch(() => {});
+          effPx = await win.webContents.executeJavaScript(
+            'Math.ceil(Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight))'
+          );
+        } catch { effPx = 0; }
+        // Content height + a small tail so the cutter doesn't clip the last
+        // line; clamp so a pathological value can't request a 10-metre page.
+        effH = effPx > 0 ? Math.min(effPx * MM_PER_PX + 6, 6000) : (w * 3);
+      }
       opts.pageSize = {
         width: Math.round(w * 1000),
         height: Math.round(effH * 1000),

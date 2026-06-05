@@ -1,0 +1,144 @@
+/* ── LAN & Network settings ─────────────────────────────────────────────
+ * Theme-aware (reads the shared --bg/--fg/--accent tokens), so it follows
+ * Classic / Editorial and light / dark automatically.
+ */
+.lan-page { max-width: 920px; margin: 0 auto; padding: 4px 4px 48px; }
+
+.lan-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; margin-bottom: 20px;
+}
+.lan-title { font-size: 22px; font-weight: 700; color: var(--fg-primary); margin: 0 0 3px; letter-spacing: -0.02em; }
+.lan-sub   { font-size: 13.5px; color: var(--fg-secondary); margin: 0; max-width: 560px; }
+
+.lan-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.04));
+}
+
+/* ── Master switch hero ── */
+.lan-hero { display: flex; align-items: center; gap: 16px; }
+.lan-hero-icon {
+  width: 48px; height: 48px; border-radius: 12px; flex-shrink: 0;
+  display: grid; place-items: center; font-size: 22px;
+  background: var(--bg-muted, rgba(0,0,0,0.04)); color: var(--fg-tertiary);
+  transition: background .18s, color .18s;
+}
+.lan-hero.is-on  { border-color: var(--accent-border, var(--accent)); }
+.lan-hero.is-on  .lan-hero-icon { background: var(--accent-bg, rgba(226,106,76,0.12)); color: var(--accent); }
+.lan-hero-body { flex: 1; min-width: 0; }
+.lan-hero-row  { display: flex; align-items: center; gap: 10px; }
+.lan-hero-ttl  { font-size: 16px; font-weight: 700; color: var(--fg-primary); }
+.lan-status    { margin: 0; font-weight: 600; }
+.lan-hero-desc { margin: 5px 0 0; font-size: 13px; color: var(--fg-secondary); line-height: 1.5; }
+
+/* ── Address + QR ── */
+.lan-kicker {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--fg-tertiary); margin-bottom: 8px;
+}
+.lan-addr { display: flex; gap: 24px; align-items: flex-start; }
+.lan-addr-left { flex: 1; min-width: 0; }
+.lan-addr-meta { margin-top: 10px; font-size: 12.5px; color: var(--fg-tertiary); }
+.lan-addr-meta b { color: var(--fg-secondary); }
+
+.lan-url {
+  display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
+  padding: 11px 14px; border-radius: 10px; cursor: pointer;
+  background: var(--bg-app, var(--bg-muted)); border: 1px solid var(--border);
+  color: var(--accent); font-family: var(--font-mono, 'Geist Mono', monospace);
+  font-size: 16px; font-weight: 600; transition: border-color .12s, background .12s;
+}
+.lan-url:hover { border-color: var(--accent); background: var(--accent-bg, rgba(226,106,76,0.08)); }
+.lan-url .anticon { color: var(--fg-tertiary); font-size: 14px; flex-shrink: 0; }
+.lan-url-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lan-url.sm { font-size: 14px; padding: 9px 12px; margin-top: 4px; }
+
+.lan-alt { margin-top: 14px; }
+.lan-alt-lbl { font-size: 12px; color: var(--fg-tertiary); margin-bottom: 6px; }
+.lan-alt-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 11px; border-radius: 8px; cursor: pointer; margin-bottom: 5px;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--fg-secondary); font-family: var(--font-mono, monospace); font-size: 12.5px;
+  transition: border-color .12s, background .12s;
+}
+.lan-alt-row:hover { border-color: var(--accent-border, var(--accent)); background: var(--bg-hover, rgba(0,0,0,0.02)); }
+.lan-alt-row.primary { border-color: var(--accent-border, var(--accent)); }
+.lan-alt-row span:first-child { flex: 1; text-align: left; color: var(--fg-primary); }
+.lan-alt-if { font-size: 11px; color: var(--fg-tertiary); font-family: var(--font); }
+
+.lan-qr { flex-shrink: 0; text-align: center; }
+.lan-qr-cap { margin-top: 6px; font-size: 11px; color: var(--fg-tertiary); max-width: 150px; line-height: 1.4; }
+
+/* ── Two methods ── */
+.lan-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.lan-grid2 .lan-card { margin-bottom: 0; }
+@media (max-width: 760px) { .lan-grid2 { grid-template-columns: 1fr; } }
+.lan-method-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.lan-method-ic {
+  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+  background: var(--accent-bg, rgba(226,106,76,0.12)); color: var(--accent); font-size: 15px;
+}
+.lan-method-ic.alt { background: var(--info-bg, rgba(84,160,255,0.12)); color: var(--info, #4a6e8c); }
+.lan-method-ttl { font-size: 14px; font-weight: 700; color: var(--fg-primary); }
+.lan-method-desc { font-size: 13px; color: var(--fg-secondary); line-height: 1.55; margin: 0 0 6px; }
+.lan-steps { margin: 0 0 4px; padding-left: 18px; color: var(--fg-secondary); font-size: 13px; line-height: 1.7; }
+.lan-steps b { color: var(--fg-primary); }
+
+/* ── Connected devices ── */
+.lan-cap-row { display: flex; align-items: center; gap: 10px; }
+.lan-cap-hint { font-size: 12px; color: var(--fg-tertiary); }
+
+.lan-dev-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.lan-dev-head-left { display: flex; align-items: center; gap: 14px; }
+.lan-dev-count {
+  font-size: 30px; font-weight: 800; letter-spacing: -0.03em; color: var(--accent);
+  line-height: 1; min-width: 34px; text-align: center;
+}
+.lan-dev-ttl { font-size: 15px; font-weight: 700; color: var(--fg-primary); }
+.lan-dev-sub { font-size: 12px; color: var(--fg-tertiary); margin-top: 2px; }
+.lan-dev-cap { text-align: right; }
+
+.lan-dev-empty {
+  margin-top: 14px; padding: 18px; text-align: center; border-radius: 10px;
+  background: var(--bg-app, var(--bg-muted)); border: 1px dashed var(--border);
+  color: var(--fg-tertiary); font-size: 13px;
+}
+.lan-dev-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.lan-dev-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 10px;
+  background: var(--bg-app, var(--bg-muted)); border: 1px solid var(--border);
+}
+.lan-dev-row.is-blocked { opacity: 0.88; }
+.lan-dev-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+  background: var(--success, #16a34a); box-shadow: 0 0 0 3px var(--success-bg, rgba(22,163,74,0.18));
+}
+.lan-dev-dot.off { background: var(--danger, #dc2626); box-shadow: 0 0 0 3px var(--danger-bg, rgba(220,38,38,0.16)); }
+.lan-dev-ic {
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+  display: grid; place-items: center; font-size: 15px;
+  background: var(--bg-panel); border: 1px solid var(--border); color: var(--fg-secondary);
+}
+.lan-dev-info { flex: 1; min-width: 0; }
+.lan-dev-name { font-size: 13.5px; font-weight: 600; color: var(--fg-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lan-dev-meta { font-size: 12px; color: var(--fg-tertiary); margin-top: 1px; }
+.lan-dev-blocked { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-subtle, var(--border)); display: flex; flex-direction: column; gap: 8px; }
+.lan-dev-blocked .lan-kicker { margin-bottom: 2px; }
+.mono { font-family: var(--font-mono, 'Geist Mono', monospace); }
+
+/* ── Notes ── */
+.lan-notes {
+  margin-top: 4px; padding: 16px 18px; border-radius: 12px;
+  background: var(--bg-muted, rgba(0,0,0,0.02)); border: 1px solid var(--border-subtle, var(--border));
+}
+.lan-note { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; color: var(--fg-secondary); line-height: 1.5; }
+.lan-note + .lan-note { margin-top: 9px; }
+.lan-note .anticon { margin-top: 2px; color: var(--fg-tertiary); flex-shrink: 0; }
+.lan-note b { color: var(--fg-primary); }

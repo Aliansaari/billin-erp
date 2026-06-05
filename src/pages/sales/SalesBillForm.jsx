@@ -3,14 +3,16 @@ import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Ta
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI, salesmanAPI } from '../../api';
-import { printDocument } from '../../services/printer';
+import { printDocument, shareBillViaWhatsApp, whatsappReady } from '../../services/printer';
+import { whatsappAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
-import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
+import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled, useMultiColorEnabled, useSystemSettings } from '../../hooks/useSystemSettings';
+import CustomerInsightPanel from '../../components/CustomerInsightPanel';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
-import confirmPrint from '../../utils/confirmPrint';
+import confirmPrint, { confirmPrintWithSend } from '../../utils/confirmPrint';
 import './sales-bill-form.css';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 
@@ -215,6 +217,10 @@ export default function SalesBillForm() {
   // presses don't create two duplicate drafts.
   const [holdLoading, setHoldLoading] = useState(false);
 
+  // ── Customer Insight Panel (F8) ──────────────────────────────────
+  const [insightOpen, setInsightOpen] = useState(false);
+  const systemSettings = useSystemSettings();
+
   // ── Inline-return state (customer brings goods back at counter) ──
   // The modal collects items into `inlineReturnItems`. On save the form
   // sends them as `inline_return` in the payload; backend creates a paired
@@ -337,9 +343,9 @@ export default function SalesBillForm() {
         is_tax_inclusive: !!data.is_tax_inclusive,
         hsn_code: data.hsn_code || '', gst_rate: gst,
       }]);
-      message.success(`${data.product_name} added`, 1);
+      // No success toast — the scanned line is visible in the list.
     } catch {
-      message.warning('Product not found');
+      message.error('Not found');
     }
   }, []);
 
@@ -449,6 +455,28 @@ export default function SalesBillForm() {
   const prodReopenLockRef = useRef(0);   // timestamp until which AntD reopen attempts are ignored (post-select grace)
   const skipCatAutoOpenRef = useRef(false); // skips the activeCatId-effect's auto-open of the product dropdown when the category was set as a side-effect of a product pick (vs. a direct user category pick)
   const barcodeRef   = useRef(null);
+  // ── Instant-scan barcode index ──────────────────────────────────────
+  // Full-catalog barcode → product map, loaded once on mount (and after
+  // each save, to keep the stock hint fresh). A scan resolves against
+  // this map with ZERO network round-trip for the common case (a simple,
+  // non-batch, non-multi-color product), so fast multi-item scanning
+  // never lags behind the scanner. Cache miss / batch / multi-color
+  // products still fall back to the live getByBarcode lookup.
+  const barcodeIndexRef = useRef(new Map());
+  const loadScanIndex = useCallback(async () => {
+    try {
+      const { data } = await productAPI.scanIndex();
+      const list = Array.isArray(data?.data) ? data.data : [];
+      const map = new Map();
+      for (const p of list) {
+        if (p && p.barcode != null) map.set(String(p.barcode).trim(), p);
+      }
+      barcodeIndexRef.current = map;
+    } catch {
+      // Non-fatal: scanning still works through the getByBarcode fallback,
+      // just without the instant in-memory path.
+    }
+  }, []);
   const customerRef  = useRef(null);
   const prodRef      = useRef(null);
   const prodWrapRef  = useRef(null);
@@ -529,6 +557,8 @@ export default function SalesBillForm() {
     partyAPI.getCustomers({limit:1000}).then(({data}) =>
       setParties((data.data||[]).filter(p=>p.is_active!==false))).catch(()=>{});
     categoryAPI.getAllFlat().then(({data})=>setCats(data||[])).catch(()=>{});
+    // Warm the instant-scan barcode index (full catalog, lightweight).
+    loadScanIndex();
     // Active godowns. Pre-select the default godown on a new bill if the
     // form doesn't already have one (edit-mode hydrates from the bill).
     godownAPI.getAll().then(({data}) => {
@@ -719,21 +749,116 @@ export default function SalesBillForm() {
     if(cell){const inp2=cell.querySelector('input');inp2?.focus();inp2?.select?.();}
   };
 
-  const handleScan=async(barcode)=>{
-    if(!barcode?.trim()) return;
-    const code=barcode.trim();
-    // Clear the input field so the next scan chars land in a clean
-    // box. We deliberately DON'T re-focus barcodeRef here — for
-    // batch-tracked products the drainer will move focus to the Lot
-    // dropdown, and an eager barcode.focus() would steal back from
-    // it on the next animation frame. Non-batch / error paths
-    // re-focus barcode at the bottom for fast repeat scanning.
+  // ── Shared scanned-line builder ─────────────────────────────────────
+  // Both the instant in-memory path and the getByBarcode fallback build
+  // their row through this ONE function, so a cached scan and a live scan
+  // produce a byte-identical line. `p` may be a lightweight scan-index
+  // entry (flat category_name, no colors) or a full getByBarcode payload
+  // (nested Category, colors) — buildScanLine reads both shapes.
+  const buildScanLine = (p) => {
+    const rate = defaultRateFromProduct(p);
+    const gst  = parseFloat(p.gst_rate) || 0;
+    const qty  = parseFloat(p.quantity_per_box) || 1;
+    const unitType = qty > 1 ? 'Box' : 'Pcs';
+    const lt = +(qty * rate).toFixed(2);
+    // The multi-color list only ever arrives on a getByBarcode payload
+    // (stock-filtered server-side). Scan-index entries are never multi,
+    // so this is [] for them — correct, the instant path excludes multi.
+    const colors = (p.color_mode === 'multi' && Array.isArray(p.colors))
+      ? p.colors.filter((c) => Number(c.current_stock) > 0)
+      : [];
+    return {
+      key: nextKeyRef.current++,
+      product_id: p.product_id, barcode: p.barcode,
+      category_id: p.category_id,
+      category_name: p.Category?.category_name || p.category_name || '',
+      product_name: p.product_name, size: p.size_value || '',
+      article_number: p.article_number || '', unit_type: unitType,
+      rate, quantity: qty, quantity_per_box: parseFloat(p.quantity_per_box) || 1,
+      discount_percentage: 0, discount_amount: 0,
+      total_amount: lt, mrp: parseFloat(p.mrp) || 0,
+      hsn_code: p.hsn_code || '', gst_rate: gst,
+      available_stock: parseFloat(p.current_stock) || 0,
+      is_batch_tracked: !!p.is_batch_tracked,
+      batch_id: null,
+      // Multi-color tracking — the operator must pick from `colors`
+      // before save. Validation in handleSave blocks submit while any
+      // multi-color line still has color_id=null.
+      color_mode: p.color_mode || 'none',
+      color_id: null, color_name: '', colors,
+    };
+  };
+
+  // Append a scanned product to items[] — merging into an existing line
+  // when merge-scans is on and the product+rate match. The merge-OR-append
+  // decision lives inside ONE setItems callback (rapid scans must not
+  // double-fire); the line is built BEFORE setItems so the key is consumed
+  // exactly once, matching the original append path.
+  const appendScanLine = (p) => {
+    const rate = defaultRateFromProduct(p);
+    const qty  = parseFloat(p.quantity_per_box) || 1;
+    const newLine = buildScanLine(p);
+    const canMerge = mergeScansRef.current && !p.is_batch_tracked && p.color_mode !== 'multi';
+    setItems(prev => {
+      if (canMerge) {
+        const idx = prev.findIndex(it =>
+          it.product_id === p.product_id &&
+          !it.is_batch_tracked &&
+          // Same rate required — a manually-overridden first line
+          // shouldn't silently absorb a fresh scan at catalog rate.
+          +(it.rate || 0) === +(rate || 0),
+        );
+        if (idx >= 0) {
+          const next = prev.slice();
+          const cur = next[idx];
+          const newQty = +(parseFloat(cur.quantity || 0) + qty).toFixed(2);
+          const newTotal = +(newQty * cur.rate).toFixed(2);
+          next[idx] = {
+            ...cur,
+            quantity: newQty,
+            total_amount: +(newTotal - (parseFloat(cur.discount_amount) || 0)).toFixed(2),
+          };
+          return next;
+        }
+      }
+      return [...prev, newLine];
+    });
+  };
+
+  // Serialise scans so items append in the EXACT order scanned. Fast
+  // scanners + variable barcode-lookup latency were appending out of order
+  // (e.g. the 11th scan landing at row 12/13, which looked "messy"). Each
+  // scan now waits for the previous one to finish before it touches the
+  // list, so order is guaranteed regardless of how long a lookup takes.
+  const scanQueueRef = useRef(Promise.resolve());
+
+  const handleScan = (barcode) => {
+    if (!barcode?.trim()) return;
+    const code = barcode.trim();
+    // Clear the input immediately so the scanner's next chars land in a
+    // clean box while this scan is processed in the background queue.
+    if (barcodeRef.current?.input) barcodeRef.current.input.value = '';
+    scanQueueRef.current = scanQueueRef.current.then(() => runScan(code)).catch(() => {});
+  };
+
+  const runScan = async (code) => {
     setEntry(EMPTY);
     // Wipe any staged variant siblings so the Size cell drops back
     // to its plain Input — the scanned product fills entry directly.
     setSiblings([]);
     setSizeOpen(false);
-    if(barcodeRef.current?.input) barcodeRef.current.input.value='';
+    // ── INSTANT PATH ──────────────────────────────────────────────────
+    // A simple (non-batch, non-multi-color) product already in the
+    // in-memory index resolves with ZERO network round-trip. This still
+    // runs inside the scan queue, so append order stays guaranteed, but
+    // it settles on the same microtask — a burst of fast scans keeps up
+    // with the scanner instead of stacking behind per-scan HTTP calls.
+    const cached = barcodeIndexRef.current?.get(code);
+    if (cached && !(batchTrackingOn && cached.is_batch_tracked) && cached.color_mode !== 'multi') {
+      appendScanLine(cached);
+      barcodeRef.current?.focus();
+      return;
+    }
     try{
       const{data}=await productAPI.getByBarcode(code);
       const rate=defaultRateFromProduct(data);
@@ -781,93 +906,27 @@ export default function SalesBillForm() {
         if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
         }
-        message.info(`${data.product_name} — pick a batch and press ADD`, 1.5);
+        // No toast — the entry row now visibly shows the product awaiting
+        // a batch pick, which is feedback enough.
         // Drainer effect (watches batchOptsLoading + batchOpts) will
         // focus + open the Lot dropdown once batches finish loading.
         pendingBatchFocusRef.current = true;
         return;
       }
-      const lt=+(qty*rate).toFixed(2);
-      // Build the new-line payload once so the single decision below
-      // can fall back to it without duplicating fields.
-      // Color list comes back from getByBarcode for multi-color products
-      // (only colors with stock > 0). Non-multi products get an empty
-      // array and the items-table column renders "—" instead of a
-      // dropdown.
-      const colors = (data.color_mode === 'multi' && Array.isArray(data.colors))
-        ? data.colors.filter((c) => Number(c.current_stock) > 0)
-        : [];
-      const newLine = {
-        key:nextKeyRef.current++,
-        product_id:data.product_id, barcode:data.barcode,
-        category_id:data.category_id, category_name:data.Category?.category_name||'',
-        product_name:data.product_name, size:data.size_value||'',
-        article_number:data.article_number||'', unit_type:unitType,
-        rate, quantity:qty, quantity_per_box:parseFloat(data.quantity_per_box)||1,
-        discount_percentage:0, discount_amount:0,
-        total_amount:lt, mrp:parseFloat(data.mrp)||0,
-        hsn_code:data.hsn_code||'', gst_rate:gst,
-        available_stock:parseFloat(data.current_stock)||0,
-        is_batch_tracked: !!data.is_batch_tracked,
-        batch_id: null,
-        // Multi-color tracking — the operator must pick from `colors`
-        // before save. Validation in handleSave blocks submit while
-        // any multi-color line still has color_id=null.
-        color_mode: data.color_mode || 'none',
-        color_id: null,
-        color_name: '',
-        colors,
-      };
-
-      // Merge-repeat-scans — the merge-OR-append decision MUST live
-      // inside ONE setItems callback. Earlier versions split this into
-      // a "try-merge setItems" + "if not merged, append setItems" pair
-      // with a flag in between. That broke under rapid scanning because
-      // setItems with a callback isn't synchronous from an async
-      // handler — both setItems calls were queued, the flag was still
-      // false at the if-check, and BOTH callbacks fired (row 1 got its
-      // qty incremented AND a new row was pushed). Putting the entire
-      // decision in a single callback guarantees exactly one outcome.
-      // Skip merge for multi-color products too — the line-level color
-      // pick is per-scan, so a "merged" line would have to either
-      // conflate two different color choices into one, or refuse the
-      // pick on the second scan. Cleaner to keep each scan as its own
-      // line so the operator picks the color once per line and moves on.
-      const canMerge = mergeScansRef.current && !data.is_batch_tracked && data.color_mode !== 'multi';
-      let didMerge = false;
-      setItems(prev => {
-        if (canMerge) {
-          const idx = prev.findIndex(it =>
-            it.product_id === data.product_id &&
-            !it.is_batch_tracked &&
-            // Same rate required — a manually-overridden first line
-            // shouldn't silently absorb a fresh scan at catalog rate.
-            +(it.rate || 0) === +(rate || 0),
-          );
-          if (idx >= 0) {
-            didMerge = true;
-            const next = prev.slice();
-            const cur = next[idx];
-            const newQty = +(parseFloat(cur.quantity || 0) + qty).toFixed(2);
-            const newTotal = +(newQty * cur.rate).toFixed(2);
-            next[idx] = {
-              ...cur,
-              quantity: newQty,
-              total_amount: +(newTotal - (parseFloat(cur.discount_amount) || 0)).toFixed(2),
-            };
-            return next;
-          }
-        }
-        return [...prev, newLine];
-      });
-      message.success(
-        didMerge ? `${data.product_name} qty + ${qty}` : `${data.product_name} added`,
-        1,
-      );
+      // Simple / multi-color product → shared append (produces a line
+      // identical to the instant path). Cache simple products so the NEXT
+      // scan of this barcode takes the instant path; skip multi-color +
+      // batch, which need live color / batch data and so always re-fetch.
+      if (data && data.barcode != null && data.color_mode !== 'multi' && !data.is_batch_tracked) {
+        barcodeIndexRef.current?.set(String(data.barcode).trim(), data);
+      }
+      appendScanLine(data);
+      // No success toast — the scanned line is now visible in the list.
       // Re-focus barcode for the next scan (non-batch fast path).
       barcodeRef.current?.focus();
     }catch{
-      message.warning('Product not found');
+      // Only a (red) alert when the barcode isn't found — nothing on success.
+      message.error(`Not found: ${code}`);
       barcodeRef.current?.focus();
     }
   };
@@ -1691,6 +1750,9 @@ export default function SalesBillForm() {
       } else {
         handleReset();
         setBillNo('');
+        // Stock just changed — refresh the instant-scan index so the next
+        // bill's stock hints (and any prices edited meanwhile) stay fresh.
+        loadScanIndex();
       }
     }catch(e){
       const data = e?.response?.data;
@@ -1986,10 +2048,20 @@ export default function SalesBillForm() {
         const billNo  = data?.bill_number || '';
         const printId = data?.sales_bill_id || id;
         if (!printId) return;
-        const wantsPrint = await confirmPrint(
+        // Is WhatsApp connected? If so, offer an "Also send on WhatsApp" tick
+        // on the print prompt (pre-ticked per the owner's auto-send default).
+        let waEnabled = false, waDefault = false;
+        try {
+          const { data: st } = await whatsappAPI.status();
+          waEnabled = !!(st && st.enabled && st.state === 'connected');
+          waDefault = !!(st && st.auto_send_default);
+        } catch { /* WhatsApp off / unreachable — prompt stays print-only */ }
+        const { print, whatsapp } = await confirmPrintWithSend(
           billNo ? `Print bill ${billNo}?` : 'Print this bill?',
+          { whatsappEnabled: waEnabled, whatsappDefault: waDefault },
         );
-        if (wantsPrint) printDocument({ docType: 'sales', id: printId });
+        if (print) printDocument({ docType: 'sales', id: printId });
+        if (whatsapp) shareBillViaWhatsApp({ docType: 'sales', id: printId });
       },
     });
   }, [handleSave, id]);
@@ -2343,7 +2415,7 @@ export default function SalesBillForm() {
                 <Form.Item name="customer_id" noStyle
                   rules={[{ required: true, message: 'Select a customer (use Cash for walk-ins)' }]}>
                   <Select ref={customerRef} showSearch placeholder="Customer"
-                    optionFilterProp="label"
+                    optionFilterProp="search"
                     // After the operator picks a customer, jump straight to
                     // the barcode cell — sales is a POS-style flow ("who's
                     // buying" first, then scan items). Using onSelect (not
@@ -2368,6 +2440,7 @@ export default function SalesBillForm() {
                     options={parties.map(p=>({
                       value:p.party_id,
                       label:p.party_name,
+                      search:[p.party_name,p.mobile_1,p.mobile_2].filter(Boolean).join(' '),
                       party:p,
                     }))}
                     optionRender={(opt)=>{
@@ -3282,6 +3355,10 @@ export default function SalesBillForm() {
               hidden: isEdit,
               onAction: () => setReturnModalOpen(true),
               title: 'Return items at counter (creates a paired sales return)' },
+            { id: 'insight', key: 'F8', label: 'Insight',
+              disabled: !customerId,
+              onAction: () => customerId && setInsightOpen(true),
+              title: 'Customer analytics — visit history, revenue, profit, top products' },
             { id: 'print-edit', key: 'F9', label: 'Print',
               hidden: !isEdit,
               onAction: () => printDocument({ docType: 'sales', id }) },
@@ -3754,6 +3831,14 @@ export default function SalesBillForm() {
             setLoading(false);
           }
         }}
+      />
+
+      {/* ── Customer Insight Panel (F8) ───────────────────────────── */}
+      <CustomerInsightPanel
+        open={insightOpen}
+        onClose={() => setInsightOpen(false)}
+        partyId={customerId}
+        settings={systemSettings}
       />
     </Form>
   );

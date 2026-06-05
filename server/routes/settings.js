@@ -20,6 +20,11 @@ const brandingUpload = multer({
 // so any authenticated user can GET — writes stay gated to manage_company.
 router.get('/system',                                                       settingsController.getSystemSettings);
 router.put('/system',       requirePermission('settings.manage_company'),  settingsController.updateSystemSettings);
+
+// LAN connected-device admin (Settings → LAN & Network).
+router.get('/lan-clients',             requirePermission('settings.manage_company'), settingsController.listLanClients);
+router.post('/lan-clients/disconnect', requirePermission('settings.manage_company'), settingsController.disconnectLanClient);
+router.post('/lan-clients/allow',      requirePermission('settings.manage_company'), settingsController.allowLanClient);
 router.get('/barcode',      requirePermission('settings.view'),            settingsController.getBarcodeSettings);
 router.put('/barcode',      requirePermission('settings.barcode'),         settingsController.updateBarcodeSettings);
 

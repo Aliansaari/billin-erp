@@ -223,6 +223,177 @@ async function runCompanySchemaMigrations(sequelize) {
       END IF;
     END $$;
   `);
+
+  // system_settings.insight_show_* — six BOOLEAN visibility toggles for the
+  // F8 Customer Insight Panel. Declared in the SystemSettings model, so a
+  // company DB missing these columns would fail EVERY system_settings read
+  // ("column does not exist") — breaking company-name loading and the sales
+  // save path. Mirrors the master block in server/index.js. Idempotent.
+  await sequelize.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='insight_show_fy_metrics') THEN
+        ALTER TABLE system_settings ADD COLUMN insight_show_fy_metrics BOOLEAN DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='insight_show_alltime_metrics') THEN
+        ALTER TABLE system_settings ADD COLUMN insight_show_alltime_metrics BOOLEAN DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='insight_show_profit') THEN
+        ALTER TABLE system_settings ADD COLUMN insight_show_profit BOOLEAN DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='insight_show_behavior') THEN
+        ALTER TABLE system_settings ADD COLUMN insight_show_behavior BOOLEAN DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='insight_show_top_products') THEN
+        ALTER TABLE system_settings ADD COLUMN insight_show_top_products BOOLEAN DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='insight_show_bill_stats') THEN
+        ALTER TABLE system_settings ADD COLUMN insight_show_bill_stats BOOLEAN DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='insight_show_pay_time') THEN
+        ALTER TABLE system_settings ADD COLUMN insight_show_pay_time BOOLEAN DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='insight_show_lifetime_profit') THEN
+        ALTER TABLE system_settings ADD COLUMN insight_show_lifetime_profit BOOLEAN DEFAULT true;
+      END IF;
+    END $$;
+  `);
+
+  // ── WhatsApp delivery tables ────────────────────────────────────────
+  // Column shapes match the Sequelize models (WhatsappSettings /
+  // WhatsappOutbox). Created explicitly here — like `salesmen` above — so a
+  // company DB built via the bootstrap path (which does NOT call sync()) still
+  // gets them. Idempotent (CREATE TABLE / INDEX IF NOT EXISTS).
+  await sequelize.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'whatsapp_settings') THEN
+        CREATE TABLE whatsapp_settings (
+          whatsapp_settings_id      SERIAL PRIMARY KEY,
+          provider                  VARCHAR(12) NOT NULL DEFAULT 'off',
+          enabled                   BOOLEAN DEFAULT false,
+          msg_template_bill         TEXT,
+          msg_template_ledger       TEXT,
+          msg_template_receipt      TEXT,
+          auto_send_default         BOOLEAN DEFAULT false,
+          min_delay_s               INTEGER DEFAULT 4,
+          max_delay_s               INTEGER DEFAULT 15,
+          daily_cap                 INTEGER DEFAULT 80,
+          warmup_start              INTEGER DEFAULT 20,
+          warmup_step               INTEGER DEFAULT 20,
+          warmup_started_on         DATE,
+          quiet_start               VARCHAR(5) DEFAULT '21:00',
+          quiet_end                 VARCHAR(5) DEFAULT '08:00',
+          validate_numbers          BOOLEAN DEFAULT true,
+          bot_enabled               BOOLEAN DEFAULT false,
+          bot_show_balance          BOOLEAN DEFAULT true,
+          bot_show_bills            BOOLEAN DEFAULT true,
+          bot_show_payments         BOOLEAN DEFAULT true,
+          bot_show_statement        BOOLEAN DEFAULT true,
+          bot_blocked               TEXT DEFAULT '[]',
+          bot_owner_numbers         TEXT DEFAULT '[]',
+          bot_welcome               TEXT,
+          bot_stock_lookup             BOOLEAN DEFAULT true,
+          bot_owner_show_sale_rate     BOOLEAN DEFAULT true,
+          bot_owner_show_purchase_rate BOOLEAN DEFAULT true,
+          bot_owner_show_stock         BOOLEAN DEFAULT true,
+          bot_owner_show_mrp           BOOLEAN DEFAULT true,
+          bot_doc_request              BOOLEAN DEFAULT true,
+          bot_owner_panel              TEXT DEFAULT '{}',
+          bot_supplier_panel           TEXT DEFAULT '{}',
+          bot_daily_digest             BOOLEAN DEFAULT false,
+          bot_digest_time              VARCHAR(5) DEFAULT '21:00',
+          bot_digest_last_sent         DATE,
+          official_api_base         VARCHAR(200) DEFAULT 'https://graph.facebook.com/v21.0',
+          official_phone_number_id  VARCHAR(60),
+          official_access_token     TEXT,
+          official_template_name    VARCHAR(120),
+          official_template_lang    VARCHAR(12) DEFAULT 'en',
+          linked_number             VARCHAR(30),
+          connection_state          VARCHAR(16) DEFAULT 'disconnected',
+          connected_at              TIMESTAMP WITH TIME ZONE,
+          created_date              TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          modified_date             TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'whatsapp_outbox') THEN
+        CREATE TABLE whatsapp_outbox (
+          outbox_id        SERIAL PRIMARY KEY,
+          provider         VARCHAR(12),
+          to_number        VARCHAR(30) NOT NULL,
+          to_jid           VARCHAR(40),
+          party_id         INTEGER,
+          doc_type         VARCHAR(20),
+          doc_id           INTEGER,
+          file_name        VARCHAR(160),
+          caption          TEXT,
+          payload_base64   TEXT,
+          status           VARCHAR(12) NOT NULL DEFAULT 'queued',
+          attempts         INTEGER DEFAULT 0,
+          error            TEXT,
+          wa_message_id    VARCHAR(80),
+          scheduled_at     TIMESTAMP WITH TIME ZONE,
+          sent_at          TIMESTAMP WITH TIME ZONE,
+          delivered_at     TIMESTAMP WITH TIME ZONE,
+          read_at          TIMESTAMP WITH TIME ZONE,
+          created_date     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          modified_date    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+      END IF;
+    END $$;
+  `);
+  await sequelize.query(
+    `CREATE INDEX IF NOT EXISTS idx_wa_outbox_status_sched ON whatsapp_outbox(status, scheduled_at);`
+  );
+  // parties.whatsapp_opt_out — present on fresh DBs via the model/sync, but a
+  // company DB created before this change needs the column added. Idempotent.
+  await sequelize.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='parties' AND column_name='whatsapp_opt_out') THEN
+        ALTER TABLE parties ADD COLUMN whatsapp_opt_out BOOLEAN NOT NULL DEFAULT false;
+      END IF;
+    END $$;
+  `);
+  // whatsapp_settings BOT columns — for a company DB whose whatsapp_settings
+  // table predates the self-service bot. Idempotent (ADD COLUMN IF NOT EXISTS).
+  await sequelize.query(`
+    ALTER TABLE whatsapp_settings
+      ADD COLUMN IF NOT EXISTS bot_enabled        BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS bot_show_balance   BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_show_bills     BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_show_payments  BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_show_statement BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_blocked        TEXT DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS bot_owner_numbers  TEXT DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS bot_welcome        TEXT,
+      ADD COLUMN IF NOT EXISTS bot_stock_lookup             BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_owner_show_sale_rate     BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_owner_show_purchase_rate BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_owner_show_stock         BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_owner_show_mrp           BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_doc_request              BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS bot_owner_panel              TEXT DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS bot_supplier_panel           TEXT DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS bot_daily_digest             BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS bot_digest_time              VARCHAR(5) DEFAULT '21:00',
+      ADD COLUMN IF NOT EXISTS bot_digest_last_sent         DATE;
+  `).catch(() => { /* table may not exist yet on a brand-new DB; sync creates it with these columns */ });
+
+  // Durable barcode label design (off fragile localStorage, into the DB).
+  await sequelize.query(`
+    ALTER TABLE barcode_settings
+      ADD COLUMN IF NOT EXISTS label_layout        TEXT,
+      ADD COLUMN IF NOT EXISTS label_company_name  VARCHAR(120);
+  `).catch(() => { /* table created by sync with these columns on a fresh DB */ });
 }
 
 module.exports = { runCompanySchemaMigrations };

@@ -6,9 +6,9 @@ import {
 import { inrFormatter, inrParser } from '../../utils/indianFormat';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { paymentAPI, partyAPI } from '../../api';
-import { printDocument } from '../../services/printer';
-import confirmPrint from '../../utils/confirmPrint';
+import { paymentAPI, partyAPI, whatsappAPI } from '../../api';
+import { printDocument, shareBillViaWhatsApp } from '../../services/printer';
+import confirmPrint, { confirmPrintWithSend } from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
@@ -406,11 +406,34 @@ export default function ReceiptEntry() {
           : `Receipt ${txnNum} saved! ✓`,
       );
 
-      // ── Print prompt (same pattern as sales bills) ──
-      const wantsPrint = await confirmPrint(`Print Receipt ${txnNum}?`);
-      if (wantsPrint) {
-        printDocument({ docType: 'receipt', id: txnId });
-      }
+      // ── Print prompt: show the customer's remaining balance + offer to
+      // send the receipt on WhatsApp (same pattern as the sales bill). The
+      // balance is fetched fresh so it reflects the server's post-receipt
+      // figure (after allocation / on-account surplus). ──
+      let remaining = '';
+      try {
+        const resp = await partyAPI.getById(selectedParty.party_id);
+        const p = resp.data?.data || resp.data;
+        const bal = Number(p?.current_balance || 0);
+        const amt = Math.abs(bal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        remaining = Math.abs(bal) < 0.01
+          ? 'Account fully settled ✓'
+          : (bal > 0 ? `Remaining balance: ₹${amt} Dr (still due)` : `Now in credit: ₹${amt} Cr (advance)`);
+      } catch { /* balance line is optional */ }
+
+      let waEnabled = false, waDefault = false;
+      try {
+        const { data: st } = await whatsappAPI.status();
+        waEnabled = !!(st && st.enabled && st.state === 'connected');
+        waDefault = !!(st && st.auto_send_default);
+      } catch { /* WhatsApp off / unreachable — prompt stays print-only */ }
+
+      const { print, whatsapp } = await confirmPrintWithSend(
+        `Print Receipt ${txnNum}?`,
+        { content: remaining || 'Do you want to print it now?', whatsappEnabled: waEnabled, whatsappDefault: waDefault },
+      );
+      if (print) printDocument({ docType: 'receipt', id: txnId });
+      if (whatsapp) shareBillViaWhatsApp({ docType: 'receipt', id: txnId });
 
       if (isEdit) {
         navigate('/payments');

@@ -1,0 +1,242 @@
+/* ── CustomerInsightPanel.css ────────────────────────────────────────────────
+ * Party Insight (F8) — styled purely from the app's theme tokens, matching the
+ * same conventions every native surface uses (see globalSearch.css): raised
+ * surfaces = var(--bg-elevated), recessed gutter = var(--bg-app), dividers =
+ * var(--border), accents = var(--accent) / var(--accent-bg) / var(--accent-text).
+ * No hardcoded colours → it re-skins instantly with the rest of the software
+ * across all four themes (classic/modern × light/dark).
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Modal chrome ─────────────────────────────────────────────────────────── */
+.cip-modal .ant-modal-content {
+  padding: 0 !important;
+  border-radius: var(--radius-lg, 14px) !important;
+  overflow: hidden !important;
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+.cip-modal .ant-modal-body { padding: 0 !important; }
+
+/* Close button — themed via fg tokens so it reads in light AND dark. The
+   header reserves space (padding-right) so it never overlaps the balance. */
+.cip-modal .ant-modal-close {
+  top: 14px !important;
+  right: 14px !important;
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: var(--radius-sm, 8px) !important;
+  color: var(--fg-tertiary) !important;
+}
+.cip-modal .ant-modal-close:hover {
+  color: var(--fg-primary) !important;
+  background: var(--bg-hover) !important;
+}
+
+/* ── Header (surface, with an accent identity rule) ───────────────────────── */
+.cip-header {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 16px 22px 13px;
+}
+.cip-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-right: 40px; /* clear the close button */
+}
+.cip-header-left { flex: 1; min-width: 0; }
+
+.cip-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cip-sub {
+  font-size: 13px;
+  color: var(--fg-tertiary);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cip-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.cip-balance {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--fg-primary);
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+.cip-balance-label {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+/* Badges — all theme-token tints */
+.cip-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.cip-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  border: 1px solid transparent;
+}
+.cip-badge-role        { background: var(--accent-bg);  color: var(--accent-text); border-color: var(--accent-border); }
+.cip-badge-active      { background: var(--success-bg); color: var(--success); }
+.cip-badge-inactive    { background: var(--bg-muted);   color: var(--fg-tertiary); border-color: var(--border); }
+.cip-badge-credit      { background: var(--success-bg); color: var(--success); }
+.cip-badge-blacklisted { background: var(--danger-bg);  color: var(--danger); }
+
+/* Credit utilisation bar */
+.cip-credit-bar-wrap { margin-top: 11px; max-width: 320px; }
+.cip-credit-bar-meta {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: var(--fg-tertiary); margin-bottom: 4px;
+}
+.cip-credit-bar {
+  height: 5px; background: var(--bg-muted);
+  border-radius: 3px; overflow: hidden;
+}
+.cip-credit-bar-fill {
+  height: 100%; border-radius: 3px; background: var(--accent);
+  transition: width 0.4s ease;
+}
+.cip-credit-bar-fill.cip-credit-warn { background: var(--warning); }
+.cip-credit-bar-fill.cip-credit-over { background: var(--danger); }
+
+/* ── Body (recessed gutter so cards read as raised) ───────────────────────── */
+.cip-body {
+  padding: 14px 16px 4px;
+  display: grid;
+  gap: 10px;
+  background: var(--bg-app);
+}
+.cip-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+.cip-row.cip-row-full { grid-template-columns: 1fr; }
+
+/* ── Card ─────────────────────────────────────────────────────────────────── */
+.cip-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  padding: 13px 15px 12px;
+  box-shadow: var(--shadow-sm);
+}
+.cip-card-title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+  margin-bottom: 11px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ── Stat cells ───────────────────────────────────────────────────────────── */
+.cip-stats { display: flex; gap: 0; flex-wrap: wrap; }
+.cip-stat { flex: 1; min-width: 76px; padding-right: 10px; }
+.cip-stat-label {
+  font-size: 11px; font-weight: 500; color: var(--fg-tertiary);
+  margin-bottom: 3px; white-space: nowrap;
+}
+.cip-stat-value {
+  font-size: 17px; font-weight: 800; color: var(--fg-primary);
+  line-height: 1.15; letter-spacing: -0.3px; white-space: nowrap;
+}
+.cip-stat-sub { font-size: 10px; color: var(--fg-tertiary); margin-top: 2px; white-space: nowrap; }
+
+.cip-stats + .cip-stats {
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.cip-pos { color: var(--success) !important; }
+.cip-neg { color: var(--danger) !important; }
+
+/* ── Payment status chips ─────────────────────────────────────────────────── */
+.cip-pay-chips { display: flex; gap: 6px; margin-top: 11px; flex-wrap: wrap; }
+.cip-chip {
+  font-size: 11px; font-weight: 700; padding: 3px 9px;
+  border-radius: 10px; white-space: nowrap;
+}
+.cip-chip-paid    { background: var(--success-bg); color: var(--success); }
+.cip-chip-partial { background: var(--warning-bg); color: var(--warning); }
+.cip-chip-unpaid  { background: var(--danger-bg);  color: var(--danger); }
+
+/* ── Visit/Purchase behavior grid ─────────────────────────────────────────── */
+.cip-behavior-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.cip-behavior-item { display: flex; gap: 9px; align-items: flex-start; }
+.cip-behavior-icon { font-size: 15px; color: var(--accent-text, var(--accent)); margin-top: 1px; flex-shrink: 0; }
+.cip-behavior-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cip-behavior-label { font-size: 11px; font-weight: 500; color: var(--fg-tertiary); white-space: nowrap; }
+.cip-behavior-value {
+  font-size: 13px; font-weight: 700; color: var(--fg-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cip-behavior-muted { font-weight: 400; color: var(--fg-tertiary); font-size: 11px; }
+.cip-pm-badge {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 2px 9px; border-radius: 10px;
+  background: var(--accent-bg); border: 1px solid var(--accent-border); color: var(--accent-text);
+}
+
+/* ── Top products table ───────────────────────────────────────────────────── */
+.cip-products-table { width: 100%; border-collapse: collapse; }
+.cip-products-table thead tr { border-bottom: 1.5px solid var(--border); }
+.cip-products-table thead th {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--fg-tertiary); padding: 0 4px 7px; text-align: left;
+}
+.cip-products-table thead th.num { text-align: right; }
+.cip-products-table tbody tr { border-bottom: 1px solid var(--border-subtle); }
+.cip-products-table tbody tr:last-child { border-bottom: none; }
+.cip-products-table tbody tr:hover { background: var(--bg-hover); }
+.cip-products-table td { padding: 7px 4px; font-size: 12px; color: var(--fg-primary); vertical-align: middle; }
+.cip-products-table td.num { text-align: right; color: var(--fg-secondary); font-variant-numeric: tabular-nums; }
+.cip-products-table .rank { color: var(--fg-tertiary); width: 18px; font-size: 11px; font-weight: 800; text-align: center; }
+.cip-product-name { font-weight: 600; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Empty placeholder ────────────────────────────────────────────────────── */
+.cip-empty { text-align: center; color: var(--fg-tertiary); padding: 18px 0 6px; font-size: 12px; }
+
+/* ── Loading skeleton ─────────────────────────────────────────────────────── */
+.cip-skeleton { padding: 18px 20px; display: grid; gap: 12px; background: var(--bg-app); }
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+.cip-footer {
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--bg-elevated);
+}
+.cip-footer-hint { font-size: 11px; color: var(--fg-tertiary); display: flex; align-items: center; gap: 5px; }
+.cip-footer-hint kbd {
+  font-size: 10px; background: var(--bg-muted); border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--fg-secondary); font-family: inherit;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────────*/
+@media (max-width: 700px) {
+  .cip-row { grid-template-columns: 1fr; }
+  .cip-behavior-grid { grid-template-columns: 1fr; }
+  .cip-name, .cip-balance { font-size: 18px; }
+}

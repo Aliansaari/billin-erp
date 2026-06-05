@@ -10,7 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, settingsAPI } from '../../api';
-import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
+import { printDocument, exportBillPDF, shareBillViaWhatsApp, whatsappReady } from '../../services/printer';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import useListSelection from '../../hooks/useListSelection';
@@ -272,6 +272,23 @@ export default function PurchaseList() {
 
   const handleExportPDF = (bill) => exportBillPDF({ docType: 'purchase', bill });
   const handleWhatsApp  = (bill) => shareBillViaWhatsApp({ docType: 'purchase', bill });
+  // Bulk send selected purchase bills to suppliers on WhatsApp. Requires a
+  // connected provider (never opens multiple deep-link windows); each is queued
+  // and the server paces delivery. Skips rows with no supplier phone.
+  const handleBulkWhatsApp = async (rows) => {
+    if (!(await whatsappReady())) {
+      message.warning('Connect WhatsApp first (Settings → WhatsApp) to send in bulk.');
+      return;
+    }
+    const list = (rows || []).filter((r) => r && !r.is_cancelled && r.supplier?.mobile_1);
+    if (!list.length) { message.warning('No selected bills have a supplier phone number.'); return; }
+    message.info(`Queuing ${list.length} bill${list.length > 1 ? 's' : ''} on WhatsApp…`);
+    let ok = 0;
+    for (const b of list) {
+      try { await shareBillViaWhatsApp({ docType: 'purchase', bill: b, silent: true, noFallback: true }); ok++; } catch { /* skip */ }
+    }
+    message.success(`Queued ${ok} on WhatsApp — delivering with safe pacing.`);
+  };
   const handleRecordPayment = (bill) => {
     navigate('/payment/new', { state: { preselect: { party_id: bill.supplier?.party_id, bill_id: bill.purchase_bill_id } } });
   };
@@ -756,9 +773,11 @@ export default function PurchaseList() {
             onAction: () => single && handleExportPDF(single),
           },
           {
-            id: 'whatsapp', key: 'F11', label: 'WhatsApp',
-            disabled: isMulti || !single || singleCancelled || !singlePhone,
-            onAction: () => single && handleWhatsApp(single),
+            id: 'whatsapp', key: 'F11', label: isMulti ? 'WhatsApp selected' : 'WhatsApp',
+            disabled: isMulti
+              ? !selectedRows.some((r) => r && !r.is_cancelled && r.supplier?.mobile_1)
+              : (!single || singleCancelled || !singlePhone),
+            onAction: () => (isMulti ? handleBulkWhatsApp(selectedRows) : (single && handleWhatsApp(single))),
             title: 'Share this purchase bill PDF with the supplier',
           },
           {

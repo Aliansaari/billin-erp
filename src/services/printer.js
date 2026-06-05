@@ -15,9 +15,9 @@
  * this service so there's one place to change layout and printer logic.
  */
 
-import { salesAPI, purchaseAPI, salesReturnAPI, purchaseReturnAPI, paymentAPI, settingsAPI, printAPI } from '../api';
+import { salesAPI, purchaseAPI, salesReturnAPI, purchaseReturnAPI, paymentAPI, settingsAPI, printAPI, whatsappAPI } from '../api';
 import { renderBillHTML } from './printRenderer';
-import { buildBillPdf } from '../utils/billPdf';
+import { buildBillPdf, buildReceiptPdf } from '../utils/billPdf';
 import { buildUpiQrDataUrl, fetchAsDataUrl, getSignatureUrl } from './printContext';
 import { message } from 'antd';
 
@@ -220,6 +220,62 @@ function waNormalize(phone) {
   return digits;
 }
 
+// Convert a Blob to a base64 string (no `data:` prefix) for the WhatsApp send API.
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onloadend = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+// Build the invoice/document PDF blob. Shared by exportBillPDF (save to disk)
+// and the WhatsApp send path (base64 → API). Returns { blob, fileName, bill }
+// or null if the bill can't be loaded.
+async function buildBillBlob({ docType, id, bill: presetBill, profileId }) {
+  let bill = presetBill;
+  if (!bill || !Array.isArray(bill.items) || bill.items.length === 0) {
+    const billId = id || presetBill?.sales_bill_id || presetBill?.purchase_bill_id
+      || presetBill?.return_bill_id || presetBill?.transaction_id;
+    if (billId && LOADERS[docType]) { try { bill = await LOADERS[docType](billId); } catch { /* fall through */ } }
+  }
+  if (!bill) return null;
+  const profile = (await resolveProfile(docType, profileId)) || fallbackProfile(docType);
+  const baseCompany = await loadCompany();
+  const fileName = pdfFileName(bill);
+  // Pre-fetch the signature as a data URL so jsPDF can embed it inline.
+  const sigUrl = getSignatureUrl(baseCompany);
+  const signature_data_url = sigUrl ? await fetchAsDataUrl(sigUrl) : null;
+  const company = { ...baseCompany, signature_data_url };
+  // Receipts / payment vouchers get the narrow coloured thermal-style PDF;
+  // everything else gets the A4 invoice layout.
+  const blob = (docType === 'receipt' || docType === 'payment')
+    ? await buildReceiptPdf({ docType, bill, profile, company, fileName })
+    : await buildBillPdf({ docType, bill, profile, company, fileName });
+  return { blob, fileName, bill };
+}
+
+// Is a WhatsApp provider connected + enabled right now (web linked OR official
+// configured)? The send surfaces use this to decide auto-send vs. deep-link.
+export async function whatsappReady() {
+  try {
+    const { data } = await whatsappAPI.status();
+    return !!(data && data.enabled && data.state === 'connected');
+  } catch { return false; }
+}
+
+// Generic: queue ANY PDF blob for paced WhatsApp delivery (used by bills,
+// statements, receipts). Pass `vars` ({ name, billno, amount, date }) and the
+// server fills the configurable message template (adding the shop name);
+// `caption` still works for a fully pre-built message. Throws on API error so
+// callers can fall back.
+export async function sendPdfViaWhatsApp({ to, blob, fileName, caption, vars, party_id, doc_type, doc_id }) {
+  const pdfBase64 = await blobToBase64(blob);
+  await whatsappAPI.send({ to, pdfBase64, fileName, caption, vars, party_id, doc_type, doc_id });
+  return true;
+}
+
 /**
  * Generate a PDF for `{ docType, id }` or a preloaded `bill`.
  *
@@ -238,41 +294,11 @@ function waNormalize(phone) {
  */
 export async function exportBillPDF({ docType, id, bill: presetBill, profileId, openAfterSave = true }) {
   try {
-    // List rows pass a SUMMARY bill (no items[], no breakdown numbers) —
-    // good enough for the action-strip dropdown but not for rendering a
-    // full invoice. If items[] is missing, fetch the full bill by id so
-    // the PDF has line items, GST splits, and bank details.
-    let bill = presetBill;
-    if (!bill || !Array.isArray(bill.items) || bill.items.length === 0) {
-      const billId = id
-        || presetBill?.sales_bill_id
-        || presetBill?.purchase_bill_id
-        || presetBill?.return_bill_id
-        || presetBill?.transaction_id;
-      if (billId && LOADERS[docType]) {
-        try { bill = await LOADERS[docType](billId); } catch { /* fall through to presetBill */ }
-      }
-    }
-    if (!bill) { message.error('Could not load document'); return null; }
-
-    const profile = (await resolveProfile(docType, profileId)) || fallbackProfile(docType);
-    const baseCompany = await loadCompany();
-    const fileName = pdfFileName(bill);
-
-    // Pre-fetch the signature image as a data URL so jsPDF's addImage can
-    // embed it inline (jsPDF can't load remote URLs synchronously). Falls
-    // back to the blank signature line when no file or fetch fails. Done
-    // here rather than in buildBillPdf so the renderer stays pure-jsPDF.
-    const sigUrl = getSignatureUrl(baseCompany);
-    const signature_data_url = sigUrl ? await fetchAsDataUrl(sigUrl) : null;
-    const company = { ...baseCompany, signature_data_url };
-
-    // Build the PDF in the renderer with jsPDF — same engine that powers
-    // the working Customer / Supplier Statement exports. The Electron
-    // printToPDF route was producing PDFs that some viewers refused to
-    // render (page object valid but content stream malformed); jsPDF
-    // sidesteps that entirely.
-    const blob = await buildBillPdf({ docType, bill, profile, company, fileName });
+    // List rows pass a SUMMARY bill (no items[]); buildBillBlob fetches the
+    // full bill by id when needed so the PDF has line items + GST splits.
+    const built = await buildBillBlob({ docType, id, bill: presetBill, profileId });
+    if (!built) { message.error('Could not load document'); return null; }
+    const { blob, fileName } = built;
 
     if (window.electronAPI?.saveBlobToDownloads) {
       // Electron preferred path — main process writes the bytes to
@@ -304,48 +330,93 @@ export async function exportBillPDF({ docType, id, bill: presetBill, profileId, 
 }
 
 /**
- * Generate the bill PDF and open a WhatsApp chat with the customer.
+ * Send a bill to the customer on WhatsApp.
  *
- * WhatsApp's share URL (wa.me) and Desktop URL scheme (whatsapp://send) both
- * accept only a text parameter — no file-attach parameter exists in any
- * public API. Auto-attaching only works through the WhatsApp Business API,
- * which requires Meta approval and a hosted messaging account.
- *
- * Workflow for self-serve: save the PDF to Downloads, open a File Explorer
- * window with the PDF selected, and open the chat in WhatsApp. The user
- * drags the highlighted PDF into the chat — one drag-and-drop.
+ * If a WhatsApp provider is connected (Settings → WhatsApp — Web link or the
+ * official Cloud-API), the PDF is queued for paced, automatic delivery — no
+ * manual step. Otherwise we fall back to the legacy self-serve flow: save the
+ * PDF to Downloads, reveal it in Explorer, and open a wa.me chat with
+ * pre-filled text for the operator to drag the file in (deep links can't
+ * attach a file).
  */
-export async function shareBillViaWhatsApp({ docType, id, bill: presetBill, profileId }) {
+export async function shareBillViaWhatsApp({ docType, id, bill: presetBill, profileId, silent = false, noFallback = false }) {
   try {
     const bill = presetBill || (LOADERS[docType] ? await LOADERS[docType](id) : null);
-    if (!bill) { message.error('Could not load document'); return; }
+    if (!bill) { if (!silent) message.error('Could not load document'); return; }
 
     const party = bill.customer || bill.supplier || bill.party;
     const phone = waNormalize(party?.mobile_1 || party?.phone);
-    if (!phone) {
-      message.warning('No phone number on the customer record');
-      return;
-    }
-
-    // Save PDF to Downloads (skip the auto-open so the viewer doesn't steal
-    // focus from the about-to-be-opened WhatsApp chat).
-    const saved = await exportBillPDF({ docType, bill, profileId, openAfterSave: false });
-    // Hard-failure guard in Electron — if the renderer-built PDF didn't
-    // make it to disk, bail before opening WhatsApp so the operator
-    // isn't left dragging an absent file. Detect Electron via the
-    // saveBlobToDownloads bridge (the only PDF-write API the preload
-    // currently exposes); browsers don't have it, so this guard is a
-    // no-op in pure-web contexts.
-    if (!saved?.filePath && window.electronAPI?.saveBlobToDownloads) return;
-
-    // Pop Explorer at the file so the drag-source is one click away.
-    if (saved?.filePath && window.electronAPI?.showItemInFolder) {
-      window.electronAPI.showItemInFolder(saved.filePath).catch(() => {});
-    }
+    if (!phone) { if (!silent) message.warning('No phone number on the customer record'); return; }
 
     const total = Number(bill.total_amount || 0).toLocaleString('en-IN',
       { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const billNo = bill.bill_number || bill.transaction_number || '';
+    const docId = id || bill.sales_bill_id || bill.purchase_bill_id
+      || bill.return_bill_id || bill.transaction_id || null;
+
+    // ── Connected provider → automatic, paced send (no manual attach) ──
+    if (await whatsappReady()) {
+      const built = await buildBillBlob({ docType, id, bill: presetBill, profileId });
+      if (built) {
+        const billDate = bill.bill_date || bill.transaction_date;
+        // Balance figures (Dr/Cr). Empty string when nil → the server drops that
+        // line from the message, so cash-paid bills stay clean.
+        const fmtBal = (v) => {
+          const n = Number(v) || 0;
+          if (Math.abs(n) < 0.01) return '';
+          const a = '₹' + Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return n > 0 ? `${a} Dr` : `${a} Cr`;
+        };
+        const totalOutstanding = Number(party?.current_balance || 0);
+        const billBal = Number(bill.balance_amount || 0);
+        const prevBal = bill.previous_balance != null
+          ? Number(bill.previous_balance)
+          : Math.max(0, totalOutstanding - billBal);
+        const isReceipt = docType === 'receipt' || docType === 'payment';
+        const vars = {
+          name: party?.party_name || 'Customer',
+          billno: billNo,
+          amount: `₹${total}`,
+          date: billDate ? new Date(billDate).toLocaleDateString('en-IN') : '',
+        };
+        if (isReceipt) {
+          // Receipt: always show the remaining balance (clearly labelled).
+          vars.balance = fmtBal(totalOutstanding) || 'Settled ✓';
+        } else {
+          // Bill: previous balance (only if any) + total outstanding (only if any).
+          vars.previous = fmtBal(prevBal);
+          vars.outstanding = fmtBal(totalOutstanding);
+        }
+        try {
+          await sendPdfViaWhatsApp({
+            to: phone, blob: built.blob, fileName: built.fileName, vars,
+            party_id: party?.party_id || null, doc_type: docType, doc_id: docId,
+          });
+          if (!silent) message.success('Queued on WhatsApp — it will be delivered shortly');
+          return;
+        } catch (e) {
+          console.error('WhatsApp auto-send failed', e);
+          if (noFallback) throw e;   // bulk: surface to caller, don't open a chat window
+          if (!silent) message.warning('Auto-send unavailable — opening WhatsApp to share manually');
+        }
+      } else if (noFallback) {
+        // Connected but the PDF didn't build — don't silently open a chat in bulk.
+        throw new Error('Could not build the PDF');
+      }
+    } else if (noFallback) {
+      // Bulk path requires a connected provider — never open N chat windows.
+      throw new Error('WhatsApp is not connected');
+    }
+
+    // ── Fallback: save + reveal + open chat (manual drag-and-drop) ──
+    const saved = await exportBillPDF({ docType, bill, profileId, openAfterSave: false });
+    // Hard-failure guard in Electron — if the renderer-built PDF didn't make
+    // it to disk, bail before opening WhatsApp so the operator isn't left
+    // dragging an absent file.
+    if (!saved?.filePath && window.electronAPI?.saveBlobToDownloads) return;
+    if (saved?.filePath && window.electronAPI?.showItemInFolder) {
+      window.electronAPI.showItemInFolder(saved.filePath).catch(() => {});
+    }
     const text = encodeURIComponent(
       `Hello ${party?.party_name || 'Customer'},\n\n` +
       `Please find your bill ${billNo} for ₹ ${total}. PDF attached.\n\nThank you.`

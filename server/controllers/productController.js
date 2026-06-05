@@ -437,6 +437,65 @@ exports.getByBarcode = async (req, res) => {
   }
 };
 
+// ── GET /api/products/scan-index ─────────────────────────────────────
+//
+// Lightweight, full-catalog barcode → product map for the sales /
+// purchase scan boxes. The form loads this ONCE on mount and keeps it in
+// memory, so a barcode scan becomes an instant in-memory lookup + line
+// append with ZERO network round-trip. This is what makes fast
+// multi-item scanning keep up: the old path fired a per-scan HTTP call
+// (getByBarcode) that serialised and lagged behind a quick scanner.
+//
+// Returns only the columns a scanned line needs (mirrors SalesBillForm's
+// buildScanLine). Batch-tracked and multi-color products are still routed
+// through getByBarcode at scan time — they need live batch / per-color
+// stock — so this index omits batches and the color list and exposes the
+// is_batch_tracked / color_mode FLAGS only, which the client reads to
+// decide whether the instant path applies.
+//
+// One indexed query, raw, no pagination. Only active products that carry
+// a barcode are included — a row with no barcode can never be scanned.
+exports.scanIndex = async (req, res) => {
+  try {
+    const rows = await Product.findAll({
+      where: {
+        is_active: true,
+        barcode: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] },
+      },
+      attributes: [
+        'product_id', 'barcode', 'article_number', 'product_name',
+        'size_value', 'category_id', 'sale_rate', 'mrp', 'is_tax_inclusive',
+        'hsn_code', 'gst_rate', 'current_stock', 'quantity_per_box',
+        'is_batch_tracked', 'color_mode',
+      ],
+      include: [{ model: Category, attributes: ['category_name'] }],
+      raw: true,
+      nest: true,
+    });
+    const data = rows.map((r) => ({
+      product_id:       r.product_id,
+      barcode:          r.barcode,
+      article_number:   r.article_number || '',
+      product_name:     r.product_name,
+      size_value:       r.size_value || '',
+      category_id:      r.category_id,
+      category_name:    (r.Category && r.Category.category_name) || '',
+      sale_rate:        r.sale_rate,
+      mrp:              r.mrp,
+      is_tax_inclusive: !!r.is_tax_inclusive,
+      hsn_code:         r.hsn_code || '',
+      gst_rate:         r.gst_rate,
+      current_stock:    r.current_stock,
+      quantity_per_box: r.quantity_per_box,
+      is_batch_tracked: !!r.is_batch_tracked,
+      color_mode:       r.color_mode || 'none',
+    }));
+    res.json({ success: true, count: data.length, data });
+  } catch (error) {
+    respondWithError(res, error);
+  }
+};
+
 // ── GET /api/products/:id/batches?godown_id=X&include_zero=false ──────
 //
 // Returns the active batches for a batch-tracked product at a specific

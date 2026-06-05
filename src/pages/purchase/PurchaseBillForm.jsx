@@ -20,8 +20,9 @@ import { partySelectProps } from '../../utils/partySelectProps';
 // is unaffected; only debug-tagged traces are gated.
 const dlog  = import.meta.env.DEV ? console.log  : () => {};
 const dwarn = import.meta.env.DEV ? console.warn : () => {};
-import { useMultiWarehouseEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
+import { useMultiWarehouseEnabled, useMultiColorEnabled, useSystemSettings } from '../../hooks/useSystemSettings';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
+import CustomerInsightPanel from '../../components/CustomerInsightPanel';
 import BarcodePrintModal from '../../components/BarcodePrintModal';
 import ProductFormModal from '../../components/ProductFormModal';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
@@ -1405,6 +1406,10 @@ export default function PurchaseBillForm() {
   const isCashSupplierSelected = !!parties.find(
     p => p.party_id === supplierIdW && p.is_system_cash,
   );
+  // F8 Supplier Insight panel — same analytics modal as the sales form,
+  // driven in supplier mode (purchases / pay-time, no profit attribution).
+  const [insightOpen, setInsightOpen] = useState(false);
+  const systemSettings = useSystemSettings();
   // In amount-mode the synthetic line has no item/bill discount — taxableTotal
   // is just the typed amount, GST is rate% × amount on a 'product'-style path.
   const subTotal     = billMode === 'amount'
@@ -2821,6 +2826,10 @@ export default function PurchaseBillForm() {
             { id: 'jump-pay', key: 'F6', label: 'Pay',
               onAction: jumpToPaymentCard,
               title: 'Jump to Amount Paid' },
+            { id: 'insight', key: 'F8', label: 'Insight',
+              disabled: !supplierIdW,
+              onAction: () => supplierIdW && setInsightOpen(true),
+              title: 'Supplier analytics — purchase history, spend, pay time, top products' },
             { id: 'print-edit', key: 'F9', label: 'Print',
               hidden: !isEdit,
               onAction: () => printDocument({ docType: 'purchase', id }) },
@@ -3132,6 +3141,15 @@ export default function PurchaseBillForm() {
         vouchTypeLabel="Purchase"
         onConfirm={lockModal?.onConfirm}
         onCancel={lockModal?.onCancel}
+      />
+
+      {/* ── Supplier Insight Panel (F8) ───────────────────────────── */}
+      <CustomerInsightPanel
+        open={insightOpen}
+        onClose={() => setInsightOpen(false)}
+        partyId={supplierIdW}
+        settings={systemSettings}
+        role="supplier"
       />
     </Form>
   );

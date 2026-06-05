@@ -1,0 +1,184 @@
+/* ── WhatsApp settings ───────────────────────────────────────────────
+ * Two-column integrations layout: configuration (left) + a sticky status
+ * & activity sidebar (right). Theme-aware via the shared --bg/--fg/--accent
+ * tokens, so it follows Classic / Editorial and light / dark automatically.
+ */
+.wa-page { max-width: 1160px; margin: 0 auto; padding: 4px 4px 48px; }
+
+.wa-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; margin-bottom: 18px;
+}
+.wa-title { font-size: 22px; font-weight: 700; color: var(--fg-primary); margin: 0 0 3px; letter-spacing: -0.02em; }
+.wa-sub   { font-size: 13.5px; color: var(--fg-secondary); margin: 0; max-width: 620px; }
+
+/* ── Two-column grid ── */
+.wa-layout { display: grid; grid-template-columns: minmax(0, 1fr) 348px; gap: 18px; align-items: start; }
+.wa-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.wa-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; position: sticky; top: 8px; }
+@media (max-width: 1060px) {
+  .wa-layout { grid-template-columns: 1fr; }
+  .wa-side { position: static; }
+}
+
+/* ── Cards (compact) ──
+ * Use the ELEVATED background (near-white) so cards separate cleanly from the
+ * cream page (--bg-panel is almost identical to --bg-app in the Editorial
+ * theme, which made everything look flat). A soft warm-tinted shadow gives
+ * each card real lift. */
+.wa-card {
+  background: var(--bg-elevated, var(--bg-panel));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(60, 40, 20, 0.05), 0 6px 18px rgba(60, 40, 20, 0.05);
+}
+
+/* ── Provider segmented — branded (accent) selected state ── */
+.wa-page .ant-segmented { background: var(--bg-muted); padding: 3px; border-radius: 10px; }
+.wa-page .ant-segmented .ant-segmented-item-label { font-weight: 600; color: var(--fg-secondary); min-height: 34px; line-height: 34px; }
+.wa-page .ant-segmented .ant-segmented-thumb,
+.wa-page .ant-segmented .ant-segmented-item-selected { background-color: var(--accent); border-radius: 8px; }
+.wa-page .ant-segmented .ant-segmented-item-selected .ant-segmented-item-label { color: #fff; }
+.wa-page .ant-segmented .ant-segmented-item:hover:not(.ant-segmented-item-selected) .ant-segmented-item-label { color: var(--fg-primary); }
+
+/* Compact the inline alerts so the warning doesn't dominate the connection card */
+.wa-warn.ant-alert { padding: 9px 12px; border-radius: 9px; align-items: flex-start; }
+.wa-warn .ant-alert-message { font-size: 12.5px; font-weight: 700; }
+.wa-warn .ant-alert-description { font-size: 11.5px; line-height: 1.45; }
+.wa-kicker {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--fg-tertiary); margin-bottom: 12px; display: flex; align-items: center; gap: 7px;
+}
+.wa-kicker .anticon { font-size: 13px; }
+.wa-ph { font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--fg-tertiary); margin-left: 8px; font-family: var(--font-mono, monospace); }
+
+/* Card header used by the sidebar cards (title + optional count) */
+.wa-card-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.wa-card-t { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-tertiary); }
+.wa-count { font-size: 11px; font-weight: 700; color: var(--fg-secondary); background: var(--bg-muted, rgba(0,0,0,0.05)); border-radius: 10px; padding: 1px 8px; }
+
+.wa-provider-desc { font-size: 12.5px; color: var(--fg-secondary); line-height: 1.5; margin: 12px 0 0; }
+
+/* ── Provider segmented ── */
+.wa-card :where(.ant-segmented) { padding: 3px; border-radius: 10px; }
+
+/* ── Connection hero (web) ── */
+.wa-conn.is-on { border-color: var(--accent-border, var(--accent)); }
+.wa-conn-head { display: flex; align-items: center; gap: 14px; }
+.wa-conn-icon {
+  width: 44px; height: 44px; border-radius: 11px; flex-shrink: 0;
+  display: grid; place-items: center; font-size: 22px;
+  background: var(--bg-muted, rgba(0,0,0,0.04)); color: #25D366;
+}
+.wa-conn.is-on .wa-conn-icon { background: rgba(37,211,102,0.14); }
+.wa-conn-body { flex: 1; min-width: 0; }
+.wa-conn-row { display: flex; align-items: center; gap: 10px; }
+.wa-conn-ttl { font-size: 15px; font-weight: 700; color: var(--fg-primary); }
+.wa-conn-desc { margin: 4px 0 0; font-size: 12.5px; color: var(--fg-secondary); line-height: 1.5; }
+
+.wa-qr-wrap {
+  margin-top: 16px; padding: 20px; border-radius: 12px; text-align: center;
+  background: var(--bg-app, var(--bg-muted)); border: 1px dashed var(--border);
+}
+.wa-qr-wrap :where(.ant-qrcode) { margin: 0 auto; background: #fff; padding: 10px; border-radius: 10px; }
+.wa-qr-loading { display: grid; place-items: center; }
+.wa-qr-cap { margin-top: 12px; font-size: 12.5px; color: var(--fg-tertiary); }
+.wa-warn { margin-top: 14px; }
+
+/* ── Field grids ── */
+.wa-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 560px) { .wa-grid { grid-template-columns: 1fr; } }
+.wa-field { display: flex; flex-direction: column; gap: 6px; }
+.wa-field > span { font-size: 12.5px; font-weight: 600; color: var(--fg-secondary); display: flex; align-items: center; gap: 6px; }
+.wa-field > span .anticon { color: var(--fg-tertiary); }
+.wa-tpl { display: flex; flex-direction: column; gap: 12px; }
+
+/* ── Placeholder legend (explains the tokens) ── */
+.wa-ph-head { margin-top: 16px; font-size: 12px; font-weight: 600; color: var(--fg-secondary); }
+.wa-ph-legend {
+  margin-top: 9px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px 18px;
+  padding: 12px 14px; border-radius: 10px;
+  background: var(--bg-muted, rgba(0,0,0,0.025)); border: 1px solid var(--border-subtle, var(--border));
+}
+@media (max-width: 620px) { .wa-ph-legend { grid-template-columns: 1fr; } }
+.wa-ph-item { display: flex; align-items: baseline; gap: 9px; font-size: 12px; min-width: 0; }
+.wa-ph-item code {
+  font-family: var(--font-mono, 'Geist Mono', monospace); font-size: 11px; white-space: nowrap; flex-shrink: 0;
+  background: var(--accent-bg, rgba(177,71,47,0.10)); color: var(--accent); padding: 1.5px 7px; border-radius: 6px;
+}
+.wa-ph-desc { color: var(--fg-secondary); line-height: 1.4; }
+.wa-ph-desc em { color: var(--fg-tertiary); font-style: normal; font-size: 10.5px; }
+.wa-ph-tip { margin-top: 11px; font-size: 11.5px; color: var(--fg-tertiary); }
+.wa-ph-tip b { color: var(--fg-secondary); }
+.wa-pair { display: flex; align-items: center; gap: 8px; }
+.wa-pair > span { color: var(--fg-tertiary); font-size: 12.5px; }
+.wa-pair .ant-input-number { width: 88px; }
+.wa-pair-hint { color: var(--fg-tertiary); }
+.wa-toggle-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 12.5px; color: var(--fg-secondary); }
+
+/* ── Save + test ── */
+.wa-actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 4px 2px 0;
+}
+.wa-test { display: flex; align-items: center; gap: 8px; }
+
+/* ── Sidebar: status ── */
+.wa-status-hero { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; }
+.wa-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--fg-tertiary); }
+.wa-dot.on   { background: var(--success, #16a34a); box-shadow: 0 0 0 3px rgba(22,163,74,0.18); }
+.wa-dot.wait { background: #e0a228; box-shadow: 0 0 0 3px rgba(224,162,40,0.18); }
+.wa-status-text { font-size: 15px; font-weight: 700; color: var(--fg-primary); }
+.wa-meta { margin: 0; display: flex; flex-direction: column; gap: 9px; border-top: 1px solid var(--border-subtle, var(--border)); padding-top: 12px; }
+.wa-meta > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wa-meta dt { font-size: 12.5px; color: var(--fg-secondary); }
+.wa-meta dd { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--fg-primary); }
+.wa-meta-mono { font-family: var(--font-mono, 'Geist Mono', monospace); }
+.wa-meta-dim { color: var(--fg-tertiary); font-weight: 400; }
+
+/* ── Sidebar: activity feed (clean list, not a chat) ── */
+.wa-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 26px 0; color: var(--fg-tertiary); font-size: 13px; }
+.wa-empty .anticon { font-size: 26px; opacity: 0.5; }
+.wa-act-list { display: flex; flex-direction: column; max-height: 460px; overflow-y: auto; margin: 0 -6px; }
+.wa-act { display: flex; gap: 11px; padding: 9px 6px; border-radius: 9px; }
+.wa-act + .wa-act { border-top: 1px solid var(--border-subtle, rgba(0,0,0,0.05)); }
+.wa-act:hover { background: var(--bg-hover, rgba(0,0,0,0.025)); }
+.wa-act.is-failed .wa-act-name { color: var(--danger, #dc2626); }
+.wa-act-av {
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  display: grid; place-items: center; color: #fff; font-size: 12.5px; font-weight: 700;
+}
+.wa-act-body { flex: 1; min-width: 0; }
+.wa-act-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wa-act-name { font-size: 13.5px; font-weight: 600; color: var(--fg-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wa-act-sub { font-size: 12px; color: var(--fg-tertiary); margin-top: 2px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.wa-sep { opacity: 0.5; }
+.wa-act-err { font-size: 11.5px; color: var(--danger, #dc2626); margin-top: 3px; display: flex; align-items: flex-start; gap: 5px; line-height: 1.4; }
+.wa-legend {
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-subtle, var(--border));
+  font-size: 11px; color: var(--fg-tertiary);
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: center;
+}
+.wa-legend .anticon { font-size: 11px; }
+.wa-read-dot { color: #53bdeb; font-weight: 600; }
+
+/* ── Delivery ticks ── */
+.wa-tick { font-size: 12px; line-height: 1; }
+.wa-tick-wait { color: var(--fg-tertiary); }
+.wa-tick-fail { color: var(--danger, #dc2626); font-size: 13px; }
+.wa-tick-skip { color: #8696a0; font-size: 10.5px; font-weight: 600; }
+.wa-ticks { display: inline-flex; align-items: center; color: #8696a0; flex-shrink: 0; }
+.wa-ticks .anticon { font-size: 12px; }
+.wa-ticks.is-dbl .anticon + .anticon { margin-left: -7px; }
+.wa-ticks.is-read { color: #53bdeb; }
+
+/* ── Help notes ── */
+.wa-notes {
+  padding: 14px 16px; border-radius: 12px;
+  background: var(--bg-muted, rgba(0,0,0,0.02)); border: 1px solid var(--border-subtle, var(--border));
+}
+.wa-note { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; color: var(--fg-secondary); line-height: 1.5; }
+.wa-note + .wa-note { margin-top: 8px; }
+.wa-note .anticon { margin-top: 2px; color: var(--fg-tertiary); flex-shrink: 0; }
+.wa-note b { color: var(--fg-primary); }

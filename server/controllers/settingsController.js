@@ -177,6 +177,46 @@ exports.updateSystemSettings = async (req, res) => {
   }
 };
 
+/* ── LAN connected-device admin ──────────────────────────────────────────
+ * List the devices currently connected over the LAN, and let an admin
+ * disconnect (kick + block) or re-allow one. All state lives in the
+ * in-memory LAN gate; these are thin pass-throughs. Admin-gated at the
+ * route level (settings.manage_company).
+ */
+exports.listLanClients = async (req, res) => {
+  try {
+    const lan = require('../middleware/lanGate');
+    return res.json(lan.listActiveClients());
+  } catch (e) {
+    console.error('listLanClients error:', e.message);
+    return res.status(500).json({ error: 'Failed to list LAN devices' });
+  }
+};
+
+exports.disconnectLanClient = async (req, res) => {
+  try {
+    const ip = req.body && req.body.ip;
+    if (!ip) return res.status(400).json({ error: 'ip is required' });
+    const lan = require('../middleware/lanGate');
+    return res.json(lan.disconnectClient(ip));
+  } catch (e) {
+    console.error('disconnectLanClient error:', e.message);
+    return res.status(500).json({ error: 'Failed to disconnect device' });
+  }
+};
+
+exports.allowLanClient = async (req, res) => {
+  try {
+    const ip = req.body && req.body.ip;
+    if (!ip) return res.status(400).json({ error: 'ip is required' });
+    const lan = require('../middleware/lanGate');
+    return res.json(lan.allowClient(ip));
+  } catch (e) {
+    console.error('allowLanClient error:', e.message);
+    return res.status(500).json({ error: 'Failed to re-allow device' });
+  }
+};
+
 exports.getBarcodeSettings = async (req, res) => {
   try {
     const settings = await BarcodeSettings.findByPk(1);

@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { salesAPI, salesDraftAPI, settingsAPI } from '../../api';
 
-import { printDocument, exportBillPDF, shareBillViaWhatsApp } from '../../services/printer';
+import { printDocument, exportBillPDF, shareBillViaWhatsApp, whatsappReady } from '../../services/printer';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
@@ -438,6 +438,25 @@ export default function SalesList() {
   const handleEdit      = (id)   => navigate(`/sale/edit/${id}`);
   const handleExportPDF = (bill) => exportBillPDF({ docType: 'sales', bill });
   const handleWhatsApp  = (bill) => shareBillViaWhatsApp({ docType: 'sales', bill });
+  // Bulk send selected bills on WhatsApp. Requires a connected provider (we
+  // never open multiple deep-link chat windows); each bill is queued and the
+  // server paces delivery. Skips cash/no-phone rows.
+  const handleBulkWhatsApp = async (rows) => {
+    if (!(await whatsappReady())) {
+      message.warning('Connect WhatsApp first (Settings → WhatsApp) to send in bulk.');
+      return;
+    }
+    const list = (rows || []).filter(
+      (r) => r && !r.is_cancelled && !r.customer?.is_system_cash && r.customer?.mobile_1,
+    );
+    if (!list.length) { message.warning('No selected bills have a customer phone number.'); return; }
+    message.info(`Queuing ${list.length} bill${list.length > 1 ? 's' : ''} on WhatsApp…`);
+    let ok = 0;
+    for (const b of list) {
+      try { await shareBillViaWhatsApp({ docType: 'sales', bill: b, silent: true, noFallback: true }); ok++; } catch { /* skip */ }
+    }
+    message.success(`Queued ${ok} on WhatsApp — delivering with safe pacing.`);
+  };
   const handleRecordReceipt = (bill) => {
     // Pre-select this customer + bill when opening receipt entry. Use the
     // bill's own customer_id FK — the included customer object only has
@@ -961,9 +980,11 @@ export default function SalesList() {
             onAction: () => single && handleRecordReceipt(single),
           },
           {
-            id: 'whatsapp', key: 'F7', label: 'WhatsApp',
-            disabled: isMulti || !single || singleCancelled || !singlePhone,
-            onAction: () => single && handleWhatsApp(single),
+            id: 'whatsapp', key: 'F7', label: isMulti ? 'WhatsApp selected' : 'WhatsApp',
+            disabled: isMulti
+              ? !selectedRows.some((r) => r && !r.is_cancelled && !r.customer?.is_system_cash && r.customer?.mobile_1)
+              : (!single || singleCancelled || !singlePhone),
+            onAction: () => (isMulti ? handleBulkWhatsApp(selectedRows) : (single && handleWhatsApp(single))),
           },
           {
             id: 'print', key: 'F9', label: 'Print',

@@ -383,6 +383,19 @@ module.exports = (sequelize) => {
     // (for businesses where freight is billed by a third-party
     // transporter on RCM and isn't really part of their supply).
     freight_other_in_taxable: { type: DataTypes.BOOLEAN, defaultValue: true },
+
+    // ── Customer Insight Panel (F8) visibility toggles ────────────────────
+    // Each toggle controls one section of the F8 customer analytics panel
+    // on the Sales Bill form. All default ON so first-run installs get the
+    // full picture; operators can slim it down via Settings → Preferences.
+    insight_show_fy_metrics:       { type: DataTypes.BOOLEAN, defaultValue: true },
+    insight_show_alltime_metrics:  { type: DataTypes.BOOLEAN, defaultValue: true },
+    insight_show_profit:           { type: DataTypes.BOOLEAN, defaultValue: true },
+    insight_show_behavior:         { type: DataTypes.BOOLEAN, defaultValue: true },
+    insight_show_top_products:     { type: DataTypes.BOOLEAN, defaultValue: true },
+    insight_show_bill_stats:       { type: DataTypes.BOOLEAN, defaultValue: true },
+    insight_show_pay_time:         { type: DataTypes.BOOLEAN, defaultValue: true },
+    insight_show_lifetime_profit:  { type: DataTypes.BOOLEAN, defaultValue: true },
   }, {
     tableName: 'system_settings',
     timestamps: false,

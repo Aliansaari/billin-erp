@@ -37,7 +37,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { ledgerAPI, partyAPI } from '../api';
 import { useFinancialYear } from '../hooks/useFinancialYear';
-import { downloadStatementPdf } from '../utils/ledgerPdf';
+import { downloadStatementPdf, buildStatementPdf } from '../utils/ledgerPdf';
+import { whatsappReady, sendPdfViaWhatsApp } from '../services/printer';
 import PartyPicker from './PartyPicker';
 import LedgerStatement, { ALL_COLUMNS } from './LedgerStatement';
 import ActionStrip from './keyboard/ActionStrip';
@@ -292,7 +293,7 @@ export default function PartyStatementPage({
   // ── Actions ────────────────────────────────────────────────────────
   const onPrint = () => window.print();
 
-  const onWhatsApp = () => {
+  const onWhatsApp = async () => {
     if (!party?.mobile_1) {
       message.warning('No mobile number on this party.');
       return;
@@ -303,6 +304,30 @@ export default function PartyStatementPage({
     let phone = String(party.mobile_1).replace(/\D/g, '');
     if (phone.length === 10) phone = '91' + phone;
     const closing = parseFloat(statement?.closing_balance || 0);
+
+    // Connected provider → send the statement PDF automatically (no manual attach).
+    if (await whatsappReady()) {
+      try {
+        const built = await buildStatementPdf({ title, subtitle: party?.party_name, statement, voucherFilter, party });
+        if (built?.blob) {
+          const vars = {
+            name: party.party_name,
+            amount: `₹${Math.abs(closing).toLocaleString('en-IN', { minimumFractionDigits: 2 })} ${closing >= 0 ? 'Dr' : 'Cr'}`,
+          };
+          await sendPdfViaWhatsApp({
+            to: phone, blob: built.blob, fileName: built.filename, vars,
+            party_id: party.party_id, doc_type: 'ledger',
+          });
+          message.success('Statement queued on WhatsApp — delivering shortly');
+          return;
+        }
+      } catch (e) {
+        console.error('WhatsApp statement send failed, falling back', e);
+        message.warning('Auto-send unavailable — opening WhatsApp to share manually');
+      }
+    }
+
+    // Fallback: text-only deep link (no attachment).
     const sign = closing >= 0 ? 'Dr (you owe)' : 'Cr (we owe)';
     const text = encodeURIComponent(
       `Statement of Account — ${party.party_name}\n` +

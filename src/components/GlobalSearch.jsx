@@ -111,6 +111,7 @@ const ACTIONS = [
   { id: 's-companies',  icon: SettingOutlined,      label: 'Manage companies',          sub: 'Switch · create · archive',  group: 'Settings', route: '/settings/companies',         kbd: 'Ctrl+Alt+C', keywords: 'companies switch create archive add manage firm books' },
   { id: 's-godowns',    icon: SettingOutlined,      label: 'Godowns',                   sub: 'Settings → Godowns',         group: 'Settings', route: '/settings/godowns',           keywords: 'godown warehouse location', flag: 'multi_warehouse_enabled' },
   { id: 's-salesmen',   icon: TeamOutlined,         label: 'Salesmen',                  sub: 'Settings → Salesmen',        group: 'Settings', route: '/settings/salesmen',          keywords: 'salesman salesmen salesperson sales staff commission master add edit remove' },
+  { id: 's-network',    icon: SettingOutlined,      label: 'LAN & Network',             sub: 'Settings → LAN & Network',   group: 'Settings', route: '/settings/network',           keywords: 'lan network wifi wi-fi ip address connect client server share multi pc browser access enable disable devices' },
   { id: 's-theme',      icon: SettingOutlined,      label: 'Theme',                     sub: 'Settings → Theme',           group: 'Settings', route: '/settings/theme',             keywords: 'theme dark light appearance' },
   { id: 's-modules',    icon: SettingOutlined,      label: 'Module settings',           sub: 'Toggle features on / off',   group: 'Settings', route: '/settings/modules',           keywords: 'module feature toggle settings' },
   { id: 's-defaults',   icon: SettingOutlined,      label: 'Defaults',                  sub: 'Defaults for new bills',     group: 'Settings', route: '/settings/defaults',          keywords: 'defaults default values new bill party tax round' },
@@ -336,6 +337,9 @@ function looksLikeVoucher(q) {
   if (s.length === 0 || s.length > 40) return false;
   // Explicit "#" trigger — strip and force-search.
   if (s.startsWith('#')) return s.length >= 2;
+  // Pure digit strings are phone numbers, not voucher numbers. Voucher
+  // IDs always contain at least one letter or separator (INV-001, S/24/1).
+  if (/^\d+$/.test(s)) return false;
   // Has 3+ contiguous digits and no spaces (voucher numbers rarely have
   // spaces; "anil 98765" is a phone-tagged party name, not a voucher).
   if (/\s/.test(s)) return false;
@@ -1063,22 +1067,25 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       const pid = pr.product_id || pr.id;
       const id = `prod-${pid}`;
       const stock = Number(pr.current_stock ?? pr.stock_qty ?? 0);
-      const price = Number(pr.sale_price ?? pr.mrp ?? 0);
+      const price = Number(pr.sale_rate ?? pr.sale_price ?? pr.mrp ?? 0);
       const reorder = Number(pr.reorder_level || 0);
       const lowStock = reorder > 0 && stock <= reorder;
       // Pack the sub line with the highest-signal disambiguators first.
+      // - Article number: how shop owners identify a design/style (searchable
+      //   here — the /products endpoint matches name + barcode + article_number).
       // - SKU / barcode: the unique-id by which warehouse staff scan stock.
       // - HSN code: tax code accountants reach for during return filing.
       // - Category: groups same-name items (eg. multiple "T-shirt 32").
       // - Price + stock with a low-stock chip when reorder-level breached.
       const stockLabel = lowStock ? `⚠ ${stock} (reorder ${reorder})` : `${stock} in stock`;
       const sub = [
+        pr.article_number ? `Art ${pr.article_number}` : null,
         pr.sku || pr.barcode,
         pr.hsn_code ? `HSN ${pr.hsn_code}` : null,
         pr.category_name,
         price ? `₹${Math.round(price).toLocaleString('en-IN')}` : null,
         stockLabel,
-      ].filter(Boolean).slice(0, 4).join(' · ');
+      ].filter(Boolean).slice(0, 5).join(' · ');
       const row = {
         id, kind: 'product',
         icon: ProductOutlined,

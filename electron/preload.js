@@ -44,3 +44,54 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   confirmExit: () => ipcRenderer.send('app:exit-confirmed'),
 });
+
+// ── UI-settings persistence mirror ──────────────────────────────────
+//
+// Home/dashboard layout, theme and barcode-label prefs live in the
+// renderer's localStorage. To keep them alive across reinstalls and any
+// storage reset, we mirror just these keys to a ~/.billing-erp JSON file
+// (read/written by main). On boot we restore any MISSING key BEFORE the
+// SPA's scripts read storage; then back up changes periodically + on exit.
+// Strictly best-effort: every step is wrapped so the preload never throws.
+const UI_SETTINGS_KEYS = [
+  'erp-home-settings',      // Command Center (home) layout
+  'erp-dashboard-settings', // Dashboard tiles + config
+  'erp-theme',              // Theme / appearance
+  'barcode_label_layout',   // Barcode label designer layout
+  'barcode_company_name',   // Barcode label company name
+  'barcode_printer_name',   // Barcode label printer
+  'barcode_silent_print',   // Barcode silent-print toggle
+];
+
+(function restoreUiSettings() {
+  try {
+    const saved = ipcRenderer.sendSync('ui-settings:load-sync') || {};
+    for (const k of UI_SETTINGS_KEYS) {
+      // Restore ONLY keys this profile is missing — never overwrite a
+      // value the operator already has here.
+      if (saved[k] != null && window.localStorage.getItem(k) === null) {
+        window.localStorage.setItem(k, saved[k]);
+      }
+    }
+  } catch { /* first run / storage unavailable — behave as before */ }
+})();
+
+function backupUiSettings() {
+  try {
+    const out = {};
+    for (const k of UI_SETTINGS_KEYS) {
+      const v = window.localStorage.getItem(k);
+      if (v != null) out[k] = v;
+    }
+    if (Object.keys(out).length) ipcRenderer.invoke('ui-settings:save', out);
+  } catch { /* best-effort */ }
+}
+
+try {
+  // Initial capture once the SPA has hydrated, then a slow cadence, plus
+  // teardown — cheap ~1 KB JSON writes that keep the sidecar fresh.
+  setTimeout(backupUiSettings, 4000);
+  setInterval(backupUiSettings, 60000);
+  window.addEventListener('pagehide', backupUiSettings);
+  window.addEventListener('beforeunload', backupUiSettings);
+} catch { /* ignore */ }

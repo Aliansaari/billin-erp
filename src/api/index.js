@@ -227,6 +227,7 @@ export const partyAPI = {
   getAging: (params) => api.get('/parties/aging', { params }),
   getProfit: (id, params) => api.get(`/parties/${id}/profit`, { params }),
   getById: (id) => api.get(`/parties/${id}`),
+  getInsights: (id, role) => api.get(`/parties/${id}/insights`, { params: role ? { role } : {} }),
   getLedger: (id, params) => api.get(`/parties/${id}/ledger`, { params }),
   create: (data) => api.post('/parties', data),
   update: (id, data) => api.put(`/parties/${id}`, data),
@@ -249,6 +250,10 @@ export const productAPI = {
   getAll: (params) => api.get('/products', { params }),
   search: (q, params={}) => api.get('/products', { params: { search: q, limit: 50, ...params } }),
   getByBarcode: (barcode) => api.get(`/products/barcode/${barcode}`),
+  // Full-catalog lightweight barcode index for the instant in-memory scan
+  // path. Loaded once on the sales / purchase forms so a scan resolves
+  // with zero network round-trip. Returns `{ data: [{ barcode, ... }] }`.
+  scanIndex: () => api.get('/products/scan-index'),
   getBatches:   (id, params) => api.get(`/products/${id}/batches`, { params }),
   getNextBarcode: () => api.get('/products/next-barcode'),
   // Audit GST-H5 — canonical GSTN UQC list (45 codes). Used by the
@@ -470,9 +475,31 @@ export const complianceAPI = {
   auditLog: (params = {})  => api.get('/compliance/audit-log', { params }),
 };
 
+// WhatsApp delivery — Web (Baileys) + official Cloud-API. Status/send are
+// available to any operator (the send surfaces poll status to decide auto-send
+// vs. deep-link fallback); the rest are Super-Admin config endpoints.
+export const whatsappAPI = {
+  status:       () => api.get('/whatsapp/status'),
+  send:         (payload) => api.post('/whatsapp/send', payload),
+  getSettings:  () => api.get('/whatsapp/settings'),
+  saveSettings: (data) => api.put('/whatsapp/settings', data),
+  connect:      () => api.post('/whatsapp/connect'),
+  logout:       () => api.post('/whatsapp/logout'),
+  test:         (to) => api.post('/whatsapp/test', { to }),
+  outbox:       () => api.get('/whatsapp/outbox'),
+};
+
 export const settingsAPI = {
   getSystem: () => api.get('/settings/system'),
   updateSystem: (data) => api.put('/settings/system', data),
+  // Unauthenticated discovery endpoint — hostname, port, every LAN IPv4
+  // the host advertises, ready-made http://ip:port URLs, and the live
+  // active-client count. Powers the LAN & Network settings page.
+  serverInfo: () => api.get('/server-info'),
+  // LAN connected-device admin.
+  lanClients: () => api.get('/settings/lan-clients'),
+  disconnectLanClient: (ip) => api.post('/settings/lan-clients/disconnect', { ip }),
+  allowLanClient: (ip) => api.post('/settings/lan-clients/allow', { ip }),
   getBarcode: () => api.get('/settings/barcode'),
   updateBarcode: (data) => api.put('/settings/barcode', data),
   getUsers: () => api.get('/settings/users'),

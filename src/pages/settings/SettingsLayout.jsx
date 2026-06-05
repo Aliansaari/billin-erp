@@ -6,7 +6,7 @@ import {
   CloudServerOutlined, HomeOutlined, ControlOutlined, DashboardOutlined,
   AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
   CalendarOutlined, TeamOutlined, InboxOutlined, ImportOutlined,
-  IdcardOutlined,
+  IdcardOutlined, WifiOutlined, WhatsAppOutlined, RobotOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -56,8 +56,9 @@ const SETTINGS_GROUPS = [
     // switches and the default values pre-filled on new entries.
     label: 'Preferences',
     items: [
-      { path: 'modules',  icon: <ThunderboltOutlined />, label: 'Features', perm: 'settings.manage_company' },
-      { path: 'defaults', icon: <ControlOutlined />,     label: 'Defaults', perm: 'settings.manage_company' },
+      { path: 'modules',          icon: <ThunderboltOutlined />, label: 'Features',         perm: 'settings.manage_company' },
+      { path: 'defaults',         icon: <ControlOutlined />,     label: 'Defaults',         perm: 'settings.manage_company' },
+      { path: 'customer-insight', icon: <TeamOutlined />,        label: 'Party Insight',    perm: 'settings.manage_company' },
     ],
   },
   {
@@ -90,6 +91,13 @@ const SETTINGS_GROUPS = [
     // stays visible regardless.
     label: 'Data & Integrations',
     items: [
+      // LAN access — share this PC's Billing ERP with other PCs / phones
+      // on the same Wi-Fi. Admin-level (super admin / company manager).
+      { path: 'network',       icon: <WifiOutlined />,        label: 'LAN & Network',     perm: 'settings.manage_company' },
+      // Send invoices / statements to customers on WhatsApp (Web link or official Cloud-API).
+      { path: 'whatsapp',      icon: <WhatsAppOutlined />,    label: 'WhatsApp',          perm: 'settings.manage_company' },
+      // Customer self-service bot — auto-replies to customers who message the number.
+      { path: 'whatsapp-bot',  icon: <RobotOutlined />,       label: 'WhatsApp Bot',      perm: 'settings.manage_company' },
       { path: 'import-export', icon: <SwapOutlined />,        label: 'Import & Export',   perm: 'settings.import_export', flag: 'dev_show_import_export' },
       { path: 'import',        icon: <ImportOutlined />,      label: 'Import (queued)',   perm: 'settings.import_export', flag: 'dev_show_import_export' },
       { path: 'tally',         icon: <ApiOutlined />,         label: 'TallyPrime Sync',   perm: 'settings.tally',         flag: 'dev_show_tally_sync' },

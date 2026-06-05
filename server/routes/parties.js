@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const partyController = require('../controllers/partyController');
+const customerInsightController = require('../controllers/customerInsightController');
 const { authenticateToken } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 
@@ -11,6 +12,7 @@ router.get('/customers',               requirePermission('parties.view'),   part
 router.get('/suppliers',               requirePermission('parties.view'),   partyController.getSuppliers);
 router.get('/aging',                   requirePermission('parties.view'),   partyController.getAging);
 router.post('/recalculate-balances',   requirePermission('parties.edit'),   partyController.recalculateAll);
+router.get('/:id/insights',            requirePermission('parties.view'),   customerInsightController.getInsights);
 router.get('/:id',                     requirePermission('parties.view'),   partyController.getById);
 router.get('/:id/ledger',              requirePermission('parties.view'),   partyController.getLedger);
 router.get('/:id/profit',              requirePermission('parties.view'),   partyController.getPartyProfit);
