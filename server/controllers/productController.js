@@ -161,17 +161,29 @@ exports.getAll = async (req, res) => {
 
     // When searching by name: prioritise "starts with" results over "contains" results
     const { literal } = require('sequelize');
-    const orderClause = (search && name_only === 'true')
-      ? [
-          // Audit (security M2) — escape LIKE-wildcards AND quote-double the value before interpolation.
-// Sequelize doesn't let `literal()` carry bind params, so we hand-build a safe string. The
-// helper `escapeLike` neutralises % and _ so a search term of "%" can't promote every row
-// to the "starts-with" tier (which would defeat the ranking AND cause an index scan on a
-// large products table). The single-quote doubling stays as the SQL-injection backstop.
-[literal(`CASE WHEN "product_name" ILIKE '${escapeLike(search).replace(/'/g, "''")}%' THEN 0 ELSE 1 END`), 'ASC'],
-          ['product_name', 'ASC'],
-        ]
-      : [['product_name', 'ASC']];
+    // Audit (security M2) — escapeLike neutralises %/_ and the single-quote
+    // doubling is the SQL-injection backstop, because Sequelize can't carry a
+    // bind param inside literal().
+    const escRank = escapeLike(search || '').replace(/'/g, "''");
+    const orderClause = !search
+      ? [['product_name', 'ASC']]
+      : name_only === 'true'
+        // Sales/purchase picker: name "starts-with" first, then alphabetical.
+        ? [
+            [literal(`CASE WHEN "product_name" ILIKE '${escRank}%' THEN 0 ELSE 1 END`), 'ASC'],
+            ['product_name', 'ASC'],
+          ]
+        // Full search (global search / Products page): relevance-rank so an
+        // article-number (or barcode) query surfaces its matches instead of
+        // being buried alphabetically and cut by the page limit — exact
+        // article/barcode first, then any starts-with, then the rest A→Z.
+        : [
+            [literal(`CASE
+              WHEN "article_number" ILIKE '${escRank}' OR "barcode" ILIKE '${escRank}' THEN 0
+              WHEN "article_number" ILIKE '${escRank}%' OR "product_name" ILIKE '${escRank}%' OR "barcode" ILIKE '${escRank}%' THEN 1
+              ELSE 2 END`), 'ASC'],
+            ['product_name', 'ASC'],
+          ];
 
     // ── Family mode (variant-mode browsing) ─────────────────────────────────
     //
