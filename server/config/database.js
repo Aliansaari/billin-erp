@@ -32,7 +32,7 @@ const { Sequelize } = require('sequelize');
  * evict    1 s   — sweep dead/stale conns every second
  */
 const masterSequelize = new Sequelize(
-  process.env.DB_NAME || 'billing_erp',
+  process.env.DB_NAME || 'zehen',
   process.env.DB_USER || 'postgres',
   process.env.DB_PASSWORD || 'postgres',
   {

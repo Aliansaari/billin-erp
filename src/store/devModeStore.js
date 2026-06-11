@@ -49,7 +49,7 @@ const useDevModeStore = create(
       lock:   () => set({ unlocked: false, unlockedAt: null, previewAsUser: false }),
     }),
     {
-      name: 'billing_erp_dev_mode',
+      name: 'zehen_dev_mode',
       // Only persist the unlock flag itself. previewAsUser is intentionally
       // excluded so a reload always restores full developer view — see the
       // comment above togglePreviewAsUser.

@@ -12,7 +12,7 @@ const {
 
 // In a packaged Electron build, server/ lives inside app.asar (read-
 // only). server/utils/paths picks the right base dir for either case
-// — dev: project root, packaged: <homedir>/.billing-erp.
+// — dev: project root, packaged: <homedir>/.zehen.
 const { IN_ASAR, USER_DATA } = require('../utils/paths');
 const BACKUPS_DIR = IN_ASAR
   ? path.join(USER_DATA, 'app-backups')

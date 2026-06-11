@@ -49,7 +49,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 //
 // Home/dashboard layout, theme and barcode-label prefs live in the
 // renderer's localStorage. To keep them alive across reinstalls and any
-// storage reset, we mirror just these keys to a ~/.billing-erp JSON file
+// storage reset, we mirror just these keys to a ~/.zehen JSON file
 // (read/written by main). On boot we restore any MISSING key BEFORE the
 // SPA's scripts read storage; then back up changes periodically + on exit.
 // Strictly best-effort: every step is wrapped so the preload never throws.

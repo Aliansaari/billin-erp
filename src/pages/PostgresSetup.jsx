@@ -16,8 +16,8 @@ import api from '../api';
  *      (version + bin dir), or a friendly install prompt.
  *   2. Enter superuser credentials (host/port/user/password). Test
  *      the connection live.
- *   3. Provision the master database (`billing_erp_master`) and
- *      persist creds to <homedir>/.billing-erp/config.json.
+ *   3. Provision the master database (`zehen_master`) and
+ *      persist creds to <homedir>/.zehen/config.json.
  *
  * After success the user should restart the server (we surface a clear
  * "Restart now" hint). On the next boot the server reads the config
@@ -30,7 +30,7 @@ export default function PostgresSetup({ onDone }) {
   const [busy, setBusy] = useState(false);
   const [detection, setDetection] = useState(null);
   const [conn, setConn] = useState({
-    host: 'localhost', port: 5432, user: 'postgres', password: '', master_db_name: 'billing_erp_master',
+    host: 'localhost', port: 5432, user: 'postgres', password: '', master_db_name: 'zehen_master',
   });
   const [testResult, setTestResult] = useState(null);
   const [provisionResult, setProvisionResult] = useState(null);

@@ -109,7 +109,7 @@ export default function Dashboard() {
   // never reads "Hello, undefined".
   const companyName = (() => {
     try {
-      const stored = localStorage.getItem('billing_erp_last_company_name');
+      const stored = localStorage.getItem('zehen_last_company_name');
       if (stored) return stored;
     } catch {}
     return user?.company_name || (user?.full_name || user?.username || 'there').split(' ')[0];

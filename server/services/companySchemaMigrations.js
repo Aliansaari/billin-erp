@@ -168,7 +168,7 @@ async function runCompanySchemaMigrations(sequelize) {
   `);
 
   // products.is_tax_inclusive (audit GST-C4). Mirrors the master block
-  // in server/index.js so a SECONDARY company DB (billing_erp_co_2 etc.)
+  // in server/index.js so a SECONDARY company DB (zehen_co_2 etc.)
   // that was created before the PR landed picks up the column on next
   // boot. Without this replay, the toggle on the product form silently
   // fails on save with "column does not exist" because the primary-DB

@@ -40,7 +40,7 @@ function ensureState(companyId) {
 }
 
 function authDir(companyId) {
-  const baseDir = process.env.WHATSAPP_DATA_DIR || path.join(os.homedir(), '.billing-erp', 'whatsapp');
+  const baseDir = process.env.WHATSAPP_DATA_DIR || path.join(os.homedir(), '.zehen', 'whatsapp');
   return path.join(baseDir, String(companyId));
 }
 

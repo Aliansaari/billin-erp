@@ -3,11 +3,11 @@
  * ────────────────────────
  *
  * After the NSIS installer finishes, it drops a marker file:
- *   <homedir>/.billing-erp/.just-installed   (contents: version string)
+ *   <homedir>/.zehen/.just-installed   (contents: version string)
  *
  * On the next server boot we notice the marker, dump every database
  * (master + each per-company DB) into a timestamped folder under
- * <homedir>/.billing-erp/backups/ BEFORE running schema migrations,
+ * <homedir>/.zehen/backups/ BEFORE running schema migrations,
  * then delete the marker. This way a botched update can be rolled back
  * by restoring the dump and the previous app .exe.
  *
@@ -27,7 +27,7 @@ const os = require('os');
 const { spawnSync } = require('child_process');
 const { Client } = require('pg');
 
-const ROOT_DIR    = path.join(os.homedir(), '.billing-erp');
+const ROOT_DIR    = path.join(os.homedir(), '.zehen');
 const MARKER      = path.join(ROOT_DIR, '.just-installed');
 const BACKUPS_DIR = path.join(ROOT_DIR, 'backups');
 
@@ -90,9 +90,9 @@ async function listAllDatabases({ host, port, user, password }) {
     const r = await c.query(
       `SELECT datname FROM pg_database
         WHERE datname = ANY($1)
-          OR datname LIKE 'billing_erp_co_%'
+          OR datname LIKE 'zehen_co_%'
         ORDER BY datname`,
-      [['billing_erp', 'billing_erp_master']],
+      [['zehen', 'zehen_master']],
     );
     return r.rows.map(row => row.datname);
   } finally {

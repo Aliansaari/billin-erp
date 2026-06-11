@@ -10,7 +10,7 @@ const { respondWithError } = require('../utils/helpers');
 // (see server/utils/paths.js). Each company writes into its own
 // subdirectory so multi-tenant installs can't cross-load each other's
 // branding.
-const UPLOADS_DIR = process.env.BILLING_ERP_UPLOADS_DIR || path.join(require('os').homedir(), '.billing-erp', 'uploads');
+const UPLOADS_DIR = process.env.BILLING_ERP_UPLOADS_DIR || path.join(require('os').homedir(), '.zehen', 'uploads');
 const BRANDING_DIR = path.join(UPLOADS_DIR, 'branding');
 try { fs.mkdirSync(BRANDING_DIR, { recursive: true }); } catch { /* race-safe noop */ }
 

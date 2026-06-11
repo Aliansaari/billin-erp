@@ -38,7 +38,7 @@ module.exports = (sequelize) => {
     // live ONLY in the renderer's localStorage, which Chromium can drop across
     // an Electron upgrade — so the design kept "resetting". Persisting it here
     // makes it survive reinstalls/updates exactly like the rest of the company
-    // data (embedded Postgres under ~/.billing-erp). JSON blob; the renderer
+    // data (embedded Postgres under ~/.zehen). JSON blob; the renderer
     // mirrors it to localStorage as a fast cache.
     label_layout: {
       type: DataTypes.TEXT,

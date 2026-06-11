@@ -7,8 +7,8 @@ import CompanySheet from '../components/CompanySheet';
 import ServerDialog from '../components/ServerDialog';
 import './Login.css';
 
-const LAST_COMPANY_KEY      = 'billing_erp_last_company';
-const LAST_COMPANY_NAME_KEY = 'billing_erp_last_company_name';
+const LAST_COMPANY_KEY      = 'zehen_last_company';
+const LAST_COMPANY_NAME_KEY = 'zehen_last_company_name';
 
 // Inline icons keep the bundle small (no icon-lib import) and match the
 // editorial stroke weight (1.7) consistently across the form.

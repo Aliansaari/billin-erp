@@ -33,7 +33,7 @@ const LICENSE_PUBLIC_KEY =
  * Resolution order:
  *   1. process.env.LICENSE_PATH       — explicit override (CI / testing)
  *   2. globalThis.__LICENSE_PATH      — set by Electron main.js
- *   3. <homedir>/.billing-erp/license.dat — default user-writable fallback
+ *   3. <homedir>/.zehen/license.dat — default user-writable fallback
  *
  * The default lives under the user's home so the activation file
  * persists across server reinstalls and works regardless of whether
@@ -47,7 +47,7 @@ function resolveLicensePath() {
   if (globalThis.__LICENSE_PATH) return globalThis.__LICENSE_PATH;
   const path = require('path');
   const os = require('os');
-  return path.join(os.homedir(), '.billing-erp', 'license.dat');
+  return path.join(os.homedir(), '.zehen', 'license.dat');
 }
 
 module.exports = {

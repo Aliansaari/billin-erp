@@ -5,24 +5,17 @@ const http = require('http');
 const os = require('os');
 const { startEmbeddedPostgres } = require('./embeddedPostgres');
 
-// ── Stable userData folder across the ZEHEN rebrand ──────────────────
+// ── userData folder ──────────────────────────────────────────────────
 //
-// The product name shown to users changed from "Billing ERP" to "ZEHEN"
-// (installer, exe, window, shortcuts). Electron derives the userData dir
-// — where Chromium keeps the renderer's localStorage (login token, theme,
-// layout) — from the product name. A naive rename would therefore point
-// existing installs at a brand-new EMPTY folder on their next update,
-// silently logging everyone out and resetting UI prefs.
-//
-// So we pin userData to the ORIGINAL "Billing ERP" location for every
-// build (old installs and fresh ones alike). The folder name is internal
-// and never shown to users; keeping it constant makes the rebrand fully
-// invisible — same session, same theme, nothing lost. Business data is
-// unaffected regardless (it lives in ~/.billing-erp + Postgres). Must run
-// before the app 'ready' event and any window/session use, so it sits
+// Electron keeps the renderer's localStorage (login token, theme, layout)
+// under app.getPath('userData'), derived from the product name. We pin it
+// explicitly to "ZEHEN" so the location is stable and obvious regardless
+// of how electron-builder names things. Business data lives separately in
+// ~/.zehen + Postgres, so this folder only holds UI session state. Must
+// run before the 'ready' event and any window/session use, so it sits
 // here at module load.
 try {
-  app.setPath('userData', path.join(app.getPath('appData'), 'Billing ERP'));
+  app.setPath('userData', path.join(app.getPath('appData'), 'ZEHEN'));
 } catch { /* best-effort — fall back to Electron's default if unavailable */ }
 
 // `app.isPackaged` is the canonical "are we running from a packaged
@@ -48,8 +41,8 @@ try { _appPkg = require('../package.json'); } catch { /* ignore */ }
 const CLIENT_MODE = isDev ? process.env.CLIENT_MODE === '1' : !!_appPkg.clientMode;
 
 // Where the thin client remembers the host PC's URL — alongside the
-// other ~/.billing-erp sidecars so it survives reinstalls.
-const CLIENT_CFG_PATH = path.join(os.homedir(), '.billing-erp', 'client-config.json');
+// other ~/.zehen sidecars so it survives reinstalls.
+const CLIENT_CFG_PATH = path.join(os.homedir(), '.zehen', 'client-config.json');
 
 // ── UI-settings sidecar ─────────────────────────────────────────────
 //
@@ -59,12 +52,12 @@ const CLIENT_CFG_PATH = path.join(os.homedir(), '.billing-erp', 'client-config.j
 // corrupted LevelDB, a Chromium storage reset, or moving to a new PC all
 // wipe it, and the operator loses every layout/theme/barcode tweak.
 //
-// So we mirror just those keys to a plain JSON file under ~/.billing-erp
+// So we mirror just those keys to a plain JSON file under ~/.zehen
 // (the same place window-state.json lives "so it survives reinstalls").
 // The preload restores any MISSING key from here on boot and backs the
 // current values up periodically. Purely additive + best-effort: if the
 // file is absent or unreadable, the app behaves exactly as before.
-const UI_SETTINGS_PATH = path.join(os.homedir(), '.billing-erp', 'ui-settings.json');
+const UI_SETTINGS_PATH = path.join(os.homedir(), '.zehen', 'ui-settings.json');
 
 function readUiSettingsFile() {
   try {
@@ -175,7 +168,7 @@ ipcMain.handle('ui-settings:save', (_e, obj) => { writeUiSettingsFile(obj); retu
 // Packaged Electron apps don't write to a console anywhere by default,
 // so a blank-screen-on-launch failure leaves the user (and us) with
 // nothing to debug. We mirror every stdout/stderr write to a logfile
-// so customers can share `<homedir>/.billing-erp/app.log` when
+// so customers can share `<homedir>/.zehen/app.log` when
 // reporting issues.
 //
 // In dev we skip this — the dev shell already shows logs, and we don't
@@ -183,7 +176,7 @@ ipcMain.handle('ui-settings:save', (_e, obj) => { writeUiSettingsFile(obj); retu
 function setupFileLogging() {
   if (isDev) return;
   try {
-    const logDir = path.join(os.homedir(), '.billing-erp');
+    const logDir = path.join(os.homedir(), '.zehen');
     fs.mkdirSync(logDir, { recursive: true });
     const logPath = path.join(logDir, 'app.log');
     // Trim if oversized (keep last ~1 MB so the file doesn't grow
@@ -357,7 +350,7 @@ async function createWindow() {
   // sidecar next to the user's data folder so it survives reinstalls.
   const stateFile = path.join(
     require('os').homedir(),
-    '.billing-erp',
+    '.zehen',
     'window-state.json',
   );
   let savedState = null;
@@ -872,7 +865,7 @@ app.whenReady().then(async () => {
     // re-parse, adding 5-15 s. Version-gated clearing handles the real
     // case (stale asset hash after an update) without the per-launch cost.
     const appVersion = app.getVersion?.() || '0';
-    const versionCacheFile = path.join(os.homedir(), '.billing-erp', 'cached-version.txt');
+    const versionCacheFile = path.join(os.homedir(), '.zehen', 'cached-version.txt');
     try {
       const last = fs.readFileSync(versionCacheFile, 'utf8').trim();
       if (last !== appVersion && mainWindow && !mainWindow.isDestroyed()) {

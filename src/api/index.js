@@ -30,12 +30,12 @@ import { message as antdMessage } from 'antd';
  *   a. import.meta.env.VITE_API_URL          — build-time override
  *   b. window.__BILLING_ERP_API_URL__         — runtime injection by Electron
  *      preload (for future use; preload doesn't set this today)
- *   c. localStorage.getItem('billing_erp_server_url') — Server Setup choice
+ *   c. localStorage.getItem('zehen_server_url') — Server Setup choice
  *   d. file:// protocol  → http://localhost:3001 (single-machine fallback)
  *   e. anything else     → relative '/api' (proxy / same-origin)
  */
 
-export const SERVER_URL_KEY = 'billing_erp_server_url';
+export const SERVER_URL_KEY = 'zehen_server_url';
 
 function resolveApiBaseUrl() {
   // (a) build-time

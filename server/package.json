@@ -1,5 +1,5 @@
 {
-  "name": "billing-erp-server",
+  "name": "zehen-server",
   "version": "1.0.0",
   "description": "ERP Backend Server",
   "main": "index.js",

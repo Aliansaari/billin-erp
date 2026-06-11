@@ -23,7 +23,7 @@
  *      - drop the .just-installed marker
  *      - restart the server
  *      - assert a fresh dump folder appears under
- *        <homedir>/.billing-erp/backups/<stamp>/
+ *        <homedir>/.zehen/backups/<stamp>/
  *      - assert each expected DB has a .dump file
  *      - assert the marker is cleared
  *
@@ -114,7 +114,7 @@ async function killServer(child) {
 
   // Clean any leftover license file so we start fresh.
   const HOME = os.homedir();
-  const ERP_DIR = path.join(HOME, '.billing-erp');
+  const ERP_DIR = path.join(HOME, '.zehen');
   fs.mkdirSync(ERP_DIR, { recursive: true });
   for (const f of ['license.dat', 'license.dat.lastseen', 'license.dat.bind']) {
     try { fs.unlinkSync(path.join(ERP_DIR, f)); } catch {}
@@ -130,7 +130,7 @@ async function killServer(child) {
     db: {
       host: 'localhost', port: 5432,
       user: 'postgres', password: 'postgres',
-      master_db_name: 'billing_erp_master',
+      master_db_name: 'zehen_master',
     },
     setup_completed_at: new Date().toISOString(),
   }, null, 2), 'utf8');
@@ -230,7 +230,7 @@ async function killServer(child) {
        files.some(f => f.endsWith('.dump')) && files.length > 0,
        'files=' + JSON.stringify(files));
     ok('C4 master DB included in backup',
-       files.some(f => f === 'billing_erp_master.dump'),
+       files.some(f => f === 'zehen_master.dump'),
        'files=' + JSON.stringify(files));
   }
 

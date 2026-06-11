@@ -88,7 +88,7 @@ async function http(method, path, { body } = {}) {
   console.log('');
 
   // Make sure no stale license carries over.
-  const userLicenseDir = path.join(require('os').homedir(), '.billing-erp');
+  const userLicenseDir = path.join(require('os').homedir(), '.zehen');
   for (const name of ['license.dat', 'license.dat.lastseen', 'license.dat.bind']) {
     try { fs.unlinkSync(path.join(userLicenseDir, name)); } catch {}
   }

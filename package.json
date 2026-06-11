@@ -1,5 +1,5 @@
 {
-  "name": "billing-erp",
+  "name": "zehen",
   "version": "1.0.0",
   "description": "Full-featured ERP & Billing Software for Wholesale Business",
   "main": "electron/main.js",
@@ -77,7 +77,7 @@
     "xlsx": "^0.18.5"
   },
   "build": {
-    "appId": "com.sabina.billing-erp",
+    "appId": "com.sabina.zehen",
     "productName": "ZEHEN",
     "directories": {
       "output": "dist-electron"

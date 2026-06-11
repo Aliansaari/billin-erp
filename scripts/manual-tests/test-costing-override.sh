@@ -12,7 +12,7 @@ set -u
 BASE=http://127.0.0.1:3001/api
 PSQL="/c/Program Files/PostgreSQL/18/bin/psql.exe"
 export PGPASSWORD=postgres
-PSQL_OPTS="-U postgres -h localhost -p 5432 -d billing_erp"
+PSQL_OPTS="-U postgres -h localhost -p 5432 -d zehen"
 
 pass=0; fail=0
 ok()  { pass=$((pass+1)); printf "  \033[32mPASS\033[0m %s\n" "$1"; }

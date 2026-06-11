@@ -5,11 +5,11 @@ const { Sequelize } = require('sequelize');
  *
  * Multi-company architecture (classic accounting-style):
  *
- *   billing_erp_master       — this connection. Holds the companies
+ *   zehen_master       — this connection. Holds the companies
  *                              directory, dev-tier flags, app-level
  *                              audit log. Small + rarely written.
  *
- *   billing_erp_co_<id>      — one database per company. Holds every
+ *   zehen_co_<id>      — one database per company. Holds every
  *                              transactional table the app already
  *                              has (parties, products, sales_bills,
  *                              users, roles, …). The existing global
@@ -20,16 +20,16 @@ const { Sequelize } = require('sequelize');
  *
  * Both connections share the same Postgres host + credentials; only
  * the database name differs. Defaults preserve a smooth migration
- * path: if MASTER_DB_NAME isn't set, we use "billing_erp_master".
+ * path: if MASTER_DB_NAME isn't set, we use "zehen_master".
  *
  * For a fresh install: the bootstrap routine in
  *   server/services/companyBootstrap.js
  * creates this DB on first server start, runs the master-side schema,
  * and registers any pre-existing single-DB install as "Company 1"
- * pointing at billing_erp.
+ * pointing at zehen.
  */
 const masterSequelize = new Sequelize(
-  process.env.MASTER_DB_NAME || 'billing_erp_master',
+  process.env.MASTER_DB_NAME || 'zehen_master',
   process.env.DB_USER     || 'postgres',
   process.env.DB_PASSWORD || 'postgres',
   {

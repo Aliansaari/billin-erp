@@ -10,7 +10,7 @@
 ;      so the app's own update flow can recognise upgrades.
 ;
 ;   3. Pre-uninstall: warns the user that removing the app does NOT
-;      delete their customer data — that lives under <homedir>/.billing-erp/
+;      delete their customer data — that lives under <homedir>/.zehen/
 ;      and survives uninstall by design (so reinstalling doesn't lose
 ;      their books).
 
@@ -28,31 +28,28 @@
 !macro preInit
   ; Stamp the registry with vendor info so Windows lists us cleanly in
   ; "Apps & Features" with a proper publisher name.
-  ; NOTE: the key path stays "Billing ERP" on purpose — it's an internal
-  ; marker, never shown to users, and keeping it constant across the
-  ; ZEHEN rebrand avoids orphaning existing installs' registry state.
-  WriteRegStr HKCU "Software\\Sabina Software\\Billing ERP" "Vendor" "Sabina Software"
+  WriteRegStr HKCU "Software\\Sabina Software\\ZEHEN" "Vendor" "Sabina Software"
 !macroend
 
 ; Hook that runs before files get copied. Detects an existing install
 ; and lays down a marker the running app can read on next launch.
 !macro customInstall
   ; Note the version we just installed.
-  WriteRegStr HKCU "Software\\Sabina Software\\Billing ERP" "Version" "${VERSION}"
-  WriteRegStr HKCU "Software\\Sabina Software\\Billing ERP" "InstallDate" "$2$1$0"
+  WriteRegStr HKCU "Software\\Sabina Software\\ZEHEN" "Version" "${VERSION}"
+  WriteRegStr HKCU "Software\\Sabina Software\\ZEHEN" "InstallDate" "$2$1$0"
 
   ; Drop a marker into the user's data dir so the server's first boot
   ; after an update can detect that we've just been re-installed and
   ; trigger the auto-backup-before-migrate flow.
-  CreateDirectory "$PROFILE\\.billing-erp"
-  FileOpen $0 "$PROFILE\\.billing-erp\\.just-installed" w
+  CreateDirectory "$PROFILE\\.zehen"
+  FileOpen $0 "$PROFILE\\.zehen\\.just-installed" w
   FileWrite $0 "${VERSION}$\r$\n"
   FileClose $0
 !macroend
 
 !macro customUnInstall
   MessageBox MB_YESNO|MB_ICONQUESTION \
-    "Removing ZEHEN will leave your customer data untouched in:$\r$\n$PROFILE\\.billing-erp$\r$\n$\r$\nThis includes your master database config, license file, and backups. Reinstalling later will pick up where you left off.$\r$\n$\r$\nUninstall now?" \
+    "Removing ZEHEN will leave your customer data untouched in:$\r$\n$PROFILE\\.zehen$\r$\n$\r$\nThis includes your master database config, license file, and backups. Reinstalling later will pick up where you left off.$\r$\n$\r$\nUninstall now?" \
     IDYES uninstall_yes IDNO uninstall_no
   uninstall_no:
     Abort

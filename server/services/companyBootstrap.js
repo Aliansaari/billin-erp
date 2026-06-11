@@ -8,15 +8,15 @@
  *
  * Three things happen here:
  *
- *   1. Ensure the master Postgres database (billing_erp_master) exists.
+ *   1. Ensure the master Postgres database (zehen_master) exists.
  *      We connect to the default `postgres` admin DB to issue a
  *      CREATE DATABASE if missing. Same credentials as the app — if
- *      the user can connect to billing_erp, they can create new DBs.
+ *      the user can connect to zehen, they can create new DBs.
  *
  *   2. Sync the master schema (companies table, dev_max_companies
  *      column on a master_settings table later, audit log).
  *
- *   3. If the companies table is empty AND a legacy `billing_erp`
+ *   3. If the companies table is empty AND a legacy `zehen`
  *      database has data, register it as the primary company. No
  *      data is moved — we just record the mapping.
  *
@@ -29,8 +29,8 @@ const { Client } = require('pg');
 const masterSequelize = require('../config/masterDatabase');
 const Company = require('../models/Company');
 
-const MASTER_DB_NAME = process.env.MASTER_DB_NAME || 'billing_erp_master';
-const PRIMARY_DB_NAME = process.env.DB_NAME || 'billing_erp';
+const MASTER_DB_NAME = process.env.MASTER_DB_NAME || 'zehen_master';
+const PRIMARY_DB_NAME = process.env.DB_NAME || 'zehen';
 const DB_HOST = process.env.DB_HOST || 'localhost';
 const DB_PORT = process.env.DB_PORT || 5432;
 const DB_USER = process.env.DB_USER || 'postgres';
@@ -105,7 +105,7 @@ async function syncMasterSchema() {
 }
 
 /**
- * Returns true iff the legacy `billing_erp` database exists AND has at
+ * Returns true iff the legacy `zehen` database exists AND has at
  * least one row in `system_settings` (i.e., it's been used as a real
  * install, not just an empty placeholder). Conservative on purpose —
  * we'd rather miss a fresh install than register an empty DB that the
@@ -120,7 +120,7 @@ async function legacyInstallExists() {
     if (r.rows.length === 0) return false;
 
     // Connect to that DB and check for any tables. A genuinely-empty
-    // billing_erp from a half-finished install we DON'T register; the
+    // zehen from a half-finished install we DON'T register; the
     // user is expected to create a real first company through the UI.
     const probe = new Client({
       host: DB_HOST, port: DB_PORT,

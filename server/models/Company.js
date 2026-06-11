@@ -35,9 +35,9 @@ const Company = masterSequelize.define('Company', {
   },
 
   // Postgres DB name. Set at creation time, never changes. The bootstrap
-  // generates this as `billing_erp_co_<id>` for every new company; the
+  // generates this as `zehen_co_<id>` for every new company; the
   // primary (legacy single-DB install) keeps its original name
-  // (`billing_erp`) so the existing connection string still works.
+  // (`zehen`) so the existing connection string still works.
   db_name: {
     type: DataTypes.STRING(80),
     allowNull: false,

@@ -179,7 +179,7 @@ export default function SidePanel({ open, onClose }) {
   const companyName = (() => {
     if (currentCompany?.company_name) return currentCompany.company_name;
     try {
-      const stored = localStorage.getItem('billing_erp_last_company_name');
+      const stored = localStorage.getItem('zehen_last_company_name');
       if (stored) return stored;
     } catch {}
     return user?.company_name || 'My Company';
@@ -191,7 +191,7 @@ export default function SidePanel({ open, onClose }) {
   const firmMeta = [gstin, city].filter(Boolean).join(' · ') || '—';
   const userName = user?.full_name || user?.username || 'User';
   const userInitial = userName.trim().charAt(0).toUpperCase();
-  const userEmail = user?.email || `${user?.username || 'admin'}@billingerp.in`;
+  const userEmail = user?.email || `${user?.username || 'admin'}@zehen.in`;
   const userRole = user?.role || 'Owner';
   const fy = fyLabel();
   const firmCount = companyList.length || 1;

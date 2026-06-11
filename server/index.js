@@ -1,7 +1,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
 // First-run config — apply user-chosen Postgres creds from
-// <homedir>/.billing-erp/config.json BEFORE any module reads DB_*.
+// <homedir>/.zehen/config.json BEFORE any module reads DB_*.
 // Has no effect after the wizard finishes (the file just persists the
 // chosen values across restarts), or before it runs (sequelize falls
 // back to env / shipped defaults).
@@ -480,7 +480,7 @@ async function startServer() {
     // Bump MIGRATION_VERSION whenever you add/change any migration below.
     // A simple integer counter works: just increment it.
     const MIGRATION_VERSION = '11';
-    const migVersionFile = path.join(os.homedir(), '.billing-erp', 'migration-version.txt');
+    const migVersionFile = path.join(os.homedir(), '.zehen', 'migration-version.txt');
     let skipMigrations = false;
     try {
       if (fs.existsSync(migVersionFile)) {
@@ -3235,7 +3235,7 @@ async function startServer() {
 
     // ── Save migration version ──────────────────────────────────────────
     try {
-      const migDir = path.join(os.homedir(), '.billing-erp');
+      const migDir = path.join(os.homedir(), '.zehen');
       if (!fs.existsSync(migDir)) fs.mkdirSync(migDir, { recursive: true });
       fs.writeFileSync(migVersionFile, MIGRATION_VERSION, 'utf8');
       console.log(`[migrations] version ${MIGRATION_VERSION} saved — next boot will skip`);
@@ -3290,7 +3290,7 @@ async function startServer() {
     // This runs reconcileBillsForParty + recalculatePartyBalance for
     // EVERY non-cash party — making sum(bill.balance) === party.balance.
     // Gated by a flag file so it runs exactly once after this update.
-    const reconciledFile = path.join(os.homedir(), '.billing-erp', 'balance-reconciled-v1.txt');
+    const reconciledFile = path.join(os.homedir(), '.zehen', 'balance-reconciled-v1.txt');
     if (!fs.existsSync(reconciledFile)) {
       try {
         const reconStart = Date.now();
@@ -3310,7 +3310,7 @@ async function startServer() {
             console.error(`[balance-reconcile] Failed for ${p.party_name} (${p.party_id}):`, e.message);
           }
         }
-        const reconDir = path.join(os.homedir(), '.billing-erp');
+        const reconDir = path.join(os.homedir(), '.zehen');
         if (!fs.existsSync(reconDir)) fs.mkdirSync(reconDir, { recursive: true });
         fs.writeFileSync(reconciledFile, `Reconciled ${fixed} parties on ${new Date().toISOString()}`, 'utf8');
         console.log(`[balance-reconcile] Reconciled ${fixed}/${allParties.length} parties in ${Date.now() - reconStart}ms`);
@@ -3371,7 +3371,7 @@ async function startServer() {
       // Runs ONCE after update, then writes a flag file and never runs
       // again. Zero cost on all subsequent startups.
       const fs = require('fs');
-      const reconcileFlag = path.join(os.homedir(), '.billing-erp', 'reconciliation_done.flag');
+      const reconcileFlag = path.join(os.homedir(), '.zehen', 'reconciliation_done.flag');
       if (!fs.existsSync(reconcileFlag)) {
         (async () => {
           try {
@@ -3433,7 +3433,7 @@ async function startServer() {
   } catch (error) {
     console.error('Failed to start server:', error.message);
     console.error('Make sure PostgreSQL is running and the database exists.');
-    console.error('Create database: CREATE DATABASE billing_erp;');
+    console.error('Create database: CREATE DATABASE zehen;');
     process.exit(1);
   }
 }

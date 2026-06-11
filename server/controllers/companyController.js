@@ -137,7 +137,7 @@ exports.create = async (req, res) => {
     // that id to derive the per-company db_name. If the DB-creation
     // step then fails we roll back the row so a half-created company
     // doesn't pollute the picker.
-    const placeholderName = `billing_erp_co_pending_${Date.now()}`;
+    const placeholderName = `zehen_co_pending_${Date.now()}`;
     const created = await Company.create({
       name: String(name).trim(),
       db_name: placeholderName,
@@ -151,7 +151,7 @@ exports.create = async (req, res) => {
       created_by_user_id: req.user?.user_id || null,
     });
 
-    const dbName = `billing_erp_co_${created.company_id}`;
+    const dbName = `zehen_co_${created.company_id}`;
     try {
       await createCompanyDatabase(dbName);
     } catch (dbErr) {
@@ -379,7 +379,7 @@ exports.hardDelete = async (req, res) => {
     // 2) Drop the per-company database. WITH (FORCE) terminates any
     //    lingering backends so a stale idle session can't block us.
     //    PG 13+ supports the FORCE option; older clusters fall back.
-    if (dbName && dbName.startsWith('billing_erp_co_')) {
+    if (dbName && dbName.startsWith('zehen_co_')) {
       const admin = new Client({
         host: DB_HOST, port: DB_PORT,
         user: DB_USER, password: DB_PASSWORD,

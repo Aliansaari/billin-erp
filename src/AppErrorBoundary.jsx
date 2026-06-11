@@ -43,7 +43,7 @@ export default class AppErrorBoundary extends React.Component {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem('must_change_password');
-      localStorage.removeItem('billing_erp_dev_mode');
+      localStorage.removeItem('zehen_dev_mode');
     } catch { /* private mode etc */ }
     window.location.href = '/';
   };

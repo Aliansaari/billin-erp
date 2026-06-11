@@ -414,7 +414,7 @@ exports.changePassword = async (req, res) => {
  *
  * The endpoint deliberately doesn't issue a separate JWT — once the
  * client confirms the password is correct, the React app sets a
- * localStorage flag (`billing_erp_dev_mode = unlocked`) and exposes the
+ * localStorage flag (`zehen_dev_mode = unlocked`) and exposes the
  * gated UI. Server-side, the gates that MATTER (data cleanup, restore,
  * etc.) are still admin-role-protected; developer mode is a UI gate
  * to prevent accidental clicks, not an auth boundary.

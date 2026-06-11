@@ -16,10 +16,8 @@ const baseServer = {
 
 /** @type {import('@capacitor/cli').CapacitorConfig} */
 const config = {
-  // appId is the on-device bundle identifier — keep it constant across the
-  // ZEHEN rebrand so existing installs update in place instead of becoming
-  // a second app.
-  appId: 'com.sabina.billingerp',
+  // appId is the on-device bundle identifier (iOS/Android).
+  appId: 'com.sabina.zehen',
   appName: 'ZEHEN',
   webDir: 'dist-mobile',
   server: liveReloadUrl

@@ -126,7 +126,7 @@ async function getCompanyConnection(companyId) {
   // associated at module load.
   let sequelize, models;
   let isPrimary = false;
-  if (company.is_primary || company.db_name === (process.env.DB_NAME || 'billing_erp')) {
+  if (company.is_primary || company.db_name === (process.env.DB_NAME || 'zehen')) {
     sequelize = masterSequelize;
     models = masterModels;
     isPrimary = true;

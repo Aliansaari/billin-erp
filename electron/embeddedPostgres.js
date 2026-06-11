@@ -3,7 +3,7 @@
 // Makes the HOST install truly one-click: the shop PC no longer needs a
 // separately-installed PostgreSQL. We ship the PG binaries as
 // extraResources (resources/pgsql), run `initdb` once into a data dir
-// that lives in the user's HOME (~/.billing-erp/pgdata) — NOT in
+// that lives in the user's HOME (~/.zehen/pgdata) — NOT in
 // Program Files — so an uninstall/reinstall keeps every bill and ledger.
 // The app starts/stops this private postgres as it opens/quits.
 //
@@ -16,7 +16,7 @@
 //     something worse than before.
 //   • Dev (not packaged) and CLIENT_MODE builds skip this entirely.
 //
-// The data dir is intentionally the same ~/.billing-erp the rest of the
+// The data dir is intentionally the same ~/.zehen the rest of the
 // app already uses for config/license/uploads, and electron-builder is
 // configured with deleteAppDataOnUninstall:false, so the database
 // survives uninstall → reinstall.
@@ -28,7 +28,7 @@ const os = require('os');
 const net = require('net');
 const { execFileSync, execFile } = require('child_process');
 
-const HOME_DIR    = path.join(os.homedir(), '.billing-erp');
+const HOME_DIR    = path.join(os.homedir(), '.zehen');
 const DATA_DIR    = path.join(HOME_DIR, 'pgdata');
 const STATE_FILE  = path.join(HOME_DIR, 'embedded-pg.json');
 const CONFIG_FILE = path.join(HOME_DIR, 'config.json');
@@ -146,7 +146,7 @@ function isRunning() {
   }
 }
 
-// Merge our connection creds into ~/.billing-erp/config.json in the exact
+// Merge our connection creds into ~/.zehen/config.json in the exact
 // shape setup.js expects, so applyConfigToEnv() stays consistent AND the
 // first-run "Postgres Setup" wizard is skipped (setup_completed_at set).
 // Never clobber an existing jwt_secret.
@@ -157,7 +157,7 @@ function writeAppConfig(port, password) {
     port,
     user: 'postgres',
     password,
-    master_db_name: (cfg.db && cfg.db.master_db_name) || 'billing_erp_master',
+    master_db_name: (cfg.db && cfg.db.master_db_name) || 'zehen_master',
   };
   if (!cfg.jwt_secret) {
     cfg.jwt_secret = require('crypto').randomBytes(32).toString('hex');
@@ -168,15 +168,15 @@ function writeAppConfig(port, password) {
 }
 
 // The server's default Sequelize connection targets
-// `process.env.DB_NAME` (|| 'billing_erp'). companyBootstrap creates
-// billing_erp_master and the per-company DBs, but NOT this base DB — on
+// `process.env.DB_NAME` (|| 'zehen'). companyBootstrap creates
+// zehen_master and the per-company DBs, but NOT this base DB — on
 // a brand-new cluster it's absent and server/index.js treats that as a
-// FATAL "database billing_erp does not exist" and never starts (the app
+// FATAL "database zehen does not exist" and never starts (the app
 // then won't open). Create it idempotently here, before the server
 // boots. Best-effort: failure just falls through to the server's own
 // error path / manual flow.
 function ensureDefaultDatabase(port, password) {
-  const dbName = process.env.DB_NAME || 'billing_erp';
+  const dbName = process.env.DB_NAME || 'zehen';
   const env = { ...pgEnv(), PGPASSWORD: password };
   const base = ['-h', '127.0.0.1', '-p', String(port), '-U', 'postgres', '-d', 'postgres', '-w'];
   const psql = path.join(binDir, 'psql.exe');
@@ -273,9 +273,9 @@ async function startEmbeddedPostgres({ clientMode } = {}) {
       log('pg_ctl status confirms running despite TCP poll timeout');
     }
 
-    // companyBootstrap makes billing_erp_master + per-company DBs, but
+    // companyBootstrap makes zehen_master + per-company DBs, but
     // not the server's base DB — create it now or the server hard-fails
-    // on a fresh cluster ("database billing_erp does not exist").
+    // on a fresh cluster ("database zehen does not exist").
     ensureDefaultDatabase(port, password);
 
     // Wire creds into env BEFORE the server boots, and persist so the

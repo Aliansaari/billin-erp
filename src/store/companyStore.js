@@ -48,7 +48,7 @@ const useCompanyStore = create(
       },
     }),
     {
-      name: 'billing_erp_company',
+      name: 'zehen_company',
       partialize: (s) => ({ currentId: s.currentId }),
     },
   ),

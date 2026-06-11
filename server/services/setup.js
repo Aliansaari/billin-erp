@@ -7,7 +7,7 @@
  *
  *   1. Detect — is Postgres installed and reachable on this machine?
  *   2. Connect — try the supplied credentials against `postgres` admin DB.
- *   3. Provision — create the `billing_erp_master` database if missing,
+ *   3. Provision — create the `zehen_master` database if missing,
  *      write the resolved settings into a config file the server reads
  *      on next boot, then signal "done".
  *
@@ -16,7 +16,7 @@
  * way to authenticate (no admin user yet either).
  *
  * The config file written here lives at:
- *   <homedir>/.billing-erp/config.json
+ *   <homedir>/.zehen/config.json
  *
  * The server reads it on startup BEFORE Postgres connect, so a freshly-
  * installed app loads the user-chosen credentials instead of the
@@ -29,7 +29,7 @@ const os = require('os');
 const { Client } = require('pg');
 const { execFileSync } = require('child_process');
 
-const CONFIG_DIR  = path.join(os.homedir(), '.billing-erp');
+const CONFIG_DIR  = path.join(os.homedir(), '.zehen');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
 function loadConfig() {
@@ -144,11 +144,11 @@ async function testConnection({ host, port, user, password }) {
  * (the DB already exists, the config is already on disk).
  */
 async function provision({ host, port, user, password, masterDbName }) {
-  const dbName = masterDbName || 'billing_erp_master';
+  const dbName = masterDbName || 'zehen_master';
 
   // Audit C19 — the marker-file check (isSetupComplete() in setup.js:234)
   // is the primary guard against re-provisioning, but a missing/corrupted
-  // <home>/.billing-erp/config.json would let the unauthenticated provision
+  // <home>/.zehen/config.json would let the unauthenticated provision
   // endpoint run again and clobber JWT_SECRET. Defense-in-depth: ALSO
   // probe the master DB; if it has user rows, the install has already
   // been bootstrapped and we refuse to overwrite. Combined with the
@@ -242,7 +242,7 @@ async function provision({ host, port, user, password, masterDbName }) {
       user: user || 'postgres',
       password: password || '',
       master_db_name: dbName,
-      // Note: per-company DB name pattern stays `billing_erp_co_<id>`,
+      // Note: per-company DB name pattern stays `zehen_co_<id>`,
       // baked into companyConnections.js.
     },
     jwt_secret: jwtSecret,

@@ -29,7 +29,7 @@ const DATA_DIR = path.join('C:', 'Users', 'Ali', 'Downloads', 'old software data
 
 const stateFile = path.join(
   process.env.USERPROFILE || process.env.HOME,
-  '.billing-erp',
+  '.zehen',
   'embedded-pg.json',
 );
 const pgState = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
@@ -39,7 +39,7 @@ const DB_CONFIG = {
   port: pgState.port,
   user: 'postgres',
   password: pgState.password,
-  database: 'billing_erp',
+  database: 'zehen',
 };
 
 const MODE = process.argv.includes('--import') ? 'import' : 'dry-run';
