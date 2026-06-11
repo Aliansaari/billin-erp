@@ -1,0 +1,252 @@
+/* ───────────────────────────────────────────────────────────────────────
+ * ServerDialog — hidden server-config popup (3-tap on the wordmark).
+ * Inherits the --ed-* editorial tokens from the enclosing .login-screen.
+ * Anchored in the upper-middle so it stays clear of the iOS keyboard.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+.sd-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(8, 5, 3, 0.62);
+  -webkit-backdrop-filter: blur(7px) saturate(120%);
+  backdrop-filter: blur(7px) saturate(120%);
+  animation: sd-fade 0.2s ease both;
+}
+
+.sd-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 91;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  /* Upper-middle anchor: keeps the whole card above the soft keyboard. */
+  padding: calc(env(safe-area-inset-top, 0px) + 13vh) 20px 0;
+  pointer-events: none;
+}
+
+.sd-card {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 372px;
+  background: linear-gradient(180deg, #1A120D 0%, #140D09 100%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  padding: 16px 16px 15px;
+  box-shadow:
+    0 30px 70px -20px rgba(0, 0, 0, 0.75),
+    0 10px 28px -12px rgba(196, 78, 24, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: sd-pop 0.28s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+@keyframes sd-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sd-pop {
+  from { opacity: 0; transform: translateY(-10px) scale(0.965); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ─── Header ───────────────────────────────────────────────────────── */
+.sd-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 15px;
+}
+
+.sd-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFE9DB;
+  background: linear-gradient(155deg, var(--ed-accent-hi, #DD5527) 0%, #9A320E 100%);
+  box-shadow: 0 4px 12px -3px rgba(196, 78, 24, 0.55), inset 0 1px 0 rgba(255, 210, 175, 0.35);
+}
+
+.sd-head-text { flex: 1; min-width: 0; }
+
+.sd-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ed-fg, #F5EDE0);
+  line-height: 1.15;
+}
+
+.sd-sub {
+  font-size: 11.5px;
+  color: var(--ed-fg-soft, #8B7E6F);
+  margin-top: 2px;
+  font-style: italic;
+}
+
+.sd-x {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ed-fg-soft, #8B7E6F);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+}
+.sd-x:active { background: rgba(255, 255, 255, 0.07); color: var(--ed-fg, #F5EDE0); }
+.sd-x:disabled { opacity: 0.4; }
+
+/* ─── Smart input ──────────────────────────────────────────────────── */
+.sd-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 6px 0 15px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1.5px solid rgba(255, 255, 255, 0.10);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.sd-input:focus-within {
+  border-color: rgba(196, 78, 24, 0.55);
+  background: rgba(196, 78, 24, 0.05);
+  box-shadow: 0 0 0 3px rgba(196, 78, 24, 0.10);
+}
+.sd-input.err {
+  border-color: rgba(248, 113, 113, 0.6);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.08);
+}
+.sd-input.ok {
+  border-color: rgba(74, 222, 128, 0.55);
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.08);
+}
+
+.sd-input-text {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 16px; /* ≥16px stops iOS from zooming the field on focus */
+  letter-spacing: -0.01em;
+  color: var(--ed-fg, #F5EDE0);
+  caret-color: var(--ed-accent, #C44E18);
+}
+.sd-input-text::placeholder { color: var(--ed-fg-faint, #5A4F44); }
+.sd-input-text:disabled { opacity: 0.7; }
+
+.sd-clear {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  color: var(--ed-fg-mute, #6B5F52);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.sd-clear:active { color: var(--ed-fg, #F5EDE0); background: rgba(255, 255, 255, 0.09); }
+
+/* ─── Preview / tip / error ────────────────────────────────────────── */
+.sd-preview,
+.sd-tip,
+.sd-error {
+  font-size: 11.5px;
+  line-height: 1.45;
+  margin-top: 10px;
+  padding: 0 2px;
+}
+
+.sd-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #7FCBA4;
+}
+.sd-preview svg { color: var(--ed-accent-hi, #DD5527); flex-shrink: 0; }
+.sd-preview strong { color: var(--ed-fg, #F5EDE0); font-weight: 600; word-break: break-all; }
+
+.sd-tip { color: var(--ed-fg-mute, #6B5F52); font-style: italic; }
+.sd-tip code {
+  font-style: normal;
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #B5A693;
+}
+
+.sd-error { color: #f3a09a; }
+
+/* ─── Actions ──────────────────────────────────────────────────────── */
+.sd-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.sd-cancel {
+  flex: 0 0 auto;
+  min-width: 88px;
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ed-fg-soft, #8B7E6F);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.sd-cancel:active { background: rgba(255, 255, 255, 0.07); }
+.sd-cancel:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.sd-connect {
+  flex: 1;
+  height: 48px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(155deg, var(--ed-accent-hi, #DD5527) 0%, var(--ed-accent-lo, #B43D14) 100%);
+  color: #FFF4EA;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  box-shadow: 0 8px 22px -8px rgba(196, 78, 24, 0.6), inset 0 1px 0 rgba(255, 200, 160, 0.3);
+  transition: transform 0.12s, box-shadow 0.2s, opacity 0.2s, background 0.2s;
+}
+.sd-connect:active { transform: scale(0.98); }
+.sd-connect:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+.sd-connect.ok {
+  background: linear-gradient(155deg, #2FA968 0%, #1B6E40 100%);
+  opacity: 1;
+  box-shadow: 0 8px 22px -8px rgba(34, 160, 90, 0.55), inset 0 1px 0 rgba(190, 255, 220, 0.3);
+}
+
+.sd-spin {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.7px solid rgba(255, 244, 234, 0.32);
+  border-top-color: #FFF4EA;
+  animation: sd-spin 0.7s linear infinite;
+}
+@keyframes sd-spin { to { transform: rotate(360deg); } }

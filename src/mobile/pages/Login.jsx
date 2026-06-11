@@ -4,22 +4,23 @@ import { Toast } from 'antd-mobile';
 import { authAPI, companyAPI, setServerUrl as saveServerUrl, getServerUrl } from '../../api';
 import useAuthStore from '../../store/authStore';
 import CompanySheet from '../components/CompanySheet';
+import ServerDialog from '../components/ServerDialog';
 import './Login.css';
 
 const LAST_COMPANY_KEY      = 'billing_erp_last_company';
 const LAST_COMPANY_NAME_KEY = 'billing_erp_last_company_name';
 
-// Inline icons keep bundle small (no icon-lib import) and match the editorial
-// stroke weight (1.7) consistently across all three fields.
+// Inline icons keep the bundle small (no icon-lib import) and match the
+// editorial stroke weight (1.7) consistently across the form.
 const UserIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
        strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
     <circle cx="12" cy="7" r="4" />
   </svg>
 );
 const LockIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
        strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="11" width="18" height="11" rx="2" />
     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -27,13 +28,13 @@ const LockIcon = () => (
 );
 const EyeIcon = ({ open }) => (
   open ? (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
       <circle cx="12" cy="12" r="3" />
     </svg>
   ) : (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
       <line x1="1" y1="1" x2="23" y2="23" />
@@ -43,11 +44,11 @@ const EyeIcon = ({ open }) => (
 const ChevronIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
        strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M6 9l6 6 6-6" />
+    <path d="M9 6l6 6-6 6" />
   </svg>
 );
 const ArrowIcon = () => (
-  <svg className="login-signin-arrow" width="14" height="14" viewBox="0 0 24 24"
+  <svg className="login-signin-arrow" width="15" height="15" viewBox="0 0 24 24"
        fill="none" stroke="currentColor" strokeWidth="2.5"
        strokeLinecap="round" strokeLinejoin="round">
     <path d="M5 12h14M13 6l6 6-6 6" />
@@ -56,14 +57,6 @@ const ArrowIcon = () => (
 const SparkIcon = () => (
   <svg className="login-hint-spark" width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
     <path d="M12 0L13.5 8.5 22 10 13.5 11.5 12 20 10.5 11.5 2 10 10.5 8.5z" />
-  </svg>
-);
-const ServerIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="2" width="20" height="8" rx="2"/>
-    <rect x="2" y="14" width="20" height="8" rx="2"/>
-    <line x1="6" y1="6" x2="6.01" y2="6"/>
-    <line x1="6" y1="18" x2="6.01" y2="18"/>
   </svg>
 );
 
@@ -85,6 +78,12 @@ function normalizeCompanies(payload, lastUsedId) {
   }));
 }
 
+function pickInitialCompany(list, lastUsedId) {
+  return lastUsedId && list.find((c) => c.company_id === lastUsedId)
+    ? lastUsedId
+    : (list[0]?.company_id ?? null);
+}
+
 export default function Login() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
@@ -96,12 +95,13 @@ export default function Login() {
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const usernameRef = useRef(null);
 
-  const [serverOpen,   setServerOpen]   = useState(false);
-  const [serverUrl,    setServerUrlVal] = useState(() => getServerUrl());
-  const [serverSaving, setServerSaving] = useState(false);
-  const [serverErr,    setServerErr]    = useState('');
+  // Connection state drives the subtle status pill under the wordmark.
+  const [conn, setConn] = useState('checking'); // 'checking' | 'online' | 'offline'
+
+  // Hidden server config — revealed by tapping the wordmark 3×.
+  const [serverOpen, setServerOpen] = useState(false);
+  const tapRef = useRef({ count: 0, timer: null });
 
   // Pull the last-used company id (saved post-login) so we can pre-select
   // it on next launch — saves a tap for the common single-firm case.
@@ -114,8 +114,7 @@ export default function Login() {
   }, []);
 
   // Fetch companies once on mount. listPublic doesn't require auth (the
-  // license gate already exempts companies/list-public so a fresh install
-  // can even render this).
+  // license gate exempts companies/list-public so a fresh install can render).
   useEffect(() => {
     let cancelled = false;
     companyAPI.listPublic()
@@ -123,40 +122,49 @@ export default function Login() {
         if (cancelled) return;
         const list = normalizeCompanies(res.data, lastUsedId);
         setCompanies(list);
-        const initial = lastUsedId && list.find((c) => c.company_id === lastUsedId)
-          ? lastUsedId
-          : (list[0]?.company_id ?? null);
-        setSelectedCompanyId(initial);
+        setSelectedCompanyId(pickInitialCompany(list, lastUsedId));
+        setConn('online');
       })
       .catch(() => {
-        setServerOpen(true); // auto-expand server config when fetch fails (likely wrong URL)
+        if (cancelled) return;
+        setConn('offline');
+        // Fresh install with no server yet → surface the (otherwise hidden)
+        // config dialog so the app isn't a dead end. Once a server has ever
+        // been saved, stay hidden and rely on the 3-tap gesture.
+        if (!getServerUrl()) setServerOpen(true);
       });
+    return () => { cancelled = true; };
   }, [lastUsedId]);
 
   const selectedCompany = companies.find((c) => c.company_id === selectedCompanyId);
 
-  async function handleSaveServer() {
-    const url = serverUrl.trim().replace(/\/+$/, '');
-    if (!url) return;
-    setServerSaving(true);
-    setServerErr('');
-    try {
-      const res = await fetch(`${url}/api/companies/list-public`);
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const json = await res.json();
-      saveServerUrl(url);
-      const list = normalizeCompanies(json, lastUsedId);
-      setCompanies(list);
-      const initial = lastUsedId && list.find((c) => c.company_id === lastUsedId)
-        ? lastUsedId
-        : (list[0]?.company_id ?? null);
-      setSelectedCompanyId(initial);
-      setServerOpen(false);
-    } catch (e) {
-      setServerErr(`Cannot reach server: ${e.message}`);
-    } finally {
-      setServerSaving(false);
+  // Secret entry point: three taps on the wordmark (within 800ms of each
+  // other) open the server dialog. Counter lives in a ref so taps don't
+  // trigger re-renders.
+  function handleWordmarkTap() {
+    const t = tapRef.current;
+    if (t.timer) clearTimeout(t.timer);
+    t.count += 1;
+    if (t.count >= 3) {
+      t.count = 0;
+      setServerOpen(true);
+      return;
     }
+    t.timer = setTimeout(() => { t.count = 0; }, 800);
+  }
+
+  // Owned by the parent: the dialog calls this with a normalized origin and
+  // we do the reachability check + persistence. Throws on failure so the
+  // dialog can show an inline error.
+  async function connectToServer(url) {
+    const res = await fetch(`${url}/api/companies/list-public`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    saveServerUrl(url);
+    const list = normalizeCompanies(json, lastUsedId);
+    setCompanies(list);
+    setSelectedCompanyId(pickInitialCompany(list, lastUsedId));
+    setConn('online');
   }
 
   async function onSubmit(e) {
@@ -192,16 +200,22 @@ export default function Login() {
     }
   }
 
+  const connLabel = conn === 'online' ? 'Connected' : conn === 'offline' ? 'Offline' : 'Connecting…';
+  const hasFirms = companies.length > 0;
+
   return (
     <div className="login-screen">
       <form className="login-content" onSubmit={onSubmit} noValidate>
-        {/* Wordmark */}
-        <div className="wordmark">
-          <div className="wordmark-mark" aria-hidden />
-          <div className="wordmark-text">
+        {/* Brand — secret 3-tap trigger reveals the server dialog */}
+        <div className="login-brand" onClick={handleWordmarkTap} role="button" tabIndex={-1}>
+          <div className="login-brand-mark" aria-hidden />
+          <div className="login-brand-word">
             billin<span className="wm-dot">·</span>erp
-            <span className="wm-version">v0.1</span>
           </div>
+          <span className={`login-status login-status--${conn}`}>
+            <span className="login-status-dot" />
+            {connLabel}
+          </span>
         </div>
 
         {/* Hero */}
@@ -210,42 +224,6 @@ export default function Login() {
           <p>Sign in to continue to your firm.</p>
         </div>
 
-        {/* Inline server setup — shown prominently when no server is configured */}
-        {serverOpen && companies.length === 0 && (
-          <div className="login-server-card">
-            <div className="login-server-card-head">
-              <ServerIcon />
-              <span>Connect to server</span>
-            </div>
-            <p className="login-server-card-desc">
-              Enter your Mac's IP and port, e.g. <strong>http://192.168.1.101:3001</strong>
-            </p>
-            <div className="login-server-row">
-              <label className="login-input login-server-input">
-                <input
-                  type="url"
-                  className="login-input-text"
-                  placeholder="http://192.168.x.x:3001"
-                  value={serverUrl}
-                  onChange={(e) => { setServerUrlVal(e.target.value); setServerErr(''); }}
-                  autoCorrect="off"
-                  autoCapitalize="none"
-                  spellCheck="false"
-                />
-              </label>
-              <button
-                type="button"
-                className="login-server-btn"
-                onClick={handleSaveServer}
-                disabled={!serverUrl.trim() || serverSaving}
-              >
-                {serverSaving ? <span className="login-spinner" style={{ width: 13, height: 13 }} /> : 'Connect'}
-              </button>
-            </div>
-            {serverErr && <div className="login-server-err" style={{ marginTop: 8 }}>{serverErr}</div>}
-          </div>
-        )}
-
         {/* Editorial rule */}
         <div className="editorial-rule" aria-hidden>
           <div className="editorial-rule-line" />
@@ -253,141 +231,83 @@ export default function Login() {
           <div className="editorial-rule-line" />
         </div>
 
-        {/* Form */}
-        <div className="login-form">
-          {/* Username */}
-          <div className="login-field">
-            <div className="login-field-head">
-              <span className="login-field-label">Username</span>
-            </div>
-            <label className="login-input">
-              <span className="login-input-icon"><UserIcon /></span>
-              <input
-                ref={usernameRef}
-                className="login-input-text"
-                type="text"
-                autoComplete="username"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck="false"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
-              />
-            </label>
-          </div>
-
-          {/* Password */}
-          <div className="login-field">
-            <div className="login-field-head">
-              <span className="login-field-label">Password</span>
-              <button
-                type="button"
-                className="login-field-meta"
-                onClick={() => Toast.show({ icon: 'success', content: 'Ask the admin to reset it' })}
-              >
-                Forgot?
-              </button>
-            </div>
-            <label className="login-input">
-              <span className="login-input-icon"><LockIcon /></span>
-              <input
-                className="login-input-text"
-                type={showPassword ? 'text' : 'password'}
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-              <button
-                type="button"
-                className="login-input-eye"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                <EyeIcon open={showPassword} />
-              </button>
-            </label>
-          </div>
-
-          {/* Company selector */}
-          <div className="login-field">
-            <div className="login-field-head">
-              <span className="login-field-label">Company</span>
-              <span className="login-field-meta" style={{ pointerEvents: 'none' }}>
-                {companies.length ? `${companies.length} firm${companies.length === 1 ? '' : 's'}` : '—'}
-              </span>
-            </div>
-            <button
-              type="button"
-              className="login-company"
-              onClick={() => companies.length > 0 && setSheetOpen(true)}
-              disabled={companies.length === 0}
-            >
-              <span className="login-company-avatar">
-                {(selectedCompany?.company_name || '?').trim().charAt(0).toUpperCase()}
-              </span>
-              <span className="login-company-info">
-                <span className="login-company-name">
-                  {selectedCompany?.company_name || 'No firm yet'}
-                </span>
-                <span className="login-company-meta">
-                  {selectedCompany
-                    ? ([selectedCompany.gstin, selectedCompany.city].filter(Boolean).join(' · ') || 'No metadata')
-                    : 'Tap to choose once available'}
-                </span>
-              </span>
-              <span className="login-company-chevron"><ChevronIcon /></span>
-            </button>
-          </div>
-
-          <button type="submit" className="login-signin" disabled={submitting}>
-            {submitting ? <span className="login-spinner" /> : <>Sign in <ArrowIcon /></>}
-          </button>
-        </div>
-
-        {/* Server config */}
-        <div className="login-server">
+        {/* Grouped form card */}
+        <div className="login-card">
+          {/* Company / firm context */}
           <button
             type="button"
-            className={`login-server-toggle${serverOpen ? ' active' : ''}`}
-            onClick={() => setServerOpen((v) => !v)}
+            className="login-firm"
+            onClick={() => hasFirms && setSheetOpen(true)}
+            disabled={!hasFirms}
           >
-            <ServerIcon />
-            <span>Server setup</span>
-            <span className="login-server-chevron">{serverOpen ? '▲' : '▼'}</span>
+            <span className="login-firm-avatar">
+              {(selectedCompany?.company_name || '?').trim().charAt(0).toUpperCase()}
+            </span>
+            <span className="login-firm-info">
+              <span className="login-firm-label">Company</span>
+              <span className="login-firm-name">
+                {selectedCompany?.company_name || (conn === 'offline' ? 'No server connected' : 'No firm yet')}
+              </span>
+            </span>
+            {hasFirms && companies.length > 1 && (
+              <span className="login-firm-count">{companies.length}</span>
+            )}
+            <span className="login-firm-chevron"><ChevronIcon /></span>
           </button>
-          {serverOpen && (
-            <div className="login-server-body">
-              <div className="login-server-desc">
-                Enter your server's LAN address (e.g. <strong>http://192.168.1.101:3001</strong>).
-              </div>
-              <div className="login-server-row">
-                <label className="login-input login-server-input">
-                  <input
-                    type="url"
-                    className="login-input-text"
-                    placeholder="http://192.168.x.x:3001"
-                    value={serverUrl}
-                    onChange={(e) => { setServerUrlVal(e.target.value); setServerErr(''); }}
-                    autoCorrect="off"
-                    autoCapitalize="none"
-                    spellCheck="false"
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="login-server-btn"
-                  onClick={handleSaveServer}
-                  disabled={!serverUrl.trim() || serverSaving}
-                >
-                  {serverSaving ? <span className="login-spinner" style={{ width: 13, height: 13 }} /> : 'Connect'}
-                </button>
-              </div>
-              {serverErr && <div className="login-server-err" style={{ marginTop: 8 }}>{serverErr}</div>}
-            </div>
-          )}
+
+          <div className="login-divider" />
+
+          {/* Username */}
+          <div className="login-row">
+            <span className="login-row-icon"><UserIcon /></span>
+            <input
+              className="login-row-input"
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck="false"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+            />
+          </div>
+
+          <div className="login-divider" />
+
+          {/* Password */}
+          <div className="login-row">
+            <span className="login-row-icon"><LockIcon /></span>
+            <input
+              className="login-row-input"
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+            />
+            <button
+              type="button"
+              className="login-row-eye"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              <EyeIcon open={showPassword} />
+            </button>
+          </div>
         </div>
+
+        <button type="submit" className="login-signin" disabled={submitting}>
+          {submitting ? <span className="login-spinner" /> : <>Sign in <ArrowIcon /></>}
+        </button>
+
+        <button
+          type="button"
+          className="login-forgot"
+          onClick={() => Toast.show({ icon: 'success', content: 'Ask the admin to reset it' })}
+        >
+          Forgot password?
+        </button>
 
         {/* Footer hint */}
         <div className="login-hint">
@@ -407,6 +327,13 @@ export default function Login() {
         onSelect={(id) => setSelectedCompanyId(id)}
         onConfirm={() => setSheetOpen(false)}
         onClose={() => setSheetOpen(false)}
+      />
+
+      <ServerDialog
+        open={serverOpen}
+        initialUrl={getServerUrl()}
+        onConnect={connectToServer}
+        onClose={() => setServerOpen(false)}
       />
     </div>
   );
