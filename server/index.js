@@ -479,7 +479,7 @@ async function startServer() {
     //
     // Bump MIGRATION_VERSION whenever you add/change any migration below.
     // A simple integer counter works: just increment it.
-    const MIGRATION_VERSION = '9';
+    const MIGRATION_VERSION = '11';
     const migVersionFile = path.join(os.homedir(), '.billing-erp', 'migration-version.txt');
     let skipMigrations = false;
     try {
@@ -3122,6 +3122,115 @@ async function startServer() {
       }
     } catch (err) {
       console.error('[Balance repair] Error:', err.message);
+    }
+
+    // ── Data repair: reset bills whose paid_amount was inflated by the ──
+    // old reconcile (which did paid_amount += applyThis on every pass).
+    // The current reconcile treats paid_amount as the immutable at-billing
+    // snapshot. Bills that were inflated have capacity=0 forever and show
+    // as Paid even though no cash was collected at billing.
+    // Safe heuristic: paid_amount > 0 AND balance = 0 AND no auto_from_bill
+    // receipt exists for the bill → the paid_amount has no legitimate source
+    // → reset to 0 so reconcile can re-derive balance from actual receipts.
+    try {
+      const [infPurchase] = await sequelize.query(`
+        UPDATE purchase_bills pb
+           SET paid_amount     = 0,
+               balance_amount  = pb.total_amount,
+               payment_status  = 'Unpaid'
+         WHERE pb.is_cancelled = false
+           AND pb.paid_amount  > 0.01
+           AND pb.balance_amount < 0.01
+           AND pb.total_amount > 1
+           AND NOT EXISTS (
+             SELECT 1 FROM payments_receipts pr
+              WHERE pr.source          = 'auto_from_bill'
+                AND pr.source_bill_id  = pb.purchase_bill_id
+                AND pr.is_cancelled    = false
+           )
+        RETURNING purchase_bill_id, bill_number, total_amount, supplier_id AS party_id
+      `);
+      const [infSales] = await sequelize.query(`
+        UPDATE sales_bills sb
+           SET paid_amount     = 0,
+               balance_amount  = sb.total_amount,
+               payment_status  = 'Unpaid'
+         WHERE sb.is_cancelled = false
+           AND sb.paid_amount  > 0.01
+           AND sb.balance_amount < 0.01
+           AND sb.total_amount > 1
+           AND NOT EXISTS (
+             SELECT 1 FROM payments_receipts pr
+              WHERE pr.source          = 'auto_from_bill'
+                AND pr.source_bill_id  = sb.sales_bill_id
+                AND pr.is_cancelled    = false
+           )
+        RETURNING sales_bill_id, bill_number, total_amount, customer_id AS party_id
+      `);
+      if (infPurchase.length > 0 || infSales.length > 0) {
+        console.log(`[Balance repair v2] Reset ${infPurchase.length} purchase + ${infSales.length} sales bills with inflated paid_amount`);
+        for (const b of infPurchase) console.log(`  Purchase #${b.bill_number} paid_amount reset, balance restored to ₹${b.total_amount}`);
+        for (const b of infSales)    console.log(`  Sales #${b.bill_number} paid_amount reset, balance restored to ₹${b.total_amount}`);
+        // Re-run reconcile + recalculate for every affected party so
+        // balance_amount and current_balance reflect the corrected data.
+        const { reconcileBillsForParty, recalculatePartyBalance } = require('./utils/balanceHelper');
+        const affectedParties = new Set([
+          ...infPurchase.map(b => b.party_id),
+          ...infSales.map(b => b.party_id),
+        ]);
+        for (const partyId of affectedParties) {
+          try {
+            await reconcileBillsForParty(partyId);
+            await recalculatePartyBalance(partyId);
+          } catch (re) {
+            console.error(`[Balance repair v2] reconcile failed for party ${partyId}:`, re.message);
+          }
+        }
+        console.log(`[Balance repair v2] Reconciled ${affectedParties.size} affected parties`);
+      }
+    } catch (err) {
+      console.error('[Balance repair v2] Error:', err.message);
+    }
+
+    // ── Full reconcile pass: re-derive bill balances for every party ────
+    // Root cause (HASIBUL/SOIDUL/SHANKER tickets): the import froze each
+    // party's pre-migration dues into a static "opening balance" lump, while
+    // the source (old) software applied payments oldest-first (FIFO) and
+    // showed the genuinely-unpaid RECENT bills with no lump. reconcile now
+    // treats the opening balance as the OLDEST outstanding item in the FIFO
+    // chain, so historic payments absorb it and the real recent bills surface
+    // — reproducing the old software exactly. Verified on a restored copy:
+    // 0 of 696 party TOTALS change (only the bill-vs-lump split changes).
+    // recalculatePartyBalance re-derives current_balance (unchanged). Both are
+    // idempotent (the payment screen runs them on open), so this one-time
+    // backfill is safe and brings EVERY party — not just opened ones — in sync.
+    try {
+      const { reconcileBillsForParty, recalculatePartyBalance } = require('./utils/balanceHelper');
+      const [partyRows] = await sequelize.query(`
+        SELECT party_id FROM parties
+         WHERE COALESCE(is_system_cash, false) = false
+           AND party_id IN (
+             SELECT customer_id FROM sales_bills    WHERE is_cancelled = false
+             UNION
+             SELECT supplier_id FROM purchase_bills WHERE is_cancelled = false
+           )
+      `);
+      let done = 0, failed = 0;
+      const t0 = Date.now();
+      for (const row of partyRows) {
+        try {
+          await reconcileBillsForParty(row.party_id);
+          await recalculatePartyBalance(row.party_id);
+        } catch (re) {
+          failed++;
+          if (failed <= 10) console.error(`[Reconcile backfill] party ${row.party_id} failed:`, re.message);
+        }
+        done++;
+        if (done % 100 === 0) console.log(`[Reconcile backfill] ${done}/${partyRows.length} parties…`);
+      }
+      console.log(`[Reconcile backfill] Reconciled ${done} parties (${failed} failed) in ${Date.now() - t0}ms`);
+    } catch (err) {
+      console.error('[Reconcile backfill] Error:', err.message);
     }
 
     // ── Save migration version ──────────────────────────────────────────

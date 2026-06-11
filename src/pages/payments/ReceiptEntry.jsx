@@ -235,6 +235,10 @@ export default function ReceiptEntry() {
       // Receivable opening balance with some still unpaid. Two guards:
       //   1. opening_balance_type must be 'Receivable'
       //   2. remainingOB capped at the party's original opening_balance
+      // derivedOB = current_balance − sum(open bill balances). This is the
+      // plug that keeps (bills + OB row) === current_balance, so MAX always
+      // equals the party's true receivable. Receipts the user applied to the
+      // opening balance reduce current_balance, which correctly shrinks this.
       const billsTotal    = rows.reduce((s, b) => s + parseFloat(b.balance_amount || 0), 0);
       const partyBal      = parseFloat(party?.current_balance || 0);
       const originalOB    = parseFloat(party?.opening_balance || 0);

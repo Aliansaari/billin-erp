@@ -20,6 +20,21 @@ const { Op, QueryTypes } = require('sequelize');
 const { buildStatementPdf } = require('./statementPdf');
 const { buildBillPdf, buildReceiptPdf, safeName } = require('./docPdf');
 
+/* ══════════════ Entry creation — session state ══════════════════════
+ * Multi-step conversations (party/ledger search → confirmation → save)
+ * are tracked per-sender in memory with a 5-minute TTL.
+ */
+const SESSIONS = new Map();
+const SESSION_TTL = 5 * 60 * 1000;
+function getSession(key) {
+  const s = SESSIONS.get(key);
+  if (!s) return null;
+  if (Date.now() > s.expiresAt) { SESSIONS.delete(key); return null; }
+  return s;
+}
+function setSession(key, data) { SESSIONS.set(key, { ...data, expiresAt: Date.now() + SESSION_TTL }); }
+function clearSession(key) { SESSIONS.delete(key); }
+
 // ── Per-sender rate limit ──
 const RL = new Map();
 function allow(key, perMin = 12, perHour = 100) {
@@ -43,6 +58,92 @@ function parseList(s) { try { const a = JSON.parse(s || '[]'); return Array.isAr
 function parseMap(s) { try { const o = JSON.parse(s || '{}'); return (o && typeof o === 'object') ? o : {}; } catch { return {}; } }
 function inList(list, last10) { return list.some((x) => String(x).replace(/\D/g, '').slice(-10) === last10); }
 const on = (map, key) => map[key] !== false; // default ON unless explicitly disabled
+
+/* ── Natural-language helpers ── */
+const MONTHS = {
+  jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12,
+  january:1, february:2, march:3, april:4, june:6, july:7, august:8,
+  september:9, october:10, november:11, december:12,
+};
+function parseDateStr(s) {
+  const v = String(s || '').trim().toLowerCase();
+  if (!v) return null;
+  if (['today', 'aaj', 'aj', 'abhi'].includes(v)) return dayOffset(0);
+  if (['yesterday', 'kal', 'kal ka', 'kl'].includes(v)) return dayOffset(-1);
+  if (['parso', 'parson', 'day before yesterday'].includes(v)) return dayOffset(-2);
+  let m;
+  // DD/MM/YYYY or DD-MM-YYYY
+  m = v.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) return `${m[3]}-${pad(+m[2])}-${pad(+m[1])}`;
+  // YYYY-MM-DD
+  m = v.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
+  // DD/MM (current year)
+  m = v.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) return `${new Date().getFullYear()}-${pad(+m[2])}-${pad(+m[1])}`;
+  // "15 jun" / "15 june" / "jun 15"
+  m = v.match(/^(\d{1,2})\s+([a-z]+)$/);
+  if (m && MONTHS[m[2].slice(0, 3)]) return `${new Date().getFullYear()}-${pad(MONTHS[m[2].slice(0, 3)])}-${pad(+m[1])}`;
+  m = v.match(/^([a-z]+)\s+(\d{1,2})$/);
+  if (m && MONTHS[m[1].slice(0, 3)]) return `${new Date().getFullYear()}-${pad(MONTHS[m[1].slice(0, 3)])}-${pad(+m[2])}`;
+  return null;
+}
+function parseAmt(s) { return parseFloat(String(s || '').replace(/,/g, '').trim()) || 0; }
+function normaliseMode(s) {
+  const k = String(s || '').toLowerCase().replace(/\s+/g, '');
+  if (['upi', 'gpay', 'phonepe', 'phonepay', 'paytm'].includes(k)) return 'UPI';
+  if (['bank', 'banktransfer', 'neft', 'rtgs', 'imps', 'transfer'].includes(k)) return 'Bank Transfer';
+  return 'Cash';
+}
+function looksLikeEntryIntent(text) {
+  return /^(?:rec(?:eived?)?|rcvd|pay(?:ment)?|paid?|exp(?:ense)?|kharch[a]?)\s/i.test(text.trim());
+}
+function parseOwnerIntent(raw) {
+  let rest = raw.trim();
+  let date = dayOffset(0);
+
+  // Strip "on <date>" / "dated <date>" / "date <date>" anywhere
+  const dm = rest.match(/\s+(?:on|dated?|date|tarikh)\s+([\d\/\-]+(?:\s+\w+)?|\w+(?:\s+\d+)?|today|yesterday|kal|aaj|parso)/i);
+  if (dm) { const p = parseDateStr(dm[1]); if (p) { date = p; rest = rest.replace(dm[0], '').trim(); } }
+
+  // Strip trailing payment mode "by upi" / "via cash" / "cash" / "upi"
+  let paymentMode = 'Cash';
+  const mm = rest.match(/(?:\s+(?:by|via))?\s+(cash|upi|gpay|phonepe|paytm|bank\s*transfer|neft|rtgs|imps|transfer)$/i);
+  if (mm) { paymentMode = normaliseMode(mm[1]); rest = rest.replace(mm[0], '').trim(); }
+
+  let m;
+
+  // ── RECEIPT ──
+  // "received 5000 from Ahmed" / "rec 5000 from Ahmed" / "rcvd 5000 from Ahmed"
+  m = rest.match(/^(?:received?|rcvd|rec)\s+(\d[\d,.]*)\s+(?:from|frm|se)\s+(.+)$/i);
+  if (m) return { type: 'receipt', amount: parseAmt(m[1]), partyQuery: m[2].trim(), date, paymentMode };
+
+  // "Ahmed ne 5000 diya" / "Ahmed paid 5000"
+  m = rest.match(/^(.+?)\s+(?:ne|has)\s+(\d[\d,.]*)\s+(?:diya|de\s*diya|bheja|paid|rakha|diye)$/i);
+  if (m) return { type: 'receipt', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode };
+  m = rest.match(/^(.+?)\s+paid\s+(\d[\d,.]*)$/i);
+  if (m) return { type: 'receipt', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode };
+
+  // ── PAYMENT ──
+  // "paid 5000 to Ahmed" / "pay 5000 to Ahmed" / "payment 5000 to Ahmed"
+  m = rest.match(/^(?:paid?|payment)\s+(\d[\d,.]*)\s+(?:to|ko)\s+(.+)$/i);
+  if (m) return { type: 'payment', amount: parseAmt(m[1]), partyQuery: m[2].trim(), date, paymentMode };
+
+  // "Ahmed ko 5000 diya"
+  m = rest.match(/^(.+?)\s+ko\s+(\d[\d,.]*)\s+(?:diya|de\s*diya|bheja|paid|diye)$/i);
+  if (m) return { type: 'payment', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode };
+
+  // ── EXPENSE ──
+  // "expense 1200 electricity" / "exp 1200 for electricity" / "kharch 1200 electricity"
+  m = rest.match(/^(?:expense|exp|kharch|kharcha)\s+(\d[\d,.]*)(?:\s+for)?\s+(.+)$/i);
+  if (m) return { type: 'expense', amount: parseAmt(m[1]), description: m[2].trim(), date, paymentMode };
+
+  // "paid 1200 for electricity" — "for" distinguishes expense from supplier payment
+  m = rest.match(/^(?:paid?|spent?|spend)\s+(\d[\d,.]*)\s+for\s+(.+)$/i);
+  if (m) return { type: 'expense', amount: parseAmt(m[1]), description: m[2].trim(), date, paymentMode };
+
+  return null;
+}
 
 async function companyInfo(models) {
   const s = await models.SystemSettings.findOne();
@@ -294,6 +395,182 @@ async function stockByName(models, q, f) {
   return rows.length === 1 ? stockCard(rows[0], f) : stockList(rows, `"${v}"`);
 }
 
+/* ══════════════ Entry session flow ═════════════════════════════════ */
+
+async function showReceiptPaymentConfirm(party, intent, sk, sendText) {
+  const { type, amount, date, paymentMode } = intent;
+  const label = type === 'receipt' ? 'Receipt' : 'Payment';
+  const emoji = type === 'receipt' ? '📥' : '📤';
+  const L = [`${emoji} *${label} preview*`, '',
+    `Party: *${party.party_name}*`, `Amount: *${amt(amount)}*`,
+    `Date: *${dt(date)}*`, `Mode: *${paymentMode}*`,
+    `Current balance: ${drcr(party.current_balance)}`, '',
+    'Reply *yes* to save or *no* to cancel.'];
+  setSession(sk, { type: `confirm_${type}`, party, intent });
+  return sendText(L.join('\n'));
+}
+
+async function showExpenseConfirm(ledger, intent, sk, sendText) {
+  const { amount, date, paymentMode } = intent;
+  const L = ['🧾 *Expense preview*', '',
+    `Account: *${ledger.ledger_name}*`, `Amount: *${amt(amount)}*`,
+    `Date: *${dt(date)}*`, `Mode: *${paymentMode}*`, '',
+    'Reply *yes* to save or *no* to cancel.'];
+  setSession(sk, { type: 'confirm_expense', ledger, intent });
+  return sendText(L.join('\n'));
+}
+
+async function startReceiptPaymentFlow(intent, sk, models, sendText) {
+  const { type, amount, partyQuery } = intent;
+  if (!amount || amount <= 0) return sendText('❌ Amount not understood.\n\nExamples:\n  *rec 5000 from Ahmed*\n  *pay 3000 to Ali Traders*\n\nReply *0* for the menu.');
+  const rows = await models.Party.findAll({
+    where: { party_name: { [Op.iLike]: `%${partyQuery}%` } },
+    order: [['party_name', 'ASC']], limit: 8,
+    attributes: ['party_id', 'party_name', 'party_type', 'current_balance'],
+  });
+  if (!rows.length) return sendText(`❌ No party matching *${partyQuery}* found. Check the spelling and try again.\n\nReply *0* for the menu.`);
+  if (rows.length === 1) return showReceiptPaymentConfirm(rows[0].toJSON(), intent, sk, sendText);
+  const L = [`Multiple matches for *${partyQuery}*:`, ''];
+  rows.forEach((p, i) => L.push(`${i + 1}. ${p.party_name}${p.party_type ? ` (${p.party_type})` : ''} — ${drcr(p.current_balance)}`));
+  L.push('', 'Reply with the *number* to select, or *no* to cancel.');
+  setSession(sk, { type: `pick_party_${type}`, intent, parties: rows.map((p) => p.toJSON()) });
+  return sendText(L.join('\n'));
+}
+
+async function startExpenseFlow(intent, sk, models, sendText) {
+  const { amount, description } = intent;
+  if (!amount || amount <= 0) return sendText('❌ Amount not understood.\n\nExample: *exp 1200 electricity*\n\nReply *0* for the menu.');
+  let rows = await models.LedgerAccount.findAll({
+    where: { ledger_group: 'Expenses', is_active: true, ledger_name: { [Op.iLike]: `%${description}%` } },
+    order: [['ledger_name', 'ASC']], limit: 8, attributes: ['ledger_id', 'ledger_name'],
+  });
+  if (!rows.length) {
+    // No match — show all expense ledgers so the owner can pick
+    rows = await models.LedgerAccount.findAll({
+      where: { ledger_group: 'Expenses', is_active: true },
+      order: [['ledger_name', 'ASC']], limit: 20, attributes: ['ledger_id', 'ledger_name'],
+    });
+    if (!rows.length) return sendText('❌ No expense accounts found. Please create expense ledgers in the app first.\n\nReply *0* for the menu.');
+    const L = [`❌ No expense account matching *${description}*. Available accounts:`, ''];
+    rows.forEach((l, i) => L.push(`${i + 1}. ${l.ledger_name}`));
+    L.push('', 'Reply with the *number* to use, or *no* to cancel.');
+    setSession(sk, { type: 'pick_ledger_expense', intent, ledgers: rows.map((l) => l.toJSON()) });
+    return sendText(L.join('\n'));
+  }
+  if (rows.length === 1) return showExpenseConfirm(rows[0].toJSON(), intent, sk, sendText);
+  const L = [`Multiple expense accounts matching *${description}*:`, ''];
+  rows.forEach((l, i) => L.push(`${i + 1}. ${l.ledger_name}`));
+  L.push('', 'Reply with the *number* to select, or *no* to cancel.');
+  setSession(sk, { type: 'pick_ledger_expense', intent, ledgers: rows.map((l) => l.toJSON()) });
+  return sendText(L.join('\n'));
+}
+
+async function startEntryFlow(intent, sk, models, sendText) {
+  if (intent.type === 'expense') return startExpenseFlow(intent, sk, models, sendText);
+  return startReceiptPaymentFlow(intent, sk, models, sendText);
+}
+
+async function continueSession(session, sk, lower, models, sequelize, sendText, sendDoc, shop, companyId) {
+  // "no" / "0" / "cancel" → abort
+  if (/^(?:no|n|cancel|nahi|band|chodo|exit|0)$/.test(lower)) {
+    clearSession(sk);
+    return sendText('❌ Cancelled.\n\nReply *0* for the menu.');
+  }
+
+  const { type } = session;
+
+  // ── Pick party from numbered list ──
+  if (type === 'pick_party_receipt' || type === 'pick_party_payment') {
+    const idx = parseInt(lower, 10);
+    const parties = session.parties || [];
+    if (isNaN(idx) || idx < 1 || idx > parties.length)
+      return sendText(`Send a number between 1 and ${parties.length}, or *no* to cancel.`);
+    const entryType = type === 'pick_party_receipt' ? 'receipt' : 'payment';
+    return showReceiptPaymentConfirm(parties[idx - 1], { ...session.intent, type: entryType }, sk, sendText);
+  }
+
+  // ── Pick expense ledger from numbered list ──
+  if (type === 'pick_ledger_expense') {
+    const idx = parseInt(lower, 10);
+    const ledgers = session.ledgers || [];
+    if (isNaN(idx) || idx < 1 || idx > ledgers.length)
+      return sendText(`Send a number between 1 and ${ledgers.length}, or *no* to cancel.`);
+    return showExpenseConfirm(ledgers[idx - 1], session.intent, sk, sendText);
+  }
+
+  // ── Confirm receipt / payment ──
+  if (type === 'confirm_receipt' || type === 'confirm_payment') {
+    if (!/^(?:yes|y|ha|haan|confirm|ok|done)$/.test(lower))
+      return sendText('Reply *yes* to confirm or *no* to cancel.');
+    clearSession(sk);
+    const { party, intent } = session;
+    const entryType = type === 'confirm_receipt' ? 'Receipt' : 'Payment';
+    try {
+      const { createReceiptPayment } = require('./entryService');
+      const result = await createReceiptPayment({
+        type: entryType, partyId: party.party_id,
+        amount: intent.amount, date: intent.date,
+        paymentMode: intent.paymentMode, companyId, sequelize,
+      });
+      const emoji = entryType === 'Receipt' ? '✅📥' : '✅📤';
+      await sendText([
+        `${emoji} *${entryType} saved*`, '',
+        `Voucher: *${result.transaction_number}*`,
+        `Amount: *${amt(intent.amount)}* — ${party.party_name}`,
+        `Date: ${dt(intent.date)} · Mode: ${intent.paymentMode}`,
+        `New balance: ${drcr(result.freshBalance)}`,
+        '', 'Reply *0* for the menu.',
+      ].join('\n'));
+      // Send the PDF receipt document
+      if (sendDoc && result.receipt && result.party) {
+        try {
+          const company = await companyInfo(models);
+          const pdf = buildReceiptPdf({
+            shop, company,
+            receipt: result.receipt,
+            party: result.party,
+            balanceAfter: result.freshBalance,
+          });
+          const fname = `${entryType}-${safeName(result.transaction_number)}.pdf`;
+          await sendDoc(pdf, fname, `${emoji} ${result.transaction_number} — ${amt(intent.amount)}`);
+        } catch (pdfErr) {
+          console.error('[whatsapp] entry PDF failed:', pdfErr.message);
+        }
+      }
+    } catch (e) {
+      console.error('[whatsapp] entry create error:', e.message);
+      return sendText(`❌ Could not save: ${e.message}\n\nReply *0* for the menu.`);
+    }
+    return;
+  }
+
+  // ── Confirm expense ──
+  if (type === 'confirm_expense') {
+    if (!/^(?:yes|y|ha|haan|confirm|ok|done)$/.test(lower))
+      return sendText('Reply *yes* to confirm or *no* to cancel.');
+    clearSession(sk);
+    const { ledger, intent } = session;
+    try {
+      const { createExpense } = require('./entryService');
+      const result = await createExpense({
+        ledgerId: ledger.ledger_id, amount: intent.amount,
+        date: intent.date, description: intent.description,
+        paymentMode: intent.paymentMode, companyId, sequelize,
+      });
+      return sendText([
+        '✅🧾 *Expense saved*', '',
+        `Voucher: *${result.voucher_number}*`,
+        `Amount: *${amt(intent.amount)}* — ${ledger.ledger_name}`,
+        `Date: ${dt(intent.date)} · Mode: ${intent.paymentMode}`,
+        '', 'Reply *0* for the menu.',
+      ].join('\n'));
+    } catch (e) {
+      console.error('[whatsapp] expense create error:', e.message);
+      return sendText(`❌ Could not save: ${e.message}\n\nReply *0* for the menu.`);
+    }
+  }
+}
+
 /* ── Owner menu (fixed numbers; only enabled rows shown) ── */
 const OWNER_NUM = { 1: 'today', 2: 'yesterday', 3: 'week', 4: 'month', 5: 'receivables', 6: 'payables', 7: 'low_stock', 8: 'top_products', 9: 'top_customers', 10: 'cash_bank', 11: 'expenses', 12: 'cheques' };
 function ownerMenu(shop, panel, stockOn) {
@@ -308,6 +585,11 @@ function ownerMenu(shop, panel, stockOn) {
   if (on(panel, 'supplier_lookup')) look.push('• Supplier: *sup <name>*');
   if (stockOn) look.push('• Stock: *A <article>* · *B <barcode>* · *S <name>*');
   if (look.length) { L.push('', '*🔎 LOOK UP*'); look.forEach((x) => L.push(x)); }
+  L.push('', '*📝 CREATE ENTRIES*');
+  L.push('• Receipt: *rec 5000 from Ahmed*');
+  L.push('• Payment: *pay 3000 to Ali Traders*');
+  L.push('• Expense: *exp 1200 electricity*');
+  L.push('  Add *on 5 jun* or *on yesterday* for a specific date');
   L.push('', 'Reply *0* for this menu.');
   return L.join('\n');
 }
@@ -442,7 +724,7 @@ async function handle(ctx) {
   const isOwner = inList(parseList(settings.bot_owner_numbers), last10);
   if (!isOwner && inList(parseList(settings.bot_blocked), last10)) return;
 
-  await withCompany(companyId, async (models) => {
+  await withCompany(companyId, async (models, sequelize) => {
     const sys = await models.SystemSettings.findOne();
     const shop = (sys && sys.company_name) || 'us';
     const raw = String(text || '').trim();
@@ -452,6 +734,17 @@ async function handle(ctx) {
     if (isOwner) {
       const panel = parseMap(settings.bot_owner_panel);
       const sf = stockFlags(settings);
+      const sk = `${companyId}:${last10}`;
+
+      // Abort any pending entry session on "cancel" / "no"
+      if (/^(?:no|n|cancel|nahi|band|chodo)$/.test(t) && getSession(sk)) {
+        clearSession(sk);
+        return void await sendText('❌ Cancelled.\n\nReply *0* for the menu.');
+      }
+      // Continue an active entry session
+      const session = getSession(sk);
+      if (session) return void await continueSession(session, sk, t, models, sequelize, sendText, sendDoc, shop, companyId);
+
       const runIf = async (key, fn) => on(panel, key) ? sendText(await fn()) : sendText(ownerMenu(shop, panel, sf.lookup));
       if (['0', 'menu', 'hi', 'hello', 'hey', 'start', '?', 'help'].includes(t)) return void await sendText(ownerMenu(shop, panel, sf.lookup));
       // Stock prefixes (gated)
@@ -483,6 +776,11 @@ async function handle(ctx) {
             case 'cheques': return void await sendText(await ownerCheques(models));
           }
         }
+      }
+      // ── Entry creation via natural language (owner only) ──
+      if (looksLikeEntryIntent(raw)) {
+        const intent = parseOwnerIntent(raw);
+        if (intent && intent.amount > 0) return void await startEntryFlow(intent, sk, models, sendText);
       }
       // Free text → customer/supplier name lookup (if enabled)
       if (on(panel, 'customer_lookup') || on(panel, 'supplier_lookup')) {

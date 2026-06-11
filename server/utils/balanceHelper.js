@@ -286,14 +286,13 @@ async function reconcileBillsForParty(partyId, t = null) {
       if (!a) continue;
       const amt = parseFloat(a.amount) || 0;
       if (amt <= 0) continue;
-      // Opening balance sentinel — this portion was intentionally applied
-      // to the party's opening balance by the user (not to any real bill).
-      // Count it in sumAlloc so it doesn't spill into the FIFO pool, but
-      // do NOT add it to perBill — no real bill row should be touched.
-      if (a.bill_type === 'OpeningBalance') {
-        sumAlloc += amt;
-        continue;
-      }
+      // Opening-balance-tagged allocations are intentionally NOT pinned to a
+      // real bill. They fall through to the unallocated FIFO pool, where the
+      // "opening balance as the oldest outstanding item" logic below consumes
+      // them first (oldest-first), exactly like the old software did. (Older
+      // behaviour counted them in sumAlloc to keep them out of the pool and
+      // left the opening as a permanent lump — that's what we're fixing.)
+      if (a.bill_type === 'OpeningBalance') continue;
       if (!a.bill_id || a.bill_type !== expectedBillType) continue;
       valid.push({ bill_id: a.bill_id, amount: amt });
       sumAlloc += amt;
@@ -389,8 +388,18 @@ async function reconcileBillsForParty(partyId, t = null) {
   // of individual bill balances will exceed the party's correct balance
   // by exactly the opening credit amount.
   const rawOpening = parseFloat(party.opening_balance) || 0;
+  // CREDIT opening (party overpaid before migration): behaves like an advance
+  // receipt/payment that pays DOWN bills, so it ADDS to the FIFO pool.
   const openingCreditForSales    = party.opening_balance_type === 'Payable'    ? Math.abs(rawOpening) : 0;
   const openingCreditForPurchase = party.opening_balance_type === 'Receivable' ? Math.abs(rawOpening) : 0;
+  // DEBIT opening (party owed money before migration): behaves like the OLDEST
+  // outstanding bill. Receipts/payments pay it off FIRST (oldest-first/FIFO),
+  // so it CONSUMES from the FIFO pool before any real bill. This absorbs the
+  // opening into historic payments and surfaces the genuinely-unpaid RECENT
+  // bills — matching how the source (old) software displayed dues, instead of
+  // leaving a permanent "Opening Balance" lump alongside the bills.
+  const openingDebitForSales     = party.opening_balance_type === 'Receivable' ? Math.abs(rawOpening) : 0;
+  const openingDebitForPurchase  = party.opening_balance_type === 'Payable'    ? Math.abs(rawOpening) : 0;
 
   // ── PURCHASE BILLS: apply user Payment allocations, then FIFO remainder ──
   // Exclude auto_from_bill receipts — those mirror the at-billing paid_amount
@@ -431,7 +440,7 @@ async function reconcileBillsForParty(partyId, t = null) {
     (b) => b.purchase_bill_id,
     (b) => +(Math.max(0, (parseFloat(b.total_amount) || 0) - (parseFloat(b.paid_amount) || 0))).toFixed(2),
     purchaseUserAlloc,
-    totalPaymentsUnallocated + openingCreditForPurchase,
+    Math.max(0, totalPaymentsUnallocated + openingCreditForPurchase - openingDebitForPurchase),
   );
 
   // ── SALES BILLS: apply user Receipt allocations, then FIFO remainder ─────
@@ -475,7 +484,7 @@ async function reconcileBillsForParty(partyId, t = null) {
       (parseFloat(b.return_amount) || 0),
     )).toFixed(2),
     salesUserAlloc,
-    totalReceiptsUnallocated + openingCreditForSales,
+    Math.max(0, totalReceiptsUnallocated + openingCreditForSales - openingDebitForSales),
   );
 }
 
