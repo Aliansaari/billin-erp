@@ -1,4 +1,4 @@
-; Custom NSIS hooks for the Billing ERP installer.
+; Custom NSIS hooks for the ZEHEN installer.
 ;
 ; What this adds on top of electron-builder's stock installer:
 ;
@@ -21,13 +21,16 @@
 !macroend
 
 !macro customWelcomePage
-  !define MUI_WELCOMEPAGE_TITLE "Billing ERP — Setup"
-  !define MUI_WELCOMEPAGE_TEXT "This installer will set up Billing ERP on this computer.$\r$\n$\r$\nMake sure PostgreSQL 14 or newer is installed before continuing — Billing ERP will help you connect to it on first launch.$\r$\n$\r$\nYour customer data (databases, license file, backups) lives separately under your user folder, so reinstalling or updating never loses your books."
+  !define MUI_WELCOMEPAGE_TITLE "ZEHEN — Setup"
+  !define MUI_WELCOMEPAGE_TEXT "This installer will set up ZEHEN on this computer.$\r$\n$\r$\nMake sure PostgreSQL 14 or newer is installed before continuing — ZEHEN will help you connect to it on first launch.$\r$\n$\r$\nYour customer data (databases, license file, backups) lives separately under your user folder, so reinstalling or updating never loses your books."
 !macroend
 
 !macro preInit
   ; Stamp the registry with vendor info so Windows lists us cleanly in
   ; "Apps & Features" with a proper publisher name.
+  ; NOTE: the key path stays "Billing ERP" on purpose — it's an internal
+  ; marker, never shown to users, and keeping it constant across the
+  ; ZEHEN rebrand avoids orphaning existing installs' registry state.
   WriteRegStr HKCU "Software\\Sabina Software\\Billing ERP" "Vendor" "Sabina Software"
 !macroend
 
@@ -49,7 +52,7 @@
 
 !macro customUnInstall
   MessageBox MB_YESNO|MB_ICONQUESTION \
-    "Removing Billing ERP will leave your customer data untouched in:$\r$\n$PROFILE\\.billing-erp$\r$\n$\r$\nThis includes your master database config, license file, and backups. Reinstalling later will pick up where you left off.$\r$\n$\r$\nUninstall now?" \
+    "Removing ZEHEN will leave your customer data untouched in:$\r$\n$PROFILE\\.billing-erp$\r$\n$\r$\nThis includes your master database config, license file, and backups. Reinstalling later will pick up where you left off.$\r$\n$\r$\nUninstall now?" \
     IDYES uninstall_yes IDNO uninstall_no
   uninstall_no:
     Abort

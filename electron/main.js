@@ -5,6 +5,26 @@ const http = require('http');
 const os = require('os');
 const { startEmbeddedPostgres } = require('./embeddedPostgres');
 
+// ── Stable userData folder across the ZEHEN rebrand ──────────────────
+//
+// The product name shown to users changed from "Billing ERP" to "ZEHEN"
+// (installer, exe, window, shortcuts). Electron derives the userData dir
+// — where Chromium keeps the renderer's localStorage (login token, theme,
+// layout) — from the product name. A naive rename would therefore point
+// existing installs at a brand-new EMPTY folder on their next update,
+// silently logging everyone out and resetting UI prefs.
+//
+// So we pin userData to the ORIGINAL "Billing ERP" location for every
+// build (old installs and fresh ones alike). The folder name is internal
+// and never shown to users; keeping it constant makes the rebrand fully
+// invisible — same session, same theme, nothing lost. Business data is
+// unaffected regardless (it lives in ~/.billing-erp + Postgres). Must run
+// before the app 'ready' event and any window/session use, so it sits
+// here at module load.
+try {
+  app.setPath('userData', path.join(app.getPath('appData'), 'Billing ERP'));
+} catch { /* best-effort — fall back to Electron's default if unavailable */ }
+
 // `app.isPackaged` is the canonical "are we running from a packaged
 // .exe?" signal. NODE_ENV-based detection breaks in packaged builds
 // because nothing sets NODE_ENV in customer installs — the result was
@@ -89,9 +109,9 @@ async function showClientSetupPage(opts) {
   const failedUrl = (opts && opts.failedUrl) || '';
   const current = failedUrl || readClientServerUrl() || 'http://192.168.1.';
   const banner = failedUrl
-    ? `<p style="margin:0 0 16px;color:#fda4af;font-size:14px">Couldn't reach <code style="background:#1e293b;padding:2px 6px;border-radius:4px">${failedUrl}</code>. Check the address, and that the shop PC is on and running Billing ERP.</p>`
-    : `<p style="margin:0 0 16px;color:#94a3b8;font-size:14px">Enter the address of the shop's main Billing ERP PC. Ask whoever set up the main computer for its IP.</p>`;
-  const html = `<!doctype html><meta charset="utf-8"><title>Billing ERP — connect to shop PC</title>
+    ? `<p style="margin:0 0 16px;color:#fda4af;font-size:14px">Couldn't reach <code style="background:#1e293b;padding:2px 6px;border-radius:4px">${failedUrl}</code>. Check the address, and that the shop PC is on and running ZEHEN.</p>`
+    : `<p style="margin:0 0 16px;color:#94a3b8;font-size:14px">Enter the address of the shop's main ZEHEN PC. Ask whoever set up the main computer for its IP.</p>`;
+  const html = `<!doctype html><meta charset="utf-8"><title>ZEHEN — connect to shop PC</title>
 <body style="margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;padding:24px">
   <div style="max-width:520px;width:100%">
     <h1 style="margin:0 0 6px;font-weight:700;letter-spacing:-.5px">Connect to the shop PC</h1>
@@ -99,8 +119,8 @@ async function showClientSetupPage(opts) {
     <input id="u" value="${current}" placeholder="http://192.168.1.50:3001"
       style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:15px;outline:none" />
     <div id="msg" style="min-height:20px;margin:10px 2px;font-size:13px"></div>
-    <button id="go" style="background:#22c55e;color:#0f172a;border:none;padding:11px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Connect</button>
-    <p style="margin:18px 0 0;color:#64748b;font-size:12px">The main PC must be on the same Wi-Fi / LAN and running Billing ERP.</p>
+    <button id="go" style="background:#B1472F;color:#0f172a;border:none;padding:11px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Connect</button>
+    <p style="margin:18px 0 0;color:#64748b;font-size:12px">The main PC must be on the same Wi-Fi / LAN and running ZEHEN.</p>
   </div>
   <script>
     var b=document.getElementById('go'),i=document.getElementById('u'),m=document.getElementById('msg');
@@ -196,7 +216,7 @@ function setupFileLogging() {
     process.on('unhandledRejection', (err) => {
       console.error('[unhandledRejection]', err && err.stack || err);
     });
-    console.log(`[main] log starting — Billing ERP ${app.getVersion?.() || ''}`);
+    console.log(`[main] log starting — ZEHEN ${app.getVersion?.() || ''}`);
   } catch { /* never crash on logging setup */ }
 }
 setupFileLogging();
@@ -300,7 +320,7 @@ function pingServer(url, timeoutMs = 1500) {
 }
 
 // Single-instance guard. Prevents the user from accidentally stacking
-// up two Billing ERP windows by double-launching the Electron binary —
+// up two ZEHEN windows by double-launching the Electron binary —
 // the second launch is denied a window and the existing window is
 // brought to focus instead. Without this, an old broken instance can
 // linger underneath a new launch and look like the new one is "blank".
@@ -321,12 +341,12 @@ async function waitForServer(url, totalTimeoutMs = 30000) {
   while (Date.now() - start < totalTimeoutMs) {
     attempts += 1;
     if (await pingServer(url)) {
-      console.log(`[Billing ERP] server reachable after ${attempts} attempt(s) (${Date.now() - start} ms)`);
+      console.log(`[ZEHEN] server reachable after ${attempts} attempt(s) (${Date.now() - start} ms)`);
       return true;
     }
     await new Promise(r => setTimeout(r, 200));
   }
-  console.error(`[Billing ERP] server unreachable after ${attempts} attempts (${Date.now() - start} ms)`);
+  console.error(`[ZEHEN] server unreachable after ${attempts} attempts (${Date.now() - start} ms)`);
   return false;
 }
 
@@ -386,7 +406,7 @@ async function createWindow() {
     maximizable:  true,
     minimizable:  true,
     center:       !useState,    // only center on first launch; respect saved x/y after
-    title: 'Billing ERP',
+    title: 'ZEHEN',
     // Explicit window icon so the logo shows in the title bar + taskbar for
     // BOTH the host and client builds. Without this, Electron falls back to
     // the exe's embedded icon, which the client build doesn't always pick up
@@ -487,7 +507,7 @@ async function createWindow() {
   // Show a loading screen instantly. Navigation to SERVER_URL is driven
   // from app.whenReady() after postgres + the API server are both up —
   // keeping this function lean so the window appears before any slow I/O.
-  const loadingHtml = `<!doctype html><meta charset="utf-8"><title>Billing ERP</title>
+  const loadingHtml = `<!doctype html><meta charset="utf-8"><title>ZEHEN</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%;overflow:hidden}
@@ -498,8 +518,8 @@ body{
   display:flex;align-items:center;justify-content:center;
   /* subtle radial glow behind the logo */
   background-image:
-    radial-gradient(ellipse 600px 400px at 50% 45%, rgba(34,197,94,.07) 0%, transparent 70%),
-    radial-gradient(ellipse 300px 300px at 50% 46%, rgba(34,197,94,.04) 0%, transparent 60%);
+    radial-gradient(ellipse 600px 400px at 50% 45%, rgba(177,71,47,.07) 0%, transparent 70%),
+    radial-gradient(ellipse 300px 300px at 50% 46%, rgba(177,71,47,.04) 0%, transparent 60%);
 }
 
 .splash{text-align:center;animation:fadeUp .8s ease-out both}
@@ -508,20 +528,20 @@ body{
 .icon-ring{
   width:80px;height:80px;margin:0 auto 28px;
   border-radius:22px;
-  background:linear-gradient(135deg,rgba(34,197,94,.15) 0%,rgba(34,197,94,.05) 100%);
-  border:1px solid rgba(34,197,94,.2);
+  background:linear-gradient(135deg,rgba(177,71,47,.15) 0%,rgba(177,71,47,.05) 100%);
+  border:1px solid rgba(177,71,47,.2);
   display:flex;align-items:center;justify-content:center;
   position:relative;
 }
 .icon-ring::before{
   content:'';position:absolute;inset:-4px;border-radius:26px;
-  background:conic-gradient(from 0deg,transparent 0%,rgba(34,197,94,.3) 25%,transparent 50%);
+  background:conic-gradient(from 0deg,transparent 0%,rgba(177,71,47,.3) 25%,transparent 50%);
   animation:ringGlow 3s linear infinite;
   mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1px));
   -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1px));
 }
-/* SVG thunderbolt */
-.bolt{width:36px;height:36px;filter:drop-shadow(0 0 12px rgba(34,197,94,.4))}
+/* ZEHEN app mark */
+.bolt{width:60px;height:60px;filter:drop-shadow(0 8px 18px rgba(177,71,47,.45))}
 
 /* ── brand text ── */
 .brand{font-size:28px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px}
@@ -530,7 +550,7 @@ body{
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
   background-clip:text;
 }
-.tagline{font-size:13px;color:#475569;letter-spacing:.8px;text-transform:uppercase;margin-bottom:40px}
+.tagline{font-size:12.5px;color:#94a3b8;letter-spacing:.3px;margin-bottom:40px}
 
 /* ── progress bar ── */
 .progress-track{
@@ -539,9 +559,9 @@ body{
 }
 .progress-fill{
   height:100%;width:0%;border-radius:2px;
-  background:linear-gradient(90deg,#22c55e,#4ade80);
+  background:linear-gradient(90deg,#B1472F,#E26A4C);
   animation:load 12s cubic-bezier(.4,.0,.2,1) forwards;
-  box-shadow:0 0 12px rgba(34,197,94,.4);
+  box-shadow:0 0 12px rgba(177,71,47,.4);
 }
 
 .status{
@@ -553,7 +573,7 @@ body{
 .particles{position:fixed;inset:0;pointer-events:none;overflow:hidden}
 .p{
   position:absolute;width:2px;height:2px;border-radius:50%;
-  background:rgba(34,197,94,.3);
+  background:rgba(177,71,47,.3);
   animation:float linear infinite;
 }
 .p:nth-child(1){left:15%;animation-duration:18s;animation-delay:0s}
@@ -603,14 +623,16 @@ body{
   </div>
   <div class="splash">
     <div class="icon-ring">
-      <svg class="bolt" viewBox="0 0 24 24" fill="none">
-        <path d="M13 2L4.094 12.688c-.34.408-.51.612-.512.784a.5.5 0 00.185.397c.138.118.396.118.912.118H12l-1 8 8.906-10.688c.34-.408.51-.612.512-.784a.5.5 0 00-.185-.397c-.138-.118-.396-.118-.912-.118H12l1-8z"
-              fill="#22c55e" fill-opacity=".15" stroke="#22c55e" stroke-width="1.5"
-              stroke-linecap="round" stroke-linejoin="round"/>
+      <svg class="bolt" viewBox="677 116 692 702">
+        <rect x="679" y="118" width="688" height="698" rx="150" ry="150" fill="rgb(176,73,42)"/>
+        <path fill="rgb(250,245,230)" d="M 873.28 620.891 C 868.937 620.646 866.558 619.954 862.326 618.887 L 861.923 618.017 C 866.607 616.186 914.979 609.08 923.199 608.101 C 947.845 605.164 983.824 596.778 1007.37 595.712 C 999.997 603.096 989.926 613.778 982.362 620.452 L 1139.7 620.267 C 1149.52 620.237 1203.73 619.484 1210.01 620.642 L 1197.85 633.633 L 1210.03 645.326 C 1206.13 648.969 1201.16 653.358 1197.64 657.232 L 1210.09 668.609 C 1206.96 671.714 1200.64 677.649 1197.95 680.748 L 1210.06 692.343 C 1206.37 695.797 1201.05 700.486 1197.89 704.223 L 1210.27 716.711 C 1177.65 716.224 1145.21 716.481 1112.59 716.719 C 1036.85 717.272 960.809 715.668 885.088 716.828 C 872.793 689.373 853.967 650.109 843.325 622.673 C 846.339 619.305 866.138 621.355 873.28 620.891 z"/>
+        <path fill="rgb(236,227,206)" d="M 1186.78 401.025 C 1191.5 400.962 1196.93 400.752 1201.59 401.038 C 1138.88 466.169 1071.53 531.652 1007.37 595.712 C 983.824 596.778 947.845 605.164 923.199 608.101 C 914.979 609.08 866.607 616.186 861.923 618.017 L 862.326 618.887 C 866.558 619.954 868.937 620.646 873.28 620.891 C 866.138 621.355 846.339 619.305 843.325 622.673 L 842.521 620.712 C 844.989 615.826 884.426 577.916 890.749 571.605 L 1036.41 426.46 C 1045.02 418.141 1053.48 409.668 1061.79 401.045 C 1100 401.169 1148.96 402.421 1186.78 401.025 z"/>
+        <path fill="rgb(250,245,230)" d="M 848.882 304.846 L 1159.32 304.867 C 1173.87 336.011 1187.44 369.456 1201.59 401.038 C 1196.93 400.752 1191.5 400.962 1186.78 401.025 C 1148.96 402.421 1100 401.169 1061.79 401.045 L 848.892 401.073 L 848.882 304.846 z"/>
+        <path fill="rgb(250,245,230)" d="M 1023.76 186.646 C 1027.58 189.293 1061.72 224.5 1067.77 230.491 L 1024.61 274.309 C 1021.08 272.805 986.03 236.573 980.103 230.593 L 1023.76 186.646 z"/>
       </svg>
     </div>
-    <div class="brand"><span>Billing ERP</span></div>
-    <div class="tagline">Business Management Suite</div>
+    <div class="brand"><span>ZEHEN</span></div>
+    <div class="tagline">Smart billing &amp; business management software</div>
     <div class="progress-track"><div class="progress-fill"></div></div>
     <div class="status">Preparing your workspace…</div>
   </div>
@@ -871,22 +893,22 @@ app.whenReady().then(async () => {
     console.log(`[perf] waitForServer done +${Date.now() - bootStart}ms (ok=${ok})`);
     if (!ok) {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        const html = `<!doctype html><meta charset="utf-8"><title>Billing ERP — server unreachable</title>
+        const html = `<!doctype html><meta charset="utf-8"><title>ZEHEN — server unreachable</title>
 <body style="margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px">
   <div style="max-width:560px">
     <h1 style="margin:0 0 8px;font-weight:700;letter-spacing:-.5px">Couldn't reach the server</h1>
     <p style="margin:0 0 20px;color:#94a3b8;font-size:15px;line-height:1.55">
-      The Billing ERP app expected the database server to be running at
+      The ZEHEN app expected the database server to be running at
       <code style="background:#1e293b;padding:2px 6px;border-radius:4px;color:#fda4af">${SERVER_URL}</code>
       but no response came back from <code>/api/health</code> in 30 s.
     </p>
     <ol style="text-align:left;margin:0 auto 22px;color:#cbd5e1;font-size:14px;line-height:1.7;max-width:420px">
-      <li>Open Command Prompt in the Billing ERP folder.</li>
+      <li>Open Command Prompt in the ZEHEN folder.</li>
       <li>Run <code style="background:#1e293b;padding:2px 6px;border-radius:4px">npm run server</code>.</li>
       <li>Wait until you see "Database connected successfully".</li>
       <li>Click Retry below.</li>
     </ol>
-    <button onclick="location.reload()" style="background:#22c55e;color:#0f172a;border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Retry</button>
+    <button onclick="location.reload()" style="background:#B1472F;color:#0f172a;border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Retry</button>
     <p style="margin:18px 0 0;color:#64748b;font-size:12px">Or set <code>BILLING_ERP_SERVER_URL</code> to point at a server on your LAN.</p>
   </div>
 </body>`;

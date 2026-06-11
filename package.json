@@ -15,7 +15,7 @@
     "build:check": "node scripts/check_build_ready.js",
     "dist:debug": "vite build && npm run build:obfuscate:debug && npm run build:check && electron-builder --win nsis -c.extraMetadata.buildKind=debug",
     "dist": "vite build && npm run build:obfuscate && npm run build:check && electron-builder --win nsis",
-    "dist:client": "vite build && npm run build:obfuscate && npm run build:check && electron-builder --win nsis -c.extraMetadata.clientMode=true -c.win.artifactName=Billing-ERP-Client-Setup.exe",
+    "dist:client": "vite build && npm run build:obfuscate && npm run build:check && electron-builder --win nsis -c.extraMetadata.clientMode=true -c.win.artifactName=ZEHEN-Client-Setup.exe",
     "dist:dir": "vite build && npm run build:obfuscate && electron-builder --win --dir",
     "dev:mobile": "vite --config vite.config.mobile.js",
     "build:mobile": "vite build --config vite.config.mobile.js",
@@ -78,7 +78,7 @@
   },
   "build": {
     "appId": "com.sabina.billing-erp",
-    "productName": "Billing ERP",
+    "productName": "ZEHEN",
     "directories": {
       "output": "dist-electron"
     },
@@ -119,7 +119,7 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "Billing-ERP-Setup-${version}.${ext}",
+      "artifactName": "ZEHEN-Setup-${version}.${ext}",
       "publisherName": "Sabina Software"
     },
     "nsis": {
@@ -129,7 +129,7 @@
       "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Billing ERP",
+      "shortcutName": "ZEHEN",
       "deleteAppDataOnUninstall": false,
       "include": "build/installer.nsh"
     },
